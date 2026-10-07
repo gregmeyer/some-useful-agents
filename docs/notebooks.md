@@ -131,6 +131,17 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 **Deciding** (**Decide…** in the header) speaks about this notebook. Its example names your leading options (furthest stage first, then the best price), and **Start from** chips for up to three options still in the running begin the answer with "Chose ___: ". Recording the decision closes the notebook.
 
+## Ranked by fit, not price
+
+Some notebooks aren't about the cheapest option: accounts to qualify, leads, vendors. A field with the role **score** (how well an option fits, e.g. an ICP fit from 0 to 100, higher is better) changes how the notebook ranks:
+- **Where it stands** names the **best fit** ("fit 88, 140 employees, in Austin") and the next best by fit.
+- The stat shows the best fit, the shortlist is "ranked by fit, highest first", and each card shows its fit as the headline number with a **Best fit** ribbon.
+- **Decide…**, Home's shelf and the Notebooks page pick leads by fit too.
+
+sua's drafter adds a fit score to account-style notebooks ("companies with $10–50M revenue and 50–500 employees…"), keeps revenue a plain fact (not a price), and the keeper scores each option it files against your limits and criteria. A field named `fit`, `icp_score` or `match_score` gets the role on its own. Without a score field, notebooks rank by price as before.
+
+Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
+
 ## Stages and ruling out: the funnel
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.

@@ -460,3 +460,20 @@ describe('passes', () => {
     expect(l.passes[1]).toMatchObject({ id: 'run:old' });
   });
 });
+
+describe('fit score', () => {
+  it('a score field (inferred from fit/icp_score) ranks options by fit instead of price', async () => {
+    const { rankBy, rankOptions } = await import('./notebooks.js');
+    const fields = cleanFields([
+      { key: 'company', type: 'text', role: 'org' }, { key: 'revenue', type: 'money', range: true },
+      { key: 'employees', type: 'number' }, { key: 'icp_score', type: 'number' },
+    ]);
+    expect(fields.find((f) => f.key === 'icp_score')).toMatchObject({ role: 'score', better: 'higher' });
+    expect(fields.find((f) => f.key === 'revenue')!.role).toBeUndefined(); // revenue isn't a price
+    expect(cleanFields([{ key: 'rating', type: 'number' }])[0].role).toBe('measure');
+    expect(rankBy({ fields })).toMatchObject({ by: 'score', better: 'higher' });
+    expect(rankBy({ fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }] })).toMatchObject({ by: 'price', better: 'lower' });
+    const opts = [{ name: 'b', score: 61 }, { name: 'a', score: 88 }, { name: 'c' }, { name: 'd', score: 95, ruledOut: { reason: 'x' } }] as never[];
+    expect(rankOptions({ fields }, opts).map((o: { name: string }) => o.name)).toEqual(['a', 'b', 'c']);
+  });
+});

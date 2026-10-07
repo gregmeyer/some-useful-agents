@@ -81,3 +81,13 @@ describe('the decision box speaks about this notebook', () => {
     expect(decisionPlaceholder([])).not.toMatch(/RAV4|CR-V/);
   });
 });
+
+describe('money reads at a glance', () => {
+  it('a million and up is $18M; smaller amounts keep their digits', async () => {
+    const { formatFieldValue, formatMoney } = await import('./notebooks.js');
+    expect(formatMoney(18_000_000)).toBe('$18M');
+    expect(formatMoney(2_500_000_000)).toBe('$2.5B');
+    expect(formatMoney(11_450)).toBe('$11,450');
+    expect(formatFieldValue({ key: 'revenue', label: 'Revenue', type: 'money' }, { min: 18e6, max: 22e6 })).toBe('$18M–$22M');
+  });
+});

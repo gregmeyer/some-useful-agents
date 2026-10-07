@@ -225,11 +225,16 @@ notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: R
     const entry = nb ? s.entries(nb.id, 1000).find((e) => e.id === String(req.params.entry)) : undefined;
     if (nb && entry) {
       const name = shortName(entry.title);
-      const svg = optionIllustration({ kind: illustrationKind(nb, name), name, seed: entry.id });
+      // A company's tile shows its own name's initials (the org field), not the option's title.
+      const orgKey = nb.fields.find((f) => f.role === 'org')?.key;
+      const org = orgKey && typeof entry.data?.[orgKey] === 'string' ? (entry.data[orgKey] as string) : undefined;
+      const kind = illustrationKind(nb, name);
+      const svg = optionIllustration({ kind, name: kind === 'job' && org ? org : name, seed: entry.id });
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-      res.setHeader('Cache-Control', 'private, max-age=3600');
+      // Drawn on every request (cheap), so the browser always asks: a better drawing shows at once.
+      res.setHeader('Cache-Control', 'private, no-cache');
       res.end(svg);
       return;
     }

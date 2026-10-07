@@ -78,13 +78,20 @@ nodes:
         lowercase_snake, "label", "type": money|number|text|url|image|date,
         "unit"?, "role"?, "better"?, "range"?}. Roles, at most one each:
         "price", "measure" (the main number to compare), "place", "org",
-        "link", "image", "when". Money and numbers get "better": "higher" or
+        "link", "image", "when", "score" (how well it fits, better higher).
+        Money and numbers get "better": "higher" or
         "lower" (a price lower, a salary or rating higher); "range": true
         for spans like salaries. Cars: price, miles, year, make_model,
         location, seller, listing_url, photo. Jobs: salary (money, price
         role, better higher, range), title, company (org), location,
         remote, level, posted (when), posting_url. Products: price, rating
         (measure, better higher), store (org), in_stock, product_url, photo.
+        Accounts, leads or vendors to qualify (companies that match a
+        profile): company (org), website (link), industry, location (place),
+        revenue (money, range), employees (number, measure, range), and fit
+        (number 0–100, role "score": how well it matches their profile;
+        with a score field the best option is the best fit, not the
+        cheapest). Don't give revenue the price role.
       - "checks": 3–5 things to confirm on an option before deciding.
       - "stages": 3–6 steps an option goes through (cars: Found, Checked,
         Test drive, Offer, Bought; jobs: Found, Applied, Screen, Interview,

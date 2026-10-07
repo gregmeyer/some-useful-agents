@@ -26,7 +26,11 @@ export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
  * the `image`, a button opens the `link`, a list groups by `org` (the company
  * or seller).
  */
-export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org'] as const;
+/**
+ * What a field means. `score` is how well an option fits (an ICP fit, a match
+ * score): when a notebook has one, options rank by it instead of by price.
+ */
+export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org', 'score'] as const;
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
 /** Where a kept picture came from: the listing, a representative one found for it, or a drawing. */
@@ -942,7 +946,8 @@ const UNIT_FROM_KEY: Array<[RegExp, string]> = [[/^(miles|mileage|odometer)$/, '
 function inferRole(key: string, type: NotebookFieldType): NotebookFieldRole | undefined {
   if (type === 'money' && /^(price|cost|asking(_price)?|salary|pay|rent|total(_cost)?)$/.test(key)) return 'price';
   if (type === 'number' && UNIT_FROM_KEY.some(([re]) => re.test(key))) return 'measure';
-  if (type === 'number' && /^(rating|stars|score)$/.test(key)) return 'measure';
+  if (type === 'number' && /^(fit|fit_score|icp_fit|icp_score|match|match_score|score)$/.test(key)) return 'score';
+  if (type === 'number' && /^(rating|stars)$/.test(key)) return 'measure';
   if (type === 'url' && /(listing|posting|product|url|link)/.test(key)) return 'link';
   if (type === 'image' || /^(photo|image|picture|logo)(_url)?$/.test(key)) return 'image';
   if (/^(location|city|place|neighborhood|area)$/.test(key)) return 'place';
@@ -969,7 +974,7 @@ export function cleanFields(list: readonly unknown[]): NotebookField[] {
     const unit = typeof x.unit === 'string' && x.unit.trim() ? x.unit.trim().slice(0, 12) : (type === 'number' ? UNIT_FROM_KEY.find(([re]) => re.test(key))?.[1] : undefined);
     const numeric = type === 'money' || type === 'number';
     // A price is better lower unless the notebook says otherwise (a salary is a price that's better higher).
-    const better = numeric && (x.better === 'higher' || x.better === 'lower') ? x.better : numeric && role === 'price' ? 'lower' as const : undefined;
+    const better = numeric && (x.better === 'higher' || x.better === 'lower') ? x.better : numeric && role === 'price' ? 'lower' as const : numeric && role === 'score' ? 'higher' as const : undefined;
     const range = numeric && x.range === true;
     out.push({ key, label, type, ...(unit ? { unit } : {}), ...(role ? { role } : {}), ...(better ? { better } : {}), ...(range ? { range: true } : {}) });
     if (out.length === 12) break;
@@ -1051,6 +1056,8 @@ export interface NotebookViewOption {
   fields: Record<string, NotebookFieldValue>;
   /** For sorting and plotting; a range counts as its midpoint (the span is in `fields`). */
   price?: number;
+  /** How well it fits (the notebook's score field), when it has one. */
+  score?: number;
   measure?: number;
   place?: string;
   org?: string;
@@ -1149,6 +1156,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
     const price = fieldNumber(pick(data, 'price'));
     const measure = fieldNumber(pick(data, 'measure'));
+    const score = fieldNumber(pick(data, 'score'));
     const org = str(pick(data, 'org'));
     const place = str(pick(data, 'place'));
     const link = str(pick(data, 'link'));
@@ -1159,7 +1167,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
-      ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}),
+      ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}), ...(score !== undefined ? { score } : {}),
       ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
@@ -1299,4 +1307,28 @@ function contradicts(a: Record<string, NotebookFieldValue>, b: Record<string, No
     }
   }
   return false;
+}
+
+/**
+ * What decides the best option: the notebook's score field when it has one
+ * (higher is better unless it says otherwise), else its price field (lower
+ * is better unless it says otherwise, as for a salary).
+ */
+export function rankBy(nb: Pick<Notebook, 'fields'>): { field?: NotebookField; by: 'score' | 'price'; better: 'higher' | 'lower' } {
+  const score = nb.fields.find((f) => f.role === 'score');
+  if (score) return { field: score, by: 'score', better: score.better ?? 'higher' };
+  const price = nb.fields.find((f) => f.role === 'price');
+  return { field: price, by: 'price', better: price?.better ?? 'lower' };
+}
+
+/** The options still in the running, best first by `rankBy` (ones without a value last). */
+export function rankOptions<T extends Pick<NotebookViewOption, 'price' | 'score' | 'ruledOut'>>(nb: Pick<Notebook, 'fields'>, options: readonly T[]): T[] {
+  const r = rankBy(nb);
+  const val = (o: T) => (r.by === 'score' ? o.score : o.price);
+  return options.filter((o) => !o.ruledOut).sort((a, b) => {
+    const x = val(a); const y = val(b);
+    if (x === undefined) return y === undefined ? 0 : 1;
+    if (y === undefined) return -1;
+    return r.better === 'lower' ? x - y : y - x;
+  });
 }

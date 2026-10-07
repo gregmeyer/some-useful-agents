@@ -216,15 +216,22 @@ const Funnel = define('Funnel', 'sua-a2ui-funnel',
 // "149,652 mi", a range "$150,000–$180,000", a year as written.
 const getPath = (o, key) => String(key).split('.').reduce((v, k) => (v == null ? undefined : v[k]), o);
 const nfmt = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+/** Money: "$4,023"; a million and up "$18M", "$2.5B" (views/notebooks.ts formatMoney). */
+function fmtMoney(n) {
+  const a = Math.abs(n);
+  const one = (x) => x.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  return a >= 1e9 ? `$${one(n / 1e9)}B` : a >= 1e6 ? `$${one(n / 1e6)}M` : `$${nfmt(n)}`;
+}
+
 function fmtField(f, v) {
   if (v == null || v === '') return '';
   if (typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') {
     if (v.min === v.max) return fmtField(f, v.min);
-    const one = (n) => (f?.type === 'money' ? `$${nfmt(n)}` : nfmt(n));
+    const one = (n) => (f?.type === 'money' ? fmtMoney(n) : nfmt(n));
     return `${one(v.min)}–${one(v.max)}${f?.unit && f.type !== 'money' ? ` ${f.unit}` : ''}`;
   }
   if (typeof v === 'number') {
-    if (f?.type === 'money') return `$${nfmt(v)}`;
+    if (f?.type === 'money') return fmtMoney(v);
     if (f?.type === 'number' && !f.unit && Number.isInteger(v) && v >= 1900 && v <= 2100) return String(v);
     return f?.unit ? `${nfmt(v)} ${f.unit}` : nfmt(v);
   }
@@ -271,6 +278,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .title { font-weight: 600; font-size: var(--font-size-sm); line-height: 1.3; }
     .out .title { text-decoration: line-through; }
     .price { font: 700 1.35rem/1 var(--font-mono); color: var(--color-text); }
+    .score { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .score b { font: 700 1.35rem/1 var(--font-mono); color: var(--color-primary); }
     .chips { display: flex; flex-wrap: wrap; gap: 4px; }
     .chip { font: var(--font-size-xs)/1.6 var(--font-mono); padding: 0 6px; border-radius: 4px; background: var(--color-surface-raised); border: 1px solid var(--color-border); white-space: nowrap; }
     .chip.stage { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; border-radius: 999px; }
@@ -295,7 +304,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const fields = Array.isArray(p.fields) ? p.fields : [];
     const stages = Array.isArray(p.stages) ? p.stages.map(String) : [];
     const byRole = (r) => fields.find((f) => f.role === r);
-    const priceF = byRole('price'); const measureF = byRole('measure');
+    const priceF = byRole('price'); const measureF = byRole('measure'); const scoreF = byRole('score');
     const priceBetter = priceF?.better ?? 'lower';
     // Ruled out (and gone) options are hidden unless you ask to see them; your choice is kept in this browser.
     const all = (Array.isArray(p.options) ? p.options : []).filter(Boolean);
@@ -318,7 +327,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const set = (k, v) => { this[k] = v; if (k === '_layout') { try { localStorage.setItem('sua-option-layout', v); } catch { /* not kept */ } } this.requestUpdate(); };
     const act = (detail) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: detail } }));
     const next = (o) => { const i = stages.indexOf(o.stage); return i >= 0 ? stages[i + 1] : undefined; };
-    const facts = (o) => fields.filter((f) => f.role !== 'price' && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image')
+    const facts = (o) => fields.filter((f) => f.role !== 'price' && f.role !== 'score' && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image')
       .map((f) => fmtField(f, o.fields?.[f.key])).filter(Boolean).slice(0, 5);
     const change = (o) => {
       const c = o.priceChange; if (!c || !priceF) return nothing;
@@ -347,11 +356,12 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         <button type="button" aria-pressed=${layout === 'table' ? 'true' : 'false'} @click=${() => set('_layout', 'table')}>Table</button>
       </div></div>`;
     if (layout === 'table') {
-      return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th><th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>Stage</th><th></th></tr></thead><tbody>
+      return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th>${scoreF ? html`<th>${scoreF.label}</th>` : nothing}<th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>Stage</th><th></th></tr></thead><tbody>
         ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
           <td><div class="title">${o.name ?? o.title}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
+          ${scoreF ? html`<td class="num">${fmtField(scoreF, o.fields?.[scoreF.key])}</td>` : nothing}
           <td class="num">${priceF ? fmtField(priceF, o.fields?.[priceF.key]) : ''} ${change(o)}</td>
           <td class="num">${measureF ? fmtField(measureF, o.fields?.[measureF.key]) : ''}</td>
           <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
@@ -362,10 +372,11 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : ''}">${o.imageKind && o.imageKind !== 'listing' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
           : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
-        ${o === best ? html`<span class="ribbon">best ${priceBetter === 'higher' ? 'pay' : 'price'}</span>` : nothing}
+        ${o === best ? html`<span class="ribbon">${scoreF ? 'best fit' : `best ${priceBetter === 'higher' ? 'pay' : 'price'}`}</span>` : nothing}
       </div>
       <div class="body">
         <div class="title" title=${o.title}>${o.name ?? o.title}</div>
+        ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
         <div class="chips">${facts(o).map((f) => html`<span class="chip">${f}</span>`)}${change(o)}
           ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>

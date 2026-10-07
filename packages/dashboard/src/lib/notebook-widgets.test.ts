@@ -138,3 +138,25 @@ describe('timeline searches', () => {
     expect(failed).toMatchObject({ kind: 'search', who: 'used-car-coverage-sweep', title: 'Search failed', body: 'Node "autotrader-sweep" timed out', linkText: 'run ab5419bc', faded: true });
   });
 });
+
+describe('a notebook ranked by fit', () => {
+  it('says the best fit, shows it as the stat, and sorts the shortlist by it', async () => {
+    const { notebookWidgetData, notebookWidgetComponents } = await import('./notebook-widgets.js');
+    const fields = [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'revenue', label: 'Revenue', type: 'money', range: true },
+      { key: 'employees', label: 'Employees', type: 'number', role: 'measure' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score', better: 'higher' },
+    ];
+    const nb = { id: 'acct', title: 'Accounts', statement: '', params: [], criteria: [], status: 'active', pipeline: [], checks: [], stages: ['Found', 'Qualified'], fields, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' } as never;
+    const opt = (id: string, title: string, data: Record<string, unknown>) => ({ id, notebookId: 'acct', kind: 'option', title, body: '', by: 'sua', createdAt: '2026-10-01T00:00:00Z', data });
+    const entries = [
+      opt('a', 'Closewise', { company: 'Closewise', revenue: { min: 30e6, max: 40e6 }, employees: 310, fit: 74 }),
+      opt('b', 'Ledgerline', { company: 'Ledgerline', revenue: { min: 18e6, max: 22e6 }, employees: 140, fit: 88 }),
+    ] as never;
+    const d = notebookWidgetData(nb, entries).notebook;
+    expect(d.summary).toContain('The best fit is the **Ledgerline**: fit 88, 140 employees.');
+    expect(d.summary).toContain('Next best: Closewise (fit 74).');
+    expect(d.statItems[1]).toMatchObject({ label: 'best fit', value: '88' });
+    expect(d.shortlistNote).toBe('ranked by fit, highest first');
+    expect(notebookWidgetComponents(nb).find((c) => c.id === 'shortlist')).toMatchObject({ sort: 'fit desc' });
+  });
+});
