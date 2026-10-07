@@ -47,7 +47,7 @@ export function renderNotebookShelf(shelf: { cards: ShelfCard[]; total: number }
       </div>
       <div class="nbs__row">
         ${shelf.cards.map(card) as unknown as SafeHtml[]}
-        <a class="nbs-new${shelf.cards.length ? '' : ' nbs-new--alone'}" href="/notebooks?new=1">
+        <a class="nbs-new${shelf.cards.length ? '' : ' nbs-new--alone'}" href="/notebooks/new">
           <span class="nbs-new__plus" aria-hidden="true">+</span>
           <span class="nbs-new__title">New notebook</span>
           <span class="nbs-new__hint">A goal you keep: a car to buy, a job to find, a trip to plan. sua searches and keeps track.</span>

@@ -1,0 +1,101 @@
+# Notebook Drafter — turns one sentence ("a reliable used SUV for my
+# daughter, under $8k, near Bellingham") into a draft notebook: title, what
+# it's for, limits, done-when, what to note for each option, checks, stages,
+# and which of your agents could search for it. Route-dispatched only, by
+# New notebook (dashboard lib/notebook-draft.ts); never proposed in triage.
+# Its <draft> JSON is cleaned and shown for you to edit; nothing is created
+# until you start the notebook.
+
+id: notebook-drafter
+name: Notebook Drafter
+description: >
+  Drafts a notebook (a goal sua keeps over time) from a sentence: its title,
+  limits, done-when, what to track for each option, and where to search.
+status: active
+source: examples
+
+inputs:
+  TEXT:
+    type: string
+    required: true
+    description: What the person wants, in their own words.
+  TODAY:
+    type: string
+    required: true
+    description: "Today's date (YYYY-MM-DD), for deadlines like by the 15th."
+  AGENTS:
+    type: string
+    required: false
+    default: "(none)"
+    description: "The person's agents that could search for options, one per line (id, then what it does)."
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: A draft already shown, as JSON (when CHANGE asks to adjust it).
+  CHANGE:
+    type: string
+    required: false
+    default: ""
+    description: What to change about CURRENT.
+
+nodes:
+  - id: draft
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<draft>[\s\S]*?</draft>'
+      description: a <draft> JSON block
+    prompt: |
+      Draft a "notebook": a goal someone keeps over time while sua (an
+      assistant) searches for options, notes their facts, and tracks
+      progress toward a decision. Today is {{inputs.TODAY}}.
+
+      What they said:
+      {{inputs.TEXT}}
+
+      A draft already shown (JSON, may be empty): {{inputs.CURRENT}}
+      What to change about it (may be empty): {{inputs.CHANGE}}
+      If there's a change, apply it to the draft and keep everything else.
+
+      Their agents that could search (id: what it does):
+      {{inputs.AGENTS}}
+
+      Return:
+      - "title": short, imperative, under 60 characters ("Buy a used car
+        for Nadia", "Find a remote staff engineer job").
+      - "statement": one sentence: what it's for, in their words.
+      - "params": their limits, each a short phrase they'd recognise
+        ("$3–8k", "under 175k miles", "AWD", "SUV or wagon",
+        "Bellingham to Seattle"). Only what they said or clearly implied;
+        3–8 of them. No invented budgets.
+      - "criteria": 2–4 "done when" checks, the last a decision
+        ("At least one car that fits", "Clean title on the top pick",
+        "A decision recorded"). Put a deadline they gave on the decision
+        ("A decision recorded by Oct 15").
+      - "fields": the 4–8 facts to note for each option, each {"key":
+        lowercase_snake, "label", "type": money|number|text|url|image|date,
+        "unit"?, "role"?, "better"?, "range"?}. Roles, at most one each:
+        "price", "measure" (the main number to compare), "place", "org",
+        "link", "image", "when". Money and numbers get "better": "higher" or
+        "lower" (a price lower, a salary or rating higher); "range": true
+        for spans like salaries. Cars: price, miles, year, make_model,
+        location, seller, listing_url, photo. Jobs: salary (money, price
+        role, better higher, range), title, company (org), location,
+        remote, level, posted (when), posting_url. Products: price, rating
+        (measure, better higher), store (org), in_stock, product_url, photo.
+      - "checks": 3–5 things to confirm on an option before deciding.
+      - "stages": 3–6 steps an option goes through (cars: Found, Checked,
+        Test drive, Offer, Bought; jobs: Found, Applied, Screen, Interview,
+        Offer; products: Found, Shortlist, Bought).
+      - "pipeline": ids from their agents above that would search for
+        options for THIS goal (none fits → []). Never invent ids.
+      - "cadence": a five-field cron schedule ONLY if they asked for a
+        rhythm ("every morning" → "0 7 * * *"); else "".
+      - "why": one short sentence on anything you assumed.
+
+      Reply with only this, as valid JSON:
+      <draft>
+      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "cadence": "", "why": ""}
+      </draft>
