@@ -24,6 +24,8 @@ export const NOTEBOOK_KEEPER_ID = 'notebook-keeper';
 export const NOTEBOOK_SETUP = 'notebook-setup';
 const OUTPUT_CAP = 12_000;
 const MAX_ENTRIES_PER_RUN = 12;
+/** A run that files its own structured block (no keeper in between) may add more. */
+const MAX_DIRECT_ENTRIES = 50;
 
 /** The notebook in a few lines, for an agent's goal-like inputs. */
 export function notebookBrief(nb: Notebook): string {
@@ -54,6 +56,8 @@ export interface KeeperOutcome {
   refreshed?: number;
   /** Setup: options given their facts. */
   factsSet?: number;
+  /** The run gave its own <notebook> block, filed as is (no keeper model). */
+  direct?: boolean;
   skipped: number;
   criteriaMet: number;
   summary?: string;
@@ -65,7 +69,7 @@ export interface KeeperOutcome {
  * notebook already has), tick criteria it showed are met (with a note saying
  * why). Pure apart from the store, so it's tested without a model.
  */
-export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string): KeeperOutcome {
+export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number } = {}): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
   let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown };
@@ -95,7 +99,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let refreshed = 0;
   let skipped = 0;
   let ruledOutSeen = 0;
-  for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, MAX_ENTRIES_PER_RUN)) {
+  for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, opts.maxEntries ?? MAX_ENTRIES_PER_RUN)) {
     const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
     const body = typeof x.body === 'string' ? x.body : '';
@@ -150,10 +154,32 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
 function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}`;
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.direct ? ' (filed directly)' : ''}`;
+}
+
+/**
+ * A run's own <notebook> block, when it gives one that parses and has
+ * entries (the shape the keeper writes); else undefined and the keeper reads it.
+ */
+export function directBlock(output: string): string | undefined {
+  const block = extractTaggedJson(output, 'notebook');
+  if (!block) return undefined;
+  try {
+    const v = JSON.parse(block) as { entries?: unknown };
+    return Array.isArray(v.entries) && v.entries.length > 0 ? `<notebook>${block}</notebook>` : undefined;
+  } catch { return undefined; }
 }
 
 async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
+  // A run that already speaks the notebook's language files directly: its
+  // <notebook> block, cleaned the same way, with no keeper model, no 12k cap.
+  const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;
+  if (direct) {
+    const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES });
+    try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
+    try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
+    return { ...out, direct: true };
+  }
   const setup = agentId === NOTEBOOK_SETUP;
   // Setup needs each option's id and text, to give it its facts.
   const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${setup && e.kind === 'option' ? ` [id: ${e.id}]${e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');

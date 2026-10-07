@@ -165,6 +165,28 @@ Runs come in **passes**: one go at filling the notebook. A pipeline run of all i
 
 A run's own page links back too: **Notebook: *title* · how it was made**, including for a run that another agent started ("through the run that started this one"). A run another agent started counts as part of its parent's search, so it's never offered under **Runs not in this notebook yet** and never shows as a failed search of its own.
 
+## Filing directly (for agent authors)
+
+Normally sua's keeper reads a run's output and decides what to file. An agent that already knows the notebook's shape can skip that: put a `<notebook>` JSON block in its output, and the notebook files it as is: no keeper model, no 12,000-character limit, up to 50 entries per run. It's cleaned exactly like the keeper's own output (fields, links, facts, sources).
+
+```
+<notebook>
+{"entries": [
+  {"kind": "option", "title": "Ledgerline, AP automation", "body": "Why it fits…",
+   "fingerprint": "ledgerline.example.com",
+   "data": {"company": "Ledgerline", "website": "https://ledgerline.example.com",
+            "revenue": {"value": 20000000, "source": "https://…"},
+            "employees": {"value": 140, "estimate": true}, "fit": 88}},
+  {"kind": "note", "title": "Searched the startup directory: 3 more were outside the revenue range"}
+],
+ "sources": [{"name": "Company directory", "found": 12, "status": "found"}],
+ "criteriaMet": [0],
+ "summary": "One line on what this run found."}
+</notebook>
+```
+
+`data` keys are the notebook's field keys. Entry kinds are option, note, evidence and decision. A block with no entries (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
+
 ## Runs not in the notebook yet
 
 A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated.

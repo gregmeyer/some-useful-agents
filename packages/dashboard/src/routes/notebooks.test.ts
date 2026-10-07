@@ -807,3 +807,33 @@ describe('how a notebook was made (Workflow)', () => {
     expect((await get('/runs/cl-a')).text).toContain('(through the run that started this one)');
   });
 });
+
+describe('a run that files its own structured block', () => {
+  it('is filed directly, without the keeper model, and can add more than a keeper would', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { directBlock } = await import('../lib/notebook-pipeline.js');
+    expect(directBlock('no block here')).toBeUndefined();
+    expect(directBlock('<notebook>{"entries": []}</notebook>')).toBeUndefined(); // nothing to file: the keeper reads it
+    expect(directBlock('<notebook>{not json</notebook>')).toBeUndefined();
+
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Accounts' }).id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'website', label: 'Website', type: 'url', role: 'link' },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
+    ]);
+    store.addEntry(nb.id, { kind: 'note', title: 'started', by: 'agent:acct', runId: 'seed-run' }); // makes acct a source
+    const entries = Array.from({ length: 20 }, (_, i) => ({ kind: 'option', title: `Company ${String(i + 1)}`, data: { company: `Company ${String(i + 1)}`, website: `https://c${String(i + 1)}.example.com`, fit: { value: 50 + i, estimate: true } } }));
+    // Prose around the block: the test keeper only answers when output STARTS with <notebook>, so only direct filing can file this.
+    const output = `Found 20 accounts.\n<notebook>${JSON.stringify({ entries })}</notebook>\nDone.`;
+    runStore.createRun({ id: 'acct-run', agentName: 'acct', status: 'completed', startedAt: new Date(Date.now() - 60_000).toISOString(), completedAt: new Date().toISOString(), triggeredBy: 'dashboard', result: output } as never);
+    const res = await request(app).post(`/notebooks/${nb.id}/runs/acct-run/add`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(303);
+    for (let i = 0; i < 100 && store.entries(nb.id).filter((e) => e.kind === 'option').length < 20; i++) await new Promise((r) => setTimeout(r, 20));
+    const options = store.entries(nb.id).filter((e) => e.kind === 'option');
+    expect(options).toHaveLength(20); // a keeper pass would stop at 12
+    expect(options.find((e) => e.title === 'Company 20')!.factMeta).toEqual({ fit: { estimate: true } });
+    for (let i = 0; i < 50 && !store.passes(nb.id)[0]?.note; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.passes(nb.id)[0].note).toContain('acct: 20 new (filed directly)');
+  });
+});
