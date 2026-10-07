@@ -611,6 +611,8 @@ describe("Home's notebooks shelf", () => {
 
     const ids: string[] = [];
     for (const t of ['Bike', 'Laptop', 'Trip', 'Job']) ids.push(store.create({ title: t }).id);
+    // The car changes after them, in a later millisecond, so it's the newest.
+    await new Promise((r) => setTimeout(r, 15));
     const car = store.setFields(store.create({ title: 'Car', criteria: ['Clean title', 'Under budget'] }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
     store.markCriterion(car.id, 0, true);
     store.upsertOption(car.id, { title: '2010 RAV4', by: 'agent:x', data: { price: 4023 } });
