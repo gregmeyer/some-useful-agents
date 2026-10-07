@@ -3,7 +3,7 @@
  * into it, the runs those started, and what each left, drawn as one graph
  * with the same renderer as a run's DAG, plus the same runs as a list.
  */
-import type { Notebook, NotebookLineage, LineageFeeder, LineageRun } from '@some-useful-agents/core';
+import type { Notebook, NotebookLineage, LineageFeeder, LineagePass, LineageRun } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
@@ -19,8 +19,6 @@ export function leftSummary(f: Pick<LineageFeeder, 'kinds' | 'seenAgain'>): stri
   if (f.seenAgain) parts.push(`saw ${String(f.seenAgain)} again`);
   return parts.join(' · ');
 }
-
-const GRAPH_FEEDERS = 4;
 
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
@@ -71,27 +69,48 @@ function runRow(f: LineageFeeder): SafeHtml {
     </li>`;
 }
 
-export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLineage }): string {
+const PASS_KIND: Record<LineagePass['kind'], string> = { pipeline: 'Pipeline', conversation: 'From the conversation', added: 'Added to notebook', earlier: 'Earlier run' };
+
+/** A pass in a line: its runs, what they found, and its note. */
+function passFacts(p: LineagePass): string {
+  const runs = p.feeders.length + p.feeders.reduce((n, f) => n + f.subRuns.length, 0);
+  const found = p.feeders.reduce((n, f) => n + (f.found ?? 0), 0);
+  return [`${String(runs)} run${runs === 1 ? '' : 's'}`, found ? `found ${String(found)}` : '', p.feeders.some((f) => f.run.status === 'failed') ? 'something failed' : ''].filter(Boolean).join(' · ');
+}
+
+export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLineage; pass?: string }): string {
   const { nb, lineage } = args;
   const id = encodeURIComponent(nb.id);
-  const total = lineage.feeders.reduce((n, f) => n + 1 + f.subRuns.length, 0);
-  // The graph stays readable: the newest few searches; the list has them all.
-  const drawn = lineage.feeders.slice(0, GRAPH_FEEDERS);
-  const agents = new Set(lineage.feeders.flatMap((f) => [f.run.agentId, ...f.subRuns.map((s) => s.agentId)]));
+  const passes = lineage.passes;
+  const selected = passes.find((p) => p.id === args.pass) ?? passes[0];
+  const total = passes.reduce((n, p) => n + p.feeders.length + p.feeders.reduce((m, f) => m + f.subRuns.length, 0), 0);
+  const agents = new Set(passes.flatMap((p) => p.feeders.flatMap((f) => [f.run.agentId, ...f.subRuns.map((s) => s.agentId)])));
+  const shown = selected ? selected.feeders.length + selected.feeders.reduce((m, f) => m + f.subRuns.length, 0) : 0;
   return render(layout({ title: `How ${nb.title} was made`, activeNav: 'inbox', wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › How it was made</p>
     <header class="nbw-head">
       <h1 class="nbw-head__title">How this notebook was made</h1>
-      <p class="nbw-head__lede">${lineage.feeders.length
-        ? `${String(total)} run${total === 1 ? '' : 's'} by ${String(agents.size)} agent${agents.size === 1 ? '' : 's'}: every run that filed into it, the runs those started, and what each left. Click a box to open its run.`
+      <p class="nbw-head__lede">${passes.length
+        ? `${String(passes.length)} pass${passes.length === 1 ? '' : 'es'}, ${String(total)} run${total === 1 ? '' : 's'} by ${String(agents.size)} agent${agents.size === 1 ? '' : 's'}. A pass is one go at filling the notebook: a pipeline run of all its agents, or one run filed from its conversation or with Add to notebook. Pick one to draw it; click a box to open its run.`
         : 'Nothing has filed into this notebook yet. Runs show up here once a search, the pipeline or Add to notebook puts something in it.'}</p>
     </header>
-    ${lineage.feeders.length ? html`
-      ${renderGraphFrame({ title: 'Workflow', countLabel: drawn.length < lineage.feeders.length ? `the newest ${String(drawn.length)} of ${String(lineage.feeders.length)} searches; all of them below` : `${String(total)} run${total === 1 ? '' : 's'}`, elements: lineageElements(nb, { feeders: drawn }) })}
+    ${selected ? html`
+      <nav class="nbw-passes" aria-label="Passes">
+        ${passes.map((p) => html`<a class="nbw-pass${p === selected ? ' is-on' : ''}" href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}"${p === selected ? unsafeHtml(' aria-current="true"') : unsafeHtml('')}>
+          <span class="nbw-pass__when">${formatAge(p.startedAt)}</span>
+          <span class="nbw-pass__kind">${PASS_KIND[p.kind]}</span>
+          <span class="nbw-pass__facts">${passFacts(p)}</span>
+        </a>`) as unknown as SafeHtml[]}
+      </nav>
+      ${renderGraphFrame({ title: `${PASS_KIND[selected.kind]} · ${formatAge(selected.startedAt)}`, countLabel: `${String(shown)} run${shown === 1 ? '' : 's'}`, elements: lineageElements(nb, { feeders: selected.feeders }) })}
+      ${selected.note ? html`<p class="nbw-note">${selected.note}</p>` : html``}
       <section class="nbw-list" aria-labelledby="nbw-list-title">
-        <h2 class="nbw-list__title" id="nbw-list-title">Runs, newest first</h2>
-        <ul class="nbw-runs">${lineage.feeders.map(runRow) as unknown as SafeHtml[]}</ul>
-        ${lineage.more ? html`<p class="nbw-more">${String(lineage.more)} older run${lineage.more === 1 ? '' : 's'} not shown.</p>` : html``}
+        <h2 class="nbw-list__title" id="nbw-list-title">Passes, newest first</h2>
+        ${passes.map((p) => html`
+          <section class="nbw-group${p === selected ? ' is-on' : ''}" aria-label="${PASS_KIND[p.kind]}, ${formatAge(p.startedAt)}">
+            <h3 class="nbw-group__head"><a href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}">${PASS_KIND[p.kind]} · ${formatAge(p.startedAt)}</a> <span class="nbw-run__when">${passFacts(p)}</span></h3>
+            <ul class="nbw-runs">${p.feeders.map(runRow) as unknown as SafeHtml[]}</ul>
+          </section>`) as unknown as SafeHtml[]}
       </section>` : unsafeHtml('')}
   `));
 }

@@ -608,6 +608,13 @@ describe('runs not in the notebook yet', () => {
     page = await get();
     expect(page.text).not.toContain('Runs not in this notebook yet');
     expect(decodeURIComponent((await post('run-new')).headers.location.replace(/\+/g, ' '))).toContain('already in the notebook');
+    // Adding it was a pass of its own, and the Workflow draws it.
+    const passes = store.passes(nb.id);
+    expect(passes[0]).toMatchObject({ kind: 'added', runIds: ['run-new'], note: expect.stringContaining('sweep: 1 new') });
+    const wf = await request(app).get(`/notebooks/${nb.id}/workflow?pass=${passes[0].id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(wf.text).toContain('class="nbw-pass is-on"');
+    expect(wf.text).toContain('Added to notebook');
+    expect(wf.text).toContain('Earlier run'); // run-filed, from before passes
   });
 });
 

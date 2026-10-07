@@ -486,3 +486,15 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbw-subs { margin-top: var(--space-2); font-size: var(--font-size-sm); }
 .nbw-subs ul { list-style: none; margin: var(--space-2) 0 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); }
 .nbw-more { margin: var(--space-3) 0 0; font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+/* Workflow: pick a pass to draw; the list grouped by pass. */
+.nbw-passes { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: var(--space-2); margin-bottom: var(--space-3); scrollbar-width: thin; }
+.nbw-pass { flex: none; display: grid; gap: 2px; min-width: 150px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); text-decoration: none; }
+.nbw-pass:hover, .nbw-pass:focus-visible { border-color: var(--color-primary); }
+.nbw-pass.is-on { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.nbw-pass__when { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbw-pass__kind { font-weight: var(--weight-semibold); font-size: var(--font-size-sm); }
+.nbw-pass__facts { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbw-note { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nbw-group { margin-bottom: var(--space-4); }
+.nbw-group__head { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: var(--weight-semibold); display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; }
+.nbw-group.is-on .nbw-group__head a { color: var(--color-text); }

@@ -5,7 +5,7 @@
  * a single run's DAG is drawn.
  */
 import type { Run } from './types.js';
-import type { NotebookEntryKind, NotebookStore } from './notebooks.js';
+import type { NotebookEntryKind, NotebookPassKind, NotebookStore } from './notebooks.js';
 
 /**
  * The runs a run started and the runs those started, depth-first, each with
@@ -57,11 +57,23 @@ export interface LineageFeeder {
   subRuns: LineageRun[];
 }
 
+/** One go at filling the notebook and its runs; `earlier` = a run from before passes were kept. */
+export interface LineagePass {
+  id: string;
+  kind: NotebookPassKind | 'earlier';
+  startedAt: string;
+  finishedAt?: string;
+  note?: string;
+  feeders: LineageFeeder[];
+}
+
 export interface NotebookLineage {
   /** Runs that filed into the notebook, newest first. */
   feeders: LineageFeeder[];
   /** Feeders not shown (older than the newest `limit`). */
   more: number;
+  /** The same runs grouped into passes, newest first (at most `passLimit`). */
+  passes: LineagePass[];
 }
 
 const toLineageRun = (r: Run): LineageRun => ({
@@ -72,23 +84,43 @@ const toLineageRun = (r: Run): LineageRun => ({
   ...(r.parentNodeId ? { parentNodeId: r.parentNodeId } : {}),
 });
 
-/** The notebook's runs (newest `limit`), each with its sub-runs and what it left. */
+/** The notebook's runs (newest `limit`) and its passes, each run with its sub-runs and what it left. */
 export function notebookLineage(
-  store: Pick<NotebookStore, 'runFootprints'>,
+  store: Pick<NotebookStore, 'runFootprints' | 'passes'>,
   runs: { getRun(id: string): Run | null; listChildRuns(id: string): Run[] },
   notebookId: string,
   limit = 12,
+  passLimit = 20,
 ): NotebookLineage {
   const prints = store.runFootprints(notebookId);
-  const feeders: LineageFeeder[] = [];
-  for (const [runId, f] of prints) {
+  const stored = store.passes(notebookId, passLimit);
+  const byId = new Map<string, LineageFeeder>();
+  const feederFor = (runId: string): LineageFeeder | undefined => {
+    if (byId.has(runId)) return byId.get(runId);
     const run = runs.getRun(runId);
-    if (!run) continue;
-    // A sub-run that filed directly is drawn under its parent, not as its own feeder.
-    feeders.push({ run: toLineageRun(run), ...(f.found !== undefined ? { found: f.found } : {}), kinds: f.kinds, seenAgain: f.seenAgain, subRuns: [] });
+    if (!run) return undefined;
+    const f = prints.get(runId);
+    const feeder: LineageFeeder = { run: toLineageRun(run), ...(f?.found !== undefined ? { found: f.found } : {}), kinds: f?.kinds ?? {}, seenAgain: f?.seenAgain ?? 0, subRuns: [] };
+    byId.set(runId, feeder);
+    return feeder;
+  };
+  const inPass = new Set(stored.flatMap((p) => p.runIds));
+  const passes: LineagePass[] = stored.map((p) => ({
+    id: p.id, kind: p.kind, startedAt: p.startedAt,
+    ...(p.finishedAt ? { finishedAt: p.finishedAt } : {}), ...(p.note ? { note: p.note } : {}),
+    feeders: p.runIds.map(feederFor).filter((f): f is LineageFeeder => !!f),
+  }));
+  // Runs from before passes were kept: one pass each.
+  for (const runId of prints.keys()) {
+    if (inPass.has(runId)) continue;
+    const f = feederFor(runId);
+    if (f) passes.push({ id: `run:${runId}`, kind: 'earlier', startedAt: f.run.startedAt, feeders: [f] });
   }
-  feeders.sort((a, b) => b.run.startedAt.localeCompare(a.run.startedAt));
+  passes.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const shownPasses = passes.slice(0, passLimit);
+  const feeders = [...prints.keys()].map(feederFor).filter((f): f is LineageFeeder => !!f)
+    .sort((a, b) => b.run.startedAt.localeCompare(a.run.startedAt));
   const shown = feeders.slice(0, limit);
-  for (const f of shown) f.subRuns = collectSubRunTree(runs, f.run.id).map(toLineageRun);
-  return { feeders: shown, more: Math.max(0, feeders.length - shown.length) };
+  for (const f of new Set([...shown, ...shownPasses.flatMap((p) => p.feeders)])) f.subRuns = collectSubRunTree(runs, f.run.id).map(toLineageRun);
+  return { feeders: shown, more: Math.max(0, feeders.length - shown.length), passes: shownPasses };
 }

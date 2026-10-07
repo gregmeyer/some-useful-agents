@@ -33,6 +33,21 @@ export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 export type NotebookPhotoKind = 'listing' | 'representative' | 'illustration';
 
 /** One site or source a search reached, and what it got there. */
+/** How a pass started: the notebook's pipeline, a run filed from its conversation, or Add to notebook. */
+export type NotebookPassKind = 'pipeline' | 'conversation' | 'added';
+
+export interface NotebookPass {
+  id: string;
+  notebookId: string;
+  kind: NotebookPassKind;
+  startedAt: string;
+  finishedAt?: string;
+  /** What it did, in a line ("7 new entries · car-sweep: 7 new"). */
+  note?: string;
+  /** The runs it made or filed, in order (failed ones too). */
+  runIds: string[];
+}
+
 export interface NotebookSearchSource {
   name: string;
   found: number;
@@ -240,6 +255,18 @@ export class NotebookStore {
         found INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS notebook_searches_by_notebook ON notebook_searches (notebook_id, agent_id, at);
+      -- A pass: one go at filling the notebook (a pipeline run of all its agents,
+      -- or one run filed from a conversation or Add to notebook), and its runs.
+      CREATE TABLE IF NOT EXISTS notebook_passes (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        note TEXT,
+        run_ids_json TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE INDEX IF NOT EXISTS notebook_passes_by_notebook ON notebook_passes (notebook_id, started_at);
       -- A copy of each option's photo (listings disappear; the page never loads from the seller's site).
       CREATE TABLE IF NOT EXISTS notebook_photos (
         entry_id TEXT PRIMARY KEY,
@@ -388,6 +415,35 @@ export class NotebookStore {
       at(r.run_id, r.at).seenAgain += r.n;
     }
     return out;
+  }
+
+  /** Start a pass; add its runs as they go, then finish it. */
+  startPass(notebookId: string, kind: NotebookPassKind, at = new Date().toISOString()): string {
+    this.mustGet(notebookId);
+    const id = randomUUID();
+    this.db.prepare('INSERT INTO notebook_passes (id, notebook_id, kind, started_at) VALUES (?, ?, ?, ?)').run(id, notebookId, kind, at);
+    return id;
+  }
+
+  addRunToPass(passId: string, runId: string): void {
+    const row = this.db.prepare('SELECT run_ids_json FROM notebook_passes WHERE id = ?').get(passId) as { run_ids_json: string } | undefined;
+    if (!row) return;
+    const ids = JSON.parse(row.run_ids_json) as string[];
+    if (!ids.includes(runId)) ids.push(runId);
+    this.db.prepare('UPDATE notebook_passes SET run_ids_json = ? WHERE id = ?').run(JSON.stringify(ids), passId);
+  }
+
+  finishPass(passId: string, note?: string, at = new Date().toISOString()): void {
+    this.db.prepare('UPDATE notebook_passes SET finished_at = ?, note = ? WHERE id = ?').run(at, note ? note.slice(0, 300) : null, passId);
+  }
+
+  /** The notebook's passes, newest first. */
+  passes(notebookId: string, limit = 30): NotebookPass[] {
+    return (this.db.prepare('SELECT * FROM notebook_passes WHERE notebook_id = ? ORDER BY started_at DESC LIMIT ?').all(notebookId, limit) as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id), notebookId: String(r.notebook_id), kind: String(r.kind) as NotebookPassKind, startedAt: String(r.started_at),
+      ...(r.finished_at ? { finishedAt: String(r.finished_at) } : {}), ...(r.note ? { note: String(r.note) } : {}),
+      runIds: (() => { try { return JSON.parse(String(r.run_ids_json)) as string[]; } catch { return []; } })(),
+    }));
   }
 
   /** The notebooks these runs filed into (searches, entries or sightings), for a run's page. */
