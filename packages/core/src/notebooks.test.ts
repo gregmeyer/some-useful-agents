@@ -477,3 +477,39 @@ describe('fit score', () => {
     expect(rankOptions({ fields }, opts).map((o: { name: string }) => o.name)).toEqual(['a', 'b', 'c']);
   });
 });
+
+describe('where a fact came from', () => {
+  it('a fact can carry its source and an estimate flag; re-stating it replaces them; bad links are dropped', async () => {
+    const { splitFacts } = await import('./notebooks.js');
+    expect(splitFacts({ revenue: { value: 2e7, source: 'https://news.example.com/a', estimate: true }, employees: 140, range: { min: 1, max: 2 } }))
+      .toEqual({ values: { revenue: 2e7, employees: 140, range: { min: 1, max: 2 } }, meta: { revenue: { source: 'https://news.example.com/a', estimate: true } } });
+    expect(splitFacts({ x: { value: 1, confidence: 'estimate' } }).meta).toEqual({ x: { estimate: true } });
+
+    dir = mkdtempSync(join(tmpdir(), 'sua-factmeta-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'website', label: 'Website', type: 'url', role: 'link' }, { key: 'revenue', label: 'Revenue', type: 'money', range: true },
+      { key: 'employees', label: 'Employees', type: 'number', role: 'measure' },
+    ]);
+    const first = s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: {
+      website: 'https://ledgerline.example.com',
+      revenue: { value: 2e7, source: 'https://news.example.com/series-b' },
+      employees: { value: 140, estimate: true, source: 'javascript:alert(1)' },
+    } }).entry;
+    expect(first.data).toMatchObject({ revenue: 2e7, employees: 140 });
+    expect(first.factMeta).toEqual({ revenue: { source: 'https://news.example.com/series-b' }, employees: { estimate: true } });
+    // Seen again: employees now confirmed (no flag), revenue not re-stated keeps its source.
+    const again = s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: { website: 'https://ledgerline.example.com', employees: { value: 150, source: 'https://ledgerline.example.com/careers' } } }).entry;
+    expect(again.data).toMatchObject({ revenue: 2e7, employees: 150 });
+    expect(s.entries(nb.id).find((e) => e.id === first.id)!.factMeta).toEqual({
+      revenue: { source: 'https://news.example.com/series-b' }, employees: { source: 'https://ledgerline.example.com/careers' },
+    });
+    // A plain re-statement clears its meta.
+    s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: { website: 'https://ledgerline.example.com', revenue: 2.1e7 } });
+    expect(s.entries(nb.id).find((e) => e.id === first.id)!.factMeta).toEqual({ employees: { source: 'https://ledgerline.example.com/careers' } });
+    // The view carries it to the widgets.
+    const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options[0];
+    expect(v.factMeta).toEqual({ employees: { source: 'https://ledgerline.example.com/careers' } });
+  });
+});

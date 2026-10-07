@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, SYSTEM_AGENT_IDS, splitFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntryKind, type NotebookPassKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -104,7 +104,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       const data = x.data && typeof x.data === 'object' ? x.data as Record<string, unknown> : undefined;
       const fingerprint = typeof x.fingerprint === 'string' ? x.fingerprint : undefined;
       // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
-      if (!optionFingerprint(fingerprint, cleanData(data, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
+      if (!optionFingerprint(fingerprint, cleanData(splitFacts(data).values, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
       const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId });
       if (r.ruledOut) { skipped++; ruledOutSeen++; }
       else if (r.seenAgain) refreshed++;

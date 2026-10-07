@@ -202,6 +202,14 @@ describe('notebook pipeline (G2–G3)', () => {
     const options = store.entries(nb.id).filter((e) => e.kind === 'option');
     expect(options).toHaveLength(1);
     expect(options[0]).toMatchObject({ title: '2010 Toyota RAV4 Sport 4WD', runId: 'run-2', data: { price: 3900, miles: 149652 } });
+    // Facts the keeper gives with a source or as an estimate keep that; the same option is still found.
+    const third = applyKeeperResult(store, store.get(nb.id)!, 'sweep', 'run-3', block({
+      entries: [{ ...rav4, data: { price: { value: 3850, source: 'https://www.cargurus.com/l/123/history' }, miles: { value: 150000, estimate: true }, listing_url: 'https://www.cargurus.com/l/123' } }],
+    }));
+    expect(third).toMatchObject({ added: 0, refreshed: 1 });
+    const kept = store.entries(nb.id).find((e) => e.kind === 'option')!;
+    expect(kept.data).toMatchObject({ price: 3850, miles: 150000 });
+    expect(kept.factMeta).toEqual({ price: { source: 'https://www.cargurus.com/l/123/history' }, miles: { estimate: true } });
   });
 
   it('the keeper adds new entries with provenance, skips what the notebook has, and ticks criteria with a reason', async () => {

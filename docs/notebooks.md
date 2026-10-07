@@ -140,6 +140,8 @@ Some notebooks aren't about the cheapest option: accounts to qualify, leads, ven
 
 sua's drafter adds a fit score to account-style notebooks ("companies with $10–50M revenue and 50–500 employees…"), keeps revenue a plain fact (not a price), and the keeper scores each option it files against your limits and criteria. A field named `fit`, `icp_score` or `match_score` gets the role on its own. Without a score field, notebooks rank by price as before.
 
+**Where a fact came from.** A fact can carry its source and whether it's an estimate (revenue and headcount usually are). The keeper adds them when a run's output says where a figure came from or that it's approximate. On the shortlist, an estimate reads **≈ $30M–$40M** (dashed), and a fact with a source links to it (**$20M ↗**). When a later search states the fact again, its source and estimate flag are replaced (or cleared, if it's simply stated); facts it doesn't mention keep theirs. Agents can give a fact as `{"value": 20000000, "source": "https://…", "estimate": true}` instead of a bare value.
+
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
 ## Stages and ruling out: the funnel
