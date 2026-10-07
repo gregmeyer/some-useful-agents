@@ -207,6 +207,9 @@ window.renderDagViz = function () {
     'break':         { fill: '#fff7ed', border: '#ea580c', text: '#9a3412' },
     'goal':          { fill: '#ccfbf1', border: '#0f766e', text: '#115e59' },
     'ask':           { fill: '#fef9c3', border: '#a16207', text: '#854d0e' },
+    // A notebook's Workflow: the notebook, and what each run left in it.
+    notebook:        { fill: '#ccfbf1', border: '#0f766e', text: '#134e4a' },
+    entries:         { fill: '#f5f5f4', border: '#a8a29e', text: '#44403c' },
   };
   var defaultStyle = { fill: '#f9fafb', border: '#d1d5db', text: '#374151' };
 
@@ -283,6 +286,11 @@ window.renderDagViz = function () {
       padding: 18,
       spacingFactor: 1.25,
       grid: false,
+      // data-layout="lr" (a notebook's Workflow): left to right, so a wide
+      // last level stacks down the canvas instead of shrinking every label.
+      transform: el.getAttribute('data-layout') === 'lr'
+        ? function (_n, pos) { return { x: pos.y * 1.5, y: pos.x * 0.3 }; }
+        : function (_n, pos) { return pos; },
     },
     autoungrabify: true,
     // Wheel-zoom + drag-pan enabled so users can inspect dense DAGs without
@@ -483,6 +491,15 @@ window.renderDagViz = function () {
       edit.textContent = 'Edit node';
       edit.href = editBase + '/' + encodeURIComponent(data.id) + '/edit';
       actionsEl.appendChild(edit);
+    }
+
+    // A graph node with a link (a notebook's Workflow): open it.
+    if (data.href) {
+      var open = document.createElement('a');
+      open.className = 'btn btn--sm btn--primary';
+      open.textContent = data.type === 'notebook' || data.type === 'entries' ? 'Open the notebook' : 'Open the run';
+      open.href = data.href;
+      actionsEl.appendChild(open);
     }
 
     if (navBase) {

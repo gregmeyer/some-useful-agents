@@ -94,7 +94,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}</span>
+          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
         </div>
         ${pipelineDiagram(stages)}
         ${nb.pipeline.length ? html`
