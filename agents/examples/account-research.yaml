@@ -1,0 +1,359 @@
+# Account Research — finds companies that fit an ideal customer profile
+# from what they say in their own public job posts, scores each 0–100 on a
+# fixed rubric, and backs every score with a word-for-word quote from the
+# post. Free: DuckDuckGo plus the public Ashby, Greenhouse and Lever job
+# board APIs, no keys.
+#
+# Ideas from github.com/NatesVibeCode/account-fleet: break the profile into
+# stack / pain / hiring signals, search the job boards where companies
+# describe their real stack and problems, a banded rubric, and a code check
+# (not a model) that each quote really is in the post.
+#
+# Its output ends with a <notebook> block, so a notebook files it directly
+# (docs/notebooks.md "Filing directly").
+#
+# Run:
+#   sua workflow run account-research --input GOAL="B2B fintech, 50-500 people, running Postgres and Kafka, hiring platform engineers"
+id: account-research
+name: Account Research
+description: |
+  Finds companies that match an ideal customer profile from their public job
+  posts (Ashby, Greenhouse, Lever), scores each 0–100 for fit and backs the
+  score with a word-for-word quote from the post. Files straight into an
+  accounts notebook.
+status: active
+source: examples
+tags:
+  - accounts
+  - prospecting
+  - icp
+entryConditions:
+  - user wants a list of target companies or accounts that fit a customer profile
+  - user asks which companies run a technology, have a problem, or are hiring for a team that a product serves
+nonEntryConditions:
+  - user wants open jobs for themselves (use ashby-job-finder)
+  - user already has the list of companies and wants news about them
+sampleQuestions:
+  - Find me companies running Kafka that are hiring platform engineers
+  - Which B2B fintech companies with 50 to 500 people would fit our ICP?
+  - Build a target account list of startups migrating off a legacy database
+mcp: false
+inputs:
+  GOAL:
+    type: string
+    required: true
+    description: The ideal customer profile in a sentence or a few lines (a notebook passes its own brief).
+  FIELDS:
+    type: string
+    default: "[]"
+    description: The notebook's fields as JSON (a notebook passes them); empty means the agent proposes its own.
+  MAX_COMPANIES:
+    type: number
+    default: 8
+    description: How many companies to score (each is one job-board API call).
+nodes:
+  - id: plan
+    type: llm-prompt
+    allowedTools: [WebSearch]
+    maxTurns: 12
+    timeout: 300
+    outputContract:
+      mustMatch: '<plan>[\s\S]*?</plan>'
+      description: a <plan> JSON block
+    prompt: |
+      Break this ideal customer profile into the signals a company's own job
+      posts would show. Don't search on vague words ("B2B SaaS",
+      "fintech"); search on what their engineers and teams would write.
+
+      Profile:
+      {{inputs.GOAL}}
+
+      - "stack": 2–5 technologies or tools they must run ("Kafka", "Snowflake", "Salesforce").
+      - "pain": 2–5 short phrases a post would use when they have the problem ("migration", "scaling", "month-end close", "SOC 2").
+      - "roles": 2–4 job titles that would own it ("Platform Engineer", "Controller").
+      - "queries": 3–4 short web-search phrases, each 2–4 words, mixing one stack or role word with one pain word (no quotes, no site:).
+      - "exclude": words that rule a company out, if the profile names any.
+      - "size": the size or revenue limits, as written, if any.
+
+      Then find companies: run WebSearch for each query restricted to the
+      public job boards, e.g. `site:jobs.ashbyhq.com Kafka platform engineer`,
+      `site:job-boards.greenhouse.io ...`, `site:jobs.lever.co ...` (about 6–9
+      searches in all). Skip job aggregators, staffing and recruiting firms
+      and consultancies that hire for clients (Jobgether, Toptal, agencies):
+      their posts describe someone else's problem. Keep searching (other
+      stack, pain and role words) until the links cover about 10 different
+      companies, or 12 searches. "links": every job-post or job-board address from
+      those results on jobs.ashbyhq.com, boards.greenhouse.io,
+      job-boards.greenhouse.io or jobs.lever.co (or their .eu versions),
+      exactly as the results gave
+      them, up to 40. Only addresses you actually saw in results; never make
+      one up. Don't open the pages: code fetches them next.
+
+      Reply with only:
+      <plan>
+      {"stack": [], "pain": [], "roles": [], "queries": [], "exclude": [], "size": "", "links": []}
+      </plan>
+
+  - id: discover
+    type: shell
+    dependsOn: [plan]
+    timeout: 240
+    command: |
+      set -e
+      python3 << 'PYEOF'
+      import html, json, os, re, urllib.parse, urllib.request
+
+      UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+      def get(url, timeout=15, accept="application/json"):
+          req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": accept})
+          with urllib.request.urlopen(req, timeout=timeout) as r:
+              return r.read().decode("utf-8", errors="replace")
+
+      raw = os.environ.get("UPSTREAM_PLAN_RESULT", "")
+      m = re.search(r"<plan>([\s\S]*?)</plan>", raw)
+      try:
+          plan = json.loads(m.group(1)) if m else {}
+      except Exception:
+          plan = {}
+      words = [w for k in ("stack", "pain", "roles") for w in (plan.get(k) or []) if isinstance(w, str) and w.strip()]
+      exclude = [w.lower() for w in (plan.get("exclude") or []) if isinstance(w, str) and w.strip()]
+      queries = [q for q in (plan.get("queries") or []) if isinstance(q, str) and q.strip()][:4]
+      try:
+          cap = max(1, min(20, int(float(os.environ.get("MAX_COMPANIES", "8")))))
+      except ValueError:
+          cap = 8
+
+      BOARDS = [
+          ("ashby", r"jobs\.ashbyhq\.com/([A-Za-z0-9][A-Za-z0-9._%-]*)"),
+          ("greenhouse", r"(?:job-)?boards(?:-api)?(?:\.eu)?\.greenhouse\.io/(?:v1/boards/)?([A-Za-z0-9][A-Za-z0-9_-]*)"),
+          ("lever", r"jobs(?:\.eu)?\.lever\.co/([A-Za-z0-9][A-Za-z0-9._-]*)"),
+      ]
+      SKIP = {"embed", "api", "v1", "jobs", "search", "index", "boards"}
+      links = [l for l in (plan.get("links") or []) if isinstance(l, str)]
+      found, seen, counts = [], set(), {b: 0 for b, _ in BOARDS}
+      for l in links:
+          for name, pat in BOARDS:
+              m2 = re.search(pat, urllib.parse.unquote(l))
+              if not m2:
+                  continue
+              slug = m2.group(1).rstrip(".")
+              key = (name, slug.lower())
+              if slug.lower() not in SKIP and key not in seen:
+                  seen.add(key)
+                  found.append({"board": name, "slug": slug, "eu": ".eu." in l})
+                  counts[name] += 1
+      sources = [{"name": f"{b.capitalize()} job posts", "found": n, "status": "found" if n else "none"} for b, n in counts.items()]
+
+      def strip(s):
+          s = html.unescape(html.unescape(s or ""))
+          s = re.sub(r"<(br|/p|/li|/h\d)[^>]*>", "\n", s, flags=re.I)
+          s = re.sub(r"<[^>]+>", " ", s)
+          return re.sub(r"[ \t\r\f\v]+", " ", re.sub(r"\n\s*\n+", "\n", s)).strip()
+
+      def postings(board, slug, eu=False):
+          if board == "ashby":
+              d = json.loads(get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}"))
+              return slug, f"https://jobs.ashbyhq.com/{slug}", [
+                  {"title": j.get("title", ""), "url": j.get("jobUrl") or f"https://jobs.ashbyhq.com/{slug}", "text": strip(j.get("descriptionPlain") or j.get("descriptionHtml") or "")}
+                  for j in (d.get("jobs") or [])]
+          if board == "greenhouse":
+              try:
+                  name = json.loads(get(f"https://boards-api.greenhouse.io/v1/boards/{slug}")).get("name") or slug
+              except Exception:
+                  name = slug
+              d = json.loads(get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"))
+              return name, f"https://boards.greenhouse.io/{slug}", [
+                  {"title": j.get("title", ""), "url": j.get("absolute_url") or "", "text": strip(j.get("content") or "")}
+                  for j in (d.get("jobs") or [])]
+          d = json.loads(get(f"https://api{'.eu' if eu else ''}.lever.co/v0/postings/{slug}?mode=json"))
+          out = []
+          for j in d if isinstance(d, list) else []:
+              parts = [j.get("descriptionPlain") or ""] + [f"{l.get('text','')}\n{strip(l.get('content',''))}" for l in (j.get("lists") or [])] + [j.get("additionalPlain") or ""]
+              out.append({"title": j.get("text", ""), "url": j.get("hostedUrl") or "", "text": strip("\n".join(parts))})
+          return slug, f"https://jobs{'.eu' if eu else ''}.lever.co/{slug}", out
+
+      lw = [w.lower() for w in words]
+      companies = []
+      for c in found[: cap * 3]:
+          try:
+              name, careers, posts = postings(c["board"], c["slug"], c.get("eu", False))
+          except Exception:
+              continue
+          scored = []
+          for p in posts:
+              t = p["text"].lower()
+              if not t or any(x in t for x in exclude):
+                  continue
+              hits = sum(1 for w in lw if w in t or w in p["title"].lower())
+              if hits:
+                  scored.append((hits, p))
+          if not scored:
+              continue
+          scored.sort(key=lambda x: -x[0])
+          best = [dict(p, text=p["text"][:3500]) for _, p in scored[:2]]
+          companies.append({"company": name, "board": c["board"], "slug": c["slug"], "careers_url": careers,
+                            "open_roles": len(posts), "signal_hits": scored[0][0], "postings": best})
+      companies.sort(key=lambda c: -c["signal_hits"])
+      companies = companies[:cap]
+      print(json.dumps({"searched": queries, "words": words, "size": plan.get("size") or "", "candidates": len(found),
+                        "companies": companies, "sources": sources}))
+      PYEOF
+
+  - id: score
+    type: llm-prompt
+    dependsOn: [discover]
+    maxTurns: 1
+    timeout: 240
+    outputContract:
+      mustMatch: '<scored>[\s\S]*?</scored>'
+      description: a <scored> JSON block
+    prompt: |
+      Score how well each company fits this ideal customer profile, using
+      ONLY what its job posts below say.
+
+      Profile:
+      {{inputs.GOAL}}
+
+      Companies and their posts (JSON):
+      {{upstream.discover.result}}
+
+      The rubric (the score must sit in its tier's band):
+      - 85–100, tier 1: the post names an active initiative or problem the profile is about (a migration, a scaling limit, an audit due).
+      - 70–84, tier 2: the post confirms the stack and senior hiring for it, but the problem is only implied.
+      - 50–69, tier 3: fits on industry or size only; nothing about the stack or the problem.
+      - 0–49: wrong stack, wrong business, or nothing relevant. Still list it, with its score.
+
+      For every company with a score of 50 or more, "quote" is a sentence
+      or phrase of at least 15 characters COPIED CHARACTER FOR CHARACTER
+      from one of its posts' "text" (not the title), the one that best
+      proves the score, and "quote_url" is that post's "url". Never
+      paraphrase or join pieces; a code check rejects any quote that isn't
+      in the post word for word, and the score is lowered.
+
+      "company": its proper name. "headline": at most 7 words naming the
+      signal that matters ("Oracle-to-Postgres migration in flight", "no
+      sign of Kafka or Postgres"). "why": one plain sentence on why it fits
+      (or doesn't). "signals": which of stack / pain / hiring the posts show,
+      as short phrases. Revenue or headcount only if a post states it; then
+      as {"value": number, "source": post url, "estimate": true when the
+      post gives it as a range or "about"}.
+
+      Reply with only:
+      <scored>
+      [{"slug": "", "company": "", "headline": "", "fit": 0, "tier": "tier_1|tier_2|tier_3|unfit", "quote": "", "quote_url": "", "why": "", "signals": {"stack": "", "pain": "", "hiring": ""}, "revenue": null, "employees": null}]
+      </scored>
+
+  - id: verify
+    type: shell
+    dependsOn: [discover, score]
+    timeout: 60
+    command: |
+      set -e
+      python3 << 'PYEOF'
+      import json, os, re, unicodedata
+
+      def block(raw, tag):
+          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
+          if not m:
+              return None
+          try:
+              return json.loads(m.group(1))
+          except Exception:
+              return None
+
+      REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
+      def norm(s):
+          s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
+          return re.sub(r"\s+", " ", s).strip()
+
+      disc = json.loads(os.environ.get("UPSTREAM_DISCOVER_RESULT") or "{}")
+      scored = block(os.environ.get("UPSTREAM_SCORE_RESULT", ""), "scored") or []
+      by_slug = {c["slug"].lower(): c for c in disc.get("companies", [])}
+
+      try:
+          fields = json.loads(os.environ.get("FIELDS") or "[]")
+          if not isinstance(fields, list):
+              fields = []
+      except Exception:
+          fields = []
+      role = lambda r: next((f["key"] for f in fields if isinstance(f, dict) and f.get("role") == r), None)
+      own_fields = []
+      if not fields:
+          own_fields = [
+              {"key": "company", "label": "Company", "type": "text", "role": "org"},
+              {"key": "post", "label": "Job post", "type": "url", "role": "link"},
+              {"key": "fit", "label": "Fit", "type": "number", "role": "score", "better": "higher"},
+              {"key": "tier", "label": "Tier", "type": "text"},
+              {"key": "revenue", "label": "Revenue", "type": "money", "range": True},
+              {"key": "employees", "label": "Employees", "type": "number", "role": "measure"},
+          ]
+          fields = own_fields
+      keys = {f.get("key") for f in fields if isinstance(f, dict)}
+      org_k, link_k, score_k = role("org"), role("link"), role("score")
+      tier_k = "tier" if "tier" in keys else None
+
+      def band(n):
+          return "tier_1" if n >= 85 else "tier_2" if n >= 70 else "tier_3" if n >= 50 else "unfit"
+      TIER_WORDS = {"tier_1": "Tier 1, immediate fit", "tier_2": "Tier 2, high potential", "tier_3": "Tier 3, size and industry only", "unfit": "Unfit"}
+
+      ranked, unfit, unverified = [], [], 0
+      for s in scored if isinstance(scored, list) else []:
+          if not isinstance(s, dict):
+              continue
+          c = by_slug.get(str(s.get("slug", "")).lower())
+          if not c:
+              continue  # not a company this run fetched
+          try:
+              fit = max(0, min(100, int(round(float(s.get("fit") or 0)))))
+          except (TypeError, ValueError):
+              fit = 0
+          name = str(s.get("company") or c["company"]).strip()[:80] or c["slug"]
+          quote = str(s.get("quote") or "").strip()
+          post = next((p for p in c["postings"] if p.get("url") == s.get("quote_url")), None)
+          texts = [p for p in ([post] if post else []) + c["postings"]]
+          ok = len(norm(quote)) >= 15 and any(norm(quote) in norm(p["text"]) for p in texts)
+          src = next((p["url"] for p in texts if len(norm(quote)) >= 15 and norm(quote) in norm(p["text"])), None) if ok else None
+          note = ""
+          if fit >= 50 and not ok:
+              unverified += 1
+              fit = min(fit, 69)
+              note = " Its quote isn't in the post word for word, so it can't rank above tier 3."
+          tier = band(fit)
+          if tier == "unfit":
+              unfit.append(name)
+              continue
+          sig = s.get("signals") if isinstance(s.get("signals"), dict) else {}
+          sig_text = "; ".join(f"{k}: {v}" for k, v in sig.items() if isinstance(v, str) and v.strip())
+          body = f"{TIER_WORDS[tier]} ({fit}). {str(s.get('why') or '').strip()}"
+          if ok:
+              body += f'\n\n"{quote}" ({src})'
+          if sig_text:
+              body += f"\n\nSignals: {sig_text}"
+          body += f"\n\n{c['open_roles']} open roles on {c['board'].capitalize()}: {c['careers_url']}{note}"
+          data = {}
+          if org_k: data[org_k] = name
+          # The link is the quoted post (so the text and the link agree), else the careers page.
+          if link_k: data[link_k] = src or c["careers_url"]
+          if score_k: data[score_k] = {"value": fit, "source": src} if src else fit
+          if tier_k: data[tier_k] = TIER_WORDS[tier]
+          for k in ("revenue", "employees"):
+              v = s.get(k)
+              if k in keys and v is not None:
+                  data[k] = v
+          headline = str(s.get("headline") or "").strip().rstrip(".") or str(s.get("why") or "").strip().split(". ")[0]
+          ranked.append((fit, {"kind": "option", "title": f"{name}: {headline}"[:120].rstrip(": "),
+                          "body": body, "fingerprint": f"{c['board']}:{c['slug'].lower()}", "data": data}))
+
+      entries = [e for _, e in sorted(ranked, key=lambda x: -x[0])]
+      note_bits = [f"Searched job posts for: {', '.join(disc.get('searched') or []) or 'nothing (no plan)'}."]
+      note_bits.append(f"{disc.get('candidates', 0)} companies turned up, {len(disc.get('companies') or [])} had posts matching the profile.")
+      if unfit: note_bits.append(f"Left out as unfit: {', '.join(unfit[:10])}.")
+      if unverified: note_bits.append(f"{unverified} quote{'s' if unverified != 1 else ''} failed the word-for-word check.")
+      entries.append({"kind": "note", "title": " ".join(note_bits)[:400]})
+      out = {"entries": entries, "sources": disc.get("sources") or [],
+             "summary": f"{len(entries) - 1} accounts that fit, each with a quote from its own job post."}
+      if own_fields:
+          out["fields"] = own_fields
+      print(f"Found {len(entries) - 1} accounts that fit ({len(unfit)} unfit left out, {unverified} unverified quotes).")
+      print("<notebook>" + json.dumps(out) + "</notebook>")
+      PYEOF
