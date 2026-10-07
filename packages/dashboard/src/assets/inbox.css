@@ -3186,5 +3186,45 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
   .home .page-intro { flex-wrap: wrap; }
   .home .page-intro__text { flex: 1 1 100%; }
   .home-today { padding: var(--space-3); }
-  .home-top__actions { width: 100%; justify-content: space-between; }
+  .home-top { flex-wrap: nowrap; }
+  .home-top__text { min-width: 0; }
+}
+
+/* ── Home's notebooks shelf (views/notebook-shelf.ts) ── */
+.nbs { display: grid; gap: var(--space-3); }
+.nbs__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.nbs__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nbs__all { font-size: var(--font-size-sm); }
+.nbs__row { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-4); }
+.nbs-card { display: flex; flex-direction: column; min-width: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; color: var(--color-text); text-decoration: none; transition: border-color 120ms ease-out; }
+.nbs-card:hover, .nbs-card:focus-visible { border-color: var(--color-primary); }
+.nbs-card__cover { position: relative; height: 132px; background: var(--color-surface-raised); display: block; }
+.nbs-card__cover img, .nbs-card__cover svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nbs-card__cover img.is-drawn { object-fit: contain; }
+.nbs-card__waiting { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: 999px; background: var(--color-warn-soft); border: 1px solid var(--color-warn-border); color: var(--color-warn); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); }
+.nbs-card__kind { position: absolute; bottom: var(--space-1); right: var(--space-2); font-size: 10px; color: var(--color-text-subtle); background: var(--color-surface); border-radius: var(--radius-sm); padding: 0 4px; }
+.nbs-card__body { display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-3) var(--space-4); }
+.nbs-card__title { font-weight: var(--weight-semibold); font-size: var(--font-size-sm); }
+.nbs-card__lead { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.nbs-card__price { font-family: var(--font-mono); font-size: var(--font-size-lg); font-weight: var(--weight-semibold); }
+.nbs-card__leadname, .nbs-card__lead--none { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nbs-card__facts { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbs-dots { display: inline-flex; gap: 3px; }
+.nbs-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--color-border-strong); }
+.nbs-dot.is-met { background: var(--color-primary); border-color: var(--color-primary); }
+.nbs-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); min-height: 220px; padding: var(--space-4); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg); color: var(--color-text-muted); text-align: center; text-decoration: none; }
+.nbs-new:hover, .nbs-new:focus-visible { border-color: var(--color-primary); color: var(--color-text); }
+.nbs-new__plus { font-size: 28px; line-height: 1; color: var(--color-primary); }
+.nbs-new__title { font-weight: var(--weight-semibold); color: var(--color-text); }
+.nbs-new__hint { font-size: var(--font-size-xs); max-width: 220px; }
+.nbs-new--alone { min-height: 0; flex-direction: row; justify-content: flex-start; gap: var(--space-3); text-align: left; }
+.nbs-new--alone .nbs-new__hint { max-width: none; }
+@media (max-width: 640px) {
+  /* A row you swipe through. */
+  .nbs__row { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; margin-right: calc(-1 * var(--space-4)); padding-right: var(--space-4); scrollbar-width: none; }
+  .nbs__row::-webkit-scrollbar { display: none; }
+  .nbs-card, .nbs-new { flex: 0 0 220px; scroll-snap-align: start; }
+  .nbs-card__cover { height: 96px; }
+  .nbs-new { min-height: 0; }
+  .nbs-new--alone { flex: 1 1 auto; }
 }

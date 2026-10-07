@@ -32,6 +32,9 @@
  */
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
+import { renderNotebookShelf } from '../views/notebook-shelf.js';
+import { homeShelf } from '../lib/notebook-card.js';
+import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { renderHomePage, renderHomeToday, homeStatus } from '../views/home-page.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
@@ -55,7 +58,7 @@ import {
 import { getContext } from '../context.js';
 import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { renderInboxPage } from '../views/inbox-page.js';
-import { render } from '../views/html.js';
+import { render, type SafeHtml } from '../views/html.js';
 import { renderPanelHome, renderPanelList, renderPanelNew, renderPanelRows } from '../views/panel-home.js';
 import { buildPanelList, panelFacets, parsePanelFilters, parsePanelTab } from '../lib/panel-inbox.js';
 import { renderNotFoundPage } from '../views/not-found.js';
@@ -125,7 +128,18 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, notebooks: notebooksLineFor(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), flash: parseFlash(req) }));
+}
+
+/** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
+function shelfFor(ctx: ReturnType<typeof getContext>): SafeHtml | undefined {
+  try {
+    const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const shelf = homeShelf(s, (id) => ctx.inboxStore?.get(id)?.status === 'awaiting_user');
+    // Notebooks shown without a picture get one in the background (once each).
+    for (const c of shelf.cards) if (!c.cover && c.nb.fields.length) { try { startNotebookPictures(ctx, c.nb.id); } catch { /* a nicety */ } }
+    return renderNotebookShelf(shelf);
+  } catch { return undefined; }
 }
 
 /** Home's Today, redrawn in place (home-page.js.ts). */

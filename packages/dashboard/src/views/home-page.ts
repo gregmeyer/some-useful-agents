@@ -4,8 +4,8 @@
  * Today full width. A row opens in the sua panel (home-page.js.ts), so the
  * top bar's composer is the one place to ask sua.
  *
- * Plan: ~/.claude/plans/compressed-whistling-valley.md (PR 2; the notebooks
- * shelf goes between the header and Today in PR 3).
+ * Plan: ~/.claude/plans/compressed-whistling-valley.md; the notebooks shelf
+ * (PR 3) sits between the intro and Today.
  */
 import type { AutonomyMode } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
@@ -32,8 +32,8 @@ export function renderHomeToday(today: HomeSurface | undefined): SafeHtml {
 export function renderHomePage(opts: {
   autonomyMode: AutonomyMode;
   today?: HomeSurface;
-  /** The notebooks line (PR 3 replaces it with the shelf). */
-  notebooks?: SafeHtml;
+  /** The notebooks shelf (views/notebook-shelf.ts). */
+  shelf?: SafeHtml;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }): string {
   const status = homeStatus(opts.today);
@@ -48,7 +48,6 @@ export function renderHomePage(opts: {
           ${opts.today ? html`<p class="home-top__goal">${opts.today.goal}</p>` : html``}
         </div>
         <div class="home-top__actions">
-          ${opts.notebooks ?? html``}
           <details class="home-menu">
             <summary class="btn btn--sm btn--ghost home-menu__btn" aria-label="Home settings">⋯</summary>
             <div class="home-menu__panel">
@@ -71,6 +70,7 @@ export function renderHomePage(opts: {
         learnMore: { href: '/help', label: 'What is sua?' },
         actions: [{ href: '/start', label: 'Start here', primary: true }],
       })}
+      ${opts.shelf ?? html``}
       <section class="home-today" aria-labelledby="home-today-title">
         <div class="home-today__head">
           <h2 class="home-today__title" id="home-today-title">Today</h2>
