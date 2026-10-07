@@ -16,6 +16,8 @@ Colours can be `#rrggbb` (or `#rgb`, `#rrggbbaa`), `rgb(…)`, `rgba(…)`, `hsl
 
 ## Your brands
 
+![Settings → Appearance: Update my brand and Your brands](images/appearance.png)
+
 Keep more than one look and switch between them. At the top of **Settings → Appearance → Brand**, **Your brands** lists the ones you've saved, each with a strip of its colours:
 - **Save as a brand** keeps the look in use under a name (saving with a name you've used replaces that brand).
 - **Use this** makes a saved brand the look everywhere. The previous look stays one **Undo last change** away.
