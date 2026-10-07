@@ -512,7 +512,6 @@ export function renderNotebooksList(args: {
   const empty = q.q || q.status !== 'all'
     ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
     : html``;
-  const showNew = counts.all === 0 || !!args.openNew;
   return render(layout({ title: 'Notebooks', activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › Notebooks</p>
     <header class="nbl-head">
@@ -520,17 +519,7 @@ export function renderNotebooksList(args: {
         <h1 class="nb-list__title">Notebooks</h1>
         <p class="nb-list__sub">A goal you keep over time: what it's for, what you've found, how far each one got, and what you decided.</p>
       </div>
-      <details class="nbl-new" id="new"${showNew ? unsafeHtml(' open') : unsafeHtml('')}>
-        <summary class="btn btn--primary">+ New notebook</summary>
-        <form method="POST" action="/notebooks" class="nb-form nbl-new__form">
-          <label class="nb-label">Title<input type="text" name="title" required class="form-field" placeholder="Buy a used car"></label>
-          <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field" placeholder="Find a reliable used SUV for family trips, and decide by Oct 15."></textarea></label>
-          <label class="nb-label">Limits, one per line<textarea name="params" rows="3" class="form-field" placeholder="SUV, AWD&#10;under $26,000&#10;under 60k miles"></textarea></label>
-          <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field" placeholder="At least one car that fits&#10;Clean history on the top choice&#10;A decision recorded"></textarea></label>
-          <p class="nbl-new__hint">sua sets up what to track and says hello in the notebook's conversation.</p>
-          <button type="submit" class="btn btn--primary btn--sm">Start the notebook</button>
-        </form>
-      </details>
+      <a class="btn btn--primary nbl-new__btn" href="/notebooks/new">+ New notebook</a>
     </header>
     ${counts.all ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
@@ -629,5 +618,5 @@ export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stag
 
 /** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */
 export function renderHomeNotebooksLine(active: number, total: number): SafeHtml {
-  return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks?new=1" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
+  return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
 }

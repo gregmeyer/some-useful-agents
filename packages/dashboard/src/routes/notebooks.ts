@@ -5,6 +5,9 @@
  * with a flash.
  */
 import { Router, type Request, type Response } from 'express';
+import { render } from '../views/html.js';
+import { renderNotebookNew, renderDraftReview } from '../views/notebook-new.js';
+import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
@@ -41,6 +44,8 @@ function widgetHistory(ctx: ReturnType<typeof getContext>, s: NotebookStore): No
 }
 
 notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
+  // The old "+ New notebook" form opened with ?new=1; it's a page now.
+  if (req.query.new === '1') { res.redirect(302, `/notebooks/new${req.query.flash ? `?flash=${encodeURIComponent(str(req.query.flash))}` : ''}`); return; }
   const s = store(req);
   const q = str(req.query.q).trim().slice(0, 100);
   const status = (['active', 'decided', 'stopped', 'all'] as const).find((v) => v === req.query.status) ?? 'active';
@@ -68,14 +73,63 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   }));
 });
 
+/** A form value that may repeat (chips) or be one newline-separated text. */
+const many = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : lines(v)).map((x) => x.trim()).filter(Boolean);
+
+/** A title from what was said, when none was given ("Skip the draft"). */
+const titleFrom = (text: string): string => {
+  const first = text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0] ?? '';
+  return first.length <= 60 ? first.replace(/[.!?]$/, '') : `${first.slice(0, 57).replace(/\s+\S*$/, '')}…`;
+};
+
+// New notebook (views/notebook-new.ts): say it, sua drafts it, you check it.
+notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
+  res.type('html').send(renderNotebookNew({ text: str(req.query.text).slice(0, 1000), flash: parseFlash(req) }));
+});
+
+notebooksRouter.post('/notebooks/draft', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const from = str(req.body?.from) ? readDraft(ctx, str(req.body?.from)) : undefined;
+  const out = startNotebookDraft(ctx, str(req.body?.text), from?.status === 'ready' ? { draft: from.draft, change: str(req.body?.change) } : undefined);
+  if (typeof out !== 'string') { res.status(400).json({ error: out.error }); return; }
+  res.status(202).json({ id: out });
+});
+
+notebooksRouter.get('/notebooks/draft/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const d = readDraft(ctx, String(req.params.id));
+  if (!d) { res.status(404).json({ status: 'gone', error: 'That draft has expired. Draft it again.' }); return; }
+  if (d.status === 'working') { res.json({ status: 'working' }); return; }
+  if (d.status === 'failed') { res.json({ status: 'failed', error: d.error }); return; }
+  res.json({ status: 'ready', html: render(renderDraftReview(String(req.params.id), d.draft, searchAgents(ctx))) });
+});
+
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   try {
+    const statement = str(req.body?.statement);
+    const ctx0 = getContext(req.app.locals);
+    const known = new Set(searchAgents(ctx0).map((a) => a.id));
+    let cadence = str(req.body?.cadence).trim();
+    if (cadence) { try { validateScheduleInterval(cadence, {}); } catch { cadence = ''; } }
     const nb = store(req).create({
-      title: str(req.body?.title),
-      statement: str(req.body?.statement),
-      params: lines(req.body?.params),
-      criteria: lines(req.body?.criteria),
+      title: str(req.body?.title).trim() || titleFrom(statement),
+      statement,
+      params: many(req.body?.params),
+      criteria: many(req.body?.criteria),
+      pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
+      cadence,
     });
+    // From a draft: what to note, the stages and the checks are set already, so setup is skipped.
+    const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
+    if (fields.length) {
+      const s0 = store(req);
+      s0.setFields(nb.id, fields);
+      const stages = many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean);
+      if (stages.length) s0.setStages(nb.id, stages);
+      const checks = many(req.body?.checks);
+      if (checks.length) s0.setChecks(nb.id, checks);
+      s0.markSetup(nb.id);
+    }
     // sua sets up what options record and the stages they go through, from the
     // goal, then says hello in the notebook's conversation with what it set up.
     const ctx = getContext(req.app.locals);
@@ -88,7 +142,7 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
     if (!startNotebookSetup(ctx, nb.id, { onDone: greet })) greet();
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
-    res.redirect(303, `/notebooks?new=1&flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
+    res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
   }
 });
 

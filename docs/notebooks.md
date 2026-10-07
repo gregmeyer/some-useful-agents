@@ -18,6 +18,16 @@ There's no top-nav item yet. Notebooks show up:
 
 - **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. what it's for (or what you decided), the best price with its lead option, chips for options and how many are in the running, and how many done-whens are met. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
 
+## Starting one
+
+**+ New notebook** (on Home's shelf or the Notebooks page) opens **Start a notebook**:
+1. **Say it in a sentence**, the way you'd tell a friend ("a reliable used SUV for my daughter, AWD, $3–8k, around Bellingham, decide by the 15th"), then **Draft it** (or press Enter).
+2. **sua drafts the notebook:** a title, what it's for, your limits, what "done" means (with your deadline), what to note for each option, what to check before deciding, the stages an option moves through, and which of your agents could search for it, with how often.
+3. **Check it.** Every part is editable: change or remove a limit, add a check, edit the stages, untick an agent. Or ask sua to change it ("only over-ear, drop the deadline").
+4. **Looks right, start it** creates the notebook already set up, and sua says hello in its conversation with the next thing to tell it.
+
+Nothing is created until you start it. **Skip the draft** starts the notebook from your sentence alone, and sua asks the rest in its conversation.
+
 ## Talk to sua; it fills the notebook
 
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:

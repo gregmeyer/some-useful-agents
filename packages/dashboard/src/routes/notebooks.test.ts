@@ -82,6 +82,13 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Never a real picture model either.
     notebookPictureRun: async () => undefined,
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
+    // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
+    notebookDrafterRun: async (inputs) => `<draft>${JSON.stringify({
+      title: inputs.CHANGE ? `Headphones (${inputs.CHANGE})` : 'Pick noise-cancelling headphones',
+      statement: 'For flights, under $300.', params: ['under $300', 'over-ear', 'under $300'], criteria: ['One pair that fits', 'A decision recorded by Oct 20'],
+      fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'rating', label: 'Rating', type: 'number', role: 'measure', better: 'higher' }, { key: 'bad key!', label: 'x' }],
+      checks: ['Comfortable with glasses'], stages: ['Found', 'Shortlist', 'Bought'], pipeline: ['sched-agent', 'made-up-agent'], cadence: 'every morning', why: 'Assumed over-ear.',
+    })}</draft>`,
     // A test run whose output is already a keeper answer is kept as-is.
     notebookKeeperRun: async (inputs) => inputs.RUN_OUTPUT.startsWith('<notebook>') ? inputs.RUN_OUTPUT : (inputs.SOURCE_AGENT === 'notebook-setup' && /staff role/i.test(inputs.NOTEBOOK)
       ? `<notebook>${JSON.stringify({ entries: [], fields: [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: ['Found', 'Applied', 'Offer'] })}</notebook>`
@@ -116,7 +123,7 @@ describe('notebooks pages', () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
     expect(empty.text).toContain('+ New notebook');
-    expect(empty.text).toMatch(/<details class="nbl-new" id="new" open>/);
+    expect(empty.text).toContain('class="btn btn--primary nbl-new__btn" href="/notebooks/new"');
 
     const made = await post(app, '/notebooks', { title: 'Buy a used car', statement: 'Find a reliable SUV', params: 'AWD\nunder $26k', criteria: 'One fits\nClean history\nDecided' });
     expect(made.status).toBe(303);
@@ -153,7 +160,7 @@ describe('notebooks pages', () => {
     const { render } = await import('../views/html.js');
     expect(render(renderHomeNotebooksLine(0, 0))).toContain('>Notebooks</a>');
     expect(render(renderHomeNotebooksLine(2, 3))).toContain('>2 notebooks</a>');
-    expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks?new=1" class="home-notebooks__new" aria-label="New notebook">+ New');
+    expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New');
   });
 });
 
@@ -606,7 +613,7 @@ describe("Home's notebooks shelf", () => {
     // None yet: an inviting + New, nothing else.
     let page = await home();
     expect(page).toContain('Your notebooks');
-    expect(page).toContain('class="nbs-new nbs-new--alone" href="/notebooks?new=1"');
+    expect(page).toContain('class="nbs-new nbs-new--alone" href="/notebooks/new"');
     expect(page).not.toContain('class="nbs-card"');
 
     const ids: string[] = [];
@@ -634,6 +641,62 @@ describe("Home's notebooks shelf", () => {
     expect(carCard).toContain('aria-label="1 of 2 done"');
     expect((carCard.match(/nbs-dot is-met/g) ?? []).length).toBe(1);
     expect(page.match(/sua asked you/g)).toHaveLength(1);
-    expect(page).toContain('class="nbs-new" href="/notebooks?new=1"');
+    expect(page).toContain('class="nbs-new" href="/notebooks/new"');
+  });
+});
+
+describe('new notebook: say it, sua drafts it, you check it', () => {
+  const form = (app: Awaited<ReturnType<typeof makeApp>>, path: string, body: Record<string, string | string[]>) => request(app).post(path)
+    .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  const ready = async (app: Awaited<ReturnType<typeof makeApp>>, id: string) => {
+    for (let i = 0; i < 250; i++) {
+      const r = await get(app, `/notebooks/draft/${id}`);
+      if (r.body.status !== 'working') return r.body as { status: string; html?: string; error?: string };
+      await new Promise((res) => setTimeout(res, 20));
+    }
+    return { status: 'working' };
+  };
+
+  it('drafts from a sentence, cleans it, changes it on request, and starts it set up', async () => {
+    const app = await makeApp();
+    expect((await get(app, '/notebooks/new')).text).toContain('Describe it like you\'d tell a friend');
+    expect((await get(app, '/notebooks?new=1')).headers.location).toBe('/notebooks/new');
+    expect((await form(app, '/notebooks/draft', { text: '  ' })).status).toBe(400);
+
+    const started = await form(app, '/notebooks/draft', { text: 'noise-cancelling headphones under $300' });
+    expect(started.status).toBe(202);
+    const d = await ready(app, started.body.id);
+    expect(d.status).toBe('ready');
+    expect(d.html).toContain('value="Pick noise-cancelling headphones"');
+    expect(d.html!.match(/name="params" value="under \$300"/g)).toHaveLength(1); // duplicates dropped
+    expect(d.html).toContain('value="sched-agent" checked');
+    expect(d.html).not.toContain('made-up-agent'); // only agents you have
+    expect(d.html).not.toContain('bad key'); // fields cleaned
+    expect(d.html).toContain('<option value="" selected>when I ask</option>'); // "every morning" isn't a schedule
+
+    const changed = await form(app, '/notebooks/draft', { text: 'noise-cancelling headphones under $300', from: started.body.id, change: 'only Sony' });
+    expect((await ready(app, changed.body.id)).html).toContain('value="Headphones (only Sony)"');
+
+    const made = await form(app, '/notebooks', {
+      title: 'Pick noise-cancelling headphones', statement: 'For flights.', params: ['over-ear', 'under $300'], criteria: ['One pair that fits'],
+      field: [JSON.stringify({ key: 'price', label: 'Price', type: 'money', role: 'price' }), JSON.stringify({ key: 'rating', label: 'Rating', type: 'number', role: 'measure' })],
+      checks: ['Comfortable with glasses'], stages: 'Found → Shortlist → Bought', pipeline: ['sched-agent', 'made-up-agent'], cadence: '0 7 * * *',
+    });
+    expect(made.status).toBe(303);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nb = NotebookStore.fromHandle(runStore.databaseHandle()).get('pick-noise-cancelling-headphones')!;
+    expect(nb).toMatchObject({ params: ['over-ear', 'under $300'], stages: ['Found', 'Shortlist', 'Bought'], checks: ['Comfortable with glasses'], pipeline: ['sched-agent'], cadence: '0 7 * * *' });
+    expect(nb.fields.map((f) => f.key)).toEqual(['price', 'rating']);
+    expect(nb.criteria.map((c) => c.text)).toEqual(['One pair that fits']);
+  });
+
+  it('Skip the draft starts it from the sentence alone', async () => {
+    const app = await makeApp();
+    const made = await form(app, '/notebooks', { statement: 'A quiet 2-bed rental in Fremont under $2,600. Move by December.' });
+    expect(made.status).toBe(303);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nb = NotebookStore.fromHandle(runStore.databaseHandle()).list()[0];
+    expect(nb.title).toBe('A quiet 2-bed rental in Fremont under $2,600');
   });
 });
