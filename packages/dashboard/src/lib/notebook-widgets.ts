@@ -5,8 +5,8 @@
  * later be arranged or placed on a board. The layout follows the "notebook as
  * a story" design (canvas artboard 23):
  *
- *   Where it stands + stats        | Done when (ring + steps)
- *   Where they sit (price map)     | How far they got (funnel)
+ *   Where it stands + stats (2/3)  | Done when (ring + steps, 1/3)
+ *   Where they sit (map, 2/3)      | How far they got (funnel, 1/3)
  *   Shortlist (cards / table)
  *   Before you decide (1/3)        | How we got here (timeline, 2/3)
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
@@ -276,8 +276,8 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
     ({ id, component: 'Panel', title, child, ...(note ? { note } : {}) });
   const c: ViewComponent[] = [
     { id: 'root', component: 'Column', children: ['top', ...(hasMap || hasFunnel ? ['mid'] : []), 'shortlist_panel', 'low', 'ctx'] },
-    // Where it stands, beside done-when.
-    { id: 'top', component: 'Columns', children: ['story', 'steps_panel'], widths: [3, 2] },
+    // Where it stands (two thirds), beside done-when (one third).
+    { id: 'top', component: 'Columns', children: ['story', 'steps_panel'], widths: [2, 1] },
     { id: 'story', component: 'Column', children: ['callout', 'stats'] },
     { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
     { id: 'stats', component: 'StatStrip', items: { path: '/notebook/statItems' } },
@@ -285,7 +285,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
     { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
   ];
   if (hasMap || hasFunnel) {
-    c.push({ id: 'mid', component: 'Columns', children: [...(hasMap ? ['map_panel'] : []), ...(hasFunnel ? ['funnel_panel'] : [])], widths: hasMap && hasFunnel ? [3, 2] : [1] });
+    c.push({ id: 'mid', component: 'Columns', children: [...(hasMap ? ['map_panel'] : []), ...(hasFunnel ? ['funnel_panel'] : [])], widths: hasMap && hasFunnel ? [2, 1] : [1] });
   }
   if (hasMap) {
     c.push(
