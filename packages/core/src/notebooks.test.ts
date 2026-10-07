@@ -539,3 +539,26 @@ describe("an option's text vs its facts", () => {
     expect(s.setOptionFacts(nb.id, b.id, { company: 'Globex' })!.data).toEqual({ company: 'Globex', careers: 'https://globex.example.com/jobs' });
   });
 });
+
+describe('the words that back a fact', () => {
+  it('keeps a quote; only trusted (code-filed) facts may say it was checked; short quotes are dropped', async () => {
+    const { splitFacts } = await import('./notebooks.js');
+    const fact = { fit: { value: 88, source: 'https://jobs.example.com/1', quote: '  leading our   Kafka migration ', checked: true } };
+    expect(splitFacts(fact).meta.fit).toEqual({ source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration' });
+    expect(splitFacts(fact, { trusted: true }).meta.fit).toMatchObject({ checked: true });
+
+    dir = mkdtempSync(join(tmpdir(), 'sua-quotes-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const a = s.upsertOption(nb.id, { title: 'Acme', by: 'agent:x', data: { company: 'Acme', ...fact }, trustedFacts: true }).entry;
+    expect(a.factMeta).toEqual({ fit: { source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration', checked: true } });
+    // A model can't claim the check.
+    const b = s.upsertOption(nb.id, { title: 'Globex', by: 'agent:keeper', data: { company: 'Globex', ...fact } }).entry;
+    expect(b.factMeta!.fit.checked).toBeUndefined();
+    // Too short to prove anything: no quote kept.
+    const c = s.upsertOption(nb.id, { title: 'Initech', by: 'agent:x', data: { company: 'Initech', fit: { value: 60, quote: 'Kafka' } }, trustedFacts: true }).entry;
+    expect(c.factMeta).toBeUndefined();
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options.find((o) => o.name === 'Acme')!.factMeta!.fit.quote).toBe('leading our Kafka migration');
+  });
+});

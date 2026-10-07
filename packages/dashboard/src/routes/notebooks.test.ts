@@ -827,17 +827,22 @@ describe('a run that files its own structured block', () => {
       { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
     ]);
     store.addEntry(nb.id, { kind: 'note', title: 'started', by: 'agent:acct', runId: 'seed-run' }); // makes acct a source
-    const entries = Array.from({ length: 20 }, (_, i) => ({ kind: 'option', title: `Company ${String(i + 1)}`, data: { company: `Company ${String(i + 1)}`, website: `https://c${String(i + 1)}.example.com`, fit: { value: 50 + i, estimate: true } } }));
+    const entries: unknown[] = Array.from({ length: 20 }, (_, i) => ({ kind: 'option', title: `Company ${String(i + 1)}`, data: { company: `Company ${String(i + 1)}`, website: `https://c${String(i + 1)}.example.com`, fit: { value: 50 + i, estimate: true } } }));
+    // The agent's code checked this quote; and it rules one company out itself.
+    (entries[0] as { data: Record<string, unknown> }).data.fit = { value: 50, source: 'https://c1.example.com/jobs/1', quote: 'migrating our billing to Kafka', checked: true };
+    entries.push({ kind: 'option', title: 'Initech', ruleOut: 'Unfit (12): sells printers', data: { company: 'Initech', website: 'https://initech.example.com', fit: 12 } });
     // Prose around the block: the test keeper only answers when output STARTS with <notebook>, so only direct filing can file this.
     const output = `Found 20 accounts.\n<notebook>${JSON.stringify({ entries })}</notebook>\nDone.`;
     runStore.createRun({ id: 'acct-run', agentName: 'acct', status: 'completed', startedAt: new Date(Date.now() - 60_000).toISOString(), completedAt: new Date().toISOString(), triggeredBy: 'dashboard', result: output } as never);
     const res = await request(app).post(`/notebooks/${nb.id}/runs/acct-run/add`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.status).toBe(303);
-    for (let i = 0; i < 100 && store.entries(nb.id).filter((e) => e.kind === 'option').length < 20; i++) await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 100 && store.entries(nb.id).filter((e) => e.kind === 'option').length < 21; i++) await new Promise((r) => setTimeout(r, 20));
     const options = store.entries(nb.id).filter((e) => e.kind === 'option');
-    expect(options).toHaveLength(20); // a keeper pass would stop at 12
+    expect(options.filter((e) => !e.ruledOut)).toHaveLength(20); // a keeper pass would stop at 12
+    expect(options.find((e) => e.title === 'Company 1')!.factMeta!.fit).toEqual({ source: 'https://c1.example.com/jobs/1', quote: 'migrating our billing to Kafka', checked: true });
+    expect(options.find((e) => e.title === 'Initech')!.ruledOut).toMatchObject({ reason: 'Unfit (12): sells printers', by: 'agent:acct' });
     expect(options.find((e) => e.title === 'Company 20')!.factMeta).toEqual({ fit: { estimate: true } });
     for (let i = 0; i < 50 && !store.passes(nb.id)[0]?.note; i++) await new Promise((r) => setTimeout(r, 20));
-    expect(store.passes(nb.id)[0].note).toContain('acct: 20 new (filed directly)');
+    expect(store.passes(nb.id)[0].note).toContain('acct: 21 new (filed directly)');
   });
 });

@@ -178,11 +178,11 @@ The **account-research** agent fills an accounts notebook ("B2B software compani
    | 85–100 | Tier 1, immediate fit | an active initiative or problem the profile is about |
    | 70–84 | Tier 2, high potential | the stack and senior hiring for it; the problem is implied |
    | 50–69 | Tier 3 | size or industry only |
-   | below 50 | Unfit | left out (the run's note names them) |
+   | below 50 | Unfit | filed as ruled out, with why, so the next search doesn't bring it back |
 
 4. **Check:** code, not a model, checks every quote is in the post word for word. A score whose quote isn't can't rank above tier 3, and its card says so.
 
-The notebook files the result directly: company, fit (linked to the post it's quoted from), tier, and the job post as the option's link. Revenue and headcount are filled only when a post states them, and marked as estimates. Ideas from [account-fleet](https://github.com/NatesVibeCode/account-fleet).
+The notebook files the result directly: company, fit, tier, and the job post as the option's link. Under each fit score the card shows the quote, marked **✓ checked in the source** and linked to the post. Revenue and headcount are filled only when a post states them, and marked as estimates. Ideas from [account-fleet](https://github.com/NatesVibeCode/account-fleet).
 
 ## Filing directly (for agent authors)
 
@@ -204,7 +204,7 @@ Normally sua's keeper reads a run's output and decides what to file. An agent th
 </notebook>
 ```
 
-`data` keys are the notebook's field keys. Entry kinds are option, note, evidence and decision. A block with no entries (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
+`data` keys are the notebook's field keys. A fact can also carry `"quote"`: the words in its source that back it (15+ characters); add `"checked": true` only when your agent's code found them there. The mark is believed only from a directly filed block, never from sua's keeper. An option can carry `"ruleOut": "why"` to file it ruled out. Entry kinds are option, note, evidence and decision. A block with no entries (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
 
 ## Runs not in the notebook yet
 

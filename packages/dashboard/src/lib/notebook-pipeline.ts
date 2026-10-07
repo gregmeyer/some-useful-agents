@@ -71,7 +71,7 @@ export interface KeeperOutcome {
  * notebook already has), tick criteria it showed are met (with a note saying
  * why). Pure apart from the store, so it's tested without a model.
  */
-export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number } = {}): KeeperOutcome {
+export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number; trusted?: boolean } = {}): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
   let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown };
@@ -102,7 +102,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let skipped = 0;
   let ruledOutSeen = 0;
   for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, opts.maxEntries ?? MAX_ENTRIES_PER_RUN)) {
-    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown };
+    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown; ruleOut?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
     const body = typeof x.body === 'string' ? x.body : '';
     const key = entryKey(x.title);
@@ -111,7 +111,13 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       const fingerprint = typeof x.fingerprint === 'string' ? x.fingerprint : undefined;
       // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
       if (!optionFingerprint(fingerprint, cleanData(splitFacts(data).values, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
-      const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId });
+      const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId, trustedFacts: opts.trusted });
+      // The agent rules it out itself ("Unfit: …"): kept, so the next search doesn't bring it back.
+      if (!r.ruledOut && typeof x.ruleOut === 'string' && x.ruleOut.trim()) {
+        store.ruleOut(nb.id, r.entry.id, x.ruleOut.replace(/\s+/g, ' ').trim().slice(0, 300), `agent:${agentId}`);
+        if (!r.seenAgain) added++; else refreshed++;
+        continue;
+      }
       if (r.ruledOut) { skipped++; ruledOutSeen++; }
       else if (r.seenAgain) refreshed++;
       else { added++; seen.add(key); }
@@ -177,7 +183,7 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
   // <notebook> block, cleaned the same way, with no keeper model, no 12k cap.
   const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;
   if (direct) {
-    const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES });
+    const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES, trusted: true });
     try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
     try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
     return { ...out, direct: true };
