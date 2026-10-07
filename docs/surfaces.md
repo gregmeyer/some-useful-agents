@@ -27,7 +27,7 @@ An item is one thing that needs you or matters now. Each has:
 - **actions** it supports, typed: approve or skip a card, reply in the thread, answer a question, run an agent again, make a draft active, open a page. The store that owns the truth carries them out.
 - **evidence** (the runs, outcome or build behind it) and **provenance**: which store it came from, what produced it, and when.
 
-One fact is one item. A conversation that mirrors something else becomes that item's **Ask sua** / **Open the thread** action rather than a second item, for example a run-failure thread for a failing agent, or the inbox copy of a run's question. Archived agents produce no items.
+One fact is one item. A conversation that mirrors something else becomes that item's **Ask sua** / **Open the thread** action rather than a second item, for example a run-failure thread for a failing agent, the inbox copy of a run's question, or a notebook's conversation. When sua is waiting on you in a notebook's conversation, the notebook itself is in Needs you (with sua's question, opening the conversation); otherwise it's in Happening now with how far along it is. Archived agents produce no items.
 
 Items are sorted most urgent first, then things waiting on you, then newest.
 

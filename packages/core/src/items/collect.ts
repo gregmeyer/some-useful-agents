@@ -122,6 +122,13 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
     if (agent.status === 'draft' && isRecentDraft(agent, now)) items.push(draftAgentItem(agent, agent.updatedAt ?? runs[0]?.startedAt ?? new Date(now).toISOString()));
   }
 
+  // Active notebooks, and their conversations: a notebook's conversation is
+  // its notebook's row (folded in below), not a second one.
+  const notebooks = src.notebooks?.list({ status: 'active' }) ?? [];
+  const notebookOfThread = new Map<string, string>();
+  for (const nb of notebooks) if (nb.conversationId) notebookOfThread.set(nb.conversationId, nb.id);
+  const notebookWaiting = new Map<string, Item>();
+
   // Remaining threads that need you.
   for (const t of threads) {
     if (questionThreads.has(t.id)) continue;
@@ -132,6 +139,8 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
     // An agent's failure / outcome / fix conversations are its problem item's conversation, not more items.
     if (t.agentId && agentItemFor.has(t.agentId) && (t.source === 'run-failure' || t.source === 'outcome' || isFixThread(t))) continue;
     const item = threadItem(t, src.inbox!.listResponses(t.id));
+    const nbId = notebookOfThread.get(t.id);
+    if (item && nbId) { notebookWaiting.set(nbId, item); continue; }
     if (item) items.push(item);
   }
 
@@ -147,9 +156,9 @@ export function collectItems(src: ItemSources, q: ItemQuery = {}): Item[] {
     }
   }
 
-  // Active notebooks.
-  for (const nb of src.notebooks?.list({ status: 'active' }) ?? []) {
-    const item = notebookItem(nb, src.notebooks!.entries(nb.id, 500).length);
+  // Active notebooks (waiting on you when their conversation is).
+  for (const nb of notebooks) {
+    const item = notebookItem(nb, src.notebooks!.entries(nb.id, 500).length, notebookWaiting.get(nb.id));
     if (item) items.push(item);
   }
 

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
+import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
 import { NotebookStore, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
@@ -62,6 +63,32 @@ describe('NotebookStore', () => {
     expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({ kind: 'progress', state: 'in-progress', summary: '0 of 2 criteria met · 4 entries', href: '/notebooks/car' });
     s.decide(nb.id, 'RAV4');
     expect(collectItems(itemSourcesFromHandle(runs.databaseHandle(), agents, runs)).some((i) => i.id === 'notebook:car')).toBe(false);
+    agents.close();
+  });
+
+  it('a notebook and its conversation are one row on Home: waiting on you when sua asked something', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const agents = new AgentStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const inbox = InboxStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Car', criteria: ['a'] });
+    const thread = inbox.add({ priority: 'medium', source: 'manual', title: 'Notebook: Car', body: '(empty)' });
+    s.setConversation(nb.id, thread.id);
+    inbox.addResponse(thread.id, 'triage', 'What is your budget?');
+    inbox.updateStatus(thread.id, 'awaiting_user');
+    const collect = () => collectItems(itemSourcesFromHandle(runs.databaseHandle(), agents, runs));
+    let items = collect();
+    expect(items.some((i) => i.id === `thread:${thread.id}`)).toBe(false);
+    expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({
+      kind: 'question', state: 'open', title: 'Notebook: Car', summary: 'sua: What is your budget?', subject: { threadId: thread.id },
+    });
+    expect(items.find((i) => i.id === 'notebook:car')!.actions.map((a) => a.type)).toEqual(['reply', 'open']);
+    // Answered: back to how far along it is, still one row.
+    inbox.updateStatus(thread.id, 'open');
+    items = collect();
+    expect(items.some((i) => i.id === `thread:${thread.id}`)).toBe(false);
+    expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({ kind: 'progress', state: 'in-progress' });
     agents.close();
   });
 });
