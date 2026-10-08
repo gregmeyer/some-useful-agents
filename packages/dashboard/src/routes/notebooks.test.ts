@@ -179,7 +179,7 @@ describe('notebook pipeline (G2–G3)', () => {
     const { NotebookStore } = await import('@some-useful-agents/core');
     const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
     const store = NotebookStore.fromHandle(runStore.databaseHandle());
-    const nb = store.create({ title: 'Buy a used car for Nadia' });
+    const nb = store.create({ title: 'Buy a used commuter car' });
     const block = (o: unknown) => `<notebook>${JSON.stringify(o)}</notebook>`;
     const fields = [
       { key: 'price', label: 'Price', type: 'money', role: 'price' },
@@ -271,9 +271,9 @@ describe('the talk box follows the notebook', () => {
   it('suggests the next useful thing to tell sua, step by step', async () => {
     await makeApp();
     const { nextStep } = await import('../views/notebooks.js');
-    const base = { id: 'car', title: 'Buy a used car for Nadia', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], stages: [] as string[], checks: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
+    const base = { id: 'car', title: 'Buy a used commuter car', statement: '', params: [] as string[], criteria: [{ text: 'clean title', met: false }], pipeline: [] as string[], fields: [], stages: [] as string[], checks: [] as string[], cadence: '', status: 'active' as const, createdAt: '', updatedAt: '' };
     const opt = { id: 'e1', notebookId: 'car', kind: 'option' as const, title: '2011 Subaru Forester, 150k, $7,200', body: '', by: 'sua', createdAt: '' };
-    expect(nextStep(base, []).placeholder).toContain('what "Buy a used car for Nadia" is for');
+    expect(nextStep(base, []).placeholder).toContain('what "Buy a used commuter car" is for');
     const withWhy = { ...base, statement: 'Find a reliable car for a new driver.' };
     expect(nextStep(withWhy, []).hint).toBe('Next: your limits (budget, must-haves, deal-breakers).');
     expect(nextStep(withWhy, []).placeholder).toBe('e.g. a budget, the must-haves, the deal-breakers, and where to look');
@@ -359,13 +359,13 @@ describe('notebook photos', () => {
     ]);
     const add = (title: string, data: Record<string, string>) => store.upsertOption(nb.id, { title, by: 'agent:x', data }).entry;
     const given = add('2010 Toyota RAV4 Sport', { photo: 'https://img.example/rav4.jpg' });
-    const listing = add('2009 Subaru Forester 2.5X', { url: 'https://www.autotrader.com/cars-for-sale/inventory/767954639' });
+    const listing = add('2009 Subaru Forester 2.5X', { url: 'https://www.autotrader.com/cars-for-sale/inventory/700000001' });
     const results = add('2007 Subaru Forester', { url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-Seattle-c8308' });
     const wrongCar = add('2006 Subaru Forester 2.5X', { url: 'https://www.autotrader.com/cars-for-sale/inventory/772291286' });
     const fetched: string[] = [];
     const deps = {
       fetchImage: async (u: string) => { fetched.push(u); if (u.includes('broken')) throw new Error('HTTP 404'); return { bytes: JPEG, contentType: 'image/jpeg' }; },
-      pagePreview: async (u: string) => (u.endsWith('767954639')
+      pagePreview: async (u: string) => (u.endsWith('700000001')
         ? { image: 'https://images.autotrader.com/forester-09.jpg', title: '2009 Subaru Forester 2.5X for sale in Seattle' }
         : { image: 'https://images.autotrader.com/other.jpg', title: '2014 Honda CR-V EX' }),
     };

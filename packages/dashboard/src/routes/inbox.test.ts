@@ -2344,7 +2344,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
     const ctx = currentCtx!;
     const { NotebookStore } = await import('@some-useful-agents/core');
     const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-    const nb = nbs.create({ title: 'Car for Nadia', params: ['AWD'], criteria: ['One fits'] });
+    const nb = nbs.create({ title: 'Commuter car', params: ['AWD'], criteria: ['One fits'] });
     const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
       .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
@@ -2371,7 +2371,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
       { type: 'notebook-add', rationale: 'file it', inputs: { NOTEBOOK: nb.id, CHANGES: { entries: [{ kind: 'note', title: 'New 17-year-old driver' }, { kind: 'option', title: '2011 Forester, 150k, $7,200' }, { kind: 'bogus', title: 'x' }], params: ['AWD', 'under $8,000'], criteria: ['Inspection done'] } } },
     ], []);
     const card = engine.withEditorBase(ctx, parsed.accepted[0]);
-    expect(card.inputs.NOTEBOOK_TITLE).toBe('Car for Nadia');
+    expect(card.inputs.NOTEBOOK_TITLE).toBe('Commuter car');
     expect(card.surfaceChanges?.map((c) => c.what)).toEqual(['note', 'option', 'parameter', 'parameter', 'done when']);
     expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed', summary: 'Added 4 to the notebook.' });
     expect(nbs.get(nb.id)!.params).toEqual(['AWD', 'under $8,000']);

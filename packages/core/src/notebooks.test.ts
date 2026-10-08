@@ -183,9 +183,9 @@ describe('notebook option fields', () => {
     s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X', body: 'no link', by: 'agent:sweep' });
     const r = s.upsertOption(nb.id, { title: '2010 RAV4 Sport', by: 'agent:sweep', data: { price: 4023, listing_url: 'https://cargurus.com/Cars/l-Used-Toyota-RAV4-mg108_L37788' } });
     expect(r.seenAgain).toBe(true);
-    const f = s.upsertOption(nb.id, { title: '2009 Subaru Forester 2.5X', by: 'agent:sweep', fingerprint: 'autotrader 767954639' });
+    const f = s.upsertOption(nb.id, { title: '2009 Subaru Forester 2.5X', by: 'agent:sweep', fingerprint: 'autotrader 700000001' });
     expect(f.seenAgain).toBe(true);
-    expect(s.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.fingerprint).sort()).toEqual(['autotrader 767954639', 'cargurus.com/cars/l-used-toyota-rav4-mg108_l37788']);
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.fingerprint).sort()).toEqual(['autotrader 700000001', 'cargurus.com/cars/l-used-toyota-rav4-mg108_l37788']);
   });
 
   it('fills in what an older option\'s text says once the notebook has fields', () => {
@@ -193,14 +193,14 @@ describe('notebook option fields', () => {
     runs = new RunStore(join(dir, 'runs.db'));
     const s = NotebookStore.fromHandle(runs.databaseHandle());
     const nb = s.create({ title: 'Buy a used car' });
-    s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X, 157k mi, $4,995, Ascend Motors', body: 'Not verified: https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle.', by: 'agent:sweep' });
+    s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X, 157k mi, $4,995, Example Motors', body: 'Not verified: https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle.', by: 'agent:sweep' });
     s.addEntry(nb.id, { kind: 'option', title: 'A nice one', by: 'you' });
     expect(s.backfillOptions(nb.id)).toBe(0); // no fields yet
     s.setFields(nb.id, CAR_FIELDS);
     expect(s.backfillOptions(nb.id)).toBe(1);
     const fo = s.entries(nb.id).find((e) => e.title.startsWith('2009'))!;
-    expect(fo.data).toEqual({ price: 4995, miles: 157000, year: 2009, listing_url: 'https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle' });
-    expect(fo.fingerprint).toBe('autotrader.com/cars-for-sale/inventory/767954639');
+    expect(fo.data).toEqual({ price: 4995, miles: 157000, year: 2009, listing_url: 'https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle' });
+    expect(fo.fingerprint).toBe('autotrader.com/cars-for-sale/inventory/700000001');
     expect(s.backfillOptions(nb.id)).toBe(0); // already done
   });
 
@@ -310,7 +310,7 @@ describe('option history and not seen lately', () => {
 describe('option photos', () => {
   it('only trusts a page photo when the page is that listing', async () => {
     const { previewMatchesOption, looksLikeOneListing } = await import('./notebooks.js');
-    expect(looksLikeOneListing('https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle')).toBe(true);
+    expect(looksLikeOneListing('https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle')).toBe(true);
     expect(looksLikeOneListing('https://www.cargurus.com/Cars/l-Used-Toyota-RAV4-2006-2012-Seattle-mg108_L37788')).toBe(false);
     expect(looksLikeOneListing('https://www.edmunds.com/used-subaru-forester-seattle-wa/')).toBe(false);
     expect(looksLikeOneListing('https://cars.example/search?q=rav4&id=1234567')).toBe(false);
@@ -368,7 +368,7 @@ describe('fields without roles, and facts that belong to another option', () => 
     runs = new RunStore(join(dir, 'runs.db'));
     const s = NotebookStore.fromHandle(runs.databaseHandle());
     const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'price', type: 'money' }, { key: 'miles', type: 'number' }, { key: 'year', type: 'number' }]);
-    const a = s.addEntry(nb.id, { kind: 'option', title: '2006 Subaru Forester 2.5X, 162k mi, $4,995, Ascend Motors', by: 'agent:x' });
+    const a = s.addEntry(nb.id, { kind: 'option', title: '2006 Subaru Forester 2.5X, 162k mi, $4,995, Example Motors', by: 'agent:x' });
     // Setup mixed up ids: the 2007's numbers.
     s.setOptionFacts(nb.id, a.id, { price: 4699, miles: 178630, year: 2007 });
     expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
@@ -405,7 +405,7 @@ describe('how a notebook was made', () => {
     } as never);
     run('sweep-1', 'car-sweep', 0);
     run('cl-a', 'craigslist-search', 1, ['sweep-1', 'seattle']);
-    run('cl-b', 'craigslist-search', 2, ['sweep-1', 'bellingham']);
+    run('cl-b', 'craigslist-search', 2, ['sweep-1', 'portland']);
     run('geo', 'geocode', 3, ['cl-b', 'where']);
     run('sweep-2', 'car-sweep', 30);
     run('other', 'unrelated', 40);
@@ -422,7 +422,7 @@ describe('how a notebook was made', () => {
     const first = l.feeders[1];
     expect(first).toMatchObject({ found: 2, kinds: { option: 2, note: 1 } });
     expect(first.subRuns.map((r) => [r.id, r.parentRunId, r.parentNodeId])).toEqual([
-      ['cl-a', 'sweep-1', 'seattle'], ['cl-b', 'sweep-1', 'bellingham'], ['geo', 'cl-b', 'where'],
+      ['cl-a', 'sweep-1', 'seattle'], ['cl-b', 'sweep-1', 'portland'], ['geo', 'cl-b', 'where'],
     ]);
     expect(l.feeders[0]).toMatchObject({ found: 1, seenAgain: 1 });
     expect(notebookLineage(s, runs, nb.id, 1)).toMatchObject({ more: 1 });
