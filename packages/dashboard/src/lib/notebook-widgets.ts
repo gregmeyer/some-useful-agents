@@ -108,6 +108,8 @@ const fmtAge = (iso: string, now: number) => {
 
 export interface NotebookWidgetData extends NotebookViewData {
   notebook: NotebookViewData['notebook'] & {
+    /** Each option with its own page's address (`page`), for the chart and the shortlist to link. */
+    options: Array<NotebookViewOption & { page: string }>;
     bands: { price?: NotebookRange; measure?: NotebookRange };
     summary: string;
     next: string;
@@ -122,6 +124,11 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
+}
+
+/** Where an option's own page is. */
+export function notebookOptionPath(notebookId: string, entryId: string): string {
+  return `/notebooks/${encodeURIComponent(notebookId)}/entries/${encodeURIComponent(entryId)}`;
 }
 
 /** The checks for options: the notebook's own, else "Still listed" plus the unmet done-whens. */
@@ -226,6 +233,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   return {
     notebook: {
       ...v,
+      options: v.options.map((o) => ({ ...o, page: notebookOptionPath(nb.id, o.id) })),
       bands: limitBands(nb),
       summary,
       next,
@@ -294,7 +302,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
     c.push(
       panel('map_panel', 'Where they sit', 'map', `${priceF!.label.toLowerCase()} by ${measureF!.label.toLowerCase()} · your limits shaded`),
       {
-        id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', label: 'name',
+        id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', label: 'name', href: 'page',
         xLabel: measureF!.label, yLabel: priceF!.label, xFormat: measureF!.type === 'money' ? 'money' : 'number', yFormat: priceF!.type === 'money' ? 'money' : 'number',
         xBand: { path: '/notebook/bands/measure' }, yBand: { path: '/notebook/bands/price' },
         ...(measureF!.better ? { xBetter: measureF!.better } : {}), yBetter: priceF!.better ?? 'lower',

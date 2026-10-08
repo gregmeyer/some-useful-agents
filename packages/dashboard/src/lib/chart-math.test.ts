@@ -9,11 +9,12 @@ import { assetsRouter } from '../routes/assets.js';
 // A browser module (assets/chart-math.js); a computed path keeps tsc from typing it.
 const here = dirname(fileURLToPath(import.meta.url));
 const modPath = join(here, '..', 'assets', 'chart-math.js');
-const { niceTicks, nearestPoint, fullValue, pointNote } = await import(modPath) as {
+const { niceTicks, nearestPoint, fullValue, pointNote, pointHref } = await import(modPath) as {
   niceTicks: (lo: number, hi: number, count?: number) => number[];
   nearestPoint: <T extends { px: number; py: number }>(pts: T[], x: number, y: number, reach: number) => T | undefined;
   fullValue: (n: number, money?: boolean) => string;
   pointNote: (a: Record<string, unknown>) => { name: string; values: string; status: string };
+  pointHref: (v: unknown) => string | undefined;
 };
 
 describe('niceTicks', () => {
@@ -54,6 +55,13 @@ describe('pointNote (what a hovered dot says)', () => {
     expect(pointNote({ ...base, ruledOut: { reason: 'No reply' }, stage: 'Checked' }).status).toBe('ruled out: No reply');
     expect(pointNote({ ...base, ruledOut: { gone: true } }).status).toBe('no longer available');
     expect(pointNote({ ...base, name: ' ' }).name).toBe('Untitled');
+  });
+});
+
+describe('pointHref (where a clicked dot goes)', () => {
+  it('opens only paths on this dashboard', () => {
+    expect(pointHref('/notebooks/car/entries/abc')).toBe('/notebooks/car/entries/abc');
+    for (const bad of ['https://example.com/x', '//example.com/x', 'javascript:alert(1)', '/a b', '/a\\b', '', 3, undefined]) expect(pointHref(bad)).toBeUndefined();
   });
 });
 

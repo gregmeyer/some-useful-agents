@@ -59,6 +59,20 @@ describe('notebook widgets', () => {
     expect(msgs[2].updateDataModel.value?.notebook?.options).toHaveLength(2);
   });
 
+  it("links each option to its own page: the map's dots and the shortlist's names", () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb0 = s.create({ title: 'Car' });
+    s.setFields(nb0.id, CAR);
+    const wagon = s.upsertOption(nb0.id, { title: '2010 Example Wagon', by: 'you', data: { price: 4500, miles: 150000 } }).entry;
+    const nb = s.get(nb0.id)!;
+    expect(notebookWidgetData(nb, s.entries(nb.id), s).notebook.options[0].page).toBe(`/notebooks/car/entries/${wagon.id}`);
+    const v = validateViewComponents(notebookWidgetComponents(nb));
+    expect(v.ok).toBe(true); // the catalog knows Scatter's href
+    expect((v.ok ? v.components : []).find((c) => c.component === 'Scatter')).toMatchObject({ href: 'page', label: 'name' });
+  });
+
   it('leaves out the map without a price and a measure, and the funnel without stages', () => {
     const names = notebookWidgetComponents({ fields: [{ key: 'company', label: 'Company', type: 'text', role: 'org' }], stages: [] }).map((c) => c.component);
     expect(names).not.toContain('Scatter');

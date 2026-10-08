@@ -12,7 +12,7 @@ import {
   MessageProcessor, Catalog, CommonSchemas, A2uiLitElement, basicCatalog,
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v0_9.js';
-import { niceTicks, nearestPoint, pointNote } from '/assets/chart-math.js';
+import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -282,6 +282,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
     .title { font-weight: 600; font-size: var(--font-size-sm); line-height: 1.3; }
     .out .title { text-decoration: line-through; }
+    .title a { color: inherit; text-decoration: none; }
+    .title a:hover, .title a:focus-visible { color: var(--color-primary); text-decoration: underline; }
     .price { font: 700 1.35rem/1 var(--font-mono); color: var(--color-text); }
     .score { font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .quote { margin: 0; padding-left: var(--space-2); border-left: 2px solid var(--color-border); font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
@@ -340,6 +342,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const layout = this._layout ?? (saved === 'grid' || saved === 'table' ? saved : undefined) ?? p.layout ?? 'grid';
     const set = (k, v) => { this[k] = v; if (k === '_layout') { try { localStorage.setItem('sua-option-layout', v); } catch { /* not kept */ } } this.requestUpdate(); };
     const act = (detail) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: detail } }));
+    // Its name opens its own page, when it has one.
+    const named = (o) => { const href = pointHref(o.page); return href ? html`<a href=${href}>${o.name ?? o.title}</a>` : (o.name ?? o.title); };
     const next = (o) => { const i = stages.indexOf(o.stage); return i >= 0 ? stages[i + 1] : undefined; };
     const facts = (o) => fields.filter((f) => f.role !== 'price' && f.role !== 'score' && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image')
       .map((f) => ({ key: f.key, label: f.label, text: fmtField(f, o.fields?.[f.key]) })).filter((x) => x.text).slice(0, 5);
@@ -395,7 +399,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
-          <td><div class="title">${o.name ?? o.title}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
+          <td><div class="title">${named(o)}</div>${o.ruledOut ? html`<div class="why">${o.ruledOut.gone ? 'No longer available' : `Ruled out: ${o.ruledOut.reason}`}</div>` : nothing}</td>
           ${scoreF ? html`<td class="num" title=${o.factMeta?.[scoreF.key]?.quote ? `“${o.factMeta[scoreF.key].quote}”` : ''}>${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}${o.factMeta?.[scoreF.key]?.checked ? html` <span class="ok" aria-label="quote checked in the source">✓</span>` : nothing}</td>` : nothing}
           <td class="num">${priceF && o.fields?.[priceF.key] != null ? html`${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}` : ''} ${change(o)}</td>
           <td class="num">${measureF && o.fields?.[measureF.key] != null ? html`${est(o, measureF)}${fmtField(measureF, o.fields[measureF.key])}` : ''}</td>
@@ -410,7 +414,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${o === best ? html`<span class="ribbon">${scoreF ? 'best fit' : `best ${priceBetter === 'higher' ? 'pay' : 'price'}`}</span>` : nothing}
       </div>
       <div class="body">
-        <div class="title" title=${o.title}>${o.name ?? o.title}</div>
+        <div class="title" title=${o.title}>${named(o)}</div>
         ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${est(o, scoreF)}${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
         ${quoteOf(o)}
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
@@ -434,7 +438,7 @@ function svgEl(tag, attrs = {}, text) {
 
 const Scatter = define('Scatter', 'sua-a2ui-scatter',
   Common.extend({
-    points: CommonSchemas.DynamicValue, x: z.string(), y: z.string(), label: z.string().optional(),
+    points: CommonSchemas.DynamicValue, x: z.string(), y: z.string(), label: z.string().optional(), href: z.string().max(64).optional(),
     xLabel: Str.optional(), yLabel: Str.optional(), xFormat: z.enum(['number', 'money']).optional(), yFormat: z.enum(['number', 'money']).optional(),
     xBand: CommonSchemas.DynamicValue.optional(), yBand: CommonSchemas.DynamicValue.optional(),
     xBetter: z.enum(['higher', 'lower']).optional(), yBetter: z.enum(['higher', 'lower']).optional(),
@@ -462,30 +466,39 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
     .tip .name { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-text); overflow-wrap: anywhere; }
     .tip .values { font: var(--font-size-xs) var(--font-mono); color: var(--color-text); margin-top: 2px; white-space: nowrap; }
     .tip .status { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px; }
+    .tip .open { display: inline-block; margin-top: 4px; font-size: var(--font-size-xs); font-weight: 600; color: var(--color-primary); text-decoration: none; }
+    .tip.tapped { pointer-events: auto; }
+    .chart.linked.over { cursor: pointer; }
     .legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3, 12px); font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1, 4px); }
     .legend span { display: inline-flex; align-items: center; gap: var(--space-1, 4px); }
     .legend svg { display: block; }
     .legend .hint { margin-left: auto; }
+    .legend .hint.touch { display: none; }
+    @media (hover: none) { .legend .hint.mouse { display: none; } .legend .hint.touch { display: inline-flex; } }
     .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
   function (p) {
     const n = (Array.isArray(p.points) ? p.points : []).filter((o) => Number.isFinite(Number(getPath(o, p.x))) && Number.isFinite(Number(getPath(o, p.y)))).length;
     if (n === 0) return html`<p class="empty">Nothing to plot yet: options need ${p.xLabel ?? p.x} and ${p.yLabel ?? p.y}.</p>`;
     const banded = (b) => b && typeof b.min === 'number';
     const anyOut = (Array.isArray(p.points) ? p.points : []).some((o) => o?.ruledOut);
+    // `href` names each point's link (a path on this dashboard): a click opens it.
+    const linked = !!p.href && (Array.isArray(p.points) ? p.points : []).some((o) => pointHref(getPath(o, p.href)));
     // Whole <svg> per template: a nested template would make <circle> an HTML element.
     const swatch = (cls) => (cls === 'band'
       ? html`<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect class="band" x="1" y="2" width="10" height="8"></rect></svg>`
       : html`<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="dot ${cls}" cx="6" cy="6" r="4.5"></circle></svg>`);
     return html`<div class="plot">
-        <div class="chart" tabindex="0" role="group" aria-label="${p.yLabel ?? p.y} by ${p.xLabel ?? p.x} for ${n} options. Use the arrow keys to read each one."></div>
-        <div class="tip" hidden aria-live="polite"><div class="name"></div><div class="values"></div><div class="status"></div></div>
+        <div class="chart ${linked ? 'linked' : ''}" tabindex="0" role="group" aria-label="${p.yLabel ?? p.y} by ${p.xLabel ?? p.x} for ${n} options. Use the arrow keys to read each one${linked ? ', and Enter to open it' : ''}."></div>
+        <div class="tip" hidden aria-live="polite"><div class="name"></div><div class="values"></div><div class="status"></div><a class="open" hidden>Open →</a></div>
       </div>
       <div class="legend">
         <span>${swatch('best')} ${bestWord(p)}</span>
         <span>${swatch('')} in the running</span>
         ${anyOut ? html`<span>${swatch('out')} ruled out</span>` : nothing}
         ${banded(p.xBand) || banded(p.yBand) ? html`<span>${swatch('band')} your limits</span>` : nothing}
-        <span class="hint">hover or tap a dot for details</span>
+        ${linked
+          ? html`<span class="hint mouse">hover for details, click to open</span><span class="hint touch">tap a dot, then Open →</span>`
+          : html`<span class="hint">hover or tap a dot for details</span>`}
       </div>`;
   },
   {
@@ -541,7 +554,8 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
       // Hover / keyboard annotation: the point nearest the pointer, within reach.
       const tip = this.renderRoot.querySelector('.tip');
       const order = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
-      const show = (d) => {
+      const hrefOf = (d) => (d && p.href ? pointHref(getPath(d.o, p.href)) : undefined);
+      const show = (d, tapped = false) => {
         for (const q of pts) { q.el.classList.toggle('hot', q === d); q.el.setAttribute('r', String(q === d ? q.r + 2 : q.r)); }
         // The note names the point, so the static label steps back while it shows.
         label?.classList.toggle('dim', !!d);
@@ -556,6 +570,11 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
         tip.querySelector('.values').textContent = note.values;
         tip.querySelector('.status').textContent = note.status;
         tip.querySelector('.status').hidden = !note.status;
+        // Its link: on a touch screen the first tap shows the note, and Open → goes there.
+        const open = tip.querySelector('.open'); const href = hrefOf(d);
+        open.hidden = !href;
+        if (href) open.setAttribute('href', href); else open.removeAttribute('href');
+        tip.classList.toggle('tapped', tapped && !!href);
         tip.hidden = false;
         // Place it above the dot (below when there's no room), inside the chart.
         const m = svg.getScreenCTM(); const r = box.getBoundingClientRect();
@@ -574,16 +593,27 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
         const at = (e) => {
           const st = this.__scatter; const m = st?.svg.getScreenCTM(); if (!m) return;
           // Screen → chart units (the svg can be letterboxed when the panel is wide).
-          this.__show(nearestPoint(st.pts, (e.clientX - m.e) / m.a, (e.clientY - m.f) / m.d, 18 / m.a));
+          const d = nearestPoint(st.pts, (e.clientX - m.e) / m.a, (e.clientY - m.f) / m.d, 18 / m.a);
+          box.classList.toggle('over', !!st.hrefOf(d));
+          return d;
         };
-        box.addEventListener('pointermove', at);
-        // A tap on a touch screen sends no hover moves.
-        box.addEventListener('pointerdown', at);
+        box.addEventListener('pointermove', (e) => this.__show(at(e)));
+        // A tap on a touch screen sends no hover moves: it shows the note (with Open →).
+        box.addEventListener('pointerdown', (e) => { this.__pointer = e.pointerType; this.__show(at(e), e.pointerType !== 'mouse'); });
+        // A mouse click on a linked dot opens it (Cmd/Ctrl-click in a new tab).
+        box.addEventListener('click', (e) => {
+          if (this.__pointer && this.__pointer !== 'mouse') return;
+          const href = this.__scatter?.hrefOf(at(e));
+          if (!href) return;
+          if (e.metaKey || e.ctrlKey) window.open(href, '_blank', 'noopener'); else window.location.assign(href);
+        });
         box.addEventListener('pointerleave', () => { if (this.renderRoot.activeElement !== box) this.__show(undefined); });
-        box.addEventListener('blur', () => this.__show(undefined));
+        // Focus going to the note's Open → (a tap on it) keeps the note up.
+        box.addEventListener('blur', (e) => { if (!this.renderRoot.querySelector('.tip')?.contains(e.relatedTarget)) this.__show(undefined); });
         box.addEventListener('keydown', (e) => {
           const st = this.__scatter; if (!st) return;
           if (e.key === 'Escape') { this.__show(undefined); return; }
+          if (e.key === 'Enter') { const href = st.hrefOf(this.__hot); if (href) { e.preventDefault(); window.location.assign(href); } return; }
           const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
           if (!step) return;
           e.preventDefault();
@@ -591,7 +621,7 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
           this.__show(st.order[i < 0 ? (step > 0 ? 0 : st.order.length - 1) : (i + step + st.order.length) % st.order.length]);
         });
       }
-      this.__scatter = { pts, order, svg };
+      this.__scatter = { pts, order, svg, hrefOf };
       if (this.__hot) show(pts.find((q) => q.o === this.__hot.o));
     },
   });
