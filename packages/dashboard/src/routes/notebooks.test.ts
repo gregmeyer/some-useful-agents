@@ -906,3 +906,54 @@ describe('the catalog knows which agents fill notebooks', () => {
     expect(agents.find((a) => a.id === 'zz-idle')!.feeds).toBeUndefined();
   });
 });
+
+describe("a notebook's schedule", () => {
+  it('runs the pipeline once per slot, waits on a new schedule, catches up once, and marks the pass', async () => {
+    const app = await makeApp();
+    const ctx = app.locals as never as Parameters<typeof import('../lib/notebook-cadence.js')['runNotebookCadenceOnce']>[0];
+    const { runNotebookCadenceOnce } = await import('../lib/notebook-cadence.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Cars every morning', pipeline: ['sched-agent'], cadence: '0 7 * * *' });
+    const at = (s: string) => new Date(s);
+    const idle = async () => { for (let i = 0; i < 200 && ctx.notebookPipelines?.size; i++) await new Promise((r) => setTimeout(r, 20)); };
+
+    // First sight: the 7:00 already past isn't owed.
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-07T08:00:00')).get(nb.id)).toBe('first-seen');
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-07T08:30:00')).get(nb.id)).toBe('waiting');
+    // Next morning: runs once.
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-08T07:01:00')).get(nb.id)).toBe('started');
+    await idle();
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-08T07:02:00')).get(nb.id)).toBe('waiting');
+    expect(store.passes(nb.id)[0]).toMatchObject({ kind: 'pipeline', scheduled: true });
+    // Down for three days: one catch-up run, not three.
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-11T09:00:00')).get(nb.id)).toBe('started');
+    await idle();
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-11T09:01:00')).get(nb.id)).toBe('waiting');
+    expect(store.passes(nb.id).filter((p) => p.scheduled)).toHaveLength(2);
+    // Someone pressed Run: busy, retried next tick.
+    store.markCadenceFired(nb.id, '2026-10-11T07:00:00.000Z');
+    ctx.notebookPipelines ??= new Map();
+    ctx.notebookPipelines.set(nb.id, { agentId: 'sched-agent', step: 1, of: 1, startedAt: Date.now() });
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-12T07:00:30')).get(nb.id)).toBe('busy');
+    ctx.notebookPipelines.delete(nb.id);
+    // A changed schedule starts fresh.
+    store.update(nb.id, { cadence: '0 9 * * 1' });
+    expect(store.get(nb.id)!.cadenceFiredAt).toBeUndefined();
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-12T10:00:00')).get(nb.id)).toBe('first-seen');
+    // Closed, or nothing to run: left alone.
+    store.setStatus(nb.id, 'stopped');
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-20T10:00:00')).has(nb.id)).toBe(false);
+  });
+
+  it('says when it runs next in the header', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Weekly accounts', pipeline: ['sched-agent'], cadence: '0 7 * * 1' });
+    const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toMatch(/runs [^<]*, next (today|tomorrow|Mon) 7:00 am/);
+    const idle = store.create({ title: 'No searches yet', cadence: '0 7 * * 1' });
+    expect((await request(app).get(`/notebooks/${idle.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text).toContain('once it has a search (add one under Edit)');
+  });
+});

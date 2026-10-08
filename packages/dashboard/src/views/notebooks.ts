@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -79,7 +79,10 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
-  const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}` : 'runs when you ask';
+  const next = human && nb.status === 'active' && nb.pipeline.length ? nextFireTime(nb.cadence) : null;
+  // A schedule with nothing to run says so, rather than implying it runs.
+  const idle = human && nb.status === 'active' && nb.pipeline.length === 0 ? ' once it has a search (add one under Edit)' : '';
+  const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
   return html`
     <section class="nb-hero" aria-labelledby="nb-title">
       <div class="nb-hero__main">
@@ -627,4 +630,13 @@ export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stag
 /** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */
 export function renderHomeNotebooksLine(active: number, total: number): SafeHtml {
   return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
+}
+
+/** "today 7:00 am", "tomorrow 7:00 am", "Thu 7:00 am". */
+function formatWhen(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(d) - day(now)) / 86_400_000);
+  return diff === 0 ? `today ${time}` : diff === 1 ? `tomorrow ${time}` : `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${time}`;
 }

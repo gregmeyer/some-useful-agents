@@ -76,7 +76,8 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   - **Notes and decisions**, with decisions first;
   - **Evidence**.
 - **+ Add entry** (in the header, beside **Decide…**) adds a note, an option, evidence, or a decision.
-- **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule. Editing the criteria keeps the ticks on the ones you didn't change.
+- **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule.
+- **The schedule runs the pipeline.** A notebook with a schedule ("every morning") runs its searches when it's due, the same as pressing Run. The header says when it runs next. Each due time runs once. After the dashboard has been off, it catches up with one run, not one per missed time. A new or changed schedule waits for its next time. A schedule needs at least one search to run; without one the header says so. Scheduled runs are marked **on schedule** in **How it was made**. Schedules run while the dashboard is running (always, under `sua daemon`). See [ADR-0050](adr/0050-notebook-schedules-run-in-the-dashboard.md). Editing the criteria keeps the ticks on the ones you didn't change.
 - **Decide…** records what you decided and why. The decision is also kept as an entry, and the notebook closes. **Reopen** any time; **Stop** pauses a notebook without deciding.
 
 ## Option facts
@@ -235,5 +236,5 @@ With **Edit** in the header, list the agents that gather for the notebook, one i
 
 ## Coming next
 
-- **G4:** one schedule for the notebook. Each run shows what's new or changed, and progress against the criteria.
+- **G4:** one schedule for the notebook (runs now; see above). Still to come: each run shows what's new or changed, and progress against the criteria.
 - **G5:** "start a notebook to research X" from sua drafts the notebook, its pipeline and schedule behind one approval.

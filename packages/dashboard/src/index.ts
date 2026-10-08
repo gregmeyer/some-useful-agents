@@ -85,6 +85,7 @@ import { raiseOutcomeInbox } from './lib/outcome-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
+import { startNotebookCadence } from './lib/notebook-cadence.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
@@ -752,6 +753,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // inbox thread each morning summarizing the previous day's runs (skipped
   // while SUA_DAILY_DIGEST=0). Same lifecycle as the sweeper; publishes via an
   // injected callback so this stays out of routes/.
+  // Notebooks' own schedules (their cadence): runs each one's pipeline when due.
+  const stopNotebookCadence = startNotebookCadence(ctx);
+
   const stopDailyDigest = startDailyDigest(ctx, {
     onPosted: (id, status) => publishInboxChanged(ctx, id, status),
     excludeAgent: (name) => SYSTEM_AGENT_IDS.has(name),
@@ -793,6 +797,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       stopInboxSweeper();
       stopQuestionSweeper();
       stopDailyDigest();
+      stopNotebookCadence();
       stopSchedulerHealth();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll

@@ -242,7 +242,7 @@ export function pipelineRunning(ctx: Ctx, notebookId: string) {
  * already running (or there's nothing to run). Errors become the run's note;
  * nothing throws to the caller.
  */
-export function startNotebookPipeline(ctx: Ctx, notebookId: string): { started: boolean; reason?: string } {
+export function startNotebookPipeline(ctx: Ctx, notebookId: string, opts: { scheduled?: boolean } = {}): { started: boolean; reason?: string } {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
@@ -251,15 +251,15 @@ export function startNotebookPipeline(ctx: Ctx, notebookId: string): { started: 
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'Its pipeline is already running.' };
   ctx.notebookPipelines.set(notebookId, { agentId: nb.pipeline[0], step: 1, of: nb.pipeline.length, startedAt: Date.now() });
-  void runPipeline(ctx, store, nb).finally(() => ctx.notebookPipelines?.delete(notebookId));
+  void runPipeline(ctx, store, nb, opts).finally(() => ctx.notebookPipelines?.delete(notebookId));
   return { started: true };
 }
 
-async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook): Promise<void> {
+async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook, opts: { scheduled?: boolean } = {}): Promise<void> {
   const notes: string[] = [];
   let total = 0;
   // One pass for the whole pipeline: every agent's run, failed ones too.
-  const passId = store.startPass(nb.id, 'pipeline');
+  const passId = store.startPass(nb.id, 'pipeline', undefined, opts);
   for (const [i, agentId] of nb.pipeline.entries()) {
     ctx.notebookPipelines?.set(nb.id, { agentId, step: i + 1, of: nb.pipeline.length, startedAt: Date.now() });
     const agent = ctx.agentStore.getAgent(agentId);

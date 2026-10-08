@@ -65,3 +65,15 @@ export function nextFireTime(cronExpr: string): string | null {
     return null;
   }
 }
+
+/**
+ * The most recent time a cron expression fired at or before `now` (the slot
+ * a schedule should have run for). ISO string, or null if unparseable.
+ */
+export function lastFireTime(cronExpr: string, now: Date = new Date()): string | null {
+  try {
+    return CronExpressionParser.parse(cronExpr, { currentDate: now }).prev().toISOString();
+  } catch {
+    return null;
+  }
+}
