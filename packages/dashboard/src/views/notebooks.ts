@@ -457,6 +457,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ${editNotebookForm(nb)}
         </div>
       </details>
+      ${entries.some((e) => e.kind === 'option') ? html`<a class="btn btn--sm btn--ghost" href="/notebooks/${id}/shortlist.csv" download title="The shortlist as a spreadsheet, best first">Download CSV</a>` : html``}
     </div>`;
 }
 

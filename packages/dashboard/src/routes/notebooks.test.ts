@@ -846,3 +846,25 @@ describe('a run that files its own structured block', () => {
     expect(store.passes(nb.id)[0].note).toContain('acct: 21 new (filed directly)');
   });
 });
+
+describe('download the shortlist', () => {
+  it('sends a CSV attachment best first, and the header links to it once there are options', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Accounts to call' }).id, [{ key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('shortlist.csv');
+    store.upsertOption(nb.id, { title: 'Low', by: 'agent:x', data: { fit: 40 } });
+    store.upsertOption(nb.id, { title: 'High', by: 'agent:x', data: { fit: 90 } });
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/shortlist.csv"`);
+    const res = await get(`/notebooks/${nb.id}/shortlist.csv`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${nb.id}-shortlist.csv"`);
+    const rows = res.text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(rows.slice(1).map((r) => r.split(',').slice(0, 2).join(','))).toEqual(['1,High', '2,Low']);
+    expect((await get(`/notebooks/${nb.id}/shortlist.csv?all=1`)).headers['content-disposition']).toContain('-all.csv');
+    expect((await get('/notebooks/nope/shortlist.csv')).status).toBe(404);
+  });
+});

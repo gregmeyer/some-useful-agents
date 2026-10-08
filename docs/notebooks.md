@@ -184,6 +184,10 @@ The **account-research** agent fills an accounts notebook ("B2B software compani
 
 The notebook files the result directly: company, fit, tier, and the job post as the option's link. Under each fit score the card shows the quote, marked **✓ checked in the source** and linked to the post. Revenue and headcount are filled only when a post states them, and marked as estimates. Ideas from [account-fleet](https://github.com/NatesVibeCode/account-fleet).
 
+## Download the shortlist
+
+**Download CSV** in a notebook's header saves its shortlist as a spreadsheet, best first (by fit when the notebook has a fit score, else by price). It has one column per fact (numbers as plain numbers, ranges as `min-max`), then which facts are estimates, where facts came from, the quote that backs the ranking and whether it was checked, how many of the notebook's checks are done, and when each option was first and last seen. Add `?all=1` to the address to include ruled-out options, with why. It opens cleanly in Excel, Numbers and Google Sheets. Text that a spreadsheet would run as a formula is prefixed with `'`.
+
 ## Filing directly (for agent authors)
 
 Normally sua's keeper reads a run's output and decides what to file. An agent that already knows the notebook's shape can skip that: put a `<notebook>` JSON block in its output, and the notebook files it as is: no keeper model, no 12,000-character limit, up to 50 entries per run. It's cleaned exactly like the keeper's own output (fields, links, facts, sources).

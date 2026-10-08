@@ -562,3 +562,38 @@ describe('the words that back a fact', () => {
     expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options.find((o) => o.name === 'Acme')!.factMeta!.fit.quote).toBe('leading our Kafka migration');
   });
 });
+
+describe('the shortlist as a spreadsheet', () => {
+  it('ranks best first, one column per field, with sources, the quote, and formula-safe text', async () => {
+    const { notebookCsv } = await import('./notebooks.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-csv-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    let nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'revenue', label: 'Revenue', type: 'money', range: true },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
+    ]);
+    nb = s.setChecks(nb.id, ['Talked to a customer', 'Pricing fits']);
+    s.upsertOption(nb.id, { title: 'Globex', by: 'agent:x', data: { company: 'Globex', fit: 70 } });
+    const acme = s.upsertOption(nb.id, { title: 'Acme, "the" best', by: 'agent:x', trustedFacts: true, data: {
+      company: '=HYPERLINK("http://evil")', revenue: { value: { min: 2e7, max: 3e7 }, estimate: true },
+      fit: { value: 91, source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration', checked: true },
+    } }).entry;
+    s.checkOption(nb.id, acme.id, 'Pricing fits', true);
+    const out = s.upsertOption(nb.id, { title: 'Initech', by: 'agent:x', data: { company: 'Initech', fit: 10 } }).entry;
+    s.ruleOut(nb.id, out.id, 'Unfit (10): sells printers');
+    const options = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options;
+
+    const csv = notebookCsv(s.get(nb.id)!, options);
+    expect(csv.startsWith('﻿')).toBe(true);
+    const lines = csv.slice(1).trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Rank,Option,Stage,Company,Revenue,Fit,Estimates,Sources,Quote,Quote source,Quote checked,Checks done,First seen,Last seen');
+    expect(lines).toHaveLength(3); // ruled out left out
+    expect(lines[1]).toContain(`1,"Acme, ""the"" best",,"'=HYPERLINK(""http://evil"")",20000000-30000000,91,Revenue,Fit: https://jobs.example.com/1,leading our Kafka migration,https://jobs.example.com/1,yes,1 of 2,`);
+    expect(lines[2].startsWith('2,Globex,,Globex,,70,,,,,,0 of 2,')).toBe(true);
+
+    const all = notebookCsv(s.get(nb.id)!, options, { ruledOut: true }).slice(1).trimEnd().split('\r\n');
+    expect(all[0].endsWith(',Ruled out')).toBe(true);
+    expect(all[3]).toMatch(/^,Initech,.*,Unfit \(10\): sells printers$/);
+  });
+});
