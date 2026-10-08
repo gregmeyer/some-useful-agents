@@ -51,3 +51,8 @@ export function pointNote({ name, x, y, xLabel, yLabel, xMoney, yMoney, best, be
     status: status.join(' · '),
   };
 }
+
+/** Where a point opens: a path on this dashboard ("/notebooks/…"), or nothing. Other sites never open from a chart. */
+export function pointHref(v) {
+  return typeof v === 'string' && /^\/(?!\/)/.test(v) && !/[\s\\]/.test(v) ? v : undefined;
+}

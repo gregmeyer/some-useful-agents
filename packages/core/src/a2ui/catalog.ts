@@ -140,6 +140,8 @@ const SUA_COMPONENTS = [
       x: z.string().min(1).max(64),
       y: z.string().min(1).max(64),
       label: z.string().max(64).optional(),
+      /** Key into each item for its link (a path on this dashboard, like `/notebooks/…`): a click on the dot opens it. */
+      href: z.string().max(64).optional(),
       xLabel: Str.optional(),
       yLabel: Str.optional(),
       xFormat: z.enum(['number', 'money']).optional(),
