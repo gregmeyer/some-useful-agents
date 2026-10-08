@@ -25,7 +25,7 @@ import type { CustomLlmProvider } from './llm-settings-store.js';
 import { resolveExposedToolDefs, buildToolExecutor } from './llm-tool-dispatch.js';
 import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
 import { startToolEndpoint, TOOL_ENDPOINT_SERVER_NAME, type ToolEndpoint } from './tool-mcp-endpoint.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolStore } from './tool-store.js';
@@ -492,6 +492,14 @@ export function claudeDeniedTools(rawStdout: string): string[] {
 
 // ── Claude spawner ─────────────────────────────────────────────────────
 
+/** "error_max_turns: Reached maximum number of turns (8)" from a claude `result` event. */
+function claudeResultError(event: Record<string, unknown>): string | undefined {
+  const errors = Array.isArray(event.errors) ? event.errors.filter((e): e is string => typeof e === 'string') : [];
+  const subtype = typeof event.subtype === 'string' && event.subtype !== 'success' ? event.subtype : undefined;
+  if (!errors.length && !subtype) return undefined;
+  return [subtype, errors.join('; ')].filter(Boolean).join(': ');
+}
+
 /**
  * Claude CLI spawner using `--output-format stream-json` for structured
  * turn tracking. Each line of stdout is a JSON event with a `type` field.
@@ -606,12 +614,28 @@ export const claudeSpawner: LlmSpawner = {
         if (event.type === 'result' && typeof event.result === 'string') {
           return event.result;
         }
+        // A failed run's result event has no text, only `errors` (e.g. on
+        // error_max_turns). Return those, not the raw stream: it carries a
+        // rate_limit_event on every run, which read as rate_limited.
+        if (event.type === 'result') return claudeResultError(event) ?? '';
       } catch { continue; }
     }
     // Fallback: if no result event found, return raw stdout (shouldn't happen).
     return stdout;
   },
 
+  extractError: (stdout) => {
+    const lines = stdout.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line.startsWith('{')) continue;
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        if (event.type === 'result') return event.is_error ? claudeResultError(event) : undefined;
+      } catch { continue; }
+    }
+    return undefined;
+  },
   supportsMcpTools: true,
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
@@ -1007,7 +1031,7 @@ export async function spawnNodeReal(
   const upstreamOutputs: Record<string, Record<string, unknown>> = {};
   for (const [k, v] of Object.entries(env)) {
     const m = k.match(/^UPSTREAM_(.+)_RESULT$/);
-    if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = v;
+    if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = fullUpstreamResult(v, env[`${k}_FILE`]);
     const o = k.match(/^UPSTREAM_(.+)_OUTPUTS$/);
     if (o) {
       try { upstreamOutputs[o[1].toLowerCase().replace(/_/g, '-')] = JSON.parse(v) as Record<string, unknown>; } catch { /* not JSON */ }
@@ -1646,6 +1670,9 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   if (result.category === 'timeout' || haystack.includes('timed out')) {
     return 'timeout';
   }
+  // Ran out of turns: a prompt problem, not the provider's. Checked before
+  // the quota words, which turn up in the CLI's own status events.
+  if (/error_max_turns|maximum number of turns/.test(haystack)) return 'other';
   if (haystack.includes('credit balance')
     || haystack.includes('insufficient credit')
     || haystack.includes('out of credit')
@@ -1660,7 +1687,8 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   }
   if (haystack.includes('rate limit')
     || haystack.includes('rate_limit')
-    || haystack.includes('429')
+    // A status, not any number with 429 in it (costs, durations, ids).
+    || /(?:^|[^\w.-])429(?:[^\w.-]|$)/.test(haystack)
     || haystack.includes('too many requests')) {
     return 'rate_limited';
   }
@@ -1789,6 +1817,26 @@ export interface SpawnProcessOptions {
    * this run is dead" and reaped a node that was actively mid-request.
    */
   onChildExit?: () => void;
+}
+
+/**
+ * Most of an upstream result a prompt takes. The prompt goes over stdin, so
+ * it isn't bound by the env cap that spills results over 32KB to a file.
+ */
+export const PROMPT_UPSTREAM_CAP = 256 * 1024;
+
+/**
+ * An upstream result for a prompt: the full value from its spill file when
+ * the env copy was cut short. The cut copy ends "full value at $…_FILE",
+ * which sent one-turn llm nodes off to Read the file until they ran out of
+ * turns.
+ */
+export function fullUpstreamResult(inline: string, file: string | undefined): string {
+  if (!file) return inline;
+  let full: string;
+  try { full = readFileSync(file, 'utf8'); } catch { return inline; }
+  if (full.length <= PROMPT_UPSTREAM_CAP) return full;
+  return `${full.slice(0, PROMPT_UPSTREAM_CAP)}\n...(cut at ${String(PROMPT_UPSTREAM_CAP / 1024)}KB of ${String(Math.round(full.length / 1024))}KB)`;
 }
 
 /**

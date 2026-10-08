@@ -32,6 +32,7 @@ Notes:
 - `<nodeId>` is the upstream **node's id**, scoped to the same agent.
 - `.result` is the **full stdout as a single string**. No sub-paths today — for structured access, emit JSON and parse it downstream (`echo "$UPSTREAM_FETCH_RESULT" | jq .count`).
 - A node can only reference upstreams it declares in `dependsOn`. Unknown references fail the schema.
+- **Big results.** A result over 32 KB is too big to pass whole in a shell node's environment: `$UPSTREAM_<ID>_RESULT` holds the first 32 KB and `$UPSTREAM_<ID>_RESULT_FILE` names a file with all of it. `{{upstream.<id>.result}}` in a prompt is not cut at 32 KB — it reads that file, up to 256 KB, since the prompt doesn't travel through the environment.
 - Look-alikes such as `{{nodes.<id>}}`, `{{steps.<id>}}` or `{{upstream.<id>}}` (no `.result`) are never substituted, so they'd reach the prompt as literal text. When `<id>` is a node in the agent, saving fails with a message pointing at `{{upstream.<id>.result}}`.
 
 ## What the executor guarantees today

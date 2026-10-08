@@ -65,6 +65,11 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
 - For codex, the reason comes from its own `turn.failed` event rather than
   stderr, which also carries log noise (e.g. an MCP server's expired token)
   that used to misclassify failures as `auth_required`.
+- For claude, the reason comes from its final `result` event (e.g.
+  `error_max_turns: Reached maximum number of turns (1)`). Running out of turns
+  is the prompt's problem, not the provider's, so it doesn't fall through. Its
+  event stream carries a rate-limit status on every run, which used to read as
+  `rate_limited`; a 429 now has to stand alone, not sit inside a cost or an id.
 - A custom endpoint participates identically — a down endpoint classifies as
   unreachable and falls through; a 401/429 maps to auth/rate-limited.
 - A node that declares `tools:` skips any provider that can't call them
