@@ -50,6 +50,8 @@ export interface NotebookPass {
   note?: string;
   /** The runs it made or filed, in order (failed ones too). */
   runIds: string[];
+  /** Started by the notebook's schedule, not by someone pressing Run. */
+  scheduled?: boolean;
 }
 
 export interface NotebookSearchSource {
@@ -138,6 +140,8 @@ export interface Notebook {
   /** When the pipeline last ran, and what it added (one line). */
   lastRunAt?: string;
   lastRunNote?: string;
+  /** The last cadence slot (cron fire time) its schedule has handled. */
+  cadenceFiredAt?: string;
   /** Its conversation with sua (an inbox thread id). */
   conversationId?: string;
   createdAt: string;
@@ -288,7 +292,7 @@ export class NotebookStore {
     `);
     // G2 columns, added to tables created before them.
     for (const [table, col] of [
-      ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'conversation_id TEXT'],
+      ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'cadence_fired_at TEXT'], ['notebook_passes', 'trigger TEXT'], ['notebooks', 'conversation_id TEXT'],
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
@@ -443,11 +447,16 @@ export class NotebookStore {
   }
 
   /** Start a pass; add its runs as they go, then finish it. */
-  startPass(notebookId: string, kind: NotebookPassKind, at = new Date().toISOString()): string {
+  startPass(notebookId: string, kind: NotebookPassKind, at = new Date().toISOString(), opts: { scheduled?: boolean } = {}): string {
     this.mustGet(notebookId);
     const id = randomUUID();
-    this.db.prepare('INSERT INTO notebook_passes (id, notebook_id, kind, started_at) VALUES (?, ?, ?, ?)').run(id, notebookId, kind, at);
+    this.db.prepare('INSERT INTO notebook_passes (id, notebook_id, kind, started_at, trigger) VALUES (?, ?, ?, ?, ?)').run(id, notebookId, kind, at, opts.scheduled ? 'schedule' : null);
     return id;
+  }
+
+  /** Its schedule has handled this slot (a cron fire time): it won't run for it again. */
+  markCadenceFired(notebookId: string, slot: string): void {
+    this.db.prepare('UPDATE notebooks SET cadence_fired_at = ? WHERE id = ?').run(slot, notebookId);
   }
 
   addRunToPass(passId: string, runId: string): void {
@@ -468,6 +477,7 @@ export class NotebookStore {
       id: String(r.id), notebookId: String(r.notebook_id), kind: String(r.kind) as NotebookPassKind, startedAt: String(r.started_at),
       ...(r.finished_at ? { finishedAt: String(r.finished_at) } : {}), ...(r.note ? { note: String(r.note) } : {}),
       runIds: (() => { try { return JSON.parse(String(r.run_ids_json)) as string[]; } catch { return []; } })(),
+      ...(r.trigger === 'schedule' ? { scheduled: true } : {}),
     }));
   }
 
@@ -819,6 +829,8 @@ export class NotebookStore {
     };
     this.db.prepare('UPDATE notebooks SET title = ?, statement = ?, params_json = ?, pipeline_json = ?, cadence = ?, updated_at = ? WHERE id = ?')
       .run(next.title, next.statement, JSON.stringify(next.params), JSON.stringify(next.pipeline), next.cadence, new Date().toISOString(), id);
+    // A new schedule starts fresh: it waits for its next slot rather than running for one already past.
+    if (next.cadence !== nb.cadence) this.db.prepare('UPDATE notebooks SET cadence_fired_at = NULL WHERE id = ?').run(id);
     return this.mustGet(id);
   }
 
@@ -912,6 +924,7 @@ export class NotebookStore {
       ...(r.decided_at ? { decidedAt: String(r.decided_at) } : {}),
       ...(r.last_run_at ? { lastRunAt: String(r.last_run_at) } : {}),
       ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
+      ...(r.cadence_fired_at ? { cadenceFiredAt: String(r.cadence_fired_at) } : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),

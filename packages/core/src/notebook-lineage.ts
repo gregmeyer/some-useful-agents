@@ -65,6 +65,8 @@ export interface LineagePass {
   finishedAt?: string;
   note?: string;
   feeders: LineageFeeder[];
+  /** Started by the notebook's schedule. */
+  scheduled?: boolean;
 }
 
 export interface NotebookLineage {
@@ -106,7 +108,7 @@ export function notebookLineage(
   };
   const inPass = new Set(stored.flatMap((p) => p.runIds));
   const passes: LineagePass[] = stored.map((p) => ({
-    id: p.id, kind: p.kind, startedAt: p.startedAt,
+    id: p.id, kind: p.kind, startedAt: p.startedAt, ...(p.scheduled ? { scheduled: true } : {}),
     ...(p.finishedAt ? { finishedAt: p.finishedAt } : {}), ...(p.note ? { note: p.note } : {}),
     feeders: p.runIds.map(feederFor).filter((f): f is LineageFeeder => !!f),
   }));

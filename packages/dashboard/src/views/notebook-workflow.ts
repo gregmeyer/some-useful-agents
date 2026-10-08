@@ -98,7 +98,7 @@ export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLi
       <nav class="nbw-passes" aria-label="Passes">
         ${passes.map((p) => html`<a class="nbw-pass${p === selected ? ' is-on' : ''}" href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}"${p === selected ? unsafeHtml(' aria-current="true"') : unsafeHtml('')}>
           <span class="nbw-pass__when">${formatAge(p.startedAt)}</span>
-          <span class="nbw-pass__kind">${PASS_KIND[p.kind]}</span>
+          <span class="nbw-pass__kind">${PASS_KIND[p.kind]}${p.scheduled ? ', on schedule' : ''}</span>
           <span class="nbw-pass__facts">${passFacts(p)}</span>
         </a>`) as unknown as SafeHtml[]}
       </nav>
@@ -108,7 +108,7 @@ export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLi
         <h2 class="nbw-list__title" id="nbw-list-title">Passes, newest first</h2>
         ${passes.map((p) => html`
           <section class="nbw-group${p === selected ? ' is-on' : ''}" aria-label="${PASS_KIND[p.kind]}, ${formatAge(p.startedAt)}">
-            <h3 class="nbw-group__head"><a href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}">${PASS_KIND[p.kind]} · ${formatAge(p.startedAt)}</a> <span class="nbw-run__when">${passFacts(p)}</span></h3>
+            <h3 class="nbw-group__head"><a href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}">${PASS_KIND[p.kind]}${p.scheduled ? ', on schedule' : ''} · ${formatAge(p.startedAt)}</a> <span class="nbw-run__when">${passFacts(p)}</span></h3>
             <ul class="nbw-runs">${p.feeders.map(runRow) as unknown as SafeHtml[]}</ul>
           </section>`) as unknown as SafeHtml[]}
       </section>` : unsafeHtml('')}
