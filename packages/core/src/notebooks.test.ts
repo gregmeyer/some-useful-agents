@@ -380,6 +380,26 @@ describe('fields without roles, and facts that belong to another option', () => 
     s.setOptionFacts(nb.id, a.id, { price: 4995, miles: 161870, year: 2006 });
     expect(s.reconcileOptionFacts(nb.id)).toBe(0);
   });
+
+  it('keeps a newer price a later search saw over the price in the option\'s own title', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Guitar' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'url', label: 'Product', type: 'url', role: 'link' },
+    ]);
+    const url = 'https://shop.example/guitar-1';
+    const g = s.upsertOption(nb.id, { title: 'Example acoustic-electric, $279.99, in stock', by: 'agent:x', runId: 'r1', data: { price: 279.99, url } }).entry;
+    // A later search finds the same guitar (same link) at a new price.
+    s.upsertOption(nb.id, { title: 'Example acoustic-electric', by: 'agent:x', runId: 'r2', data: { price: 299.99, url } });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'Example')!.data).toEqual({ price: 299.99, url });
+    // Overwritten by the title before this fix: restored from the later search.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ price: 279.99, url }), g.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, 'Example')!.data).toEqual({ price: 299.99, url });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
 });
 
 describe('shortName', () => {
