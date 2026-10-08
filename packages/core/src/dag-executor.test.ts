@@ -8,6 +8,7 @@ import { MemorySecretsStore } from './secrets-store.js';
 import { VariablesStore } from './variables-store.js';
 import {
   executeAgentDag,
+  priorRunInputs,
   topologicalSort,
   resolveUpstreamTemplate,
   type DagExecutorDeps,
@@ -745,6 +746,61 @@ describe('executeAgentDag — replay from node', () => {
     );
     expect(replay.status).toBe('failed');
     expect(replay.error).toMatch(/missing completed outputs/);
+  });
+
+  const withInputs: Agent = {
+    ...threeNodeAgent,
+    id: 'pipeline-in',
+    inputs: { TOPIC: { type: 'string' }, LIMIT: { type: 'string', default: '5' } },
+  };
+  const envOf = async (priorRunId: string, inputs?: Record<string, string>) => {
+    let pivotEnv: Record<string, string> | undefined;
+    const replay = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'dashboard', ...(inputs ? { inputs } : {}), replayFrom: { priorRunId, fromNodeId: 'summarize' } },
+      { runStore, spawnNode: async (node, env) => { if (node.id === 'summarize') pivotEnv = env; return { result: 'ok', exitCode: 0 }; } },
+    );
+    return { replay, env: pivotEnv };
+  };
+
+  it('reuses the inputs the original run had', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'kafka', LIMIT: '20' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    const { replay, env } = await envOf(original.id);
+    // TOPIC is required with no default: without the reuse the pivot node fails.
+    expect(replay.status).toBe('completed');
+    expect(env!.TOPIC).toBe('kafka');
+    expect(env!.LIMIT).toBe('20');
+    // The replay keeps them too, so a replay of the replay works.
+    expect(runStore.getRun(replay.id)!.resumeContext?.inputs).toEqual({ TOPIC: 'kafka', LIMIT: '20' });
+  });
+
+  it('lets inputs passed to the replay change some of them', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'kafka', LIMIT: '20' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    const { env } = await envOf(original.id, { LIMIT: '3' });
+    expect(env!.TOPIC).toBe('kafka');
+    expect(env!.LIMIT).toBe('3');
+  });
+
+  it('recovers declared inputs from the node logs of a run that never saved them', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'postgres' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    // As a run from before every run saved its inputs.
+    runStore.databaseHandle().prepare('UPDATE runs SET resume_context_json = NULL WHERE id = ?').run(original.id);
+    expect(priorRunInputs(withInputs, original.id, runStore)).toEqual({ TOPIC: 'postgres', LIMIT: '5' });
+    const { replay, env } = await envOf(original.id);
+    expect(replay.status).toBe('completed');
+    expect(env!.TOPIC).toBe('postgres');
   });
 });
 

@@ -42,7 +42,7 @@ import * as ui from '../ui.js';
  *   sua workflow run <id> [--input K=V]    Execute (synchronous)
  *   sua workflow status <id> <status>      active/paused/archived/draft
  *   sua workflow logs <runId> [--node ...] [--category ...]   Per-node run logs
- *   sua workflow replay <runId> --from <nodeId>               Resume from a node
+ *   sua workflow replay <runId> --from <nodeId> [--input K=V] Resume from a node (same inputs unless overridden)
  *   sua workflow export <id>               Emit YAML to stdout
  *
  * Execution bypasses LocalProvider for this release — the executor takes
@@ -470,8 +470,9 @@ workflowCommand
   .description('Re-run a prior run starting at a specific node, reusing upstream outputs')
   .argument('<runId>', 'Original run id')
   .requiredOption('--from <nodeId>', 'Node to start the replay from')
+  .option('-i, --input <KEY=value>', 'Change an input from what the original run had (repeatable)', collectInput, {} as Record<string, string>)
   .option('--allow-untrusted-shell <id>', 'Pre-allow a community shell agent', (v: string, prev: string[]) => [...prev, v], [] as string[])
-  .action(async (runId: string, options: { from: string; allowUntrustedShell: string[] }) => {
+  .action(async (runId: string, options: { from: string; input: Record<string, string>; allowUntrustedShell: string[] }) => {
     const config = loadConfig();
     const stores = openStores();
     const secretsStore = new EncryptedFileStore(getSecretsPath(config));
@@ -496,6 +497,8 @@ workflowCommand
         agent,
         {
           triggeredBy: 'cli',
+          // The original run's inputs are reused; these only change some.
+          inputs: options.input,
           replayFrom: { priorRunId: runId, fromNodeId: options.from },
         },
         {
