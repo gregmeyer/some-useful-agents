@@ -12,6 +12,7 @@ import {
   MessageProcessor, Catalog, CommonSchemas, A2uiLitElement, basicCatalog,
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v0_9.js';
+import { niceTicks, nearestPoint, pointNote } from '/assets/chart-math.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -435,23 +436,53 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
     xBetter: z.enum(['higher', 'lower']).optional(), yBetter: z.enum(['higher', 'lower']).optional(),
   }).strict(),
   css`
+    .plot { position: relative; }
+    .chart { outline: none; border-radius: var(--radius-sm, 6px); }
+    .chart:focus-visible { box-shadow: 0 0 0 2px var(--color-primary); }
     .chart svg { display: block; width: 100%; height: auto; max-height: 320px; }
     .axis { fill: var(--color-text-muted); font: 10px var(--font-mono); }
     .gridline { stroke: var(--color-border); }
     .band { fill: var(--color-primary); fill-opacity: .08; stroke: var(--color-primary); stroke-opacity: .45; stroke-dasharray: 4 3; }
-    .dot { fill: var(--accent-blue, #60a5fa); stroke: var(--color-surface); stroke-width: 1.5; }
-    .dot.best { fill: var(--color-primary); }
+    .dot { fill: var(--color-text-muted); fill-opacity: .7; stroke: var(--color-surface); stroke-width: 1.5; transition: r 80ms ease-out; }
+    .dot.best { fill: var(--color-primary); fill-opacity: 1; }
     .dot.out { fill: none; stroke: var(--color-text-muted); stroke-dasharray: 2 2; }
+    .dot.hot { fill-opacity: 1; stroke: var(--color-text); stroke-width: 2; }
+    .dot.best.hot { stroke: var(--color-primary); }
     .halo { fill: var(--color-primary); fill-opacity: .18; }
-    .lbl { fill: var(--color-text); font: 600 11px var(--font-sans, system-ui); }
-    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 4px; }
+    .lbl { fill: var(--color-text); font: 600 11px var(--font-sans, system-ui); paint-order: stroke; stroke: var(--color-surface); stroke-width: 3px; }
+    .lbl.dim { opacity: 0; }
+    .tip { position: absolute; z-index: 1; pointer-events: none; max-width: 300px; padding: var(--space-2, 8px) var(--space-3, 12px);
+      background: var(--color-surface); border: 1px solid var(--color-border-strong, var(--color-border)); border-radius: var(--radius-sm, 6px);
+      transition: opacity 80ms ease-out; }
+    .tip[hidden] { display: block; opacity: 0; visibility: hidden; }
+    .tip .name { font-weight: 600; font-size: var(--font-size-sm); color: var(--color-text); overflow-wrap: anywhere; }
+    .tip .values { font: var(--font-size-xs) var(--font-mono); color: var(--color-text); margin-top: 2px; white-space: nowrap; }
+    .tip .status { font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: 2px; }
+    .legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3, 12px); font-size: var(--font-size-xs); color: var(--color-text-muted); margin-top: var(--space-1, 4px); }
+    .legend span { display: inline-flex; align-items: center; gap: var(--space-1, 4px); }
+    .legend svg { display: block; }
+    .legend .hint { margin-left: auto; }
     .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
   function (p) {
     const n = (Array.isArray(p.points) ? p.points : []).filter((o) => Number.isFinite(Number(getPath(o, p.x))) && Number.isFinite(Number(getPath(o, p.y)))).length;
     if (n === 0) return html`<p class="empty">Nothing to plot yet: options need ${p.xLabel ?? p.x} and ${p.yLabel ?? p.y}.</p>`;
     const banded = (b) => b && typeof b.min === 'number';
-    return html`<div class="chart" role="img" aria-label="${p.yLabel ?? p.y} by ${p.xLabel ?? p.x} for ${n} options"></div>
-      <div class="legend"><span>● in the running</span><span>◌ ruled out</span>${banded(p.xBand) || banded(p.yBand) ? html`<span>▭ your limits</span>` : nothing}</div>`;
+    const anyOut = (Array.isArray(p.points) ? p.points : []).some((o) => o?.ruledOut);
+    // Whole <svg> per template: a nested template would make <circle> an HTML element.
+    const swatch = (cls) => (cls === 'band'
+      ? html`<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect class="band" x="1" y="2" width="10" height="8"></rect></svg>`
+      : html`<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle class="dot ${cls}" cx="6" cy="6" r="4.5"></circle></svg>`);
+    return html`<div class="plot">
+        <div class="chart" tabindex="0" role="group" aria-label="${p.yLabel ?? p.y} by ${p.xLabel ?? p.x} for ${n} options. Use the arrow keys to read each one."></div>
+        <div class="tip" hidden aria-live="polite"><div class="name"></div><div class="values"></div><div class="status"></div></div>
+      </div>
+      <div class="legend">
+        <span>${swatch('best')} ${bestWord(p)}</span>
+        <span>${swatch('')} in the running</span>
+        ${anyOut ? html`<span>${swatch('out')} ruled out</span>` : nothing}
+        ${banded(p.xBand) || banded(p.yBand) ? html`<span>${swatch('band')} your limits</span>` : nothing}
+        <span class="hint">hover or tap a dot for details</span>
+      </div>`;
   },
   {
     updated() {
@@ -460,45 +491,112 @@ const Scatter = define('Scatter', 'sua-a2ui-scatter',
       if (!box || !p) return;
       const band = (b) => (b && typeof b.min === 'number' && typeof b.max === 'number' ? b : undefined);
       const xb = band(p.xBand); const yb = band(p.yBand);
+      const xMoney = p.xFormat === 'money'; const yMoney = p.yFormat === 'money';
       const pts = (Array.isArray(p.points) ? p.points : []).map((o) => ({ o, x: Number(getPath(o, p.x)), y: Number(getPath(o, p.y)) }))
         .filter((d) => Number.isFinite(d.x) && Number.isFinite(d.y));
-      const W = 520, H = 260, L = 48, R = 14, T = 16, B = 30;
+      const W = 520, H = 260, L = 48, R = 14, T = 26, B = 30;
       const xs = [...pts.map((d) => d.x), ...(xb ? [xb.min, xb.max] : [])];
       const ys = [...pts.map((d) => d.y), ...(yb ? [yb.min, yb.max] : [])];
-      const pad = (lo, hi) => { const s = hi - lo || Math.abs(hi) || 1; return [lo - s * 0.1, hi + s * 0.1]; };
+      const pad = (lo, hi) => { const s = hi - lo || Math.abs(hi) || 1; return [lo - s * 0.08, hi + s * 0.08]; };
       const [x0, x1] = pad(Math.min(...xs), Math.max(...xs)); const [y0, y1] = pad(Math.min(...ys), Math.max(...ys));
       const sx = (v) => L + ((v - x0) / (x1 - x0)) * (W - L - R);
       const sy = (v) => H - B - ((v - y0) / (y1 - y0)) * (H - T - B);
-      const ticks = (lo, hi) => [0, 1, 2, 3].map((i) => lo + ((hi - lo) * (i + 0.5)) / 4);
       const inside = (d) => (!xb || (d.x >= xb.min && d.x <= xb.max)) && (!yb || (d.y >= yb.min && d.y <= yb.max));
       const ybetter = p.yBetter ?? 'lower';
       const best = pts.filter((d) => !d.o?.ruledOut).sort((a, b) => (Number(inside(b)) - Number(inside(a))) || (ybetter === 'lower' ? a.y - b.y : b.y - a.y))[0];
+      const nameOf = (d) => String(p.label ? getPath(d.o, p.label) ?? '' : '') || String(d.o?.title ?? '').split(',')[0];
       const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, 'aria-hidden': 'true' });
-      for (const v of ticks(y0, y1)) {
+      for (const v of niceTicks(y0, y1)) {
         svg.append(svgEl('line', { class: 'gridline', x1: L, x2: W - R, y1: sy(v), y2: sy(v) }));
-        svg.append(svgEl('text', { class: 'axis', x: L - 6, y: sy(v) + 3, 'text-anchor': 'end' }, short(v, p.yFormat === 'money')));
+        svg.append(svgEl('text', { class: 'axis', x: L - 6, y: sy(v) + 3, 'text-anchor': 'end' }, short(v, yMoney)));
       }
-      for (const v of ticks(x0, x1)) svg.append(svgEl('text', { class: 'axis', x: sx(v), y: H - B + 14, 'text-anchor': 'middle' }, short(v, p.xFormat === 'money')));
+      for (const v of niceTicks(x0, x1)) svg.append(svgEl('text', { class: 'axis', x: sx(v), y: H - B + 14, 'text-anchor': 'middle' }, short(v, xMoney)));
       if (xb || yb) {
         const bx0 = sx(xb ? xb.min : x0); const bx1 = sx(xb ? xb.max : x1); const by0 = sy(yb ? yb.max : y1); const by1 = sy(yb ? yb.min : y0);
         svg.append(svgEl('rect', { class: 'band', x: bx0, y: by0, width: bx1 - bx0, height: by1 - by0 }));
       }
       svg.append(svgEl('text', { class: 'axis', x: W - R, y: H - 4, 'text-anchor': 'end' }, `${p.xLabel ?? p.x} →`));
-      svg.append(svgEl('text', { class: 'axis', x: 4, y: T - 4 }, `${p.yLabel ?? p.y}`));
+      svg.append(svgEl('text', { class: 'axis', x: 4, y: 12 }, `${p.yLabel ?? p.y}`));
       if (best) svg.append(svgEl('circle', { class: 'halo', cx: sx(best.x), cy: sy(best.y), r: 16 }));
-      for (const d of pts) {
-        const c = svgEl('circle', { class: `dot ${d.o?.ruledOut ? 'out' : d === best ? 'best' : ''}`, cx: sx(d.x), cy: sy(d.y), r: d === best ? 8 : 6 });
-        c.append(svgEl('title', {}, `${d.o?.title ?? ''}: ${short(d.y, p.yFormat === 'money')}, ${short(d.x, p.xFormat === 'money')}${d.o?.ruledOut ? ' (ruled out)' : ''}`));
-        svg.append(c);
+      // Ruled-out rings first, so a live option is never drawn under one.
+      const drawn = [...pts].sort((a, b) => Number(!!b.o?.ruledOut) - Number(!!a.o?.ruledOut));
+      for (const d of drawn) {
+        d.r = d === best ? 8 : 6; d.px = sx(d.x); d.py = sy(d.y);
+        d.el = svgEl('circle', { class: `dot ${d.o?.ruledOut ? 'out' : d === best ? 'best' : ''}`, cx: d.px, cy: d.py, r: d.r });
+        svg.append(d.el);
       }
+      let label;
       if (best) {
-        const name = String(p.label ? getPath(best.o, p.label) ?? '' : best.o?.title ?? '').split(',')[0].slice(0, 30);
-        const tx = sx(best.x) > W / 2 ? sx(best.x) - 14 : sx(best.x) + 14;
-        svg.append(svgEl('text', { class: 'lbl', x: tx, y: sy(best.y) - 12, 'text-anchor': sx(best.x) > W / 2 ? 'end' : 'start' }, name));
+        const name = nameOf(best).slice(0, 30);
+        const right = sx(best.x) > W / 2;
+        label = svgEl('text', { class: 'lbl', x: right ? sx(best.x) - 14 : sx(best.x) + 14, y: sy(best.y) - 12, 'text-anchor': right ? 'end' : 'start' }, name);
+        svg.append(label);
       }
       box.replaceChildren(svg);
+
+      // Hover / keyboard annotation: the point nearest the pointer, within reach.
+      const tip = this.renderRoot.querySelector('.tip');
+      const order = [...pts].sort((a, b) => a.x - b.x || a.y - b.y);
+      const show = (d) => {
+        for (const q of pts) { q.el.classList.toggle('hot', q === d); q.el.setAttribute('r', String(q === d ? q.r + 2 : q.r)); }
+        // The note names the point, so the static label steps back while it shows.
+        label?.classList.toggle('dim', !!d);
+        this.__hot = d;
+        if (!d || !tip) { if (tip) tip.hidden = true; return; }
+        const note = pointNote({
+          name: nameOf(d), x: d.x, y: d.y, xLabel: p.xLabel ?? p.x, yLabel: p.yLabel ?? p.y, xMoney, yMoney,
+          best: d === best, bestWord: bestWord(p), ruledOut: d.o?.ruledOut, stage: d.o?.stage,
+          inLimits: xb || yb ? inside(d) : undefined,
+        });
+        tip.querySelector('.name').textContent = note.name;
+        tip.querySelector('.values').textContent = note.values;
+        tip.querySelector('.status').textContent = note.status;
+        tip.querySelector('.status').hidden = !note.status;
+        tip.hidden = false;
+        // Place it above the dot (below when there's no room), inside the chart.
+        const m = svg.getScreenCTM(); const r = box.getBoundingClientRect();
+        if (!m) return;
+        const cx = m.a * d.px + m.e - r.left; const cy = m.d * d.py + m.f - r.top;
+        // Measure at the left edge, where it isn't squeezed by its last position.
+        tip.style.left = '0px'; tip.style.top = '0px';
+        const tw = tip.offsetWidth; const th = tip.offsetHeight;
+        const left = Math.max(0, Math.min(box.clientWidth - tw, cx - tw / 2));
+        const top = cy - th - 12 >= 0 ? cy - th - 12 : cy + 14;
+        tip.style.left = `${left}px`; tip.style.top = `${top}px`;
+      };
+      this.__show = show;
+      if (!box.__wired) {
+        box.__wired = true;
+        const at = (e) => {
+          const st = this.__scatter; const m = st?.svg.getScreenCTM(); if (!m) return;
+          // Screen → chart units (the svg can be letterboxed when the panel is wide).
+          this.__show(nearestPoint(st.pts, (e.clientX - m.e) / m.a, (e.clientY - m.f) / m.d, 18 / m.a));
+        };
+        box.addEventListener('pointermove', at);
+        // A tap on a touch screen sends no hover moves.
+        box.addEventListener('pointerdown', at);
+        box.addEventListener('pointerleave', () => { if (this.renderRoot.activeElement !== box) this.__show(undefined); });
+        box.addEventListener('blur', () => this.__show(undefined));
+        box.addEventListener('keydown', (e) => {
+          const st = this.__scatter; if (!st) return;
+          if (e.key === 'Escape') { this.__show(undefined); return; }
+          const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+          if (!step) return;
+          e.preventDefault();
+          const i = st.order.indexOf(this.__hot);
+          this.__show(st.order[i < 0 ? (step > 0 ? 0 : st.order.length - 1) : (i + step + st.order.length) % st.order.length]);
+        });
+      }
+      this.__scatter = { pts, order, svg };
+      if (this.__hot) show(pts.find((q) => q.o === this.__hot.o));
     },
   });
+
+/** What the highlighted point is called in the legend and its note: "best price", "best pay". */
+function bestWord(p) {
+  const y = String(p.yLabel ?? p.y).toLowerCase();
+  return `best ${y}`;
+}
 
 // ── Notebook story pieces (artboard 23): a titled frame, a callout, a stat
 // strip, progress steps, where a search looked, checklists, a timeline, chips.

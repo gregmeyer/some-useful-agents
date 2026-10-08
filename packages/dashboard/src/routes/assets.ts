@@ -719,6 +719,13 @@ assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
 });
 
+// Chart arithmetic (ticks, nearest point, a point's note), imported by a2ui-sua.js.
+const CHART_MATH_JS = readAsset('chart-math.js');
+assetsRouter.get('/assets/chart-math.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(CHART_MATH_JS);
+});
+
 // Toolbar pickers (menu, searchable list, prompt), imported by the canvas editor.
 const PICKER_JS = readAsset('picker.js');
 assetsRouter.get('/assets/picker.js', (_req: Request, res: Response) => {
