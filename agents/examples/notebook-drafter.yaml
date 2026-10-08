@@ -97,7 +97,9 @@ nodes:
         Test drive, Offer, Bought; jobs: Found, Applied, Screen, Interview,
         Offer; products: Found, Shortlist, Bought).
       - "pipeline": ids from their agents above that would search for
-        options for THIS goal (none fits → []). Never invent ids.
+        options for THIS goal (none fits → []). Never invent ids. Agents
+        marked [already fills: …] have filled notebooks before: prefer one
+        of those when it fits this goal, over one that never has.
       - "cadence": a five-field cron schedule ONLY if they asked for a
         rhythm ("every morning" → "0 7 * * *"); else "".
       - "why": one short sentence on anything you assumed.

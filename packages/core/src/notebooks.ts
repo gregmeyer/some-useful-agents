@@ -400,6 +400,23 @@ export class NotebookStore {
   }
 
   /**
+   * Which notebooks each agent feeds: in its pipeline, or has filed into it.
+   * sua's own steps (setup, the keeper and friends) aren't listed.
+   */
+  notebooksByAgent(skip: ReadonlySet<string> = new Set()): Map<string, Array<{ id: string; title: string; status: Notebook['status'] }>> {
+    const out = new Map<string, Array<{ id: string; title: string; status: Notebook['status'] }>>();
+    for (const nb of this.list()) {
+      for (const agentId of this.runSources(nb.id).agents) {
+        if (agentId === 'notebook-setup' || skip.has(agentId)) continue;
+        const list = out.get(agentId) ?? [];
+        list.push({ id: nb.id, title: nb.title, status: nb.status });
+        out.set(agentId, list);
+      }
+    }
+    return out;
+  }
+
+  /**
    * Each run that put something in the notebook, with what it left: how many
    * options its search found, entries by kind, and options it saw again.
    */

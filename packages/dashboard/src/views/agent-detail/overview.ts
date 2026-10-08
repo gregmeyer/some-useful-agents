@@ -203,7 +203,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       </div>
     </div>
 
-    ${agentCallsSection(args.invokes ?? [], args.invokedBy ?? [])}
+    ${agentCallsSection(agent.id, args.invokes ?? [], args.invokedBy ?? [], args.feedsNotebooks ?? [])}
 
     ${routingSection}
 
@@ -302,8 +302,8 @@ function memorySection(agentId: string, memories: Memory[] | undefined): SafeHtm
  * on it (the "Call another agent" pattern on Add node), not asserted on every
  * page that isn't using it.
  */
-function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHtml {
-  if (invokes.length === 0 && invokedBy.length === 0) return html``;
+function agentCallsSection(id: string, invokes: AgentEdge[], invokedBy: AgentEdge[], notebooks: ReadonlyArray<{ id: string; title: string; status: string }>): SafeHtml {
+  if (invokes.length === 0 && invokedBy.length === 0 && notebooks.length === 0) return html``;
 
   const target = (e: AgentEdge): SafeHtml => {
     if (e.dynamic) {
@@ -323,30 +323,43 @@ function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHt
       <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : e.via === 'tool' ? ', as a tool when the model decides to' : ''}</span>
     </li>
   `;
+  const col = 'flex: 1 1 200px; min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);';
+  const list = 'list-style: none; padding: 0; margin: 0;';
+  const arrow = html`<span aria-hidden="true" class="dim" style="align-self: center; font-size: var(--font-size-lg);">→</span>`;
 
+  // Left to right, the way work flows: who runs it → it → what it runs and the notebooks it fills.
   return html`
-    <section style="margin-top: var(--space-6);">
-      <h2>Agent calls</h2>
+    <section style="margin-top: var(--space-6);" aria-labelledby="agent-connections">
+      <h2 id="agent-connections">Connections</h2>
       <p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">
-        Agents can run other agents, so a big job can be split across several small ones.
+        Agents can run other agents, so a big job can be split across several small ones, and fill notebooks with what they find.
       </p>
-      <div class="run-detail-grid">
-        ${invokes.length > 0 ? html`
-          <div>
-            <p class="card__title">Invokes</p>
-            <ul style="list-style: none; padding: 0; margin: 0;">
-              ${invokes.map((e) => row(target(e), e)) as unknown as SafeHtml[]}
-            </ul>
-          </div>
-        ` : html``}
+      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: stretch;">
         ${invokedBy.length > 0 ? html`
-          <div>
-            <p class="card__title">Invoked by</p>
-            <ul style="list-style: none; padding: 0; margin: 0;">
+          <div style="${col}">
+            <p class="card__title">Run by</p>
+            <ul style="${list}">
               ${invokedBy.map((e) => row(html`<a href="/agents/${e.from}" class="mono">${e.from}</a>`, e)) as unknown as SafeHtml[]}
             </ul>
           </div>
-        ` : html``}
+          ${arrow}` : html``}
+        <div style="${col} flex: 0 1 auto; align-self: center; border-color: var(--color-primary);">
+          <span class="mono">${id}</span>
+        </div>
+        ${invokes.length > 0 || notebooks.length > 0 ? arrow : html``}
+        ${invokes.length > 0 || notebooks.length > 0 ? html`
+          <div style="${col}">
+            ${invokes.length > 0 ? html`
+              <p class="card__title">Runs</p>
+              <ul style="${list}">
+                ${invokes.map((e) => row(target(e), e)) as unknown as SafeHtml[]}
+              </ul>` : html``}
+            ${notebooks.length > 0 ? html`
+              <p class="card__title" style="${invokes.length > 0 ? 'margin-top: var(--space-3);' : ''}">Fills notebooks</p>
+              <ul style="${list}">
+                ${notebooks.map((n) => html`<li style="margin-bottom: var(--space-1);"><a href="/notebooks/${encodeURIComponent(n.id)}">${n.title}</a>${n.status !== 'active' ? html` <span class="dim text-xs">${n.status}</span>` : html``} <a class="dim text-xs" href="/notebooks/${encodeURIComponent(n.id)}/workflow">how it was made →</a></li>`) as unknown as SafeHtml[]}
+              </ul>` : html``}
+          </div>` : html``}
       </div>
     </section>
   `;

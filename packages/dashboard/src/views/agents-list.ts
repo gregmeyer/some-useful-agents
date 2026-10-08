@@ -33,6 +33,11 @@ export interface AgentsListInput {
   archivedCount?: number;
   /** Whether the list is currently narrowed to those agents. */
   composedOnly?: boolean;
+  /** How many notebooks each agent feeds — the "feeds N notebooks" badge. */
+  feedCounts?: Map<string, number>;
+  /** Agents on this tab that feed a notebook; whether the list is narrowed to them. */
+  feedsCount?: number;
+  feedsOnly?: boolean;
   filter?: {
     status?: string;
     source?: string;
@@ -117,7 +122,7 @@ export function renderAgentsList(input: AgentsListInput): string {
 
     ${hasV2 ? html`
       <div class="agent-grid">
-        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0, input.calleeCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
+        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0, input.calleeCounts?.get(a.id) ?? 0, input.feedCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
       </div>
     ` : html``}
 
@@ -190,6 +195,7 @@ function renderFilterBar(input: AgentsListInput): SafeHtml {
       </select>
       <button type="submit" class="btn btn--sm">Filter</button>
       ${composedChip(input)}
+      ${feedsChip(input)}
       ${(input.archivedCount ?? 0) > 0
         ? html`<a href="${agentBuildUrl({ ...(input.filter ?? {}), status: 'archived' }, input.limit ?? 12, 0, input.tab ?? 'user')}" class="badge badge--muted" style="text-decoration: none;" title="Archived agents are hidden here; open one to restore it">Archived (${String(input.archivedCount)})</a>`
         : html``}
@@ -206,6 +212,21 @@ function renderFilterBar(input: AgentsListInput): SafeHtml {
  * existed and go read the flow-control docs. This makes the working examples
  * one click from the list, and only appears when there are some.
  */
+/** "Feeds notebooks (N)": narrows the list to agents that fill a notebook. */
+function feedsChip(input: AgentsListInput): SafeHtml {
+  const n = input.feedsCount ?? 0;
+  if (n === 0) return html``;
+  const base = agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, input.tab ?? 'user');
+  const on = input.feedsOnly === true;
+  const href = on ? base : `${base}${base.includes('?') ? '&' : '?'}feeds=1`;
+  return html`
+    <a href="${href}" class="badge ${on ? 'badge--info' : 'badge--muted'}" style="text-decoration: none;"
+       title="Agents that search for a notebook or have filed into one">
+      ${on ? '✓ ' : ''}Feeds notebooks (${String(n)})
+    </a>
+  `;
+}
+
 function composedChip(input: AgentsListInput): SafeHtml {
   const n = input.composedCount ?? 0;
   if (n === 0) return html``;
@@ -413,7 +434,7 @@ function truncateQuestion(q: string): string {
   return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).replace(/[),.;:!?-]+$/, '')}\u2026`;
 }
 
-function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0): SafeHtml {
+function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0, feedCount = 0): SafeHtml {
   const shape = dagShapeSvg(a);
   const runInfo = lastRun
     ? html`<span class="agent-card__last-run">
@@ -446,6 +467,9 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0
     : html``;
   const usedByBadge = invokerCount > 0
     ? html`<span class="badge badge--info">used by ${String(invokerCount)}</span>`
+    : html``;
+  const feedsBadge = feedCount > 0
+    ? html`<span class="badge badge--info" title="Searches for, or has filed into, ${String(feedCount)} notebook${feedCount === 1 ? '' : 's'}">feeds ${String(feedCount)} notebook${feedCount === 1 ? '' : 's'}</span>`
     : html``;
 
   // Multi-node agents get an inline <details> that reveals the DAG as
@@ -480,6 +504,7 @@ function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0
         ${mcpBadge}
         ${usedByBadge}
         ${callsBadge}
+        ${feedsBadge}
       </div>
       <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
       ${askChip}

@@ -56,6 +56,8 @@ export interface AgentDetailArgs {
    */
   invokes?: AgentEdge[];
   invokedBy?: AgentEdge[];
+  /** Notebooks this agent fills (in their pipeline, or it has filed into them). */
+  feedsNotebooks?: Array<{ id: string; title: string; status: string }>;
   /**
    * What this agent remembers between runs, when it has `memory:` on.
    * Undefined when memory is off, so the Overview shows no section.

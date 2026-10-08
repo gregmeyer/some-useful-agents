@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { MemoryStore, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
+import { MemoryStore, NotebookStore, SYSTEM_AGENT_IDS, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
@@ -116,6 +116,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
       invokes: graph.invokes.get(v2Agent.id) ?? [],
       invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
+      feedsNotebooks: NotebookStore.fromHandle(ctx.runStore.databaseHandle()).notebooksByAgent(SYSTEM_AGENT_IDS).get(v2Agent.id) ?? [],
       memories: loadMemories(ctx, v2Agent),
       spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],
       spendLimits: loadSpendLimits(ctx, v2Agent),

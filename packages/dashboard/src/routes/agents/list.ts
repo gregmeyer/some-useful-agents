@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { catalogRelevance, catalogTokens } from '@some-useful-agents/core';
+import { catalogRelevance, catalogTokens, NotebookStore, SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
 import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
@@ -93,6 +93,14 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
   const composedCount = v2Agents.filter((a) => orchestratorIds.has(a.id)).length;
   const qComposed = req.query.composed === '1';
   if (qComposed) v2Agents = v2Agents.filter((a) => orchestratorIds.has(a.id));
+
+  // `?feeds=1`: agents that fill a notebook (in one's pipeline, or have filed
+  // into one). Scoped like the composed count, for the same reason.
+  const notebooksByAgent = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).notebooksByAgent(SYSTEM_AGENT_IDS);
+  const feedsCount = v2Agents.filter((a) => notebooksByAgent.has(a.id)).length;
+  const qFeeds = req.query.feeds === '1';
+  if (qFeeds) v2Agents = v2Agents.filter((a) => notebooksByAgent.has(a.id));
+  const feedCounts = new Map([...notebooksByAgent].map(([id, list]) => [id, list.length]));
 
   // Unify for the list view. v2 agents take precedence when ids collide.
   const mergedV1: AgentDefinition[] = [];
@@ -211,6 +219,9 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     calleeCounts,
     composedCount,
     composedOnly: qComposed,
+    feedCounts,
+    feedsCount,
+    feedsOnly: qFeeds,
     archivedCount,
     // `q` raw so the box echoes what was typed; `sort` raw (possibly
     // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
