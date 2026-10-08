@@ -51,7 +51,7 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | --- | --- | --- |
 | `Metric` | `label`, `value`, `unit?`, `delta?`, `tone?` (neutral/ok/warn/err) | a big number |
 | `Badge` | `text`, `tone?` | a status pill |
-| `KeyValue` | `items` (array of `{label, value}`) | facts |
+| `KeyValue` | `items` (array of `{label, value, url?, note?}`) | facts; `url` links the value, `note` is a short line under it (a source, a quote) |
 | `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link}]` (1–12), `maxRows?`, `sortColumns?` + `defaultSort?` ("col" or "col desc"), `filterColumns?` + `filterPlaceholder?`, `pageSize?` | rows of results; sorting (click a header), filtering and paging happen in the browser |
 | `Disclosure` | `label`, `child` (a component id), `open?` | a collapsible section |
 | `Link` | `text`, `url` (http/https, or a dashboard path starting with `/`) | a link, opens in a new tab |
@@ -66,7 +66,7 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `StatStrip` | `items` (`{label, value, tone?, sub?}`) | boxed stats in a row |
 | `Steps` | `steps` (`{text, met, note?}`), `label?` | a progress ring and a path of steps |
 | `Coverage` | `sources` (`{name, found, status: found / none / blocked / skipped, note?}`), `note?` | where a search looked |
-| `Checklist` | `groups` (`{id, title, items: [{text, done}]}`), `actions?` | checkboxes; ticking sends a `notebook-option` check action |
+| `Checklist` | `groups` (`{id, title, items: [{text, done}]}`), `actions?` | checkboxes; ticking sends a `notebook-option` check action; a group with an empty title has no heading |
 | `Timeline` | `events` (`{at, title, body?, kind?, faded?, tag?, link?}`), `maxItems?` | events, newest first |
 | `ChipList` | `items` (strings or `{text, tone?, title?}`) | short chips; warn chips stand out |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |

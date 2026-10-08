@@ -132,6 +132,31 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 **Deciding** (**Decide…** in the header) speaks about this notebook. Its example names your leading options (furthest stage first, then the best price), and **Start from** chips for up to three options still in the running begin the answer with "Chose ___: ". Recording the decision closes the notebook.
 
+## An option's page
+
+Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with everything the notebook keeps about it:
+
+- **The header:**
+  - its picture;
+  - its short name and full title;
+  - where it stands: **best price** (or best fit), or **#3 of 12** in the running;
+  - its price, with the latest move;
+  - the controls the cards have (**<next stage> →**, **Rule out…**, **Bring back**), which return to this page;
+  - **Listing ↗** and **← Back to the notebook**;
+  - who found it, when, and when it was last seen.
+- **What sua knows:** every fact, in the notebook's field order. The cards show at most five. An estimate reads **≈**, a fact with a source links to it, and the quote that backs a fact is shown under it (marked "checked in the source" when code found it there).
+- **Price over time:** each price a search saw. It's shown once the price has changed.
+- **Before you decide:** the notebook's checks for this option, whatever its rank; the notebook page shows them only for the top two. Ticking one saves it.
+- **Its history**, newest first:
+  - **Found** (or **You added it**);
+  - each search that found it again, with **Price dropped / went up** and the old and new price;
+  - its move to a stage;
+  - its ruling and why.
+
+  Each entry links the run behind it.
+
+A note, evidence or a decision has no page of its own; its address goes to its place in the notebook.
+
 ## Ranked by fit, not price
 
 Some notebooks aren't about the cheapest option: accounts to qualify, leads, vendors. A field with the role **score** (how well an option fits, e.g. an ICP fit from 0 to 100, higher is better) changes how the notebook ranks:
