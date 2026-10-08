@@ -12,7 +12,7 @@ import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
 import {
-  NotebookStore, SurfaceStore, notebookLineage, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
@@ -399,6 +399,17 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).json({ error: 'No such notebook.' }); return; }
   res.json(notebookViewData(nb, s.entries(nb.id, 500), s));
+});
+
+// The shortlist as a spreadsheet; ?all=1 adds ruled-out options with why.
+notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response) => {
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  const all = req.query.all === '1';
+  const csv = notebookCsv(nb, notebookViewData(nb, s.entries(nb.id, 1000), s).notebook.options, { ruledOut: all });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-${all ? 'all' : 'shortlist'}.csv`;
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'private, no-store' }).send(csv);
 });
 
 notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {

@@ -1409,3 +1409,44 @@ function mergeFactMeta(prev: Record<string, NotebookFactMeta> | undefined, state
   Object.assign(out, next);
   return Object.keys(out).length ? out : undefined;
 }
+
+/**
+ * The shortlist as a spreadsheet (CSV): best first by `rankBy`, one column
+ * per field (numbers raw, ranges "min-max"), then where facts came from, the
+ * quote that backs the ranking, the checks done and when it was seen. With
+ * `ruledOut`, ruled-out options follow, with why. Excel-safe: a UTF-8 BOM,
+ * CRLF lines, and text that could run as a formula is prefixed with '.
+ */
+export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks'>, options: readonly NotebookViewOption[], opts: { ruledOut?: boolean } = {}): string {
+  const cell = (v: unknown): string => {
+    if (v === undefined || v === null) return '';
+    let s = typeof v === 'number' ? String(v) : String(v);
+    if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const value = (v: NotebookFieldValue | undefined): string | number | undefined =>
+    v === undefined ? undefined : isRange(v) ? `${String(v.min)}-${String(v.max)}` : v;
+  const label = (f: NotebookField) => (f.unit ? `${f.label} (${f.unit})` : f.label);
+  const scoreKey = rankBy(nb).field?.key;
+  const head = ['Rank', 'Option', 'Stage', ...nb.fields.map(label), 'Estimates', 'Sources', 'Quote', 'Quote source', 'Quote checked',
+    ...(nb.checks.length ? ['Checks done'] : []), 'First seen', 'Last seen', ...(opts.ruledOut ? ['Ruled out'] : [])];
+  const row = (o: NotebookViewOption, rank: number | undefined): string[] => {
+    const meta = o.factMeta ?? {};
+    const byKey = new Map(nb.fields.map((f) => [f.key, f.label]));
+    const qKey = [scoreKey, ...nb.fields.map((f) => f.key)].find((k) => k && meta[k]?.quote);
+    const q = qKey ? meta[qKey] : undefined;
+    return [
+      rank === undefined ? '' : String(rank), o.title, o.stage ?? '',
+      ...nb.fields.map((f) => value(o.fields[f.key])),
+      Object.entries(meta).filter(([, m]) => m.estimate).map(([k]) => byKey.get(k) ?? k).join('; '),
+      Object.entries(meta).filter(([, m]) => m.source).map(([k, m]) => `${byKey.get(k) ?? k}: ${m.source ?? ''}`).join('; '),
+      q?.quote ?? '', q?.source ?? '', q ? (q.checked ? 'yes' : 'no') : '',
+      ...(nb.checks.length ? [`${String(nb.checks.filter((c) => o.checked.includes(c)).length)} of ${String(nb.checks.length)}`] : []),
+      o.firstSeenAt.slice(0, 10), o.lastSeenAt.slice(0, 10),
+      ...(opts.ruledOut ? [o.ruledOut?.reason ?? ''] : []),
+    ].map(cell);
+  };
+  const ranked = rankOptions(nb, options);
+  const lines = [head.map(cell), ...ranked.map((o, i) => row(o, i + 1)), ...(opts.ruledOut ? options.filter((o) => o.ruledOut).map((o) => row(o, undefined)) : [])];
+  return `﻿${lines.map((l) => l.join(',')).join('\r\n')}\r\n`;
+}
