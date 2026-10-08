@@ -141,7 +141,7 @@ Model, When it runs, Where it shows, and the first two Access settings save toge
 **Ask sua to change this agent** (top of Settings) opens a conversation in the panel with what you typed. sua answers with a **Change N settings** card that lists each change as before → after. **Apply** saves them the same way Save does (one new version if any change affects what the agent does). **Not now** skips it, and **Open in Settings** jumps back to the page. sua can propose the same card in any conversation about an agent ("run it weekdays at 9 and let Claude Desktop call it").
 
 ### Runs
-Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs.
+Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs and the original run's inputs.
 
 ### YAML
 Editor for the raw YAML. Zod validation on save. Versioned — each save creates a new `agent_versions` row.

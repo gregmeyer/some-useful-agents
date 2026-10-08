@@ -5,9 +5,11 @@ When a run fails — flaky API, transient network glitch, race condition — you
 | Tool | When | Effect |
 |---|---|---|
 | **Retry** (this page) | The whole run failed; you want to redo it from scratch | Creates a new run with the same agent-level inputs, links back via `retryOfRunId`. Each retry is a fresh top-to-bottom execution. |
-| **Replay from node** ([replay docs](../packages/dashboard/src/routes/run-mutations.ts)) | A specific node failed mid-DAG; upstream completed fine | Re-runs from a chosen node, reusing stored upstream outputs. |
+| **Replay from node** ([replay docs](../packages/dashboard/src/routes/run-mutations.ts)) | A specific node failed mid-DAG; upstream completed fine | Re-runs from a chosen node, reusing stored upstream outputs and the inputs the original run had. |
 
 Replay is for "node 4 broke; reuse the work from nodes 1–3." Retry is for "the whole thing failed transiently; just do it again."
+
+A replay starts with the original run's inputs. From the CLI you can change some of them: `sua workflow replay <runId> --from <nodeId> --input LIMIT=3`. Every run saves its inputs; for a run from before that, replay reads the agent's declared inputs back from the run's node logs (a redacted value stays unset).
 
 ## Manual retry (one click)
 
