@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  SYSTEM_AGENT_IDS, cleanFields, executeAgentDag, extractTaggedJson, validateScheduleInterval,
+  NotebookStore, SYSTEM_AGENT_IDS, cleanFields, executeAgentDag, extractTaggedJson, validateScheduleInterval,
   type NotebookField,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -45,11 +45,19 @@ const phrases = (v: unknown, n: number, len: number): string[] =>
     .filter((x, i, a) => a.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i)
     .slice(0, n);
 
-/** The agents that could search for a notebook: active, yours, not sua's own. */
-export function searchAgents(ctx: Ctx): Array<{ id: string; description: string }> {
+/**
+ * The agents that could search for a notebook: active, yours, not sua's own.
+ * Ones that already fill a notebook come first, with the notebooks they fill.
+ */
+export function searchAgents(ctx: Ctx): Array<{ id: string; description: string; feeds?: string[] }> {
+  const feeds = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).notebooksByAgent(SYSTEM_AGENT_IDS);
   return ctx.agentStore.listAgents()
     .filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id))
-    .map((a) => ({ id: a.id, description: (a.description ?? a.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 140) }))
+    .map((a) => ({
+      id: a.id, description: (a.description ?? a.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 140),
+      ...(feeds.has(a.id) ? { feeds: feeds.get(a.id)!.map((n) => n.title) } : {}),
+    }))
+    .sort((x, y) => Number(!!y.feeds) - Number(!!x.feeds))
     .slice(0, 60);
 }
 
@@ -101,7 +109,7 @@ export function startNotebookDraft(ctx: Ctx, text: string, from?: { draft: Noteb
   const inputs = {
     TEXT: said,
     TODAY: new Date().toISOString().slice(0, 10),
-    AGENTS: agents.length ? agents.map((a) => `${a.id}: ${a.description}`).join('\n') : '(none)',
+    AGENTS: agents.length ? agents.map((a) => `${a.id}: ${a.description}${a.feeds ? ` [already fills: ${a.feeds.slice(0, 3).join('; ')}]` : ''}`).join('\n') : '(none)',
     CURRENT: from ? JSON.stringify(from.draft) : '',
     CHANGE: from?.change.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
   };

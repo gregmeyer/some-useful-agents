@@ -86,7 +86,7 @@ arguments, result and timing, whichever provider did the work. Tool policies
   tools) and your other agents (as `agent:<id>`), each with a one-line description. Selected
   tools are listed first. A tool your [tool policy](tool-policies.md) blocks for this agent says
   so on its row. `llm-prompt` nodes use the same picker for the tools their model may call.
-- The agent diagram shows goal nodes as teal hexagons, and the Overview's **Agent calls**
+- The agent diagram shows goal nodes as teal hexagons, and the Overview's **Connections**
   lists agents a goal node may call as tools.
 
 The YAML tab still works for everything, including fields the form doesn't show.

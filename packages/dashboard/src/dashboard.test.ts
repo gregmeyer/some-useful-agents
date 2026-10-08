@@ -1176,12 +1176,12 @@ describe('Agents that call agents are visible', () => {
     // showed was a "used by N" badge on the list — nothing on the agent itself.
     const caller = await authed('/agents/boss');
     expect(caller.status).toBe(200);
-    expect(caller.text).toContain('Agent calls');
-    expect(caller.text).toContain('Invokes');
+    expect(caller.text).toContain('Connections');
+    expect(caller.text).toContain('>Runs<');
     expect(caller.text).toContain('href="/agents/worker-a"');
 
     const callee = await authed('/agents/worker-a');
-    expect(callee.text).toContain('Invoked by');
+    expect(callee.text).toContain('Run by');
     expect(callee.text).toContain('href="/agents/boss"');
   });
 
@@ -1196,7 +1196,7 @@ describe('Agents that call agents are visible', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     // No empty card asserting a capability this agent isn't using.
-    expect(res.text).not.toContain('Agent calls');
+    expect(res.text).not.toContain('id="agent-connections"');
   });
 
   it('offers a one-click filter whose count matches what it returns', async () => {

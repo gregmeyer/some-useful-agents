@@ -868,3 +868,41 @@ describe('download the shortlist', () => {
     expect((await get('/notebooks/nope/shortlist.csv')).status).toBe(404);
   });
 });
+
+describe('the catalog knows which agents fill notebooks', () => {
+  it('badges and filters the agents list, shows the notebooks on the agent page, and the drafter sees them first', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { searchAgents } = await import('../lib/notebook-draft.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    agentStore.createAgent({ id: 'car-sweep', name: 'Car sweep', description: 'Sweeps car listings', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    agentStore.createAgent({ id: 'zz-idle', name: 'Idle', description: 'Never filed', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    const cars = store.create({ title: 'Buy a car', pipeline: ['car-sweep'] });
+    const bikes = store.create({ title: 'Buy a bike' });
+    store.addEntry(bikes.id, { kind: 'note', title: 'found one', by: 'agent:car-sweep', runId: 'r1' });
+    store.addEntry(bikes.id, { kind: 'note', title: 'set up', by: 'agent:notebook-keeper', runId: 'r2' });
+
+    const byAgent = store.notebooksByAgent(new Set(['notebook-keeper']));
+    expect(byAgent.get('car-sweep')!.map((n) => n.title).sort()).toEqual(['Buy a bike', 'Buy a car']);
+    expect(byAgent.has('notebook-keeper')).toBe(false);
+
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const list = (await get('/agents')).text;
+    expect(list).toContain('feeds 2 notebooks');
+    expect(list).toContain('Feeds notebooks (1)');
+    const only = (await get('/agents?feeds=1')).text;
+    expect(only).toContain('car-sweep');
+    expect(only).not.toContain('zz-idle');
+
+    const page = (await get('/agents/car-sweep')).text;
+    expect(page).toContain('Fills notebooks');
+    expect(page).toContain(`href="/notebooks/${cars.id}"`);
+    expect(page).toContain(`href="/notebooks/${bikes.id}/workflow"`);
+    expect((await get('/agents/zz-idle')).text).not.toContain('Fills notebooks');
+
+    const agents = searchAgents(app.locals as never);
+    expect(agents[0]).toMatchObject({ id: 'car-sweep' });
+    expect(agents[0].feeds!.sort()).toEqual(['Buy a bike', 'Buy a car']);
+    expect(agents.find((a) => a.id === 'zz-idle')!.feeds).toBeUndefined();
+  });
+});
