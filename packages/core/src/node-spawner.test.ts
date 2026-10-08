@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, shouldFallback, spawnNodeReal, timeoutError, validateOutputContract, type SpawnResult } from './node-spawner.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, fullUpstreamResult, PROMPT_UPSTREAM_CAP, shouldFallback, spawnNodeReal, timeoutError, validateOutputContract, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -515,5 +518,62 @@ describe('claude text deltas', () => {
     const e = claudeSpawner.parseProgress(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello there' } } }));
     expect(e).toMatchObject({ type: 'output_delta', message: 'Hello there' });
     expect(claudeSpawner.parseProgress(JSON.stringify({ type: 'stream_event', event: { type: 'message_stop' } }))).toBeNull();
+  });
+});
+
+// Trimmed from a real `claude --print --output-format stream-json --max-turns 1`
+// run that ran out of turns. Every claude run carries a rate_limit_event.
+const MAX_TURNS_STREAM = [
+  '{"type":"system","subtype":"init","session_id":"s1"}',
+  '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","rateLimitType":"five_hour"},"uuid":"u1","session_id":"s1"}',
+  '{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/x"}}]}}',
+  '{"type":"result","subtype":"error_max_turns","is_error":true,"errors":["Reached maximum number of turns (1)"],"num_turns":2,"duration_ms":14293,"total_cost_usd":0.158432}',
+].join('\n');
+
+describe('a claude run that ran out of turns', () => {
+  it('reports the CLI\'s own error, not the raw stream', () => {
+    expect(claudeSpawner.extractResult(MAX_TURNS_STREAM)).toBe('error_max_turns: Reached maximum number of turns (1)');
+    expect(claudeSpawner.extractError?.(MAX_TURNS_STREAM)).toBe('error_max_turns: Reached maximum number of turns (1)');
+  });
+
+  it('is not classified as rate_limited', () => {
+    const result = claudeSpawner.extractResult(MAX_TURNS_STREAM);
+    expect(classifyLlmFailure(r({ result, error: claudeSpawner.extractError?.(MAX_TURNS_STREAM) }))).toBe('other');
+    // Even when the raw stream is all there is to go on.
+    expect(classifyLlmFailure(r({ result: MAX_TURNS_STREAM }))).toBe('other');
+  });
+
+  it('has no error to report for a successful run', () => {
+    expect(claudeSpawner.extractError?.('{"type":"result","subtype":"success","is_error":false,"result":"ok"}')).toBeUndefined();
+  });
+});
+
+describe('classifyLlmFailure — 429', () => {
+  it('ignores 429 inside other numbers and ids', () => {
+    expect(classifyLlmFailure(r({ error: 'failed after "duration_ms":14293, cost 0.42901, id 8af4290c' }))).toBe('other');
+  });
+  it('still reads a 429 status', () => {
+    expect(classifyLlmFailure(r({ error: 'API Error: 429 {"type":"error"}' }))).toBe('rate_limited');
+    expect(classifyLlmFailure(r({ error: 'status=429' }))).toBe('rate_limited');
+  });
+});
+
+describe('fullUpstreamResult (an upstream spilled to a file)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sua-spill-'));
+  it('gives a prompt the whole result, not the cut env copy', () => {
+    const file = join(dir, 'discover.txt');
+    writeFileSync(file, 'x'.repeat(60_000));
+    expect(fullUpstreamResult('x'.repeat(10) + '\n...(truncated)', file)).toHaveLength(60_000);
+  });
+  it('keeps the env copy without a file, or when the file is gone', () => {
+    expect(fullUpstreamResult('small', undefined)).toBe('small');
+    expect(fullUpstreamResult('cut', join(dir, 'missing.txt'))).toBe('cut');
+  });
+  it('cuts a huge result at the prompt cap and says so', () => {
+    const file = join(dir, 'huge.txt');
+    writeFileSync(file, 'y'.repeat(PROMPT_UPSTREAM_CAP + 5000));
+    const out = fullUpstreamResult('cut', file);
+    expect(out.startsWith('y'.repeat(PROMPT_UPSTREAM_CAP))).toBe(true);
+    expect(out).toMatch(/cut at 256KB of 261KB/);
   });
 });
