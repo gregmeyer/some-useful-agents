@@ -957,3 +957,63 @@ describe("a notebook's schedule", () => {
     expect((await request(app).get(`/notebooks/${idle.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text).toContain('once it has a search (add one under Edit)');
   });
 });
+
+describe("an option's own page", () => {
+  it('shows every fact with its source, the price over time, its checks and its history; its controls come back to it', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Commuter car' });
+    store.setFields(nb.id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' },
+      { key: 'miles', label: 'Miles', type: 'number', unit: 'mi', role: 'measure' },
+      { key: 'link', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    store.setStages(nb.id, ['Found', 'Checked', 'Test drive']);
+    store.setChecks(nb.id, ['Clean title', 'Service records']);
+    const link = 'https://example.com/listing/1';
+    const wagon = store.upsertOption(nb.id, { title: '2010 Example Wagon', by: 'agent:car-search', runId: 'run-aaaa1111', data: { price: 4800, miles: { value: 150000, source: 'https://example.com/report', quote: 'odometer reads 150,000 miles' }, link } }).entry;
+    store.upsertOption(nb.id, { title: '2010 Example Wagon', by: 'agent:car-search', runId: 'run-bbbb2222', data: { price: 4500, link } });
+    store.upsertOption(nb.id, { title: '2012 Example Hatch', by: 'you', data: { price: 5200 } });
+    store.checkOption(nb.id, wagon.id, 'Clean title', true);
+    const note = store.addEntry(nb.id, { kind: 'note', title: 'Ask about rust', by: 'you' });
+
+    const page = await get(`/notebooks/${nb.id}/entries/${wagon.id}`);
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('2010 Example Wagon');
+    expect(page.text).toContain('best price'); // the cheaper of the two
+    expect(page.text).toContain('Move to Checked →');
+    expect(page.text).toContain('name="back" value="option"');
+    expect(page.text).toContain(`href="/notebooks/${nb.id}"`);
+    // The widgets: facts with the source and quote, the price over time, checks, its own history.
+    expect(page.text).toContain('“odometer reads 150,000 miles”');
+    expect(page.text).toContain('https://example.com/report');
+    expect(page.text).toContain('"priceSeries":[4800,4500]');
+    expect(page.text).toContain('Price dropped');
+    expect(page.text).toContain('$4,800 → $4,500');
+    // Found links the run that found it; seen again links the later one.
+    expect(page.text).toMatch(/"title":"Found"[^}]*run-aaaa1111/);
+    expect(page.text).toMatch(/"title":"Price dropped"[^}]*run-bbbb2222/);
+    expect(page.text).toContain('{"text":"Clean title","done":true}');
+    expect(page.text).not.toContain('2012 Example Hatch');
+
+    // Its controls come back here; the notebook's cards still go to the notebook.
+    const moved = await post(`/notebooks/${nb.id}/entries/${wagon.id}/stage`, { stage: 'Checked', back: 'option' });
+    expect(moved.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/entries/${wagon.id}\\?flash=`));
+    const out = await post(`/notebooks/${nb.id}/entries/${wagon.id}/rule-out`, { quick: 'No reply', back: 'option' });
+    expect(out.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/entries/${wagon.id}\\?flash=`));
+    const outPage = await get(`/notebooks/${nb.id}/entries/${wagon.id}`);
+    expect(outPage.text).toContain('Ruled out at Checked: No reply');
+    expect(outPage.text).toContain('Moved to Checked');
+    expect(outPage.text).not.toContain('best price');
+    expect((await post(`/notebooks/${nb.id}/entries/${wagon.id}/reinstate`)).headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}\\?flash=.*#entry-${wagon.id}$`));
+
+    // A note has no page: it goes to its place in the notebook. Nothing there is a 404.
+    expect((await get(`/notebooks/${nb.id}/entries/${note.id}`)).headers.location).toBe(`/notebooks/${nb.id}#entry-${note.id}`);
+    expect((await get(`/notebooks/${nb.id}/entries/nope`)).status).toBe(404);
+    expect((await get(`/notebooks/nope/entries/${wagon.id}`)).status).toBe(404);
+  });
+});

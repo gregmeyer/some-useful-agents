@@ -125,7 +125,7 @@ export interface NotebookWidgetData extends NotebookViewData {
 }
 
 /** The checks for options: the notebook's own, else "Still listed" plus the unmet done-whens. */
-function checksFor(nb: Notebook): string[] {
+export function checksFor(nb: Pick<Notebook, 'checks' | 'criteria'>): string[] {
   if (nb.checks.length) return nb.checks;
   return ['Still listed', ...nb.criteria.filter((c) => !c.met && !/decid/i.test(c.text)).map((c) => c.text.charAt(0).toUpperCase() + c.text.slice(1))].slice(0, 5);
 }

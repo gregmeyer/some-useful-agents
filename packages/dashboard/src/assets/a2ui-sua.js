@@ -77,10 +77,14 @@ const KeyValue = define('KeyValue', 'sua-a2ui-keyvalue',
   Common.extend({ items: CommonSchemas.DynamicValue }).strict(),
   css`
     dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
-    dt { color: var(--color-text-muted); } dd { margin: 0; overflow-wrap: anywhere; }`,
+    dt { color: var(--color-text-muted); } dd { margin: 0; overflow-wrap: anywhere; }
+    dd a { color: var(--color-primary); text-decoration: none; } dd a:hover { text-decoration: underline; }
+    .note { display: block; margin-top: 2px; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }`,
   (p) => {
     const items = Array.isArray(p.items) ? p.items : [];
-    return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${typeof it?.value === 'object' ? JSON.stringify(it.value) : String(it?.value ?? '')}</dd>`)}</dl>`;
+    // An item may link its value (`url`) and carry a short line under it (`note`: a source, a quote).
+    const value = (it) => { const t = typeof it?.value === 'object' ? JSON.stringify(it.value) : String(it?.value ?? ''); const u = safeUrl(it?.url); return u ? html`<a href=${u} target="_blank" rel="noopener noreferrer">${t} ↗</a>` : t; };
+    return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${value(it)}${it?.note ? html`<span class="note">${it.note}</span>` : nothing}</dd>`)}</dl>`;
   });
 
 const cellText = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -724,7 +728,7 @@ const Checklist = define('Checklist', 'sua-a2ui-checklist',
     const groups = Array.isArray(p.groups) ? p.groups : [];
     if (!groups.length) return html`<p class="empty">Nothing to check yet.</p>`;
     const act = (id, item, done) => this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: 'notebook-option', context: { op: 'check', id, item, done } } }));
-    return html`<div class="groups">${groups.map((g) => html`<div class="g"><h4>${g?.title ?? ''}</h4>
+    return html`<div class="groups">${groups.map((g) => html`<div class="g">${g?.title ? html`<h4>${g.title}</h4>` : nothing}
       ${(Array.isArray(g?.items) ? g.items : []).map((it) => html`<label class="${it?.done ? 'done' : ''}"><input type="checkbox" .checked=${!!it?.done} ?disabled=${!p.actions} @change=${(e) => act(g.id, it.text, e.target.checked)}><span>${it?.text ?? ''}</span></label>`)}</div>`)}</div>`;
   });
 

@@ -38,6 +38,21 @@ export const NOTEBOOK_PAGE_JS = `
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
+    // An option's own page: its checklist saves the tick, then the page reloads.
+    var optionPage = document.querySelector('[data-nb-option]');
+    if (optionPage) {
+      document.addEventListener('a2ui-action', function (e) {
+        var d = e.detail || {};
+        if (d.name !== 'notebook-option' || !d.context || d.context.op !== 'check') return;
+        var body = new URLSearchParams();
+        body.set('item', d.context.item || '');
+        body.set('done', d.context.done ? '1' : '0');
+        var url = '/notebooks/' + encodeURIComponent(optionPage.getAttribute('data-nb-option-notebook')) + '/entries/' + encodeURIComponent(optionPage.getAttribute('data-nb-option')) + '/check';
+        fetch(url, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })
+          .then(function () { location.reload(); }, function () { location.reload(); });
+      });
+      return;
+    }
     var main = document.querySelector('[data-nb-main]');
     if (!main) return;
     var id = main.getAttribute('data-nb-main');

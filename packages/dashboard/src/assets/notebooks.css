@@ -498,3 +498,40 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbw-group { margin-bottom: var(--space-4); }
 .nbw-group__head { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: var(--weight-semibold); display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; }
 .nbw-group.is-on .nbw-group__head a { color: var(--color-text); }
+
+/* ---------- One option's page (views/notebook-option.ts) ----------
+ * Its picture beside its name, price and where it stands, with the card's
+ * controls; then its widgets: facts, price over time, checks, history. */
+.nbo-hero {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: radial-gradient(900px 260px at 10% -40%, var(--color-primary-soft), transparent 70%), var(--color-surface);
+}
+.nbo-hero__pic { position: relative; aspect-ratio: 4 / 3; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface-raised); display: grid; place-items: center; }
+.nbo-hero__pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nbo-hero__pic img.is-drawn { object-fit: contain; padding: var(--space-3); box-sizing: border-box; }
+.nbo-hero__pickind { position: absolute; bottom: var(--space-2); left: var(--space-2); font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+.nbo-hero__nopic { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbo-hero__main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.nbo-hero__titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.nbo-hero__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl); line-height: 1.2; }
+.nbo-hero--out .nbo-hero__title { text-decoration: line-through; color: var(--color-text-muted); }
+.nbo-hero--out .nbo-hero__pic { opacity: .55; }
+.nbo-hero__full { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nbo-hero__price { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font: 700 1.75rem/1 var(--font-mono); color: var(--color-text); }
+.nbo-hero__price .nb-fact { font-weight: 400; }
+.nbo-hero__links { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nbo-hero__meta { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbo-hero .nb-stage { margin: 0; }
+.nbo-rank { font: 600 var(--font-size-xs)/1 var(--font-mono); padding: 4px 8px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); }
+.nbo-rank--best { border-color: var(--color-primary); color: var(--color-primary); text-transform: uppercase; letter-spacing: .06em; }
+.nbo-body { margin: var(--space-4) 0 0; max-width: 72ch; font-size: var(--font-size-sm); line-height: 1.6; color: var(--color-text-muted); }
+.nbo-widgets { margin-top: var(--space-6); }
+@media (max-width: 900px) {
+  .nbo-hero { grid-template-columns: 1fr; padding: var(--space-4); }
+  .nbo-hero__pic { max-width: 360px; }
+}

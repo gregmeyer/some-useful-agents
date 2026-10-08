@@ -195,23 +195,27 @@ function optionFacts(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Sa
 
 const QUICK_REASONS = ['Not interested', 'Too expensive', 'No reply', 'Failed a check'];
 
-/** An option's place in the funnel: its stage, the next one, and ruling it out (or back in). */
-function optionStage(nb: Notebook, e: NotebookEntry): SafeHtml {
+/**
+ * An option's place in the funnel: its stage, the next one, and ruling it out
+ * (or back in). `back: 'option'` returns to the option's own page after.
+ */
+export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'option' } = {}): SafeHtml {
   const base = `/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}`;
+  const to = opts.back === 'option' ? html`<input type="hidden" name="back" value="option">` : html``;
   if (e.ruledOut) {
     return html`<div class="nb-stage nb-stage--out">
       <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
-      <form method="POST" action="${base}/reinstate"><button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
+      <form method="POST" action="${base}/reinstate">${to}<button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
     </div>`;
   }
   const i = nb.stages.findIndex((s) => s === e.stage);
   const next = nb.stages.length ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
     ${e.stage ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
-    ${next ? html`<form method="POST" action="${base}/stage"><input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
+    ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">
       <summary class="btn btn--sm btn--ghost">Rule out…</summary>
-      <form method="POST" action="${base}/rule-out" class="nb-ruleout__form">
+      <form method="POST" action="${base}/rule-out" class="nb-ruleout__form">${to}
         <span class="nb-ruleout__label">Why? It stays here, and searches won't suggest it again.</span>
         <div class="nb-ruleout__quick"><button type="submit" name="gone" value="1" class="btn btn--sm" title="Sold, filled or taken down">No longer available</button>${QUICK_REASONS.map((r) => html`<button type="submit" name="quick" value="${r}" class="btn btn--sm">${r}</button>`)}</div>
         <div class="nb-ruleout__row"><input type="text" name="reason" class="form-field" placeholder="or in your words: didn't like the color" aria-label="Reason"><button type="submit" class="btn btn--sm btn--primary">Rule out</button></div>
@@ -234,7 +238,7 @@ function funnelStrip(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml 
 }
 
 /** "↓ $300 since Oct 5": a price move, green when it moved the way that's better. */
-function priceChangeChip(nb: Notebook, c: { from: number; to: number; since: string }): SafeHtml {
+export function priceChangeChip(nb: Notebook, c: { from: number; to: number; since: string }): SafeHtml {
   const f = nb.fields.find((x) => x.role === 'price');
   const better = f?.better ?? 'lower';
   const down = c.to < c.from;

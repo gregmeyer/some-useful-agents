@@ -7,6 +7,8 @@
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
+import { renderNotebookOptionPage } from '../views/notebook-option.js';
+import { notebookOptionData } from '../lib/notebook-option.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
@@ -35,6 +37,10 @@ const store = (req: Request) => NotebookStore.fromHandle(getContext(req.app.loca
 const lines = (v: unknown): string[] => (typeof v === 'string' ? v.split(/\r?\n/) : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const back = (id: string, flash: string, hash = '') => `/notebooks/${encodeURIComponent(id)}?flash=${encodeURIComponent(flash)}${hash}`;
+/** Back to the notebook (at the option's card), or to the option's own page when its form says `back=option`. */
+const backFrom = (req: Request, id: string, entryId: string, flash: string) => (req.body?.back === 'option'
+  ? `/notebooks/${encodeURIComponent(id)}/entries/${encodeURIComponent(entryId)}?flash=${encodeURIComponent(flash)}`
+  : back(id, flash, `#entry-${entryId}`));
 
 const LIST_PAGE = 12;
 
@@ -258,13 +264,28 @@ notebooksRouter.post('/notebooks/:id/photos', async (req: Request, res: Response
 });
 
 // An option's stage, ruling it out (it stays, with why), and bringing it back.
+// One option's page: every fact with its source, the price over time, its checks and its history.
+notebooksRouter.get('/notebooks/:id/entries/:entry', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  const entries = nb ? s.entries(nb.id, 1000) : [];
+  const entry = entries.find((e) => e.id === String(req.params.entry));
+  if (!nb || !entry) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: nb ? 'No such option in this notebook.' : 'No such notebook.' })); return; }
+  // A note or decision has no page of its own: its place in the notebook.
+  if (entry.kind !== 'option') { res.redirect(302, `/notebooks/${encodeURIComponent(nb.id)}#entry-${entry.id}`); return; }
+  const data = notebookOptionData(nb, entries, entry.id, widgetHistory(ctx, s));
+  if (!data) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'No such option in this notebook.' })); return; }
+  res.type('html').send(renderNotebookOptionPage({ nb, entry, data, flash: parseFlash(req) }));
+});
+
 notebooksRouter.post('/notebooks/:id/entries/:entry/stage', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
     const e = store(req).moveOption(id, String(req.params.entry), str(req.body?.stage));
-    res.redirect(303, back(id, `${e.title} → ${e.stage ?? ''}`, `#entry-${e.id}`));
+    res.redirect(303, backFrom(req, id, e.id, `${e.title} → ${e.stage ?? ''}`));
   } catch (err) {
-    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+    res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
   }
 });
 
@@ -273,9 +294,9 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/rule-out', (req: Request, re
   try {
     const gone = req.body?.gone === '1';
     const e = store(req).ruleOut(id, String(req.params.entry), str(req.body?.reason).trim() || str(req.body?.quick), 'you', { gone });
-    res.redirect(303, back(id, gone ? `${e.title}: no longer available.` : `Ruled out: ${e.title}. Searches won't suggest it again.`, `#entry-${e.id}`));
+    res.redirect(303, backFrom(req, id, e.id, gone ? `${e.title}: no longer available.` : `Ruled out: ${e.title}. Searches won't suggest it again.`));
   } catch (err) {
-    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+    res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
   }
 });
 
@@ -296,9 +317,9 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
   const id = String(req.params.id);
   try {
     const e = store(req).reinstate(id, String(req.params.entry));
-    res.redirect(303, back(id, `Brought back: ${e.title}.`, `#entry-${e.id}`));
+    res.redirect(303, backFrom(req, id, e.id, `Brought back: ${e.title}.`));
   } catch (err) {
-    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+    res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
   }
 });
 
