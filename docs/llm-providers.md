@@ -65,6 +65,7 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
 - For codex, the reason comes from its own `turn.failed` event rather than
   stderr, which also carries log noise (e.g. an MCP server's expired token)
   that used to misclassify failures as `auth_required`.
+- codex sometimes exits with code 1 **after** finishing its turn: its answer is given and its turn completed, and it reports no error. That answer is kept. The node completes, with a warning on it ("codex exited with code 1 after finishing its answer, without reporting an error. The answer was kept."), instead of failing and skipping every step after it. When codex fails without finishing and gives no reason, the error says so ("codex exited with code 1 without saying why"), not its "Reading prompt from stdin..." banner.
 - For claude, the reason comes from its final `result` event (e.g.
   `error_max_turns: Reached maximum number of turns (1)`). Running out of turns
   is the prompt's problem, not the provider's, so it doesn't fall through. Its

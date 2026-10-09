@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { classifyLlmFailure, codexFailureMessage, shouldFallback, spawnNodeReal } from './node-spawner.js';
+import { classifyLlmFailure, codexFailureMessage, codexFinishedTurn, shouldFallback, spawnNodeReal } from './node-spawner.js';
 
 // Regression: codex pinned to a model the account no longer supports failed
 // every call with a 400 in its `turn.failed` event, while stderr carried an
@@ -95,5 +95,54 @@ describe('auth_required — claude CLI wording', () => {
     const category = classifyLlmFailure({ result: 'Not logged in · Please run /login', exitCode: 1, error: 'Process exited with code 1' });
     expect(category).toBe('auth_required');
     expect(shouldFallback(category)).toBe(true);
+  });
+});
+
+// Regression: codex sometimes exits 1 after it has finished its turn and
+// given its answer, with nothing but its "Reading prompt from stdin..."
+// banner on stderr. The node failed with that banner as its "reason", and a
+// good answer was thrown away (starter-research gather-counter).
+describe('codex exits non-zero after finishing its answer', () => {
+  let binDir: string;
+  const ANSWER = 'Home Depot: WELLFOR 24 in. cabinet, $100, towel bar.';
+  const finished = [
+    JSON.stringify({ type: 'thread.started', thread_id: 't' }),
+    JSON.stringify({ type: 'turn.started' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: ANSWER } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+  ].join('\n');
+  const unfinished = [JSON.stringify({ type: 'thread.started', thread_id: 't' }), JSON.stringify({ type: 'turn.started' })].join('\n');
+  const fake = (name: string, stdout: string) => {
+    writeFileSync(join(binDir, `${name}.jsonl`), `${stdout}\n`);
+    mkdirSync(join(binDir, name), { recursive: true });
+    writeFileSync(join(binDir, name, 'codex'), ['#!/bin/sh', 'cat >/dev/null', 'echo "Reading prompt from stdin..." >&2', `cat "${join(binDir, `${name}.jsonl`)}"`, 'exit 1'].join('\n'));
+    chmodSync(join(binDir, name, 'codex'), 0o755);
+    return join(binDir, name);
+  };
+  const run = (dir: string) => spawnNodeReal(
+    { id: 'gather', type: 'llm-prompt', prompt: 'hi' },
+    { PATH: `${dir}:${process.env.PATH ?? ''}` },
+    { agentId: 'starter-research', agentSource: 'examples', llmSettings: { providers: ['codex'] } },
+  );
+
+  beforeAll(() => { binDir = mkdtempSync(join(tmpdir(), 'sua-fake-codex-exit-')); });
+  afterAll(() => rmSync(binDir, { recursive: true, force: true }));
+
+  it('keeps the answer and says what happened', async () => {
+    expect(codexFinishedTurn(finished)).toBe(true);
+    const res = await run(fake('finished', finished));
+    expect(res.exitCode).toBe(0);
+    expect(res.result).toBe(ANSWER);
+    expect(res.error).toBe('codex exited with code 1 after finishing its answer, without reporting an error. The answer was kept.');
+  });
+
+  it("still fails when it didn't finish, and doesn't call its banner the reason", async () => {
+    expect(codexFinishedTurn(unfinished)).toBe(false);
+    expect(codexFinishedTurn(`${finished}\n${JSON.stringify({ type: 'error', message: 'boom' })}`)).toBe(false);
+    const res = await run(fake('unfinished', unfinished));
+    expect(res.exitCode).not.toBe(0);
+    const err = res.providerFailures?.[0]?.error ?? res.error ?? '';
+    expect(err).not.toContain('Reading prompt from stdin');
+    expect(err).toContain('codex exited with code 1 without saying why');
   });
 });
