@@ -82,11 +82,13 @@ nodes:
       Options carry their facts as data, so they can be compared, charted
       and shown as cards:
       - "data": one value per field key from the notebook's fields (numbers
-        as numbers: 4023, not "$4,023"; addresses as full https links). Leave
-        out what the output doesn't say; never guess a value. When the
+        as plain numbers, without "$" or commas; addresses as full https
+        links). Every value must appear in the output above. Leave out what
+        the output doesn't say (a price it doesn't give stays out); never
+        guess a value, and never copy a value from these instructions. When the
         output says where a figure came from, or that it's approximate
         (revenue and headcount usually are), give it as
-        {"value": 20000000, "source": "https://…", "estimate": true}
+        {"value": <the number>, "source": "https://…", "estimate": true}
         instead of the bare value ("source" only as a full https link the
         output gives; "estimate": true only when it says or clearly implies
         the figure is a guess). Except: when
@@ -157,7 +159,7 @@ nodes:
 
       Reply with only this, as valid JSON:
       <notebook>
-      {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"price": 4023}, "fingerprint": "…"},
+      {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"<field key>": <value from the output>}, "fingerprint": "…"},
                    {"kind": "note", "title": "…", "body": "…"}],
        "fields": [],
        "stages": [],
