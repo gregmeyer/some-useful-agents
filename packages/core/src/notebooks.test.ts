@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { NotebookStore, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -469,6 +469,35 @@ describe('numbers a source states (groundFacts)', () => {
     const g = groundFacts({ price: 4023, width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF', range: { min: 20, max: 24 }, src: { value: 239, source: 'https://x.example' } }, out);
     expect(g.data).toEqual({ width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF' });
     expect(g.dropped.map((d) => d.key).sort()).toEqual(['price', 'range', 'src']);
+  });
+});
+
+describe("an option's listing link and its photo", () => {
+  it('uses a link field, else any fact holding a web address', () => {
+    const f = (o: object) => ({ label: 'x', ...o }) as never;
+    expect(optionLink([f({ key: 'u', type: 'url', role: 'link' }), f({ key: 'a', type: 'text' })], { u: 'https://a.example/1', a: 'https://b.example/2' })).toBe('https://a.example/1');
+    expect(optionLink([f({ key: 'avail', type: 'text' }), f({ key: 'p', type: 'url' })], { avail: 'https://shop.example/p/1', p: 'https://c.example/3' })).toBe('https://c.example/3');
+    expect(optionLink([f({ key: 'avail', type: 'text' })], { avail: ' https://shop.example/p/1 ' })).toBe('https://shop.example/p/1');
+    expect(optionLink([f({ key: 'avail', type: 'text' })], { avail: 'In stock' })).toBeUndefined();
+  });
+
+  it('tries a listing photo even with a drawing; a failed try keeps the drawing and is not repeated; a photo replaces it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Cabinet' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'availability', label: 'Availability', type: 'text' }]);
+    const c = s.upsertOption(nb.id, { title: 'Example cabinet', by: 'agent:x', data: { price: 90, availability: 'https://shop.example/p/A-1' } }).entry;
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options[0].link).toBe('https://shop.example/p/A-1');
+    s.savePhoto(nb.id, c.id, 'illustration', { contentType: 'image/svg+xml', bytes: new Uint8Array([1]) }, { kind: 'illustration' });
+    expect(s.photoCandidates(nb.id).map((x) => x.link)).toEqual(['https://shop.example/p/A-1']);
+
+    s.savePhoto(nb.id, c.id, 'https://shop.example/p/A-1', { error: 'blocked' });
+    expect(s.photoKind(c.id)).toBe('illustration'); // still has its drawing
+    expect(s.photoCandidates(nb.id)).toEqual([]); // and that address isn't tried again
+
+    s.savePhoto(nb.id, c.id, 'https://shop.example/p/A-1', { contentType: 'image/jpeg', bytes: new Uint8Array([9]) });
+    expect(s.photoKind(c.id)).toBe('listing');
+    expect(s.photoCandidates(nb.id)).toEqual([]);
   });
 });
 

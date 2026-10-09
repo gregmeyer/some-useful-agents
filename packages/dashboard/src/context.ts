@@ -269,6 +269,8 @@ export interface DashboardContext {
   notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
+  /** Notebooks trying their options' listing photos right now. */
+  notebookListingPhotos?: Set<string>;
   /** Settings → Appearance: sua is proposing a brand right now. */
   brandProposalRunning?: boolean;
   /** Tests only: answer for the brand maker instead of running it. Production leaves it unset. */

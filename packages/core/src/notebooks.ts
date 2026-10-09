@@ -301,7 +301,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -589,30 +589,39 @@ export class NotebookStore {
   /** Keep a photo (or remember that this address didn't give one, so it isn't tried again). */
   savePhoto(notebookId: string, entryId: string, sourceUrl: string, result: { contentType: string; bytes: Uint8Array } | { error: string }, opts: { kind?: NotebookPhotoKind; what?: string } = {}): void {
     const ok = 'bytes' in result;
-    this.db.prepare(`INSERT INTO notebook_photos (entry_id, notebook_id, source_url, content_type, bytes, fetched_at, error, kind, what) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(entry_id) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, fetched_at = excluded.fetched_at, error = excluded.error, kind = excluded.kind, what = excluded.what`)
+    // A listing that gave no photo never replaces a picture it already has (an
+    // example photo or a drawing): just remember that address was tried.
+    if (!ok) {
+      const had = this.db.prepare('SELECT kind FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as { kind: string } | undefined;
+      if (had && had.kind !== 'listing') {
+        this.db.prepare('UPDATE notebook_photos SET tried_url = ?, error = ? WHERE entry_id = ?').run(sourceUrl, result.error.slice(0, 200), entryId);
+        return;
+      }
+    }
+    this.db.prepare(`INSERT INTO notebook_photos (entry_id, notebook_id, source_url, content_type, bytes, fetched_at, error, kind, what, tried_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(entry_id) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, fetched_at = excluded.fetched_at, error = excluded.error, kind = excluded.kind, what = excluded.what, tried_url = excluded.tried_url`)
       .run(entryId, notebookId, sourceUrl, ok ? result.contentType : null, ok ? result.bytes : null, new Date().toISOString(), ok ? null : result.error.slice(0, 200), opts.kind ?? 'listing', opts.what?.slice(0, 160) ?? null);
   }
 
   /**
-   * Options worth a photo try: no photo yet, and not already tried at this
-   * address (its image field, else its listing). Ruled-out options are skipped.
+   * Options worth a photo try: no listing photo yet (an example photo or a
+   * drawing doesn't count), and not already tried at this address (its image
+   * field, else its listing link). Ruled-out options are skipped.
    */
   photoCandidates(notebookId: string, limit = 12): Array<{ entry: NotebookEntry; image?: string; link?: string }> {
     const nb = this.mustGet(notebookId);
     const imageKey = nb.fields.find((f) => f.role === 'image')?.key;
-    const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
-    const tried = new Map((this.db.prepare('SELECT entry_id, source_url, bytes IS NOT NULL AS ok FROM notebook_photos WHERE notebook_id = ?').all(notebookId) as Array<{ entry_id: string; source_url: string; ok: number }>)
+    const tried = new Map((this.db.prepare('SELECT entry_id, source_url, kind, tried_url, bytes IS NOT NULL AS ok FROM notebook_photos WHERE notebook_id = ?').all(notebookId) as Array<{ entry_id: string; source_url: string; kind: string; tried_url: string | null; ok: number }>)
       .map((r) => [r.entry_id, r]));
     const out: Array<{ entry: NotebookEntry; image?: string; link?: string }> = [];
     for (const e of this.entries(notebookId, 1000)) {
       if (e.kind !== 'option' || e.ruledOut) continue;
       const image = imageKey && typeof e.data?.[imageKey] === 'string' ? String(e.data[imageKey]) : undefined;
-      const link = linkKey && typeof e.data?.[linkKey] === 'string' ? String(e.data[linkKey]) : undefined;
+      const link = optionLink(nb.fields, e.data);
       const source = image ?? link;
       if (!source) continue;
       const t = tried.get(e.id);
-      if (t && (t.ok || t.source_url === source)) continue;
+      if (t && ((t.ok && t.kind === 'listing') || t.source_url === source || t.tried_url === source)) continue;
       out.push({ entry: e, ...(image ? { image } : {}), ...(link ? { link } : {}) });
       if (out.length === limit) break;
     }
@@ -1283,7 +1292,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const score = fieldNumber(pick(data, 'score'));
     const org = str(pick(data, 'org'));
     const place = str(pick(data, 'place'));
-    const link = str(pick(data, 'link'));
+    const link = optionLink(nb.fields, data);
     // The kept copy when there is one; never the seller's address directly.
     const imageSource = str(pick(data, 'image'));
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
@@ -1333,6 +1342,20 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       ...(nb.lastRunNote ? { lastRunNote: nb.lastRunNote } : {}),
     },
   };
+}
+
+/**
+ * An option's listing link: its link field, else a link-typed field, else
+ * the first fact holding a web address ("Availability: https://…"), so a
+ * notebook whose fields don't name a link still gets photos and a Listing button.
+ */
+export function optionLink(fields: readonly NotebookField[], data: Record<string, NotebookFieldValue> | undefined): string | undefined {
+  const url = (v: unknown) => (typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim()) ? v.trim() : undefined);
+  const byRole = fields.find((f) => f.role === 'link');
+  if (byRole) return url(data?.[byRole.key]);
+  for (const f of fields.filter((x) => x.type === 'url' && x.role !== 'image')) { const u = url(data?.[f.key]); if (u) return u; }
+  for (const f of fields.filter((x) => x.role !== 'image' && x.type !== 'image')) { const u = url(data?.[f.key]); if (u) return u; }
+  return undefined;
 }
 
 /**
