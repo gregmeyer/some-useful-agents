@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage } from '../lib/notebook-chat.js';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
@@ -1068,6 +1068,9 @@ export function executeNotebookAdd(
     // Options but no fields yet: set the notebook up (fields, stages, their facts).
     if (store.needsSetup(meta.inputs.NOTEBOOK ?? '')) startNotebookSetup(ctx, meta.inputs.NOTEBOOK ?? '');
     if (out.added.length === 0) return { status: 'completed', summary: 'The notebook already has all of that.' };
+    // Only corrections: say so (they change options; nothing was added).
+    const corrected = out.added.filter((a) => a.startsWith('corrected: ')).length;
+    if (corrected && corrected === out.added.length) return { status: 'completed', summary: `Corrected ${String(corrected)} option${corrected === 1 ? '' : 's'}.` };
     return { status: 'completed', summary: `Added ${String(out.added.length)} to the notebook${out.skipped ? ` (${String(out.skipped)} it already had)` : ''}.` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
@@ -1342,6 +1345,7 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
           ...add.reinstate.map((r) => ({ what: 'bring back', before: '—', after: r })),
           ...add.gone.map((r) => ({ what: 'no longer available', before: '—', after: r })),
           ...add.met.map((c) => ({ what: 'done when, met', before: '—', after: c })),
+          ...add.update.map((u) => ({ what: 'correct', before: u.option, after: describeCorrection(nb?.fields ?? [], u.data) })),
         ];
         return { ...action, inputs: named, surfaceChanges: changes };
       }
@@ -2094,7 +2098,7 @@ export async function runTriageAgent(
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
-          NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook) : '',
+          NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
           // Notebooks: goals kept over time ("where's my used car goal?").
           NOTEBOOKS: (() => {
             try {

@@ -12,6 +12,30 @@ import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookOptionMessages, type NotebookOptionData } from '../lib/notebook-option.js';
 import { optionStage, priceChangeChip, bodyWithLinks } from './notebooks.js';
 
+/**
+ * Talk to sua about this item: the notebook's talk box, aimed at one option.
+ * It goes into the notebook's conversation (opening in the sua drawer); the
+ * message names the option and sua gets it in focus. Hidden while the drawer
+ * is open, as on the notebook's page.
+ */
+function itemTalk(nb: Notebook, entryId: string): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  return html`
+    <section class="nb-side__card nb-talk" aria-labelledby="nbo-talk-title">
+      <h2 class="nb-side__title" id="nbo-talk-title">Talk to sua about this item</h2>
+      <form method="POST" action="/notebooks/${id}/ask" class="nb-talk__form" data-ask-fix>
+        <input type="hidden" name="option" value="${entryId}">
+        <label class="nb-talk__next" for="nbo-talk">Ask about it, or correct it: sua knows which one you mean.</label>
+        <textarea id="nbo-talk" name="text" required rows="3" class="form-field" placeholder="e.g. is it still available? Or: the price is actually $…" data-enter-sends aria-describedby="nbo-talk-keys"></textarea>
+        <div class="nb-talk__send">
+          <span class="nb-talk__keys" id="nbo-talk-keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
+          <button type="submit" class="btn btn--primary btn--sm">Ask sua</button>
+        </div>
+      </form>
+      ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
+    </section>`;
+}
+
 function standing(nb: Notebook, e: NotebookEntry, d: NotebookOptionData['option']): SafeHtml {
   if (e.ruledOut) return html``;
   const rankF = nb.fields.find((f) => f.role === 'score') ?? nb.fields.find((f) => f.role === 'price');
@@ -51,7 +75,12 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
         <p class="nbo-hero__meta">${e.by === 'you' ? 'added by you' : `found by ${by}`} ${formatAge(o.firstSeenAt)}${seenAgain ? ` · seen again ${formatAge(o.lastSeenAt)}` : ''}${o.notSeenLately && !e.ruledOut ? ` · not in the last ${String(o.missedSearches)} searches` : ''}</p>
       </div>
     </section>
-    ${e.body && e.body.trim() !== e.title.trim() ? html`<p class="nbo-body">${bodyWithLinks(e.body)}</p>` : html``}
-    <div class="nbo-widgets">${messages ? renderSurfaceHost(`option-${nb.id}-${e.id}`, messages, { label: `${o.name}: details` }) : html``}</div>
+    <div class="nb-body nbo-layout">
+      <div class="nb-body__main">
+        ${e.body && e.body.trim() !== e.title.trim() ? html`<p class="nbo-body">${bodyWithLinks(e.body)}</p>` : html``}
+        <div class="nbo-widgets">${messages ? renderSurfaceHost(`option-${nb.id}-${e.id}`, messages, { label: `${o.name}: details` }) : html``}</div>
+      </div>
+      <aside class="nb-body__side">${itemTalk(nb, e.id)}</aside>
+    </div>
   `));
 }

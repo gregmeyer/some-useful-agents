@@ -547,3 +547,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-delete__what { margin: 0; font-size: var(--font-size-sm); color: var(--color-text); }
 .nb-archived { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-raised); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nb-archived form { margin: 0; }
+
+/* The option page's body: details beside Talk to sua about this item (hidden with the sua drawer open, like the notebook's). */
+.nbo-layout .nbo-body { margin: 0; }
+.nbo-layout .nbo-widgets { margin-top: 0; }

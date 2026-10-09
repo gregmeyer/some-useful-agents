@@ -2429,3 +2429,48 @@ describe('a notebook remembers its conversation', () => {
     expect(page.text).toContain('Seattle came back empty, so I drafted Used Car Coverage Sweep.');
   });
 });
+
+describe("talking to sua about one option, from its page", () => {
+  it('names the option, gives sua all of it in focus, and a correction shows on the card and in the summary', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Cabinet' });
+    nbs.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' }]);
+    const o = nbs.upsertOption(nb.id, { title: 'Example wall cabinet, 24" wide', by: 'agent:x', data: { price: 4023, width: 24 } }).entry;
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+
+    // The option's page has the item's talk box, beside its details (hidden with the drawer open, like the notebook's).
+    const page = await get(`/notebooks/${nb.id}/entries/${o.id}`);
+    expect(page.text).toContain('Talk to sua about this item');
+    expect(page.text).toContain(`<input type="hidden" name="option" value="${o.id}">`);
+    expect(page.text).toContain('class="nb-body__side"');
+
+    const asked = await post(`/notebooks/${nb.id}/ask`, { text: 'the price is actually $136.64', option: o.id });
+    expect(asked.status).toBe(204);
+    const thread = asked.headers['x-inbox-id'];
+    expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').map((r) => r.body)).toEqual(['About “Example wall cabinet”: the price is actually $136.64']);
+    const { describeNotebookForTriage, threadOptionFocus } = await import('../lib/notebook-chat.js');
+    const focusId = threadOptionFocus(inboxStore.get(thread)!.contextJson);
+    expect(focusId).toBe(o.id);
+    const seen = JSON.parse(describeNotebookForTriage(ctx, nbs.get(nb.id)!, focusId)) as { focus?: { id: string; facts: Record<string, string>; page: string } };
+    expect(seen.focus).toMatchObject({ id: o.id, facts: { price: '$4,023', width: '24 in' }, page: `/notebooks/${nb.id}/entries/${o.id}` });
+
+    // sua's correction, as a card waiting for approval: it says what it changes; applied, it says it corrected it.
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+    const parsed = parseProposedActions([{ type: 'notebook-add', rationale: 'their correction', inputs: { NOTEBOOK: nb.id, CHANGES: { update: [{ option: 'Example wall cabinet', data: { price: 136.64 } }] } } }], []);
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.surfaceChanges).toEqual([{ what: 'correct', before: 'Example wall cabinet', after: 'Price $136.64' }]);
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed', summary: 'Corrected 1 option.' });
+    expect(nbs.findOption(nb.id, 'Example')!.data!.price).toBe(136.64);
+
+    // Asking from the notebook's own box clears the focus.
+    await post(`/notebooks/${nb.id}/ask`, { text: 'anything else under $150?' });
+    expect(threadOptionFocus(inboxStore.get(thread)!.contextJson)).toBeUndefined();
+    expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').at(-1)!.body).toBe('anything else under $150?');
+  });
+});

@@ -25,7 +25,7 @@ import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
-import { notebookThread, greetNotebook } from '../lib/notebook-chat.js';
+import { notebookThread, greetNotebook, setThreadOptionFocus } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
@@ -438,7 +438,11 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const threadId = notebookThread(ctx, nb)!;
   const cur = ctx.inboxStore.get(threadId);
   if (cur && (cur.status === 'resolved' || cur.status === 'dismissed')) ctx.inboxStore.updateStatus(threadId, 'open');
-  const said = ctx.inboxStore.addResponse(threadId, 'user', text);
+  // Asked from an option's page: the message names it, and sua gets that option in focus.
+  const optionId = str(req.body?.option);
+  const option = optionId ? s.entries(nb.id, 1000).find((e) => e.id === optionId && e.kind === 'option') : undefined;
+  setThreadOptionFocus(ctx, threadId, option?.id);
+  const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${text}` : text);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
   void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
   publishInboxChanged(ctx, threadId, 'open');

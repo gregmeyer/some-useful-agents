@@ -172,6 +172,12 @@ Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with e
 
   Each entry links the run behind it.
 
+- **Talk to sua about this item** (beside the details): ask about this option, or correct it ("is it still available?", "the price is actually $136.64").
+  - It goes into the notebook's conversation and opens it in the sua drawer.
+  - The message names the option ("About “Zeus & Ruta…”: …"), and sua gets everything the notebook knows about it, so it answers about that one. A correction changes the option itself.
+  - With the drawer open, the box hides and the details widen, as on the notebook's page.
+  - Asking from the notebook's own box afterwards drops the focus on that option.
+
 A note, evidence or a decision has no page of its own; its address goes to its place in the notebook.
 
 ## Ranked by fit, not price

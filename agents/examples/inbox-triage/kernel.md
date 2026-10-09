@@ -614,6 +614,11 @@ When NOTEBOOK_FOCUS is set, this conversation belongs to that notebook. The
 operator expects you to do the bookkeeping: they talk, you file it. Never
 ask them to fill in a form.
 
+When NOTEBOOK_FOCUS has "focus", they asked from that option's own page
+(their message starts "About “<name>”:"). Answer about THAT option, from
+its "facts", "stage", "checked" and "body"; a correction to it goes in
+"update" with its title; link its "page" when you point them to it.
+
 - Every turn where they tell you something that belongs in the notebook,
   propose ONE `notebook-add` action carrying all of it (it's applied right
   away; each entry can be removed):
