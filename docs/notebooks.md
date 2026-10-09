@@ -101,6 +101,8 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
 Options record their facts as data, not only as text, so they can be compared, sorted and charted.
 
+**Numbers are checked against what the search said.** When the keeper files what a search found, every number it gives (a price, miles, a width, a count) must appear in that run's output. It's matched the ways people write it: "$4,023", "4.9k", "157k mi", "1.2M", "18 million", "125–175k", "two hooks", within 1% for rounding. A number the output never states is left out rather than guessed. The run's note on the notebook says so ("1 number not in its output left out"), and a later search that states it fills it in. Facts setup gives an option must appear in that option's own text, or in the output. An agent that files its own `<notebook>` block from code isn't second-guessed.
+
 - **Each notebook has fields:** what every option records, e.g. price, miles, year, location and listing for a car; rent, sq ft and neighborhood for a flat.
 - **sua sets them up for you,** along with the stages: in the background when you start a notebook (from its goal), when a notebook has options but no fields (the first time you open it, or right after sua files an option from your conversation), or the first time a search finds options. Setup gives options already in the notebook their facts, read from their text. While it runs, the page says "sua is setting up what to track…" and redraws when it's done; it's tried once per notebook. Each field has a type (money, number, text, link, image, date) and, optionally, a role. The roles are what let one widget work for any notebook:
   - `price`: what it costs;

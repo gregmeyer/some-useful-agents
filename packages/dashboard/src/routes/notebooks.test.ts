@@ -1083,3 +1083,34 @@ describe('archiving and deleting a notebook from its page', () => {
     expect((await get('/notebooks?status=all')).text).toContain('Another notebook');
   });
 });
+
+describe("the keeper's numbers are checked against what the run said", () => {
+  it('leaves out a number the output never states (the run note says so); trusted blocks and setup text are respected', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult, passNote } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Cabinet' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' },
+      { key: 'link', label: 'Product', type: 'url', role: 'link' },
+    ]);
+    const block = (o: unknown) => `<notebook>${JSON.stringify(o)}</notebook>`;
+    const output = 'Found: Example wall cabinet, 24" wide, one side hook. https://shop.example/c-1 (no price listed)';
+    const cab = { kind: 'option', title: 'Example wall cabinet', body: 'Wall-mounted.', data: { price: 4023, width: 24, link: 'https://shop.example/c-1' } };
+
+    const out = applyKeeperResult(store, nb, 'starter-research', 'run-1', block({ entries: [cab] }), { source: output });
+    expect(out).toMatchObject({ added: 1, factsDropped: 1 });
+    expect(store.findOption(nb.id, 'Example')!.data).toEqual({ width: 24, link: 'https://shop.example/c-1' });
+    expect(passNote('starter-research', out)).toBe('starter-research: 1 new, 1 number not in its output left out');
+
+    // A later run that states the price fills it in.
+    const again = applyKeeperResult(store, store.get(nb.id)!, 'starter-research', 'run-2', block({ entries: [{ ...cab, data: { price: 136.64, link: 'https://shop.example/c-1' } }] }), { source: `${output} Now $136.64.` });
+    expect(again.factsDropped).toBeUndefined();
+    expect(store.findOption(nb.id, 'Example')!.data!.price).toBe(136.64);
+
+    // An agent's own block (code, not a model) isn't second-guessed.
+    const direct = applyKeeperResult(store, store.get(nb.id)!, 'account-research', 'run-3', block({ entries: [{ kind: 'option', title: 'Other cabinet', data: { price: 99, link: 'https://shop.example/c-2' } }] }), { trusted: true, source: 'x' });
+    expect(direct.factsDropped).toBeUndefined();
+    expect(store.findOption(nb.id, 'Other')!.data!.price).toBe(99);
+  });
+});
