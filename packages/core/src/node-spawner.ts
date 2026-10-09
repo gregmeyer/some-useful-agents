@@ -45,6 +45,22 @@ import type { SecretsStore } from './secrets-store.js';
 // ask-human too: a provider that can't call tools just runs without it.
 const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set<string>([...MEMORY_TOOL_IDS, 'ask-human']);
 
+/**
+ * `web-search` in a node's `tools:` isn't a sua tool: it turns on the CLI's
+ * own live search (claude's WebSearch, codex's web_search). A provider
+ * without one is skipped for that node, like any missing tool.
+ */
+export const WEB_SEARCH_TOOL_ID = 'web-search';
+
+/** Whether a node asks for live search: `tools: [web-search]`, or claude's own `WebSearch` in allowedTools (which codex now honours too). */
+export function nodeWantsWebSearch(node: Pick<AgentNode, 'tools' | 'allowedTools'>): boolean {
+  return (node.tools ?? []).includes(WEB_SEARCH_TOOL_ID)
+    || (node.allowedTools ?? []).some((t) => t === 'WebSearch' || t === WEB_SEARCH_TOOL_ID);
+}
+
+/** The node's sua tools, served over the tool endpoint (everything but `web-search`). */
+const suaToolsOf = (node: Pick<AgentNode, 'tools'>): string[] => (node.tools ?? []).filter((id) => id !== WEB_SEARCH_TOOL_ID);
+
 export interface ProviderFailure {
   provider: string;
   category: string;
@@ -294,6 +310,8 @@ export interface LlmSpawnOptions {
   mcpEndpoint?: { url: string; token: string };
   /** Spend cap for this attempt, USD (claude `--max-budget-usd`). */
   maxBudgetUsd?: number;
+  /** Turn on the CLI's own live web search (see `nativeWebSearch`). */
+  webSearch?: boolean;
 }
 
 /**
@@ -374,6 +392,12 @@ export interface LlmSpawner {
    * tools, rather than run without them.
    */
   supportsMcpTools?: boolean;
+  /**
+   * The CLI has its own live web search, turned on by `webSearch` in the
+   * spawn options. A node that declares `tools: [web-search]` skips a
+   * provider without it.
+   */
+  nativeWebSearch?: boolean;
   /**
    * Tool calls the CLI refused during the run (raw stdout in). A refused
    * call still exits 0 with a "success" result, so without this the node
@@ -544,7 +568,8 @@ export const claudeSpawner: LlmSpawner = {
     const args = ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
-    if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    const allowed = claudeAllowedTools(opts);
+    if (allowed.length) args.push('--allowedTools', allowed.join(','));
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
@@ -663,11 +688,18 @@ export const claudeSpawner: LlmSpawner = {
     return undefined;
   },
   supportsMcpTools: true,
+  nativeWebSearch: true,
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
   extractUsage: (stdout) => claudeUsage(stdout),
   stoppedAtBudget: (stdout) => /"subtype"\s*:\s*"error_max_budget_usd"/.test(stdout),
 };
+
+/** claude's --allowedTools: the node's own, plus WebSearch when it asks for live search. */
+function claudeAllowedTools(opts: LlmSpawnOptions): string[] {
+  const own = (opts.allowedTools ?? []).filter((t) => t !== WEB_SEARCH_TOOL_ID);
+  return opts.webSearch && !own.includes('WebSearch') ? [...own, 'WebSearch'] : own;
+}
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
 
@@ -684,7 +716,8 @@ export const claudeTextSpawner: LlmSpawner = {
     const args = ['--print'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
-    if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    const allowed = claudeAllowedTools(opts);
+    if (allowed.length) args.push('--allowedTools', allowed.join(','));
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
@@ -694,6 +727,7 @@ export const claudeTextSpawner: LlmSpawner = {
   parseProgress(): SpawnProgress | null { return null; },
   extractResult(stdout: string): string { return stdout; },
   supportsMcpTools: true,
+  nativeWebSearch: true,
 };
 
 // ── Codex spawner ──────────────────────────────────────────────────────
@@ -761,6 +795,8 @@ export const codexSpawner: LlmSpawner = {
       }
       args.push('-c', `mcp_servers.${TOOL_ENDPOINT_SERVER_NAME}={url=${JSON.stringify(opts.mcpEndpoint.url)},bearer_token_env_var="${CODEX_TOOL_TOKEN_ENV}",default_tools_approval_mode="approve"}`);
     }
+    // Live web search (the Responses web_search tool, no per-call approval).
+    if (opts.webSearch) args.push('-c', 'web_search="live"');
     return args;
   },
 
@@ -861,6 +897,7 @@ export const codexSpawner: LlmSpawner = {
   stderrNoise: /^Reading prompt from stdin\.\.\.\s*$/gm,
   // sua's tools reach codex over MCP (see buildArgs).
   supportsMcpTools: true,
+  nativeWebSearch: true,
   extractUsage: (stdout, opts) => {
     const usage = codexUsage(stdout);
     return usage ? { ...usage, model: opts.model ?? codexDefaultModel() } : undefined;
@@ -1324,7 +1361,7 @@ async function runLlmAttempt(
   toolCtx?: AttemptToolCtx,
 ): Promise<SpawnResult> {
   const isCustom = customProviders?.some((c) => c.name === provider) ?? false;
-  const declaredTools = node.tools ?? [];
+  const declaredTools = suaToolsOf(node);
   const wantsEndpoint = !isCustom && isCliProvider(provider)
     && getSpawner(provider).supportsMcpTools === true && declaredTools.length > 0;
   if (!wantsEndpoint) {
@@ -1409,11 +1446,14 @@ async function runLlmAttemptInner(
   // through the same waterfall (contract check, classifyLlmFailure, fallback).
   const custom = customProviders?.find((c) => c.name === provider);
   if (custom && custom.kind === 'openai') {
+    if ((node.tools ?? []).includes(WEB_SEARCH_TOOL_ID)) {
+      return { result: '', exitCode: 1, category: 'tool_unavailable', error: `${provider} has no live web search, which this node declares in tools: (web-search).` };
+    }
     // Expose the tools the model may CALL: the union of node.tools and any
     // registry-id entries in node.allowedTools (back-compat). Builtin, generated
     // integration, and MCP tools are exposed (schemas + a function-name→id map);
     // non-callable ids are dropped. Empty ⇒ plain completion (no tool loop).
-    const candidateIds = [...(node.tools ?? []), ...(node.allowedTools ?? [])];
+    const candidateIds = [...suaToolsOf(node), ...(node.allowedTools ?? [])];
     const surface = buildAttemptToolSurface(candidateIds, node, childEnv, provider, toolCtx, signal);
     const tools = surface?.tools;
     const onToolCall = surface?.execute;
@@ -1452,7 +1492,15 @@ async function runLlmAttemptInner(
   // declares tools, so the waterfall moves on — running anyway is how
   // starter-watch "completed" a watch that never read the page.
   let allowedTools = node.allowedTools;
-  const declaredTools = node.tools ?? [];
+  const declaredTools = suaToolsOf(node);
+  if ((node.tools ?? []).includes(WEB_SEARCH_TOOL_ID) && !spawner.nativeWebSearch) {
+    return {
+      result: '',
+      exitCode: 1,
+      category: 'tool_unavailable',
+      error: `${provider} has no live web search, which this node declares in tools: (web-search).`,
+    };
+  }
   // Optional tools (the memory tools the executor adds for agents with memory
   // on) never make a provider skip the node: without tool support it runs
   // without them, still starting from the recalled memories.
@@ -1477,6 +1525,7 @@ async function runLlmAttemptInner(
     mcpConfigPath,
     mcpEndpoint,
     maxBudgetUsd: toolCtx?.attemptBudgetUsd,
+    ...(spawner.nativeWebSearch && nodeWantsWebSearch(node) ? { webSearch: true } : {}),
   };
   const args = spawner.buildArgs(spawnOpts, childEnv);
 
