@@ -254,7 +254,7 @@ See [Tools](tools.md) for the built-in list and [MCP servers](mcp.md) for import
 - **Nodes that depend on it** get a short note in place of its output, e.g. `(step "autotrader" didn't finish: Request timed out after 75s)`, so a merge step can say what was missing.
 - **The run** completes unless a required node fails.
 
-A cancellation or a budget limit still stops the run. Use it for independent sources (one site of a multi-site search). sua's builder marks each source node of a multi-source agent optional.
+A cancellation or a budget limit still stops the run. Use it for independent sources (one site of a multi-site search). sua's builder marks each source node of a multi-source agent optional. The `starter-research` example does the same with its two research angles: if one fails, the brief is written from the other and says which side is missing.
 
 
 See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
