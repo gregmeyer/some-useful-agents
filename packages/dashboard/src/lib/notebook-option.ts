@@ -43,12 +43,14 @@ function optionFacts(fields: readonly NotebookField[], v: NotebookViewOption): N
     const value = v.fields[f.key];
     if (value === undefined || value === '' || f.type === 'image' || f.role === 'image') continue;
     const m = v.factMeta?.[f.key];
-    const text = f.type === 'url' || f.role === 'link' ? String(value).replace(/^https?:\/\//, '') : formatFieldValue(f, value);
-    const url = f.type === 'url' || f.role === 'link' ? String(value) : m?.source;
+    // A link field, or any fact whose value is a web address ("Availability: https://…"), links to it.
+    const isUrl = f.type === 'url' || f.role === 'link' || (typeof value === 'string' && /^https?:\/\/\S+$/i.test(value.trim()));
+    const text = isUrl ? String(value).trim().replace(/^https?:\/\//, '') : formatFieldValue(f, value);
+    const url = isUrl ? String(value).trim() : m?.source;
     const note = [
       m?.quote ? `“${m.quote}”${m.checked ? ' · checked in the source' : ''}` : '',
       m?.estimate ? 'an estimate' : '',
-      !m?.quote && m?.source && f.type !== 'url' ? `source: ${m.source.replace(/^https?:\/\//, '').replace(/\/.*$/, '')}` : '',
+      !m?.quote && m?.source && !isUrl ? `source: ${m.source.replace(/^https?:\/\//, '').replace(/\/.*$/, '')}` : '',
     ].filter(Boolean).join(' · ');
     out.push({ label: f.label, value: `${m?.estimate ? '≈ ' : ''}${text}`, ...(url ? { url } : {}), ...(note ? { note } : {}) });
   }
