@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, splitFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, SYSTEM_AGENT_IDS, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntryKind, type NotebookPassKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -58,6 +58,8 @@ export interface KeeperOutcome {
   refreshed?: number;
   /** Setup: options given their facts. */
   factsSet?: number;
+  /** Numbers the keeper gave that its source doesn't state: left out, never guessed. */
+  factsDropped?: number;
   /** The run gave its own <notebook> block, filed as is (no keeper model). */
   direct?: boolean;
   skipped: number;
@@ -71,7 +73,7 @@ export interface KeeperOutcome {
  * notebook already has), tick criteria it showed are met (with a note saying
  * why). Pure apart from the store, so it's tested without a model.
  */
-export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number; trusted?: boolean } = {}): KeeperOutcome {
+export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number; trusted?: boolean; source?: string } = {}): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
   let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown };
@@ -89,12 +91,24 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   if (nb.checks.length === 0 && Array.isArray(parsed.checks) && parsed.checks.length > 0) {
     nb = store.setChecks(nb.id, parsed.checks);
   }
+  // A model's numbers must be in what it read: the run's output (and, for an
+  // option it already has, that option's own text). Code's own block is trusted.
+  let factsDropped = 0;
+  const grounded = (data: Record<string, unknown> | undefined, text: string) => {
+    if (!data || opts.trusted || opts.source === undefined) return data;
+    const g = groundFacts(data, text);
+    factsDropped += g.dropped.length;
+    return g.data;
+  };
+  const byId = new Map(store.entries(nb.id, 1000).map((e) => [e.id, e]));
   // Setup: facts for options the notebook already has, by id.
   let factsSet = 0;
   for (const f of Array.isArray(parsed.facts) ? parsed.facts.slice(0, 100) : []) {
     const x = f as { id?: unknown; data?: unknown; fingerprint?: unknown };
     if (typeof x.id !== 'string' || !x.data || typeof x.data !== 'object') continue;
-    if (store.setOptionFacts(nb.id, x.id, x.data as Record<string, unknown>, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
+    const own = byId.get(x.id);
+    const data = grounded(x.data as Record<string, unknown>, `${own ? `${own.title}\n${own.body}\n` : ''}${opts.source ?? ''}`) ?? {};
+    if (store.setOptionFacts(nb.id, x.id, data, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
   }
   const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
   let added = 0;
@@ -107,7 +121,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     const body = typeof x.body === 'string' ? x.body : '';
     const key = entryKey(x.title);
     if (x.kind === 'option') {
-      const data = x.data && typeof x.data === 'object' ? x.data as Record<string, unknown> : undefined;
+      const data = grounded(x.data && typeof x.data === 'object' ? x.data as Record<string, unknown> : undefined, opts.source ?? '');
       const fingerprint = typeof x.fingerprint === 'string' ? x.fingerprint : undefined;
       // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
       if (!optionFingerprint(fingerprint, cleanData(splitFacts(data).values, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
@@ -141,7 +155,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
@@ -161,8 +175,8 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 }
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
-function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.direct ? ' (filed directly)' : ''}`;
+export function passNote(agentId: string, out: KeeperOutcome): string {
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
 /**
@@ -225,7 +239,8 @@ async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: strin
     result = run.result;
   }
   if (!result) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper did not finish.' };
-  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, result);
+  // Check the keeper's numbers against the whole output (setup: against each option's own text).
+  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, result, { source: setup ? '' : output });
   // Photos for what it found; a slow or failing site never fails the keep.
   try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
   // Options still without one get a representative picture or a drawing, in the background.

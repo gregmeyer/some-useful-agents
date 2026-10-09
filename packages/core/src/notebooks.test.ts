@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { NotebookStore, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -456,6 +456,19 @@ describe('archiving and deleting a notebook', () => {
     expect(s.sightings(o.id)).toEqual([]);
     expect(s.delete(old.id)).toBeUndefined();
     expect(s.list().map((n) => n.id)).toEqual([keep.id]);
+  });
+});
+
+describe('numbers a source states (groundFacts)', () => {
+  it('reads numbers the ways people write them', () => {
+    const n = numbersInText('$4,023 · 157k mi · 4.9k OBO · $1.2M revenue · 18 million users · 136.64 · 125-175k miles · two hooks');
+    for (const x of [4023, 157000, 4900, 1200000, 18000000, 136.64, 125000, 175000, 2]) expect(n).toContain(x);
+  });
+  it('keeps numbers the output states (rounded is fine), drops the rest, and keeps text', () => {
+    const out = 'Zeus & Ruta wall cabinet, 24 in wide, two hooks, MDF. Target. Around 157k miles on the other one; $4.9k.';
+    const g = groundFacts({ price: 4023, width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF', range: { min: 20, max: 24 }, src: { value: 239, source: 'https://x.example' } }, out);
+    expect(g.data).toEqual({ width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF' });
+    expect(g.dropped.map((d) => d.key).sort()).toEqual(['price', 'range', 'src']);
   });
 });
 

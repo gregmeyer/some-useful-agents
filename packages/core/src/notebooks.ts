@@ -1336,6 +1336,57 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
 }
 
 /**
+ * Every number a text states, read the ways people write them: "$4,023",
+ * "4023", "136.64", "4.9k", "157k mi", "1.2M", "18 million", and ranges
+ * like "125-175k" (the suffix applies to both ends).
+ */
+export function numbersInText(text: string): number[] {
+  const out: number[] = [];
+  const mult = (s: string | undefined) => {
+    const w = (s ?? '').toLowerCase();
+    return w === 'k' || w === 'thousand' ? 1e3 : w === 'm' || w === 'mm' || w === 'million' ? 1e6 : w === 'b' || w === 'billion' ? 1e9 : 1;
+  };
+  const num = '(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)';
+  const suffix = '(?:\\s?(k|m|mm|b|thousand|million|billion)\\b)?';
+  const re = new RegExp(`${num}${suffix}(?:\\s?(?:-|–|—|to)\\s?\\$?${num}${suffix})?`, 'gi');
+  for (const m of text.matchAll(re)) {
+    const a = Number(m[1].replace(/,/g, ''));
+    const b = m[3] !== undefined ? Number(m[3].replace(/,/g, '')) : undefined;
+    const ma = mult(m[2]); const mb = mult(m[4]);
+    out.push(a, a * ma);
+    // "125-175k": the second end's suffix is the first's too.
+    if (b !== undefined) out.push(b, b * mb, a * mb);
+  }
+  // Small counts are often words: "two hooks", "a dozen".
+  const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, dozen: 12, single: 1, double: 2, pair: 2 };
+  for (const m of text.toLowerCase().matchAll(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen|single|double|pair)\b/g)) out.push(WORDS[m[1]]);
+  return out.filter((n) => Number.isFinite(n));
+}
+
+/**
+ * Keep only the numbers a source actually states: each numeric fact (a range
+ * by both ends) must match a number in `text` (within 1%, so "157k" covers
+ * 156,870). Text facts are kept. Returns what's kept and what was left out.
+ */
+export function groundFacts(data: Record<string, unknown> | undefined, text: string): { data: Record<string, unknown>; dropped: Array<{ key: string; value: unknown }> } {
+  const found = numbersInText(text);
+  const stated = (n: number) => found.some((x) => Math.abs(x - n) <= Math.max(0.005, Math.abs(n) * 0.01));
+  const kept: Record<string, unknown> = {};
+  const dropped: Array<{ key: string; value: unknown }> = [];
+  for (const [key, raw] of Object.entries(data ?? {})) {
+    // A fact may come as {value, source, …}.
+    const v = raw && typeof raw === 'object' && !Array.isArray(raw) && 'value' in (raw as object) ? (raw as { value: unknown }).value : raw;
+    const nums = typeof v === 'number' ? [v]
+      : isRange(v) ? [v.min, v.max]
+        : typeof v === 'string' && /^\s*\$?\s*[\d,.]+\s*[km]?\s*$/i.test(v) ? (() => { const r = numbersInText(v); return [r[1] ?? r[0]]; })()
+          : [];
+    if (nums.length && !nums.every(stated)) { dropped.push({ key, value: v }); continue; }
+    kept[key] = raw;
+  }
+  return { data: kept, dropped };
+}
+
+/**
  * The unambiguous facts in an option's text, for the notebook's fields: a
  * dollar amount for the price, a number with the measure's unit ("157k mi"),
  * a leading year for a `year` field, the first web address for the link.
