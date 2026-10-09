@@ -237,6 +237,20 @@ file are removed when the attempt ends. See [ADR-0036](adr/0036-serve-sua-tools-
 
 codex gets the same endpoint as config flags on `codex exec`: `-c mcp_servers.sua={url=…, bearer_token_env_var="SUA_TOOL_ENDPOINT_TOKEN", default_tools_approval_mode="approve"}`, with the token in that environment variable (never in argv). The tools are pre-approved because `exec` has nobody to approve them, and every MCP server in your own codex config is switched off for the run (`-c mcp_servers.<name>.enabled=false`, from `codex mcp list --json`), so only sua's tools load. Your other codex settings (model, reasoning effort) still apply. See [ADR-0044](adr/0044-serve-sua-tools-to-codex-over-mcp.md).
 
+**Live web search (`web-search`).** `web-search` in a node's `tools:` isn't a sua tool. It
+turns on the CLI's own live search:
+
+| Provider | `web-search` |
+|---|---|
+| `claude` | `WebSearch` added to `--allowedTools` |
+| `codex` | `-c web_search="live"` (the Responses `web_search` tool, no per-call approval) |
+| OpenAI-compatible, Apple Foundation Models | none, so they're skipped (`tool_unavailable`) |
+
+Declare it beside `web-fetch` so the model can find pages, then read them:
+`tools: [web-search, web-fetch, web-scrape]`. A node that names claude's own `WebSearch`
+in `allowedTools` also gets codex's search when codex answers. That way is only a
+request, though: it never skips a provider.
+
 A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
 never "succeeds" without the tools it declared.
 
