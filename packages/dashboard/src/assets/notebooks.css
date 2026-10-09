@@ -58,6 +58,7 @@
 .nb-status--active { color: var(--color-primary); }
 .nb-status--decided { color: var(--color-ok); }
 .nb-status--stopped { color: var(--color-text-subtle); }
+.nb-status--archived { color: var(--color-text-subtle); border-style: dashed; }
 
 /* The pipeline, drawn. */
 .nb-pipe { max-width: 640px; overflow: visible; }
@@ -535,3 +536,14 @@ body.has-sua-panel .nb-start__pointer { display: none; }
   .nbo-hero { grid-template-columns: 1fr; padding: var(--space-4); }
   .nbo-hero__pic { max-width: 360px; }
 }
+
+/* Archive and delete (the Edit panel) and the archived note on the page. */
+.nb-remove { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+.nb-remove .nb-form { margin: 0; }
+.nb-delete > summary { list-style: none; cursor: pointer; }
+.nb-delete > summary::-webkit-details-marker { display: none; }
+.nb-delete[open] { flex-basis: 100%; }
+.nb-delete__form { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-warn-border, var(--color-warn)); border-radius: var(--radius-md); background: var(--color-warn-soft); }
+.nb-delete__what { margin: 0; font-size: var(--font-size-sm); color: var(--color-text); }
+.nb-archived { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-raised); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nb-archived form { margin: 0; }

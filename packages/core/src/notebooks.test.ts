@@ -426,6 +426,39 @@ describe('fields without roles, and facts that belong to another option', () => 
   });
 });
 
+describe('archiving and deleting a notebook', () => {
+  it('archives out of lists (kept whole, restorable) and deletes everything in it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const keep = s.create({ title: 'Keep' });
+    const old = s.setFields(s.create({ title: 'Old search', cadence: '0 7 * * *' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const o = s.upsertOption(old.id, { title: 'A thing', by: 'agent:x', runId: 'r1', data: { price: 10 } }).entry;
+    s.recordSearch(old.id, 'x', 'r1', 1);
+
+    s.archive(old.id);
+    expect(s.list().map((n) => n.id)).toEqual([keep.id]);
+    expect(s.list({ status: 'active' }).map((n) => n.id)).toEqual([keep.id]);
+    expect(s.list({ archived: 'only' }).map((n) => n.id)).toEqual([old.id]);
+    expect(s.list({ archived: 'include' })).toHaveLength(2);
+    expect(s.get(old.id)!.archivedAt).toEqual(expect.any(String));
+    expect(s.entries(old.id)).toHaveLength(1); // nothing deleted
+    s.unarchive(old.id);
+    expect(s.get(old.id)!.archivedAt).toBeUndefined();
+    expect(s.list()).toHaveLength(2);
+
+    expect(s.delete(old.id)).toEqual({ entries: 1 });
+    expect(s.get(old.id)).toBeUndefined();
+    const db = runs.databaseHandle();
+    for (const t of ['notebook_entries', 'notebook_sightings', 'notebook_searches']) {
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE notebook_id = ?`).get(old.id) as { n: number }).n).toBe(0);
+    }
+    expect(s.sightings(o.id)).toEqual([]);
+    expect(s.delete(old.id)).toBeUndefined();
+    expect(s.list().map((n) => n.id)).toEqual([keep.id]);
+  });
+});
+
 describe('shortName', () => {
   it('cuts at a comma only when what follows is facts', () => {
     expect(shortName('2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood')).toBe('2010 Toyota RAV4 Sport 4WD');

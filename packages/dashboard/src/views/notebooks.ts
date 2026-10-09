@@ -16,6 +16,13 @@ const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24
 
 const STATUS_LABEL: Record<Notebook['status'], string> = { active: 'active', decided: 'decided', stopped: 'stopped' };
 
+/** Its status chip; an archived notebook says so whatever its status. */
+function statusChip(nb: Pick<Notebook, 'status' | 'archivedAt'>): SafeHtml {
+  return nb.archivedAt
+    ? html`<span class="nb-status nb-status--archived">archived</span>`
+    : html`<span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span>`;
+}
+
 /** A progress ring over the criteria: met of total. */
 export function progressRing(met: number, total: number, size = 78): SafeHtml {
   const r = size / 2 - 8;
@@ -91,7 +98,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             ? html`<img class="nb-hero__cover${cover.kind === 'illustration' ? ' is-drawn' : ''}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : 'An example photo'}">`
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
           <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
-          <span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span>
+          ${statusChip(nb)}
         </div>
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
@@ -423,6 +430,17 @@ function editNotebookForm(nb: Notebook): SafeHtml {
         <button type="submit" class="btn btn--sm">Save</button>
       </form>
       ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button></form>` : html``}
+      <div class="nb-remove">
+        ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
+        <details class="nb-delete">
+          <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
+          <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
+            <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
+            <input type="hidden" name="confirm" value="${nb.id}">
+            <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
+          </form>
+        </details>
+      </div>
   `;
 }
 
@@ -471,6 +489,8 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
+    ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
+      <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries), args.entries)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
@@ -500,17 +520,17 @@ export interface NotebookCard {
   coverKind?: string;
 }
 
-export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
+export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
 
 export function renderNotebooksList(args: {
   notebooks: NotebookCard[];
   openNew?: boolean;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   query?: NotebookListQuery;
-  counts?: { active: number; decided: number; stopped: number; all: number };
+  counts?: { active: number; decided: number; stopped: number; all: number; archived?: number };
 }): string {
   const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
-  const counts = args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length };
+  const counts = { archived: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
   const href = (over: Partial<Pick<NotebookListQuery, 'q' | 'status' | 'sort' | 'page'>>) => {
     const p = new URLSearchParams();
     const v = { q: q.q, status: q.status, sort: q.sort, page: 1, ...over };
@@ -536,9 +556,9 @@ export function renderNotebooksList(args: {
       </div>
       <a class="btn btn--primary nbl-new__btn" href="/notebooks/new">+ New notebook</a>
     </header>
-    ${counts.all ? html`
+    ${counts.all || counts.archived ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
-        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}</nav>
+        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
         ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
         <label class="nbl-tools__search"><span class="sr-only">Search notebooks</span>
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
@@ -570,7 +590,7 @@ export function renderNotebooksList(args: {
               ${c.cover && c.coverKind && c.coverKind !== 'listing' ? html`<span class="nbl-card__kind">${c.coverKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}
             </span>
             <span class="nbl-card__body">
-              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span><span class="nb-status nb-status--${nb.status}">${STATUS_LABEL[nb.status]}</span></span>
+              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${statusChip(nb)}</span>
               <span class="nbl-card__statement">${nb.decision ?? nb.statement}</span>
               ${c.best ? html`<span class="nbl-card__lead"><span class="nbl-card__price">${c.best}</span>${c.bestName ? html`<span class="nbl-card__leadname">${c.bestName}</span>` : html``}</span>` : html``}
               <span class="nbl-card__facts">${facts.map((f) => html`<span class="nbl-chip">${f}</span>`) as unknown as SafeHtml[]}</span>

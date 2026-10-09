@@ -1042,3 +1042,44 @@ describe('a correction in the conversation', () => {
     expect(page.text).toMatch(/"who":"sua","title":"Corrected","body":"Price \$4,023 → \$136.64"/);
   });
 });
+
+describe('archiving and deleting a notebook from its page', () => {
+  it('archive hides it from the list (Archived shows it, the page offers Restore); delete removes it and its pages', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.setFields(store.create({ title: 'Old cabinet search' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const o = store.upsertOption(nb.id, { title: 'Example cabinet', by: 'you', data: { price: 90 } }).entry;
+    store.create({ title: 'Another notebook' });
+
+    const page = await get(`/notebooks/${nb.id}`);
+    expect(page.text).toContain(`action="/notebooks/${nb.id}/archive"`);
+    expect(page.text).toContain('Delete…');
+
+    const archived = await post(`/notebooks/${nb.id}/archive`, { archived: '1' });
+    expect(decodeURIComponent(archived.headers.location)).toContain('Archived “Old cabinet search”');
+    const list = await get('/notebooks?status=all');
+    expect(list.text).not.toContain('Old cabinet search');
+    expect(list.text).toContain('Archived <span class="nb-tabs__n">1</span>');
+    expect((await get('/notebooks?status=archived')).text).toContain('Old cabinet search');
+    const archivedPage = await get(`/notebooks/${nb.id}`);
+    expect(archivedPage.text).toContain('class="nb-archived"');
+    expect(archivedPage.text).toContain('Restore');
+
+    await post(`/notebooks/${nb.id}/archive`, { archived: '0' });
+    expect((await get('/notebooks?status=all')).text).toContain('Old cabinet search');
+
+    // Delete needs the confirm field naming it.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/delete`)).headers.location)).toContain('Confirm the delete');
+    expect(store.get(nb.id)).toBeDefined();
+    const deleted = await post(`/notebooks/${nb.id}/delete`, { confirm: nb.id });
+    expect(decodeURIComponent(deleted.headers.location)).toBe('/notebooks?flash=Deleted “Old cabinet search”.');
+    expect(store.get(nb.id)).toBeUndefined();
+    expect((await get(`/notebooks/${nb.id}/entries/${o.id}`)).status).toBe(404);
+    expect(decodeURIComponent((await get(`/notebooks/${nb.id}`)).headers.location)).toContain('No such notebook');
+    expect((await get('/notebooks?status=all')).text).toContain('Another notebook');
+  });
+});

@@ -16,7 +16,23 @@ There's no top-nav item yet. Notebooks show up:
 - **at `/notebooks`:** the list, with a ring showing criteria met, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 
-- **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. what it's for (or what you decided), the best price with its lead option, chips for options and how many are in the running, and how many done-whens are met. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
+- **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. what it's for (or what you decided), the best price with its lead option, chips for options and how many are in the running, and how many done-whens are met. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts, plus **Archived** when you've archived any; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
+
+## Archiving and deleting
+
+Both are at the bottom of a notebook's **Edit** panel.
+
+- **Archive** hides the notebook:
+  - from your notebooks (**All** too), Home's shelf, Today, sua's notebook list and the agent catalog's "fills notebooks";
+  - its schedule stops.
+
+  Nothing in it is deleted, and its address and its options' pages still open, with an "Archived" note and **Restore**. Find it under the **Archived** tab. Restoring it brings it back as it was; its schedule waits for its next slot rather than catching up. Its conversation with sua still shows the notebook's card, and sua still files into it there.
+- **Delete…** asks once, then removes the notebook and everything in it:
+  - options, notes, evidence and decisions;
+  - price history and searches;
+  - passes, kept photos and its layout.
+
+  Its page and its options' pages stop existing. Its conversation with sua and the runs that fed it stay. It can't be undone. While its pipeline is running, delete waits until the run finishes.
 
 ## Starting one
 
