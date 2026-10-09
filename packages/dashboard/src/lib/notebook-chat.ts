@@ -6,9 +6,10 @@
  */
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman,
-  type Notebook, type NotebookEntryKind,
+  type Notebook, type NotebookEntryKind, type NotebookFieldValue,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
+import { formatFieldValue } from '../views/notebooks.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -37,6 +38,8 @@ export interface NotebookAdd {
   gone: string[];
   /** Done-when criteria now met, by their text (or part of it). */
   met: string[];
+  /** Corrections to an option's facts, on their word: {option, data: {price: 136.64}}. */
+  update: Array<{ option: string; data: Record<string, unknown> }>;
 }
 
 /** CHANGES as sua sends it: {entries?, params?, criteria?, statement?}. */
@@ -72,8 +75,12 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     reinstate: strList(o.reinstate, 20),
     met: strList((o as { met?: unknown }).met, 10),
     gone: strList((o as { gone?: unknown }).gone, 20),
+    update: (Array.isArray((o as { update?: unknown }).update) ? (o as { update: unknown[] }).update.slice(0, 20) : [])
+      .map((x) => x as { option?: unknown; data?: unknown })
+      .filter((x) => typeof x.option === 'string' && x.option.trim() && x.data && typeof x.data === 'object' && !Array.isArray(x.data) && Object.keys(x.data).length)
+      .map((x) => ({ option: String(x.option).trim(), data: x.data as Record<string, unknown> })),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -139,6 +146,17 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     if (!o) continue;
     store.reinstate(nb.id, o.id);
     added.push(`brought back: ${o.title}`);
+  }
+  // Corrections change the option's own facts (and its card, page and chart), not a note beside it.
+  for (const u of add.update) {
+    const o = option(u.option);
+    if (!o) continue;
+    const { changed } = store.correctOption(nb.id, o.id, u.data, by);
+    const fields = store.get(nb.id)!.fields;
+    const label = (k: string) => fields.find((f) => f.key === k)?.label ?? k;
+    const show = (k: string, v: NotebookFieldValue) => { const f = fields.find((x) => x.key === k); return f ? formatFieldValue(f, v) : String(v); };
+    if (changed.length) added.push(`corrected: ${o.title} (${changed.map((c) => `${label(c.key)} ${c.from !== undefined ? `${show(c.key, c.from)} → ` : ''}${show(c.key, c.to)}`).join(', ')})`);
+    else added.push(`no change: ${o.title} already has that`);
   }
   for (const text of add.met) {
     const cur = store.get(nb.id)!;
