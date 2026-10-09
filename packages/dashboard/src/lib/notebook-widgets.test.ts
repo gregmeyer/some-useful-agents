@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore, NotebookStore, validateViewComponents } from '@some-useful-agents/core';
-import { limitBands, limitChips, notebookWidgetData, notebookWidgetComponents, notebookWidgetMessages } from './notebook-widgets.js';
+import { limitBands, limitChips, notebookWidgetData, notebookWidgetComponents, notebookWidgetMessages, defaultFilters } from './notebook-widgets.js';
 
 let dir: string;
 let runs: RunStore;
@@ -71,6 +71,18 @@ describe('notebook widgets', () => {
     const v = validateViewComponents(notebookWidgetComponents(nb));
     expect(v.ok).toBe(true); // the catalog knows Scatter's href
     expect((v.ok ? v.components : []).find((c) => c.component === 'Scatter')).toMatchObject({ href: 'page', label: 'name' });
+  });
+
+  it('lets the shortlist be filtered: still listed, stage, and the text facts', () => {
+    const nb = { fields: [
+      { key: 'price', label: 'Price', type: 'money' as const, role: 'price' as const }, { key: 'seller', label: 'Seller', type: 'text' as const, role: 'org' as const },
+      { key: 'body', label: 'Body', type: 'text' as const }, { key: 'url', label: 'Listing', type: 'url' as const, role: 'link' as const },
+    ], stages: ['Found', 'Checked'] };
+    expect(defaultFilters(nb)).toEqual(['seen', 'stage', 'seller', 'body']);
+    expect(defaultFilters({ fields: [], stages: [] })).toEqual(['seen']);
+    const v = validateViewComponents(notebookWidgetComponents(nb));
+    expect(v.ok).toBe(true); // the catalog knows OptionGrid's filters
+    expect((v.ok ? v.components : []).find((c) => c.component === 'OptionGrid')).toMatchObject({ filters: ['seen', 'stage', 'seller', 'body'] });
   });
 
   it('leaves out the map without a price and a measure, and the funnel without stages', () => {
