@@ -681,7 +681,9 @@ export class NotebookStore {
 
   /**
    * Repair options whose facts contradict their own text (the year, price or
-   * measure it states): the text wins. Returns how many were repaired.
+   * measure it states): the text wins, unless a later search found this same
+   * option again and saw newer facts (a price change): those win over the
+   * text it was filed with. Returns how many were repaired.
    */
   reconcileOptionFacts(notebookId: string): number {
     const nb = this.mustGet(notebookId);
@@ -690,10 +692,13 @@ export class NotebookStore {
     for (const e of this.entries(notebookId, 1000)) {
       if (e.kind !== 'option' || !e.data) continue;
       const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
-      if (!contradicts(e.data, stated)) continue;
+      // The first sighting is the filing the text describes; later ones matched this option by its fingerprint.
+      const later = this.sightings(e.id).slice(1).reduce<Record<string, NotebookFieldValue>>((acc, x) => ({ ...acc, ...cleanData(x.data, nb.fields) }), {});
+      const expected = { ...stated, ...later };
+      if (!contradicts(e.data, expected)) continue;
       const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
-      const keep = linkKey && stated[linkKey] === undefined && e.data[linkKey] !== undefined && typeof e.data[linkKey] === 'string' && `${e.title} ${e.body}`.includes(String(e.data[linkKey])) ? { [linkKey]: e.data[linkKey] } : {};
-      this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ ...keep, ...stated }), e.id);
+      const keep = linkKey && expected[linkKey] === undefined && e.data[linkKey] !== undefined && typeof e.data[linkKey] === 'string' && `${e.title} ${e.body}`.includes(String(e.data[linkKey])) ? { [linkKey]: e.data[linkKey] } : {};
+      this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ ...keep, ...expected }), e.id);
       n++;
     }
     return n;
