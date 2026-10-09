@@ -160,6 +160,9 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with everything the notebook keeps about it. Open it from a dot on **Where they sit** or an option's name on the **Shortlist**.
 
+- **Previous / Next** (top right, beside the breadcrumbs): the options either side of this one in the running, best first: **← #2 …**, **3 of 22**, **#4 … →**. The **←** and **→** keys do the same (not while you're typing).
+  - They follow the filters you picked on the notebook's **Shortlist**: with **Listing: Current** on, Next skips listings not seen lately, and the count reads **2 of 5 filtered**.
+  - A ruled-out option has no Previous / Next.
 - **The header:**
   - its picture;
   - its short name and full title;
@@ -184,6 +187,7 @@ Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with e
   - The message names the option ("About “Zeus & Ruta…”: …"), and sua gets everything the notebook knows about it, so it answers about that one. A correction changes the option itself.
   - With the drawer open, the box hides and the details widen, as on the notebook's page.
   - Asking from the notebook's own box afterwards drops the focus on that option.
+  - **"Next"** ("open the next item", "I'm done with this one, go to the previous") goes straight to that option's page, the same one the Next button names, without asking sua. Anything more ("rule it out and open the next") goes to sua: it does what you asked about this one, then links the next one (sua knows the options either side of it, in rank order).
 
 A note, evidence or a decision has no page of its own; its address goes to its place in the notebook.
 

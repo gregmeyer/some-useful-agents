@@ -2474,3 +2474,57 @@ describe("talking to sua about one option, from its page", () => {
     expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').at(-1)!.body).toBe('anything else under $150?');
   });
 });
+
+describe('Previous / Next on an option page, and "next" in its talk box', () => {
+  it('steps through those in the running, best first; "next" goes there without sua; sua knows the neighbours', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Wagons' });
+    nbs.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const add = (title: string, price: number) => nbs.upsertOption(nb.id, { title, by: 'you', data: { price } }).entry;
+    const mid = add('Wagon B', 5000); const best = add('Wagon A', 3000); const last = add('Wagon C', 7000);
+    const out = add('Wagon D', 1000);
+    nbs.ruleOut(nb.id, out.id, 'salvage title');
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+    const page = (id: string) => `/notebooks/${nb.id}/entries/${id}`;
+
+    // #2 of 3: back to #1, on to #3 (the ruled-out one isn't in the order).
+    const html = (await get(page(mid.id))).text;
+    expect(html).toContain('data-nbo-nav');
+    expect(html).toContain(`rel="prev" data-nbo-prev href="${page(best.id)}"`);
+    expect(html).toContain(`rel="next" data-nbo-next href="${page(last.id)}"`);
+    expect(html).toContain('2 of 3');
+    expect(html).not.toContain(out.id + '","name"');
+    expect(html).toContain('src="/assets/option-nav.js"');
+    // The last has no Next; a ruled-out option has no stepping at all.
+    expect((await get(page(last.id))).text).toMatch(/rel="next" data-nbo-next href="#"\s+hidden/);
+    expect((await get(page(out.id))).text).not.toContain('data-nbo-nav');
+
+    // "Open the next item" goes to the next page: no message, no sua run.
+    const went = await post(`/notebooks/${nb.id}/ask`, { text: "I'm done with this one, open the next item in the list", option: mid.id });
+    expect(went.status).toBe(204);
+    expect(went.headers['x-navigate']).toBe(page(last.id));
+    expect(went.headers['x-inbox-id']).toBeUndefined();
+    expect(nbs.get(nb.id)!.conversationId).toBeUndefined();
+    // The page sends where Next goes after your grid filters; that wins when it's in the running.
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'previous', option: last.id, prev: best.id })).headers['x-navigate']).toBe(page(best.id));
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'previous', option: last.id, prev: out.id })).headers['x-navigate']).toBe(page(mid.id));
+    // Without a JS fetch, a redirect.
+    const plain = await request(app).post(`/notebooks/${nb.id}/ask`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({ text: 'next', option: best.id });
+    expect(plain.status).toBe(303);
+    expect(plain.headers.location).toBe(page(mid.id));
+
+    // Anything more is a question for sua, which has the neighbours in focus.
+    const asked = await post(`/notebooks/${nb.id}/ask`, { text: 'rule it out and open the next', option: mid.id });
+    expect(asked.headers['x-inbox-id']).toBeTruthy();
+    const { describeNotebookForTriage } = await import('../lib/notebook-chat.js');
+    const seen = JSON.parse(describeNotebookForTriage(ctx, nbs.get(nb.id)!, mid.id)) as { focus?: Record<string, unknown> };
+    expect(seen.focus).toMatchObject({ rank: 2, previous: { title: 'Wagon A', page: page(best.id) }, next: { title: 'Wagon C', page: page(last.id) } });
+    // "Next" from the last one has nowhere to go, so sua answers.
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'next', option: last.id })).headers['x-inbox-id']).toBeTruthy();
+  });
+});

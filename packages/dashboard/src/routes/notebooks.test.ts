@@ -998,7 +998,10 @@ describe("an option's own page", () => {
     expect(page.text).toMatch(/"title":"Found"[^}]*run-aaaa1111/);
     expect(page.text).toMatch(/"title":"Price dropped"[^}]*run-bbbb2222/);
     expect(page.text).toContain('{"text":"Clean title","done":true}');
-    expect(page.text).not.toContain('2012 Example Hatch');
+    // Its widgets carry only this option; the other is named once, by Next.
+    const widgets = /data-a2ui-surface[^>]*><script type="application\/json">([\s\S]*?)<\/script>/.exec(page.text)![1];
+    expect(widgets).not.toContain('2012 Example Hatch');
+    expect(page.text).toMatch(/data-nbo-(?:next|prev)[^>]*>[^<]*<span class="nbo-nav__name" data-nbo-name>#\d 2012 Example Hatch/);
 
     // Its controls come back here; the notebook's cards still go to the notebook.
     const moved = await post(`/notebooks/${nb.id}/entries/${wagon.id}/stage`, { stage: 'Checked', back: 'option' });

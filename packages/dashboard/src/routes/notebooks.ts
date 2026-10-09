@@ -8,13 +8,14 @@ import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
-import { notebookOptionData } from '../lib/notebook-option.js';
+import { notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
+import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
 import {
-  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
@@ -25,7 +26,7 @@ import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
-import { notebookThread, greetNotebook, setThreadOptionFocus } from '../lib/notebook-chat.js';
+import { notebookThread, greetNotebook, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
@@ -438,6 +439,21 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
     if (isAjax(req)) { res.status(nb ? 400 : 404).json({ error: nb ? 'Say something first.' : 'No such notebook.' }); return; }
     res.redirect(303, nb ? back(nb.id, 'Say something first.') : '/notebooks');
     return;
+  }
+  // "Next" from an option's page: go to the next one (the page sends where, after your grid filters).
+  const fromOption = str(req.body?.option);
+  const step = fromOption ? optionNavIntent(text) : undefined;
+  if (step) {
+    const entries = s.entries(nb.id, 1000);
+    const sent = str(req.body?.[step]);
+    const order = rankOptions(nb, notebookWidgetData(nb, entries, widgetHistory(ctx, s)).notebook.options);
+    const to = sent && order.some((o) => o.id === sent) ? sent : optionNeighbours(order, fromOption)[step]?.id;
+    if (to) {
+      const page = optionPage(nb.id, to);
+      if (isAjax(req)) { res.setHeader('X-Navigate', page); res.status(204).end(); return; }
+      res.redirect(303, page);
+      return;
+    }
   }
   const threadId = notebookThread(ctx, nb)!;
   const cur = ctx.inboxStore.get(threadId);

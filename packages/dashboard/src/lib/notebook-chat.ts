@@ -5,7 +5,7 @@
  * `notebook-pipeline` card you approve. Triage sees the notebook it's in.
  */
 import {
-  NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman,
+  NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -202,6 +202,15 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
   return store.list({ archived: 'include' }).find((n) => n.conversationId === threadId);
 }
 
+/** The options before and after one in the running, as sua links them. */
+function neighboursFor(nb: Notebook, entries: Parameters<typeof notebookViewData>[1], store: NotebookStore, id: string): { rank?: number; previous?: { title: string; page: string }; next?: { title: string; page: string } } {
+  const order = rankOptions(nb, notebookViewData(nb, entries, store).notebook.options);
+  const i = order.findIndex((x) => x.id === id);
+  if (i < 0) return {};
+  const ref = (x: (typeof order)[number]) => ({ title: x.name, page: `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(x.id)}` });
+  return { rank: i + 1, ...(i > 0 ? { previous: ref(order[i - 1]) } : {}), ...(i < order.length - 1 ? { next: ref(order[i + 1]) } : {}) };
+}
+
 /** The notebook, for triage: what it is, what it has, what agents could feed it. */
 export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?: string): string {
   const store = notebooksOf(ctx);
@@ -218,6 +227,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     checked: o.checked ?? [],
     foundBy: o.by, firstSeen: o.createdAt, lastSeen: o.lastSeenAt ?? o.createdAt,
     page: `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(o.id)}`,
+    // The ones either side of it in the running (best first), for "open the next one".
+    ...neighboursFor(nb, all, store, o.id),
   } : undefined;
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
@@ -310,4 +321,20 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option')));
   ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
   return threadId;
+}
+
+/**
+ * "Next", "open the next item in the list", "I'm done with this one, go to
+ * the previous": a message that only asks to move to another option, so the
+ * page goes there without asking sua. Anything more ("rule it out and open
+ * the next", "is the next one cheaper?") is a question for sua.
+ */
+export function optionNavIntent(text: string): 'next' | 'prev' | undefined {
+  let t = text.trim().toLowerCase().replace(/[’‘]/g, "'").replace(/[.!?\s]+$/, '');
+  if (!t || t.length > 90) return undefined;
+  const filler = /^(?:ok(?:ay)?|thanks|thank you|great|cool|got it|good|done|i'?m done(?: with (?:this|that|it)(?: one)?)?|i'?ve seen (?:this|it|enough)|and|so|now|then|please)\b[\s,;.!-]*/;
+  for (let prev = ''; prev !== t;) { prev = t; t = t.replace(filler, ''); }
+  const m = /^(?:(?:can you |could you )?(?:please )?(?:open|go(?: back)? to|back to|show(?: me)?|take me(?: back)? to|move (?:on )?to|on to|onto)\s+)?(?:the\s+)?(next|previous|prev)(?:\s+(?:one|item|option|listing|entry|result))?(?:\s+(?:in|on) (?:the|my) (?:detail list|list|shortlist|notebook|grid))?(?:,?\s*please)?$/.exec(t);
+  if (!m) return undefined;
+  return m[1] === 'next' ? 'next' : 'prev';
 }

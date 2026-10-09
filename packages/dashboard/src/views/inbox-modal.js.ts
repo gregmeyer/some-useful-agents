@@ -1356,6 +1356,9 @@ export const INBOX_MODAL_JS = `
       body: askBody
     })
       .then(function (r) {
+        // "Next" from an option's page: the server says where to go, no conversation.
+        var to = r.headers.get('X-Navigate');
+        if (r.ok && to && to.charAt(0) === '/' && to.charAt(1) !== '/') { window.location.assign(to); return; }
         var id = r.headers.get('X-Inbox-Id');
         if (!r.ok || !id) throw new Error('ask-fix ' + r.status);
         var text = form.querySelector('textarea, input[type=text]');

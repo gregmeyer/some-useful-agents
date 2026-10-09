@@ -551,3 +551,16 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 /* The option page's body: details beside Talk to sua about this item (hidden with the sua drawer open, like the notebook's). */
 .nbo-layout .nbo-body { margin: 0; }
 .nbo-layout .nbo-widgets { margin-top: 0; }
+
+/* An option's page: breadcrumbs, then Previous / Next among those in the running. */
+.nbo-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-3); }
+.nbo-top .nb-crumbs { margin: 0; }
+.nbo-nav { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.nbo-nav__step { max-width: 16rem; min-width: 0; }
+.nbo-nav__step[hidden] { display: none; }
+.nbo-nav__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.nbo-nav__pos { font: 500 var(--font-size-xs)/1 var(--font-mono); color: var(--color-text-subtle); white-space: nowrap; }
+@media (max-width: 640px) {
+  .nbo-nav { width: 100%; justify-content: space-between; }
+  .nbo-nav__step { max-width: 42%; }
+}

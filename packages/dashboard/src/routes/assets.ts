@@ -733,6 +733,13 @@ assetsRouter.get('/assets/option-filters.js', (_req: Request, res: Response) => 
   res.type('application/javascript').send(OPTION_FILTERS_JS);
 });
 
+// Previous / Next on an option's page, narrowed to the grid's filters.
+const OPTION_NAV_JS = readAsset('option-nav.js');
+assetsRouter.get('/assets/option-nav.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(OPTION_NAV_JS);
+});
+
 // Toolbar pickers (menu, searchable list, prompt), imported by the canvas editor.
 const PICKER_JS = readAsset('picker.js');
 assetsRouter.get('/assets/picker.js', (_req: Request, res: Response) => {
