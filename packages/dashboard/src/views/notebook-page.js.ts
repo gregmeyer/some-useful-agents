@@ -38,6 +38,24 @@ export const NOTEBOOK_PAGE_JS = `
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     });
+    // Continue the conversation (notebook and option pages): open it in the sua drawer.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-nb-continue]');
+      if (!btn || !window.suaPanel) return;
+      e.preventDefault();
+      window.suaPanel.open(btn.getAttribute('data-nb-continue'));
+    });
+    // Tell sua: Enter sends (like the drawer's reply box), Shift+Enter is a new line;
+    // Cmd/Ctrl+Enter sends too.
+    document.addEventListener('keydown', function (e) {
+      var ta = e.target;
+      if (!ta || ta.tagName !== 'TEXTAREA' || !ta.hasAttribute('data-enter-sends')) return;
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      if (!ta.value.trim()) return;
+      var form = ta.form;
+      if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
+    });
     // An option's own page: its checklist saves the tick, then the page reloads.
     var optionPage = document.querySelector('[data-nb-option]');
     if (optionPage) {
@@ -56,23 +74,6 @@ export const NOTEBOOK_PAGE_JS = `
     var main = document.querySelector('[data-nb-main]');
     if (!main) return;
     var id = main.getAttribute('data-nb-main');
-    document.addEventListener('click', function (e) {
-      var btn = e.target.closest && e.target.closest('[data-nb-continue]');
-      if (!btn || !window.suaPanel) return;
-      e.preventDefault();
-      window.suaPanel.open(btn.getAttribute('data-nb-continue'));
-    });
-    // Tell sua: Enter sends (like the drawer's reply box), Shift+Enter is a new line;
-    // Cmd/Ctrl+Enter sends too.
-    document.addEventListener('keydown', function (e) {
-      var ta = e.target;
-      if (!ta || ta.tagName !== 'TEXTAREA' || !ta.hasAttribute('data-enter-sends')) return;
-      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
-      e.preventDefault();
-      if (!ta.value.trim()) return;
-      var form = ta.form;
-      if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
-    });
     var count = Number(main.getAttribute('data-nb-count')) || 0;
     var changed = main.getAttribute('data-nb-changed') || '';
     // The widgets' Move / Rule out / Bring back: save it, then redraw.

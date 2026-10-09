@@ -6,7 +6,7 @@
  */
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman,
-  type Notebook, type NotebookEntryKind, type NotebookFieldValue,
+  type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { formatFieldValue } from '../views/notebooks.js';
@@ -203,15 +203,58 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
 }
 
 /** The notebook, for triage: what it is, what it has, what agents could feed it. */
-export function describeNotebookForTriage(ctx: Ctx, nb: Notebook): string {
+export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?: string): string {
   const store = notebooksOf(ctx);
-  const entries = store.entries(nb.id, 60).map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  const all = store.entries(nb.id, 1000);
+  const entries = all.slice(0, 60).map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  // The option they last asked about from its own page: all of it, so sua can answer about it.
+  const o = focusOptionId ? all.find((e) => e.id === focusOptionId && e.kind === 'option') : undefined;
+  const focus = o ? {
+    id: o.id, title: o.title, body: o.body,
+    facts: Object.fromEntries(nb.fields.filter((f) => o.data?.[f.key] !== undefined).map((f) => [f.key, formatFieldValue(f, o.data![f.key])])),
+    ...(o.factMeta && Object.keys(o.factMeta).length ? { factSources: o.factMeta } : {}),
+    ...(o.stage ? { stage: o.stage } : {}),
+    ...(o.ruledOut ? { ruledOut: o.ruledOut } : {}),
+    checked: o.checked ?? [],
+    foundBy: o.by, firstSeen: o.createdAt, lastSeen: o.lastSeenAt ?? o.createdAt,
+    page: `/notebooks/${encodeURIComponent(nb.id)}/entries/${encodeURIComponent(o.id)}`,
+  } : undefined;
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
+    ...(focus ? { focus } : {}),
   });
+}
+
+/** "Price $136.64, Width 30 in": a correction's facts as people read them. */
+export function describeCorrection(fields: readonly NotebookField[], data: Record<string, unknown>): string {
+  return Object.entries(data).map(([k, raw]) => {
+    const v = raw && typeof raw === 'object' && 'value' in (raw as object) ? (raw as { value: unknown }).value : raw;
+    const f = fields.find((x) => x.key === k);
+    const shown = f && (typeof v === 'number' || typeof v === 'string') ? formatFieldValue(f, v) : String(v);
+    return `${f?.label ?? k} ${shown}`;
+  }).join(', ');
+}
+
+/** The option a thread's latest question from an option page was about (none after one from the notebook's own box). */
+export function threadOptionFocus(contextJson: string | null | undefined): string | undefined {
+  try {
+    const id = (JSON.parse(contextJson ?? '{}') as { page?: { option?: unknown } }).page?.option;
+    return typeof id === 'string' && id ? id : undefined;
+  } catch { return undefined; }
+}
+
+export function setThreadOptionFocus(ctx: Ctx, threadId: string, optionId: string | undefined): void {
+  const m = ctx.inboxStore?.get(threadId);
+  if (!m) return;
+  let c: { page?: Record<string, unknown> } & Record<string, unknown>;
+  try { c = JSON.parse(m.contextJson ?? '{}') as typeof c; } catch { c = {}; }
+  const page = { ...(c.page ?? {}) };
+  if ((page.option ?? undefined) === optionId) return;
+  if (optionId) page.option = optionId; else delete page.option;
+  ctx.inboxStore!.updateMessage(threadId, { contextJson: JSON.stringify({ ...c, page }) });
 }
 
 /** The notebook's conversation with sua: the one it has, else a new one linked to it. */
