@@ -299,6 +299,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -518,10 +519,10 @@ export class NotebookStore {
     return this.mustGetOption(notebookId, entryId);
   }
 
-  /** What searches said about an option over time, oldest first. */
-  sightings(entryId: string): Array<{ at: string; runId?: string; data: Record<string, NotebookFieldValue> }> {
+  /** What searches said about an option over time, oldest first; a correction says who made it (`correctedBy`). */
+  sightings(entryId: string): Array<{ at: string; runId?: string; correctedBy?: string; data: Record<string, NotebookFieldValue> }> {
     return (this.db.prepare('SELECT * FROM notebook_sightings WHERE entry_id = ? ORDER BY at').all(entryId) as Array<Record<string, unknown>>).map((r) => ({
-      at: String(r.at), ...(r.run_id ? { runId: String(r.run_id) } : {}),
+      at: String(r.at), ...(r.run_id ? { runId: String(r.run_id) } : {}), ...(r.corrected_by ? { correctedBy: String(r.corrected_by) } : {}),
       data: (() => { try { return JSON.parse(String(r.data_json ?? '{}')) as Record<string, NotebookFieldValue>; } catch { return {}; } })(),
     }));
   }
@@ -680,6 +681,33 @@ export class NotebookStore {
   }
 
   /**
+   * Correct an option's facts on someone's word ("the price is $136.64"):
+   * the given facts replace what it has (their sources and estimate marks
+   * go, unless given), and the correction is kept in its history, so it
+   * wins over the option's own text and over what searches said before.
+   * Returns the option and the facts that changed, with their old values.
+   */
+  correctOption(notebookId: string, entryId: string, data: Record<string, unknown>, by = 'you'): { entry: NotebookEntry; changed: Array<{ key: string; from?: NotebookFieldValue; to: NotebookFieldValue }> } {
+    const nb = this.mustGet(notebookId);
+    const e = this.mustGetOption(notebookId, entryId);
+    const facts = splitFacts(data);
+    const values = cleanData(facts.values, nb.fields);
+    const prev = e.data ?? {};
+    const changed = Object.entries(values)
+      .filter(([k, v]) => JSON.stringify(prev[k]) !== JSON.stringify(v))
+      .map(([key, to]) => ({ key, ...(prev[key] !== undefined ? { from: prev[key] } : {}), to }));
+    if (!changed.length) return { entry: e, changed };
+    const merged = { ...prev, ...values };
+    const meta = mergeFactMeta(e.factMeta, values, cleanFactMeta(facts.meta, values));
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ? WHERE id = ?').run(JSON.stringify(merged), meta ? JSON.stringify(meta) : null, e.id);
+    this.db.prepare('INSERT INTO notebook_sightings (entry_id, notebook_id, run_id, at, data_json, corrected_by) VALUES (?, ?, NULL, ?, ?, ?)')
+      .run(e.id, notebookId, now, JSON.stringify(Object.fromEntries(changed.map((c) => [c.key, c.to]))), by);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    return { entry: this.mustGetOption(notebookId, entryId), changed };
+  }
+
+  /**
    * Repair options whose facts contradict their own text (the year, price or
    * measure it states): the text wins, unless a later search found this same
    * option again and saw newer facts (a price change): those win over the
@@ -693,7 +721,8 @@ export class NotebookStore {
       if (e.kind !== 'option' || !e.data) continue;
       const stated = readOptionText(`${e.title}\n${e.body}`, nb.fields);
       // The first sighting is the filing the text describes; later ones matched this option by its fingerprint.
-      const later = this.sightings(e.id).slice(1).reduce<Record<string, NotebookFieldValue>>((acc, x) => ({ ...acc, ...cleanData(x.data, nb.fields) }), {});
+      // A correction (you, or sua on your word) always counts.
+      const later = this.sightings(e.id).filter((x, i) => i > 0 || x.correctedBy).reduce<Record<string, NotebookFieldValue>>((acc, x) => ({ ...acc, ...cleanData(x.data, nb.fields) }), {});
       const expected = { ...stated, ...later };
       if (!contradicts(e.data, expected)) continue;
       const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
@@ -1182,7 +1211,7 @@ export const NOT_SEEN_AFTER_MISSES = 2;
 
 /** History for the view, read from the store (omit for a view without it). */
 export interface NotebookViewHistory {
-  sightings(entryId: string): Array<{ at: string; data: Record<string, NotebookFieldValue> }>;
+  sightings(entryId: string): Array<{ at: string; correctedBy?: string; data: Record<string, NotebookFieldValue> }>;
   missedSearches(notebookId: string, e: NotebookEntry): number;
   hasPhoto?(entryId: string): boolean;
   photoKind?(entryId: string): NotebookPhotoKind | undefined;
@@ -1292,7 +1321,10 @@ export function readOptionText(text: string, fields: readonly NotebookField[]): 
 /** An option's price over its sightings, and the change from the first to the latest. */
 function priceTrend(e: NotebookEntry, priceKey: string | undefined, history?: NotebookViewHistory): Pick<NotebookViewOption, 'priceHistory' | 'priceChange'> {
   if (!priceKey || !history) return { priceHistory: [] };
-  const points = history.sightings(e.id)
+  const all = history.sightings(e.id);
+  // A corrected price replaces what came before it: the wrong one isn't a price move.
+  const from = all.reduce((at, s, i) => (s.correctedBy && s.data[priceKey] !== undefined ? i : at), 0);
+  const points = all.slice(from)
     .map((s) => ({ at: s.at, value: fieldNumber(s.data[priceKey]) }))
     .filter((p): p is { at: string; value: number } => p.value !== undefined);
   // Only changes count: the same price seen five times is one point.

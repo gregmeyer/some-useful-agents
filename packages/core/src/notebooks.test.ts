@@ -381,6 +381,30 @@ describe('fields without roles, and facts that belong to another option', () => 
     expect(s.reconcileOptionFacts(nb.id)).toBe(0);
   });
 
+  it('corrects an option\'s facts on someone\'s word: the option changes, its history says so, and its title can\'t undo it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Cabinet' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' },
+    ]);
+    const c = s.upsertOption(nb.id, { title: 'Example cabinet, 24" wide, $239', by: 'agent:x', runId: 'r1', data: { price: { value: 4023, source: 'https://shop.example/c' }, width: 24 } }).entry;
+    const r = s.correctOption(nb.id, c.id, { price: 136.64 }, 'sua');
+    expect(r.changed).toEqual([{ key: 'price', from: 4023, to: 136.64 }]);
+    expect(s.findOption(nb.id, 'cabinet')!.data).toEqual({ price: 136.64, width: 24 });
+    expect(s.findOption(nb.id, 'cabinet')!.factMeta?.price).toBeUndefined(); // the old source no longer backs it
+    expect(s.sightings(c.id).at(-1)).toMatchObject({ correctedBy: 'sua', data: { price: 136.64 } });
+    // The title says $239: the correction still stands.
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'cabinet')!.data!.price).toBe(136.64);
+    // The wrong price isn't a price move.
+    const o = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options[0];
+    expect(o.priceHistory.map((p) => p.value)).toEqual([136.64]);
+    expect(o.priceChange).toBeUndefined();
+    // Saying the same again changes nothing.
+    expect(s.correctOption(nb.id, c.id, { price: 136.64 }).changed).toEqual([]);
+  });
+
   it('keeps a newer price a later search saw over the price in the option\'s own title', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));

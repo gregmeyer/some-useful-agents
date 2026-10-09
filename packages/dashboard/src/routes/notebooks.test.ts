@@ -1017,3 +1017,28 @@ describe("an option's own page", () => {
     expect((await get(`/notebooks/nope/entries/${wagon.id}`)).status).toBe(404);
   });
 });
+
+describe('a correction in the conversation', () => {
+  it("changes the option itself (not a note beside it), and its page shows what it replaced", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Cabinet' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' }]);
+    const c = store.upsertOption(nb.id, { title: 'Example cabinet, 24" wide', by: 'agent:x', runId: 'r1', data: { price: 4023, width: 24 } }).entry;
+    const before = store.entries(nb.id).length;
+
+    const { add, error } = parseNotebookAdd(JSON.stringify({ update: [{ option: 'Example cabinet', data: { price: 136.64 } }, { option: 'Nope', data: { price: 1 } }, { option: 'x', data: {} }] }));
+    expect(error).toBeUndefined();
+    expect(add!.update).toHaveLength(2); // the empty one is dropped
+    const out = applyNotebookAdd(store, nb.id, add!);
+    expect(out.added).toEqual(['corrected: Example cabinet, 24" wide (Price $4,023 → $136.64)', 'couldn\'t find an option matching "Nope"']);
+    expect(store.findOption(nb.id, 'Example')!.data).toEqual({ price: 136.64, width: 24 });
+    expect(store.entries(nb.id)).toHaveLength(before); // no evidence entry beside it
+
+    const page = await request(app).get(`/notebooks/${nb.id}/entries/${c.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('$136.64');
+    expect(page.text).toMatch(/"who":"sua","title":"Corrected","body":"Price \$4,023 → \$136.64"/);
+  });
+});

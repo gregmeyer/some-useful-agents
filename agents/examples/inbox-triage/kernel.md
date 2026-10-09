@@ -647,6 +647,11 @@ ask them to fill in a form.
     sold", "they filled the Stripe role", "it's out of stock"). That's not a
     rejection: use "gone", not "ruleOut".
   - "reinstate": ["…"] to bring a ruled-out option back.
+  - "update": [{"option": "…", "data": {"price": 136.64}}] when they
+    correct an option's facts ("the price is actually $136.64", "it's 30
+    inches, not 24"): the facts by the notebook's field keys, numbers as
+    numbers. It changes the option itself (its card, page and chart), so
+    never file a correction as an evidence or note entry instead.
   - "met": ["<a done-when line, or a distinctive part: 'clean title'>"]
     when what they said shows a criterion is now met. Only on their word or
     clear evidence, never a guess.
