@@ -13,6 +13,7 @@ import {
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v0_9.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
+import { filterChoices, applyFilters, liveSelection } from '/assets/option-filters.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -254,6 +255,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     options: CommonSchemas.DynamicValue, fields: CommonSchemas.DynamicValue.optional(), stages: CommonSchemas.DynamicValue.optional(),
     layout: z.enum(['grid', 'table']).optional(), sort: z.string().max(80).optional(), ruledOut: z.enum(['show', 'hide']).optional(),
     actions: z.boolean().optional(), maxItems: z.number().int().min(1).max(100).optional(),
+    filters: z.array(z.union([z.string().max(64), z.object({ key: z.string().max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
   }).strict(),
   css`
     .bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -315,7 +317,18 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     td.num { font-family: var(--font-mono); white-space: nowrap; }
     tr.out td { opacity: .55; } tr.best td { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
     .thumb { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; display: block; }
-    .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }`,
+    .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+    .filters { display: flex; flex-direction: column; gap: 6px; margin: -2px 0 12px; }
+    .frow { display: flex; align-items: flex-start; gap: 8px; }
+    .flabel { flex: none; width: 84px; padding-top: 3px; font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+    .fchips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+    .fchip.none { color: var(--color-text-subtle, var(--color-text-muted)); border-style: dashed; }
+    .fchip { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 2px 9px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
+    .fchip .n { margin-left: 4px; font-family: var(--font-mono); color: var(--color-text-muted); }
+    .fchip[aria-pressed="true"] { background: var(--color-primary-soft); border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; }
+    .fchip[aria-pressed="true"] .n { color: var(--color-primary); }
+    .fchip:focus-visible, .fclear:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .fclear { all: unset; cursor: pointer; align-self: flex-start; font-size: var(--font-size-xs); color: var(--color-primary); }`,
   function (p) {
     const fields = Array.isArray(p.fields) ? p.fields : [];
     const stages = Array.isArray(p.stages) ? p.stages.map(String) : [];
@@ -335,8 +348,20 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const dir = sdir === 'desc' || (sdir === undefined && skey === 'price' && priceBetter === 'higher') ? -1 : 1;
     opts = opts.map((o, i) => [o, i]).sort((a, b) => (Number(!!a[0].ruledOut) - Number(!!b[0].ruledOut))
       || (sval(a[0]) == null) - (sval(b[0]) == null) || compare(sval(a[0]) ?? '', sval(b[0]) ?? '') * dir || a[1] - b[1]).map((x) => x[0]);
-    if (p.maxItems) opts = opts.slice(0, p.maxItems);
     if (!all.length) return html`<p class="empty">No options yet.</p>`;
+    // Filters (by stage, still listed, or any fact): chips for values the options
+    // have. Ranks and the best stay those of the whole list; the choice is kept per page.
+    const fmtKey = (key, v) => { const f = fields.find((x) => x.key === key); return f ? fmtField(f, v) : String(v); };
+    const labelOf = (key) => fields.find((x) => x.key === key)?.label ?? key;
+    const filterKey = `sua-option-filters:${location.pathname}`;
+    if (this._sel === undefined) { try { this._sel = JSON.parse(localStorage.getItem(filterKey) ?? '{}') || {}; } catch { this._sel = {}; } }
+    const sel = liveSelection(this._sel, filterChoices(opts, p.filters, { fmt: fmtKey, label: labelOf, stages }));
+    const choices = filterChoices(opts, p.filters, { fmt: fmtKey, label: labelOf, stages, selected: sel });
+    const keepSel = (next) => { this._sel = next; try { localStorage.setItem(filterKey, JSON.stringify(next)); } catch { /* not kept */ } this.requestUpdate(); };
+    const pick = (key, v) => { const next = { ...sel }; if (next[key] === v) delete next[key]; else next[key] = v; keepSel(next); };
+    const ranked = opts;
+    opts = applyFilters(ranked, sel, fmtKey);
+    if (p.maxItems) opts = opts.slice(0, p.maxItems);
     // Grid or Table: your last choice, kept in this browser.
     let saved; try { saved = localStorage.getItem('sua-option-layout') ?? undefined; } catch { saved = undefined; }
     const layout = this._layout ?? (saved === 'grid' || saved === 'table' ? saved : undefined) ?? p.layout ?? 'grid';
@@ -387,16 +412,23 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       ${p.actions && !o.ruledOut ? html`<button type="button" class="btn ghost" aria-expanded=${this._menu === o.id ? 'true' : 'false'} @click=${() => set('_menu', this._menu === o.id ? '' : o.id)}>Rule out…</button>` : nothing}
       ${p.actions && o.ruledOut ? html`<button type="button" class="btn ghost" @click=${() => act({ op: 'reinstate', id: o.id })}>Bring back</button>` : nothing}
     </div>${ruleMenu(o)}`;
-    const active = opts.filter((o) => !o.ruledOut);
+    const active = ranked.filter((o) => !o.ruledOut);
     const best = active[0];
+    const filtered = Object.keys(sel).length > 0;
+    const shownActive = opts.filter((o) => !o.ruledOut).length;
     const toggleOut = () => { const v = !showOut; this._showOut = v; try { localStorage.setItem('sua-option-show-out', v ? '1' : '0'); } catch { /* not kept */ } this.requestUpdate(); };
-    const toggle = html`<div class="bar"><span>${active.length} in the running</span>
+    const filterBar = choices.length ? html`<div class="filters" role="group" aria-label="Filter options">
+      ${choices.map((f) => html`<div class="frow"><span class="flabel">${f.label}</span><span class="fchips">
+        ${f.choices.map((c) => html`<button type="button" class="fchip ${c.count ? '' : 'none'}" aria-pressed=${sel[f.key] === c.value ? 'true' : 'false'} @click=${() => pick(f.key, c.value)}>${c.value}<span class="n">${c.count}</span></button>`)}</span></div>`)}
+      ${filtered ? html`<button type="button" class="fclear" @click=${() => keepSel({})}>Clear filters</button>` : nothing}</div>` : nothing;
+    const toggle = html`<div class="bar"><span>${filtered ? `${shownActive} of ${active.length}` : active.length} in the running</span>
       ${outCount ? html`<label class="showout"><input type="checkbox" .checked=${showOut} @change=${toggleOut}> Show ruled out (${outCount})</label>` : nothing}
       <span class="sp"></span>
       <div class="seg" role="group" aria-label="Layout">
         <button type="button" aria-pressed=${layout === 'grid' ? 'true' : 'false'} @click=${() => set('_layout', 'grid')}>Grid</button>
         <button type="button" aria-pressed=${layout === 'table' ? 'true' : 'false'} @click=${() => set('_layout', 'table')}>Table</button>
-      </div></div>`;
+      </div></div>${filterBar}`;
+    if (!opts.length) return html`${toggle}<p class="empty">No options match these filters. <button type="button" class="fclear" @click=${() => keepSel({})}>Clear filters</button></p>`;
     if (layout === 'table') {
       return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th>${scoreF ? html`<th>${scoreF.label}</th>` : nothing}<th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>Stage</th><th></th></tr></thead><tbody>
         ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">

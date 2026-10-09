@@ -726,6 +726,13 @@ assetsRouter.get('/assets/chart-math.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(CHART_MATH_JS);
 });
 
+// An options grid's filters (choices, which options they keep), imported by a2ui-sua.js.
+const OPTION_FILTERS_JS = readAsset('option-filters.js');
+assetsRouter.get('/assets/option-filters.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(OPTION_FILTERS_JS);
+});
+
 // Toolbar pickers (menu, searchable list, prompt), imported by the canvas editor.
 const PICKER_JS = readAsset('picker.js');
 assetsRouter.get('/assets/picker.js', (_req: Request, res: Response) => {

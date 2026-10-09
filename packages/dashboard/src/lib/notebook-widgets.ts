@@ -276,6 +276,16 @@ function clip(text: string, n: number): string {
   return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n * 0.6)).replace(/[,;:.\s]+$/, '')}…`;
 }
 
+/**
+ * What the shortlist can be filtered by: still listed or not, its stage, and
+ * the notebook's text facts (a seller, a body style). The grid shows a filter
+ * only when options differ on it, so listing every candidate is safe.
+ */
+export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'>): string[] {
+  const text = nb.fields.filter((f) => f.type === 'text' && f.role !== 'link' && f.role !== 'image').map((f) => f.key);
+  return ['seen', ...(nb.stages.length ? ['stage'] : []), ...text].slice(0, 8);
+}
+
 /** The default layout (see the module comment). */
 export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>): ViewComponent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
@@ -314,7 +324,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>
   }
   c.push(
     panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true },
+    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb) },
     // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
     { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),

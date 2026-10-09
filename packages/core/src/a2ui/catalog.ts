@@ -128,6 +128,12 @@ const SUA_COMPONENTS = [
       ruledOut: z.enum(['show', 'hide']).optional(),
       actions: z.boolean().optional(),
       maxItems: z.number().int().min(1).max(100).optional(),
+      /**
+       * What it can be filtered by: field keys, or `stage` / `seen` (still
+       * listed vs not seen lately), as a key or {key, label}. Each shows as a
+       * row of chips for the values the options have (hidden when they don't differ).
+       */
+      filters: z.array(z.union([z.string().min(1).max(64), z.object({ key: z.string().min(1).max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
     }).strict(),
   },
   {
