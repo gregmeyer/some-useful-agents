@@ -59,14 +59,16 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   if (req.query.new === '1') { res.redirect(302, `/notebooks/new${req.query.flash ? `?flash=${encodeURIComponent(str(req.query.flash))}` : ''}`); return; }
   const s = store(req);
   const q = str(req.query.q).trim().slice(0, 100);
-  const status = (['active', 'decided', 'stopped', 'all'] as const).find((v) => v === req.query.status) ?? 'active';
+  const status = (['active', 'decided', 'stopped', 'all', 'archived'] as const).find((v) => v === req.query.status) ?? 'active';
   const sort = (['updated', 'created', 'title'] as const).find((v) => v === req.query.sort) ?? 'updated';
+  // Archived notebooks show only under Archived; All means everything not archived.
   const all = s.list();
-  const counts = { active: 0, decided: 0, stopped: 0, all: all.length };
+  const archived = s.list({ archived: 'only' });
+  const counts = { active: 0, decided: 0, stopped: 0, all: all.length, archived: archived.length };
   for (const nb of all) counts[nb.status]++;
   const needle = q.toLowerCase();
-  const matches = all
-    .filter((nb) => status === 'all' || nb.status === status)
+  const matches = (status === 'archived' ? archived : all)
+    .filter((nb) => status === 'all' || status === 'archived' || nb.status === status)
     .filter((nb) => !needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params].some((t) => t.toLowerCase().includes(needle)))
     .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
   const pages = Math.max(1, Math.ceil(matches.length / LIST_PAGE));
@@ -321,6 +323,37 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
   } catch (err) {
     res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
   }
+});
+
+// Archive (hide from lists, Home, Today and schedules; nothing deleted) or restore.
+notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const s = store(req);
+    if (req.body?.archived === '0') {
+      s.unarchive(id);
+      res.redirect(303, back(id, 'Restored. It shows in your notebooks again.'));
+    } else {
+      const nb = s.archive(id);
+      res.redirect(303, `/notebooks?flash=${encodeURIComponent(`Archived “${nb.title}”. Find it under Archived to restore it.`)}`);
+    }
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// Delete a notebook and everything in it. The form names the notebook (confirm), so a stray post can't.
+notebooksRouter.post('/notebooks/:id/delete', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const s = store(req);
+  const nb = s.get(id);
+  if (!nb) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('That notebook was already gone.')}`); return; }
+  if (str(req.body?.confirm) !== nb.id) { res.redirect(303, back(id, 'Confirm the delete from Edit → Delete….')); return; }
+  if (pipelineRunning(ctx, nb.id)) { res.redirect(303, back(id, 'Its pipeline is running. Delete it once that finishes.')); return; }
+  s.delete(nb.id);
+  SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).remove(`notebook:${nb.id}`);
+  res.redirect(303, `/notebooks?flash=${encodeURIComponent(`Deleted “${nb.title}”.`)}`);
 });
 
 notebooksRouter.post('/notebooks/:id/criteria/:index', (req: Request, res: Response) => {

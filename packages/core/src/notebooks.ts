@@ -144,6 +144,8 @@ export interface Notebook {
   cadenceFiredAt?: string;
   /** Its conversation with sua (an inbox thread id). */
   conversationId?: string;
+  /** Set when archived: hidden from the notebooks list, Home, Today and schedules; kept whole and restorable. */
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -299,7 +301,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -410,7 +412,7 @@ export class NotebookStore {
    */
   notebooksByAgent(skip: ReadonlySet<string> = new Set()): Map<string, Array<{ id: string; title: string; status: Notebook['status'] }>> {
     const out = new Map<string, Array<{ id: string; title: string; status: Notebook['status'] }>>();
-    for (const nb of this.list()) {
+    for (const nb of this.list()) { // archived ones aren't shown as fed
       for (const agentId of this.runSources(nb.id).agents) {
         if (agentId === 'notebook-setup' || skip.has(agentId)) continue;
         const list = out.get(agentId) ?? [];
@@ -844,12 +846,55 @@ export class NotebookStore {
     return r ? this.toNotebook(r) : undefined;
   }
 
-  /** Active first, then most recently changed. */
-  list(opts: { status?: NotebookStatus } = {}): Notebook[] {
-    const rows = (opts.status
-      ? this.db.prepare("SELECT * FROM notebooks WHERE status = ? ORDER BY updated_at DESC").all(opts.status)
-      : this.db.prepare("SELECT * FROM notebooks ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC").all()) as Array<Record<string, unknown>>;
+  /**
+   * Active first, then most recently changed. Archived notebooks are left
+   * out unless `archived` is 'include' (everything) or 'only'.
+   */
+  list(opts: { status?: NotebookStatus; archived?: 'include' | 'only' } = {}): Notebook[] {
+    const where = [
+      ...(opts.status ? ['status = ?'] : []),
+      ...(opts.archived === 'only' ? ['archived_at IS NOT NULL'] : opts.archived === 'include' ? [] : ['archived_at IS NULL']),
+    ];
+    const rows = this.db.prepare(`SELECT * FROM notebooks ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC`)
+      .all(...(opts.status ? [opts.status] : [])) as Array<Record<string, unknown>>;
     return rows.map((r) => this.toNotebook(r));
+  }
+
+  /** Hide a notebook from lists, Home, Today and schedules. Nothing in it is deleted. */
+  archive(id: string): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /** Bring an archived notebook back. */
+  unarchive(id: string): Notebook {
+    this.mustGet(id);
+    // Its schedule starts fresh: it waits for its next slot rather than catching up on the archived time.
+    this.db.prepare('UPDATE notebooks SET archived_at = NULL, cadence_fired_at = NULL WHERE id = ?').run(id);
+    return this.mustGet(id);
+  }
+
+  /**
+   * Delete a notebook and everything in it (entries, sightings, searches,
+   * passes, kept photos). Its conversation and the runs that fed it stay.
+   * Returns how many entries went with it, or undefined if there was none.
+   */
+  delete(id: string): { entries: number } | undefined {
+    if (!this.get(id)) return undefined;
+    const entries = (this.db.prepare('SELECT COUNT(*) AS n FROM notebook_entries WHERE notebook_id = ?').get(id) as { n: number }).n;
+    this.db.exec('BEGIN');
+    try {
+      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries']) {
+        this.db.prepare(`DELETE FROM ${table} WHERE notebook_id = ?`).run(id);
+      }
+      this.db.prepare('DELETE FROM notebooks WHERE id = ?').run(id);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return { entries };
   }
 
   update(id: string, patch: Partial<Pick<NewNotebook, 'title' | 'statement' | 'params' | 'pipeline' | 'cadence'>>): Notebook {
@@ -959,6 +1004,7 @@ export class NotebookStore {
       ...(r.last_run_at ? { lastRunAt: String(r.last_run_at) } : {}),
       ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
       ...(r.cadence_fired_at ? { cadenceFiredAt: String(r.cadence_fired_at) } : {}),
+      ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),

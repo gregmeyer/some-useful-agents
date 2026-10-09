@@ -39,7 +39,7 @@ export function notebookCardForThread(s: NotebookStore, message: InboxMessage): 
     const page = (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; id?: string } }).page;
     if (page?.kind === 'notebook' && page.id) id = page.id;
   } catch { /* not JSON: look it up below */ }
-  const nb = (id ? s.get(id) : undefined) ?? s.list().find((n) => n.conversationId === message.id);
+  const nb = (id ? s.get(id) : undefined) ?? s.list({ archived: 'include' }).find((n) => n.conversationId === message.id);
   return nb ? notebookCard(s, nb) : undefined;
 }
 

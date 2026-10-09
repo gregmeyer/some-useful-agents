@@ -198,7 +198,8 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
     const page = (JSON.parse(contextJson ?? '{}') as { page?: { kind?: string; id?: string } }).page;
     if (page?.kind === 'notebook' && page.id) return store.get(page.id);
   } catch { /* no context */ }
-  return store.list().find((n) => n.conversationId === threadId);
+  // An archived notebook's conversation still belongs to it.
+  return store.list({ archived: 'include' }).find((n) => n.conversationId === threadId);
 }
 
 /** The notebook, for triage: what it is, what it has, what agents could feed it. */

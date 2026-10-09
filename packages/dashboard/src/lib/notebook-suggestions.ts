@@ -61,7 +61,7 @@ export function parseSuggestions(raw: string): NotebookSuggestion[] {
  */
 export function recentConversations(ctx: Ctx, limit = 30): string[] {
   if (!ctx.inboxStore) return [];
-  const notebookThreads = new Set(NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list().map((n) => n.conversationId).filter(Boolean));
+  const notebookThreads = new Set(NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list({ archived: 'include' }).map((n) => n.conversationId).filter(Boolean));
   const out: string[] = [];
   // Finished and dismissed ones too: dismissing tidies the inbox, it doesn't mean you've lost interest.
   for (const m of ctx.inboxStore.list({ source: 'manual', statuses: ['open', 'triaged', 'awaiting_user', 'verifying', 'resolved', 'dismissed'], limit: 80 })) {
@@ -95,7 +95,7 @@ export function refreshSuggestions(ctx: Ctx): boolean {
   if (!fake && !agent) return false;
   ctx.notebookSuggesting = true;
   write(ctx.dataDir, { at: prev?.at ?? 0, items: prev?.items ?? [], tried: Date.now() });
-  const notebooks = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list().map((n) => n.title);
+  const notebooks = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list({ archived: 'include' }).map((n) => n.title);
   const inputs = { CONVERSATIONS: conversations.join('\n'), NOTEBOOKS: notebooks.length ? notebooks.join('\n') : '(none)' };
   const runId = randomUUID();
   const ac = new AbortController();
