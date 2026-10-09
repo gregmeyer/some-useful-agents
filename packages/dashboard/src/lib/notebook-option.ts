@@ -8,7 +8,7 @@
 import { rankOptions, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
-import { notebookWidgetData, checksFor, type NotebookWidgetHistory } from './notebook-widgets.js';
+import { notebookWidgetData, checksFor, defaultFilters, type NotebookWidgetHistory } from './notebook-widgets.js';
 import { formatFieldValue } from '../views/notebooks.js';
 
 /** The store's sightings carry the run that saw each one. */
@@ -31,6 +31,34 @@ export interface NotebookOptionData {
     checks: Array<{ id: string; title: string; items: Array<{ text: string; done: boolean }> }>;
     timeline: Array<{ at: string; kind: string; title: string; body?: string; who?: string; link?: string; linkText?: string; faded?: boolean }>;
   };
+  /** Previous / Next among those in the running, in rank order; the page narrows it to the grid's filters. */
+  nav?: OptionNav;
+}
+
+/** One option in the running, for Previous / Next: what the grid's filters read (stage, still listed, its facts as shown). */
+export interface OptionNavItem {
+  id: string; name: string; rank: number; page: string;
+  stage?: string; notSeenLately: boolean; fields: Record<string, string | boolean>;
+}
+
+export interface OptionNav {
+  order: OptionNavItem[];
+  /** The grid's filters (the notebook's shortlist), so the page applies the same choice you made there. */
+  filters: string[];
+  /** Where the grid keeps that choice: the notebook page's path. */
+  filterKey: string;
+  prev?: OptionNavItem;
+  next?: OptionNavItem;
+}
+
+/** The option's page. */
+export const optionPage = (nbId: string, entryId: string) => `/notebooks/${encodeURIComponent(nbId)}/entries/${encodeURIComponent(entryId)}`;
+
+/** The ones before and after `id` in `order` (none for an option that isn't in it). */
+export function optionNeighbours<T extends { id: string }>(order: readonly T[], id: string): { prev?: T; next?: T } {
+  const i = order.findIndex((o) => o.id === id);
+  if (i < 0) return {};
+  return { ...(i > 0 ? { prev: order[i - 1] } : {}), ...(i < order.length - 1 ? { next: order[i + 1] } : {}) };
 }
 
 const runLink = (runId?: string) => (runId ? { link: `/runs/${encodeURIComponent(runId)}`, linkText: `run ${runId.slice(0, 8)}` } : {});
@@ -118,6 +146,18 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
   const priceF = nb.fields.find((f) => f.role === 'price');
   // The notebook's checks (the same list the top two get), ticked for this one.
   const checkList = checksFor(nb);
+  const filters = defaultFilters(nb);
+  const order: OptionNavItem[] = active.map((o, n) => ({
+    id: o.id, name: o.name, rank: n + 1, page: optionPage(nb.id, o.id),
+    ...(o.stage ? { stage: o.stage } : {}), notSeenLately: !!o.notSeenLately,
+    // Facts as the grid shows them, so its filter values match these.
+    fields: Object.fromEntries(filters.flatMap((k) => {
+      const f = nb.fields.find((x) => x.key === k);
+      const v = o.fields[k];
+      if (!f || v === undefined || v === null || v === '') return [];
+      return [[k, typeof v === 'boolean' ? v : formatFieldValue(f, v)]];
+    })),
+  }));
   return {
     option: {
       view,
@@ -130,6 +170,7 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
       checks: checkList.length ? [{ id: e.id, title: '', items: checkList.map((c) => ({ text: c, done: view.checked.includes(c) })) }] : [],
       timeline: optionTimeline(nb, e, history),
     },
+    ...(i >= 0 ? { nav: { order, filters, filterKey: `/notebooks/${encodeURIComponent(nb.id)}`, ...optionNeighbours(order, e.id) } } : {}),
   };
 }
 
