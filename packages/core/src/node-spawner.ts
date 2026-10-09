@@ -387,12 +387,38 @@ export interface LlmSpawner {
    * its MCP servers' auth errors) that otherwise decides the category.
    */
   extractError?: (rawStdout: string) => string | undefined;
+  /**
+   * True when the CLI finished its turn and gave its answer (raw stdout in),
+   * so a non-zero exit after that (codex exits 1 while shutting down at
+   * times) keeps the answer, with a warning, instead of failing the node.
+   */
+  finishedTurn?: (rawStdout: string) => boolean;
+  /** Its own noise to strip from stderr before it's shown as an error ("Reading prompt from stdin..."). */
+  stderrNoise?: RegExp;
   /** The CLI's own tool calls, read back from its event stream (raw stdout in). */
   extractToolCalls?: (rawStdout: string) => ToolCallRecord[];
   /** True when the CLI stopped because it hit `maxBudgetUsd` (raw stdout in). */
   stoppedAtBudget?: (rawStdout: string) => boolean;
   /** Tokens (and cost, if the CLI reports it) for the attempt, from its event stream. */
   extractUsage?: (rawStdout: string, opts: LlmSpawnOptions) => LlmUsage | undefined;
+}
+
+/**
+ * codex finished its turn: a `turn.completed` event and a final agent
+ * message, and no `turn.failed` / `error` event.
+ */
+export function codexFinishedTurn(rawStdout: string): boolean {
+  let completed = false; let answered = false;
+  for (const line of rawStdout.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    let event: { type?: string; item?: { type?: string; text?: unknown } };
+    try { event = JSON.parse(t); } catch { continue; }
+    if (event.type === 'turn.failed' || event.type === 'error') return false;
+    if (event.type === 'turn.completed') completed = true;
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) answered = true;
+  }
+  return completed && answered;
 }
 
 /**
@@ -831,6 +857,8 @@ export const codexSpawner: LlmSpawner = {
   },
 
   extractError: codexFailureMessage,
+  finishedTurn: codexFinishedTurn,
+  stderrNoise: /^Reading prompt from stdin\.\.\.\s*$/gm,
   // sua's tools reach codex over MCP (see buildArgs).
   supportsMcpTools: true,
   extractUsage: (stdout, opts) => {
@@ -1535,7 +1563,18 @@ async function runLlmAttemptInner(
   // "model not supported" failure as auth_required.
   if (spawner.extractError && result.category === 'exit_nonzero') {
     const providerError = spawner.extractError(rawStdout);
-    if (providerError) result = { ...result, error: providerError };
+    if (providerError) {
+      result = { ...result, error: providerError };
+    } else if (spawner.finishedTurn?.(rawStdout) && result.result.trim()) {
+      // It finished and answered, then exited non-zero with no error of its
+      // own: keep the answer, and say what happened on the node.
+      const { category: _failed, ...rest } = result;
+      result = { ...rest, exitCode: 0, error: `${provider} exited with code ${String(result.exitCode)} after finishing its answer, without reporting an error. The answer was kept.` };
+    } else if (spawner.stderrNoise) {
+      // Its own banner isn't a reason: say it gave none (plus anything else stderr had).
+      const rest = (result.error ?? '').replace(spawner.stderrNoise, '').trim();
+      result = { ...result, error: rest || `${provider} exited with code ${String(result.exitCode)} without saying why.` };
+    }
   }
 
   if (spawner.classifyResult && result.exitCode === 0) {
