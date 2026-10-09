@@ -23,7 +23,7 @@ import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
-import { keepPhotos } from '../lib/notebook-photos.js';
+import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, greetNotebook, setThreadOptionFocus } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
@@ -185,8 +185,12 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);
   // Facts that contradict an option's own text (mixed up by a model) are repaired from the text.
   s.reconcileOptionFacts(nb.id);
-  // Options with no picture yet get a representative one or a drawing (tried once each).
-  if (nb.fields.length) startNotebookPictures(ctx, nb.id);
+  // Options with a listing link get its photo; ones with no picture yet get a
+  // representative one or a drawing (each tried once).
+  if (nb.fields.length) {
+    try { startListingPhotos(ctx, s, nb.id); } catch { /* a nicety */ }
+    startNotebookPictures(ctx, nb.id);
+  }
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
   const compiled = compileSurface(surface.doc, notebookEntryItems(nb, entries));
