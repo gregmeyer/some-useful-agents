@@ -13,7 +13,7 @@ import { formatFieldValue } from '../views/notebooks.js';
 
 /** The store's sightings carry the run that saw each one. */
 export interface NotebookOptionHistory extends NotebookWidgetHistory {
-  sightings(entryId: string): Array<{ at: string; runId?: string; data: Record<string, NotebookFieldValue> }>;
+  sightings(entryId: string): Array<{ at: string; runId?: string; correctedBy?: string; data: Record<string, NotebookFieldValue> }>;
 }
 
 type TimelineEvent = NotebookOptionData['option']['timeline'][number];
@@ -70,7 +70,22 @@ function optionTimeline(nb: Notebook, e: NotebookEntry, history?: NotebookOption
   });
   if (sightings[0] && priceF && price(sightings[0].data) !== undefined) out[0].body = `${priceF.label} ${formatFieldValue(priceF, price(sightings[0].data)!)}`;
   let last = sightings[0] ? price(sightings[0].data) : undefined;
-  for (const s of sightings.slice(1)) {
+  // What it said so far, so a correction can show what it replaced.
+  const known: Record<string, NotebookFieldValue> = { ...(sightings[0]?.correctedBy ? {} : sightings[0]?.data ?? {}) };
+  for (const s of sightings.filter((x, i) => i > 0 || x.correctedBy)) {
+    if (s.correctedBy) {
+      const changes = Object.entries(s.data).map(([k, v]) => {
+        const f = nb.fields.find((x) => x.key === k);
+        const fmt = (x: NotebookFieldValue) => (f ? formatFieldValue(f, x) : String(x));
+        return `${f?.label ?? k} ${known[k] !== undefined ? `${fmt(known[k])} → ` : ''}${fmt(v)}`;
+      });
+      out.push({ at: s.at, kind: 'note', who: who(s.correctedBy), title: 'Corrected', body: changes.join(' · ') });
+      Object.assign(known, s.data);
+      const p = price(s.data);
+      if (p !== undefined) last = p;
+      continue;
+    }
+    Object.assign(known, s.data);
     const p = price(s.data);
     const moved = p !== undefined && last !== undefined && p !== last;
     out.push({
