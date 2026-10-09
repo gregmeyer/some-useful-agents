@@ -352,6 +352,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       const m = o.factMeta?.[key] ?? {};
       const shown = m.estimate ? `≈ ${text}` : text;
       const why = [label, m.estimate ? 'an estimate' : '', m.source ? `source: ${m.source}` : ''].filter(Boolean).join(' · ');
+      // A fact whose value is a web address links to it, shown as its site ("target.com ↗").
+      const own = /^https?:\/\/\S+$/i.test(String(text).trim()) ? safeUrl(String(text).trim()) : undefined;
+      if (own) return html`<a class="chip src" href=${own} target="_blank" rel="noopener noreferrer" title="${label}: ${own}">${own.replace(/^https?:\/\/(www\.)?/i, '').split(/[/?#]/)[0]} ↗</a>`;
       return safeUrl(m.source)
         ? html`<a class="chip src${m.estimate ? ' est' : ''}" href=${safeUrl(m.source)} target="_blank" rel="noopener noreferrer" title=${why}>${shown} ↗</a>`
         : html`<span class="chip${m.estimate ? ' est' : ''}" title=${why}>${shown}</span>`;

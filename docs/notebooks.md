@@ -144,7 +144,7 @@ Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with e
   - the controls the cards have (**<next stage> →**, **Rule out…**, **Bring back**), which return to this page;
   - **Listing ↗** and **← Back to the notebook**;
   - who found it, when, and when it was last seen.
-- **What sua knows:** every fact, in the notebook's field order. The cards show at most five. An estimate reads **≈**, a fact with a source links to it, and the quote that backs a fact is shown under it (marked "checked in the source" when code found it there).
+- **What sua knows:** every fact, in the notebook's field order. The cards show at most five. A fact whose value is a web address (a link field, or any field holding one, like "Availability") is a link; on a card it shows the site (**target.com ↗**). An estimate reads **≈**, a fact with a source links to it, and the quote that backs a fact is shown under it (marked "checked in the source" when code found it there).
 - **Price over time:** each price a search saw. It's shown once the price has changed.
 - **Before you decide:** the notebook's checks for this option, whatever its rank; the notebook page shows them only for the top two. Ticking one saves it.
 - **Its history**, newest first:
