@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, optionLink, notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -283,7 +283,7 @@ function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: Noteboo
 function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
   const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
-  const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link');
+  const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link') || entries.some((e) => e.kind === 'option' && optionLink(nb.fields, e.data));
   const regions = compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.length === 0) {
     return html`

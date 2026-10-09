@@ -203,7 +203,8 @@ export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBy
       await guard(current);
       let res: Response;
       try {
-        res = await fetch(current, { redirect: 'manual', signal: controller.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' } });
+        // Ask only for formats it keeps: image CDNs serve AVIF to anyone who lists it, and AVIF isn't kept.
+        res = await fetch(current, { redirect: 'manual', signal: controller.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9,image/*;q=0.5' } });
       } catch (err) {
         if (controller.signal.aborted) throw new WebFetchError('timeout', `Request timed out after ${timeoutMs / 1000}s.`);
         throw new WebFetchError('network', err instanceof Error ? err.message : String(err));
