@@ -709,6 +709,7 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(d.html).toContain('<option value="" selected>when I ask</option>'); // "every morning" isn't a schedule
 
     const changed = await form(app, '/notebooks/draft', { text: 'noise-cancelling headphones under $300', from: started.body.id, change: 'only Sony' });
+    expect(changed.body.id).toBe(started.body.id); // a change keeps the draft's address
     expect((await ready(app, changed.body.id)).html).toContain('value="Headphones (only Sony)"');
 
     const made = await form(app, '/notebooks', {
@@ -722,6 +723,64 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(nb).toMatchObject({ params: ['over-ear', 'under $300'], stages: ['Found', 'Shortlist', 'Bought'], checks: ['Comfortable with glasses'], pipeline: ['sched-agent'], cadence: '0 7 * * *' });
     expect(nb.fields.map((f) => f.key)).toEqual(['price', 'rating']);
     expect(nb.criteria.map((c) => c.text)).toEqual(['One pair that fits']);
+  });
+
+  it('keeps a draft you leave: its address brings it back with your changes, the lists offer it, starting it clears it', async () => {
+    const app = await makeApp();
+    const started = await form(app, '/notebooks/draft', { text: 'noise-cancelling headphones under $300' });
+    const id = started.body.id as string;
+    expect((await ready(app, id)).status).toBe('ready');
+
+    // Your edits are kept (the page posts its form as you change it).
+    const edited = await form(app, `/notebooks/draft/${id}/edits`, {
+      title: 'Quiet headphones for flights', statement: 'For long flights.', params: ['under $300', 'over-ear'], criteria: ['One pair that fits'],
+      field: [JSON.stringify({ key: 'price', label: 'Price', type: 'money', role: 'price' })], checks: ['Comfortable with glasses'], stages: 'Found → Bought', cadence: '',
+      // sched-agent unticked: still offered when you come back, just not ticked.
+    });
+    expect(edited.status).toBe(204);
+    expect((await form(app, '/notebooks/draft/no-such/edits', { title: 'x' })).status).toBe(404);
+
+    // Coming back: the sentence and the draft as you left it, ready to start.
+    const back = await get(app, `/notebooks/new?draft=${id}`);
+    expect(back.text).toContain('>noise-cancelling headphones under $300</textarea>');
+    expect(back.text).toContain('value="Quiet headphones for flights"');
+    expect(back.text).toContain('name="params" value="over-ear"');
+    expect(back.text).toContain('value="Found → Bought"');
+    expect(back.text).toMatch(/value="sched-agent"><span>/);
+    expect(back.text).toContain(`<input type="hidden" name="draft" value="${id}">`);
+
+    // The notebooks list and a fresh New page offer it.
+    const list = await get(app, '/notebooks');
+    expect(list.text).toContain('A draft you haven’t started');
+    expect(list.text).toContain(`href="/notebooks/new?draft=${id}">Quiet headphones for flights</a>`);
+    expect((await get(app, '/notebooks/new')).text).toContain(`/notebooks/new?draft=${id}`);
+
+    // Starting it from the draft clears it.
+    const made = await form(app, '/notebooks', { draft: id, title: 'Quiet headphones for flights', statement: 'For long flights.' });
+    expect(made.status).toBe(303);
+    expect((await get(app, '/notebooks')).text).not.toContain('haven’t started');
+    expect((await get(app, `/notebooks/new?draft=${id}`)).text).toContain('That draft is gone');
+  });
+
+  it('a draft survives a restart, and one cut off mid-draft reads as failed; Discard and drafting again remove it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    // Left "working" by a dashboard that stopped 20 minutes ago.
+    s.saveDraft('cut-off', { status: 'working', text: 'a quiet rental' }, new Date(Date.now() - 20 * 60_000).toISOString());
+    const page = await get(app, '/notebooks/new?draft=cut-off');
+    expect(page.text).toContain('sua stopped before it finished');
+    expect(page.text).not.toContain('data-nbd-resume');
+    // Discard.
+    const gone = await form(app, '/notebooks/draft/cut-off/discard', { back: 'list' });
+    expect(gone.headers.location).toBe('/notebooks');
+    expect(s.getDraft('cut-off')).toBeUndefined();
+    // Drafting the sentence again replaces the draft you were on.
+    const first = await form(app, '/notebooks/draft', { text: 'headphones' });
+    await ready(app, first.body.id);
+    const again = await form(app, '/notebooks/draft', { text: 'headphones under $200', replace: first.body.id });
+    await ready(app, again.body.id);
+    expect(s.listDrafts().map((d) => d.id)).toEqual([again.body.id]);
   });
 
   it('Skip the draft starts it from the sentence alone', async () => {

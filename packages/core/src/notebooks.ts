@@ -210,6 +210,19 @@ export function notebookSlug(title: string): string {
 const clean = (list: readonly string[] | undefined, max = 20) =>
   (list ?? []).map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, max);
 
+/** A new notebook being drafted, as stored. */
+export interface NotebookDraftRecord { id: string; status: string; text: string; draft?: unknown; error?: string; createdAt: string; updatedAt: string }
+
+function draftRecord(r: Record<string, unknown>): NotebookDraftRecord {
+  let draft: unknown;
+  try { draft = r.draft_json ? JSON.parse(String(r.draft_json)) : undefined; } catch { draft = undefined; }
+  return {
+    id: String(r.id), status: String(r.status), text: String(r.text),
+    ...(draft !== undefined ? { draft } : {}), ...(r.error ? { error: String(r.error) } : {}),
+    createdAt: String(r.created_at), updatedAt: String(r.updated_at),
+  };
+}
+
 export class NotebookStore {
   private db: DatabaseSync;
 
@@ -290,6 +303,17 @@ export class NotebookStore {
         bytes BLOB,
         fetched_at TEXT NOT NULL,
         error TEXT
+      );
+      -- A new notebook being drafted (dashboard lib/notebook-draft.ts): kept until it's
+      -- started or discarded, so leaving the page or a restart doesn't lose it.
+      CREATE TABLE IF NOT EXISTS notebook_drafts (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        text TEXT NOT NULL,
+        draft_json TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
     // G2 columns, added to tables created before them.
@@ -848,6 +872,32 @@ export class NotebookStore {
       (input.cadence ?? '').trim(), now, now,
     );
     return this.get(id)!;
+  }
+
+  /** Save a draft's state (insert or replace); `draft` is the caller's own shape, kept as JSON. */
+  saveDraft(id: string, d: { status: string; text: string; draft?: unknown; error?: string }, now = new Date().toISOString()): void {
+    this.db.prepare(`INSERT INTO notebook_drafts (id, status, text, draft_json, error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET status = excluded.status, text = excluded.text, draft_json = excluded.draft_json, error = excluded.error, updated_at = excluded.updated_at`)
+      .run(id, d.status, d.text, d.draft === undefined ? null : JSON.stringify(d.draft), d.error ?? null, now, now);
+  }
+
+  getDraft(id: string): NotebookDraftRecord | undefined {
+    const r = this.db.prepare('SELECT * FROM notebook_drafts WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? draftRecord(r) : undefined;
+  }
+
+  /** Drafts not started yet, newest first. */
+  listDrafts(limit = 10): NotebookDraftRecord[] {
+    return (this.db.prepare('SELECT * FROM notebook_drafts ORDER BY updated_at DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>).map(draftRecord);
+  }
+
+  deleteDraft(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM notebook_drafts WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /** Drop drafts untouched since `before` (ISO). */
+  pruneDrafts(before: string): number {
+    return Number(this.db.prepare('DELETE FROM notebook_drafts WHERE updated_at < ?').run(before).changes);
   }
 
   get(id: string): Notebook | undefined {

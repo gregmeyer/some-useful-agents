@@ -48,6 +48,14 @@ Under the box, up to three **pills from your conversations** suggest notebooks y
 
 Nothing is created until you start it. **Skip the draft** starts the notebook from your sentence alone, and sua asks the rest in its conversation.
 
+**A draft is kept until you start or discard it**, so you can leave the page and come back:
+- Once sua starts drafting, the page's address becomes `/notebooks/new?draft=…`, so Back or a reload returns to it, even while sua is still drafting.
+- Your changes to the draft (title, limits, checks, stages, which agents search, how often) are saved as you make them ("Draft saved"). An agent you untick is still offered when you come back.
+- **Drafts you haven't started** are listed on the Notebooks page and on **New notebook**, each with where sua got to (drafting, ready to check, or couldn't draft it), **Continue →** and **Discard**.
+- **Change it** keeps the same draft. **Draft again** from the sentence replaces it. Starting the notebook clears it.
+- Drafts are stored with the dashboard, so a restart doesn't lose them. One that was mid-draft when the dashboard stopped reads as failed ("Draft it again"). If a change fails, the draft before it comes back. A draft untouched for two weeks is dropped.
+- The sentence you're still typing, before **Draft it**, is kept in your browser.
+
 ## Talk to sua; it fills the notebook
 
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:
@@ -125,6 +133,7 @@ Options record their facts as data, not only as text, so they can be compared, s
 
   Every photo is fetched with the same guards as web pages (no private or local addresses, every redirect checked) and must be a real JPEG, PNG, GIF or WebP of at most 3 MB; never SVG. The copy is kept in sua's database and served from your dashboard, so the page never loads from the seller's site. An address that didn't give a photo isn't tried again, and an option keeps its example photo or illustration when it doesn't. Images are requested as WebP, PNG, JPEG or GIF, so image servers that would otherwise send AVIF (which isn't kept) send one of those. Some sites block automated requests (AutoTrader serves a "page unavailable" page), and results-page links give no photo, so the most reliable source is a search agent that returns each listing's own link and photo address.
 - **Representative pictures:** an option still without a photo (the listing gave none, or blocked the request) gets a **representative** one: sua's `notebook-picture` agent searches for a picture of what it is (a Wikimedia photo of that model and generation, the product's image, the company's logo), fetched with the same guards as listing photos (one at a time, retrying a busy host; large Wikimedia originals as 500px thumbnails). When none can be found or fetched, sua shows its own **illustration** of what the option is (a car, a bike, a guitar, a laptop, a home, a company's monogram for a job), tinted per option and labelled with its name, and tries for a real photo again a day later. Cards label them **example photo** or **illustration**, so they're never mistaken for the real one. This runs after each search, from **Get photos**, and when you open a notebook or the Notebooks page; ruled-out options are skipped.
+- **Pictures show whole.** Everywhere a picture appears (shortlist cards and table, the option's page, the notebook's header, the Notebooks page, Home's shelf, the conversation's card), it's scaled to fit its frame, never cropped. A tall photo (a guitar) sits in the middle of a wide frame, and every card in a row keeps the same frame size however tall its photo is. A frame holding a photo is the card's own surface, so a product shot on white blends in; illustrations keep their tinted frame. The same goes for pictures in messages, run output and Pulse tiles: they scale down to fit their column.
 - **Not seen lately:** each search is recorded, along with how many options it found. When the last 2 searches by the agent that found an option found other options but not this one, its card says "not in the last 2 searches". It may be sold, filled or taken down. A search that found nothing doesn't count, since web search results vary from run to run. Being found again clears it.
 - **For widgets:** `GET /notebooks/<id>/data.json` returns the notebook as data, the same shape for every notebook:
   - `limits`, `criteria`, `progress` and `fields`;

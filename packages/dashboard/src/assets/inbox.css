@@ -3147,7 +3147,7 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .ib-notebook-wrap { container-type: inline-size; }
 .ib-notebook { display: flex; align-items: center; gap: var(--space-3); margin: var(--space-2) 0; padding: var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); text-decoration: none; }
 .ib-notebook:hover { border-color: var(--color-primary); }
-.ib-notebook__cover { flex: none; width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover; background: var(--color-surface-raised); }
+.ib-notebook__cover { flex: none; width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: contain; background: var(--color-surface-raised); }
 .ib-notebook__cover.is-drawn { object-fit: contain; }
 .ib-notebook__body { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .ib-notebook__kicker { font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
@@ -3198,9 +3198,11 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .nbs__row { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-4); }
 .nbs-card { display: flex; flex-direction: column; min-width: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; color: var(--color-text); text-decoration: none; transition: border-color 120ms ease-out; }
 .nbs-card:hover, .nbs-card:focus-visible { border-color: var(--color-primary); }
-.nbs-card__cover { position: relative; height: 132px; background: var(--color-surface-raised); display: block; }
-.nbs-card__cover img, .nbs-card__cover svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nbs-card__cover { position: relative; height: 132px; background: var(--color-surface-raised); display: block; overflow: hidden; }
+.nbs-card__cover img, .nbs-card__cover svg { width: 100%; height: 100%; object-fit: contain; display: block; }
+.nbs-card__cover svg { object-fit: cover; }
 .nbs-card__cover img.is-drawn { object-fit: contain; }
+.nbs-card__cover:has(img:not(.is-drawn)) { background: var(--color-surface); }
 .nbs-card__waiting { position: absolute; top: var(--space-2); left: var(--space-2); padding: 2px var(--space-2); border-radius: 999px; background: var(--color-warn-soft); border: 1px solid var(--color-warn-border); color: var(--color-warn); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); }
 .nbs-card__kind { position: absolute; bottom: var(--space-1); right: var(--space-2); font-size: 10px; color: var(--color-text-subtle); background: var(--color-surface); border-radius: var(--radius-sm); padding: 0 4px; }
 .nbs-card__body { display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-3) var(--space-4); }
