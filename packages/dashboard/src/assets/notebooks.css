@@ -568,3 +568,13 @@ body.has-sua-panel .nb-start__pointer { display: none; }
   .nbo-nav { width: 100%; justify-content: space-between; }
   .nbo-nav__step { max-width: 42%; }
 }
+
+/* New notebook: drafts you began but haven't started (also on the notebooks list). */
+.nbd-drafts { margin: 0 0 var(--space-6); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbd-drafts__title { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-muted); }
+.nbd-drafts__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.nbd-drafts__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.nbd-drafts__name { flex: 1 1 16rem; min-width: 0; font-weight: 500; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nbd-drafts__meta { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbd-drafts__discard { margin: 0; }
+.nbd-saved { font-size: var(--font-size-xs); color: var(--color-text-subtle); }

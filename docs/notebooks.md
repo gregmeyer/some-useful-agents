@@ -48,6 +48,14 @@ Under the box, up to three **pills from your conversations** suggest notebooks y
 
 Nothing is created until you start it. **Skip the draft** starts the notebook from your sentence alone, and sua asks the rest in its conversation.
 
+**A draft is kept until you start or discard it**, so you can leave the page and come back:
+- Once sua starts drafting, the page's address becomes `/notebooks/new?draft=…`, so Back or a reload returns to it, even while sua is still drafting.
+- Your changes to the draft (title, limits, checks, stages, which agents search, how often) are saved as you make them ("Draft saved"). An agent you untick is still offered when you come back.
+- **Drafts you haven't started** are listed on the Notebooks page and on **New notebook**, each with where sua got to (drafting, ready to check, or couldn't draft it), **Continue →** and **Discard**.
+- **Change it** keeps the same draft. **Draft again** from the sentence replaces it. Starting the notebook clears it.
+- Drafts are stored with the dashboard, so a restart doesn't lose them. One that was mid-draft when the dashboard stopped reads as failed ("Draft it again"). If a change fails, the draft before it comes back. A draft untouched for two weeks is dropped.
+- The sentence you're still typing, before **Draft it**, is kept in your browser.
+
 ## Talk to sua; it fills the notebook
 
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:
