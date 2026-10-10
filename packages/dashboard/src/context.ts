@@ -265,6 +265,10 @@ export interface DashboardContext {
   notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the picture agent instead of running it. */
   notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
+  notebookFacets?: Set<string>;
+  /** Tests only: answer for the notebook-facets agent instead of running it. */
+  notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
   /** Notebooks trying their options' listing photos right now. */

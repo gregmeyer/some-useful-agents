@@ -26,6 +26,8 @@ let dir: string;
 let provider: LocalProvider;
 let runStore: RunStore;
 let suggesterSaw = '';
+let facetsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+const facetsAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
@@ -82,6 +84,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Never a real model in tests: setup gets a fixed keeper answer.
     // Never a real picture model either.
     notebookPictureRun: async () => undefined,
+    // Nor a real facet-labelling model: tests set facetsReply (and see what it was asked).
+    notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     notebookDrafterRun: async (inputs) => `<draft>${JSON.stringify({
@@ -1174,5 +1178,60 @@ describe("the keeper's numbers are checked against what the run said", () => {
     const direct = applyKeeperResult(store, store.get(nb.id)!, 'account-research', 'run-3', block({ entries: [{ kind: 'option', title: 'Other cabinet', data: { price: 99, link: 'https://shop.example/c-2' } }] }), { trusted: true, source: 'x' });
     expect(direct.factsDropped).toBeUndefined();
     expect(store.findOption(nb.id, 'Other')!.data!.price).toBe(99);
+  });
+});
+
+describe('short filter labels for long facts', () => {
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it("groups a fact's sentences into short labels the shortlist's chips use; new values ask again with the labels in use", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Comp set' });
+    s.setFields(nb.id, [
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
+      { key: 'company', label: 'Company', type: 'text' },
+      { key: 'value', label: 'Value to customers', type: 'text' },
+    ]);
+    const cfo = 'Office-of-CFO suite: close, consolidation, compliance, disclosure';
+    const fpa = 'Finance-led FP&A that keeps Excel-centered workflows';
+    s.upsertOption(nb.id, { title: 'Acme', by: 'you', data: { fit: 90, company: 'Acme', value: cfo } });
+    s.upsertOption(nb.id, { title: 'Beta', by: 'you', data: { fit: 80, company: 'Beta', value: fpa } });
+    s.upsertOption(nb.id, { title: 'Gamma', by: 'you', data: { fit: 70, company: 'Gamma', value: `${cfo} ` } });
+    facetsAsked.length = 0;
+    facetsReply = (inputs) => {
+      const f = (JSON.parse(inputs.FIELDS) as Array<{ key: string; values: string[] }>)[0];
+      return `<facets>${JSON.stringify({ fields: { [f.key]: f.values.map((v, i) => ({ label: v.startsWith('Office') ? 'Office of the CFO' : 'Finance-led FP&A', values: [i] })) } })}</facets>`;
+    };
+    await get(app, `/notebooks/${nb.id}`);
+    await settle();
+    // Only the long fact is asked about (company names are short), each value once.
+    expect(facetsAsked).toHaveLength(1);
+    expect(JSON.parse(facetsAsked[0].FIELDS)).toEqual([{ key: 'value', label: 'Value to customers', existing: [], values: [cfo, fpa] }]);
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const options = () => notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.options;
+    expect(options().map((o) => o.facets?.value)).toEqual(['Office of the CFO', 'Finance-led FP&A', 'Office of the CFO']);
+    // The page's grid gets them.
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain('"facets":{"value":"Office of the CFO"}');
+
+    // Opening it again asks nothing: every value has a label.
+    await get(app, `/notebooks/${nb.id}`);
+    await settle();
+    expect(facetsAsked).toHaveLength(1);
+
+    // A new value: asked alone, with the labels already in use; until then it has no chip.
+    s.upsertOption(nb.id, { title: 'Delta', by: 'you', data: { fit: 60, company: 'Delta', value: 'Real-time planning across departments with governed models' } });
+    facetsReply = () => undefined; // this time sua fails
+    await get(app, `/notebooks/${nb.id}`);
+    await settle();
+    expect(JSON.parse(facetsAsked[1].FIELDS)[0]).toMatchObject({ existing: ['Office of the CFO', 'Finance-led FP&A'], values: ['Real-time planning across departments with governed models'] });
+    expect(options().find((o) => o.name === 'Delta')!.facets).toEqual({ value: '' });
+    // A failed try waits a day.
+    await get(app, `/notebooks/${nb.id}`);
+    await settle();
+    expect(facetsAsked).toHaveLength(2);
+    facetsReply = undefined;
   });
 });

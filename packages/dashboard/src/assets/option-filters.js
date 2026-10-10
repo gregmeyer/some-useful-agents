@@ -17,6 +17,9 @@ export function filterSpec(f) {
 export function filterValue(o, key, fmt) {
   if (key === 'stage') return o?.ruledOut ? '' : String(o?.stage ?? '');
   if (key === 'seen') return o?.notSeenLately ? 'Not seen lately' : 'Current';
+  // A long fact's short label (sua groups sentences into a few kinds), when it has one.
+  // ('' = not labelled yet: no chip, rather than the sentence.)
+  if (o?.facets && typeof o.facets[key] === 'string') return o.facets[key];
   const v = o?.fields?.[key];
   if (v === undefined || v === null || v === '') return '';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';

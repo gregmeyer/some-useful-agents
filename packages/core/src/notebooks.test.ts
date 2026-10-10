@@ -716,3 +716,19 @@ describe('the shortlist as a spreadsheet', () => {
     expect(all[3]).toMatch(/^,Initech,.*,Unfit \(10\): sells printers$/);
   });
 });
+
+describe('notebook facet labels', () => {
+  it('keeps short labels per field, merges new ones without changing old, trims long ones, and records a failed try', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbf-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Comp set' });
+    expect(s.get(nb.id)!.facets).toBeUndefined();
+    s.setFacetLabels(nb.id, 'value', { 'a long sentence': 'Office of the CFO', 'another one': 'Finance-led FP&A' }, '2026-10-09T00:00:00.000Z');
+    s.setFacetLabels(nb.id, 'value', { 'a long sentence': 'Changed', 'a third': '  A label far longer than twenty-four characters ' });
+    const f = s.get(nb.id)!.facets!.value;
+    expect(f.labels).toEqual({ 'a long sentence': 'Office of the CFO', 'another one': 'Finance-led FP&A', 'a third': 'A label far longer than' });
+    s.markFacetsFailed(nb.id, 'why', '2026-10-09T01:00:00.000Z');
+    expect(s.get(nb.id)!.facets!.why).toMatchObject({ labels: {}, failedAt: '2026-10-09T01:00:00.000Z' });
+  });
+});

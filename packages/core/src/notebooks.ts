@@ -146,9 +146,18 @@ export interface Notebook {
   conversationId?: string;
   /** Set when archived: hidden from the notebooks list, Home, Today and schedules; kept whole and restorable. */
   archivedAt?: string;
+  /**
+   * Short labels for a long text fact's values, by field key, so a filter chip
+   * reads "Office-of-CFO suite" rather than the sentence each option has
+   * (the dashboard's notebook-facets agent groups them).
+   */
+  facets?: Record<string, NotebookFacet>;
   createdAt: string;
   updatedAt: string;
 }
+
+/** One field's short labels: each value (as shown) → its label; `failedAt` when grouping last failed. */
+export interface NotebookFacet { labels: Record<string, string>; at: string; failedAt?: string }
 
 export interface NotebookEntry {
   id: string;
@@ -325,7 +334,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -532,6 +541,31 @@ export class NotebookStore {
     }
     this.db.prepare('UPDATE notebooks SET checks_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(checks), new Date().toISOString(), id);
     return this.mustGet(id);
+  }
+
+  /**
+   * Keep short labels for a field's values (merged into what it has: a value
+   * already labelled keeps its label). Labels are trimmed to 24 characters.
+   */
+  setFacetLabels(id: string, key: string, labels: Record<string, string>, now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const cur = nb.facets?.[key]?.labels ?? {};
+    const clean: Record<string, string> = { ...cur };
+    for (const [v, l] of Object.entries(labels)) {
+      const t = typeof l === 'string' ? l.replace(/\s+/g, ' ').trim().slice(0, 24).trim() : '';
+      if (v && t && !clean[v]) clean[v] = t;
+    }
+    const facets = { ...(nb.facets ?? {}), [key]: { labels: clean, at: now } };
+    this.db.prepare('UPDATE notebooks SET facets_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(facets), now, id);
+    return this.mustGet(id);
+  }
+
+  /** Grouping a field's values failed: not tried again for a while. */
+  markFacetsFailed(id: string, key: string, now = new Date().toISOString()): void {
+    const nb = this.mustGet(id);
+    const prev = nb.facets?.[key] ?? { labels: {}, at: now };
+    const facets = { ...(nb.facets ?? {}), [key]: { ...prev, failedAt: now } };
+    this.db.prepare('UPDATE notebooks SET facets_json = ? WHERE id = ?').run(JSON.stringify(facets), id);
   }
 
   /** Tick (or untick) one of the notebook's checks for an option. */
@@ -1064,6 +1098,7 @@ export class NotebookStore {
       ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
       ...(r.cadence_fired_at ? { cadenceFiredAt: String(r.cadence_fired_at) } : {}),
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
+      ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),

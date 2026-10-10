@@ -28,6 +28,7 @@ import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, greetNotebook, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
+import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
@@ -219,6 +220,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   if (nb.fields.length) {
     try { startListingPhotos(ctx, s, nb.id); } catch { /* a nicety */ }
     startNotebookPictures(ctx, nb.id);
+    // Long facts get short labels for the shortlist's filter chips.
+    try { startNotebookFacets(ctx, nb.id); } catch { /* a nicety */ }
   }
   const entries = s.entries(nb.id);
   const surface = SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`);
