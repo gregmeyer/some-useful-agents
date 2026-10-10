@@ -150,7 +150,7 @@ Once a notebook has fields and options, its page is drawn as A2UI widgets (see [
 - **Shortlist:** cards (photo or "No photo yet", rank, a short name, price, facts, stage, price move) or a table. A card's or row's name opens the option's page. **Filters** above the cards narrow the list. Each shows as a row of chips, and each chip says how many options picking it would show:
   - **Listing:** current, or not seen lately;
   - **Stage**;
-  - each text fact the options differ on (seller, make/model, location…).
+  - each text fact the options differ on (seller, make/model, location…), when at least two options share a value and the values are short. A fact where every option has its own value (a company name) or that's a sentence about each option isn't a filter: a chip would pick out one option.
 
   Filters combine. Ranks and the best stay those of the whole shortlist. **Clear filters** resets them, and your choice is remembered in this browser for that notebook. Ruled-out options are **hidden by default**; **Show ruled out (N)** brings them back, and your choice is remembered in this browser. Each card has **Listing ↗**, **<next stage> →** and **Rule out…**, whose first choice is **No longer available** (sold, filled, out of stock), followed by quick reasons or your own words. "Not seen lately" cards also offer **Mark gone**.
 - **Before you decide** (a third of the row): a checklist for the top two (the notebook's checks, e.g. Still listed, Clean title). Tick boxes right there.
