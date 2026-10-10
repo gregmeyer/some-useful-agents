@@ -7,6 +7,8 @@
  */
 import { nextFireTime, optionLink, notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
+import { renderDraftsStrip } from './notebook-new.js';
+import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookWidgetMessages } from '../lib/notebook-widgets.js';
@@ -528,6 +530,8 @@ export function renderNotebooksList(args: {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   query?: NotebookListQuery;
   counts?: { active: number; decided: number; stopped: number; all: number; archived?: number };
+  /** New notebooks you began drafting but haven't started. */
+  drafts?: ReadonlyArray<{ id: string } & DraftState>;
 }): string {
   const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
   const counts = { archived: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
@@ -556,6 +560,7 @@ export function renderNotebooksList(args: {
       </div>
       <a class="btn btn--primary nbl-new__btn" href="/notebooks/new">+ New notebook</a>
     </header>
+    ${renderDraftsStrip(args.drafts ?? [], 'list')}
     ${counts.all || counts.archived ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
         <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.archived ? tab('archived', 'Archived') : html``}</nav>

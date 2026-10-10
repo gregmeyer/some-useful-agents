@@ -13,7 +13,7 @@ import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
@@ -84,6 +84,7 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   res.type('html').send(renderNotebooksList({
     notebooks, openNew: req.query.new === '1', flash: parseFlash(req),
     query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
+    drafts: listDrafts(ctx),
   }));
 });
 
@@ -98,8 +99,30 @@ const titleFrom = (text: string): string => {
 
 // New notebook (views/notebook-new.ts): say it, sua drafts it, you check it.
 notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
-  const sug = notebookSuggestions(getContext(req.app.locals));
-  res.type('html').send(renderNotebookNew({ text: str(req.query.text).slice(0, 1000), suggestions: sug.items, refreshing: sug.refreshing, flash: parseFlash(req) }));
+  const ctx = getContext(req.app.locals);
+  const sug = notebookSuggestions(ctx);
+  // ?draft=<id>: back to a draft you left (its sentence, and the draft as you last changed it).
+  const draftId = str(req.query.draft);
+  const d = draftId ? readDraft(ctx, draftId) : undefined;
+  const others = listDrafts(ctx).filter((x) => x.id !== draftId);
+  res.type('html').send(renderNotebookNew({
+    text: d?.text ?? str(req.query.text).slice(0, 1000), suggestions: sug.items, refreshing: sug.refreshing,
+    flash: parseFlash(req) ?? (draftId && !d ? { kind: 'info', message: 'That draft is gone (started, discarded or expired).' } : undefined),
+    ...(d ? { draft: { id: draftId, state: d, agents: searchAgents(ctx) } } : {}),
+    others,
+  }));
+});
+
+/** Keep your changes to a draft as you make them (notebook-new.js.ts posts its form here). */
+notebooksRouter.post('/notebooks/draft/:id/edits', (req: Request, res: Response) => {
+  const ok = saveDraftEdits(getContext(req.app.locals), String(req.params.id), (req.body ?? {}) as Record<string, unknown>);
+  res.status(ok ? 204 : 404).end();
+});
+
+notebooksRouter.post('/notebooks/draft/:id/discard', (req: Request, res: Response) => {
+  discardDraft(getContext(req.app.locals), String(req.params.id));
+  if (isAjax(req)) { res.status(204).end(); return; }
+  res.redirect(303, str(req.body?.back) === 'list' ? '/notebooks' : '/notebooks/new');
 });
 
 /** The pills, redrawn when a refresh finishes (notebook-new.js.ts). */
@@ -111,8 +134,11 @@ notebooksRouter.get('/notebooks/suggestions', (req: Request, res: Response) => {
 notebooksRouter.post('/notebooks/draft', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const from = str(req.body?.from) ? readDraft(ctx, str(req.body?.from)) : undefined;
-  const out = startNotebookDraft(ctx, str(req.body?.text), from?.status === 'ready' ? { draft: from.draft, change: str(req.body?.change) } : undefined);
+  const out = startNotebookDraft(ctx, str(req.body?.text), from?.status === 'ready' ? { id: str(req.body?.from), draft: from.draft, change: str(req.body?.change) } : undefined);
   if (typeof out !== 'string') { res.status(400).json({ error: out.error }); return; }
+  // Drafting the sentence again: the draft you were on is replaced.
+  const replaced = str(req.body?.replace);
+  if (replaced && replaced !== out) discardDraft(ctx, replaced);
   res.status(202).json({ id: out });
 });
 
@@ -122,7 +148,7 @@ notebooksRouter.get('/notebooks/draft/:id', (req: Request, res: Response) => {
   if (!d) { res.status(404).json({ status: 'gone', error: 'That draft has expired. Draft it again.' }); return; }
   if (d.status === 'working') { res.json({ status: 'working' }); return; }
   if (d.status === 'failed') { res.json({ status: 'failed', error: d.error }); return; }
-  res.json({ status: 'ready', html: render(renderDraftReview(String(req.params.id), d.draft, searchAgents(ctx))) });
+  res.json({ status: 'ready', html: render(renderDraftReview(String(req.params.id), d.draft, searchAgents(ctx), d.error)) });
 });
 
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
@@ -140,6 +166,8 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
     });
+    // Started from a draft: it's done with.
+    if (str(req.body?.draft)) discardDraft(ctx0, str(req.body?.draft));
     // From a draft: what to note, the stages and the checks are set already, so setup is skipped.
     const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
     if (fields.length) {
