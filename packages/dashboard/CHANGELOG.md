@@ -1,5 +1,634 @@
 # @some-useful-agents/dashboard
 
+## 0.30.0
+
+### Minor Changes
+
+- af2ed48: An account-research agent that fills an accounts notebook from public job posts.
+  
+  `account-research` turns an ideal customer profile into stack, problem and hiring signals, finds companies on the Ashby, Greenhouse and Lever job boards, scores each 0–100 on a fixed four-tier rubric and backs the score with a word-for-word quote from the company's own post. A code step checks every quote; a score whose quote isn't in the post can't rank above tier 3. It files straight into the notebook. Notebook pipelines now pass a `FIELDS` input (the notebook's field keys and roles) to agents that declare one.
+- d5a2a9b: Ask sua to change Home (goal surfaces, S5).
+  
+  Home has an **Ask sua to change Home** box under its goal. Say what you want ("put failing agents first and hide the draft agents"). sua answers with a **Change Home** card that lists each change and its effect: what will lead Needs you, and how many items will be hidden. **Apply** saves it as a new version of Home, by you through sua. sua sees Home's goal, rules and items when it proposes, so it can pin or hide a specific one.
+  
+  For AI apps there are new MCP tools: `surface-read` and `surface-apply`. Changes they make are marked with the app, and changes to Home's sections are left to you.
+- 4d76d5b: An agent's Config tab is now Settings: sections in plain words, with one Save.
+  
+  The tab has a section menu (Inputs, Model, When it runs, Where it shows, Connections, Access), and each section has a one-line summary. Model, schedule, visibility, AI-app access and image hosts no longer have a Save button each. Changed sections are marked, and one bar says how many changes are unsaved, with Discard, Review (before → after) and Save. Save applies everything as one new version when the change affects what the agent does. New `POST /agents/:id/settings` validates the whole set at once (`preview=1` returns the changes without saving) and refuses to save over a version someone else made since you opened the page.
+- e8cab95: Archived agents get out of the way, and come back with one click.
+  
+  Archiving an agent now takes it out of the default agents list (an **Archived (n)** link shows them), Pulse, the tile picker, and the agents sua suggests or may run. It can't be run by hand while archived, and a board that already places it keeps the tile, marked **archived**, with no Run button. An archived agent's page explains what archiving does and has **Restore**: it comes back active, or paused if it has a schedule, so nothing fires until you resume it.
+- bb8e769: Archive dashboards you're not using.
+  
+  An **Archive** button on a dashboard hides it from the dashboards menu, the pickers and sua's suggestions without deleting anything. Archived dashboards are listed under **Archived** at the bottom of the dashboards menu, and **Restore** on an archived dashboard brings it back. Also fixes the dashboards menu's "Default Dashboard" link, which pointed at Home instead of Pulse.
+- 8d5379c: Ask sua to arrange the board you're on.
+  
+  From a dashboard or Pulse, ask sua to rearrange it ("fix this dashboard so it doesn't duplicate everything"). sua sees the board's outline and answers with an **Arrange <board>** card: which tiles go, move, arrive or resize, and the tile count before and after. **Apply** saves it as one new board version, which you can undo from ✎ Arrange. A card proposed before the board changed refuses to apply.
+- 4fc6ed0: Ask sua to change an agent's settings in plain words.
+  
+  The Settings tab has an **Ask sua to change this agent** box. What you type opens a conversation in the side panel, and sua answers with a **Change N settings** card listing each change as before → after (model, schedule, durable runs, where it shows, AI-app access, image hosts). **Apply** saves them the same way the page's Save does. sua can propose the same card in any conversation about an agent. New `agent-settings` action (`inputs.CHANGES`), and inbox triage now sees the agent's current settings.
+- deb81df: Searchable agent picker and a tunable "Suggest a layout" when arranging a board.
+  
+  Arrange's **+ Agent tile** is now a searchable list instead of a long dropdown: search by name, id or what an agent does, filter to agents not yet on the board (or already on it), and page through 20 at a time. **+ Add** and **Wrap in** are grouped menus. **Suggest a layout** now asks how you want the board arranged before the layout planner runs. Agents whose tile title is a template no longer show up named like `{{inputs.SEARCH_QUERY}}`.
+- 98dc5d8: The agent catalog shows which agents fill notebooks.
+  
+  Agents that search for a notebook or have filed into one get a "feeds N notebooks" badge, and a "Feeds notebooks" chip filters the list to them. An agent's page has a Connections section laid out left to right: the agents that run it, the agent, then what it runs and the notebooks it fills (with links to how each was made). The notebook drafter lists those agents first and prefers them for a new notebook's searches.
+- de8f0c9: A conversation panel beside every page.
+  
+  Asking sua now opens the answer in a panel docked beside the page instead of over it, and the panel follows you from page to page. Ask sua in the top bar, or Cmd/Ctrl+K, opens it (your last thread, or a box to start a new one with your recent threads) and closes it; a thread open in the centered inbox view moves into it with one click. You can widen it, or minimize it to a pill that lights up when a reply lands. Wide screens make room for it, narrower screens show it over the page, and phones show it full screen. Threads opened from the inbox list still open in the centered view.
+- 0dfb054: Agent conversations now live in the inbox store.
+  
+  A conversation with an agent is now an inbox thread (source `conversation`), and its turns are replies on that thread, so there is one conversation model for the coming side panel and inbox split view. Nothing changes in the Chat tab, `sua agent chat` or MCP `run-agent`. Existing conversations are copied over the first time sua opens the database, with the same ids; the old tables are kept as `sessions_legacy` and `session_turns_legacy`. Conversations aren't listed in the inbox yet.
+- 820107c: A cleaner sua drawer: one field to search or ask, grouped threads, a fresh-conversation view.
+  
+  The drawer's inbox now has one field that searches as you type and asks sua when you press Enter, a segmented Needs you / Open / Chats / Done control, and threads grouped by what they need from you (Waiting on you, Keeps failing) or by when they last moved, each with a dot and a one-word tag (Approve, Answer, Failing). **+** in the header opens a new conversation with a few starting points. The minimized pill and the header controls are quieter. Home's inbox list gets the same rows.
+- 877c2c4: A calmer conversation view in the sua drawer and on Home.
+  
+  Conversations get a one-line title with a ⋯ menu (star, tags, ask sua to look again, summarize, resolve, open full page) and a quiet line for state, who it's with and age. Messages show a small avatar and the speaker's name (You, sua, the agent) instead of a `you ›` column, and status notes are quieter. Proposed actions are cards that say what they'll do and whether they only read or change something, with inputs under Details and Run it / Not now (Apply fix for agent fixes, with the changes folded under +N −M). The reply box is one rounded field with a send button, and a ↻ button reloads the inbox list. "Triage agent" is now called sua throughout.
+- 0d2e133: A fix sua makes from a notebook no longer changes an agent other notebooks use.
+  
+  When a fix proposed in a notebook's conversation targets a shared agent (one of sua's example agents, or one another notebook searches with), it's saved as a copy for that notebook, and that notebook switches to the copy; the original and every other notebook are left alone. The fix card says so before you approve it ("Save as a copy"). A fix asked for from the agent's own page still changes the agent itself.
+- 531962c: Home is your inbox on one canvas.
+  
+  `/` (and `/inbox`) now shows the inbox list and the open thread side by side: ask box, Needs you / Open / Conversations / Done, search, and the thread with its action cards, all live. `/inbox/:id` opens it with that thread selected. It's the same inbox the conversation panel shows beside other pages, so there's one inbox at two widths. The separate Home feed, the old inbox list page and the centered thread window are gone; threads linked from anywhere open on Home or in the panel. Filters, starring and bulk actions from the old list page return in a follow-up.
+- 55edc1a: Home shows your notebooks on a shelf.
+  
+  Above Today, **Your notebooks** has a card for each active notebook (the four changed most recently): its picture, the best option so far and its price, its criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. **+ New notebook** sits at the end. On a phone the cards are a row you swipe.
+- ff23b7a: Home is a page of what needs you, not the inbox split.
+  
+  `/` now shows how things stand next to the title ("2 need you"), then **Today** full width. Clicking a row opens it in the sua panel beside the page. Autonomy, Adjust Home and a link to the full inbox move into a ⋯ menu, and there's one place to ask sua (the bar at the top). The list-and-thread inbox is still at `/inbox`.
+- 6c93c6e: Pin, move and hide things on Home's Today tab, and turn a change into a rule (goal surfaces, S4).
+  
+  Each row on Today has a ⋯ menu (Pin to top, Move up, Move down, Hide from Home), and rows can be dragged within their region. Changes are saved as yours on Home's surface, and each one shows a bar with **Undo**. When there's a clear rule behind a change, the bar offers it: "Always put failing agents first?", then **Make it a rule**. Hidden items are listed at the end of Today, each with Show or Stop this rule.
+  
+  New: `POST /surfaces/:id/ops` and `POST /surfaces/:id/restore`. A new surface rule now goes ahead of older ones, and hidden items report whether you or a rule hid them.
+- 18037e2: Home's Today tab is drawn from its surface (goal surfaces, S3).
+  
+  The first tab on Home and in the sua drawer is now **Today**: what needs you, what's happening, and whether everything else is fine, ordered by Home's rules. It shows conversations waiting on you alongside agents that keep failing, missed outcomes, drafts and board builds.
+  - **Items that aren't conversations** open beside the list. They show their evidence, the actions that work in place (Run it again, Make it active, Ask sua to fix it), and why they're on Home.
+  - **By default**, questions and approvals come first and draft agents fold into one line.
+  - **A goal line** says what Home is arranged for.
+  
+  Also: a conversation waiting on you is never ranked as low urgency, and conversation summaries name sua when sua said it.
+- 2d6d251: Filter, star and act on many threads at once on Home.
+  
+  Home's inbox list gains Filter and sort (where a thread came from, its agent, a tag, starred only; latest activity, oldest first or priority), a star on each thread, and checkboxes to Resolve or Dismiss several threads together. Tab counts follow the filters. The top bar now has one link home, the sua brand, since Home is the inbox.
+- 94392bf: The item index: everything that needs you, as typed items (goal surfaces, S1).
+  
+  A new layer in core reads what sua already stores and returns one item per thing that needs you or matters now. That covers threads waiting on you, questions runs are waiting on, agents that keep failing or missed their declared outcome, draft agents, board builds, and the scheduler's health. Each item has a stable id, a kind, urgency, the actions it supports, and the evidence behind it. Read the items with `GET /api/items` in the dashboard or the new `items-read` MCP tool. Home's surface (coming next) is built on these items. See docs/surfaces.md.
+  
+  Also fixes a crash when outcome records or agent / planner memories were read through a store opened on a shared database connection (`fromHandle`): the row reader was a class field that this construction skipped.
+- 871c7bb: Add a run to a notebook when it ran somewhere else.
+  
+  A run of a notebook's agent started outside its conversation (the agent's Run button, a schedule) used to leave its results out of the notebook. The notebook page now lists those runs under **Runs not in this notebook yet** (the last two weeks), and **Add to notebook** files one like any other search.
+- ee4642a: Notebooks can be archived or deleted.
+  
+  Both are in a notebook's Edit panel.
+  - **Archive** hides it from the notebooks list, Home, Today and sua's notebook list, and stops its schedule. Nothing is deleted. It's under a new **Archived** tab, and its page offers **Restore**.
+  - **Delete…** asks once, then removes the notebook and everything in it: options, history, searches, photos and layout. Its pages return "not found", while its conversation and the runs that fed it stay. Delete is refused while its pipeline is running.
+  
+  `NotebookStore` gains `archive`, `unarchive` and `delete`. `list()` leaves archived notebooks out unless asked (`archived: 'include' | 'only'`). `SurfaceStore` gains `remove`.
+- 5f8b037: A notebook's searches hear what it already has and which facts are still missing.
+  
+  The notebook input a search agent gets (`GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF`) now lists the options in the running, so they aren't brought back, and for each the tracked facts it still lacks ("Motive — employees, revenue, founded"). An agent can then fill those gaps by name as well as find new options.
+- 97b85f4: A notebook's conversation shows the notebook.
+  
+  In the inbox and the sua drawer, a conversation about a notebook has a card under its title: the notebook's picture, name, options in the running, criteria done and the best price. Clicking it opens the notebook.
+- c146b83: A notebook's facts can carry the quote that backs them, and agents can rule options out.
+  
+  A fact can carry the words in its source that back it, and a "checked" mark when the filing agent's own code found them there (trusted only from directly filed blocks, never from the keeper's model). The shortlist shows the quote under the fit score, with "✓ checked in the source". A filed option can say `ruleOut: "why"`. The account-research agent now sends its quotes this way and files unfit companies as ruled out, and it keeps its search output under the 32KB a step can read inline.
+- 6f15c81: Talk to sua about a notebook, and it fills the notebook in.
+  
+  A new notebook opens with **Tell sua what you're looking for** instead of a form. The conversation opens beside the page. sua files what you say into the notebook as you talk: notes, options, evidence, ruled-out decisions, parameters and "done when" criteria. The page updates on its own.
+  
+  sua also suggests a pipeline from your agents, as a **Set up the pipeline** card you approve. The notebook keeps its conversation (**Continue the conversation**). Adding an entry by hand is still there, folded away.
+- 5bd64da: Download a notebook's shortlist as a spreadsheet.
+  
+  **Download CSV** in a notebook's header saves the shortlist best first, with a column per fact, estimates, sources, the quote that backs the ranking (and whether it was checked), checks done, and when each option was seen. `?all=1` adds ruled-out options with why. Formula-like text is neutralised so a shared sheet can't run it.
+- d357f5c: A notebook's page tells its story: where it stands, what to check, how you got here.
+  
+  The widgets now follow the notebook design:
+  - **Where it stands** with a **Next** step, beside **Done when** (a ring and steps), and boxed stats.
+  - **The price map** beside the funnel.
+  - **A shortlist** with short names and a "No photo yet" placeholder. Ruled-out options are hidden by default (**Show ruled out**).
+  - **Before you decide**, a checklist for the top two that you tick in place.
+  - **How we got here**, a timeline.
+  - **Where sua looked**, the sites the latest search reached.
+  - **Limits**, with ones that disagree flagged.
+  
+  The old notes list is folded into the timeline.
+  
+  **No longer available** is now the first choice under **Rule out…** (also **Mark gone** on "not seen lately" cards, or tell sua "it sold"). It takes an option out of the running without counting as your rejection.
+  
+  **Fact checks:** facts that contradict an option's own text (a model mixing up two options) are corrected from the text, including ones already stored. Fields without a role get the one their name implies.
+  
+  The sua catalog gains `Columns`, `Panel`, `Callout`, `StatStrip`, `Steps`, `Coverage`, `Checklist`, `Timeline` and `ChipList`.
+- e11c184: Start a notebook by saying it in a sentence.
+  
+  **+ New notebook** now opens a page with one box. Describe what you want, and sua drafts the notebook: title, limits, done-when (with your deadline), what to note for each option, checks, stages, and which of your agents should search. Every part is editable, or ask sua to change it. **Looks right, start it** creates the notebook already set up. The new `notebook-drafter` system agent does the drafting; the old four-field form is gone.
+- f1b8971: A notebook draft is kept until you start or discard it.
+  
+  Drafts used to live in the dashboard's memory for an hour, known only to the page, so going to another page lost them, and your changes to a draft were never saved. Now a draft is stored (a new `notebook_drafts` table), has its own address (`/notebooks/new?draft=…`), saves your changes as you make them, and is listed under "Drafts you haven't started" on the Notebooks page and the New notebook page, with Continue and Discard. Starting the notebook clears it.
+- 4abb8f3: A notebook's long facts are filtered by short labels sua gives them.
+  
+  When a fact is a sentence per option ("Office-of-CFO suite: close, consolidation, compliance, disclosure"), a new system agent, `notebook-facets`, groups its values into a few short labels ("Office of the CFO", "Finance-led FP&A"), kept on the notebook. The shortlist's filter chips use them, and so does Previous / Next on an option's page. It runs in the background when a notebook opens and a value has no label yet, reusing the labels already there.
+- a981d4a: A notebook's facts can say where they came from, and which are estimates.
+  
+  An option's fact can carry its source and an estimate flag (agents give `{"value", "source", "estimate"}`). The keeper adds them when a run's output says where a figure came from or that it's approximate. The shortlist marks estimates with "≈" and links sourced facts. A later search that states the fact again replaces or clears them. The option's link button uses its field's label ("Website" for companies).
+- 45ee9a0: Notebook fields work for job and shopping searches too.
+  
+  - **Which way is better:** a money or number field can say whether higher or lower is better. A price is better lower; a salary or a rating is better higher.
+  - **Ranges:** a field can take a range ("$150k–$180k", shown as $150,000–$180,000).
+  - **`org` role:** a new role for the company or seller, so options can be grouped by it.
+  - **The keeper knows typical fields** for cars, jobs and products.
+- 57918f4: Notebooks can rank options by fit instead of price.
+  
+  A notebook field with the new role `score` (how well an option fits, like an ICP fit from 0 to 100) makes the notebook rank by it: the best fit leads the summary, the stats, the shortlist, Decide… and Home's shelf. sua drafts account-research notebooks with a fit score and keeps revenue a plain fact, and the keeper scores each option it files. Large money reads short ($18M–$22M), companies get monogram pictures, and a run already filed into another notebook is no longer offered under "Runs not in this notebook yet".
+- 3021021: Notebook options remember their price history and notice when they stop showing up.
+  
+  - **Price history:** each time a search finds an option, what it said is kept. Cards show how the price moved ("↓ $123 since Oct 5"), green when that's better and amber when it isn't.
+  - **Not seen lately:** each search is recorded. An option that the last 2 searches passed over (while finding other options) says "not in the last 2 searches", since it may be sold or filled. A search that found nothing doesn't count.
+  
+  Both are in `data.json` (`priceHistory`, `priceChange`, `missedSearches`, `notSeenLately`) for the notebook widgets.
+- 874d21e: Notebook options record their facts, so they can be compared.
+  
+  - **Fields:** a notebook now has fields, the facts every option records (price, miles, year, location and listing for a car; rent and sq ft for a flat). sua's notebook keeper sets them the first time a run finds options. Each field can have a role (`price`, `measure`, `place`, `link`, `image`, `when`), so one widget works for any notebook.
+  - **Facts:** options carry their facts as data, and the page shows them as chips with the listing as a link.
+  - **Fingerprints:** an option found again by a later run is updated, not added twice.
+  - **Older options:** options kept before the notebook had fields are filled in from their text, using only the facts that can be read unambiguously.
+  
+  `GET /notebooks/<id>/data.json` returns any notebook in one shape (limits, criteria, fields, options, notes, history), for the notebook widgets that come next.
+- 30a62f8: A notebook's runs are grouped into passes.
+  
+  A pass is one go at filling a notebook: a pipeline run of all its agents (failed ones included), or one run filed from its conversation or with Add to notebook. A notebook's **How it was made** page lets you pick a pass to draw, and lists every run grouped by pass with what each pass did. Runs from before passes were kept show as "Earlier run".
+- e8a015b: Notebook options can show a photo of the actual car, flat or product.
+  
+  - **A kept copy:** a notebook keeps a copy of each option's photo, taken from the option's image field, or from its listing page's own preview photo when that page is the listing. sua tries after each search and when you press **Get photos**. Cards show the photo beside the facts.
+  - **Guarded fetching:** photos are fetched with the same guards as web pages (no private or local addresses), must be a real JPEG, PNG, GIF or WebP under 3 MB, and are served from your dashboard, never the seller's site. Addresses that fail aren't retried.
+  
+  Core adds `fetchImage` and `pagePreview` to the web fetcher.
+- 5836db1: Notebook cards get a picture even when the listing has none.
+  
+  For an option without a photo, sua's new `notebook-picture` agent:
+  - **finds a representative image:** a Wikimedia photo of that car model and generation, the product's image, or the company's logo;
+  - **always draws a simple SVG illustration** as a fallback.
+  
+  Cards label these **example photo** or **illustration**. Found images are fetched with the same guards as listing photos; drawings are rebuilt from an allowlist of plain shapes (no scripts, styles or links) by the new core `sanitizeSvg`. It runs after searches, from **Get photos**, and when a notebook is opened, once per option.
+- 2200698: A notebook's pipeline fills it in (G2–G3).
+  
+  **Run the pipeline now** on a notebook runs its agents in order, each given the notebook's goal in its goal-like inputs. After each one, the new **notebook keeper** agent reads what it found and writes what's new: options that fit the parameters, evidence, notes, and ruled-out decisions with the reason.
+  - **No repeats:** it skips what the notebook already has.
+  - **Criteria:** it ticks a criterion only when the output shows it's met, and says why.
+  - **Provenance:** each entry links to the agent and run it came from, and the page shows which agent is running and a summary of the last run.
+- 9b40fe4: A notebook's schedule now runs its pipeline.
+  
+  A notebook with a schedule ("every morning") runs its searches when due, from the dashboard, the same as pressing Run. Each due time runs once; after downtime it catches up with one run; a new or changed schedule waits for its next time; a busy pipeline is retried next minute. The header says when it runs next (or that it needs a search first), and scheduled passes are marked "on schedule" in How it was made. `SUA_NOTEBOOK_SCHEDULES=0` turns it off. See ADR-0050.
+- 5bf6936: sua sets a notebook up for you: what each option records, and the stages they go through.
+  
+  **When it happens:**
+  - when you start a notebook (from its goal);
+  - the first time you open a notebook that has options but no fields;
+  - right after sua files an option from your conversation.
+  
+  **What it does:** sets fields and stages to fit the goal (car fields for a car search, salary as a range and the company for a job hunt), and gives options already in the notebook their facts from their text, so the widgets appear without a search. Options you mention in conversation are filed with their facts too.
+- 8a3e727: Notebooks are a funnel: options move through stages, and you can rule them out.
+  
+  - **Stages:** a notebook has stages, e.g. Found → Checked → Test drive → Offer → Bought, or Found → Applied → Interview → Offer. The keeper proposes them, and you can edit them.
+  - **Moving and ruling out:** each option card has **Move to <next stage>** and **Rule out…** (quick reasons or your own words). You can also just tell sua: "rule out the XT, too pricey", "I applied to Stripe".
+  - **Ruled-out options stay:** they keep where and why they were ruled out, and **Bring back** undoes it. Searches don't suggest them again, even when they find the same listing.
+  - **The funnel** at the top shows how far options got.
+  - **Done-when:** sua can tick a criterion when what you say shows it's met.
+- 20e3146: Agents can file into a notebook directly.
+  
+  A run whose output contains a `<notebook>` JSON block (the shape sua's keeper writes: entries with facts, sources and estimates) is filed as is: no keeper model in between, no 12,000-character limit, and up to 50 entries per run. It's cleaned the same way, and the pass note says "(filed directly)". Anything else is read by the keeper as before.
+- a6c3b1b: New notebook suggests notebooks from your conversations.
+  
+  Under the box on **Start a notebook**, up to three pills suggest notebooks you might want, drawn from your recent conversations with sua (things you were looking for, researching or choosing, and not already a notebook). Clicking one fills the box with the sentence to draft. The suggestions come from the new `notebook-suggester` system agent, refreshed in the background about twice a day.
+- 3a43d34: A notebook's options are drawn as widgets: a summary, stats, the funnel, a price map and a shortlist.
+  
+  Once a notebook has fields and options, the top of its page is an A2UI view:
+  - **Summary and stats:** a one-line summary, then in the running, best price, furthest along and ruled out.
+  - **How far they got:** the funnel, with ruled-out counts and reasons.
+  - **Where they sit:** price against the main measure, with your limits shaded and the best option highlighted.
+  - **Shortlist:** cards (photo, rank, price, facts, stage, price move) or a table. **Move to the next stage**, **Rule out…** and **Bring back** work right on the cards and redraw the widgets.
+  
+  The sua catalog gains two components, `OptionGrid` and `Scatter`, and `Funnel` shows ruled-out counts. The same components work for any notebook.
+- eba4fd9: See how a notebook was made.
+  
+  A notebook's **How it was made →** opens its Workflow: every run that filed into it, the runs those started (a sweep's calls to other agents), and what each left, drawn as one graph like a run's steps, with every box linking to its run. Run pages link back to the notebooks they (or the run that started them) filed into. A run another agent started is no longer offered under "Runs not in this notebook yet" or shown as a failed search of its own.
+- 456d7cf: Notebooks: a goal you keep over time (G1).
+  
+  A notebook holds what a goal is for, its parameters, the criteria that say it's done, the agents in its pipeline and how often they run, and what you've found: options, notes, evidence and decisions. It closes with a decision.
+  
+  - **Its page** has a cover with the pipeline drawn and a progress ring over the criteria (click one to tick it). It is drawn from the notebook's own surface: options, notes and decisions, evidence.
+  - **Find them** in a Notebooks line on Home, as items on Today, at `/notebooks`, or by asking sua ("where's my used car goal?"). There's no nav item yet.
+  
+  See docs/notebooks.md.
+- b4e5a87: The Notebooks page has covers, search, filters and pages.
+  
+  - **Cards:** each notebook card shows a cover picture (from its options still in the running), a facts line (options, how many are in the running, the best price, the furthest stage, how many done-whens are met) and its lead option.
+  - **Finding a notebook:** filter by **Active** (the default), **Decided**, **Stopped** or **All**, search titles, goals and limits, sort by recently updated, newest or A–Z, and page through 12 at a time.
+  - **Short names:** cards only shorten a title at a comma when what follows is facts, so "Principal Engineer, Ramp" stays whole.
+- 1e62e4f: A dot on a notebook's chart, or an option's name on its shortlist, opens that option's page.
+  
+  - **Mouse:** clicking a dot on "Where they sit" opens that option's page, and Cmd/Ctrl-click opens it in a new tab.
+  - **Touch:** the first tap shows the dot's note with **Open →**.
+  - **Keyboard:** Enter opens the dot in focus.
+  - **Shortlist:** card and table names link to the page.
+  
+  The Scatter widget has a new `href` setting that names each point's link. Only paths on this dashboard open; other addresses are ignored. Charts without it behave as before.
+- c3fa33e: An option's page has Previous / Next, and "next" in its talk box goes there.
+  
+  The page names the options either side of it in the running (best first), with ← / → keys too, and follows the filters picked on the notebook's shortlist. Telling sua "open the next item" from the page goes straight to it; a longer request ("rule it out and open the next") goes to sua, which now knows the option's neighbours and links the next one.
+- 242dfaf: Each notebook option has its own page.
+  
+  `/notebooks/<notebook>/entries/<option>` shows everything the notebook keeps about one option:
+  - **Header:** its picture and price, and where it stands (best price, or #3 of 12). It has the same Move, Rule out and Bring back controls as the cards, and they return to this page.
+  - **Facts:** every fact, with its source, estimate mark and the quote that backs it.
+  - **Price over time.**
+  - **Checks:** the notebook's checks for this option, whatever its rank.
+  - **History:** found, seen again with price moves, moved, and ruled out and why, each linked to its run.
+  
+  Two shared widgets also changed. A KeyValue item can link its value (`url`) and carry a short line under it (`note`), and a Checklist group with an empty title has no heading.
+- 4e4ee85: You can talk to sua about one option, from its page.
+  
+  Each option's page has a "Talk to sua about this item" box, which works like the notebook's talk box:
+  - **Where it goes:** into the notebook's conversation, opened in the sua drawer. The box hides while the drawer is open.
+  - **What sua knows:** the message names the option, and sua gets all of that option's facts, sources, stage and checks, so it can answer about it or correct it.
+  
+  A correction that waits for approval now lists what it changes ("correct: Zeus & Ruta → Price $136.64"), and once applied it reads "Corrected 1 option" instead of "Added 1 to the notebook".
+- f8675f8: One site failing no longer sinks a whole multi-site search.
+  
+  **New node field, `optional: true`:** if that node fails or times out, the run carries on. The failure is recorded, other nodes still run, nodes that depend on it get a note in place of its output ("(step "autotrader" didn't finish: …)"), and the run can still complete. A cancellation or a budget limit still stops it.
+  
+  sua's builder marks each source node of a multi-source agent optional, so a merge step always runs with whatever the sources found.
+- 143eb10: A notebook's shortlist can be filtered.
+  
+  - **What you can filter by:** listing (current vs not seen lately), stage, and any text fact the options differ on, such as seller or location.
+  - **How it works:** each filter is a row of chips counting what picking it would show. Filters combine, ranks stay those of the whole list, and your choice is remembered per notebook in this browser.
+  - **For other views:** the OptionGrid widget takes a new `filters` setting, a list of field keys or `stage` / `seen`, so boards and agent views can declare their own.
+- ef2ff86: In a notebook of companies, a run that names one the notebook has fills in its facts.
+  
+  When each option's title begins with its company ("Motive: planning and forecasting"), a filed run that names a company the notebook already has ("Motive", with employees and founding year) updates that option instead of adding a duplicate, even with no website to match on. Notebooks of listings or jobs keep matching only by link or id.
+- 66def61: The conversation panel is your inbox.
+  
+  With no thread open, the panel shows your inbox: a box to ask sua, tabs for Needs you, Open, Conversations and Done with counts, a search, and your threads 25 at a time. Pick one to read and reply in the panel, and "← Inbox" takes you back to the list where you left it; the list keeps up as threads change and remembers its tab and search as you move between pages. The inbox store gains `statuses`, `sources` and `count()` for this.
+- 5a996e5: Ask sua to fix an agent, and approve the fix before it's applied.
+  
+  **Ask sua to fix this** on an agent's page opens a conversation in the panel where sua looks at why the agent isn't working and drafts a fix, shown as a diff you approve. An agent whose failure thread reaches three failures gets the same offer on its own. Fixes always wait for your approval (they no longer apply automatically under Full autonomy), are saved as a new version under the same id, keep the agent's status and schedule, and are refused if the agent changed after the fix was drafted.
+- 72bc0f2: Keep several brands and switch between them.
+  
+  Settings → Appearance now has **Your brands**:
+  - **Save as a brand** keeps the look in use under a name.
+  - **Use this** switches the whole dashboard to a saved brand; Undo puts the previous look back.
+  - **Delete** removes one.
+  
+  Each saved brand shows a strip of its colours, and the one in use is marked. Brands are stored as theme files in `.sua/brands/`.
+- 567af21: Scatter charts say what each dot is when you hover or tap it.
+  
+  Every `Scatter` widget (a notebook's "Where they sit", or any agent view or board that uses one) now shows a note for the dot nearest the pointer: its name, both values in full ("Price $3,495 · Miles 177,967"), and where it stands (best, its stage, ruled out and why, outside your limits). Overlapping dots can be told apart, and the chart can be read from the keyboard (arrow keys, Escape). The chart also follows the design system now: dots in the neutral tone with teal kept for the best one, round axis ticks ($3k, $4k… instead of $3.1k, $4.9k…), and a legend whose marks match the chart.
+- aee296e: What changed on Home, with Undo, and Home that keeps itself current (goal surfaces, S6).
+  
+  **What changed**, next to Home's goal, lists every version of Home: who changed it (you, you through sua, an app), when, why, and each change in plain words. It offers **Undo**, **Go back to this**, and **Go back to the defaults**. The goal line now stays current without a reload. Rows that a pin, move or rule placed show the reason under them, and the Today tab re-reads itself every minute while it's on screen.
+- e1d9e90: The surface model: a goal, rules and your pins, versioned (goal surfaces, S2).
+  
+  Core gains surface documents (regions, rules, overrides), one way to change them, a versioned store, and a compiler that turns a surface plus items into ordered regions with plain reasons. `applySurfaceOps` takes the same ops from a gesture, from sua, or from an agent. Changes to regions themselves wait for your approval. `SurfaceStore` keeps every version with who made it and why, refuses stale writes, and undoes by restoring. `compileSurface` orders each region (your pins, then your ranks, then promote rules, then urgency) and says why each item is placed and why others are hidden. Nothing draws it yet; Home's surface (S3) does next. See docs/surfaces.md.
+- 244d788: Update my brand: sua proposes a brand from your website or a few words.
+  
+  In Settings → Appearance, give sua a website or describe the look:
+  - **Make my brand** proposes colours for both modes, fonts, corners and tile accents (the new `brand-maker` agent).
+  - **The preview** draws the proposal in its own colours and checks it is readable (WCAG contrast).
+  - **Use this brand** applies it; Undo puts the old look back. Nothing changes until you choose it.
+  
+  Font names may now use letters from any script ("Söhne").
+
+### Patch Changes
+
+- aa4c6c2: "Ask sua to fix this" asks what's wrong before it starts.
+  
+  The conversation now opens with sua asking what's going wrong with the agent, and nothing runs until you answer or press **Look at its recent runs**. It no longer posts a message on your behalf or starts analysing straight away.
+- acb4174: Fix the "Open it" link when a board is built.
+  
+  The inbox message for a newly built board linked to the wrong place and showed a garbled id (`user%3Amorning-dashboard`). It now links to the board by name, and any dashboard link in the inbox with an encoded id is linked whole and labelled with its readable name.
+- ee16101: sua builds multi-source agents as one step per source, plus a merge.
+  
+  When you ask sua to build an agent that gathers from several sources ("sweep Craigslist, AutoTrader, CarGurus and Facebook Marketplace"), the builder now drafts one step per source and a merge step that combines, dedupes and ranks.
+  - **Sources:** it reuses an installed agent for a source when it has one (e.g. a Craigslist search). Each source step has its own time limit, and returns an empty list with a note instead of failing. Source steps never depend on each other, so one dead site can't sink the rest.
+  - **Reliability:** the builder's design step no longer uses tools itself, and has more room to finish. It was running out of turns.
+- e06c730: A codex step that finished its answer is no longer failed by a late exit code.
+  
+  - **The bug:** codex sometimes exits with code 1 after completing its turn and giving its answer, with no error of its own. The step failed, its answer was thrown away, and the steps after it were skipped.
+  - **The fix:** the step now keeps its answer and completes, with a warning saying what happened.
+  - **When codex fails without a reason:** the error now says so, instead of showing its "Reading prompt from stdin..." banner.
+- eb35f32: An open sua panel follows you to a notebook's conversation.
+  
+  Going to a notebook with the sua panel open (docked or wide) now opens that notebook's conversation in the panel, instead of whatever thread was open before. A closed or minimised panel is left alone.
+- e0cd7f2: A shortlist doesn't offer a filter that would only pick out one option.
+  
+  A fact where every option has its own value (a company name) or that's a sentence about each option ("Office-of-CFO suite: close, consolidation, compliance, disclosure") made a row of long one-off chips. Those facts are no longer filters; listing and stage always are.
+- 30fb25d: A long conversation about an agent no longer runs out of changes.
+  
+  sua stops applying fixes on its own after three changes to one agent that never got it working. That count used to cover the whole conversation, so once a conversation had made three changes to an agent, every later request to change it was refused, even after the agent was running fine.
+  
+  The count now starts over:
+  - when the agent runs successfully in the conversation, since later changes are new work rather than more of the same fix;
+  - when you answer sua's "stopping automatic fixes" note.
+  
+  A plain "please fix it" still doesn't reset it, so a fix that keeps failing still stops after three tries. The note now says a reply will let sua keep going.
+- d7b5fe6: Home's header is one quiet line.
+  
+  - **Left:** "Home", with its goal as a subtitle.
+  - **Right:** your notebooks (with + New), a compact Autonomy switch (what each setting means is its tooltip), and an **Adjust Home** menu. The menu holds "Ask sua to change what Home shows", how Home is arranged, and What changed.
+  
+  The long description paragraph, the separate autonomy bar, and the always-open ask box are gone.
+- 5744465: A quieter inbox list on Home.
+  
+  Filter and sort is now an icon button beside refresh, and its menu floats over the list instead of pushing it down; a small count shows how many filters are on. Each row's select box and star appear only when you point at the row. A checked box or a set star stays visible, and once you start selecting, every box shows.
+- 3be8798: A notebook shows once on Home.
+  
+  A notebook and its conversation used to be two rows on Today (the conversation under Needs you, the notebook under Happening now). Now they're one: when sua is waiting on you in a notebook's conversation, the notebook itself moves to Needs you with sua's question, and clicking it opens the conversation. Otherwise it shows how far along it is.
+- d6144bc: Home is called Home and says what Today is.
+  
+  The page at `/` was still titled "Inbox", so the Today tab read like the old inbox. It's now **Home**, and its description explains what Today shows (conversations waiting on you, agents that keep failing, drafts and builds, in your rules' order) and what the other tabs are. The empty right-hand pane also says what clicking a row does.
+- 94c9acb: Pictures are scaled to fit their frames instead of being cropped.
+  
+  Option photos on shortlist cards, the option page, notebook covers, Home's shelf and the conversation card filled their frames, which cut a tall photo (a guitar) down to a strip; on the shortlist a tall photo could also stretch its card. Now each picture shows whole, centered in a fixed frame, on the card's own surface so a product shot on white blends in. Pictures in messages, run output and Pulse tiles scale down to fit their column rather than running off the edge.
+- c8622ef: More room between a highlighted row's edge and its status dot on Home.
+  
+  The highlight has a smaller corner and the row's content starts further in, so the rounded edge no longer crowds the dot.
+- 952d14b: The open conversation in Home's list is a quiet highlight.
+  
+  The row you have open is marked with one soft background across the whole row, instead of a teal edge on a narrower rounded box. The select box now appears where the status dot is, so rows no longer leave an empty gap on the left.
+- 1328092: A notebook only keeps numbers that the search actually stated.
+  
+  When the keeper files what a search found, each number it gives must appear in that run's output, or it's left out and the run's note says so.
+  - **How it's matched:** the ways people write numbers ("$4,023", "4.9k", "157k mi", "1.2M", "18 million", "125–175k", "two"), within 1% for rounding.
+  - **Why:** a bathroom cabinet was once filed at $4,023, a price its search never gave.
+  - **Exception:** blocks an agent files from its own code are trusted.
+  
+  `numbersInText` and `groundFacts` are exported from core.
+- 3dd824b: The notebook keeper no longer fills in a price its instructions used as an example.
+  
+  The keeper's instructions showed `"price": 4023` as an example. A run that found a bathroom cabinet with no price gave it $4,023. The examples are now placeholders, and the instructions say that every value must appear in the run's output, and that a price the output doesn't give stays out.
+- 48b467f: An llm step gets the whole of a big upstream result, and a claude step that runs out of turns no longer reports as rate limited.
+  
+  An upstream result over 32 KB was cut short in `{{upstream.<id>.result}}`, ending with a pointer to a file holding the rest. A one-turn llm step tried to read that file, ran out of turns, and the failure was reported as `rate_limited`: claude's event stream carries a rate-limit status on every run, and the failure check read the whole stream. Prompts now read the full result from the file (up to 256 KB), claude failures report the CLI's own error (e.g. `error_max_turns: Reached maximum number of turns (1)`), and a 429 has to stand alone to count as a rate limit.
+- 3438490: Correcting an option in a notebook's conversation now changes the option itself.
+  
+  sua had no way to change an option's facts. "The price is actually $136.64" became a separate evidence note, and the option's card, page and chart kept the old price. sua can now update an option's facts directly (an `update` change in `notebook-add`):
+  - **History:** the option's page shows "Corrected" with what was replaced.
+  - **Sources:** the fact's old source and estimate mark are dropped.
+  - **Precedence:** the correction stands over the option's title and over earlier searches.
+  - **Price history:** a corrected price starts it over, so fixing a wrong price doesn't read as a price drop.
+- ffc68c4: A notebook's Decide… box speaks about that notebook.
+  
+  The example no longer talks about a 2019 RAV4 in every notebook: it names the notebook's own leading options, and **Start from** chips for the options still in the running begin the answer. The "Add an entry yourself" example uses one of the notebook's options too.
+- b1e5b38: Enter sends in a notebook's Tell sua box.
+  
+  As in the drawer, **Enter** sends what you've typed, **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too. A hint under the box says so.
+- 9694874: Generic examples in Start a notebook and the notebook drafter.
+  
+  The example sentence on **Start a notebook** and the examples in the `notebook-drafter` agent's prompt now describe a generic commuter car instead of a specific person and place.
+- aa5ffec: A link in an option's text no longer wipes its facts.
+  
+  A notebook checks each option's facts against its own text to catch a model mixing up two options. A link the text cited (a source, the job post a quote came from) counted as a mix-up, so opening the notebook replaced every fact with just that link. Now only a number the text states (price, year, the main measure) counts, and a cited link fills in the option's link only when it has none.
+- ae9aeae: A notebook's page fills the width, two thirds and one third.
+  
+  **Where it stands** now takes two thirds beside **Done when**, and the price map two thirds beside the funnel. With the sua panel open (or nothing else to show beside it), the empty side column goes away and the notebook fills the space.
+- 1d655fa: sua says hello when you start a notebook.
+  
+  After setting a new notebook up, sua posts a first message in its conversation. It leads with the most useful first thing to tell it (your limits, or ones you've already seen), then says what it'll note for each option, the stages, and what "done" means. The notebook page points to that conversation instead of showing a second box to type in. The "Next:" hint reads in your words ("Next: your limits (budget, must-haves, deal-breakers).").
+- f688aef: A notebook's Add entry and Edit move to its header.
+  
+  "Add an entry yourself" and "Edit this notebook" were cards at the bottom of the side column. They're now **+ Add entry** and **Edit** buttons beside **Decide…** in the notebook's header, each opening its form just below. One opens at a time, and Escape or a click elsewhere closes it.
+- a5a0247: A notebook's page shows its picture in the header.
+  
+  The notebook's cover picture (the same one its card and its conversation show) now sits beside the title, in place of the generic notebook icon.
+- cec02ee: Notebook illustrations look like the thing.
+  
+  When no photo of an option can be found, sua now draws a proper illustration itself (a car, a bike, a guitar, a laptop, a home, a company monogram), tinted per option and labelled with its name, in place of a model's rough sketch. Earlier drawings are replaced too. Example photos are fetched one at a time, retried when a site is busy, and options showing an illustration try again for a real photo the next day.
+- af41e54: Links in a notebook entry are clickable.
+  
+  A listing address in an option or note used to show as long, unclickable text. It's now a link named for its site ("cargurus.com ↗") that opens in a new tab, with the full address in its tooltip. Only http and https addresses become links.
+- 0c19e04: A notebook's "Talk to sua" box suggests the next useful thing to say.
+  
+  The hint and the ghost text in a notebook's talk box now follow where the notebook is, in this order: what it's for, then its limits, then candidates you've seen, then the next open "done when" criterion (naming your first option), then keeping the search going, then deciding. They update as sua fills the notebook in, without a reload.
+- ef30f6b: A notebook remembers what happened in its conversation.
+  
+  - **Search results reach the notebook.** Agents sua runs in a notebook's conversation now feed the notebook, like the pipeline does: what they find becomes options and evidence. A search that finds nothing leaves a note ("Searched Seattle Craigslist for Foresters: nothing that fits yet"), linked to its run.
+  - **Contradicting limits are replaced:** new limits that contradict old ones replace them instead of piling up.
+  - **New agents are offered for the pipeline:** when sua builds an agent for the notebook, it offers to add it to the pipeline.
+  - **The page shows sua's latest message** next to Continue the conversation.
+- 5ce221b: A notebook's Talk to sua box hides while the sua panel is open.
+  
+  It used to shrink to a line pointing at the panel; now it's gone until the panel closes, when it comes back with sua's latest reply.
+- e3f925b: A notebook's talk box catches up when you close the sua panel.
+  
+  Closing the panel on a notebook's own conversation now refreshes the page's **Talk to sua** box (sua's latest message) and the notebook itself, so what you just said and what sua filed show without a reload.
+- 1ff148d: A notebook's talk box steps aside when the sua panel is open.
+  
+  With the panel open, the notebook page's **Talk to sua** box shrinks to a line saying you're talking to sua in the panel, so there's one place to type. It comes back when the panel closes.
+- aa9a5fd: A notebook's timeline shows every search, and can be filtered.
+  
+  - **Each search:** "How we got here" lists each search with the agent that ran it, when, its run (linked), and how many options it returned. That includes searches from before they were recorded, and failed runs that left nothing else behind.
+  - **Filters:** chips narrow the timeline to searches, notes, decisions and rulings, or moves, and **Show all** goes past the first 8.
+- 9091130: A notebook's timeline gets more room.
+  
+  **How we got here** now takes two thirds of its row, and **Before you decide** a third, sized to its checklist instead of stretching to the timeline's height. `Columns` gains `align: start` for rows like this.
+- d27ba2b: The Notebooks page gets covers and a cleaner layout.
+  
+  - **Cards:** each notebook is a card with a cover on top: a picture from its options (from the search, or an example photo or illustration), or a cover drawn in its own colour with an icon for what it's about. The best price is shown large, with chips for options and how many are still in the running.
+  - **Layout:** **+ New notebook** moves to the header, and the tabs, search and sort sit in one row.
+  - **Pictures:** opening the page starts finding pictures for options that have none.
+- cf2c5b0: "Ask sua to fix it" continues the agent's conversation instead of starting another.
+  
+  Asking sua to fix a failing agent, from Home's Today tab or the agent's page, now continues that agent's open conversation if it has one: its run-failure thread, or an earlier "Fix <agent>" conversation. It starts a new conversation only when there's none. On Today, a "Fix <agent>" conversation belongs to the agent's failing item instead of showing as a separate row, so one problem shows once and opens one conversation.
+- 18782e1: Options get their real listing photo in more cases.
+  
+  - **A link in another field counts:** when a notebook has no listing-link field, the first fact holding a web address (for example "Availability: https://…") is the option's listing. That gives it a photo and a Listing button.
+  - **A drawing no longer blocks a real photo:** an option with an example photo or an illustration still gets tried for its listing photo, and a real photo replaces it. A failed try keeps the picture it has.
+  - **When they're tried:** listing photos are now tried when you open a notebook, not only after a search.
+  - **AVIF:** images are no longer requested as AVIF (which isn't kept), so image servers that negotiate formats send a kept format instead. Target's product images, for one, now come through.
+- eaa9d14: Replay from a node reuses the inputs the original run had.
+  
+  A replay used to start with no inputs, so an agent with a required input failed at the replayed node ("Missing required input") and one with defaults quietly ran on the defaults instead of what you asked for. Every run now saves its inputs and a replay starts from them; for older runs they're read back from the run's node logs. `sua workflow replay` takes `--input KEY=value` to change some of them.
+- 5ed67cf: Test data no longer uses a real person's name, town or car listing.
+  
+  Notebook and inbox tests now use made-up data: a generic commuter car, a generic second city, an example dealer and a placeholder listing id. Tests only; no behaviour changes.
+- a3af148: The inbox thread and the agent Chat tab share one thread component.
+  
+  Messages in an agent's Chat tab now look and behave like inbox messages: a Copy button on each reply, Markdown in your messages, consecutive replies grouped under one speaker, and timestamps on hover. The inbox thread looks the same as before. This is the groundwork for the side panel, which will show both kinds of conversation.
+- 80e24c1: The research starter still writes a brief when one of its two research angles fails.
+  
+  Both research steps are optional now, so one that fails or times out no longer sinks the run: the brief is written from the side that finished and says which side is missing. The steps search the web before opening pages, the plan step has more time to start, and the example takes in the prompt fixes made to it in use (a plan that says what to look for rather than naming answers, a URL topic read first, sourced candidates for shopping questions).
+- ef86f27: sua knows which page you asked from, so "this dashboard" means that dashboard.
+  
+  A new conversation started from the sua drawer or the top bar now carries the page you're on: a dashboard, an agent, a notebook, a run, or Home. "Fix this dashboard" works on the dashboard you were looking at, not Home. On an agent's page, the conversation is about that agent. A Home change proposed from another page is refused unless you said Home or Today.
+- f091870: Suggestions for what to ask sua are in plain sight.
+  
+  The suggestion pills (What needs me today?, What failed overnight?, Build me a board for my evenings) now sit under the search field in the sua drawer and on Home, not only behind +. Clicking one puts it in the field as an ask: press Enter, or edit it first. They step aside while you type.
+- 63632f6: Agents can't be saved with a node reference that won't be filled in.
+  
+  A step's prompt that says `{{nodes.cargurus}}`, `{{steps.cargurus}}` or `{{upstream.cargurus}}` (no `.result`) was saved without complaint, and the executor passed it through as literal text. A merge step written that way never saw its sources' results, so it reported 0 matches no matter what they found. Such references now fail validation with the right form (`{{upstream.cargurus.result}}`), so sua's builder and fixes correct them instead of saving them.
+- 92d3c40: The ⋯ menu stays open, agent widgets show in the conversation, and threads have Copy link.
+  
+  In the sua drawer and on Home, the conversation's ⋯ menu no longer closes by itself while a thread is updating, and expanded Details, diffs and summaries stay expanded across updates. When an agent sua ran draws a widget, its card stays open with the widget showing, instead of folding into a one-line summary. The ⋯ menu has Copy link for the thread's address, and the thread summary reads as plain text instead of showing raw `**` markers.
+- 7ffda77: A newer price a search saw is no longer replaced by the price in the option's title.
+  
+  Opening a notebook repairs facts that contradict an option's own text, which catches facts a model filed against the wrong option. It also undid real price changes: an option filed as "…, $279.99" that a later search found at $299.99 went back to $279.99. Its card and page then showed the old price while its history showed the rise.
+  
+  Facts from a later search that found the same option again now win over the text it was filed with. Options already reverted are restored the next time the notebook opens.
+- c917f47: Dismissing something on Today keeps it off Today.
+  
+  An agent problem ("… is failing") is built from the agent's runs, so dismissing its conversation didn't remove it: it came straight back.
+  - **Dismiss button:** every item on Today now has **Dismiss**, in its pane and in the row's **⋯** menu, with Undo. It stays off Today until something new happens to it. A failing agent stays dismissed through more failures of the same streak, and comes back if it recovers and then fails again.
+  - **Conversations count:** dismissing an agent's failure or "Fix …" conversation also dismisses its problem.
+  - **Easier to find:** the row's **⋯** menu is now visible without hovering.
+- 14d40c1: Home's Today shows only what needs you, and says what that is.
+  
+  **Left out of Today:**
+  - sua's own agents;
+  - one-off failures (a failing agent shows when it's failed twice in a row, or a scheduled run just failed);
+  - failures from over a week ago on agents that don't run on a schedule;
+  - failure conversations whose agent has since run fine;
+  - drafts untouched for two weeks.
+  
+  **Needs you** now opens with a one-line breakdown of what's in it. Making a draft active in its pane clears the pane's buttons and says it's off Today.
+- 8725b11: The dashboard fits on a phone.
+  
+  At phone width the pages no longer scroll sideways:
+  - **Top bar:** 16px gutters. The navigation scrolls within itself, the "need your reply" pill keeps just its dot and count, and Ask sua drops its shortcut hint.
+  - **Section tabs:** scroll within themselves, with the tab for the page you're on brought into view.
+  - **Page intros:** wrap instead of squeezing into a narrow column.
+  - **Wide tables** (runs, tools): scroll within themselves.
+- b55db43: A notebook fact whose value is a web address is now a link.
+  
+  Only link fields used to be clickable, so a text field holding an address, such as "Availability: https://…", showed as plain text. The option's page now links it, and a shortlist card shows it as a short link to the site ("target.com ↗").
+- 46a7cdf: An agent rolled back to an older version can be changed again.
+  
+  A new version was numbered current + 1, which after a rollback is a version that already exists, so every save failed with "UNIQUE constraint failed: agent_versions.agent_id, agent_versions.version": a settings save, a fix sua applies, or `sua agent reimport`. New versions now go after the newest one, and Settings' "Save as vN" names that number.
+- 05ade59: `web-search` in a node's tools turns on the provider's own live search.
+  
+  It used to be dropped without a word, so a step told to "search the web first" could only open pages it guessed. claude now gets WebSearch and codex its live web_search; a provider without live search is skipped, like any missing tool. A node asking for claude's `WebSearch` in allowedTools gets codex's search too.
+- Updated dependencies [af2ed48]
+- Updated dependencies [d5a2a9b]
+- Updated dependencies [4d76d5b]
+- Updated dependencies [e8cab95]
+- Updated dependencies [bb8e769]
+- Updated dependencies [8d5379c]
+- Updated dependencies [aa4c6c2]
+- Updated dependencies [4fc6ed0]
+- Updated dependencies [acb4174]
+- Updated dependencies [deb81df]
+- Updated dependencies [ee16101]
+- Updated dependencies [98dc5d8]
+- Updated dependencies [e06c730]
+- Updated dependencies [de8f0c9]
+- Updated dependencies [0dfb054]
+- Updated dependencies [eb35f32]
+- Updated dependencies [820107c]
+- Updated dependencies [877c2c4]
+- Updated dependencies [e0cd7f2]
+- Updated dependencies [30fb25d]
+- Updated dependencies [0d2e133]
+- Updated dependencies [d7b5fe6]
+- Updated dependencies [531962c]
+- Updated dependencies [5744465]
+- Updated dependencies [3be8798]
+- Updated dependencies [55edc1a]
+- Updated dependencies [ff23b7a]
+- Updated dependencies [d6144bc]
+- Updated dependencies [6c93c6e]
+- Updated dependencies [18037e2]
+- Updated dependencies [94c9acb]
+- Updated dependencies [2d6d251]
+- Updated dependencies [c8622ef]
+- Updated dependencies [952d14b]
+- Updated dependencies [94392bf]
+- Updated dependencies [1328092]
+- Updated dependencies [3dd824b]
+- Updated dependencies [48b467f]
+- Updated dependencies [871c7bb]
+- Updated dependencies [ee4642a]
+- Updated dependencies [5f8b037]
+- Updated dependencies [97b85f4]
+- Updated dependencies [c146b83]
+- Updated dependencies [6f15c81]
+- Updated dependencies [3438490]
+- Updated dependencies [5bd64da]
+- Updated dependencies [ffc68c4]
+- Updated dependencies [d357f5c]
+- Updated dependencies [e11c184]
+- Updated dependencies [f1b8971]
+- Updated dependencies [b1e5b38]
+- Updated dependencies [9694874]
+- Updated dependencies [4abb8f3]
+- Updated dependencies [aa5ffec]
+- Updated dependencies [a981d4a]
+- Updated dependencies [45ee9a0]
+- Updated dependencies [ae9aeae]
+- Updated dependencies [1d655fa]
+- Updated dependencies [57918f4]
+- Updated dependencies [f688aef]
+- Updated dependencies [a5a0247]
+- Updated dependencies [3021021]
+- Updated dependencies [cec02ee]
+- Updated dependencies [af41e54]
+- Updated dependencies [0c19e04]
+- Updated dependencies [874d21e]
+- Updated dependencies [30a62f8]
+- Updated dependencies [e8a015b]
+- Updated dependencies [5836db1]
+- Updated dependencies [2200698]
+- Updated dependencies [ef30f6b]
+- Updated dependencies [9b40fe4]
+- Updated dependencies [5bf6936]
+- Updated dependencies [8a3e727]
+- Updated dependencies [20e3146]
+- Updated dependencies [a6c3b1b]
+- Updated dependencies [5ce221b]
+- Updated dependencies [e3f925b]
+- Updated dependencies [1ff148d]
+- Updated dependencies [aa9a5fd]
+- Updated dependencies [9091130]
+- Updated dependencies [3a43d34]
+- Updated dependencies [eba4fd9]
+- Updated dependencies [456d7cf]
+- Updated dependencies [d27ba2b]
+- Updated dependencies [b4e5a87]
+- Updated dependencies [cf2c5b0]
+- Updated dependencies [1e62e4f]
+- Updated dependencies [c3fa33e]
+- Updated dependencies [242dfaf]
+- Updated dependencies [4e4ee85]
+- Updated dependencies [f8675f8]
+- Updated dependencies [143eb10]
+- Updated dependencies [ef2ff86]
+- Updated dependencies [66def61]
+- Updated dependencies [18782e1]
+- Updated dependencies [5a996e5]
+- Updated dependencies [eaa9d14]
+- Updated dependencies [72bc0f2]
+- Updated dependencies [567af21]
+- Updated dependencies [5ed67cf]
+- Updated dependencies [a3af148]
+- Updated dependencies [80e24c1]
+- Updated dependencies [ef86f27]
+- Updated dependencies [f091870]
+- Updated dependencies [aee296e]
+- Updated dependencies [e1d9e90]
+- Updated dependencies [63632f6]
+- Updated dependencies [92d3c40]
+- Updated dependencies [7ffda77]
+- Updated dependencies [c917f47]
+- Updated dependencies [14d40c1]
+- Updated dependencies [8725b11]
+- Updated dependencies [244d788]
+- Updated dependencies [b55db43]
+- Updated dependencies [46a7cdf]
+- Updated dependencies [05ade59]
+  - @some-useful-agents/core@0.30.0
+
 ## 0.29.0
 
 ### Minor Changes
