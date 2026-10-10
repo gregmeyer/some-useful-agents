@@ -169,6 +169,18 @@ describe('POST /agents/:id/settings', () => {
     expect(decodeURIComponent(res.headers.location)).toContain('Nothing to save.');
   });
 
+  it('after a rollback, Save names the next free version and saving works', async () => {
+    const app = await makeApp();
+    const a = agentStore.getAgent('sched-agent')!;
+    agentStore.createNewVersion('sched-agent', { ...a, description: 'v2' }, 'cli');
+    agentStore.setCurrentVersion('sched-agent', 1);
+    const page = await request(app).get('/agents/sched-agent/config').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(page.text).toContain('data-next-version="3"');
+    const res = await post(app, { ...unchanged, baseVersion: '1', provider: 'codex' });
+    expect(res.status).toBe(303);
+    expect(agentStore.getAgent('sched-agent')).toMatchObject({ version: 3, provider: 'codex' });
+  });
+
   it('renders the Settings tab with sections and the batched form', async () => {
     const app = await makeApp({ schedule: '0 9 * * 1-5' });
     const res = await request(app).get('/agents/sched-agent/config').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

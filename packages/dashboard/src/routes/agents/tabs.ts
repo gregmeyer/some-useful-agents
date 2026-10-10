@@ -65,7 +65,7 @@ agentTabsRouter.get('/agents/:name/config', async (req: Request, res: Response) 
     // The port this dashboard actually listens on (config may say another).
     baseUrl: `http://127.0.0.1:${ctx.port}`,
   };
-  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts, installedAgents, webhook }));
+  res.type('html').send(await renderAgentConfig({ ...args, activeTab: 'config', availableIntegrations, blockedImgHosts, installedAgents, webhook, nextVersion: ctx.agentStore.nextVersion(args.agent.id) }));
 });
 
 agentTabsRouter.get('/agents/:name/runs', async (req: Request, res: Response) => {

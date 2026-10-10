@@ -10,6 +10,8 @@ import type { AgentEdge } from '../../lib/agent-graph.js';
 export type AgentTab = 'overview' | 'chat' | 'nodes' | 'config' | 'runs' | 'yaml';
 
 export interface AgentDetailArgs {
+  /** The number the next saved version gets (after a rollback it isn't current + 1). */
+  nextVersion?: number;
   agent: Agent;
   recentRuns: Run[];
   secretsStore: SecretsStore;
