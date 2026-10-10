@@ -2,7 +2,10 @@
  * New notebook (views/notebook-new.ts): Draft it asks sua for a draft and
  * polls until it's ready; the draft's chips can be changed, removed or
  * added; "Change it" redrafts with what you asked; Skip starts it with
- * just your sentence.
+ * just your sentence. The draft is kept on the server: the address becomes
+ * /notebooks/new?draft=<id> (so Back or a reload returns to it), and your
+ * changes to it are saved as you make them. The sentence you're still
+ * typing is kept in this browser.
  */
 export const NOTEBOOK_NEW_JS = `
   (function () {
@@ -13,6 +16,18 @@ export const NOTEBOOK_NEW_JS = `
     var result = root.querySelector('[data-nbd-result]');
     var go = root.querySelector('[data-nbd-go]');
     var busy = false;
+    var TEXT_KEY = 'sua-nbd-text';
+    function setId(id) {
+      root.setAttribute('data-nbd-id', id);
+      try { history.replaceState(null, '', '/notebooks/new?draft=' + encodeURIComponent(id)); } catch (_) {}
+    }
+    // The sentence you were typing, if you left before drafting it.
+    if (!root.hasAttribute('data-nbd-id') && !text.value) {
+      try { var kept = localStorage.getItem(TEXT_KEY); if (kept) text.value = kept; } catch (_) {}
+    }
+    text.addEventListener('input', function () {
+      try { if (text.value.trim()) localStorage.setItem(TEXT_KEY, text.value); else localStorage.removeItem(TEXT_KEY); } catch (_) {}
+    });
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'; }); }
     function working(msg) {
       result.innerHTML = '<p class="nbd-working" role="status"><span class="nbd-working__dot" aria-hidden="true"></span>' + esc(msg) + '</p>';
@@ -27,7 +42,11 @@ export const NOTEBOOK_NEW_JS = `
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
         body: new URLSearchParams(body).toString()
       }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'That didn\\u2019t work.'); return j.id; }); })
-        .then(function (id) { poll(id, 0); })
+        .then(function (id) {
+          setId(id);
+          try { localStorage.removeItem(TEXT_KEY); } catch (_) {}
+          poll(id, 0);
+        })
         .catch(function (err) { done(); result.innerHTML = '<p class="flash flash--error">' + esc(err.message) + '</p>'; });
     }
     function done() { busy = false; if (go) { go.disabled = false; go.textContent = 'Draft again'; } }
@@ -48,10 +67,34 @@ export const NOTEBOOK_NEW_JS = `
           .catch(function () { poll(id, n + 1); });
       }, n === 0 ? 1200 : 1500);
     }
+    // Changes to the draft are kept as you make them (POST …/edits).
+    var saveTimer = null;
+    function saveSoon() {
+      var form = root.querySelector('[data-nbd-draft]');
+      if (!form) return;
+      var note = form.querySelector('[data-nbd-saved]');
+      if (note) note.textContent = 'Saving\u2026';
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        fetch('/notebooks/draft/' + encodeURIComponent(form.getAttribute('data-nbd-draft')) + '/edits', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+          body: new URLSearchParams(new FormData(form)).toString()
+        }).then(function (r) { if (note) note.textContent = r.ok ? 'Draft saved' : 'Couldn\u2019t save the draft'; })
+          .catch(function () { if (note) note.textContent = 'Couldn\u2019t save the draft'; });
+      }, 600);
+    }
+    root.addEventListener('input', function (e) { if (e.target.closest && e.target.closest('[data-nbd-draft]') && !e.target.hasAttribute('data-nbd-change-text')) saveSoon(); });
+    root.addEventListener('change', function (e) { if (e.target.closest && e.target.closest('[data-nbd-draft]')) saveSoon(); });
+    // Back to a draft sua was still working on.
+    if (root.hasAttribute('data-nbd-resume')) { busy = true; if (go) go.disabled = true; poll(root.getAttribute('data-nbd-id'), 1); }
     ask.addEventListener('submit', function (e) {
       e.preventDefault();
       if (!text.value.trim()) { text.focus(); return; }
-      draft({ text: text.value }, 'sua is drafting your notebook\\u2026 this takes a few seconds.');
+      // Drafting the sentence again replaces the draft you're on, rather than leaving it behind.
+      var body = { text: text.value };
+      if (root.getAttribute('data-nbd-id')) body.replace = root.getAttribute('data-nbd-id');
+      draft(body, 'sua is drafting your notebook\\u2026 this takes a few seconds.');
     });
     // Enter drafts; Shift+Enter is a new line.
     text.addEventListener('keydown', function (e) {
@@ -59,7 +102,7 @@ export const NOTEBOOK_NEW_JS = `
     });
     root.addEventListener('click', function (e) {
       var x = e.target.closest && e.target.closest('[data-nbd-remove]');
-      if (x) { e.preventDefault(); var c = x.closest('.nbd-chip, .nbd-row'); if (c) c.remove(); return; }
+      if (x) { e.preventDefault(); var c = x.closest('.nbd-chip, .nbd-row'); if (c) c.remove(); saveSoon(); return; }
       var add = e.target.closest && e.target.closest('[data-nbd-add]');
       if (add) {
         e.preventDefault();

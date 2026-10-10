@@ -252,8 +252,6 @@ export interface DashboardContext {
   notebookSetups?: Set<string>;
   /** Runs being added to a notebook from its page (Add to notebook) right now. */
   notebookAddingRuns?: Set<string>;
-  /** New-notebook drafts (lib/notebook-draft.ts), by id, kept an hour. */
-  notebookDrafts?: Map<string, import('./lib/notebook-draft.js').DraftState>;
   /** Tests only: answer for the notebook drafter instead of running it. */
   notebookDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** New notebook's suggestion pills are being refreshed right now. */
