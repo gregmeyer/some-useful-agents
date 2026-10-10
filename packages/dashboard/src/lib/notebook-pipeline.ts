@@ -7,8 +7,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
-  type Agent, type Notebook, type NotebookEntryKind, type NotebookPassKind,
+  NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  type Agent, type Notebook, type NotebookEntry, type NotebookEntryKind, type NotebookPassKind,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -27,12 +27,37 @@ const MAX_ENTRIES_PER_RUN = 12;
 /** A run that files its own structured block (no keeper in between) may add more. */
 const MAX_DIRECT_ENTRIES = 50;
 
-/** The notebook in a few lines, for an agent's goal-like inputs. */
-export function notebookBrief(nb: Notebook): string {
+/** Options named in a brief, at most; the rest are counted. */
+const BRIEF_OPTIONS = 40;
+
+/**
+ * What the notebook already has, for a search agent: the options in the
+ * running (so it doesn't bring them again) and, for each, the facts the
+ * notebook tracks that it's still missing (so an agent can fill those in,
+ * by the option's name, instead of only finding new ones). Best first.
+ */
+export function notebookGaps(nb: Notebook, entries: readonly NotebookEntry[]): string {
+  const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
+  if (!options.length) return '';
+  // Facts worth looking up: not the link or picture (an option has those or doesn't), not the fit score (sua gives it).
+  const tracked = nb.fields.filter((f) => f.role !== 'link' && f.role !== 'image' && f.role !== 'score' && f.type !== 'image' && f.type !== 'url');
+  const missing = (o: (typeof options)[number]) => tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '').map((f) => f.label.toLowerCase());
+  const shown = options.slice(0, BRIEF_OPTIONS);
+  const gaps = shown.filter((o) => missing(o).length);
+  const more = options.length - shown.length;
+  return [
+    `It has ${String(options.length)} option${options.length === 1 ? '' : 's'} in the running; don't add these again: ${shown.map((o) => o.name).join('; ')}${more ? `; and ${String(more)} more` : ''}.`,
+    gaps.length ? `Facts still missing (find them, with a source, and give them under the option's name):\n${gaps.map((o) => `- ${o.name} — ${missing(o).join(', ')}`).join('\n')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+/** The notebook in a few lines, for an agent's goal-like inputs; with `entries`, also what it has and what's missing. */
+export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[]): string {
   return [
     nb.statement || nb.title,
     nb.params.length ? `Parameters: ${nb.params.join('; ')}` : '',
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
+    entries ? notebookGaps(nb, entries) : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -40,11 +65,11 @@ export function notebookBrief(nb: Notebook): string {
  * What a pipeline agent is given: the notebook as its goal, in whichever
  * goal-like inputs it declares. Everything else keeps its default.
  */
-export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook): Record<string, string> {
+export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entries?: readonly NotebookEntry[]): Record<string, string> {
   const out: Record<string, string> = {};
   for (const name of Object.keys(agent.inputs ?? {})) {
     const n = name.toUpperCase();
-    if (n === 'NOTEBOOK' || n === 'NOTEBOOK_CONTEXT' || n === 'GOAL' || n === 'BRIEF') out[name] = notebookBrief(nb);
+    if (n === 'NOTEBOOK' || n === 'NOTEBOOK_CONTEXT' || n === 'GOAL' || n === 'BRIEF') out[name] = notebookBrief(nb, entries);
     else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = nb.statement || nb.title;
     // An agent that files directly needs the notebook's field keys and roles.
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
@@ -280,7 +305,8 @@ async function runPipeline(ctx: Ctx, store: NotebookStore, nb: Notebook, opts: {
     const agent = ctx.agentStore.getAgent(agentId);
     if (!agent || agent.status === 'archived') { notes.push(`${agentId}: not installed`); continue; }
     try {
-      const run = await runDispatchedAgentToTerminal(ctx, agent, pipelineInputs(agent, nb));
+      // What the notebook has now (an earlier agent in this pass may have added some).
+      const run = await runDispatchedAgentToTerminal(ctx, agent, pipelineInputs(agent, nb, store.entries(nb.id, 1000)));
       store.addRunToPass(passId, run.id);
       if (run.status !== 'completed') { notes.push(`${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`); continue; }
       const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
