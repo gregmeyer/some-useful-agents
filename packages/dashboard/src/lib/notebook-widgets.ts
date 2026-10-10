@@ -107,9 +107,13 @@ const fmtAge = (iso: string, now: number) => {
 };
 
 export interface NotebookWidgetData extends NotebookViewData {
-  notebook: NotebookViewData['notebook'] & {
-    /** Each option with its own page's address (`page`), for the chart and the shortlist to link. */
-    options: Array<NotebookViewOption & { page: string }>;
+  notebook: Omit<NotebookViewData['notebook'], 'options'> & {
+    /**
+     * Each option with its own page's address (`page`), for the chart and the
+     * shortlist to link, and `facets`: the short label of each long fact it has
+     * (lib/notebook-facets.ts), for the shortlist's filter chips.
+     */
+    options: Array<NotebookViewOption & { page: string; facets?: Record<string, string> }>;
     bands: { price?: NotebookRange; measure?: NotebookRange };
     summary: string;
     next: string;
@@ -129,6 +133,22 @@ export interface NotebookWidgetData extends NotebookViewData {
 /** Where an option's own page is. */
 export function notebookOptionPath(notebookId: string, entryId: string): string {
   return `/notebooks/${encodeURIComponent(notebookId)}/entries/${encodeURIComponent(entryId)}`;
+}
+
+/** A fact's value as facets are keyed: its text, spaces collapsed. */
+export const facetValueKey = (v: unknown): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+
+/**
+ * An option's short labels for the notebook's long facts (undefined when
+ * none). A value not labelled yet reads '' (no chip) rather than its sentence.
+ */
+export function optionFacets(nb: Pick<Notebook, 'facets'>, o: Pick<NotebookViewOption, 'fields'>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const [key, f] of Object.entries(nb.facets ?? {})) {
+    const value = facetValueKey(o.fields[key]);
+    if (value && Object.keys(f.labels).length) out[key] = f.labels[value] ?? '';
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** The checks for options: the notebook's own, else "Still listed" plus the unmet done-whens. */
@@ -233,7 +253,10 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   return {
     notebook: {
       ...v,
-      options: v.options.map((o) => ({ ...o, page: notebookOptionPath(nb.id, o.id) })),
+      options: v.options.map((o) => {
+        const facets = optionFacets(nb, o);
+        return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
+      }),
       bands: limitBands(nb),
       summary,
       next,

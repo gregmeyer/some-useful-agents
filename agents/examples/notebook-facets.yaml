@@ -1,0 +1,62 @@
+# Notebook Facets — short filter labels for a notebook's long facts. When the
+# options' values for a text fact are sentences ("Office-of-CFO suite: close,
+# consolidation, compliance, disclosure"), a filter chip per value is useless.
+# This groups each such fact's values into a few short labels ("Office of the
+# CFO", "Finance-led FP&A"), which become the shortlist's chips. Route-
+# dispatched only, in the background when a notebook page has values without
+# a label (dashboard lib/notebook-facets.ts); never proposed in triage.
+
+id: notebook-facets
+name: Notebook Facets
+description: >
+  Groups a notebook's long text facts into a few short labels, so the
+  shortlist can be filtered by them.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: What the notebook is for.
+  FIELDS:
+    type: string
+    required: true
+    description: >
+      JSON: [{"key", "label", "existing": [labels already in use],
+      "values": [values to label, numbered from 0]}].
+
+nodes:
+  - id: group
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<facets>[\s\S]*?</facets>'
+      description: a <facets> JSON block
+    prompt: |
+      A notebook tracks options toward a decision. It's for:
+      {{inputs.NOTEBOOK}}
+
+      For each fact below, the options' values are long sentences, so they
+      can't be filter chips. Group each fact's values into a few short
+      labels a person would filter by.
+
+      Facts (JSON):
+      {{inputs.FIELDS}}
+
+      Rules, per fact:
+        - 2 to 6 labels in all, counting "existing" ones. Reuse an existing
+          label whenever a value fits it; add a new one only when none does.
+        - A label is 1 to 3 words, at most 24 characters, in plain words
+          from the values themselves ("Office of the CFO", "Finance-led
+          FP&A", "Excel-centered"). No punctuation at the end, no numbers.
+        - Every value gets exactly one label, by its number.
+        - Labels sort values into kinds; they never judge or rank them.
+
+      Reply with only this, as valid JSON:
+      <facets>
+      {"fields": {
+        "<fact key>": [{"label": "Office of the CFO", "values": [0, 3, 4]}, {"label": "Finance-led FP&A", "values": [1, 2]}]
+      }}
+      </facets>

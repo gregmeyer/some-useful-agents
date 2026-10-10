@@ -8,7 +8,7 @@
 import { rankOptions, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
-import { notebookWidgetData, checksFor, defaultFilters, type NotebookWidgetHistory } from './notebook-widgets.js';
+import { notebookWidgetData, checksFor, defaultFilters, optionFacets, type NotebookWidgetHistory } from './notebook-widgets.js';
 import { formatFieldValue } from '../views/notebooks.js';
 
 /** The store's sightings carry the run that saw each one. */
@@ -39,6 +39,8 @@ export interface NotebookOptionData {
 export interface OptionNavItem {
   id: string; name: string; rank: number; page: string;
   stage?: string; notSeenLately: boolean; fields: Record<string, string | boolean>;
+  /** Short labels for its long facts, which the grid's chips use. */
+  facets?: Record<string, string>;
 }
 
 export interface OptionNav {
@@ -150,6 +152,7 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
   const order: OptionNavItem[] = active.map((o, n) => ({
     id: o.id, name: o.name, rank: n + 1, page: optionPage(nb.id, o.id),
     ...(o.stage ? { stage: o.stage } : {}), notSeenLately: !!o.notSeenLately,
+    ...(optionFacets(nb, o) ? { facets: optionFacets(nb, o) } : {}),
     // Facts as the grid shows them, so its filter values match these.
     fields: Object.fromEntries(filters.flatMap((k) => {
       const f = nb.fields.find((x) => x.key === k);

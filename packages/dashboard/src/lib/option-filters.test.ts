@@ -72,3 +72,18 @@ describe('option filters', () => {
     expect(res.text).toContain('export function filterChoices');
   });
 });
+
+describe('short labels for long facts', () => {
+  it('a chip reads the label sua gave the value; one not labelled yet has no chip', () => {
+    const opts: Opt[] = [
+      { id: '1', notSeenLately: false, fields: { value: 'Office-of-CFO suite: close, consolidation, compliance' }, facets: { value: 'Office of the CFO' } },
+      { id: '2', notSeenLately: false, fields: { value: 'Office-of-CFO suite: planning tied to close' }, facets: { value: 'Office of the CFO' } },
+      { id: '3', notSeenLately: false, fields: { value: 'Finance-led FP&A that keeps Excel workflows' }, facets: { value: 'Finance-led FP&A' } },
+      { id: '4', notSeenLately: false, fields: { value: 'Something new, not grouped yet by sua at all' }, facets: { value: '' } },
+    ];
+    const c = filterChoices(opts, ['value']);
+    expect(c[0].choices).toEqual([{ value: 'Office of the CFO', count: 2 }, { value: 'Finance-led FP&A', count: 1 }]);
+    expect(applyFilters(opts, { value: 'Office of the CFO' }).map((o) => o.id)).toEqual(['1', '2']);
+    expect(filterValue(opts[3], 'value')).toBe('');
+  });
+});
