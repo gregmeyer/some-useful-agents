@@ -814,6 +814,32 @@ export class NotebookStore {
    * Add an option, or, when one with the same fingerprint is already here,
    * refresh its facts and when it was last seen instead of adding it twice.
    */
+  /**
+   * The option a new one is, by name, when the notebook's options are
+   * organizations: each option's title begins with its org fact ("Motive:
+   * planning and forecasting" with company Motive), so the same company is
+   * the same option. A notebook of listings or jobs (where two "2008 Subaru
+   * Forester" or two Stripe postings are different) never matches this way.
+   * Only one option may match.
+   */
+  findOrgOption(notebookId: string, input: Pick<NewOption, 'title' | 'data'>): NotebookEntry | undefined {
+    const nb = this.mustGet(notebookId);
+    const orgF = nb.fields.find((f) => f.role === 'org');
+    if (!orgF) return undefined;
+    const lead = (t: string) => t.split(/\s*(?::|\s[-–—]\s|,|\()\s*/)[0] ?? '';
+    const own = input.data?.[orgF.key];
+    const org = entryKey(typeof own === 'string' && own.trim() ? own : lead(input.title));
+    // The new one must itself be the organization (its title begins with it).
+    if (!org || !entryKey(input.title).startsWith(org)) return undefined;
+    const hits = this.entries(notebookId, 1000).filter((e) => {
+      if (e.kind !== 'option') return false;
+      const v = e.data?.[orgF.key];
+      const k = typeof v === 'string' ? entryKey(v) : '';
+      return !!k && k === org && entryKey(e.title).startsWith(k);
+    });
+    return hits.length === 1 ? hits[0] : undefined;
+  }
+
   upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
     const nb = this.mustGet(notebookId);
     const facts = splitFacts(input.data, { trusted: input.trustedFacts });
@@ -821,6 +847,16 @@ export class NotebookStore {
     const meta = cleanFactMeta(facts.meta, data);
     const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
     const now = new Date().toISOString();
+    // No link or id to go by, but the notebook's options are organizations: the same one, by name.
+    const byOrg = fingerprint ? undefined : this.findOrgOption(notebookId, { title: input.title, data });
+    if (byOrg) {
+      const merged = { ...(byOrg.data ?? {}), ...data };
+      const mergedMeta = mergeFactMeta(byOrg.factMeta, data, meta);
+      this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
+        .run(JSON.stringify(merged), mergedMeta ? JSON.stringify(mergedMeta) : null, now, input.runId ?? null, byOrg.id);
+      this.addSighting(byOrg.id, notebookId, input.runId, now, data);
+      return { entry: { ...byOrg, data: merged, ...(mergedMeta ? { factMeta: mergedMeta } : {}), lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(byOrg.ruledOut ? { ruledOut: true } : {}) };
+    }
     if (fingerprint) {
       const row = this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint) as Record<string, unknown> | undefined;
       // An option kept before fingerprints existed: the same title, or its text holds this listing's address.

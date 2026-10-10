@@ -148,8 +148,10 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     if (x.kind === 'option') {
       const data = grounded(x.data && typeof x.data === 'object' ? x.data as Record<string, unknown> : undefined, opts.source ?? '');
       const fingerprint = typeof x.fingerprint === 'string' ? x.fingerprint : undefined;
-      // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title.
-      if (!optionFingerprint(fingerprint, cleanData(splitFacts(data).values, nb.fields), nb.fields) && (!key || seen.has(key))) { skipped++; continue; }
+      // With a fingerprint (or a link) the store decides new vs. seen again; without, fall back to the title,
+      // except an organization the notebook has by name, whose facts are refreshed (findOrgOption).
+      const values = cleanData(splitFacts(data).values, nb.fields);
+      if (!optionFingerprint(fingerprint, values, nb.fields) && (!key || seen.has(key)) && !store.findOrgOption(nb.id, { title: x.title, data: values })) { skipped++; continue; }
       const r = store.upsertOption(nb.id, { title: x.title, body, data, fingerprint, by: `agent:${agentId}`, runId, trustedFacts: opts.trusted });
       // The agent rules it out itself ("Unfit: …"): kept, so the next search doesn't bring it back.
       if (!r.ruledOut && typeof x.ruleOut === 'string' && x.ruleOut.trim()) {

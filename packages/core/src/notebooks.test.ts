@@ -732,3 +732,47 @@ describe('notebook facet labels', () => {
     expect(s.get(nb.id)!.facets!.why).toMatchObject({ labels: {}, failedAt: '2026-10-09T01:00:00.000Z' });
   });
 });
+
+describe('options that are organizations match by name', () => {
+  const setup = () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nb-org-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    return NotebookStore.fromHandle(runs.databaseHandle());
+  };
+
+  it('a comp set: "Motive" with its facts updates "Motive: planning and forecasting", keeping what it had', () => {
+    const s = setup();
+    const nb = s.create({ title: 'Comp set' });
+    s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'employees', label: 'Employees', type: 'number', role: 'measure' }, { key: 'founded', label: 'Founded', type: 'number' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const motive = s.upsertOption(nb.id, { title: 'Motive: planning and forecasting finance hiring', by: 'you', data: { company: 'Motive', fit: 97 } }).entry;
+    const r = s.upsertOption(nb.id, { title: 'Motive', by: 'agent:firmographic-research', runId: 'run-1', data: { company: 'Motive', employees: { value: 4100, source: 'https://example.com/motive' }, founded: 2013 } });
+    expect(r.seenAgain).toBe(true);
+    expect(r.entry.id).toBe(motive.id);
+    const kept = s.findOption(nb.id, motive.id)!;
+    expect(kept.data).toEqual({ company: 'Motive', fit: 97, employees: 4100, founded: 2013 });
+    expect(kept.factMeta?.employees?.source).toBe('https://example.com/motive');
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(1);
+    // Without the company fact, the title's lead name ("Motive — …") still says which.
+    expect(s.upsertOption(nb.id, { title: 'Motive — 2025 update', by: 'you', data: { founded: 2013 } }).seenAgain).toBe(true);
+  });
+
+  it('never for listings or jobs, or when two options share the name', () => {
+    const s = setup();
+    // Jobs: the title is the role, not the company.
+    const jobs = s.create({ title: 'Jobs' });
+    s.setFields(jobs.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    s.upsertOption(jobs.id, { title: 'Staff Engineer, Payments', by: 'you', data: { company: 'Stripe' } });
+    expect(s.upsertOption(jobs.id, { title: 'Senior Engineer, Billing', by: 'you', data: { company: 'Stripe' } }).seenAgain).toBe(false);
+    // Listings: no org field at all.
+    const cars = s.create({ title: 'Cars' });
+    s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X', by: 'you', data: { price: 3495 } });
+    expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X, Everett', by: 'you', data: { price: 4100 } }).seenAgain).toBe(false);
+    // Two options for the same company: ambiguous, so a new one.
+    const comps = s.create({ title: 'Comps 2' });
+    s.setFields(comps.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    s.upsertOption(comps.id, { title: 'Acme: planning', by: 'you', data: { company: 'Acme' } });
+    s.upsertOption(comps.id, { title: 'Acme: close', by: 'you', data: { company: 'Acme', x: 1 } as never, fingerprint: 'acme-close' });
+    expect(s.findOrgOption(comps.id, { title: 'Acme', data: { company: 'Acme' } })).toBeUndefined();
+  });
+});
