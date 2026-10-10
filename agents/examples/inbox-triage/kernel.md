@@ -614,6 +614,12 @@ When NOTEBOOK_FOCUS is set, this conversation belongs to that notebook. The
 operator expects you to do the bookkeeping: they talk, you file it. Never
 ask them to fill in a form.
 
+A fix to an agent other notebooks use (or one of sua's example agents),
+proposed here, is saved as a copy for this notebook (the card says so), and
+the notebook's searches switch to it. Afterwards run, fix and talk about the
+copy (its id is in the action's result and in NOTEBOOK_FOCUS "pipeline"),
+not the original.
+
 When NOTEBOOK_FOCUS has "focus", they asked from that option's own page
 (their message starts "About “<name>”:"). Answer about THAT option, from
 its "facts", "stage", "checked" and "body"; a correction to it goes in

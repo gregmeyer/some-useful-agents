@@ -293,6 +293,31 @@ it exited 0. An `undetermined` outcome leaves the thread open.
 
 See [outcome detection](outcome-detection.md).
 
+### A fix from a notebook doesn't change a shared agent
+
+A fix sua proposes in a notebook's conversation can target an agent that other
+things depend on. Changing it in place would change them too: on 2026-10-09 a
+fix for a comp-set notebook turned the general `starter-research` into a
+firmographics pipeline, which another notebook also searched with. So when the
+agent is **shared**, meaning one of sua's example agents or one another notebook
+searches with, the fix is saved as a **copy for this notebook**:
+
+- The card says so before you approve it ("Saved as a copy for this notebook,
+  `starter-research-comp-set`, because another notebook searches with it…"),
+  and its button reads **Save as a copy**.
+- The copy, `<agent>-<notebook>`, is a local agent with the fixed definition,
+  named "<agent's name> (<notebook>)". It keeps the original's
+  run-from-a-conversation grant, outcome, success criteria and behaviors, but no
+  schedule, since the notebook runs it.
+- This notebook's searches switch to the copy. The original and every other
+  notebook are left as they were.
+- A later fix to the copy, which only this notebook uses, edits the copy in
+  place. A later fix aimed at the original from the same notebook updates the
+  same copy.
+
+A fix asked for from the agent's own page or its own conversation still changes
+the agent itself, since that's the agent you meant.
+
 ### Why an inbox fix can't quietly lower the bar
 
 `agent-editor` replaces an agent's whole definition, so a rewrite that omits a
