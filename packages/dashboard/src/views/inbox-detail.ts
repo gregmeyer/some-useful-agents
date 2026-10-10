@@ -820,7 +820,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         : meta.mode === 'resolve'
           ? html`Resolved this thread`
           : meta.agentId === 'agent-editor'
-            ? html`Update <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
+            ? meta.fork
+              ? html`Copy <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> for this notebook, with the fix`
+              : html`Update <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
             : meta.agentId === 'agent-settings'
               ? html`Change ${String(meta.settingsChanges?.length || '')} setting${meta.settingsChanges?.length === 1 ? '' : 's'} · <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>`
               : meta.agentId === 'adjust-surface'
@@ -847,7 +849,11 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       : html``}
     ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(meta.agentId) ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
-      ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed' ? html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>` : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
+      ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed'
+        ? meta.fork
+          ? html`<p class="act-card__note act-card__note--fork">Saved as a copy for this notebook, <span class="mono">${meta.fork.id}</span>, because ${meta.fork.why}. This notebook will search with the copy; <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> stays as it is.</p>`
+          : html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>`
+        : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
       : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
     ${detailBlock}
     ${meta.status === 'proposed' ? html`<div class="act-card__foot">${controlsBlock}<span class="act-card__spacer"></span>${trustBlock}</div>` : trustBlock}
@@ -904,7 +910,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="act-card__head">
             <span class="inbox-action__headline">${headline}</span>
             ${isDispatched && meta.status === 'proposed'
-              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' && meta.fork ? 'adds a copy of the agent' : meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
               : provenance}
           </div>
           ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}

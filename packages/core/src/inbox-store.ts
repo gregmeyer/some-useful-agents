@@ -167,6 +167,13 @@ export interface InboxActionMeta {
    */
   base?: { version: number; yaml: string };
   /**
+   * agent-editor only: apply the fix as a copy for this notebook instead of
+   * editing the agent in place, because the agent is shared (a bundled
+   * example, or other notebooks search with it). The copy gets `id`, the
+   * notebook's searches switch to it, and the original is left as it was.
+   */
+  fork?: { id: string; name: string; notebookId: string; notebookTitle: string; why: string };
+  /**
    * agent-settings only: the proposed changes in plain words, read against
    * the agent at `base.version` when proposed. The card lists them.
    */

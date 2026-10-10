@@ -10,6 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { forkForNotebook } from '../lib/agent-fork.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
@@ -1327,7 +1328,7 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * applying it can refuse if the agent changed in between. A no-op for other
  * actions and for agents that don't exist yet (an install).
  */
-export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta, messageId?: string): InboxActionMeta {
   if ((action.agentId === 'notebook-add' || action.agentId === 'notebook-pipeline') && !action.surfaceChanges) {
     try {
       const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
@@ -1391,7 +1392,10 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
   const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
   if (!target) return action;
   try {
-    return { ...action, base: { version: target.version, yaml: exportAgent(target) } };
+    // From a notebook's conversation, a shared agent (an example, or one other
+    // notebooks search with) is fixed as a copy for this notebook (lib/agent-fork.ts).
+    const fork = messageId ? forkForNotebook(ctx, messageId, target.id) : undefined;
+    return { ...action, base: { version: target.version, yaml: exportAgent(target) }, ...(fork ? { fork, ctaLabel: 'Save as a copy' } : {}) };
   } catch {
     return action;
   }
@@ -1445,6 +1449,7 @@ export function executeAgentEditor(
       refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
     };
   }
+  if (meta.fork) return applyFixAsCopy(ctx, meta, parsed);
   // Carry the agent's ACCEPTANCE fields across the rewrite when NEW_YAML omits
   // them.
   //
@@ -1529,6 +1534,52 @@ export function executeAgentEditor(
   };
 }
 
+/**
+ * The fix, saved as a copy for the notebook (meta.fork) instead of over the
+ * shared agent: the copy is a local agent with the fixed definition, the same
+ * run-from-a-conversation grant, and no schedule (the notebook runs it). The
+ * notebook's searches switch to it; the original isn't touched.
+ */
+function applyFixAsCopy(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+  parsed: ReturnType<typeof parseAgent>,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const fork = meta.fork!;
+  const original = ctx.agentStore.getAgent(parsed.id);
+  if (original && meta.base && original.version !== meta.base.version) {
+    return { status: 'failed', refusalReason: `\`${parsed.id}\` changed since this fix was proposed (v${meta.base.version} → v${original.version}). Ask sua to look again so the fix starts from the current version.` };
+  }
+  const copy = {
+    ...parsed,
+    id: fork.id,
+    name: fork.name,
+    source: 'local' as const,
+    status: 'active' as const,
+    schedule: undefined,
+    description: `${(parsed.description ?? '').trim()}${parsed.description ? '\n\n' : ''}A copy of ${parsed.id} for the notebook "${fork.notebookTitle}", fixed there without changing ${parsed.id} (${fork.why}).`.trim(),
+    ...(original?.permissions && !parsed.permissions ? { permissions: original.permissions } : {}),
+    // What the agent is graded and held to carries over when the fix omits it (as in place).
+    ...(original?.outcome && !parsed.outcome ? { outcome: original.outcome } : {}),
+    ...(original?.successCriteria && !parsed.successCriteria ? { successCriteria: original.successCriteria } : {}),
+    ...(original?.behaviors && !parsed.behaviors ? { behaviors: original.behaviors } : {}),
+  };
+  try {
+    ctx.agentStore.upsertAgent(copy, 'dashboard', `Copy of ${parsed.id} for notebook ${fork.notebookId}, with sua's fix`);
+  } catch (err) {
+    return { status: 'failed', refusalReason: `Couldn't save the copy: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const store = notebooksOf(ctx);
+  const nb = store.get(fork.notebookId);
+  const switched = !!nb && nb.pipeline.includes(parsed.id);
+  if (nb && switched) store.update(nb.id, { pipeline: nb.pipeline.map((a) => (a === parsed.id ? fork.id : a)) });
+  const version = ctx.agentStore.getAgent(fork.id)?.version ?? 1;
+  return {
+    status: 'completed',
+    summary: `Saved the fix as \`${fork.id}\` (v${String(version)}), a copy for this notebook, because ${fork.why}.${switched ? ` This notebook now searches with the copy;` : ''} \`${parsed.id}\` is unchanged.`,
+  };
+}
+
 function extractYamlBlockFromRunNodes(
   ctx: ReturnType<typeof getContext>,
   runId: string,
@@ -1604,7 +1655,7 @@ export function maybeAutoProposeEditorAction(
     messageId,
     'action',
     action.rationale!,
-    JSON.stringify(withEditorBase(ctx, action)),
+    JSON.stringify(withEditorBase(ctx, action, messageId)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -1663,7 +1714,7 @@ function maybeAutoProposeBuilderInstallAction(
     messageId,
     'action',
     rationale,
-    JSON.stringify(withEditorBase(ctx, action)),
+    JSON.stringify(withEditorBase(ctx, action, messageId)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -2350,7 +2401,7 @@ export async function runTriageAgent(
               ? 'Resolve this thread — nothing left to run or diagnose.'
               : `Run agent \`${action.agentId}\`.`);
         // Stamp once (base version, preview, names) so an auto-run keeps it too.
-        const stamped = withEditorBase(ctx, action);
+        const stamped = withEditorBase(ctx, action, messageId);
         const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(stamped));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,
