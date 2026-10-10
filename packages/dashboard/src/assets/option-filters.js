@@ -25,7 +25,10 @@ export function filterValue(o, key, fmt) {
 
 /**
  * Each filter worth showing, with its choices and how many options have each:
- * only filters where options differ (two or more values). A choice's count is
+ * only filters where options differ (two or more values) and some share one.
+ * A fact where every option has its own value (a company name) or that reads
+ * as prose (a sentence about each) isn't a filter: a chip would pick out one
+ * option, and long chips crowd the bar. A choice's count is
  * among the options the other chosen filters (`selected`) keep, so it says
  * what picking it would show. Stages keep their order; other values go most
  * common first, at most `max` of them.
@@ -40,6 +43,7 @@ export function filterChoices(options, filters, opts = {}) {
       if (v) values.set(v, (values.get(v) ?? 0) + 1);
     }
     if (values.size < 2) continue;
+    if (!BUILTIN_FILTERS[spec.key] && !worthFiltering(values)) continue;
     const { [spec.key]: _own, ...others } = selected;
     const counts = new Map();
     for (const o of applyFilters(options, others, fmt)) {
@@ -54,6 +58,17 @@ export function filterChoices(options, filters, opts = {}) {
     out.push({ key: spec.key, label: spec.label ?? BUILTIN_FILTERS[spec.key] ?? (label ? label(spec.key) : spec.key), choices: choices.slice(0, max) });
   }
   return out;
+}
+
+/** Longest average chip text a fact's values may have and still be a filter. */
+export const MAX_CHIP_CHARS = 32;
+
+/** A fact's values make a useful filter: some value is shared, and they're short labels rather than sentences. */
+export function worthFiltering(values) {
+  const counts = [...values.values()];
+  if (!counts.some((n) => n > 1)) return false;
+  const keys = [...values.keys()];
+  return keys.reduce((n, k) => n + k.length, 0) / keys.length <= MAX_CHIP_CHARS;
 }
 
 /** The options every chosen filter keeps. `selected` is {key: value}; an empty value means any. */

@@ -34,6 +34,19 @@ describe('option filters', () => {
     expect(filterChoices(cars.slice(0, 1), ['stage'])).toEqual([]);
   });
 
+  it("skips a fact where every option has its own value, or that reads as a sentence", () => {
+    const accounts: Opt[] = [
+      { id: '1', notSeenLately: false, fields: { company: 'Adyen', value: 'Office-of-CFO suite: close, consolidation, compliance, disclosure', tier: 'Strong' } },
+      { id: '2', notSeenLately: true, fields: { company: 'Akuity', value: 'Office-of-CFO suite: close, consolidation, compliance, disclosure', tier: 'Strong' } },
+      { id: '3', notSeenLately: false, fields: { company: 'Board', value: 'Finance-led FP&A that keeps Excel-centered workflows', tier: 'Possible' } },
+    ];
+    const c = filterChoices(accounts, ['seen', 'company', 'value', 'tier']);
+    // company: one each; value: shared but a sentence; tier: short and shared.
+    expect(c.map((f) => f.key)).toEqual(['seen', 'tier']);
+    // Built-ins always count, even when each value is held once.
+    expect(filterChoices(accounts.slice(1), ['seen']).map((f) => f.key)).toEqual(['seen']);
+  });
+
   it('keeps the options every chosen filter matches', () => {
     expect(applyFilters(cars, {}).map((o) => o.id)).toEqual(['a', 'b', 'c', 'd']);
     expect(applyFilters(cars, { seen: 'Current', seller: 'Dealer' }).map((o) => o.id)).toEqual(['a', 'c', 'd']);
