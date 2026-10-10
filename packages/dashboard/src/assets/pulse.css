@@ -456,7 +456,7 @@
 /* -- Template: image -- */
 .pulse-tile__image {
   border-radius: var(--radius-sm);
-  object-fit: cover;
+  object-fit: contain;
   max-width: 100%;
   max-height: 200px;
 }

@@ -270,12 +270,14 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .card { display: flex; flex-direction: column; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); overflow: hidden; background: var(--color-surface); min-width: 0; }
     .card.best { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
     .card.out { opacity: .55; }
-    .pic { position: relative; aspect-ratio: 4 / 3; background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-raised)); display: grid; place-items: center; color: var(--color-text-subtle, var(--color-text-muted)); }
-    .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pic { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-raised)); display: grid; place-items: center; color: var(--color-text-subtle, var(--color-text-muted)); }
+    /* The whole picture, scaled to fit the frame (never cropped); absolute so a tall one can't stretch the card. */
+    .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
     .pic { background: radial-gradient(120% 90% at 50% 75%, color-mix(in srgb, var(--color-primary) 22%, transparent), color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-raised))); }
     .nophoto { display: flex; flex-direction: column; align-items: center; gap: 6px; color: color-mix(in srgb, var(--color-primary) 70%, var(--color-text-muted)); font-size: var(--font-size-xs); }
     .gone-why { color: var(--color-text-muted); }
     .pic img.drawn { object-fit: contain; padding: 8px; box-sizing: border-box; }
+    .pic:has(img:not(.drawn)) { background: var(--color-surface); }
     .pickind { position: absolute; bottom: 8px; left: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); border: 1px solid var(--color-border); }
     .menu .btn.gone { border-color: var(--color-text-muted); }
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
@@ -316,7 +318,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
     td.num { font-family: var(--font-mono); white-space: nowrap; }
     tr.out td { opacity: .55; } tr.best td { background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
-    .thumb { width: 56px; height: 42px; object-fit: cover; border-radius: 4px; display: block; }
+    .thumb { width: 56px; height: 42px; object-fit: contain; border-radius: 4px; display: block; background: var(--color-surface-raised); }
     .empty { color: var(--color-text-muted); font-size: var(--font-size-sm); }
     .filters { display: flex; flex-direction: column; gap: 6px; margin: -2px 0 12px; }
     .frow { display: flex; align-items: flex-start; gap: 8px; }
