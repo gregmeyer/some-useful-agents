@@ -37,6 +37,11 @@ The autonomy loop (the "control plane" half) now runs by default:
   stranded `running` by a restart against run-store truth, re-attaches
   waiters to in-flight Temporal runs, and re-fires triage once per thread
   whose turn died with the old process.
+- **How far sua goes on its own**: after an action finishes, sua takes
+  another turn to report or carry on. Between your replies it takes up to
+  12 such turns and runs up to 24 actions, then pauses and asks you to
+  reply. Your reply resets both. **Stop** halts it sooner, and repeated
+  fixes to one agent without a good run end automatic fixing.
 - **Bounded thread replay**: each triage turn (and the learning extractor)
   sees the thread as `[role] body` lines, most recent kept within 16 KB,
   with a note like "(49 earlier entries left out for length)" when a long
