@@ -31,7 +31,7 @@
   background: linear-gradient(135deg, var(--color-primary), var(--color-info));
   color: var(--color-bg);
 }
-.nb-hero__cover { flex: none; width: 64px; height: 64px; border-radius: var(--radius-md); object-fit: cover; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
+.nb-hero__cover { flex: none; width: 64px; height: 64px; border-radius: var(--radius-md); object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
 .nb-hero__cover.is-drawn { object-fit: contain; }
 .nb-hero__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xl); line-height: 1.2; }
 .nb-hero__statement { margin: 0; font-size: var(--font-size-md); line-height: 1.5; color: var(--color-text); }
@@ -298,7 +298,7 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 /* Option photos: a kept copy, beside the facts */
 .nb-entry--photo { display: grid; grid-template-columns: 132px minmax(0, 1fr); column-gap: var(--space-4); align-items: start; }
 .nb-entry--photo > :not(.nb-entry__photo) { grid-column: 2; }
-.nb-entry__photo { grid-column: 1; grid-row: 1 / span 6; width: 132px; height: 99px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-raised); }
+.nb-entry__photo { grid-column: 1; grid-row: 1 / span 6; width: 132px; height: 99px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-raised); }
 .nb-region__act { display: inline; margin: 0 0 0 var(--space-2); }
 @media (max-width: 640px) {
   .nb-entry--photo { grid-template-columns: 1fr; }
@@ -334,9 +334,12 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-tools__sort { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nb-tools__sort select { width: auto; }
 .nb-card--thumb { align-items: stretch; padding: 0; overflow: hidden; }
-.nb-card__cover { position: relative; flex: none; width: 128px; min-height: 112px; background: radial-gradient(120% 90% at 50% 75%, color-mix(in srgb, var(--color-primary) 20%, transparent), color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-raised))); display: grid; place-items: center; }
-.nb-card__cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.nb-card__cover { position: relative; flex: none; width: 128px; min-height: 112px; overflow: hidden; background: radial-gradient(120% 90% at 50% 75%, color-mix(in srgb, var(--color-primary) 20%, transparent), color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-raised))); display: grid; place-items: center; }
+/* Pictures show whole, scaled to fit their frame (never cropped); the frame's background fills the rest. */
+.nb-card__cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .nb-card__cover img.is-drawn { object-fit: contain; padding: var(--space-2); box-sizing: border-box; }
+/* A frame holding a photo (most have a white background) is plain surface, so the photo sits in it without a box; drawings keep the tinted frame. */
+.nb-card__cover:has(img:not(.is-drawn)), .nbl-card__cover:has(img:not(.is-drawn)), .nbo-hero__pic:has(img:not(.is-drawn)) { background: var(--color-surface); }
 .nb-card__cover-icon { color: var(--color-primary); opacity: 0.7; transform: scale(1.6); }
 .nb-card__ring { position: absolute; right: 6px; bottom: 6px; display: grid; background: var(--color-surface); border-radius: 50%; box-shadow: 0 0 0 2px var(--color-surface); }
 .nb-card--thumb .nb-card__text { padding: var(--space-3) var(--space-4); }
@@ -369,7 +372,8 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .nbl-card--decided .nbl-card__cover, .nbl-card--stopped .nbl-card__cover { filter: saturate(0.55); }
 .nbl-card__cover { position: relative; display: block; aspect-ratio: 2 / 1; background: var(--color-surface-raised); overflow: hidden; }
-.nbl-card__cover img, .nbl-card__art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.nbl-card__cover img, .nbl-card__art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.nbl-card__art { object-fit: cover; }
 .nbl-card__cover img.is-drawn { object-fit: contain; padding: var(--space-3); box-sizing: border-box; background: var(--color-primary-soft); }
 .nbl-card__done { position: absolute; top: var(--space-2); left: var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); line-height: 1; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 88%, transparent); color: var(--color-text); }
 .nbl-card__kind { position: absolute; bottom: var(--space-2); left: var(--space-2); font-size: var(--font-size-xs); line-height: 1; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); }
@@ -513,7 +517,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
   background: radial-gradient(900px 260px at 10% -40%, var(--color-primary-soft), transparent 70%), var(--color-surface);
 }
 .nbo-hero__pic { position: relative; aspect-ratio: 4 / 3; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface-raised); display: grid; place-items: center; }
-.nbo-hero__pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nbo-hero__pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .nbo-hero__pic img.is-drawn { object-fit: contain; padding: var(--space-3); box-sizing: border-box; }
 .nbo-hero__pickind { position: absolute; bottom: var(--space-2); left: var(--space-2); font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border); }
 .nbo-hero__nopic { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
