@@ -177,6 +177,32 @@ describe('notebooks pages', () => {
   });
 });
 
+describe('filing into a notebook of organizations', () => {
+  it("a run that names a company the notebook has fills in its facts instead of adding it again", async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Comp set' });
+    store.setFields(nb0.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'employees', label: 'Employees', type: 'number', role: 'measure' }, { key: 'founded', label: 'Founded', type: 'number' }]);
+    store.upsertOption(nb0.id, { title: 'Motive: planning and forecasting', by: 'you', data: { company: 'Motive' } });
+    store.upsertOption(nb0.id, { title: 'Everlaw: Q2C backlog', by: 'you', data: { company: 'Everlaw' } });
+    const nb = store.get(nb0.id)!;
+    const run = `Motive has 4,100 employees and was founded in 2013. Everlaw: 1,200 employees. Brightwave was founded in 2023.`;
+    const out = applyKeeperResult(store, nb, 'firmographic-research', 'run-1', `<notebook>${JSON.stringify({ entries: [
+      { kind: 'option', title: 'Motive', data: { company: 'Motive', employees: 4100, founded: 2013 } },
+      // The same title it already has: refreshed, not skipped.
+      { kind: 'option', title: 'Everlaw: Q2C backlog', data: { company: 'Everlaw', employees: 1200 } },
+      { kind: 'option', title: 'Brightwave', data: { company: 'Brightwave', founded: 2023 } },
+    ] })}</notebook>`, { source: run });
+    expect(out).toMatchObject({ added: 1, refreshed: 2 });
+    const opts = store.entries(nb.id).filter((e) => e.kind === 'option');
+    expect(opts.map((e) => e.title).sort()).toEqual(['Brightwave', 'Everlaw: Q2C backlog', 'Motive: planning and forecasting']);
+    expect(opts.find((e) => e.title.startsWith('Motive'))!.data).toEqual({ company: 'Motive', employees: 4100, founded: 2013 });
+    expect(opts.find((e) => e.title.startsWith('Everlaw'))!.data).toEqual({ company: 'Everlaw', employees: 1200 });
+  });
+});
+
 describe('notebook pipeline (G2–G3)', () => {
   it('the keeper sets fields once, records option facts, and refreshes an option found again', async () => {
     await makeApp();
