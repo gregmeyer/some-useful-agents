@@ -277,6 +277,30 @@ describe('notebook pipeline (G2–G3)', () => {
       .toEqual([{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
   });
 
+  it("tells a search what the notebook has and which facts each option still lacks", async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { notebookBrief, notebookGaps } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Comp set', statement: 'Find software comps' });
+    store.setFields(nb0.id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'website', label: 'Website', type: 'url', role: 'link' },
+      { key: 'employees', label: 'Employees', type: 'number', role: 'measure' }, { key: 'founded', label: 'Founded', type: 'number' },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
+    ]);
+    store.upsertOption(nb0.id, { title: 'Motive: planning and forecasting', by: 'you', data: { company: 'Motive', fit: 97 } });
+    store.upsertOption(nb0.id, { title: 'Everlaw: Q2C backlog', by: 'you', data: { company: 'Everlaw', fit: 92, employees: 800, founded: 2010 } });
+    const out = store.upsertOption(nb0.id, { title: 'Acme: ruled out', by: 'you', data: { company: 'Acme', fit: 10 } }).entry;
+    store.ruleOut(nb0.id, out.id, 'too small');
+    const nb = store.get(nb0.id)!;
+    const gaps = notebookGaps(nb, store.entries(nb.id));
+    // Best first; ruled out left out; no link, picture or fit asked for.
+    expect(gaps).toBe("It has 2 options in the running; don't add these again: Motive: planning and forecasting; Everlaw: Q2C backlog.\nFacts still missing (find them, with a source, and give them under the option's name):\n- Motive: planning and forecasting — employees, founded");
+    expect(notebookBrief(nb, store.entries(nb.id))).toBe(`Find software comps\n${gaps}`);
+    // Nothing yet: nothing to say.
+    expect(notebookGaps(store.create({ title: 'Empty' }), [])).toBe('');
+  });
+
   it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {
     const app = await makeApp();
     const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)

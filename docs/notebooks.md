@@ -294,6 +294,7 @@ A run's results go into the notebook by themselves when it was started from the 
 With **Edit** in the header, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
 
 - **Each agent gets the notebook's goal.** Any input it declares named `GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF` gets the statement, parameters and criteria. `TOPIC`, `QUERY`, `QUESTION` or `SEARCH` gets the statement. Other inputs keep their defaults.
+- **It also says what the notebook already has.** That same notebook input lists the options in the running (best first, up to 40) so the search doesn't bring them back, and for each one the facts the notebook tracks that it's still missing ("Motive: planning and forecasting — employees, revenue, founded"). The link, picture and fit score aren't asked for. So a search can fill gaps in what the notebook has, by each option's name, as well as find new options. Each agent in a run sees what the agents before it added.
 - **The notebook keeper turns output into entries.** After each agent finishes, the keeper (a built-in sua agent, `notebook-keeper`) reads what it found against the notebook's goal, parameters, criteria and existing entries. It writes what's new:
   - **options** that fit the parameters;
   - **evidence** about them;
