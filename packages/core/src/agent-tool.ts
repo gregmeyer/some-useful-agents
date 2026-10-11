@@ -95,13 +95,38 @@ export interface AgentCallContextOptions {
   run: (callee: Agent, inputs: Record<string, string>, ctx: { depth: number; stack: string[]; signal?: AbortSignal }) => Promise<AgentCallResult>;
 }
 
+/**
+ * Why `agentId` can't be called one level below a caller at `depth` with
+ * this call `stack` (a cycle, or too deep), else undefined. Shared by agent
+ * tools and by agent-invoke / loop nodes.
+ */
+export function agentCallChainRefusal(agentId: string, stack: readonly string[], depth: number): string | undefined {
+  if (stack.includes(agentId)) return `Agent "${agentId}" is already running in this call chain (${[...stack, agentId].join(' → ')}).`;
+  if (depth + 1 > MAX_AGENT_CALL_DEPTH) return `Agent calls are limited to ${MAX_AGENT_CALL_DEPTH} levels deep.`;
+  return undefined;
+}
+
+/**
+ * The agents an agent's agent-invoke and loop nodes call, by id, in node
+ * order. Ids that come from an input (`{{inputs.X}}`) are left out: they're
+ * only known at run time.
+ */
+export function calledAgentIds(agent: Pick<Agent, 'nodes'>): string[] {
+  const ids: string[] = [];
+  for (const node of agent.nodes ?? []) {
+    const id = node.type === 'agent-invoke' ? node.agentInvokeConfig?.agentId : node.type === 'loop' ? node.loopConfig?.agentId : undefined;
+    if (id && !id.includes('{{') && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 export function createAgentCallContext(opts: AgentCallContextOptions): AgentCallContext {
   const refusal = (agentId: string): string | undefined => {
     const callee = opts.getAgent(agentId);
     if (!callee) return `Agent "${agentId}" does not exist.`;
     if (callee.status !== 'active') return `Agent "${agentId}" is ${callee.status}, not active.`;
-    if (opts.stack.includes(agentId)) return `Agent "${agentId}" is already running in this call chain (${[...opts.stack, agentId].join(' → ')}).`;
-    if (opts.depth + 1 > MAX_AGENT_CALL_DEPTH) return `Agent calls are limited to ${MAX_AGENT_CALL_DEPTH} levels deep.`;
+    const chain = agentCallChainRefusal(agentId, opts.stack, opts.depth);
+    if (chain) return chain;
     const allowed = opts.caller.allowedSubAgents;
     if (allowed && allowed.length > 0 && !allowed.includes(agentId)) {
       return `"${opts.caller.id}" may only call ${allowed.join(', ')} (allowedSubAgents).`;

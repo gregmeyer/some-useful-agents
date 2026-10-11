@@ -178,4 +178,25 @@ describe('executeAgentEditor preserves acceptance criteria', () => {
     expect(res.summary).not.toContain('Kept the existing');
     expect(agentStore.getAgent('make-a-reminder')!.outcome).toBeUndefined();
   });
+
+  it('refuses a node that calls an agent that is not installed, or the agent itself; an input-chosen id is fine', () => {
+    const ctx = setup();
+    agentStore.upsertAgent(parseAgent(['id: helper', 'name: Helper', 'source: local', 'nodes:', '  - id: a', '    type: shell', '    command: echo hi'].join('\n')), 'cli');
+    const calling = (target: string) => [
+      'id: make-a-reminder', 'name: Make a reminder', 'version: 1', 'source: local',
+      'nodes:', '  - id: create', '    type: shell', '    tool: apple.apple.reminder-create',
+      '    toolInputs:', '      title: "{{inputs.TITLE}}"',
+      '  - id: more', '    type: agent-invoke', '    dependsOn: [create]', '    agentInvokeConfig:', `      agentId: "${target}"`,
+    ].join('\n');
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    const before = agentStore.getAgent('make-a-reminder')!.version;
+    const missing = executeAgentEditor(ctx, m.id, editMeta(calling('not-installed')));
+    expect(missing.status).toBe('failed');
+    expect(missing.refusalReason).toContain("would call `not-installed`, which isn't installed");
+    const self = executeAgentEditor(ctx, m.id, editMeta(calling('make-a-reminder')));
+    expect(self.refusalReason).toContain('would call itself');
+    expect(agentStore.getAgent('make-a-reminder')!.version).toBe(before);
+    expect(executeAgentEditor(ctx, m.id, editMeta(calling('{{inputs.WHO}}'))).status).toBe('completed');
+    expect(executeAgentEditor(ctx, m.id, editMeta(calling('helper'))).status).toBe('completed');
+  });
 });

@@ -47,4 +47,4 @@ Refusals are logged with the reason (`[agent-tools] agent:x not offered: …`).
 
 `agent-invoke` (and `loop`) steps call another agent at a fixed point you wire into
 the flow. An `agent:<id>` tool lets the **model** decide whether, when and how often
-to call it. The depth and cycle limits above apply to agent tools.
+to call it. The depth and cycle limits above apply to both, counted together: an agent-invoke step inside an agent called as a tool is one level deeper. Only agent tools require the callee to be active.

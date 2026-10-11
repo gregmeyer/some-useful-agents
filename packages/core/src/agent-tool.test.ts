@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { agentToolDefinition, createAgentCallContext, MAX_AGENT_CALL_DEPTH, type AgentCallContextOptions } from './agent-tool.js';
+import { agentToolDefinition, calledAgentIds, createAgentCallContext, MAX_AGENT_CALL_DEPTH, type AgentCallContextOptions } from './agent-tool.js';
 import { AgentStore } from './agent-store.js';
 import { RunStore } from './run-store.js';
 import { executeAgentDag } from './dag-executor.js';
@@ -35,6 +35,19 @@ describe('agentToolDefinition', () => {
     expect(def.inputs.DAYS).toMatchObject({ type: 'number', default: 3 });
     expect(def.inputs.DAYS.required).toBeUndefined();
     expect(def.inputs.UNITS.description).toBe('One of: c, f.');
+  });
+});
+
+describe('calledAgentIds', () => {
+  it('lists agent-invoke and loop targets once each, leaving out ids that come from an input', () => {
+    const nodes = [
+      { id: 'a', type: 'agent-invoke', agentInvokeConfig: { agentId: 'fetcher' } },
+      { id: 'b', type: 'loop', loopConfig: { agentId: 'per-item', over: 'items' } },
+      { id: 'c', type: 'agent-invoke', agentInvokeConfig: { agentId: 'fetcher' } },
+      { id: 'd', type: 'agent-invoke', agentInvokeConfig: { agentId: '{{inputs.WHO}}' } },
+      { id: 'e', type: 'shell', command: 'echo' },
+    ] as unknown as Agent['nodes'];
+    expect(calledAgentIds({ nodes })).toEqual(['fetcher', 'per-item']);
   });
 });
 

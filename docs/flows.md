@@ -137,6 +137,12 @@ Calls another agent as a single sub-workflow (one run, not a loop). Useful for c
 
 The sub-agent's run_id is captured in `invoked_run_id` on the node's output. The sub-agent's final result becomes the node's `result` so downstream nodes consume it like any other upstream.
 
+**Limits (agent-invoke and loop alike):**
+- **No cycles:** an agent already running higher up the chain can't be called again. A → B → A fails at the second call with `Agent "A" is already running in this call chain (A → B → A).`
+- **At most 3 levels deep:** an agent called by an agent called by an agent can't call a fourth. These are the same limits as [agent tools](agents-as-tools.md), and they count calls of either kind together.
+- **Stopping the run stops the sub-run:** cancelling the parent run cancels the agent it called.
+- **The called agent must be installed:** when sua proposes a change to an agent (an edit card in the inbox), applying it fails if a node would call an agent that isn't installed, or the agent itself. An `agentId` that comes from an input (`"{{inputs.WHO}}"`) is checked only when it runs. The called agent's status isn't checked, so a draft or paused agent can still be called.
+
 ## `branch`
 
 A pure fork point — runs zero logic itself, but splits a single upstream into multiple downstream paths explicitly. Useful when you want several independent follow-on chains that all depend on the same source but don't need a conditional.

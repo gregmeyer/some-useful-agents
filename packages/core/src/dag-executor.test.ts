@@ -1289,6 +1289,39 @@ describe('executeAgentDag — agent-invoke (Flow PR C)', () => {
   });
 });
 
+describe('executeAgentDag — agent-invoke call chain guards', () => {
+  let agentStore: AgentStore;
+  beforeEach(() => { agentStore = new AgentStore(join(dir, 'runs.db')); });
+  afterEach(() => { try { agentStore.close(); } catch { /* may share DB handle */ } });
+  const invoker = (id: string, calls: string) => agentStore.createAgent(
+    { id, name: id, status: 'active', source: 'local', mcp: false, nodes: [{ id: 'call', type: 'agent-invoke' as any, agentInvokeConfig: { agentId: calls } }] },
+    'cli', 'seed',
+  );
+
+  it('stops a cycle (A → B → A) with the chain named, instead of looping', async () => {
+    invoker('ping', 'pong');
+    invoker('pong', 'ping');
+    const run = await executeAgentDag(agentStore.getAgent('ping')!, { triggeredBy: 'cli' }, { runStore, agentStore });
+    expect(run.status).toBe('failed');
+    const child = runStore.queryRuns({ limit: 10, offset: 0, statuses: [] }).rows.find((r) => r.agentName === 'pong')!;
+    const call = runStore.listNodeExecutions(child.id).find((e) => e.nodeId === 'call')!;
+    expect(call.error).toContain('already running in this call chain (ping → pong → ping)');
+  });
+
+  it('allows three levels of calls and refuses a fourth', async () => {
+    invoker('l1', 'l2');
+    invoker('l2', 'l3');
+    invoker('l3', 'l4');
+    agentStore.createAgent({ id: 'l4', name: 'l4', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'main', type: 'shell', command: 'echo deep' }] }, 'cli', 'seed');
+    expect((await executeAgentDag(agentStore.getAgent('l2')!, { triggeredBy: 'cli' }, { runStore, agentStore })).status).toBe('completed');
+    invoker('l0', 'l1');
+    const run = await executeAgentDag(agentStore.getAgent('l0')!, { triggeredBy: 'cli' }, { runStore, agentStore });
+    expect(run.status).toBe('failed');
+    const l3 = runStore.queryRuns({ limit: 50, offset: 0, statuses: [] }).rows.filter((r) => r.agentName === 'l3').map((r) => runStore.listNodeExecutions(r.id).find((e) => e.nodeId === 'call')!);
+    expect(l3.some((e) => e.error?.includes('limited to 3 levels deep'))).toBe(true);
+  });
+});
+
 describe('executeAgentDag — loop (Flow PR D)', () => {
   let agentStore: AgentStore;
 

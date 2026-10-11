@@ -45,6 +45,7 @@ import {
   SurfaceStore,
   SurfaceVersionConflict,
   NotebookStore,
+  calledAgentIds,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -1515,6 +1516,19 @@ export function executeAgentEditor(
     return {
       status: 'failed',
       refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
+    };
+  }
+  // Every agent it calls must be installed (and it can't call itself):
+  // caught here, not as a failed run later.
+  const calls = calledAgentIds(parsed);
+  if (calls.includes(agentId)) {
+    return { status: 'failed', refusalReason: `\`${agentId}\` would call itself. Refusing the edit.` };
+  }
+  const missing = calls.filter((id) => !ctx.agentStore.getAgent(id));
+  if (missing.length) {
+    return {
+      status: 'failed',
+      refusalReason: `\`${agentId}\` would call ${missing.map((id) => `\`${id}\``).join(', ')}, which ${missing.length === 1 ? "isn't" : "aren't"} installed. Install ${missing.length === 1 ? 'it' : 'them'} first, or ask sua for a fix that doesn't need ${missing.length === 1 ? 'it' : 'them'}.`,
     };
   }
   if (meta.fork) return applyFixAsCopy(ctx, meta, parsed);
