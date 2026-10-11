@@ -9,8 +9,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, cleanFields, executeAgentDag, extractTaggedJson, validateScheduleInterval,
-  type NotebookField,
+  NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
+  type NotebookField, type NotebookStep,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -32,6 +32,8 @@ export interface NotebookDraft {
   checks: string[];
   stages: string[];
   pipeline: string[];
+  /** The work in steps, in order (find, source, check, decide), each with its agent. */
+  steps?: NotebookStep[];
   /** The agents sua suggested, so one you unticked is still offered after a reload. */
   suggested?: string[];
   cadence: string;
@@ -70,6 +72,22 @@ export function searchAgents(ctx: Ctx): Array<{ id: string; description: string;
     .slice(0, 60);
 }
 
+/**
+ * Steps as the drafter or the form gives them ({title, kind, agent|agentId,
+ * target}): cleaned, and an agent kept only when it's one of yours (else the
+ * step needs one; a check step uses sua's checker).
+ */
+export function draftSteps(raw: unknown, agentIds: ReadonlySet<string>): { steps?: NotebookStep[] } {
+  const list = (Array.isArray(raw) ? raw : []).map((x) => {
+    if (!x || typeof x !== 'object') return x;
+    const o = x as Record<string, unknown>;
+    const agent = typeof o.agentId === 'string' ? o.agentId : typeof o.agent === 'string' ? o.agent : '';
+    return { title: o.title, kind: o.kind, ...(agentIds.has(agent) ? { agentId: agent } : {}), ...(o.target !== undefined && o.target !== '' ? { target: Number(o.target) } : {}) };
+  });
+  const steps = cleanSteps(list).map(({ status: _s, tries: _t, note: _n, doneAt: _d, ...rest }) => ({ ...rest, status: 'todo' as const, tries: 0 }));
+  return steps.length ? { steps } : {};
+}
+
 /** The drafter's <draft> as a clean draft, or why it isn't one. Pure. */
 export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): NotebookDraft | { error: string } {
   const block = extractTaggedJson(raw, 'draft');
@@ -89,6 +107,7 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     checks: phrases(v.checks, 5, 60),
     stages: phrases(v.stages, 6, 30),
     pipeline: phrases(v.pipeline, 6, 60).filter((id) => agentIds.has(id)),
+    ...draftSteps(v.steps, agentIds),
     cadence,
     ...(typeof v.why === 'string' && v.why.trim() ? { why: v.why.trim().slice(0, 240) } : {}),
   };
@@ -125,6 +144,15 @@ export function discardDraft(ctx: Ctx, id: string): boolean {
   return draftsOf(ctx).deleteDraft(id);
 }
 
+/** The review form's steps (parallel step_title / step_kind / step_agent / step_target lists). */
+export function stepsFromForm(body: Record<string, unknown>): Array<Record<string, string>> {
+  const titles = formList(body.step_title);
+  const kinds = formList(body.step_kind);
+  const agents = formList(body.step_agent);
+  const targets = formList(body.step_target);
+  return titles.map((title, i) => ({ title, kind: kinds[i] ?? '', agentId: agents[i] ?? '', target: targets[i] ?? '' }));
+}
+
 const formList = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string');
 
 /**
@@ -148,6 +176,7 @@ export function saveDraftEdits(ctx: Ctx, id: string, body: Record<string, unknow
     checks: clean(formList(body.checks), 5, 60),
     stages: formList(body.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).map((x) => x.trim()).filter(Boolean).slice(0, 6),
     pipeline: formList(body.pipeline).filter((a) => suggested.includes(a)),
+    ...draftSteps(stepsFromForm(body), new Set(searchAgents(ctx).map((a) => a.id))),
     suggested,
     cadence,
     ...(cur.draft.why ? { why: cur.draft.why } : {}),

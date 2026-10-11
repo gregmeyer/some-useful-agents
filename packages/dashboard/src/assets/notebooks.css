@@ -597,3 +597,17 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step--done .nb-step__bar > span, .nb-step--met .nb-step__bar > span { background: var(--color-ok); }
 .nb-step--stuck .nb-step__bar > span { background: var(--color-warn); }
 .nb-step__meta { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* Draft review: the steps sua will take */
+.nbd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.nbd-step { gap: var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border); }
+.nbd-step__kind { flex: none; min-width: 52px; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.nbd-step .nbd-step__title { flex: 1; }
+.nbd-step__agent { flex: none; max-width: 45%; font: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 2px var(--space-1); }
+.nbd-step__by { flex: none; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nbd-step { min-width: 0; }
+@media (max-width: 640px) {
+  .nbd-step { flex-wrap: wrap; row-gap: var(--space-1); }
+  .nbd-step .nbd-step__title { flex: 1 1 0; min-width: 0; }
+  .nbd-step__agent { order: 3; flex: 1 1 100%; max-width: none; margin-left: calc(52px + var(--space-2)); }
+}

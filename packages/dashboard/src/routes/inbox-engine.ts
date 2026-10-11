@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { forkForNotebook } from '../lib/agent-fork.js';
-import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
@@ -186,7 +186,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -868,6 +868,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'notebook-step') {
     return executeNotebookStep(ctx, meta);
   }
+  if (meta.agentId === 'notebook-steps') {
+    return executeNotebookSteps(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1098,6 +1101,30 @@ export function executeNotebookPipeline(
     notebooksOf(ctx).update(id, { pipeline: p.agents, ...(p.cadence !== undefined && meta.inputs.CADENCE !== undefined ? { cadence: p.cadence } : {}) });
     const started = meta.inputs.RUN === '1' ? startNotebookPipeline(ctx, id) : undefined;
     return { status: 'completed', summary: `Pipeline set: ${p.agents.join(' → ')}.${started?.started ? ' Running it now; new entries show up in the notebook as each agent finishes.' : ' Run it from the notebook any time.'}` };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * sua's "Set up the steps" card from a notebook's conversation: the notebook's
+ * work as steps (agents must be installed; none edited), and with RUN=1 the
+ * first one starts.
+ */
+export async function executeNotebookSteps(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const id = meta.inputs.NOTEBOOK ?? '';
+  const p = parseNotebookSteps(ctx, meta.inputs.STEPS ?? '');
+  if (!p.steps) return { status: 'failed', refusalReason: p.error };
+  try {
+    const nb = notebooksOf(ctx).setSteps(id, p.steps);
+    const list = (nb.steps ?? []).map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ');
+    if (meta.inputs.RUN !== '1') return { status: 'completed', summary: `Steps set: ${list}. Run step 1 from the notebook when you're ready.` };
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const started = startNotebookStep(ctx, id);
+    return { status: 'completed', summary: `Steps set: ${list}.${started.started ? ` Working on **${started.step!.title}** now; I'll say here when it's done.` : ` ${started.reason ?? ''}`}` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
@@ -1353,6 +1380,12 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta, messageId?: string): InboxActionMeta {
+  if (action.agentId === 'notebook-steps' && !action.surfaceChanges) {
+    const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
+    const { steps } = parseNotebookSteps(ctx, action.inputs.STEPS ?? '');
+    if (!steps) return action;
+    return { ...action, inputs: { ...action.inputs, ...(nb ? { NOTEBOOK_TITLE: nb.title } : {}) }, surfaceChanges: describeStepsChange(nb, steps) };
+  }
   if ((action.agentId === 'notebook-add' || action.agentId === 'notebook-pipeline') && !action.surfaceChanges) {
     try {
       const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
@@ -2362,7 +2395,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

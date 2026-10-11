@@ -327,7 +327,13 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 - **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
 - **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
 - **Statuses:** to do, running, goal met, stuck or done.
-- **Setting them:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
+- **From your sentence:**
+
+  ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)
+
+  When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job; a find or source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
+- **From the conversation:** when a goal needs several kinds of work, or you describe it in stages, or you keep asking sua for one stage after another, sua proposes the steps as a card instead of running the stages itself. The card shows each step with its agent and what it replaces. **Set them up** saves them; **Set them up and start** also starts step 1. Only installed agents can be named, and none is changed. If no agent fits a step, sua offers to build one and then proposes the steps again with it. To change the steps, ask sua; it proposes the whole list again.
+- **Setting them directly:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
 
 ### Running steps
 
@@ -344,7 +350,6 @@ While a notebook has steps left, its button works on the current one ("Run step 
    - **Already met:** a step whose goal is met before it runs (an earlier search found enough) is met without a run.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
-- **Not yet:** steps drafted from your sentence or the conversation.
 
 ### sua's checker
 

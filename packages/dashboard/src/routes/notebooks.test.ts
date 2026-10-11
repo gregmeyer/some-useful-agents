@@ -96,6 +96,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
       statement: 'For flights, under $300.', params: ['under $300', 'over-ear', 'under $300'], criteria: ['One pair that fits', 'A decision recorded by Oct 20'],
       fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'rating', label: 'Rating', type: 'number', role: 'measure', better: 'higher' }, { key: 'bad key!', label: 'x' }],
       checks: ['Comfortable with glasses'], stages: ['Found', 'Shortlist', 'Bought'], pipeline: ['sched-agent', 'made-up-agent'], cadence: 'every morning', why: 'Assumed over-ear.',
+      steps: [{ title: 'Find 5 pairs', kind: 'find', agent: 'sched-agent', target: 5 }, { title: 'Check comfort with glasses', kind: 'check', agent: '' }, { title: 'Research reviews', kind: 'source', agent: 'made-up-agent' }, { title: 'Pick one', kind: 'decide', target: 1 }],
     })}</draft>`,
     // The suggester sees your conversations (kept for the test to read) and answers with fixed pills.
     notebookSuggesterRun: async (inputs) => { suggesterSaw = inputs.CONVERSATIONS; return `<suggestions>${JSON.stringify([
@@ -936,6 +937,78 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(nb).toMatchObject({ params: ['over-ear', 'under $300'], stages: ['Found', 'Shortlist', 'Bought'], checks: ['Comfortable with glasses'], pipeline: ['sched-agent'], cadence: '0 7 * * *' });
     expect(nb.fields.map((f) => f.key)).toEqual(['price', 'rating']);
     expect(nb.criteria.map((c) => c.text)).toEqual(['One pair that fits']);
+  });
+
+  it('the draft lays out the work in steps: agents only if installed, editable, kept as you change them, and saved when you start it', async () => {
+    const app = await makeApp();
+    const started = await form(app, '/notebooks/draft', { text: 'noise-cancelling headphones under $300' });
+    const id = started.body.id as string;
+    expect((await ready(app, id)).status).toBe('ready');
+    let page = (await get(app, `/notebooks/new?draft=${id}`)).text;
+    // Four steps; the made-up agent is dropped (its step needs one), a check step can use sua's checker.
+    expect(page).toContain('class="nbd-steps"');
+    expect(page).toContain('name="step_title" value="Find 5 pairs"');
+    expect(page).toMatch(/<option value="sched-agent" selected>sched-agent<\/option>/);
+    expect(page).toContain('<option value="">sua’s checker</option>');
+    expect(page).toContain('<option value="">needs an agent</option>');
+    expect(page).not.toContain('value="made-up-agent"');
+    expect(page).toContain('<span class="nbd-step__by">you</span>');
+
+    // You change one and drop one; the draft keeps it.
+    await form(app, `/notebooks/draft/${id}/edits`, {
+      title: 'Headphones', statement: 'For flights.', cadence: '',
+      step_title: ['Find 8 pairs', 'Pick one'], step_kind: ['find', 'decide'], step_agent: ['sched-agent', ''], step_target: ['8', '1'],
+    });
+    page = (await get(app, `/notebooks/new?draft=${id}`)).text;
+    expect(page).toContain('name="step_title" value="Find 8 pairs"');
+    expect(page).not.toContain('Check comfort with glasses');
+
+    // Starting it saves the steps (an agent that isn't one of yours is dropped).
+    await form(app, '/notebooks', { draft: id, title: 'Headphones', statement: 'For flights.',
+      step_title: ['Find 8 pairs', 'Check comfort', 'Pick one'], step_kind: ['find', 'check', 'decide'], step_agent: ['sched-agent', 'made-up-agent', ''], step_target: ['8', '', '1'] });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nb = NotebookStore.fromHandle(runStore.databaseHandle()).list({}).find((n) => n.title === 'Headphones')!;
+    expect(nb.steps).toEqual([
+      { id: 's1', title: 'Find 8 pairs', kind: 'find', agentId: 'sched-agent', target: 8, status: 'todo', tries: 0 },
+      { id: 's2', title: 'Check comfort', kind: 'check', status: 'todo', tries: 0 },
+      { id: 's3', title: 'Pick one', kind: 'decide', target: 1, status: 'todo', tries: 0 },
+    ]);
+  });
+
+  it('sua proposes steps in the conversation: a card that previews them, refuses agents that aren\'t installed, and can start step 1', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase, executeNotebookSteps } = await import('./inbox-engine.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setSteps(nb.id, [{ title: 'Old find', kind: 'find' }, { title: 'Old extra', kind: 'source' }]);
+    const steps = [{ title: 'Find 10 companies', kind: 'find', agent: 'sched-agent', target: 10 }, { title: 'Check value to customers', kind: 'check' }];
+
+    // The plan's action (STEPS may come as a list): accepted as a card to approve.
+    const { accepted } = parseProposedActions([{ type: 'notebook-steps', rationale: 'In stages', inputs: { NOTEBOOK: nb.id, STEPS: steps, RUN: '1' } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-steps', status: 'proposed', ctaLabel: 'Set them up and start', inputs: { NOTEBOOK: nb.id, STEPS: JSON.stringify(steps) } });
+    expect(parseProposedActions([{ type: 'notebook-steps', inputs: { NOTEBOOK: nb.id } }], [], []).rejected[0].reason).toBe('notebook-steps needs inputs.NOTEBOOK and inputs.STEPS');
+
+    // Its preview: each step and its agent, and what it replaces.
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.inputs.NOTEBOOK_TITLE).toBe('Peers');
+    expect(card.surfaceChanges).toEqual([
+      { what: 'Step 1', before: 'Old find', after: 'Find 10 companies · sched-agent' },
+      { what: 'Step 2', before: 'Old extra', after: 'Check value to customers · sua’s checker' },
+    ]);
+
+    // An agent that isn't installed: refused, nothing changes.
+    const bad = await executeNotebookSteps(ctx, { ...card, inputs: { ...card.inputs, STEPS: JSON.stringify([{ title: 'Find', kind: 'find', agent: 'nope' }]) } });
+    expect(bad).toMatchObject({ status: 'failed', refusalReason: 'Not installed: nope.' });
+    expect(store.get(nb.id)!.steps!.map((x) => x.title)).toEqual(['Old find', 'Old extra']);
+
+    // Approved without RUN: set, not started.
+    const set = await executeNotebookSteps(ctx, { ...card, inputs: { ...card.inputs, RUN: '' } });
+    expect(set).toMatchObject({ status: 'completed', summary: "Steps set: 1. Find 10 companies; 2. Check value to customers. Run step 1 from the notebook when you're ready." });
+    expect(store.get(nb.id)!.steps!.map((x) => `${x.title}:${x.agentId ?? ''}:${x.status}`)).toEqual(['Find 10 companies:sched-agent:todo', 'Check value to customers::todo']);
   });
 
   it('keeps a draft you leave: its address brings it back with your changes, the lists offer it, starting it clears it', async () => {

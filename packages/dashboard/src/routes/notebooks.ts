@@ -13,7 +13,7 @@ import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
@@ -170,6 +170,9 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
     });
     // Started from a draft: it's done with.
     if (str(req.body?.draft)) discardDraft(ctx0, str(req.body?.draft));
+    // The steps sua will take, as you left them on the draft.
+    const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
+    if (steps) store(req).setSteps(nb.id, steps);
     // From a draft: what to note, the stages and the checks are set already, so setup is skipped.
     const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
     if (fields.length) {
