@@ -51,6 +51,27 @@ export function notebookGaps(nb: Notebook, entries: readonly NotebookEntry[]): s
   ].filter(Boolean).join('\n');
 }
 
+/** Options per run for a check step: each is looked up on the web, so a few at a time. */
+export const CHECK_BATCH = 8;
+
+/**
+ * The options in the running, best first, as JSON for an agent that works
+ * on them: id, name, facts by label, sources and its own notes, and (for a
+ * check step) the checks it still needs, only those options, a few at a time.
+ */
+export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], forChecks = false): string {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  let options = rankOptions(nb, notebookViewData(nb, entries).notebook.options).map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }));
+  if (forChecks) options = options.filter((x) => x.left.length).slice(0, CHECK_BATCH);
+  else options = options.slice(0, BRIEF_OPTIONS);
+  return JSON.stringify(options.map(({ o, left }) => {
+    const facts: Record<string, unknown> = {};
+    for (const f of nb.fields) if (o.fields[f.key] !== undefined && o.fields[f.key] !== '') facts[f.label] = o.fields[f.key];
+    const sources = [...new Set([o.link, ...Object.values(o.factMeta ?? {}).map((m) => m.source)].filter((u): u is string => !!u))].slice(0, 6);
+    return { id: o.id, name: o.name, facts, sources, text: (byId.get(o.id)?.body ?? '').replace(/\s+/g, ' ').slice(0, 1500), ...(forChecks ? { left } : {}) };
+  }));
+}
+
 /** A step being worked on, and what it still needs (stepProgress's `missing`). */
 export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind'>; want: number; have: number; missing: readonly string[] }
 
@@ -91,6 +112,8 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entri
     // A step's job goes first in the topic too: an agent with only a topic still learns what this run is for.
     else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = job ? `${stepLine(nb, job)}\n\n${nb.statement || nb.title}` : nb.statement || nb.title;
     else if (n === 'STEP' && job) out[name] = stepLine(nb, job);
+    else if (n === 'CHECKS') out[name] = JSON.stringify(nb.checks);
+    else if (n === 'OPTIONS' && entries) out[name] = optionsInput(nb, entries, job?.step.kind === 'check');
     // An agent that files directly needs the notebook's field keys and roles.
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
   }
@@ -107,6 +130,10 @@ export interface KeeperOutcome {
   factsDropped?: number;
   /** The run gave its own <notebook> block, filed as is (no keeper model). */
   direct?: boolean;
+  /** Checks ticked on options (only from an agent's own code, which confirmed each with a quote). */
+  checksMet?: number;
+  /** Options ruled out because they fail a check. */
+  checksFailed?: number;
   skipped: number;
   criteriaMet: number;
   summary?: string;
@@ -148,9 +175,22 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   const byId = new Map(store.entries(nb.id, 1000).map((e) => [e.id, e]));
   // Setup: facts for options the notebook already has, by id.
   let factsSet = 0;
+  let checksMet = 0;
+  let checksFailed = 0;
   for (const f of Array.isArray(parsed.facts) ? parsed.facts.slice(0, 100) : []) {
-    const x = f as { id?: unknown; data?: unknown; fingerprint?: unknown };
-    if (typeof x.id !== 'string' || !x.data || typeof x.data !== 'object') continue;
+    const x = f as { id?: unknown; data?: unknown; fingerprint?: unknown; checked?: unknown; ruleOut?: unknown };
+    if (typeof x.id !== 'string') continue;
+    // Checks are ticked, and options ruled out for failing one, only by an
+    // agent's own code (it confirmed the quote); a model's say-so isn't a check.
+    const own0 = byId.get(x.id);
+    if (opts.trusted && own0?.kind === 'option') {
+      for (const c of Array.isArray(x.checked) ? x.checked : []) {
+        const check = typeof c === 'string' ? nb.checks.find((k) => k.toLowerCase() === c.trim().toLowerCase()) : undefined;
+        if (check && !(own0.checked ?? []).some((d) => d.toLowerCase() === check.toLowerCase())) { store.checkOption(nb.id, x.id, check, true); checksMet++; }
+      }
+      if (typeof x.ruleOut === 'string' && x.ruleOut.trim() && !own0.ruledOut) { store.ruleOut(nb.id, x.id, x.ruleOut.trim().slice(0, 300), `agent:${agentId}`); checksFailed++; }
+    }
+    if (!x.data || typeof x.data !== 'object') continue;
     const own = byId.get(x.id);
     const data = grounded(x.data as Record<string, unknown>, `${own ? `${own.title}\n${own.body}\n` : ''}${opts.source ?? ''}`) ?? {};
     if (store.setOptionFacts(nb.id, x.id, data, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
@@ -202,7 +242,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
@@ -223,7 +263,7 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
 export function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
 /**
@@ -234,8 +274,10 @@ export function directBlock(output: string): string | undefined {
   const block = extractTaggedJson(output, 'notebook');
   if (!block) return undefined;
   try {
-    const v = JSON.parse(block) as { entries?: unknown };
-    return Array.isArray(v.entries) && v.entries.length > 0 ? `<notebook>${block}</notebook>` : undefined;
+    const v = JSON.parse(block) as { entries?: unknown; facts?: unknown };
+    // Entries, or checks on options it already has (a checker's own verified block).
+    const checks = Array.isArray(v.facts) && v.facts.some((f) => !!f && typeof f === 'object' && ('checked' in f || 'ruleOut' in f));
+    return (Array.isArray(v.entries) && v.entries.length > 0) || checks ? `<notebook>${block}</notebook>` : undefined;
   } catch { return undefined; }
 }
 

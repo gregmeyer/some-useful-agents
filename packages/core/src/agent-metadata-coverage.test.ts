@@ -67,6 +67,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'notebook-facets': 'notebook only: groups long facts into short filter labels, never proposed',
+  'notebook-checker': 'notebook only: checks options against the notebook\'s checks in a check step, never proposed',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
   'board-builder': 'invoked by New board from a request (/boards/new)',
