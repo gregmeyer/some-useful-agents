@@ -10,6 +10,7 @@ import type { Agent, AgentNode, NodeOutput, OnlyIfCondition } from './agent-v2-t
 import type { Run } from './types.js';
 import type { DagExecutorDeps, DagExecuteOptions } from './dag-executor.js';
 import type { SpawnProgress } from './node-spawner.js';
+import { agentCallChainRefusal } from './agent-tool.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -199,6 +200,23 @@ function executeSwitchNode(
 
 // ── Agent-invoke ───────────────────────────────────────────────────────
 
+/**
+ * A sub-run's place in the call chain (one level deeper, this agent added),
+ * or why it can't run: a cycle (A → B → A) or deeper than agent calls go.
+ * It cancels with its parent.
+ */
+function subRunChain(
+  parentAgent: Agent,
+  parentOptions: DagExecuteOptions,
+  calleeId: string,
+): { options: Pick<DagExecuteOptions, 'agentCallDepth' | 'agentCallStack' | 'signal'> } | { error: string } {
+  const stack = parentOptions.agentCallStack ?? [parentAgent.id];
+  const depth = parentOptions.agentCallDepth ?? 0;
+  const why = agentCallChainRefusal(calleeId, stack, depth);
+  if (why) return { error: why };
+  return { options: { agentCallDepth: depth + 1, agentCallStack: [...stack, calleeId], ...(parentOptions.signal ? { signal: parentOptions.signal } : {}) } };
+}
+
 export async function executeAgentInvokeNode(
   node: AgentNode,
   outputs: Map<string, NodeOutput>,
@@ -220,6 +238,8 @@ export async function executeAgentInvokeNode(
   if (!subAgent) {
     return { ok: false, error: `Sub-agent "${config.agentId}" not found in store` };
   }
+  const chain = subRunChain(parentAgent, parentOptions, subAgent.id);
+  if ('error' in chain) return { ok: false, error: chain.error };
 
   const parentInputs = effectiveInputs(parentAgent, parentOptions.inputs ?? {});
   const subInputs: Record<string, string> = {};
@@ -236,6 +256,7 @@ export async function executeAgentInvokeNode(
       inputs: subInputs,
       parentRunId,
       parentNodeId: node.id,
+      ...chain.options,
     },
     deps,
   );
@@ -297,6 +318,8 @@ export async function executeLoopNode(
   if (!subAgent) {
     return { ok: false, error: `Loop sub-agent "${config.agentId}" not found in store` };
   }
+  const chain = subRunChain(parentAgent, parentOptions, subAgent.id);
+  if ('error' in chain) return { ok: false, error: chain.error };
 
   const upstreamId = (node.dependsOn ?? [])[0];
   if (!upstreamId) {
@@ -372,6 +395,7 @@ export async function executeLoopNode(
         inputs: subInputs,
         parentRunId,
         parentNodeId: node.id,
+        ...chain.options,
       },
       deps,
     );
