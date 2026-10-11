@@ -298,6 +298,32 @@ it exited 0. An `undetermined` outcome leaves the thread open.
 
 See [outcome detection](outcome-detection.md).
 
+### A fix can call another agent instead of rewriting this one
+
+When sua asks `agent-analyzer` for a fix from a conversation, the analyzer now
+gets the list of your installed agents (the same catalog it gets from an agent's
+**Suggest improvements**). It decides which kind of fix it is:
+
+- **The agent's own job is broken** (a wrong prompt, a bad command, a node
+  that fails): it fixes that node.
+- **The agent is missing a piece of work another agent already does** (a lookup
+  it can't do, data it never fetches): it adds an `agent-invoke` step that calls
+  that agent and feeds its result to the next step, instead of growing a prompt
+  to do the other agent's job. The called agent is unchanged and keeps working
+  for everyone who uses it.
+
+The edit card lists what changes in plain words above the diff, for example:
+
+- **New step:** "enrich calls firmographic-research, after synthesize"
+- **Prompt:** "synthesize's prompt is rewritten"
+- **Order:** "tidy now runs after search"
+- **New input:** "REGION"
+
+![A fix card for an example agent: New step, enrich calls example-firmographics after synthesize; its prompt is rewritten; a new input](images/agent-fix-calls-agent.png)
+
+A called agent must be installed, and calls are limited to 3 levels with no
+loops (see [flows](flows.md#agent-invoke)).
+
 ### A fix from a notebook doesn't change a shared agent
 
 A fix sua proposes in a notebook's conversation can target an agent that other

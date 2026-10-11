@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentStore, InboxStore, RunStore, parseAgent, type InboxActionMeta } from '@some-useful-agents/core';
 import { maybeAutoProposeEditorAction } from './inbox-engine.js';
+import { enrichAgentAnalyzerInputs } from './inbox-catalog.js';
 import { parseActionMeta } from './inbox-shared.js';
 
 let dir: string;
@@ -106,5 +107,19 @@ describe('maybeAutoProposeEditorAction', () => {
 
     const editors = inboxStore.listResponses(msg.id).filter((r) => parseActionMeta(r)?.agentId === 'agent-editor');
     expect(editors).toHaveLength(1);
+  });
+});
+
+describe('enrichAgentAnalyzerInputs', () => {
+  it('gives the analyzer your agents, so a fix can call one instead of growing a prompt', () => {
+    const ctx = setup();
+    agentStore.upsertAgent(parseAgent(CORRECTED_YAML), 'dashboard', 'fixture');
+    agentStore.upsertAgent(parseAgent(['id: firmographics', 'name: Firmographics', 'description: Looks up revenue and headcount', 'status: active', 'nodes:', '  - id: a', '    type: shell', '    command: echo hi'].join('\n')), 'dashboard', 'fixture');
+    const out = enrichAgentAnalyzerInputs(ctx, 'markets-today', {});
+    expect(out.AGENT_YAML).toContain('id: markets-today');
+    expect(out.DISCOVERY_CATALOG).toContain('AVAILABLE AGENTS');
+    expect(out.DISCOVERY_CATALOG).toContain('firmographics');
+    // A catalog triage passed is kept.
+    expect(enrichAgentAnalyzerInputs(ctx, 'markets-today', { DISCOVERY_CATALOG: 'given' }).DISCOVERY_CATALOG).toBe('given');
   });
 });

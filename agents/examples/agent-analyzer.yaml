@@ -90,6 +90,24 @@ nodes:
       control-flow patterns, and sub-agent invocations. Always suggest both signal:
       and outputWidget: when the agent produces structured output.
 
+      FIX, OR CALL ANOTHER AGENT — decide before you change anything:
+      - When the agent's OWN job is broken (a wrong prompt, a bad command, a
+        missing input, a node that fails), fix that node. That is an edit.
+      - When the agent is missing a whole piece of WORK (data it never fetches,
+        a lookup it can't do, a second job bolted onto its first) and an agent
+        in AVAILABLE AGENTS above already does that work, CALL it: add an
+        `agent-invoke` node with `agentInvokeConfig: {agentId, inputMapping}`
+        (map each of that agent's inputs from one of this agent's inputs, in
+        double-brace inputs.NAME syntax, or from `$upstream.<node>.result`), and
+        have the next node read its output (double-brace upstream.<id>.result in
+        a prompt, `$UPSTREAM_<ID>_RESULT` in a shell command). Prefer this to
+        growing a prompt to do the other agent's job: the called agent keeps
+        working for everyone who uses it.
+      - Only call agents listed in AVAILABLE AGENTS, by their exact id. Never the
+        agent itself, and never one that calls this agent back. Keep it to one
+        or two calls; agent calls go at most 3 levels deep.
+      - Say which you chose in <details> ("Adds a call to X for Y because …").
+
       {{inputs.FOCUS}}
 
       LAST RUN OUTPUT (if available, use this to identify runtime issues like
@@ -141,6 +159,7 @@ nodes:
       - Template refs in prompts use double-brace inputs.NAME syntax (not bare NAME or #inputs.NAME).
       - conditional nodes MUST have conditionalConfig with a predicate.
       - switch nodes MUST have switchConfig with field + cases.
+      - agent-invoke nodes MUST have agentInvokeConfig with an agentId from AVAILABLE AGENTS.
       - outputWidget.type must be one of: dashboard, key-value, diff-apply, raw.
       - outputWidget.fields[].type must be one of: text, code, badge, action, metric, stat.
       - outputWidget field names must match keys in the agent's JSON output.
