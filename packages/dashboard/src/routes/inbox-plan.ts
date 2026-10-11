@@ -480,6 +480,22 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `notebook-step` acts on the notebook's current step: MOVE "1" moves on
+    // from it with what it found (when they say to stop, skip or move on), else
+    // it runs it (Continue, Try again). A card to approve, like the step's own.
+    if (type === 'notebook-step') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const nbId = typeof raw.NOTEBOOK === 'string' ? raw.NOTEBOOK : '';
+      if (!nbId) { rejected.push({ agentId: type, reason: 'notebook-step needs inputs.NOTEBOOK' }); continue; }
+      const move = raw.MOVE === '1' || raw.MOVE === 1 || raw.MOVE === true;
+      accepted.push({
+        kind: 'action', status: 'proposed', agentId: type, effect: 'write',
+        inputs: { NOTEBOOK: nbId, ...(typeof raw.STEP === 'string' && raw.STEP ? { STEP: raw.STEP } : {}), ...(move ? { MOVE: '1' } : {}) },
+        rationale: rationaleRaw || undefined,
+        ctaLabel: move ? 'Move on' : 'Run the step',
+      });
+      continue;
+    }
     // `arrange-board` rearranges the board the operator is on: inputs.BOARD (id)
     // + inputs.OPS (board-place ops). Shape here; the card previews, Apply saves.
     if (type === 'arrange-board') {

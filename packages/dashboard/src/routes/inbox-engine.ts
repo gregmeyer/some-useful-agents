@@ -1143,7 +1143,14 @@ export async function executeNotebookStep(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
 ): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
-  const { startNotebookStep } = await import('../lib/notebook-steps.js');
+  const { startNotebookStep, moveOnFromStep } = await import('../lib/notebook-steps.js');
+  // Move on: keep what the step found, mark it done, and start the next.
+  if (meta.inputs.MOVE === '1') {
+    const m = moveOnFromStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
+    if (!m.moved) return { status: 'failed', refusalReason: m.reason ?? 'It could not move on.' };
+    const then = m.next?.started ? ` Working on **${m.next.step!.title}** now; I'll say here when it's done.` : m.next?.reason ? ` ${m.next.reason}` : ' Next is yours: pick the final set with Decide.';
+    return { status: 'completed', summary: `Moved on from **${m.step!.title}**, keeping what it found.${then}` };
+  }
   const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' ? meta.inputs.WAS : undefined;
   const out = startNotebookStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP, expect: was });
   if (!out.started) return { status: 'failed', refusalReason: out.reason ?? 'It could not start.' };

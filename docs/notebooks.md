@@ -345,16 +345,19 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 
 ![An example notebook with four steps: the first has met its goal, and the header's main button reads Next step](images/notebook-steps.png)
 
-While a notebook has steps left, the main button in its header is **Next step →**. Hover it to see the step it starts ("Step 2 of 4: Source firmographics"). It reads **Try again** for a stuck step, **Finish** after the last one, and "Working on step N…" while a step runs. **Decide…** steps aside until the next move is yours. The pipeline's **Run the pipeline now** button comes back once every step is done.
+While a notebook has steps left, the main button in its header is **Next step →**. Hover it to see the step it starts ("Step 2 of 4: Source firmographics"). For a step that stopped short it reads **Move on** or **Try again**, with the other beside it; **Finish** after the last one; and "Working on step N…" while a step runs, with **Stop** beside it. **Decide…** steps aside until the next move is yours. The pipeline's **Run the pipeline now** button comes back once every step is done.
 
 1. **The agent gets the step's job.** It goes first in the agent's notebook input (`GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF`) and its topic input (`TOPIC`, `QUERY`, `QUESTION` or `SEARCH`), and fills a `STEP` input if the agent declares one. For example: "This step: Source firmographics. Don't look for new options. For these options only, find the missing facts, each with a source: …". The agent itself isn't changed.
 2. **What it finds is filed,** the same way as a pipeline run.
 3. **The step's goal is checked.** Short of the goal, the agent runs again with what's still missing, up to 3 times per press. It stops early when a run gets no closer.
 4. **It pauses.**
    - **Goal met:** the step waits for you. sua says so in the notebook's conversation ("Step 1 of 4 is done: Find 10 companies (12 of 10 found). Next is Source firmographics, with firmographic-research.") with a **Continue** card, and the header's **Next step →** does the same. Either marks the step done and starts the next.
-   - **Stuck:** sua lists what's still missing, with a **Try again** card. You can also tell sua what to do differently, for example change the step or its agent.
+   - **Stuck:** sua lists what's still missing, with two cards: **Move on** and **Try again**. Move on keeps what the step found, marks it done ("3 of 5 found · moved on") and starts the next step (or leaves Decide to you). Try again runs it once more with what's still missing. You can also tell sua what to do differently, for example change the step or its agent, or just say to stop or move on, and it proposes Move on.
+   - **When its agent can't do it:** a press in which no run got the step any closer (its runs found nothing new, or failed) stops right away, and sua says the agent couldn't get any further and may not be able to find the rest. **Move on** comes first. A step that was still getting closer when it ran out of tries puts **Try again** first.
+
+     ![An example notebook whose sourcing step couldn't get any further: the header's main button is Move on, with Try again beside it](images/notebook-step-move-on.png)
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
-   - **Stopped:** when you stop a step's run (its **Stop** button), the step stops too, as stuck, instead of starting another try.
+   - **Stopped:** **Stop** in the header (or the run's own Stop button) stops the step's run, and the step stops too, as stuck with **Move on** first, instead of starting another try. What earlier runs found is kept.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 

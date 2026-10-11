@@ -112,7 +112,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
           ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
-          <span class="nb-step__meta">${progress} · ${STEP_STATUS[step.status]}</span>
+          <span class="nb-step__meta">${progress} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
@@ -125,7 +125,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
  * the next move is yours (Decide) or the step has no agent yet. Undefined
  * once every step is done (Run runs the pipeline again).
  */
-export function nextStepAction(nb: Notebook): { label: string; hint: string } | { note: string } | undefined {
+export function nextStepAction(nb: Notebook): { label: string; hint: string; moveOn?: boolean; alt?: { label: string; hint: string; moveOn?: boolean } } | { note: string } | undefined {
   const steps = nb.steps ?? [];
   const i = steps.findIndex((x) => x.status !== 'done');
   if (i < 0) return undefined;
@@ -141,9 +141,11 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string } | 
   if (step.kind === 'decide') return { note: `Next: ${step.title}, with Decide.` };
   // A check step without an agent uses sua's checker; find and source need one.
   if (!step.agentId && step.kind !== 'check') return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
-  return step.status === 'stuck'
-    ? { label: 'Try again', hint: `Step ${String(i + 1)} ${of}, ${step.title}, stopped short. Run it again.` }
-    : { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
+  if (step.status !== 'stuck') return { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
+  // Short of its goal: Try again, or Move on with what it found; Move on first when its agent got no further.
+  const again = { label: 'Try again', hint: `Step ${String(i + 1)} ${of}, ${step.title}, stopped short. Run it again.` };
+  const move = { label: 'Move on', hint: `Keep what ${step.title} found and ${next ? `go on to ${next.title}` : 'finish'}.`, moveOn: true };
+  return step.stalled ? { ...move, alt: again } : { ...again, alt: move };
 }
 
 /** The pipeline's button, once there are no steps left (with steps, the header has Next step). */
@@ -515,6 +517,13 @@ function editNotebookForm(nb: Notebook): SafeHtml {
   `;
 }
 
+/** A step button in the header: Next step / Try again run the step; Move on keeps what it found and goes on. */
+function stepButton(nb: Notebook, b: { label: string; hint: string; moveOn?: boolean }, primary: boolean): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  const current = nb.steps?.find((x) => x.status !== 'done');
+  return html`<form method="POST" action="/notebooks/${id}/${b.moveOn ? 'steps/move-on' : 'run'}" class="nb-next__form">${b.moveOn && current ? html`<input type="hidden" name="step" value="${current.id}">` : html``}<button type="submit" class="btn ${primary ? 'btn--primary ' : ''}btn--sm nb-next" title="${b.hint}" aria-label="${b.label}: ${b.hint}">${b.label}${primary ? ' →' : ''}</button></form>`;
+}
+
 /**
  * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
  * button that opens its form below it; one open at a time (notebook-page.js.ts).
@@ -527,9 +536,9 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
   return html`
     <div class="nb-acts">
       ${running && nb.steps?.some((x) => x.status !== 'done')
-        ? html`<button type="button" class="btn btn--primary btn--sm nb-next" disabled>Working on step ${String(running.step)}…</button>`
+        ? html`<button type="button" class="btn btn--primary btn--sm nb-next" disabled>Working on step ${String(running.step)}…</button><form method="POST" action="/notebooks/${id}/steps/stop" class="nb-next__form"><button type="submit" class="btn btn--sm nb-next" title="Stop this step's run. It keeps what it found so far, and you can move on or try again." aria-label="Stop step ${String(running.step)}">Stop</button></form>`
         : step
-          ? html`<form method="POST" action="/notebooks/${id}/run" class="nb-next__form"><button type="submit" class="btn btn--primary btn--sm nb-next" title="${step.hint}" aria-label="${step.label}: ${step.hint}">${step.label} →</button></form>`
+          ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
           : html``}
       ${nb.status === 'active' ? html`
         <details class="nb-act nb-decide" data-nb-act>

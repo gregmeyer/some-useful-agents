@@ -437,6 +437,58 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(store.passes(nb.id)[0].note).toBe('slow-source: stopped');
   });
 
+  it('a step still getting closer when it runs out of tries offers Try again first; Stop and Move on from the header', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const counter = join(dir, 'n2');
+    agentStore.createAgent({ id: 'finder2', name: 'Finder', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `n=$(cat ${counter} 2>/dev/null || echo 0); n=$((n+1)); echo $n > ${counter}; echo '<notebook>{"entries":[{"kind":"option","title":"Example Co '$n'"}]}</notebook>'` }] } as never, 'cli');
+    agentStore.createAgent({ id: 'slow-find', name: 'Slow', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'sleep 20' }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Example peers' });
+    store.setSteps(nb.id, [
+      { title: 'Find 5 companies', kind: 'find', agentId: 'finder2', target: 5 },
+      { title: 'Find 9 companies', kind: 'find', agentId: 'slow-find', target: 9 },
+      { title: 'Pick 3', kind: 'decide', target: 3 },
+    ]);
+    const settle = async () => { for (let i = 0; i < 400 && (store.get(nb.id)!.steps ?? []).some((x) => x.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25)); };
+    const page = async () => (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const said = () => InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!);
+
+    // Three runs, each one closer, none enough: Try again first, Move on second.
+    await post(`/notebooks/${nb.id}/run`);
+    await settle();
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', tries: 3, note: '3 of 5 found' });
+    expect(store.get(nb.id)!.steps![0].stalled).toBeUndefined();
+    expect(said().some((r) => r.body.includes('**Find 5 companies** stopped short after 3 tries (3 of 5 found), still getting closer.'))).toBe(true);
+    expect(said().filter((r) => r.role === 'action').map((r) => (JSON.parse(r.metaJson!) as { ctaLabel: string }).ctaLabel)).toEqual(['Try again', 'Move on']);
+    expect(await page()).toContain('>Try again →</button>');
+
+    // Move on from the header: done with what it found, and the next step starts.
+    const moved = await post(`/notebooks/${nb.id}/steps/move-on`, { step: 's1' });
+    expect(decodeURIComponent(moved.headers.location)).toContain('Moved on from Find 5 companies, keeping what it found. Working on Find 9 companies.');
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'done', movedOn: true });
+    // While it runs, the header has Stop.
+    for (let i = 0; i < 200 && !runStore.databaseHandle().prepare("SELECT 1 FROM runs WHERE agentName = 'slow-find' AND status = 'running'").get(); i++) await new Promise((r) => setTimeout(r, 25));
+    expect(await page()).toContain(`action="/notebooks/${nb.id}/steps/stop"`);
+    // A stale Move on (step 1 again) does nothing.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/steps/move-on`, { step: 's1' })).headers.location)).toContain('still running');
+    // Stop: the run is cancelled, the step stops with Move on first, and no second try starts.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/steps/stop`)).headers.location)).toContain('Stopping the step.');
+    await settle();
+    expect(store.get(nb.id)!.steps![1]).toMatchObject({ status: 'stuck', stalled: true, tries: 1 });
+    expect((runStore.databaseHandle().prepare("SELECT count(*) AS n FROM runs WHERE agentName = 'slow-find'").get() as { n: number }).n).toBe(1);
+    expect(await page()).toContain('>Move on →</button>');
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/steps/stop`)).headers.location)).toContain('No step is running.');
+
+    // sua can propose Move on itself when you say to stop a step.
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { accepted, rejected } = parseProposedActions([{ type: 'notebook-step', rationale: 'You said that is enough', inputs: { NOTEBOOK: nb.id, STEP: 's2', MOVE: '1' } }, { type: 'notebook-step', inputs: {} }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-step', ctaLabel: 'Move on', inputs: { NOTEBOOK: nb.id, STEP: 's2', MOVE: '1' } });
+    expect(rejected[0].reason).toBe('notebook-step needs inputs.NOTEBOOK');
+  });
+
   it('works on one step at a time: retries toward its goal, pauses for Continue, and says when it is stuck', async () => {
     const app = await makeApp();
     const post = (path: string) => request(app).post(path)
@@ -484,16 +536,27 @@ describe('notebook pipeline (G2–G3)', () => {
     await settle();
     steps = store.get(nb.id)!.steps!;
     expect(steps[0].status).toBe('done');
-    expect(steps[1]).toMatchObject({ status: 'stuck', tries: 1, note: '3 of 5 found' });
+    // Its agent found nothing new: the step stalled, and Move on comes first.
+    expect(steps[1]).toMatchObject({ status: 'stuck', stalled: true, tries: 1, note: '3 of 5 found' });
     said = thread();
-    expect(said.some((r) => r.body.includes('**Find 5 companies** stopped short after 1 try (3 of 5 found). Still needed:\n- 2 more'))).toBe(true);
-    expect(JSON.parse(said.filter((r) => r.role === 'action').at(-1)!.metaJson!)).toMatchObject({ ctaLabel: 'Try again', inputs: { STEP: 's2', WAS: 'stuck' } });
-    expect(await page()).toContain('>Try again →</button>');
+    expect(said.some((r) => r.body.includes("**Find 5 companies** couldn't get any further (3 of 5 found): its last run found nothing new, so its agent may not be able to find the rest. Still needed:\n- 2 more\n\n**Move on** keeps what it found and goes on to **Pick the final set**. **Try again** runs it once more."))).toBe(true);
+    const cards = said.filter((r) => r.role === 'action').slice(-2).map((r) => JSON.parse(r.metaJson!) as { ctaLabel: string; inputs: Record<string, string> });
+    expect(cards.map((c) => c.ctaLabel)).toEqual(['Move on', 'Try again']);
+    expect(cards[0].inputs).toMatchObject({ STEP: 's2', WAS: 'stuck', MOVE: '1' });
+    p0 = await page();
+    expect(p0).toContain('>Move on →</button>');
+    expect(p0).toContain('<input type="hidden" name="step" value="s2"><button type="submit" class="btn btn--primary btn--sm nb-next"');
+    expect(p0).toContain('class="btn btn--sm nb-next" title="Step 2 of 3, Find 5 companies, stopped short. Run it again." aria-label="Try again: Step 2 of 3, Find 5 companies, stopped short. Run it again.">Try again</button>');
     // The old Continue card is stale now: it does nothing.
     expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), JSON.parse(card.metaJson!))).toMatchObject({ status: 'failed', refusalReason: 'It has already moved on from that step.' });
 
-    // A decide step is yours: Run says so rather than running anything.
-    store.updateStep(nb.id, 's2', { status: 'done' });
+    // Move on (the card): the step is done with what it found, and the next is yours.
+    const moved = await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[0] as never);
+    expect(moved).toMatchObject({ status: 'completed', summary: 'Moved on from **Find 5 companies**, keeping what it found. Next is yours: pick the final set with Decide.' });
+    expect(store.get(nb.id)!.steps![1]).toMatchObject({ status: 'done', movedOn: true, note: '3 of 5 found, moved on' });
+    expect(await page()).toContain('3 of 5 found · moved on');
+    // Its Try again card is stale now too.
+    expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[1] as never)).toMatchObject({ status: 'failed' });
     // Deciding is yours: Decide is the main button again, and there's no Next step.
     p0 = await page();
     expect(p0).toContain('Next: Pick the final set, with Decide.');
