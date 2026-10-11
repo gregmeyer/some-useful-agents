@@ -154,14 +154,29 @@ describe('timeline searches', () => {
       'used-car-coverage-sweep|Search returned 2 options|run fe433a7a',
     ]);
     expect(t.find((e) => e.title === 'RAV4 → Checked')!.kind).toBe('move');
-    // Failed runs of the agents that feed it show too (they leave nothing behind).
+    // Failed runs of the agents that feed it show too (they leave nothing behind),
+    // when they were run for this notebook; the same agent's failure for another notebook doesn't.
+    const later = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const pass = s.startPass(nb.id, 'pipeline');
+    s.addRunToPass(pass, 'ab5419bc-9');
     const hist = Object.assign(Object.create(s), {
       recentRuns: (agentId: string) => agentId === 'used-car-coverage-sweep'
-        ? [{ id: 'ab5419bc-9', status: 'failed', startedAt: new Date(Date.now() + 1000).toISOString(), error: 'Node "autotrader-sweep" timed out' }, { id: 'old-ok', status: 'completed', startedAt: new Date().toISOString() }]
+        ? [
+          { id: 'elsewhere-1', status: 'failed', startedAt: later(2000), error: 'Node "gather" timed out' },
+          { id: 'ab5419bc-9', status: 'failed', startedAt: later(1000), error: 'Node "autotrader-sweep" timed out' },
+          { id: 'old-ok', status: 'completed', startedAt: new Date().toISOString() },
+        ]
         : [],
+      // Another notebook uses it too.
+      notebooksFedBy: () => [nb.id, 'cabinet'],
     });
-    const failed = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), hist).notebook.timeline[0];
-    expect(failed).toMatchObject({ kind: 'search', who: 'used-car-coverage-sweep', title: 'Search failed', body: 'Node "autotrader-sweep" timed out', linkText: 'run ab5419bc', faded: true });
+    const t2 = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), hist).notebook.timeline;
+    expect(t2[0]).toMatchObject({ kind: 'search', who: 'used-car-coverage-sweep', title: 'Search failed', body: 'Node "autotrader-sweep" timed out', linkText: 'run ab5419bc', faded: true });
+    expect(t2.some((e) => e.linkText === 'run elsewher')).toBe(false);
+    // An agent only this notebook uses: all its failures are this notebook's (it was run from its own page, say).
+    const only = Object.assign(Object.create(hist), { notebooksFedBy: () => [nb.id] });
+    expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), only).notebook.timeline[0]).toMatchObject({ title: 'Search failed', linkText: 'run elsewher' });
+    expect(t2.filter((e) => e.title === 'Search failed').map((e) => e.linkText)).toEqual(['run ab5419bc']);
   });
 });
 
