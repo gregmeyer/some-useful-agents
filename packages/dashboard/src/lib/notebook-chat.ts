@@ -6,9 +6,10 @@
  */
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
-  type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField,
+  type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
+import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -183,6 +184,30 @@ export function parseNotebookPipeline(ctx: Ctx, agentsRaw: string, cadence: stri
     try { validateScheduleInterval(c, {}); } catch { return { error: `"${c}" isn't a schedule sua understands.` }; }
   }
   return { agents, cadence: c };
+}
+
+/**
+ * Steps sua proposed in a notebook's conversation (a JSON list of {title,
+ * kind, agent, target}), checked: at most 6, known kinds, and every agent
+ * named must be installed (a check step may name none: sua's checker).
+ */
+export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookStep[]; error?: string } {
+  let list: unknown;
+  try { list = JSON.parse(raw); } catch { return { error: 'The steps weren\'t a JSON list.' }; }
+  if (!Array.isArray(list) || list.length === 0) return { error: 'No steps.' };
+  const named = list.map((x) => (x && typeof x === 'object' ? (x as { agent?: unknown; agentId?: unknown }) : {})).map((x) => (typeof x.agentId === 'string' ? x.agentId : typeof x.agent === 'string' ? x.agent : '')).filter(Boolean);
+  const missing = named.filter((a) => { const g = ctx.agentStore.getAgent(a); return !g || g.status === 'archived'; });
+  if (missing.length) return { error: `Not installed: ${[...new Set(missing)].join(', ')}.` };
+  const { steps } = draftSteps(list, new Set(named));
+  return steps ? { steps } : { error: 'None of those were steps (each needs a title and a kind: find, source, check or decide).' };
+}
+
+/** The steps card's preview: each step, its agent, and what it replaces. */
+export function describeStepsChange(nb: Notebook | undefined, steps: readonly NotebookStep[]): Array<{ what: string; before: string; after: string }> {
+  const by = (x: NotebookStep) => x.agentId ?? (x.kind === 'check' ? 'sua’s checker' : x.kind === 'decide' ? 'you' : 'needs an agent');
+  const out = steps.map((x, i) => ({ what: `Step ${String(i + 1)}`, before: nb?.steps?.[i] ? nb.steps[i].title : '—', after: `${x.title} · ${by(x)}` }));
+  for (let i = steps.length; i < (nb?.steps?.length ?? 0); i++) out.push({ what: `Step ${String(i + 1)}`, before: nb!.steps![i].title, after: '(removed)' });
+  return out;
 }
 
 export function describePipelineChange(nb: Notebook | undefined, agents: string[], cadence: string): Array<{ what: string; before: string; after: string }> {

@@ -100,11 +100,28 @@ nodes:
         options for THIS goal (none fits → []). Never invent ids. Agents
         marked [already fills: …] have filled notebooks before: prefer one
         of those when it fits this goal, over one that never has.
+      - "steps": the work in order, as 2–5 steps sua takes one at a time,
+        each {"title", "kind", "agent", "target"?}. Kinds:
+        "find" (search for options; "target": how many they want in the
+        running, else 10 for companies or leads, 5 otherwise),
+        "source" (look up facts a search won't give, e.g. headcount,
+        revenue, founding year for companies),
+        "check" (confirm the checks above on each option, with a source),
+        "decide" (they pick the final set or the one; "target": how many).
+        Start with find; end with decide. Add source only when the facts to
+        note need their own lookup, and check only when there are checks
+        that need evidence. "title" is short and specific ("Find 10
+        companies", "Source headcount and revenue", "Check value to
+        customers", "Pick the final comp set"). "agent": an id from their
+        agents above whose description fits that step's job (one agent may
+        serve several steps), else "" (a check step with "" uses sua's
+        checker). Never invent ids. A simple goal (one product) can be
+        just find + decide.
       - "cadence": a five-field cron schedule ONLY if they asked for a
         rhythm ("every morning" → "0 7 * * *"); else "".
       - "why": one short sentence on anything you assumed.
 
       Reply with only this, as valid JSON:
       <draft>
-      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "cadence": "", "why": ""}
+      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "why": ""}
       </draft>

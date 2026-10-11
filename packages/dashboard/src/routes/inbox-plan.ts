@@ -451,16 +451,18 @@ export function parseProposedActions(
     }
     // `notebook-add` puts what the operator said into a notebook (applied as you
     // talk); `notebook-pipeline` sets its agents + schedule (a card to approve).
-    if (type === 'notebook-add' || type === 'notebook-pipeline') {
+    // `notebook-steps` lays out its work as steps (a card to approve).
+    if (type === 'notebook-add' || type === 'notebook-pipeline' || type === 'notebook-steps') {
       const inputs: Record<string, string> = {};
       if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
         for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
           if (typeof v === 'string') inputs[k] = v;
-          else if ((k === 'CHANGES' || k === 'AGENTS') && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+          else if ((k === 'CHANGES' || k === 'AGENTS' || k === 'STEPS') && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
         }
       }
-      if (!inputs.NOTEBOOK || (type === 'notebook-add' ? !inputs.CHANGES : !inputs.AGENTS)) {
-        rejected.push({ agentId: type, reason: `${type} needs inputs.NOTEBOOK and inputs.${type === 'notebook-add' ? 'CHANGES' : 'AGENTS'}` });
+      const need = type === 'notebook-add' ? 'CHANGES' : type === 'notebook-steps' ? 'STEPS' : 'AGENTS';
+      if (!inputs.NOTEBOOK || !inputs[need]) {
+        rejected.push({ agentId: type, reason: `${type} needs inputs.NOTEBOOK and inputs.${need}` });
         continue;
       }
       if (type === 'notebook-add') {
@@ -474,7 +476,7 @@ export function parseProposedActions(
         inputs,
         rationale: rationaleRaw || undefined,
         effect: 'write',
-        ctaLabel: type === 'notebook-add' ? 'Add' : 'Set it up',
+        ctaLabel: type === 'notebook-add' ? 'Add' : type === 'notebook-steps' ? (inputs.RUN === '1' ? 'Set them up and start' : 'Set them up') : 'Set it up',
       });
       continue;
     }

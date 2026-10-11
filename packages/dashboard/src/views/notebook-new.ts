@@ -7,6 +7,7 @@
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
+import type { NotebookStep } from '@some-useful-agents/core';
 import type { NotebookDraft, DraftState } from '../lib/notebook-draft.js';
 
 const CADENCES: Array<[string, string]> = [['', 'when I ask'], ['0 7 * * *', 'every morning'], ['0 7 * * 1,4', 'twice a week'], ['0 7 * * 1', 'every Monday']];
@@ -97,6 +98,34 @@ function rows(name: string, values: readonly string[], label: string): SafeHtml 
     </div>`;
 }
 
+const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { find: 'find', source: 'source', check: 'check', decide: 'decide' };
+
+/**
+ * The work in steps: each with its title (editable), what kind of step it
+ * is, and which of your agents does it (a check step can use sua's checker;
+ * decide is yours). Removable; sua takes them one at a time.
+ */
+function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: string; description: string }>): SafeHtml {
+  return html`<div class="nbd-field"><span class="nbd-field__label">Steps</span>
+    <ol class="nbd-steps">
+      ${steps.map((st) => html`<li class="nbd-row nbd-step">
+        <input type="hidden" name="step_kind" value="${st.kind}">
+        <input type="hidden" name="step_target" value="${st.target !== undefined ? String(st.target) : ''}">
+        <span class="nbd-step__kind">${STEP_KIND_WORD[st.kind]}</span>
+        <input name="step_title" value="${st.title}" aria-label="Step" class="nbd-step__title">
+        ${st.kind === 'decide'
+          ? html`<input type="hidden" name="step_agent" value=""><span class="nbd-step__by">you</span>`
+          : html`<select name="step_agent" aria-label="Agent for ${st.title}" class="nbd-step__agent">
+              <option value="">${st.kind === 'check' ? 'sua’s checker' : 'needs an agent'}</option>
+              ${agents.map((a) => html`<option value="${a.id}"${a.id === st.agentId ? unsafeHtml(' selected') : unsafeHtml('')}>${a.id}</option>`) as unknown as SafeHtml[]}
+            </select>`}
+        <button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${st.title}">×</button>
+      </li>`) as unknown as SafeHtml[]}
+    </ol>
+    <span class="nbd-field__hint">sua takes them one at a time and checks in after each.</span>
+  </div>`;
+}
+
 /** The draft to check: every part editable, then Start (POST /notebooks). */
 export function renderDraftReview(id: string, draft: NotebookDraft, agents: ReadonlyArray<{ id: string; description: string }>, error?: string): SafeHtml {
   const offered = draft.suggested ?? draft.pipeline;
@@ -117,6 +146,7 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
             <textarea name="statement" rows="2" class="form-field">${draft.statement}</textarea></label>
           <div class="nbd-field"><span class="nbd-field__label">Limits</span>${chips('params', draft.params, 'Limit')}</div>
           <div class="nbd-field"><span class="nbd-field__label">Done when</span>${rows('criteria', draft.criteria, 'Done when')}</div>
+          ${draft.steps?.length ? stepRows(draft.steps, agents) : html``}
         </div>
         <div class="nbd-draft__side">
           <div class="nbd-field"><span class="nbd-field__label">For each option sua notes</span>
@@ -131,7 +161,9 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
             ${offered.length
               ? html`<div class="nbd-agents">${agents.filter((a) => offered.includes(a.id)).map((a) => html`
                   <label class="nbd-agent" title="${a.description}"><input type="checkbox" name="pipeline" value="${a.id}"${draft.pipeline.includes(a.id) ? unsafeHtml(' checked') : unsafeHtml('')}><span>${a.id}</span></label>`) as unknown as SafeHtml[]}</div>`
-              : html`<p class="nbd-field__hint">None of your agents search for this yet. Once it's started, ask sua to build one.</p>`}
+              : draft.steps?.length
+                ? html`<p class="nbd-field__hint">The steps do the searching. Once they're done, a search here can keep the notebook fresh.</p>`
+                : html`<p class="nbd-field__hint">None of your agents search for this yet. Once it's started, ask sua to build one.</p>`}
             <label class="nbd-cadence">Search
               <select name="cadence">${cadence.map(([v, l]) => html`<option value="${v}"${v === draft.cadence ? unsafeHtml(' selected') : unsafeHtml('')}>${l}</option>`) as unknown as SafeHtml[]}</select>
             </label>
