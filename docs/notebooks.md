@@ -305,6 +305,29 @@ With **Edit** in the header, list the agents that gather for the notebook, one i
 - **Criteria:** if an agent's output clearly shows a criterion is met, the keeper ticks it and adds a "Met: …" note saying why. It doesn't tick on a guess.
 - **The last run's summary** shows under the diagram, e.g. "8 new entries · listings: 8 new". A failed agent or a missing one is noted there too, and the rest of the pipeline still runs. A notebook runs one pipeline at a time.
 
+## Steps: the work in order
+
+A notebook can lay out its work as steps instead of running every search at once. For a comp set, that could be:
+1. find 10 companies;
+2. source their employees, revenue and founding year;
+3. check each against "value to customers";
+4. pick the final set.
+
+Each step has a **kind**, which decides its goal. The notebook checks that goal itself, with no model:
+
+| Kind | Its goal | Shown as |
+|------|----------|----------|
+| `find` | at least `target` options in the running (5 if not given) | "8 of 10 found" |
+| `source` | every option in the running has each fact the notebook tracks (not its link, picture or fit score) | "31 of 40 sourced" |
+| `check` | every option in the running has each of the notebook's checks ticked; one that fails is ruled out, so it's no longer in the running | "12 of 12 checked" |
+| `decide` | you've confirmed the final set of `target` options | "pick 10" |
+
+- **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
+- **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
+- **Statuses:** to do, running, goal met, stuck or done.
+- **Setting them:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
+- **Coming:** running a step until its goal is met, pausing for **Continue** after each, sua's checker, and steps drafted from your sentence or the conversation.
+
 ## Coming next
 
 - **G4:** one schedule for the notebook (runs now; see above). Still to come: each run shows what's new or changed, and progress against the criteria.

@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntry, type NotebookEntryKind, type NotebookPassKind,
+  trackedFacts,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -39,8 +40,7 @@ const BRIEF_OPTIONS = 40;
 export function notebookGaps(nb: Notebook, entries: readonly NotebookEntry[]): string {
   const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   if (!options.length) return '';
-  // Facts worth looking up: not the link or picture (an option has those or doesn't), not the fit score (sua gives it).
-  const tracked = nb.fields.filter((f) => f.role !== 'link' && f.role !== 'image' && f.role !== 'score' && f.type !== 'image' && f.type !== 'url');
+  const tracked = trackedFacts(nb);
   const missing = (o: (typeof options)[number]) => tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '').map((f) => f.label.toLowerCase());
   const shown = options.slice(0, BRIEF_OPTIONS);
   const gaps = shown.filter((o) => missing(o).length);

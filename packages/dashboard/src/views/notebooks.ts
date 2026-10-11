@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, optionLink, notebookProgress, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, optionLink, notebookProgress, stepProgress, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -84,6 +84,38 @@ export function decisionPlaceholder(leads: readonly Pick<NotebookViewOption, 'na
   return 'What you chose, and why. Or why you stopped looking.';
 }
 
+const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'sourced', check: 'checked', decide: 'chosen' };
+const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
+
+/**
+ * The notebook's work in steps: each with its agent, how far it is toward
+ * its goal ("8 of 10 found") and where it stands. The step being worked on
+ * (the first not done) is marked; what it still needs is its tooltip.
+ */
+export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[]): SafeHtml {
+  const current = steps.find((x) => x.status !== 'done');
+  return html`<ol class="nb-steps" aria-label="Steps">
+    ${steps.map((step, i) => {
+      const p = stepProgress(nb, entries, step);
+      const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : step.kind === 'decide' ? 'you' : '');
+      const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
+      const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
+      const progress = step.kind === 'decide' && step.status !== 'done' ? `pick ${String(p.want)}`
+        : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
+          : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
+      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}" title="${missing || step.note || ''}">
+        <span class="nb-step__n" aria-hidden="true">${step.status === 'done' ? '✓' : String(i + 1)}</span>
+        <span class="nb-step__body">
+          <span class="nb-step__title">${step.title}</span>
+          <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
+          <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
+          <span class="nb-step__meta">${progress} · ${STEP_STATUS[step.status]}</span>
+        </span>
+      </li>`;
+    }) as unknown as SafeHtml[]}
+  </ol>`;
+}
+
 function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
@@ -107,7 +139,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
         </div>
-        ${pipelineDiagram(stages)}
+        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries) : pipelineDiagram(stages)}
         ${nb.pipeline.length ? html`
           <div class="nb-run">
             ${running
