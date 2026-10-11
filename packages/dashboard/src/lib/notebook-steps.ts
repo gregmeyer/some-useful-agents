@@ -42,7 +42,7 @@ export function hasOpenSteps(nb: Pick<Notebook, 'steps'>): boolean {
 /** "8 of 10 found" — a step's progress in a few words. */
 export function progressWords(step: Pick<NotebookStep, 'kind'>, p: Pick<NotebookStepProgress, 'have' | 'want'>): string {
   if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} found`;
-  const unit = step.kind === 'source' ? 'sourced' : step.kind === 'check' ? 'checked' : 'chosen';
+  const unit = step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : 'chosen';
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
 }
 
@@ -168,6 +168,13 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const entries = store.entries(nb.id, 1000);
     const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }));
     store.addRunToPass(passId, run.id);
+    // You stopped it: the step stops too, rather than starting another try.
+    if (run.status === 'cancelled') {
+      store.finishPass(passId, `${agent.id}: stopped`);
+      notes.push('you stopped it');
+      store.updateStep(nb.id, step.id, { tries });
+      break;
+    }
     if (run.status !== 'completed') {
       const why = `${agent.id}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
       store.finishPass(passId, why);

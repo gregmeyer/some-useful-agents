@@ -700,10 +700,11 @@ next, say it was the last one in the running.
   `notebook-steps` (a card they approve) so the notebook takes them one at
   a time and checks in after each:
   `{ "type": "notebook-steps", "rationale": "why these steps",
-     "inputs": { "NOTEBOOK": "<id>", "STEPS": "[{\"title\": \"Find 10 companies\", \"kind\": \"find\", \"agent\": \"account-research\", \"target\": 10}, {\"title\": \"Source headcount and revenue\", \"kind\": \"source\", \"agent\": \"firmographic-research\"}, {\"title\": \"Check value to customers\", \"kind\": \"check\"}, {\"title\": \"Pick the final comp set\", \"kind\": \"decide\", \"target\": 10}]",
+     "inputs": { "NOTEBOOK": "<id>", "STEPS": "[{\"title\": \"Find 10 companies\", \"kind\": \"find\", \"agent\": \"account-research\", \"target\": 10}, {\"title\": \"Source headcount and revenue\", \"kind\": \"source\", \"agent\": \"firmographic-research\", \"facts\": [\"employees\", \"revenue\", \"founded\"]}, {\"title\": \"Check value to customers\", \"kind\": \"check\"}, {\"title\": \"Pick the final comp set\", \"kind\": \"decide\", \"target\": 10}]",
                  "RUN": "1" (start step 1 now, optional) } }`
   Kinds: find (options; target = how many), source (facts the options are
-  missing), check (the notebook's checks, each confirmed with a quote; no
+  missing; "facts" = the notebook's fact keys its agent looks up, when it
+  doesn't look up every fact the notebook tracks), check (the notebook's checks, each confirmed with a quote; no
   agent = sua's checker, which needs the notebook to have checks), decide
   (they pick; target = how many). 2–6 steps, find first, decide last.
   Agents: only installed ones whose description fits that step's job, from

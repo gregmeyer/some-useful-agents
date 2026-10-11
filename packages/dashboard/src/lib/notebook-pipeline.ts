@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntry, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
-  trackedFacts,
+  trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -73,7 +73,7 @@ export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], fo
 }
 
 /** A step being worked on, and what it still needs (stepProgress's `missing`). */
-export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind'>; want: number; have: number; missing: readonly string[] }
+export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind' | 'facts'>; want: number; have: number; missing: readonly string[] }
 
 /**
  * The job a step gives its agent, in a line or a short list: what this run
@@ -84,7 +84,7 @@ export function stepLine(nb: Notebook, job: StepJob): string {
   const list = (xs: readonly string[]) => `${xs.slice(0, 40).map((x) => `- ${x}`).join('\n')}${xs.length > 40 ? `\n- and ${String(xs.length - 40)} more` : ''}`;
   const head = `This step: ${job.step.title}.`;
   if (job.step.kind === 'find') return `${head} Find ${String(Math.max(1, job.want - job.have))} more options that fit (the notebook wants ${String(job.want)} in the running and has ${String(job.have)}). Don't bring back ones it already has.`;
-  if (job.step.kind === 'source') return `${head} Don't look for new options. For these options only, find the missing facts, each with a source:\n${list(job.missing)}`;
+  if (job.step.kind === 'source') return `${head} Don't look for new options. For these options only, find the missing facts${job.step.facts?.length ? ` (only ${stepFacts(nb, job.step).map((f) => f.label.toLowerCase()).join(', ')})` : ''}, each with a source:\n${list(job.missing)}`;
   if (job.step.kind === 'check') return `${head} Don't look for new options. Check each of these options against what's listed after it (${nb.checks.join('; ')}), and say whether it's met, quoting the source:\n${list(job.missing)}`;
   return head;
 }

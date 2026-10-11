@@ -331,7 +331,8 @@ export async function runDispatchedAgentToTerminal(
     );
     return {
       id: run.id,
-      status: run.status,
+      // Stopped from the Stop button: say so, whatever the node reported (a shell step reads it as a timeout).
+      status: abortController.signal.aborted && run.status !== 'completed' ? 'cancelled' : run.status,
       result: typeof run.result === 'string' ? run.result : undefined,
       error: run.error,
     };
