@@ -269,6 +269,8 @@ export interface DashboardContext {
   notebookFacets?: Set<string>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
+  notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
   /** Notebooks trying their options' listing photos right now. */

@@ -1,0 +1,173 @@
+# Notebook Checker — checks a notebook's options against its checks ("Sells
+# enterprise software", "Why people buy is quoted from a customer case
+# study"). A model judges each option against each check, with the words
+# that show it, copied from a page or from the option's own facts; then code
+# confirms those words are really there before anything is ticked. A check
+# met is ticked; one clearly not met rules the option out, with the quote as
+# the reason; anything unconfirmed is left for the next try. Route-
+# dispatched only, by a notebook's check step (dashboard lib/notebook-steps.ts);
+# never proposed in triage.
+
+id: notebook-checker
+name: Notebook Checker
+description: >
+  Checks a notebook's options against its checks, ticking each one only when
+  a quote from a source shows it.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: What the notebook is for, and this step's job.
+  CHECKS:
+    type: string
+    required: true
+    description: JSON list of the notebook's checks.
+  OPTIONS:
+    type: string
+    required: true
+    description: >
+      JSON: [{"id", "name", "facts": {label: value}, "sources": [urls],
+      "text": the option's own notes, "left": [checks not done yet]}].
+
+nodes:
+  - id: judge
+    type: llm-prompt
+    tools: [web-search, web-fetch]
+    maxTurns: 14
+    timeout: 360
+    outputContract:
+      mustMatch: '<verdicts>[\s\S]*?</verdicts>'
+      description: a <verdicts> JSON block
+    prompt: |
+      A notebook is comparing options. It's for:
+      {{inputs.NOTEBOOK}}
+
+      Its checks:
+      {{inputs.CHECKS}}
+
+      The options to check (JSON), each with the checks it still needs
+      ("left"), its facts, its sources and its own notes:
+      {{inputs.OPTIONS}}
+
+      For each option, decide each check in its "left" list:
+        - "met" when a source shows it is true;
+        - "not met" only when a source clearly shows it is false;
+        - "unknown" when you can't find out. Never guess.
+
+      Use the option's own facts, notes and sources first. Search the web
+      (web-search) and open pages (web-fetch) only for what they don't
+      answer; open at most 2 pages per option.
+
+      For "met" and "not met", "quote" is a sentence or phrase of at least
+      15 characters COPIED CHARACTER FOR CHARACTER from the page you opened
+      (or from the option's own "text" or facts), the one that best shows
+      it, and "url" is that page (or "notebook" for the option's own text).
+      Never paraphrase or join pieces: code checks each quote against the
+      page word for word, and a check whose quote isn't there stays open.
+      "why" is one plain sentence.
+
+      Reply with only this, as valid JSON:
+      <verdicts>
+      [{"id": "option id", "check": "the check, as written", "verdict": "met|not met|unknown", "quote": "", "url": "", "why": ""}]
+      </verdicts>
+
+  - id: verify
+    type: shell
+    dependsOn: [judge]
+    timeout: 150
+    command: |
+      set -e
+      python3 << 'PYEOF'
+      import html, json, os, re, unicodedata, urllib.request
+
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def block(raw, tag):
+          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
+          if not m:
+              return None
+          try:
+              return json.loads(m.group(1))
+          except Exception:
+              return None
+
+      REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
+      def norm(s):
+          s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
+          return re.sub(r"\s+", " ", s).strip().lower()
+
+      def page_text(url, cache={}):
+          if url in cache:
+              return cache[url]
+          text = ""
+          if len(cache) < 40 and re.match(r"^https?://", url or ""):
+              try:
+                  req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (sua notebook-checker)"})
+                  with urllib.request.urlopen(req, timeout=8) as r:
+                      raw = r.read(2_000_000).decode(r.headers.get_content_charset() or "utf-8", "replace")
+                  raw = re.sub(r"<(script|style|noscript)[\s\S]*?</\1>", " ", raw, flags=re.I)
+                  text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+              except Exception:
+                  text = ""
+          cache[url] = text
+          return text
+
+      try:
+          options = {str(o["id"]): o for o in json.loads(os.environ.get("OPTIONS") or "[]") if isinstance(o, dict) and o.get("id")}
+      except Exception:
+          options = {}
+      try:
+          checks = [c for c in json.loads(os.environ.get("CHECKS") or "[]") if isinstance(c, str)]
+      except Exception:
+          checks = []
+      canon = {norm(c): c for c in checks}
+
+      ticked, out_reason, unconfirmed, unknown = {}, {}, 0, 0
+      for v in block(upstream("JUDGE"), "verdicts") or []:
+          if not isinstance(v, dict):
+              continue
+          o = options.get(str(v.get("id", "")))
+          check = canon.get(norm(str(v.get("check", ""))))
+          verdict = str(v.get("verdict", "")).lower().strip()
+          if not o or not check:
+              continue
+          if verdict not in ("met", "not met"):
+              unknown += 1
+              continue
+          quote = str(v.get("quote") or "").strip()
+          url = str(v.get("url") or "").strip()
+          own = " ".join([str(o.get("text") or ""), json.dumps(o.get("facts") or {}, ensure_ascii=False)])
+          q = norm(quote)
+          found = len(q) >= 15 and (q in norm(own) if url in ("", "notebook") else (q in norm(page_text(url)) or q in norm(own)))
+          if not found:
+              unconfirmed += 1
+              continue
+          if verdict == "met":
+              ticked.setdefault(o["id"], []).append(check)
+          elif o["id"] not in out_reason:
+              where = "" if url in ("", "notebook") else f" ({url})"
+              out_reason[o["id"]] = f'Fails "{check}": "{quote[:200]}"{where}'[:300]
+
+      facts = []
+      for oid in set(ticked) | set(out_reason):
+          f = {"id": oid}
+          if ticked.get(oid):
+              f["checked"] = ticked[oid]
+          if oid in out_reason:
+              f["ruleOut"] = out_reason[oid]
+          facts.append(f)
+      n_ticked = sum(len(v) for v in ticked.values())
+      bits = [f"{n_ticked} check{'s' if n_ticked != 1 else ''} met with a quote", f"{len(out_reason)} ruled out"]
+      if unknown: bits.append(f"{unknown} unknown")
+      if unconfirmed: bits.append(f"{unconfirmed} quote{'s' if unconfirmed != 1 else ''} not found word for word, left open")
+      print("<notebook>" + json.dumps({"facts": facts, "summary": "; ".join(bits) + "."}, ensure_ascii=False) + "</notebook>")
+      PYEOF

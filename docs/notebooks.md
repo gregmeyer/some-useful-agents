@@ -283,7 +283,9 @@ Normally sua's keeper reads a run's output and decides what to file. An agent th
 </notebook>
 ```
 
-`data` keys are the notebook's field keys. A fact can also carry `"quote"`: the words in its source that back it (15+ characters); add `"checked": true` only when your agent's code found them there. The mark is believed only from a directly filed block, never from sua's keeper. An option can carry `"ruleOut": "why"` to file it ruled out. Entry kinds are option, note, evidence and decision. A block with no entries (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
+`data` keys are the notebook's field keys. A fact can also carry `"quote"`: the words in its source that back it (15+ characters); add `"checked": true` only when your agent's code found them there. The mark is believed only from a directly filed block, never from sua's keeper. An option can carry `"ruleOut": "why"` to file it ruled out. Entry kinds are option, note, evidence and decision.
+
+**Checks on options the notebook already has:** `"facts": [{"id": "<option id>", "checked": ["Sells enterprise software"], "ruleOut": "Fails …"}]`. Each named check (matched to the notebook's checks, ignoring case) is ticked, and `ruleOut` rules the option out. Only a directly filed block can do this, never sua's keeper, so tick a check only when your agent's code confirmed it. A block with checks but no entries is still filed directly. A block with neither entries nor checks (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
 
 ## Runs not in the notebook yet
 
@@ -342,7 +344,20 @@ While a notebook has steps left, its button works on the current one ("Run step 
    - **Already met:** a step whose goal is met before it runs (an earlier search found enough) is met without a run.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
-- **Not yet:** sua's checker for check steps, and steps drafted from your sentence or the conversation.
+- **Not yet:** steps drafted from your sentence or the conversation.
+
+### sua's checker
+
+A check step with no agent of its own uses sua's checker (`notebook-checker`, a built-in agent). It needs the notebook to have checks ("Sells enterprise software", "Why people buy is quoted from a customer case study").
+
+1. **It takes 8 options per run**, best first: the ones still missing a check, each with its facts, sources and notes, and the checks it still needs.
+2. **A model judges each check** as met, not met or unknown. It uses the option's own facts and notes first, then searches the web and opens up to 2 pages per option. For met and not met it must give a quote of 15+ characters copied word for word, and where it's from.
+3. **Code confirms each quote** in the page it cites, or in the option's own notes. Only a confirmed quote counts:
+   - **met:** the check is ticked on the option;
+   - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`);
+   - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
+
+The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").
 
 ## Coming next
 

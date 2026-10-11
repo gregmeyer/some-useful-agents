@@ -27,6 +27,7 @@ let provider: LocalProvider;
 let runStore: RunStore;
 let suggesterSaw = '';
 let facetsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+let checkerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
@@ -86,6 +87,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookPictureRun: async () => undefined,
     // Nor a real facet-labelling model: tests set facetsReply (and see what it was asked).
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
+    // Nor a real checker: tests set checkerReply.
+    notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     notebookDrafterRun: async (inputs) => `<draft>${JSON.stringify({
@@ -398,6 +401,63 @@ describe('notebook pipeline (G2–G3)', () => {
     store.updateStep(nb.id, 's2', { status: 'done' });
     expect(await page()).toContain('Next: Pick the final set, with Decide.');
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/run`)).headers.location)).toContain('This step is yours');
+  });
+
+  it("a check step uses sua's checker: checks met are ticked, an option that fails one is ruled out", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setFields(nb.id, [{ key: 'employees', label: 'Employees', type: 'number' }]);
+    store.setChecks(nb.id, ['Sells enterprise software', 'Founded after 2015']);
+    const a = store.upsertOption(nb.id, { title: 'Acme Planning', body: 'Acme sells planning software to enterprise finance teams.', by: 'you', data: { employees: 300 } }).entry;
+    const b = store.upsertOption(nb.id, { title: 'Bolt Tools', body: 'Bolt makes hand tools for hobbyists.', by: 'you', data: { employees: 40 } }).entry;
+    store.setSteps(nb.id, [{ title: 'Check the peers', kind: 'check' }]);
+    const asked: Array<Record<string, string>> = [];
+    let round = 0;
+    checkerReply = (inputs) => {
+      asked.push(inputs);
+      round++;
+      // First run: Acme meets one check, Bolt fails one. Second: Acme meets the other.
+      return `<notebook>${JSON.stringify(round === 1
+        ? { facts: [{ id: a.id, checked: ['sells enterprise software', 'Not a check'] }, { id: b.id, ruleOut: 'Fails "Sells enterprise software": "hand tools for hobbyists"' }] }
+        : { facts: [{ id: a.id, checked: ['Founded after 2015'] }] })}</notebook>`;
+    };
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { getContext } = await import('../context.js');
+    expect(startNotebookStep(getContext(app.locals), nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'met', tries: 2, note: '1 of 1 checked' });
+    const opts = store.entries(nb.id).filter((e) => e.kind === 'option');
+    expect(opts.find((e) => e.id === a.id)!.checked).toEqual(['Sells enterprise software', 'Founded after 2015']);
+    expect(opts.find((e) => e.id === b.id)!.ruledOut).toMatchObject({ reason: 'Fails "Sells enterprise software": "hand tools for hobbyists"', by: 'agent:notebook-checker' });
+    // It was given the checks, and only the options with checks left, with what each still needs.
+    expect(JSON.parse(asked[0].CHECKS)).toEqual(['Sells enterprise software', 'Founded after 2015']);
+    const first = JSON.parse(asked[0].OPTIONS) as Array<{ id: string; left: string[]; facts: Record<string, unknown>; text: string }>;
+    expect(first.map((o) => o.id).sort()).toEqual([a.id, b.id].sort());
+    expect(first.find((o) => o.id === a.id)).toMatchObject({ left: ['Sells enterprise software', 'Founded after 2015'], facts: { Employees: 300 }, text: 'Acme sells planning software to enterprise finance teams.' });
+    expect(JSON.parse(asked[1].OPTIONS)).toEqual([expect.objectContaining({ id: a.id, left: ['Founded after 2015'] })]);
+    expect(asked[0].NOTEBOOK).toContain('This step: Check the peers.');
+    expect(store.get(nb.id)!.lastRunNote).toContain('notebook-checker: 0 new, 1 check met, 1 ruled out on a check (filed directly)');
+    checkerReply = undefined;
+  });
+
+  it('only an agent\'s own block ticks checks; the keeper (a model) cannot', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult, directBlock } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Peers' });
+    store.setChecks(nb0.id, ['Sells enterprise software']);
+    const a = store.upsertOption(nb0.id, { title: 'Acme', by: 'you' }).entry;
+    const block = `<notebook>${JSON.stringify({ facts: [{ id: a.id, checked: ['Sells enterprise software'], ruleOut: 'no' }] })}</notebook>`;
+    expect(directBlock(`noise ${block}`)).toBe(block);
+    expect(directBlock('<notebook>{"facts":[{"id":"x","data":{}}]}</notebook>')).toBeUndefined();
+    expect(applyKeeperResult(store, store.get(nb0.id)!, 'notebook-keeper', 'r1', block, { source: '' })).toMatchObject({ added: 0 });
+    expect(store.entries(nb0.id)[0].checked ?? []).toEqual([]);
+    expect(store.entries(nb0.id)[0].ruledOut).toBeUndefined();
+    expect(applyKeeperResult(store, store.get(nb0.id)!, 'notebook-checker', 'r2', block, { trusted: true })).toMatchObject({ checksMet: 1, checksFailed: 1 });
   });
 
   it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {

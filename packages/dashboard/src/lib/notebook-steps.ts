@@ -8,9 +8,11 @@
  * and offers Try again. sua says so in the notebook's conversation, with the
  * button as a card. The agent is never edited for a step.
  */
-import { NotebookStore, stepProgress, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { randomUUID } from 'node:crypto';
+import { NotebookStore, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
+import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, pipelineInputs } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
@@ -19,6 +21,11 @@ type Ctx = ReturnType<typeof getContext>;
 
 /** Runs per press, toward one step's goal. */
 export const MAX_TRIES = 3;
+/** sua's checker: a check step without an agent of its own uses it. */
+export const NOTEBOOK_CHECKER_ID = 'notebook-checker';
+/** The checker's inputs, for a test's stand-in. */
+const CHECKER_INPUTS = { NOTEBOOK: {}, CHECKS: {}, OPTIONS: {} } as unknown as Agent['inputs'];
+
 /** The route-handled action behind a step's Continue / Try again card. */
 export const NOTEBOOK_STEP_ACTION = 'notebook-step';
 
@@ -64,23 +71,40 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     if (!step) return { started: false, reason: 'All its steps are done.' };
   }
   if (step.kind === 'decide') return { started: false, reason: 'This step is yours: pick the final set with Decide.', step };
-  const agentId = step.agentId;
+  if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
+  // A check step without an agent uses sua's checker.
+  const agentId = step.agentId ?? (step.kind === 'check' ? NOTEBOOK_CHECKER_ID : undefined);
+  const checker = agentId === NOTEBOOK_CHECKER_ID && !step.agentId;
+  if (checker && !ctx.notebookCheckerRun && !ensureSystemAgentCurrent(ctx, NOTEBOOK_CHECKER_ID, 'a notebook check step')) {
+    return { started: false, reason: 'sua’s checker isn’t available.', step };
+  }
   const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
-  if (!agentId || !agent || agent.status === 'archived') {
+  if (!agentId || ((!agent || agent.status === 'archived') && !(checker && ctx.notebookCheckerRun))) {
     return { started: false, reason: agentId ? `Its agent, ${agentId}, isn't installed.` : 'This step needs an agent. Ask sua to pick or build one.', step };
   }
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
   store.updateStep(nb.id, step.id, { status: 'running' });
   const s = step;
-  void runStep(ctx, store, nb.id, s).catch((err: unknown) => {
+  void runStep(ctx, store, nb.id, s, agentId).catch((err: unknown) => {
     try { store.updateStep(notebookId, s.id, { status: 'stuck', note: err instanceof Error ? err.message.slice(0, 160) : 'It failed.' }); } catch { /* the notebook is gone */ }
   }).finally(() => ctx.notebookPipelines?.delete(notebookId));
   return { started: true, step };
 }
 
-async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<void> {
-  const agent = ctx.agentStore.getAgent(step.agentId!)!;
+/** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
+async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>): Promise<{ id: string; status: string; result?: string; error?: string }> {
+  if (agentId === NOTEBOOK_CHECKER_ID && ctx.notebookCheckerRun) {
+    const result = await ctx.notebookCheckerRun(inputs({ inputs: CHECKER_INPUTS }));
+    return { id: randomUUID(), status: result ? 'completed' : 'failed', ...(result ? { result } : { error: 'no answer' }) };
+  }
+  const agent = ctx.agentStore.getAgent(agentId)!;
+  const run = await runDispatchedAgentToTerminal(ctx, agent, inputs(agent));
+  return { id: run.id, status: run.status, ...(run.result ? { result: run.result } : {}), ...(run.error ? { error: run.error } : {}) };
+}
+
+async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string): Promise<void> {
+  const agent = { id: agentId };
   const notes: string[] = [];
   let nb = store.get(notebookId)!;
   let before = stepProgress(nb, store.entries(nb.id, 1000), step);
@@ -91,7 +115,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     tries++;
     const passId = store.startPass(nb.id, 'pipeline');
     const entries = store.entries(nb.id, 1000);
-    const run = await runDispatchedAgentToTerminal(ctx, agent, pipelineInputs(agent, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }));
+    const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }));
     store.addRunToPass(passId, run.id);
     if (run.status !== 'completed') {
       const why = `${agent.id}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
@@ -108,7 +132,8 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
     if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, notes);
     // A run that got it no closer: another try with the same job won't either.
-    const closer = now.have > before.have || now.missing.length < before.missing.length;
+    // Closer: more done, or anything still needed changed (a fact found, a check ticked, an option ruled out).
+    const closer = now.have > before.have || now.missing.join('\n') !== before.missing.join('\n');
     before = now;
     if (!closer) break;
   }
