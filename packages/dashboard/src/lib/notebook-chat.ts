@@ -332,6 +332,7 @@ export function notebookGreeting(nb: Notebook, hasOptions = false): string {
     "Here's how I'll keep it:",
     tracked.length ? `- **For each option** I'll note its ${list(tracked.slice(0, 7))}, so you can compare them side by side.` : `- **For each option** I'll note what matters for comparing them, once we've seen a few.`,
     nb.stages.length ? `- **Each one moves along:** ${nb.stages.join(' → ')}. Tell me when one moves, or when you rule one out (and why).` : '',
+    nb.steps?.length ? `- **The work, one step at a time:** ${nb.steps.map((x) => lower(x.title)).join(', then ')}. I'll stop after each so you can look before I go on.` : '',
     nb.criteria.length ? `- **Done when:** ${nb.criteria.map((c) => lower(c.text)).join('; ')}.` : `- **When are we done?** Tell me what "done" looks like and I'll track it.`,
   ];
   return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').filter((l) => l !== undefined).join('\n').replace(/\n\n+/g, '\n\n');
