@@ -191,10 +191,11 @@ const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dash
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
  * follow-up turn after each action resolves; without a cap, a bad
- * prompt could fan out indefinitely. 10 is enough room for a few rounds
- * of "run X, summarize, run Y on the result" without going wild.
+ * prompt could fan out indefinitely. 24 (about two per turn of
+ * MAX_AUTO_TRIAGE_TURNS) so this cap doesn't end a long chain before the
+ * turn cap would; it was 10.
  */
-const MAX_ACTIONS_PER_MESSAGE = 10;
+export const MAX_ACTIONS_PER_MESSAGE = 24;
 
 /** Truncate the sub-agent run output that's stored in action meta. */
 const ACTION_RESULT_PREVIEW_LIMIT = 500;
@@ -660,10 +661,12 @@ export function finalizeActionFromOutcome(
  * keeps proposing actions on its own. Reset when the operator posts
  * a user response.
  *
- * 5 is a comfortable headroom for analyzer → editor → catalog-search
- * chains while still catching pathological loops within a few turns.
+ * 12 leaves room for long chains (find → build → run → file → fix → rerun)
+ * without a reply after every few steps; Stop, the action cap and the
+ * convergence guard (repeated fixes without a good run) still end a loop
+ * that isn't getting anywhere. Was 5, which paused ordinary work.
  */
-const MAX_AUTO_TRIAGE_TURNS = 5;
+export const MAX_AUTO_TRIAGE_TURNS = 12;
 
 /** Delay before an auto-retry so a transient backend has a moment to recover. */
 const TRIAGE_CRASH_RETRY_DELAY_MS = 2000;
@@ -684,7 +687,7 @@ export function resetTriageCrashRetries(ctx: ReturnType<typeof getContext>, mess
  * auto-refire cap — the operator hitting Reply resets the counter so
  * fresh user input always gets a fresh budget.
  */
-function countConsecutiveTriageTurns(
+export function countConsecutiveTriageTurns(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
 ): number {

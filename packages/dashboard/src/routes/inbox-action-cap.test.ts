@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InboxStore, type InboxActionMeta } from '@some-useful-agents/core';
-import { countActionsSinceLastUser } from './inbox-engine.js';
+import { countActionsSinceLastUser, countConsecutiveTriageTurns, MAX_AUTO_TRIAGE_TURNS, MAX_ACTIONS_PER_MESSAGE } from './inbox-engine.js';
 
 let dir: string;
 let inboxStore: InboxStore;
@@ -53,5 +53,22 @@ describe('countActionsSinceLastUser', () => {
     for (let i = 0; i < 5; i++) inboxStore.addResponse(m.id, 'action', 'a', action(i));
     inboxStore.addResponse(m.id, 'user', 'keep going');
     expect(countActionsSinceLastUser(ctx, m.id)).toBe(0);
+  });
+});
+
+describe('countConsecutiveTriageTurns and the caps', () => {
+  it('counts sua turns since your last reply, and a long chain fits under both caps', () => {
+    const ctx = setup();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
+    inboxStore.addResponse(m.id, 'user', 'do the whole thing');
+    for (let i = 0; i < 7; i++) { inboxStore.addResponse(m.id, 'triage', 't'); inboxStore.addResponse(m.id, 'action', 'a', action(i)); }
+    // 7 turns used to pause at 5; now it keeps going.
+    expect(countConsecutiveTriageTurns(ctx, m.id)).toBe(7);
+    expect(countConsecutiveTriageTurns(ctx, m.id)).toBeLessThan(MAX_AUTO_TRIAGE_TURNS);
+    expect(countActionsSinceLastUser(ctx, m.id)).toBeLessThan(MAX_ACTIONS_PER_MESSAGE);
+    // The action cap doesn't stop a chain before the turn cap would (about two actions a turn).
+    expect(MAX_ACTIONS_PER_MESSAGE).toBeGreaterThanOrEqual(MAX_AUTO_TRIAGE_TURNS * 2);
+    inboxStore.addResponse(m.id, 'user', 'thanks');
+    expect(countConsecutiveTriageTurns(ctx, m.id)).toBe(0);
   });
 });
