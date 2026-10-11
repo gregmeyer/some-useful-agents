@@ -22,6 +22,10 @@ export interface NotebookWidgetHistory extends NotebookViewHistory {
   searches?(notebookId: string, limit?: number): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }>;
   /** Recent runs of an agent (to show the ones that failed, which leave nothing in the notebook). */
   recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
+  /** The notebook's passes (its pipeline, steps and conversation runs), to tell its own failed runs from others. */
+  passes?(notebookId: string, limit?: number): Array<{ runIds: string[] }>;
+  /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
+  notebooksFedBy?(agentId: string): string[];
 }
 
 /** Words a limit uses for a field's unit ("mi" → "miles"). */
@@ -220,12 +224,16 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       link: `/runs/${encodeURIComponent(runId)}`, linkText: `run ${runId.slice(0, 8)}`,
     });
   }
-  // Runs of the agents that feed it that failed (they leave nothing in the notebook).
-  if (history?.recentRuns) {
+  // Runs of the agents that feed it that failed (they leave nothing in the
+  // notebook): ones run for this notebook, and any of an agent only this
+  // notebook uses. A shared agent's failures for another notebook aren't this one's.
+  if (history?.recentRuns && history.passes) {
+    const ours = new Set(history.passes(nb.id, 200).flatMap((p) => p.runIds));
+    const onlyOurs = (agentId: string) => !!history.notebooksFedBy && history.notebooksFedBy(agentId).every((id) => id === nb.id);
     const feeders = new Set([...nb.pipeline, ...searches.map((s) => s.agentId), ...[...byRun.values()].map((g) => g.agent)]);
     for (const agentId of feeders) {
       for (const r of history.recentRuns(agentId)) {
-        if (r.status !== 'failed' || r.startedAt < nb.createdAt) continue;
+        if (r.status !== 'failed' || r.startedAt < nb.createdAt || !(ours.has(r.id) || onlyOurs(agentId))) continue;
         timeline.push({
           at: r.startedAt, kind: 'search', who: agentId, faded: true,
           title: 'Search failed', ...(r.error ? { body: clip(r.error, 140) } : {}),

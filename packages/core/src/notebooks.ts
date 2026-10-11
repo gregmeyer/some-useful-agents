@@ -568,6 +568,15 @@ export class NotebookStore {
     return rows.map((r) => ({ notebookId: r.notebook_id, title: r.title, runId: r.run_id }));
   }
 
+  /** The notebooks an agent works for: it's in their pipeline, it searched for them, or it filed into them. */
+  notebooksFedBy(agentId: string): string[] {
+    const rows = this.db.prepare(`
+      SELECT notebook_id FROM notebook_searches WHERE agent_id = ?
+      UNION SELECT notebook_id FROM notebook_entries WHERE by = ?
+      UNION SELECT id FROM notebooks WHERE EXISTS (SELECT 1 FROM json_each(COALESCE(pipeline_json, '[]')) WHERE value = ?)`).all(agentId, `agent:${agentId}`, agentId) as Array<{ notebook_id: string }>;
+    return rows.map((r) => r.notebook_id);
+  }
+
   /** What to check on each option before deciding (at most 8). */
   setChecks(id: string, list: readonly unknown[]): Notebook {
     this.mustGet(id);
