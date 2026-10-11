@@ -49,6 +49,57 @@ export function progressWords(step: Pick<NotebookStep, 'kind'>, p: Pick<Notebook
 const stores = (ctx: Ctx) => NotebookStore.fromHandle(ctx.runStore.databaseHandle());
 
 /**
+ * When steps are set up, the work already in the notebook counts: steps whose
+ * goal is met are marked done, in order, up to the first that isn't (a find
+ * step on a notebook that already has its companies, say). That's where Next
+ * step starts. A decide step is never done for you; a running step is left
+ * alone. Returns what was marked done and, when any was, what sua says about it.
+ */
+export function confirmDoneSteps(ctx: Ctx, notebookId: string): { done: NotebookStep[]; words?: string } {
+  const store = stores(ctx);
+  let nb = store.get(notebookId);
+  if (!nb?.steps?.length) return { done: [] };
+  const entries = store.entries(nb.id, 1000);
+  const done: Array<{ step: NotebookStep; words: string }> = [];
+  let next: { step: NotebookStep; words?: string } | undefined;
+  for (const step of nb.steps) {
+    if (step.status === 'done') continue;
+    if (step.status === 'running') break;
+    if (step.kind === 'decide') { next = { step }; break; }
+    const p = stepProgress(nb, entries, step);
+    const words = progressWords(step, p);
+    if (!p.met) {
+      nb = store.updateStep(nb.id, step.id, { note: words });
+      next = { step, words };
+      break;
+    }
+    nb = store.updateStep(nb.id, step.id, { status: 'done', note: `${words}, already` });
+    done.push({ step, words });
+  }
+  if (!done.length) return { done: [] };
+  const n = (s: NotebookStep) => String(nb!.steps!.findIndex((x) => x.id === s.id) + 1);
+  const was = done.map((d) => `step ${n(d.step)}, **${d.step.title}** (${d.words})`).join('; ');
+  const then = next
+    ? next.step.kind === 'decide'
+      ? ` Next is **${next.step.title}**, with Decide.`
+      : ` Next is step ${n(next.step)}, **${next.step.title}** (${next.words ?? 'not started'}).`
+    : ' That was every step.';
+  return { done: done.map((d) => d.step), words: `The notebook already has what ${done.length === 1 ? 'this step needs' : 'these steps need'}, so ${done.length === 1 ? 'it’s' : 'they’re'} done: ${was}.${then}` };
+}
+
+/** confirmDoneSteps, said in the notebook's conversation when any step was already done. */
+export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: NotebookStep[]; words?: string } {
+  const out = confirmDoneSteps(ctx, notebookId);
+  const nb = out.words ? stores(ctx).get(notebookId) : undefined;
+  const threadId = nb && ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  if (threadId && out.words) {
+    const msg = ctx.inboxStore!.addResponse(threadId, 'triage', out.words);
+    publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+  }
+  return out;
+}
+
+/**
  * Work on the notebook's current step. A step whose goal is met is marked
  * done first and the next one starts (that's Continue); `stepId`, when given,
  * must still be the one it would act on, so a stale card does nothing.

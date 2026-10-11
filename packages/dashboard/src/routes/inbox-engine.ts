@@ -1121,10 +1121,13 @@ export async function executeNotebookSteps(
   try {
     const nb = notebooksOf(ctx).setSteps(id, p.steps);
     const list = (nb.steps ?? []).map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ');
-    if (meta.inputs.RUN !== '1') return { status: 'completed', summary: `Steps set: ${list}. Run step 1 from the notebook when you're ready.` };
-    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { startNotebookStep, confirmDoneSteps } = await import('../lib/notebook-steps.js');
+    // Steps the notebook's work already covers are done; the next one is where it starts.
+    const already = confirmDoneSteps(ctx, id);
+    const said = already.words ? ` ${already.words}` : '';
+    if (meta.inputs.RUN !== '1') return { status: 'completed', summary: `Steps set: ${list}.${said} Run ${already.done.length ? 'the next step' : 'step 1'} from the notebook when you're ready.` };
     const started = startNotebookStep(ctx, id);
-    return { status: 'completed', summary: `Steps set: ${list}.${started.started ? ` Working on **${started.step!.title}** now; I'll say here when it's done.` : ` ${started.reason ?? ''}`}` };
+    return { status: 'completed', summary: `Steps set: ${list}.${said}${started.started ? ` Working on **${started.step!.title}** now; I'll say here when it's done.` : ` ${started.reason ?? ''}`}` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }

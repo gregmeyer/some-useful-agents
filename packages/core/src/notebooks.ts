@@ -1779,7 +1779,8 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const missing = nb.checks.length ? options.map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }))
       .filter((x) => x.left.length).map((x) => `${x.o.name} — ${x.left.join(', ')}`) : [];
     const want = options.length;
-    return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: want - missing.length, want, missing };
+    // No checks yet: nothing is checked (the step waits for some).
+    return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: nb.checks.length ? want - missing.length : 0, want, missing };
   }
   const want = step.target ?? Math.min(options.length, 5);
   return { met: step.status === 'done', have: step.status === 'done' ? want : 0, want, missing: [] };
