@@ -186,7 +186,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -387,7 +387,9 @@ export async function runProposedAction(
       resultSummary: result.summary,
       refusalReason: result.refusalReason,
     });
-    maybeRefireTriage(ctx, messageId);
+    // A notebook step runs in the background and posts how it went itself; a
+    // follow-up turn now would only guess ("still running…") and go stale.
+    if (meta.agentId !== 'notebook-step') maybeRefireTriage(ctx, messageId);
     return;
   }
 
@@ -863,6 +865,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'notebook-pipeline') {
     return executeNotebookPipeline(ctx, meta);
   }
+  if (meta.agentId === 'notebook-step') {
+    return executeNotebookStep(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1096,6 +1101,22 @@ export function executeNotebookPipeline(
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * A notebook step's Continue / Try again card (lib/notebook-steps.ts): starts
+ * the next step, or the same one again, if the notebook is still where the
+ * card left it; a stale card does nothing.
+ */
+export async function executeNotebookStep(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const { startNotebookStep } = await import('../lib/notebook-steps.js');
+  const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' ? meta.inputs.WAS : undefined;
+  const out = startNotebookStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP, expect: was });
+  if (!out.started) return { status: 'failed', refusalReason: out.reason ?? 'It could not start.' };
+  return { status: 'completed', summary: `Working on **${out.step!.title}**${out.step!.agentId ? ` with ${out.step!.agentId}` : ''}. I'll say here when it's done or stuck.` };
 }
 
 /**

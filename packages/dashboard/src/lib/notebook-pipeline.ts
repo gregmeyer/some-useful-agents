@@ -8,7 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
-  type Agent, type Notebook, type NotebookEntry, type NotebookEntryKind, type NotebookPassKind,
+  type Agent, type Notebook, type NotebookEntry, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -51,9 +51,27 @@ export function notebookGaps(nb: Notebook, entries: readonly NotebookEntry[]): s
   ].filter(Boolean).join('\n');
 }
 
-/** The notebook in a few lines, for an agent's goal-like inputs; with `entries`, also what it has and what's missing. */
-export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[]): string {
+/** A step being worked on, and what it still needs (stepProgress's `missing`). */
+export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind'>; want: number; have: number; missing: readonly string[] }
+
+/**
+ * The job a step gives its agent, in a line or a short list: what this run
+ * is for, so an agent that does many things does this one ("for these
+ * options only, find the missing facts"). The agent itself is never changed.
+ */
+export function stepLine(nb: Notebook, job: StepJob): string {
+  const list = (xs: readonly string[]) => `${xs.slice(0, 40).map((x) => `- ${x}`).join('\n')}${xs.length > 40 ? `\n- and ${String(xs.length - 40)} more` : ''}`;
+  const head = `This step: ${job.step.title}.`;
+  if (job.step.kind === 'find') return `${head} Find ${String(Math.max(1, job.want - job.have))} more options that fit (the notebook wants ${String(job.want)} in the running and has ${String(job.have)}). Don't bring back ones it already has.`;
+  if (job.step.kind === 'source') return `${head} Don't look for new options. For these options only, find the missing facts, each with a source:\n${list(job.missing)}`;
+  if (job.step.kind === 'check') return `${head} Don't look for new options. Check each of these options against what's listed after it (${nb.checks.join('; ')}), and say whether it's met, quoting the source:\n${list(job.missing)}`;
+  return head;
+}
+
+/** The notebook in a few lines, for an agent's goal-like inputs; with `entries`, also what it has and what's missing; with a step, that step's job first. */
+export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): string {
   return [
+    job ? stepLine(nb, job) : '',
     nb.statement || nb.title,
     nb.params.length ? `Parameters: ${nb.params.join('; ')}` : '',
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
@@ -65,12 +83,14 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[]):
  * What a pipeline agent is given: the notebook as its goal, in whichever
  * goal-like inputs it declares. Everything else keeps its default.
  */
-export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entries?: readonly NotebookEntry[]): Record<string, string> {
+export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): Record<string, string> {
   const out: Record<string, string> = {};
   for (const name of Object.keys(agent.inputs ?? {})) {
     const n = name.toUpperCase();
-    if (n === 'NOTEBOOK' || n === 'NOTEBOOK_CONTEXT' || n === 'GOAL' || n === 'BRIEF') out[name] = notebookBrief(nb, entries);
-    else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = nb.statement || nb.title;
+    if (n === 'NOTEBOOK' || n === 'NOTEBOOK_CONTEXT' || n === 'GOAL' || n === 'BRIEF') out[name] = notebookBrief(nb, entries, job);
+    // A step's job goes first in the topic too: an agent with only a topic still learns what this run is for.
+    else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = job ? `${stepLine(nb, job)}\n\n${nb.statement || nb.title}` : nb.statement || nb.title;
+    else if (n === 'STEP' && job) out[name] = stepLine(nb, job);
     // An agent that files directly needs the notebook's field keys and roles.
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
   }
@@ -219,7 +239,7 @@ export function directBlock(output: string): string | undefined {
   } catch { return undefined; }
 }
 
-async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
+export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
   // A run that already speaks the notebook's language files directly: its
   // <notebook> block, cleaned the same way, with no keeper model, no 12k cap.
   const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;

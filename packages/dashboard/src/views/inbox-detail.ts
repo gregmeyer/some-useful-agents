@@ -187,7 +187,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline',
+  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -784,7 +784,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ${meta.agentId === 'agent-settings' && meta.inputs.AGENT_ID
           ? html`<a class="act-card__aside" href="/agents/${encodeURIComponent(meta.inputs.AGENT_ID)}/config">Open in Settings</a>`
           : meta.agentId === 'adjust-surface' ? html`<a class="act-card__aside" href="/">Open Home</a>`
-          : (meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline') && meta.inputs.NOTEBOOK ? html`<a class="act-card__aside" href="/notebooks/${encodeURIComponent(meta.inputs.NOTEBOOK)}">Open the notebook</a>`
+          : (meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-step') && meta.inputs.NOTEBOOK ? html`<a class="act-card__aside" href="/notebooks/${encodeURIComponent(meta.inputs.NOTEBOOK)}">Open the notebook</a>`
           : meta.agentId === 'arrange-board' && meta.inputs.BOARD ? html`<a class="act-card__aside" href="${meta.inputs.BOARD === 'pulse' ? '/pulse' : `/dashboards/${encodeURIComponent(meta.inputs.BOARD)}`}">Open the board</a>` : html``}
       </div>
     `
@@ -833,6 +833,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                     ? html`${meta.status === 'completed' ? 'Added to' : 'Add to'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                     : meta.agentId === 'notebook-pipeline'
                       ? html`Set up the pipeline · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
+                      : meta.agentId === 'notebook-step'
+                        ? html`${meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -847,7 +849,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline') && meta.surfaceChanges?.length
       ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
-    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(meta.agentId) ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step'].includes(meta.agentId) ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed'
         ? meta.fork

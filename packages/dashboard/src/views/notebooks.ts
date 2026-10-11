@@ -116,6 +116,24 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
   </ol>`;
 }
 
+/**
+ * The one button for what's next: the current step (Run step, Continue, Try
+ * again), or the pipeline once there are no steps left. Nothing when the
+ * next move is yours (Decide) or the step has no agent yet.
+ */
+function runButton(nb: Notebook): SafeHtml {
+  const form = (label: string) => html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm${nb.steps?.length ? ' btn--primary' : ''}">${label}</button></form>`;
+  const steps = nb.steps ?? [];
+  const i = steps.findIndex((x) => x.status !== 'done');
+  if (i < 0) return nb.pipeline.length ? form('Run the pipeline now') : html``;
+  const step = steps[i];
+  const next = steps[i + 1];
+  if (step.status === 'met') return next ? form(next.kind === 'decide' ? 'Continue' : `Continue to ${next.title}`) : form('Finish');
+  if (step.kind === 'decide') return html`<span class="nb-run__last">Next: ${step.title}, with Decide.</span>`;
+  if (!step.agentId) return html`<span class="nb-run__last">${step.title} needs an agent. Ask sua to pick or build one.</span>`;
+  return form(step.status === 'stuck' ? `Try ${step.title} again` : `Run step ${String(i + 1)}: ${step.title}`);
+}
+
 function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
@@ -140,12 +158,12 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
         </div>
         ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries) : pipelineDiagram(stages)}
-        ${nb.pipeline.length ? html`
+        ${nb.pipeline.length || nb.steps?.length ? html`
           <div class="nb-run">
             ${running
               ? html`<span class="nb-run__now" data-notebook-running role="status">Running step ${String(running.step)} of ${String(running.of)}… this page updates as it goes.</span>`
               : nb.status === 'active'
-                ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm">Run the pipeline now</button></form>`
+                ? runButton(nb)
                 : html``}
             ${nb.lastRunAt && !running ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
           </div>` : html``}
