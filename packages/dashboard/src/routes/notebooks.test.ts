@@ -28,6 +28,8 @@ let runStore: RunStore;
 let suggesterSaw = '';
 let facetsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 let checkerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+/** The drafter's answer when sua lays out a new notebook's steps (unset: none). */
+let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
@@ -91,7 +93,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
-    notebookDrafterRun: async (inputs) => `<draft>${JSON.stringify({
+    // Laying out a new notebook's steps: tests set stepsReply.
+    notebookDrafterRun: async (inputs) => inputs.CHANGE.startsWith('Lay out its "steps"') ? stepsReply?.(inputs) : `<draft>${JSON.stringify({
       title: inputs.CHANGE ? `Headphones (${inputs.CHANGE})` : 'Pick noise-cancelling headphones',
       statement: 'For flights, under $300.', params: ['under $300', 'over-ear', 'under $300'], criteria: ['One pair that fits', 'A decision recorded by Oct 20'],
       fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'rating', label: 'Rating', type: 'number', role: 'measure', better: 'higher' }, { key: 'bad key!', label: 'x' }],
@@ -917,6 +920,64 @@ describe('sua greets a new notebook', () => {
     // Talking to sua continues the same conversation.
     await post('/notebooks/find-a-staff-role/ask', { text: 'remote only' });
     expect(store.get('find-a-staff-role')!.conversationId).toBe(thread.id);
+  });
+});
+
+describe('a notebook started without steps', () => {
+  afterEach(() => { stepsReply = undefined; });
+  const make = async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    return { post, store: NotebookStore.fromHandle(runStore.databaseHandle()), inbox: InboxStore.fromHandle(runStore.databaseHandle()) };
+  };
+  const greeted = async (store: { get(id: string): { conversationId?: string } | undefined }, id: string) => {
+    for (let i = 0; i < 200 && !store.get(id)?.conversationId; i++) await new Promise((r) => setTimeout(r, 25));
+  };
+
+  it('gets steps from sua after setup (only its steps change), and the greeting says them', async () => {
+    const { post, store, inbox } = await make();
+    let asked: Record<string, string> | undefined;
+    stepsReply = (inputs) => {
+      asked = inputs;
+      return `<draft>${JSON.stringify({ title: 'Something else', statement: 'ignored', steps: [
+        { title: 'Find 10 roles', kind: 'find', agent: 'sched-agent', target: 10 },
+        { title: 'Source pay', kind: 'source', agent: 'sched-agent', facts: ['Salary'] },
+        { title: 'Check pay bands', kind: 'check', agent: '' },
+        { title: 'Pick one', kind: 'decide', agent: 'made-up-agent', target: 1 },
+      ] })}</draft>`;
+    };
+    await post('/notebooks', { title: 'Find a staff role', statement: 'Remote, product company' });
+    await greeted(store, 'find-a-staff-role');
+    const nb = store.get('find-a-staff-role')!;
+    // Its steps, with a known agent kept and an invented one dropped; nothing else changed.
+    expect(nb.steps!.map((x) => [x.title, x.kind, x.agentId ?? '', x.status])).toEqual([
+      ['Find 10 roles', 'find', 'sched-agent', 'todo'], ['Source pay', 'source', 'sched-agent', 'todo'], ['Check pay bands', 'check', '', 'todo'], ['Pick one', 'decide', '', 'todo'],
+    ]);
+    expect(nb.steps![1].facts).toEqual(['salary']); // the field it names, by its key
+    expect(nb).toMatchObject({ title: 'Find a staff role', statement: 'Remote, product company' });
+    // sua was asked after setup: it saw the fields setup gave the notebook.
+    expect(asked!.TEXT).toBe('Remote, product company');
+    expect(JSON.parse(asked!.CURRENT)).toMatchObject({ title: 'Find a staff role', steps: [] });
+    expect(asked!.CURRENT).toContain('"salary"');
+    const said = inbox.listResponses(nb.conversationId!);
+    expect(said).toHaveLength(1);
+    expect(said[0].body).toContain('**The work, one step at a time:** find 10 roles, then source pay, then check pay bands, then pick one.');
+  });
+
+  it("keeps a draft's steps without asking again, and still greets when sua gives none", async () => {
+    const { post, store, inbox } = await make();
+    let calls = 0;
+    stepsReply = () => { calls++; return undefined; };
+    await post('/notebooks', { title: 'Headphones', statement: 'For flights.', step_title: 'Find 5 pairs', step_kind: 'find', step_agent: 'sched-agent' });
+    await post('/notebooks', { title: 'Rental', statement: 'A quiet 2-bed' });
+    await greeted(store, 'headphones');
+    await greeted(store, 'rental');
+    expect(store.get('headphones')!.steps!.map((x) => x.title)).toEqual(['Find 5 pairs']);
+    expect(store.get('rental')!.steps).toBeUndefined();
+    expect(calls).toBe(1); // only the notebook without steps
+    expect(inbox.listResponses(store.get('rental')!.conversationId!)[0].body).not.toContain('one step at a time');
   });
 });
 

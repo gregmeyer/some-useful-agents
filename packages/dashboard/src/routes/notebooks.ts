@@ -13,7 +13,7 @@ import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, layOutNotebookSteps } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
@@ -193,7 +193,12 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       const threadId = greetNotebook(ctx, nb.id);
       if (threadId) { publishInboxChanged(ctx, threadId, 'awaiting_user'); store(req).touch(nb.id); }
     };
-    if (!startNotebookSetup(ctx, nb.id, { onDone: greet })) greet();
+    // No steps from the draft (or no draft): sua lays them out once it's set up, then says hello.
+    const stepsThenGreet = () => {
+      if (steps) { greet(); return; }
+      void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(greet);
+    };
+    if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);

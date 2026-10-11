@@ -101,11 +101,12 @@ nodes:
         marked [already fills: …] have filled notebooks before: prefer one
         of those when it fits this goal, over one that never has.
       - "steps": the work in order, as 2–5 steps sua takes one at a time,
-        each {"title", "kind", "agent", "target"?}. Kinds:
+        each {"title", "kind", "agent", "target"?, "facts"?}. Kinds:
         "find" (search for options; "target": how many they want in the
         running, else 10 for companies or leads, 5 otherwise),
         "source" (look up facts a search won't give, e.g. headcount,
-        revenue, founding year for companies),
+        revenue, founding year for companies; "facts": the keys of the
+        fields above it looks up, only those),
         "check" (confirm the checks above on each option, with a source),
         "decide" (they pick the final set or the one; "target": how many).
         Start with find; end with decide. Add source only when the facts to

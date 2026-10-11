@@ -207,36 +207,71 @@ export function startNotebookDraft(ctx: Ctx, text: string, from?: { id: string; 
     CURRENT: from ? JSON.stringify(from.draft) : '',
     CHANGE: from?.change.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
   };
-  const runId = randomUUID();
-  const ac = new AbortController();
-  ctx.activeRuns.set(runId, ac);
   // Discarded while sua worked: don't bring it back.
   const done = (s: DraftState) => {
     if (!store.getDraft(id)) return;
     if (s.status === 'failed' && from) { store.saveDraft(id, { status: 'ready', text: said, draft: from.draft, error: `sua couldn't change it: ${s.error}` }); return; }
     store.saveDraft(id, s.status === 'ready' ? { status: 'ready', text: said, draft: { ...s.draft, suggested: s.draft.pipeline } } : { status: s.status, text: said, ...(s.status === 'failed' ? { error: s.error } : {}) });
   };
-  void (async () => {
-    try {
-      let result: string | undefined;
-      let error: string | undefined;
-      if (fake) result = await fake(inputs);
-      else {
-        await executeAgentDag(agent!, { triggeredBy: 'dashboard', runId, signal: ac.signal, inputs }, {
-          runStore: ctx.runStore, secretsStore: ctx.secretsStore, variablesStore: ctx.variablesStore,
-          dataRoot: ctx.agentStore.dataRoot, llmSettings: buildLlmSettingsSnapshot(ctx), spawnNode: ctx.workflowSpawnNode,
-        });
-        const run = ctx.runStore.getRun(runId);
-        if (run?.status === 'completed') result = run.result ?? undefined;
-        else error = run?.error ?? 'sua stopped before it finished.';
-      }
-      const parsed = result ? parseNotebookDraft(result, ids) : { error: error ?? "sua didn't come back with a draft." };
-      done('error' in parsed ? { status: 'failed', text: said, at: Date.now(), error: parsed.error } : { status: 'ready', text: said, at: Date.now(), draft: parsed });
-    } catch (err) {
-      done({ status: 'failed', text: said, at: Date.now(), error: err instanceof Error ? err.message : String(err) });
-    } finally {
-      ctx.activeRuns.delete(runId);
-    }
-  })();
+  void runDrafter(ctx, agent, inputs).then(({ result, error }) => {
+    const parsed = result ? parseNotebookDraft(result, ids) : { error: error ?? "sua didn't come back with a draft." };
+    done('error' in parsed ? { status: 'failed', text: said, at: Date.now(), error: parsed.error } : { status: 'ready', text: said, at: Date.now(), draft: parsed });
+  });
   return id;
+}
+
+/** One drafter run: its answer, or why there isn't one. Never throws. */
+async function runDrafter(ctx: Ctx, agent: ReturnType<Ctx['agentStore']['getAgent']> | undefined, inputs: Record<string, string>): Promise<{ result?: string; error?: string }> {
+  const runId = randomUUID();
+  const ac = new AbortController();
+  ctx.activeRuns.set(runId, ac);
+  try {
+    if (ctx.notebookDrafterRun) return { result: await ctx.notebookDrafterRun(inputs) };
+    await executeAgentDag(agent!, { triggeredBy: 'dashboard', runId, signal: ac.signal, inputs }, {
+      runStore: ctx.runStore, secretsStore: ctx.secretsStore, variablesStore: ctx.variablesStore,
+      dataRoot: ctx.agentStore.dataRoot, llmSettings: buildLlmSettingsSnapshot(ctx), spawnNode: ctx.workflowSpawnNode,
+    });
+    const run = ctx.runStore.getRun(runId);
+    return run?.status === 'completed' ? { result: run.result ?? undefined } : { error: run?.error ?? 'sua stopped before it finished.' };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    ctx.activeRuns.delete(runId);
+  }
+}
+
+/**
+ * A notebook started without steps (Skip the draft, or a draft that had
+ * none): sua lays them out from its goal and what it tracks, the way a
+ * draft would, changing nothing else. Returns the steps it set, if any;
+ * never throws, and leaves steps someone set meanwhile alone.
+ */
+export async function layOutNotebookSteps(ctx: Ctx, notebookId: string): Promise<NotebookStep[] | undefined> {
+  const store = draftsOf(ctx);
+  const nb = store.get(notebookId);
+  if (!nb || nb.steps?.length) return undefined;
+  const text = (nb.statement || nb.title).replace(/\s+/g, ' ').trim().slice(0, 1000);
+  if (!text) return undefined;
+  if (!ctx.notebookDrafterRun && !ensureSystemAgentCurrent(ctx, NOTEBOOK_DRAFTER_ID, 'notebook steps')) return undefined;
+  const agent = ctx.notebookDrafterRun ? undefined : ctx.agentStore.getAgent(NOTEBOOK_DRAFTER_ID);
+  if (!ctx.notebookDrafterRun && !agent) return undefined;
+  const agents = searchAgents(ctx);
+  const current: NotebookDraft = {
+    title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c) => c.text),
+    fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, steps: [], cadence: nb.cadence,
+  };
+  const { result } = await runDrafter(ctx, agent, {
+    TEXT: text,
+    TODAY: new Date().toISOString().slice(0, 10),
+    AGENTS: agents.length ? agents.map((a) => `${a.id}: ${a.description}${a.feeds ? ` [already fills: ${a.feeds.slice(0, 3).join('; ')}]` : ''}`).join('\n') : '(none)',
+    CURRENT: JSON.stringify(current),
+    CHANGE: 'Lay out its "steps" (the work in order, starting with find and ending with decide). Keep everything else exactly as it is.',
+  });
+  const parsed = result ? parseNotebookDraft(result, new Set(agents.map((a) => a.id))) : undefined;
+  const steps = parsed && !('error' in parsed) ? parsed.steps : undefined;
+  if (!steps?.length) return undefined;
+  // Someone set steps while sua worked: theirs stand.
+  if (store.get(notebookId)?.steps?.length) return undefined;
+  store.setSteps(notebookId, steps);
+  return store.get(notebookId)?.steps;
 }
