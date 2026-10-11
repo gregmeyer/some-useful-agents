@@ -50,6 +50,16 @@ describe('notebook steps', () => {
     expect(cleanSteps(Array.from({ length: 9 }, (_, i) => ({ title: `Find ${String(i)}`, kind: 'find' })))).toHaveLength(6);
   });
 
+  it("a source step's facts are kept as the notebook's field keys, by key or label; unknown ones are dropped", () => {
+    const { s, id } = setup();
+    const nb = s.setSteps(id, [
+      { title: 'Source size', kind: 'source', facts: ['Employees', 'founded', 'Revenue', 'Employees'] },
+      { title: 'Source nothing known', kind: 'source', facts: ['Revenue'] },
+      { title: 'Find 3', kind: 'find', target: 3, facts: ['employees'] },
+    ]);
+    expect(nb.steps!.map((x) => x.facts)).toEqual([['employees', 'founded'], undefined, undefined]);
+  });
+
   it('a notebook without steps has none', () => {
     const { s, id } = setup();
     expect(s.get(id)!.steps).toBeUndefined();
@@ -68,7 +78,9 @@ describe('notebook steps', () => {
     expect(stepProgress(nb(), all(), { kind: 'find', target: 3, status: 'running' }).met).toBe(true);
 
     // Source: the link and fit score aren't facts to look up.
-    expect(stepProgress(nb(), all(), { kind: 'source', status: 'running' })).toEqual({ met: false, have: 2, want: 3, missing: ['Brightline — founded'] });
+    expect(stepProgress(nb(), all(), { kind: 'source', status: 'running' })).toEqual({ met: false, have: 5, want: 6, missing: ['Brightline — founded'] });
+    // A source step that looks up only some facts counts only those.
+    expect(stepProgress(nb(), all(), { kind: 'source', status: 'running', facts: ['employees'] })).toEqual({ met: true, have: 3, want: 3, missing: [] });
 
     // Check: every option in the running has each check; ruling one out takes it out of the running.
     s.checkOption(id, a.id, 'Value to customers', true);

@@ -180,6 +180,12 @@ export interface NotebookStep {
   agentId?: string;
   /** find: options wanted in the running; decide: how many make the final set. */
   target?: number;
+  /**
+   * source: the facts it looks up (field keys), so a step whose agent finds
+   * revenue, employees and founding year isn't held up by facts it never
+   * looks for. None: every fact the notebook tracks.
+   */
+  facts?: string[];
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -581,7 +587,13 @@ export class NotebookStore {
    */
   setSteps(id: string, list: readonly unknown[]): Notebook {
     const nb = this.mustGet(id);
-    const steps = cleanSteps(list, nb.steps);
+    // A source step's facts, by key or label, as the notebook's field keys (unknown ones dropped).
+    const steps = cleanSteps(list, nb.steps).map((step) => {
+      if (!step.facts) return step;
+      const keys = [...new Set(step.facts.map((f) => nb.fields.find((x) => x.key.toLowerCase() === f.toLowerCase() || x.label.toLowerCase() === f.toLowerCase())?.key).filter((k): k is string => !!k))];
+      const { facts: _f, ...rest } = step;
+      return keys.length ? { ...rest, facts: keys } : rest;
+    });
     this.db.prepare('UPDATE notebooks SET steps_json = ?, updated_at = ? WHERE id = ?').run(steps.length ? JSON.stringify(steps) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
@@ -1735,10 +1747,14 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     const tries = typeof x.tries === 'number' && x.tries >= 0 ? Math.floor(x.tries) : was?.tries ?? 0;
     const note = typeof x.note === 'string' && x.note.trim() ? x.note.trim().slice(0, 200) : was?.note;
     const doneAt = typeof x.doneAt === 'string' ? x.doneAt : was?.doneAt;
+    const facts = kind === 'source' && Array.isArray(x.facts)
+      ? [...new Set(x.facts.filter((f): f is string => typeof f === 'string').map((f) => f.trim()).filter(Boolean))].slice(0, 12)
+      : [];
     out.push({
       id, title, kind, status, tries,
       ...(typeof x.agentId === 'string' && ID_RE.test(x.agentId) ? { agentId: x.agentId } : {}),
       ...((kind === 'find' || kind === 'decide') && target !== undefined ? { target } : {}),
+      ...(facts.length ? { facts } : {}),
       ...(note ? { note } : {}),
       ...(status === 'done' && doneAt ? { doneAt } : {}),
     });
@@ -1752,16 +1768,23 @@ export function trackedFacts(nb: Pick<Notebook, 'fields'>): NotebookField[] {
   return nb.fields.filter((f) => f.role !== 'link' && f.role !== 'image' && f.role !== 'score' && f.type !== 'image' && f.type !== 'url');
 }
 
+/** The facts a source step looks up: the ones it names that the notebook tracks, else all it tracks. */
+export function stepFacts(nb: Pick<Notebook, 'fields'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
+  const tracked = trackedFacts(nb);
+  const named = step.facts?.length ? tracked.filter((f) => step.facts!.includes(f.key)) : [];
+  return named.length ? named : tracked;
+}
+
 /** How far a step is toward its goal: `have` of `want`, and what's still missing (one line each). */
 export interface NotebookStepProgress { met: boolean; have: number; want: number; missing: string[] }
 
 /**
  * Whether a step has met its goal, from the notebook alone (no model):
- * find, enough options in the running; source, every one has its tracked
- * facts; check, every one has each check ticked (a failed one is ruled out,
+ * find, enough options in the running; source, every one has the facts the
+ * step looks up (counted fact by fact); check, every one has each check ticked (a failed one is ruled out,
  * so it's no longer in the running); decide, only when you've confirmed it.
  */
-export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status'>): NotebookStepProgress {
+export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts'>): NotebookStepProgress {
   const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   if (step.kind === 'find') {
     const want = step.target ?? 5;
@@ -1769,11 +1792,13 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     return { met: have >= want, have, want, missing: have >= want ? [] : [`${String(want - have)} more`] };
   }
   if (step.kind === 'source') {
-    const tracked = trackedFacts(nb);
-    const missing = options.map((o) => ({ o, gaps: tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '') }))
-      .filter((x) => x.gaps.length).map((x) => `${x.o.name} — ${x.gaps.map((f) => f.label.toLowerCase()).join(', ')}`);
-    const want = options.length;
-    return { met: want > 0 && !missing.length, have: want - missing.length, want, missing };
+    const tracked = stepFacts(nb, step);
+    const gaps = options.map((o) => ({ o, gaps: tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '') }));
+    const missing = gaps.filter((x) => x.gaps.length).map((x) => `${x.o.name} — ${x.gaps.map((f) => f.label.toLowerCase()).join(', ')}`);
+    // Fact by fact, so each one found shows (a company with 2 of its 3 facts isn't 0).
+    const want = options.length * tracked.length;
+    const have = want - gaps.reduce((n, x) => n + x.gaps.length, 0);
+    return { met: options.length > 0 && tracked.length > 0 && !missing.length, have, want, missing };
   }
   if (step.kind === 'check') {
     const missing = nb.checks.length ? options.map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }))

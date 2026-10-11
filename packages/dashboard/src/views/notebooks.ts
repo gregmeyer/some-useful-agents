@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, optionLink, notebookProgress, stepProgress, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, optionLink, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -84,7 +84,7 @@ export function decisionPlaceholder(leads: readonly Pick<NotebookViewOption, 'na
   return 'What you chose, and why. Or why you stopped looking.';
 }
 
-const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'sourced', check: 'checked', decide: 'chosen' };
+const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'facts', check: 'checked', decide: 'chosen' };
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**
@@ -98,6 +98,8 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
       const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : step.kind === 'decide' ? 'you' : '');
+      // A source step that looks up only some facts names them.
+      const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
       const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
       const progress = step.kind === 'decide' && step.status !== 'done' ? `pick ${String(p.want)}`
@@ -108,6 +110,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         <span class="nb-step__body">
           <span class="nb-step__title">${step.title}</span>
           <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
+          ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
           <span class="nb-step__meta">${progress} · ${STEP_STATUS[step.status]}</span>
         </span>

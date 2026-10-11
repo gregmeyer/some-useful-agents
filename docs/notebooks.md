@@ -320,21 +320,24 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 | Kind | Its goal | Shown as |
 |------|----------|----------|
 | `find` | at least `target` options in the running (5 if not given) | "8 of 10 found" |
-| `source` | every option in the running has each fact the notebook tracks (not its link, picture or fit score) | "31 of 40 sourced" |
+| `source` | every option in the running has each fact the step looks up: its `facts` (field keys or labels) when it names them, else every fact the notebook tracks (not its link, picture or fit score). Counted fact by fact | "93 of 120 facts" |
 | `check` | every option in the running has each of the notebook's checks ticked; one that fails is ruled out, so it's no longer in the running | "12 of 12 checked" |
 | `decide` | you've confirmed the final set of `target` options | "pick 10" |
 
 - **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
 - **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
 - **Statuses:** to do, running, goal met, stuck or done.
+- **A source step can name its facts.** An agent that looks up revenue, employees and founding year can't fill "why people buy it", so a step that counted every fact would never reach its goal with it. Give the step `"facts": ["revenue", "employees", "founded"]` and only those count; its agent is asked only for those, and the step shows them beside its agent ("with firmographic-research · revenue, employees, founded"). Leave the other facts to another step. Names that aren't the notebook's facts are dropped.
+
+  ![An example notebook's source step that looks up revenue, employees and founded: 18 of 36 facts](images/notebook-source-step-facts.png)
 - **From your sentence:**
 
   ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)
 
   When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job; a find or source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
 - **From the conversation:** when a goal needs several kinds of work, or you describe it in stages, or you keep asking sua for one stage after another, sua proposes the steps as a card instead of running the stages itself. The card shows each step with its agent and what it replaces. **Set them up** saves them; **Set them up and start** also starts step 1. Only installed agents can be named, and none is changed. If no agent fits a step, sua offers to build one and then proposes the steps again with it. To change the steps, ask sua; it proposes the whole list again.
-- **Setting them directly:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
-- **On a notebook partway done:** the work it already has counts. However the steps are set up, sua checks them in order, and each step whose goal is already met is marked done, up to the first one that isn't. That's where **Next step →** starts. sua says so in the conversation, e.g. "The notebook already has what this step needs, so it's done: step 1, Find 10 companies (12 found, goal 10). Next is step 2, Source firmographics (3 of 12 sourced)." A decide step is never done for you.
+- **Setting them directly:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, {"title": "Source firmographics", "kind": "source", "agentId": "firmographic-research", "facts": ["revenue", "employees", "founded"]}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
+- **On a notebook partway done:** the work it already has counts. However the steps are set up, sua checks them in order, and each step whose goal is already met is marked done, up to the first one that isn't. That's where **Next step →** starts. sua says so in the conversation, e.g. "The notebook already has what this step needs, so it's done: step 1, Find 10 companies (12 found, goal 10). Next is step 2, Source firmographics (30 of 36 facts sourced)." A decide step is never done for you.
 
   ![An example notebook whose first step was already done when its steps were set up; Next step starts at step 2](images/notebook-steps-already-done.png)
 
@@ -351,6 +354,7 @@ While a notebook has steps left, the main button in its header is **Next step �
    - **Goal met:** the step waits for you. sua says so in the notebook's conversation ("Step 1 of 4 is done: Find 10 companies (12 of 10 found). Next is Source firmographics, with firmographic-research.") with a **Continue** card, and the header's **Next step →** does the same. Either marks the step done and starts the next.
    - **Stuck:** sua lists what's still missing, with a **Try again** card. You can also tell sua what to do differently, for example change the step or its agent.
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
+   - **Stopped:** when you stop a step's run (its **Stop** button), the step stops too, as stuck, instead of starting another try.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 

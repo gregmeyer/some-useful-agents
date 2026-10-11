@@ -204,7 +204,7 @@ describe('filing into a notebook of organizations', () => {
     expect(page.text).toContain('nb-step nb-step--todo nb-step--current" title="Still needed: 2 more"');
     expect(page.text).toContain('1 of 3 found · to do');
     expect(page.text).toContain('with sched-agent');
-    expect(page.text).toContain('1 of 1 sourced');
+    expect(page.text).toContain('1 of 1 facts');
     // The source step has no agent of its own yet.
     expect(page.text).toContain('needs an agent');
 
@@ -228,10 +228,10 @@ describe('filing into a notebook of organizations', () => {
       { title: 'Pick 1', kind: 'decide', target: 1 },
     ];
     const res = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
-    expect(res.body.steps.map((x: { status: string; note?: string }) => `${x.status}:${x.note ?? ''}`)).toEqual(['done:2 of 2 found, already', 'todo:1 of 2 sourced', 'todo:', 'todo:']);
+    expect(res.body.steps.map((x: { status: string; note?: string }) => `${x.status}:${x.note ?? ''}`)).toEqual(['done:2 of 2 found, already', 'todo:1 of 2 facts sourced', 'todo:', 'todo:']);
     // sua says so in the notebook's conversation; Next step starts at step 2.
     const thread = store.get(nb.id)!.conversationId!;
-    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toBe('The notebook already has what this step needs, so it’s done: step 1, **Find 2 companies** (2 of 2 found). Next is step 2, **Source their facts** (1 of 2 sourced).');
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toBe('The notebook already has what this step needs, so it’s done: step 1, **Find 2 companies** (2 of 2 found). Next is step 2, **Source their facts** (1 of 2 facts sourced).');
     const { nextStepAction } = await import('../views/notebooks.js');
     expect(nextStepAction(store.get(nb.id)!)).toMatchObject({ label: 'Next step', hint: 'Step 2 of 4: Source their facts' });
 
@@ -239,7 +239,7 @@ describe('filing into a notebook of organizations', () => {
     store.correctOption(nb.id, co2.id, { employees: 120 });
     const again = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
     expect(again.body.steps.map((x: { status: string }) => x.status)).toEqual(['done', 'done', 'todo', 'todo']);
-    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('step 2, **Source their facts** (2 of 2 sourced). Next is step 3, **Check them** (0 of 2 checked).');
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('step 2, **Source their facts** (2 of 2 facts sourced). Next is step 3, **Check them** (0 of 2 checked).');
 
     // Every option checked: only Decide is left, and that's never done for you.
     for (const o of store.entries(nb.id, 100).filter((e) => e.kind === 'option')) store.checkOption(nb.id, o.id, 'Sells software', true);
@@ -398,6 +398,43 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(nextStepAction(nb([st('find', 'met', 'a'), st('decide')]))).toEqual({ note: 'Step 1 is done. Next: The decide, with Decide.' });
     expect(nextStepAction(nb([st('find', 'done', 'a')]))).toBeUndefined();
     expect(nextStepAction(nb([]))).toBeUndefined();
+  });
+
+  it('a source step looks up only its facts, and stopping its run stops the step instead of trying again', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'slow-source', name: 'Slow source', status: 'active', source: 'local', mcp: false, inputs: { NOTEBOOK: { type: 'string', default: '' } }, nodes: [{ id: 'n', type: 'shell', command: 'sleep 20' }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Example peers' });
+    store.setFields(nb.id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'employees', label: 'Employees', type: 'number' },
+      { key: 'founded', label: 'Founded', type: 'number' },
+      { key: 'why_buy', label: 'Why people buy it', type: 'text' },
+    ]);
+    store.upsertOption(nb.id, { title: 'Example Co 1', by: 'you', data: { company: 'Example Co 1', employees: 300 } });
+    store.upsertOption(nb.id, { title: 'Example Co 2', by: 'you', data: { company: 'Example Co 2', employees: 120, founded: 2015 } });
+    store.setSteps(nb.id, [{ title: 'Source firmographics', kind: 'source', agentId: 'slow-source', facts: ['employees', 'Founded'] }]);
+
+    // Only its facts count, one by one; the page names them.
+    const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toContain('<span class="nb-step__by nb-step__facts" title="employees, founded">employees, founded</span>');
+    expect(page).toContain('3 of 4 facts · to do');
+    // Its job names only those facts.
+    const { pipelineInputs } = await import('../lib/notebook-pipeline.js');
+    const step = store.get(nb.id)!.steps![0];
+    const inputs = pipelineInputs({ inputs: { NOTEBOOK: {} } } as never, store.get(nb.id)!, store.entries(nb.id), { step, want: 4, have: 3, missing: ['Example Co 1 — founded'] });
+    expect(inputs.NOTEBOOK).toContain('find the missing facts (only employees, founded), each with a source:\n- Example Co 1 — founded');
+
+    // Stopping its run stops the step: one try, no second run.
+    await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    const runs = () => runStore.databaseHandle().prepare("SELECT id, status FROM runs WHERE agentName = 'slow-source'").all() as Array<{ id: string; status: string }>;
+    for (let i = 0; i < 200 && !runs().some((r) => r.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25));
+    await request(app).post(`/runs/${runs()[0].id}/cancel`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', tries: 1 });
+    expect(runs()).toHaveLength(1);
+    expect(store.passes(nb.id)[0].note).toBe('slow-source: stopped');
   });
 
   it('works on one step at a time: retries toward its goal, pauses for Continue, and says when it is stuck', async () => {
