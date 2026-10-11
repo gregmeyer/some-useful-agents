@@ -20,6 +20,7 @@ import {
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { hasOpenSteps, startNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
@@ -478,7 +479,15 @@ notebooksRouter.post('/notebooks/:id/runs/:runId/add', (req: Request, res: Respo
 
 notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const out = startNotebookPipeline(getContext(req.app.locals), id);
+  const ctx = getContext(req.app.locals);
+  // With steps still to do, Run works on the current one (Continue, Try again); else the pipeline, as before.
+  const nb = store(req).get(id);
+  if (nb && hasOpenSteps(nb)) {
+    const step = startNotebookStep(ctx, id);
+    res.redirect(303, back(id, step.started ? `Working on ${step.step!.title}. This page updates as it goes.` : step.reason ?? 'It could not start.'));
+    return;
+  }
+  const out = startNotebookPipeline(ctx, id);
   res.redirect(303, back(id, out.started ? 'Running the pipeline. New entries show up here as each agent finishes.' : out.reason ?? 'It could not start.'));
 });
 

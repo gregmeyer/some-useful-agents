@@ -329,6 +329,75 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(notebookBrief(nb, store.entries(nb.id))).toBe(`Find software comps\n${gaps}`);
     // Nothing yet: nothing to say.
     expect(notebookGaps(store.create({ title: 'Empty' }), [])).toBe('');
+
+    // A step's job goes first: in the brief, the topic, and a STEP input; other inputs keep their defaults.
+    const { pipelineInputs, stepLine } = await import('../lib/notebook-pipeline.js');
+    const job = { step: { title: 'Source firmographics', kind: 'source' as const }, want: 2, have: 1, missing: ['Motive: planning and forecasting — employees, founded'] };
+    const line = 'This step: Source firmographics. Don\'t look for new options. For these options only, find the missing facts, each with a source:\n- Motive: planning and forecasting — employees, founded';
+    expect(stepLine(nb, job)).toBe(line);
+    expect(pipelineInputs({ inputs: { NOTEBOOK: {}, TOPIC: {}, STEP: {}, DEPTH: {} } } as never, nb, store.entries(nb.id), job)).toEqual({
+      NOTEBOOK: `${line}\nFind software comps\n${gaps}`, TOPIC: `${line}\n\nFind software comps`, STEP: line,
+    });
+    expect(stepLine(nb, { step: { title: 'Find 10', kind: 'find' }, want: 10, have: 4, missing: [] })).toBe("This step: Find 10. Find 6 more options that fit (the notebook wants 10 in the running and has 4). Don't bring back ones it already has.");
+    // Without a step: as before, and no STEP.
+    expect(pipelineInputs({ inputs: { TOPIC: {}, STEP: {} } } as never, nb)).toEqual({ TOPIC: 'Find software comps' });
+  });
+
+  it('works on one step at a time: retries toward its goal, pauses for Continue, and says when it is stuck', async () => {
+    const app = await makeApp();
+    const post = (path: string) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    // A search that finds one new company a run (filed directly from its <notebook> block)…
+    const counter = join(dir, 'n');
+    agentStore.createAgent({ id: 'finder', name: 'Finder', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `n=$(cat ${counter} 2>/dev/null || echo 0); n=$((n+1)); echo $n > ${counter}; echo '<notebook>{"entries":[{"kind":"option","title":"Company '$n'"}]}</notebook>'` }] } as never, 'cli');
+    // …and one that only ever finds the same company.
+    agentStore.createAgent({ id: 'samey', name: 'Samey', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `echo '<notebook>{"entries":[{"kind":"option","title":"Company 1"}]}</notebook>'` }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers', pipeline: ['sched-agent'] });
+    store.setSteps(nb.id, [
+      { title: 'Find 3 companies', kind: 'find', agentId: 'finder', target: 3 },
+      { title: 'Find 5 companies', kind: 'find', agentId: 'samey', target: 5 },
+      { title: 'Pick the final set', kind: 'decide', target: 3 },
+    ]);
+    const settle = async () => { for (let i = 0; i < 200 && (store.get(nb.id)!.steps ?? []).some((x) => x.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25)); };
+    const page = async () => (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const thread = () => InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!);
+
+    expect(await page()).toContain('Run step 1: Find 3 companies');
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/run`)).headers.location)).toContain('Working on Find 3 companies');
+    await settle();
+    // Three runs, one company each: met, and it waits.
+    let steps = store.get(nb.id)!.steps!;
+    expect(steps[0]).toMatchObject({ status: 'met', tries: 3, note: '3 of 3 found' });
+    expect(steps[1].status).toBe('todo');
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(3);
+    expect(await page()).toContain('Continue to Find 5 companies');
+    let said = thread();
+    expect(said.some((r) => r.role === 'triage' && r.body.includes('Step 1 of 3 is done: **Find 3 companies** (3 of 3 found). Next is **Find 5 companies**, with samey.'))).toBe(true);
+    const card = said.find((r) => r.role === 'action')!;
+    expect(JSON.parse(card.metaJson!)).toMatchObject({ agentId: 'notebook-step', status: 'proposed', ctaLabel: 'Continue', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'met' } });
+
+    // Continue (the card): step 1 is done, step 2 runs; a run that gets it no closer stops it: stuck.
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    const ctx = app.locals as never;
+    const cont = await executeNotebookStep((await import('../context.js')).getContext(ctx), JSON.parse(card.metaJson!));
+    expect(cont).toMatchObject({ status: 'completed' });
+    await settle();
+    steps = store.get(nb.id)!.steps!;
+    expect(steps[0].status).toBe('done');
+    expect(steps[1]).toMatchObject({ status: 'stuck', tries: 1, note: '3 of 5 found' });
+    said = thread();
+    expect(said.some((r) => r.body.includes('**Find 5 companies** stopped short after 1 try (3 of 5 found). Still needed:\n- 2 more'))).toBe(true);
+    expect(JSON.parse(said.filter((r) => r.role === 'action').at(-1)!.metaJson!)).toMatchObject({ ctaLabel: 'Try again', inputs: { STEP: 's2', WAS: 'stuck' } });
+    expect(await page()).toContain('Try Find 5 companies again');
+    // The old Continue card is stale now: it does nothing.
+    expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), JSON.parse(card.metaJson!))).toMatchObject({ status: 'failed', refusalReason: 'It has already moved on from that step.' });
+
+    // A decide step is yours: Run says so rather than running anything.
+    store.updateStep(nb.id, 's2', { status: 'done' });
+    expect(await page()).toContain('Next: Pick the final set, with Decide.');
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/run`)).headers.location)).toContain('This step is yours');
   });
 
   it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {

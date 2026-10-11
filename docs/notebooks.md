@@ -326,7 +326,23 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 - **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
 - **Statuses:** to do, running, goal met, stuck or done.
 - **Setting them:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
-- **Coming:** running a step until its goal is met, pausing for **Continue** after each, sua's checker, and steps drafted from your sentence or the conversation.
+
+### Running steps
+
+![An example notebook with four steps: the first has met its goal, and the button reads Continue to the next step](images/notebook-steps.png)
+
+While a notebook has steps left, its button works on the current one ("Run step 2: Source firmographics"). The pipeline button comes back once every step is done.
+
+1. **The agent gets the step's job.** It goes first in the agent's notebook input (`GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF`) and its topic input (`TOPIC`, `QUERY`, `QUESTION` or `SEARCH`), and fills a `STEP` input if the agent declares one. For example: "This step: Source firmographics. Don't look for new options. For these options only, find the missing facts, each with a source: …". The agent itself isn't changed.
+2. **What it finds is filed,** the same way as a pipeline run.
+3. **The step's goal is checked.** Short of the goal, the agent runs again with what's still missing, up to 3 times per press. It stops early when a run gets no closer.
+4. **It pauses.**
+   - **Goal met:** the step waits for you. sua says so in the notebook's conversation ("Step 1 of 4 is done: Find 10 companies (12 of 10 found). Next is Source firmographics, with firmographic-research.") with a **Continue** card, and the page's button reads **Continue to …**. Continue marks the step done and starts the next.
+   - **Stuck:** sua lists what's still missing, with a **Try again** card. You can also tell sua what to do differently, for example change the step or its agent.
+   - **Already met:** a step whose goal is met before it runs (an earlier search found enough) is met without a run.
+- **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
+- **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
+- **Not yet:** sua's checker for check steps, and steps drafted from your sentence or the conversation.
 
 ## Coming next
 

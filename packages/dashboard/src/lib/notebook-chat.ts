@@ -233,6 +233,7 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+    ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
     ...(focus ? { focus } : {}),
