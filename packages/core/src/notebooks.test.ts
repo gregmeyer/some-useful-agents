@@ -16,6 +16,20 @@ let runs: RunStore;
 afterEach(() => { try { runs?.close(); } catch { /* ignore */ } if (dir) rmSync(dir, { recursive: true, force: true }); });
 
 describe('NotebookStore', () => {
+  it('knows which notebooks an agent works for: its pipeline, its searches, what it filed', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const car = s.create({ title: 'Car', pipeline: ['car-sweep'] });
+    const guitar = s.create({ title: 'Guitar' });
+    const cabinet = s.create({ title: 'Cabinet' });
+    s.recordSearch(guitar.id, 'research', 'r1', 2);
+    s.addEntry(cabinet.id, { kind: 'note', title: 'Hooks on the left', by: 'agent:research' });
+    expect(s.notebooksFedBy('car-sweep')).toEqual([car.id]);
+    expect(s.notebooksFedBy('research').sort()).toEqual([cabinet.id, guitar.id].sort());
+    expect(s.notebooksFedBy('nobody')).toEqual([]);
+  });
+
   it('starts, fills, ticks, decides and reopens a notebook', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));
