@@ -20,7 +20,7 @@ import {
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { confirmDoneStepsAndSay, hasOpenSteps, startNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
@@ -496,6 +496,24 @@ notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
   }
   const out = startNotebookPipeline(ctx, id);
   res.redirect(303, back(id, out.started ? 'Running the pipeline. New entries show up here as each agent finishes.' : out.reason ?? 'It could not start.'));
+});
+
+/** Stop the step that's running (the header's Stop): it keeps what it found and offers Move on or Try again. */
+notebooksRouter.post('/notebooks/:id/steps/stop', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = stopNotebookStep(getContext(req.app.locals), id);
+  res.redirect(303, back(id, out.stopped ? 'Stopping the step. It keeps what it found; then you can move on or try again.' : out.reason ?? 'It could not stop.'));
+});
+
+/**
+ * Move on from the current step short of its goal: it keeps what it found,
+ * is marked done, and the next step starts (the header's Move on).
+ */
+notebooksRouter.post('/notebooks/:id/steps/move-on', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const m = moveOnFromStep(getContext(req.app.locals), id, { stepId: str(req.body?.step) || undefined });
+  const then = m.next?.started ? ` Working on ${m.next.step!.title}.` : m.next?.reason ? ` ${m.next.reason}` : '';
+  res.redirect(303, back(id, m.moved ? `Moved on from ${m.step!.title}, keeping what it found.${then}` : m.reason ?? 'It could not move on.'));
 });
 
 /**

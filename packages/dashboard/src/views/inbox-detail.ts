@@ -836,7 +836,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                       : meta.agentId === 'notebook-steps'
                         ? html`Set up the steps · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-step'
-                        ? html`${meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
+                        ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}

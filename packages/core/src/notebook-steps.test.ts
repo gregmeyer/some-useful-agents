@@ -60,6 +60,21 @@ describe('notebook steps', () => {
     expect(nb.steps!.map((x) => x.facts)).toEqual([['employees', 'founded'], undefined, undefined]);
   });
 
+  it('a stuck step can be stalled, a done one moved on; a new status starts clean', () => {
+    const { s, id } = setup();
+    s.setSteps(id, [{ title: 'Source facts', kind: 'source' }, { title: 'Pick 2', kind: 'decide', target: 2 }]);
+    expect(s.updateStep(id, 's1', { status: 'stuck', stalled: true }).steps![0]).toMatchObject({ status: 'stuck', stalled: true });
+    // Set again (same id and status): kept.
+    expect(s.setSteps(id, [{ id: 's1', title: 'Source facts', kind: 'source' }]).steps![0].stalled).toBe(true);
+    const done = s.updateStep(id, 's1', { status: 'done', movedOn: true }).steps![0];
+    expect(done).toMatchObject({ status: 'done', movedOn: true });
+    expect(done.stalled).toBeUndefined();
+    const again = s.updateStep(id, 's1', { status: 'todo' }).steps![0];
+    expect(again.movedOn).toBeUndefined();
+    // Only where they mean something.
+    expect(s.setSteps(id, [{ title: 'Find', kind: 'find', status: 'todo', stalled: true, movedOn: true }]).steps![0]).toEqual({ id: 's1', title: 'Find', kind: 'find', status: 'todo', tries: 0 });
+  });
+
   it('a notebook without steps has none', () => {
     const { s, id } = setup();
     expect(s.get(id)!.steps).toBeUndefined();

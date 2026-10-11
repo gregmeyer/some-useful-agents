@@ -5,7 +5,8 @@
  * model). Short of the goal, it runs again with what's still missing, up to
  * MAX_TRIES times, and stops early when a run gets it no closer. Then it
  * pauses: a met step waits for Continue, and a stuck one says what's missing
- * and offers Try again. sua says so in the notebook's conversation, with the
+ * and offers Move on (keep what it found) and Try again; Move on first when
+ * its agent got no further. sua says so in the notebook's conversation, with the
  * button as a card. The agent is never edited for a step.
  */
 import { randomUUID } from 'node:crypto';
@@ -144,13 +145,13 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
 }
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
-async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>): Promise<{ id: string; status: string; result?: string; error?: string }> {
+async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>, onRunId?: (runId: string) => void): Promise<{ id: string; status: string; result?: string; error?: string }> {
   if (agentId === NOTEBOOK_CHECKER_ID && ctx.notebookCheckerRun) {
     const result = await ctx.notebookCheckerRun(inputs({ inputs: CHECKER_INPUTS }));
     return { id: randomUUID(), status: result ? 'completed' : 'failed', ...(result ? { result } : { error: 'no answer' }) };
   }
   const agent = ctx.agentStore.getAgent(agentId)!;
-  const run = await runDispatchedAgentToTerminal(ctx, agent, inputs(agent));
+  const run = await runDispatchedAgentToTerminal(ctx, agent, inputs(agent), onRunId);
   return { id: run.id, status: run.status, ...(run.result ? { result: run.result } : {}), ...(run.error ? { error: run.error } : {}) };
 }
 
@@ -162,17 +163,24 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   // Already there (a search earlier found enough): no run needed.
   if (before.met) return finish(ctx, store, notebookId, step, before, ['its goal was already met']);
   let tries = step.tries;
+  // Whether any run this press got it closer: none did (they found nothing
+  // new, failed, or you stopped one) means its agent may not be able to.
+  let gained = false;
+  let stopped = false;
   for (let i = 0; i < MAX_TRIES; i++) {
     tries++;
     const passId = store.startPass(nb.id, 'pipeline');
     const entries = store.entries(nb.id, 1000);
-    const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }));
+    // Stop (the header's, while it runs) reaches this run through its id.
+    const running = ctx.notebookPipelines?.get(notebookId);
+    const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }), (runId) => { if (running) running.runId = runId; });
     store.addRunToPass(passId, run.id);
     // You stopped it: the step stops too, rather than starting another try.
-    if (run.status === 'cancelled') {
+    if (run.status === 'cancelled' || running?.stopped) {
       store.finishPass(passId, `${agent.id}: stopped`);
       notes.push('you stopped it');
       store.updateStep(nb.id, step.id, { tries });
+      stopped = true;
       break;
     }
     if (run.status !== 'completed') {
@@ -194,21 +202,25 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const closer = now.have > before.have || now.missing.join('\n') !== before.missing.join('\n');
     before = now;
     if (!closer) break;
+    gained = true;
   }
-  return finish(ctx, store, notebookId, { ...step, tries }, before, notes);
+  // You stopped it, or no run got it closer: Move on comes first.
+  return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stopped || !gained);
 }
 
 /** Mark the step met or stuck, note the run, and say so in the conversation with the next button. */
-function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, p: NotebookStepProgress, notes: readonly string[]): void {
+function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, p: NotebookStepProgress, notes: readonly string[], stalled = false): void {
   const words = progressWords(step, p);
-  const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries });
+  const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries, ...(!p.met && stalled ? { stalled: true } : {}) });
   store.noteRun(notebookId, `${step.title}: ${words}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
   postStepCard(ctx, nb, step.id, p);
 }
 
 /**
- * sua's message about a step that paused, with its card: Continue to the
- * next step (or Decide, when that's next), or Try again with what's missing.
+ * sua's message about a step that paused, with its cards: Continue to the
+ * next step (or Decide, when that's next); or, short of its goal, Move on
+ * (keep what it found and go on) and Try again. A step whose agent got no
+ * further puts Move on first; one still getting closer, Try again.
  */
 export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: NotebookStepProgress): string | undefined {
   const inbox = ctx.inboxStore;
@@ -220,21 +232,69 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   if (!threadId) return undefined;
   const next = steps[i + 1];
   const words = progressWords(step, p);
-  const missing = p.missing.slice(0, 6).map((m) => `- ${m}`).join('\n');
+  const missing = `${p.missing.slice(0, 6).map((m) => `- ${m}`).join('\n')}${p.missing.length > 6 ? `\n- and ${String(p.missing.length - 6)} more` : ''}`;
+  const stalled = !p.met && !!step.stalled;
+  const onward = next ? `goes on to **${next.title}**` : 'finishes';
   const body = p.met
     ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
-    : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}). Still needed:\n${missing}${p.missing.length > 6 ? `\n- and ${String(p.missing.length - 6)} more` : ''}\n\nI can try again, or you can change the step or its agent; tell me what to do differently.`;
+    : stalled
+      ? `**${step.title}** couldn't get any further (${words}): its last run found nothing new, so its agent may not be able to find the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`
+      : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}), still getting closer. Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   // No card after the last step, or before a decide step (that's the Decide button).
   if (p.met && (!next || next.kind === 'decide')) return msg.id;
-  const action: InboxActionMeta = {
-    kind: 'action', status: 'proposed', agentId: NOTEBOOK_STEP_ACTION, effect: 'write',
-    inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: p.met ? 'met' : 'stuck' },
-    rationale: p.met ? `Start step ${String(i + 2)}: ${next!.title}.` : `Run ${step.title} again with what's still missing.`,
-    ctaLabel: p.met ? 'Continue' : 'Try again',
+  const card = (action: InboxActionMeta): string => {
+    const c = inbox.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
+    publishInboxEvent(ctx, threadId, 'action:created', { responseId: c.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: c.createdAt });
+    return c.id;
   };
-  const card = inbox.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
-  publishInboxEvent(ctx, threadId, 'action:created', { responseId: card.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: card.createdAt });
-  return card.id;
+  const base = { kind: 'action' as const, status: 'proposed' as const, agentId: NOTEBOOK_STEP_ACTION, effect: 'write' as const };
+  if (p.met) return card({ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'met' }, rationale: `Start step ${String(i + 2)}: ${next!.title}.`, ctaLabel: 'Continue' });
+  const moveOn: InboxActionMeta = { ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'stuck', MOVE: '1' }, rationale: `Keep what ${step.title} found (${words}) and ${next ? `go on to ${next.title}` : 'finish'}.`, ctaLabel: 'Move on' };
+  const again: InboxActionMeta = { ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'stuck' }, rationale: `Run ${step.title} again with what's still missing.`, ctaLabel: 'Try again' };
+  const [first, second] = stalled ? [moveOn, again] : [again, moveOn];
+  const id = card(first);
+  card(second);
+  return id;
+}
+
+/**
+ * Stop the step that's running: its run is cancelled and the step stops
+ * there (stuck, with Move on first), keeping what earlier runs found.
+ */
+export function stopNotebookStep(ctx: Ctx, notebookId: string): { stopped: boolean; reason?: string } {
+  const running = ctx.notebookPipelines?.get(notebookId);
+  const nb = stores(ctx).get(notebookId);
+  if (!running || !nb || !nb.steps?.some((s) => s.status === 'running')) return { stopped: false, reason: 'No step is running.' };
+  running.stopped = true;
+  if (running.runId) {
+    ctx.activeRuns.get(running.runId)?.abort();
+    ctx.activeRuns.delete(running.runId);
+    void Promise.resolve(ctx.provider?.cancelRun?.(running.runId)).catch(() => { /* the abort is enough */ });
+  }
+  return { stopped: true };
+}
+
+/**
+ * Move on from a step short of its goal: it's done with what it found (noted
+ * as moved on), and the next step starts, unless it's yours (Decide). `stepId`
+ * must still be the current step, so a stale card does nothing.
+ */
+export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: string } = {}): { moved: boolean; reason?: string; step?: NotebookStep; next?: ReturnType<typeof startNotebookStep> } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { moved: false, reason: 'No such notebook.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { moved: false, reason: 'It’s still running. Stop its run first.' };
+  const step = currentStep(nb);
+  if (!step) return { moved: false, reason: 'All its steps are done.' };
+  if (opts.stepId && opts.stepId !== step.id) return { moved: false, reason: 'It has already moved on from that step.' };
+  if (step.kind === 'decide') return { moved: false, reason: 'This step is yours: pick the final set with Decide.' };
+  const p = stepProgress(nb, store.entries(nb.id, 1000), step);
+  const words = progressWords(step, p);
+  const after = store.updateStep(nb.id, step.id, { status: 'done', movedOn: true, note: `${words}, moved on` });
+  store.noteRun(nb.id, `${step.title}: moved on with ${words}`);
+  const next = currentStep(after);
+  if (!next || next.kind === 'decide') return { moved: true, step };
+  return { moved: true, step, next: startNotebookStep(ctx, nb.id) };
 }

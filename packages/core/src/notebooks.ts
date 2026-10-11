@@ -191,6 +191,14 @@ export interface NotebookStep {
   tries: number;
   /** One line on how it went ("8 of 10 companies"). */
   note?: string;
+  /**
+   * stuck because a run got it no closer: its agent may not be able to do
+   * the rest, so Move on is offered first (else it ran out of tries while
+   * still getting closer, and Try again is).
+   */
+  stalled?: boolean;
+  /** done because you moved on from it short of its goal, keeping what it found. */
+  movedOn?: boolean;
   doneAt?: string;
 }
 export const MAX_STEPS = 6;
@@ -599,13 +607,16 @@ export class NotebookStore {
   }
 
   /** Change one step's status, tries or note. */
-  updateStep(id: string, stepId: string, patch: Partial<Pick<NotebookStep, 'status' | 'tries' | 'note' | 'agentId'>>, now = new Date().toISOString()): Notebook {
+  updateStep(id: string, stepId: string, patch: Partial<Pick<NotebookStep, 'status' | 'tries' | 'note' | 'agentId' | 'stalled' | 'movedOn'>>, now = new Date().toISOString()): Notebook {
     const nb = this.mustGet(id);
     const steps = (nb.steps ?? []).map((s) => {
       if (s.id !== stepId) return s;
       const next: NotebookStep = { ...s, ...patch };
       if (patch.status === 'done') next.doneAt = now;
       else if (patch.status) delete next.doneAt;
+      // A new status starts clean unless the patch says otherwise.
+      if (patch.status && patch.stalled === undefined) delete next.stalled;
+      if (patch.status && patch.movedOn === undefined) delete next.movedOn;
       return next;
     });
     if (!steps.some((s) => s.id === stepId)) throw new Error(`No step "${stepId}".`);
@@ -1747,6 +1758,8 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     const tries = typeof x.tries === 'number' && x.tries >= 0 ? Math.floor(x.tries) : was?.tries ?? 0;
     const note = typeof x.note === 'string' && x.note.trim() ? x.note.trim().slice(0, 200) : was?.note;
     const doneAt = typeof x.doneAt === 'string' ? x.doneAt : was?.doneAt;
+    const stalled = typeof x.stalled === 'boolean' ? x.stalled : was?.status === status ? was?.stalled : undefined;
+    const movedOn = typeof x.movedOn === 'boolean' ? x.movedOn : was?.status === status ? was?.movedOn : undefined;
     const facts = kind === 'source' && Array.isArray(x.facts)
       ? [...new Set(x.facts.filter((f): f is string => typeof f === 'string').map((f) => f.trim()).filter(Boolean))].slice(0, 12)
       : [];
@@ -1756,6 +1769,8 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...((kind === 'find' || kind === 'decide') && target !== undefined ? { target } : {}),
       ...(facts.length ? { facts } : {}),
       ...(note ? { note } : {}),
+      ...(status === 'stuck' && stalled ? { stalled: true } : {}),
+      ...(status === 'done' && movedOn ? { movedOn: true } : {}),
       ...(status === 'done' && doneAt ? { doneAt } : {}),
     });
     if (out.length === MAX_STEPS) break;

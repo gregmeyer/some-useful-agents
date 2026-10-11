@@ -713,7 +713,11 @@ next, say it was the last one in the running.
   a find or source step, leave its agent out and offer to build one; once
   built, propose notebook-steps again with it. NOTEBOOK_FOCUS.steps shows
   the steps it has and where each stands; to change them, propose the whole
-  list again.
+  list again. When they want to stop a step that's stuck or running out of
+  road ("stop", "skip it", "that's enough", "move on"), propose
+  `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "STEP": "<step id>", "MOVE": "1" } }`:
+  Move on keeps what the step found, marks it done and starts the next. Say
+  what it leaves missing. Without MOVE it runs the current step (Try again).
 - One write per turn: prefer notebook-add; propose the pipeline or steps on
   a turn with nothing new to file.
 
