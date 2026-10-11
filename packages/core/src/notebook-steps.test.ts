@@ -82,5 +82,9 @@ describe('notebook steps', () => {
     // Decide: met only when you've confirmed it.
     expect(stepProgress(nb(), all(), { kind: 'decide', target: 2, status: 'met' })).toEqual({ met: false, have: 0, want: 2, missing: [] });
     expect(stepProgress(nb(), all(), { kind: 'decide', target: 2, status: 'done' }).met).toBe(true);
+
+    // A check step on a notebook with no checks has checked nothing yet.
+    s.setChecks(id, []);
+    expect(stepProgress(nb(), all(), { kind: 'check', status: 'todo' })).toMatchObject({ met: false, have: 0, want: 2 });
   });
 });

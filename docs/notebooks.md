@@ -334,6 +334,9 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
   When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job; a find or source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
 - **From the conversation:** when a goal needs several kinds of work, or you describe it in stages, or you keep asking sua for one stage after another, sua proposes the steps as a card instead of running the stages itself. The card shows each step with its agent and what it replaces. **Set them up** saves them; **Set them up and start** also starts step 1. Only installed agents can be named, and none is changed. If no agent fits a step, sua offers to build one and then proposes the steps again with it. To change the steps, ask sua; it proposes the whole list again.
 - **Setting them directly:** `POST /notebooks/:id/steps` with `{"steps": [{"title": "Find 10 companies", "kind": "find", "agentId": "account-research", "target": 10}, …]}`. At most 6 steps. Agents must be installed, and an empty list removes the steps.
+- **On a notebook partway done:** the work it already has counts. However the steps are set up, sua checks them in order, and each step whose goal is already met is marked done, up to the first one that isn't. That's where **Next step →** starts. sua says so in the conversation, e.g. "The notebook already has what this step needs, so it's done: step 1, Find 10 companies (12 found, goal 10). Next is step 2, Source firmographics (3 of 12 sourced)." A decide step is never done for you.
+
+  ![An example notebook whose first step was already done when its steps were set up; Next step starts at step 2](images/notebook-steps-already-done.png)
 
 ### Running steps
 
@@ -347,7 +350,7 @@ While a notebook has steps left, the main button in its header is **Next step �
 4. **It pauses.**
    - **Goal met:** the step waits for you. sua says so in the notebook's conversation ("Step 1 of 4 is done: Find 10 companies (12 of 10 found). Next is Source firmographics, with firmographic-research.") with a **Continue** card, and the header's **Next step →** does the same. Either marks the step done and starts the next.
    - **Stuck:** sua lists what's still missing, with a **Try again** card. You can also tell sua what to do differently, for example change the step or its agent.
-   - **Already met:** a step whose goal is met before it runs (an earlier search found enough) is met without a run.
+   - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 

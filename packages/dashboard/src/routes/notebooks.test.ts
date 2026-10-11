@@ -212,6 +212,42 @@ describe('filing into a notebook of organizations', () => {
     expect(store.get(nb.id)!.steps).toBeUndefined();
   });
 
+  it('steps set up on a notebook partway done: the ones its work covers are done, and sua says where it starts', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Example peers', pipeline: ['sched-agent'] });
+    store.setFields(nb.id, [{ key: 'employees', label: 'Employees', type: 'number' }]);
+    store.setChecks(nb.id, ['Sells software']);
+    store.upsertOption(nb.id, { title: 'Example Co 1', by: 'you', data: { employees: 300 } });
+    const co2 = store.upsertOption(nb.id, { title: 'Example Co 2', by: 'you', data: {} }).entry;
+    const steps = [
+      { title: 'Find 2 companies', kind: 'find', agentId: 'sched-agent', target: 2 },
+      { title: 'Source their facts', kind: 'source', agentId: 'sched-agent' },
+      { title: 'Check them', kind: 'check' },
+      { title: 'Pick 1', kind: 'decide', target: 1 },
+    ];
+    const res = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
+    expect(res.body.steps.map((x: { status: string; note?: string }) => `${x.status}:${x.note ?? ''}`)).toEqual(['done:2 of 2 found, already', 'todo:1 of 2 sourced', 'todo:', 'todo:']);
+    // sua says so in the notebook's conversation; Next step starts at step 2.
+    const thread = store.get(nb.id)!.conversationId!;
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toBe('The notebook already has what this step needs, so it’s done: step 1, **Find 2 companies** (2 of 2 found). Next is step 2, **Source their facts** (1 of 2 sourced).');
+    const { nextStepAction } = await import('../views/notebooks.js');
+    expect(nextStepAction(store.get(nb.id)!)).toMatchObject({ label: 'Next step', hint: 'Step 2 of 4: Source their facts' });
+
+    // Once the facts are in, setting the steps again marks source done too; the check step is next.
+    store.correctOption(nb.id, co2.id, { employees: 120 });
+    const again = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
+    expect(again.body.steps.map((x: { status: string }) => x.status)).toEqual(['done', 'done', 'todo', 'todo']);
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('step 2, **Source their facts** (2 of 2 sourced). Next is step 3, **Check them** (0 of 2 checked).');
+
+    // Every option checked: only Decide is left, and that's never done for you.
+    for (const o of store.entries(nb.id, 100).filter((e) => e.kind === 'option')) store.checkOption(nb.id, o.id, 'Sells software', true);
+    const last = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
+    expect(last.body.steps.map((x: { status: string }) => x.status)).toEqual(['done', 'done', 'done', 'todo']);
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('Next is **Pick 1**, with Decide.');
+  });
+
   it("a run that names a company the notebook has fills in its facts instead of adding it again", async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -1034,6 +1070,13 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     const set = await executeNotebookSteps(ctx, { ...card, inputs: { ...card.inputs, RUN: '' } });
     expect(set).toMatchObject({ status: 'completed', summary: "Steps set: 1. Find 10 companies; 2. Check value to customers. Run step 1 from the notebook when you're ready." });
     expect(store.get(nb.id)!.steps!.map((x) => `${x.title}:${x.agentId ?? ''}:${x.status}`)).toEqual(['Find 10 companies:sched-agent:todo', 'Check value to customers::todo']);
+
+    // On a notebook that already has its companies, the card says the find step is done and where it starts.
+    const full = store.create({ title: 'Peers with companies' });
+    for (let i = 1; i <= 10; i++) store.upsertOption(full.id, { title: `Example Co ${String(i)}`, by: 'you', data: {} });
+    const partway = await executeNotebookSteps(ctx, { ...card, inputs: { ...card.inputs, NOTEBOOK: full.id, RUN: '' } });
+    expect(partway.summary).toBe('Steps set: 1. Find 10 companies; 2. Check value to customers. The notebook already has what this step needs, so it’s done: step 1, **Find 10 companies** (10 of 10 found). Next is step 2, **Check value to customers** (0 of 10 checked). Run the next step from the notebook when you\'re ready.');
+    expect(store.get(full.id)!.steps!.map((x) => x.status)).toEqual(['done', 'todo']);
   });
 
   it('keeps a draft you leave: its address brings it back with your changes, the lists offer it, starting it clears it', async () => {

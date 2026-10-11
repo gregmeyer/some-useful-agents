@@ -20,7 +20,7 @@ import {
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { hasOpenSteps, startNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, hasOpenSteps, startNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
@@ -358,9 +358,13 @@ notebooksRouter.post('/notebooks/:id/steps', (req: Request, res: Response) => {
     const unknownAgent = raw.map((x) => (x && typeof x === 'object' ? (x as { agentId?: unknown }).agentId : undefined))
       .find((a) => typeof a === 'string' && a && !ctx.agentStore.getAgent(a));
     if (unknownAgent) throw new Error(`No agent "${String(unknownAgent)}".`);
-    const nb = store(req).setSteps(id, raw);
+    store(req).setSteps(id, raw);
+    // Steps the notebook's work already covers are done (sua says so in its conversation).
+    const already = confirmDoneStepsAndSay(ctx, id);
+    const nb = store(req).get(id)!;
     if (wantsJson) { res.json({ steps: nb.steps ?? [] }); return; }
-    res.redirect(303, back(id, nb.steps?.length ? `Saved ${String(nb.steps.length)} steps.` : 'Steps removed.'));
+    const done = already.done.length ? ` ${String(already.done.length)} already done.` : '';
+    res.redirect(303, back(id, nb.steps?.length ? `Saved ${String(nb.steps.length)} steps.${done}` : 'Steps removed.'));
   } catch (err) {
     const msg = err instanceof SyntaxError ? 'Steps must be valid JSON.' : err instanceof Error ? err.message : String(err);
     if (wantsJson) { res.status(400).json({ error: msg }); return; }
