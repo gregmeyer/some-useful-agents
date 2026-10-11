@@ -611,3 +611,4 @@ body.has-sua-panel .nb-start__pointer { display: none; }
   .nbd-step .nbd-step__title { flex: 1 1 0; min-width: 0; }
   .nbd-step__agent { order: 3; flex: 1 1 100%; max-width: none; margin-left: calc(52px + var(--space-2)); }
 }
+.nb-next__form { margin: 0; }

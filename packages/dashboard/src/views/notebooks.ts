@@ -117,21 +117,37 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
 }
 
 /**
- * The one button for what's next: the current step (Run step, Continue, Try
- * again), or the pipeline once there are no steps left. Nothing when the
- * next move is yours (Decide) or the step has no agent yet.
+ * What's next while a notebook has steps left: a button for the header (Next
+ * step, Try again, Finish) with the step it acts on, or a note when
+ * the next move is yours (Decide) or the step has no agent yet. Undefined
+ * once every step is done (Run runs the pipeline again).
  */
-function runButton(nb: Notebook): SafeHtml {
-  const form = (label: string) => html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm${nb.steps?.length ? ' btn--primary' : ''}">${label}</button></form>`;
+export function nextStepAction(nb: Notebook): { label: string; hint: string } | { note: string } | undefined {
   const steps = nb.steps ?? [];
   const i = steps.findIndex((x) => x.status !== 'done');
-  if (i < 0) return nb.pipeline.length ? form('Run the pipeline now') : html``;
+  if (i < 0) return undefined;
   const step = steps[i];
   const next = steps[i + 1];
-  if (step.status === 'met') return next ? form(next.kind === 'decide' ? 'Continue' : `Continue to ${next.title}`) : form('Finish');
-  if (step.kind === 'decide') return html`<span class="nb-run__last">Next: ${step.title}, with Decide.</span>`;
-  if (!step.agentId) return html`<span class="nb-run__last">${step.title} needs an agent. Ask sua to pick or build one.</span>`;
-  return form(step.status === 'stuck' ? `Try ${step.title} again` : `Run step ${String(i + 1)}: ${step.title}`);
+  const of = `of ${String(steps.length)}`;
+  if (step.status === 'met') {
+    if (!next) return { label: 'Finish', hint: `Step ${String(i + 1)} ${of} is done; that was the last.` };
+    return next.kind === 'decide'
+      ? { note: `Step ${String(i + 1)} is done. Next: ${next.title}, with Decide.` }
+      : { label: 'Next step', hint: `Step ${String(i + 1)} is done. Next: step ${String(i + 2)} ${of}, ${next.title}.` };
+  }
+  if (step.kind === 'decide') return { note: `Next: ${step.title}, with Decide.` };
+  // A check step without an agent uses sua's checker; find and source need one.
+  if (!step.agentId && step.kind !== 'check') return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
+  return step.status === 'stuck'
+    ? { label: 'Try again', hint: `Step ${String(i + 1)} ${of}, ${step.title}, stopped short. Run it again.` }
+    : { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
+}
+
+/** The pipeline's button, once there are no steps left (with steps, the header has Next step). */
+function runButton(nb: Notebook): SafeHtml {
+  const next = nextStepAction(nb);
+  if (next) return 'note' in next ? html`<span class="nb-run__last">${next.note}</span>` : html``;
+  return nb.pipeline.length ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm">Run the pipeline now</button></form>` : html``;
 }
 
 function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = []): SafeHtml {
@@ -183,7 +199,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               </form>`) as unknown as SafeHtml[]}
           </div>
         </div>`}
-        ${heroActions(nb, entries, leads)}
+        ${heroActions(nb, entries, leads, running)}
       </aside>
     </section>`;
 }
@@ -500,13 +516,21 @@ function editNotebookForm(nb: Notebook): SafeHtml {
  * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
  * button that opens its form below it; one open at a time (notebook-page.js.ts).
  */
-function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[]): SafeHtml {
+function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[], running?: { step: number; of: number }): SafeHtml {
   const id = encodeURIComponent(nb.id);
+  // While it has steps left, the next one is the header's main button (Decide steps aside).
+  const next = nb.status === 'active' ? nextStepAction(nb) : undefined;
+  const step = next && 'label' in next ? next : undefined;
   return html`
     <div class="nb-acts">
+      ${running && nb.steps?.some((x) => x.status !== 'done')
+        ? html`<button type="button" class="btn btn--primary btn--sm nb-next" disabled>Working on step ${String(running.step)}…</button>`
+        : step
+          ? html`<form method="POST" action="/notebooks/${id}/run" class="nb-next__form"><button type="submit" class="btn btn--primary btn--sm nb-next" title="${step.hint}" aria-label="${step.label}: ${step.hint}">${step.label} →</button></form>`
+          : html``}
       ${nb.status === 'active' ? html`
         <details class="nb-act nb-decide" data-nb-act>
-          <summary class="btn btn--primary btn--sm">Decide…</summary>
+          <summary class="btn btn--sm${step || running ? '' : ' btn--primary'}">Decide…</summary>
           <div class="nb-act__panel">
             <form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
               <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
