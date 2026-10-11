@@ -347,6 +347,23 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(pipelineInputs({ inputs: { TOPIC: {}, STEP: {} } } as never, nb)).toEqual({ TOPIC: 'Find software comps' });
   });
 
+  it("the header's Next step: what it says for each kind of step, and when it steps aside", async () => {
+    await makeApp();
+    const { nextStepAction } = await import('../views/notebooks.js');
+    const nb = (steps: unknown[]) => ({ steps } as never);
+    const st = (kind: string, status = 'todo', agentId?: string) => ({ id: kind, title: `The ${kind}`, kind, status, tries: 0, ...(agentId ? { agentId } : {}) });
+    expect(nextStepAction(nb([st('find', 'todo', 'a'), st('decide')]))).toEqual({ label: 'Next step', hint: 'Step 1 of 2: The find' });
+    // A check step without an agent uses sua's checker: still a Next step.
+    expect(nextStepAction(nb([st('find', 'done', 'a'), st('check')]))).toEqual({ label: 'Next step', hint: 'Step 2 of 2: The check' });
+    expect(nextStepAction(nb([st('source')]))).toEqual({ note: 'The source needs an agent. Ask sua to pick or build one.' });
+    expect(nextStepAction(nb([st('find', 'stuck', 'a')]))).toMatchObject({ label: 'Try again' });
+    expect(nextStepAction(nb([st('find', 'met', 'a'), st('source', 'todo', 'b')]))).toEqual({ label: 'Next step', hint: 'Step 1 is done. Next: step 2 of 2, The source.' });
+    expect(nextStepAction(nb([st('find', 'met', 'a')]))).toMatchObject({ label: 'Finish' });
+    expect(nextStepAction(nb([st('find', 'met', 'a'), st('decide')]))).toEqual({ note: 'Step 1 is done. Next: The decide, with Decide.' });
+    expect(nextStepAction(nb([st('find', 'done', 'a')]))).toBeUndefined();
+    expect(nextStepAction(nb([]))).toBeUndefined();
+  });
+
   it('works on one step at a time: retries toward its goal, pauses for Continue, and says when it is stuck', async () => {
     const app = await makeApp();
     const post = (path: string) => request(app).post(path)
@@ -368,7 +385,11 @@ describe('notebook pipeline (G2–G3)', () => {
     const page = async () => (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
     const thread = () => InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!);
 
-    expect(await page()).toContain('Run step 1: Find 3 companies');
+    // The header's main button is the next step (Decide steps aside); no pipeline button while steps are left.
+    let p0 = await page();
+    expect(p0).toContain('title="Step 1 of 3: Find 3 companies" aria-label="Next step: Step 1 of 3: Find 3 companies">Next step →</button>');
+    expect(p0).toContain('<summary class="btn btn--sm">Decide…</summary>');
+    expect(p0).not.toContain('Run the pipeline now');
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/run`)).headers.location)).toContain('Working on Find 3 companies');
     await settle();
     // Three runs, one company each: met, and it waits.
@@ -376,7 +397,7 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(steps[0]).toMatchObject({ status: 'met', tries: 3, note: '3 of 3 found' });
     expect(steps[1].status).toBe('todo');
     expect(store.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(3);
-    expect(await page()).toContain('Continue to Find 5 companies');
+    expect(await page()).toContain('title="Step 1 is done. Next: step 2 of 3, Find 5 companies."');
     let said = thread();
     expect(said.some((r) => r.role === 'triage' && r.body.includes('Step 1 of 3 is done: **Find 3 companies** (3 of 3 found). Next is **Find 5 companies**, with samey.'))).toBe(true);
     const card = said.find((r) => r.role === 'action')!;
@@ -394,13 +415,17 @@ describe('notebook pipeline (G2–G3)', () => {
     said = thread();
     expect(said.some((r) => r.body.includes('**Find 5 companies** stopped short after 1 try (3 of 5 found). Still needed:\n- 2 more'))).toBe(true);
     expect(JSON.parse(said.filter((r) => r.role === 'action').at(-1)!.metaJson!)).toMatchObject({ ctaLabel: 'Try again', inputs: { STEP: 's2', WAS: 'stuck' } });
-    expect(await page()).toContain('Try Find 5 companies again');
+    expect(await page()).toContain('>Try again →</button>');
     // The old Continue card is stale now: it does nothing.
     expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), JSON.parse(card.metaJson!))).toMatchObject({ status: 'failed', refusalReason: 'It has already moved on from that step.' });
 
     // A decide step is yours: Run says so rather than running anything.
     store.updateStep(nb.id, 's2', { status: 'done' });
-    expect(await page()).toContain('Next: Pick the final set, with Decide.');
+    // Deciding is yours: Decide is the main button again, and there's no Next step.
+    p0 = await page();
+    expect(p0).toContain('Next: Pick the final set, with Decide.');
+    expect(p0).toContain('<summary class="btn btn--sm btn--primary">Decide…</summary>');
+    expect(p0).not.toContain('class="nb-next__form"');
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/run`)).headers.location)).toContain('This step is yours');
   });
 
