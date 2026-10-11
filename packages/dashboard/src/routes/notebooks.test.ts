@@ -178,6 +178,36 @@ describe('notebooks pages', () => {
 });
 
 describe('filing into a notebook of organizations', () => {
+  it('steps are set by hand and shown with how far each is toward its goal', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Comp set', pipeline: ['sched-agent'] });
+    store.setFields(nb.id, [{ key: 'employees', label: 'Employees', type: 'number' }]);
+    store.upsertOption(nb.id, { title: 'Acme Planning', by: 'you', data: { employees: 300 } });
+    const post = (steps: unknown) => request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
+
+    const bad = await post([{ title: 'Find 3', kind: 'find', agentId: 'not-installed' }]);
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toBe('No agent "not-installed".');
+
+    const ok = await post([{ title: 'Find 3 companies', kind: 'find', agentId: 'sched-agent', target: 3 }, { title: 'Source their facts', kind: 'source' }]);
+    expect(ok.status).toBe(200);
+    expect(ok.body.steps.map((x: { id: string; status: string }) => `${x.id}:${x.status}`)).toEqual(['s1:todo', 's2:todo']);
+
+    const page = await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
+    expect(page.text).toContain('class="nb-steps"');
+    expect(page.text).toContain('nb-step nb-step--todo nb-step--current" title="Still needed: 2 more"');
+    expect(page.text).toContain('1 of 3 found · to do');
+    expect(page.text).toContain('with sched-agent');
+    expect(page.text).toContain('1 of 1 sourced');
+    // The source step has no agent of its own yet.
+    expect(page.text).toContain('needs an agent');
+
+    expect((await post([])).body.steps).toEqual([]);
+    expect(store.get(nb.id)!.steps).toBeUndefined();
+  });
+
   it("a run that names a company the notebook has fills in its facts instead of adding it again", async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

@@ -152,12 +152,43 @@ export interface Notebook {
    * (the dashboard's notebook-facets agent groups them).
    */
   facets?: Record<string, NotebookFacet>;
+  /** The work in steps, in order (absent: it just runs its pipeline). */
+  steps?: NotebookStep[];
   createdAt: string;
   updatedAt: string;
 }
 
 /** One field's short labels: each value (as shown) → its label; `failedAt` when grouping last failed. */
 export interface NotebookFacet { labels: Record<string, string>; at: string; failedAt?: string }
+
+/**
+ * A step of the work a notebook does, in order (not an option's stage):
+ * find options, source their facts, check them, decide. Each has a goal the
+ * notebook can check without a model (stepProgress), and the agent that
+ * works toward it; it's given the job in its inputs, never edited for it.
+ */
+export type NotebookStepKind = 'find' | 'source' | 'check' | 'decide';
+export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['find', 'source', 'check', 'decide'];
+/** todo → running → met (waits for Continue) → done; stuck when it ran out of tries short of its goal. */
+export type NotebookStepStatus = 'todo' | 'running' | 'met' | 'stuck' | 'done';
+export interface NotebookStep {
+  id: string;
+  /** "Find 10 companies". */
+  title: string;
+  kind: NotebookStepKind;
+  /** The agent that works on it (a check step without one uses sua's checker). */
+  agentId?: string;
+  /** find: options wanted in the running; decide: how many make the final set. */
+  target?: number;
+  status: NotebookStepStatus;
+  /** Runs toward its goal so far. */
+  tries: number;
+  /** One line on how it went ("8 of 10 companies"). */
+  note?: string;
+  doneAt?: string;
+}
+export const MAX_STEPS = 6;
+const STEP_STATUSES: readonly NotebookStepStatus[] = ['todo', 'running', 'met', 'stuck', 'done'];
 
 export interface NotebookEntry {
   id: string;
@@ -335,6 +366,7 @@ export class NotebookStore {
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
+      ['notebooks', 'steps_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -540,6 +572,32 @@ export class NotebookStore {
       if (checks.length === 8) break;
     }
     this.db.prepare('UPDATE notebooks SET checks_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(checks), new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /**
+   * Set the notebook's steps (at most 6; an empty list removes them). A step
+   * keeps its status and tries when its id is kept.
+   */
+  setSteps(id: string, list: readonly unknown[]): Notebook {
+    const nb = this.mustGet(id);
+    const steps = cleanSteps(list, nb.steps);
+    this.db.prepare('UPDATE notebooks SET steps_json = ?, updated_at = ? WHERE id = ?').run(steps.length ? JSON.stringify(steps) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /** Change one step's status, tries or note. */
+  updateStep(id: string, stepId: string, patch: Partial<Pick<NotebookStep, 'status' | 'tries' | 'note' | 'agentId'>>, now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const steps = (nb.steps ?? []).map((s) => {
+      if (s.id !== stepId) return s;
+      const next: NotebookStep = { ...s, ...patch };
+      if (patch.status === 'done') next.doneAt = now;
+      else if (patch.status) delete next.doneAt;
+      return next;
+    });
+    if (!steps.some((s) => s.id === stepId)) throw new Error(`No step "${stepId}".`);
+    this.db.prepare('UPDATE notebooks SET steps_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(cleanSteps(steps)), now, id);
     return this.mustGet(id);
   }
 
@@ -1136,6 +1194,7 @@ export class NotebookStore {
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
+      ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -1653,6 +1712,77 @@ export function rankBy(nb: Pick<Notebook, 'fields'>): { field?: NotebookField; b
   if (score) return { field: score, by: 'score', better: score.better ?? 'higher' };
   const price = nb.fields.find((f) => f.role === 'price');
   return { field: price, by: 'price', better: price?.better ?? 'lower' };
+}
+
+/**
+ * Steps as given (an agent, a sentence, a form): known kinds, a title, a
+ * valid agent id, a whole-number target; at most MAX_STEPS. `prior` keeps a
+ * step's status and tries when its id is kept.
+ */
+export function cleanSteps(list: readonly unknown[], prior: readonly NotebookStep[] = []): NotebookStep[] {
+  const out: NotebookStep[] = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const x = raw as Record<string, unknown>;
+    const kind = NOTEBOOK_STEP_KINDS.find((k) => k === x.kind);
+    const title = typeof x.title === 'string' ? x.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+    if (!kind || !title) continue;
+    let id = typeof x.id === 'string' && ID_RE.test(x.id) ? x.id : '';
+    if (!id || out.some((s) => s.id === id)) { let n = out.length + 1; while (out.some((s) => s.id === `s${String(n)}`)) n++; id = `s${String(n)}`; }
+    const was = prior.find((s) => s.id === id && s.kind === kind);
+    const status = STEP_STATUSES.find((v) => v === x.status) ?? was?.status ?? 'todo';
+    const target = typeof x.target === 'number' && Number.isFinite(x.target) ? Math.min(100, Math.max(1, Math.round(x.target))) : undefined;
+    const tries = typeof x.tries === 'number' && x.tries >= 0 ? Math.floor(x.tries) : was?.tries ?? 0;
+    const note = typeof x.note === 'string' && x.note.trim() ? x.note.trim().slice(0, 200) : was?.note;
+    const doneAt = typeof x.doneAt === 'string' ? x.doneAt : was?.doneAt;
+    out.push({
+      id, title, kind, status, tries,
+      ...(typeof x.agentId === 'string' && ID_RE.test(x.agentId) ? { agentId: x.agentId } : {}),
+      ...((kind === 'find' || kind === 'decide') && target !== undefined ? { target } : {}),
+      ...(note ? { note } : {}),
+      ...(status === 'done' && doneAt ? { doneAt } : {}),
+    });
+    if (out.length === MAX_STEPS) break;
+  }
+  return out;
+}
+
+/** The facts worth looking up for an option: not its link or picture (it has one or doesn't), not its fit score (sua gives it). */
+export function trackedFacts(nb: Pick<Notebook, 'fields'>): NotebookField[] {
+  return nb.fields.filter((f) => f.role !== 'link' && f.role !== 'image' && f.role !== 'score' && f.type !== 'image' && f.type !== 'url');
+}
+
+/** How far a step is toward its goal: `have` of `want`, and what's still missing (one line each). */
+export interface NotebookStepProgress { met: boolean; have: number; want: number; missing: string[] }
+
+/**
+ * Whether a step has met its goal, from the notebook alone (no model):
+ * find, enough options in the running; source, every one has its tracked
+ * facts; check, every one has each check ticked (a failed one is ruled out,
+ * so it's no longer in the running); decide, only when you've confirmed it.
+ */
+export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status'>): NotebookStepProgress {
+  const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
+  if (step.kind === 'find') {
+    const want = step.target ?? 5;
+    const have = options.length;
+    return { met: have >= want, have, want, missing: have >= want ? [] : [`${String(want - have)} more`] };
+  }
+  if (step.kind === 'source') {
+    const tracked = trackedFacts(nb);
+    const missing = options.map((o) => ({ o, gaps: tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '') }))
+      .filter((x) => x.gaps.length).map((x) => `${x.o.name} — ${x.gaps.map((f) => f.label.toLowerCase()).join(', ')}`);
+    const want = options.length;
+    return { met: want > 0 && !missing.length, have: want - missing.length, want, missing };
+  }
+  if (step.kind === 'check') {
+    const missing = nb.checks.length ? options.map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }))
+      .filter((x) => x.left.length).map((x) => `${x.o.name} — ${x.left.join(', ')}`) : [];
+    const want = options.length;
+    return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: want - missing.length, want, missing };
+  }
+  const want = step.target ?? Math.min(options.length, 5);
+  return { met: step.status === 'done', have: step.status === 'done' ? want : 0, want, missing: [] };
 }
 
 /** The options still in the running, best first by `rankBy` (ones without a value last). */

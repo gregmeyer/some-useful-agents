@@ -578,3 +578,22 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-drafts__meta { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .nbd-drafts__discard { margin: 0; }
 .nbd-saved { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+
+/* Steps: the notebook's work in order (find, source, check, decide) */
+.nb-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-2); list-style: none; margin: var(--space-3) 0; padding: 0; counter-reset: none; }
+.nb-step { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); min-width: 0; }
+.nb-step--current { border-color: var(--color-primary); box-shadow: inset 3px 0 0 var(--color-primary); }
+.nb-step--done { opacity: 0.75; }
+.nb-step--stuck { border-color: var(--color-warn-border); background: var(--color-warn-soft); }
+.nb-step__n { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--color-border-strong); font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-step--done .nb-step__n { background: var(--color-ok-soft); border-color: var(--color-ok); color: var(--color-ok); }
+.nb-step--current .nb-step__n { border-color: var(--color-primary); color: var(--color-primary); }
+.nb-step__body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nb-step__title { font-weight: var(--weight-bold); font-size: var(--font-size-sm); color: var(--color-text); }
+.nb-step__by { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-step__need { color: var(--color-warn); }
+.nb-step__bar { display: block; height: 4px; margin-top: var(--space-1); border-radius: 2px; background: var(--color-border); overflow: hidden; }
+.nb-step__bar > span { display: block; height: 100%; background: var(--color-primary); }
+.nb-step--done .nb-step__bar > span, .nb-step--met .nb-step__bar > span { background: var(--color-ok); }
+.nb-step--stuck .nb-step__bar > span { background: var(--color-warn); }
+.nb-step__meta { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
