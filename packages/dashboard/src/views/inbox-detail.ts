@@ -28,6 +28,7 @@ import { layout } from './layout.js';
 import { boardApprovalButtons } from './board-approval.js';
 import { pageHeader } from './page-header.js';
 import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
+import { describeAgentChange } from '../lib/agent-change.js';
 
 export interface InboxDetailOptions {
   message: InboxMessage;
@@ -857,7 +858,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ? meta.fork
           ? html`<p class="act-card__note act-card__note--fork">Saved as a copy for this notebook, <span class="mono">${meta.fork.id}</span>, because ${meta.fork.why}. This notebook will search with the copy; <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> stays as it is.</p>`
           : html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>`
-        : html``}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
+        : html``}${renderAgentChange(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
       : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
     ${detailBlock}
     ${meta.status === 'proposed' ? html`<div class="act-card__foot">${controlsBlock}<span class="act-card__spacer"></span>${trustBlock}</div>` : trustBlock}
@@ -1056,6 +1057,13 @@ function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml):
  * trivial. Lines that match render dim; removed lines red, added
  * lines green.
  */
+/** The change in plain words, above its diff (new steps, what they call, rewritten prompts). */
+function renderAgentChange(oldYaml: string, newYaml: string): SafeHtml {
+  const lines = oldYaml ? describeAgentChange(oldYaml, newYaml) : [];
+  if (!lines.length) return html``;
+  return html`<ul class="act-card__changes">${lines.map((l) => html`<li class="act-card__change"><span class="act-card__change-what">${l.what}</span><span>${l.detail}</span></li>`) as unknown as SafeHtml[]}</ul>`;
+}
+
 function renderYamlDiff(oldYaml: string, newYaml: string): SafeHtml {
   const a = oldYaml.split('\n');
   const b = newYaml.split('\n');

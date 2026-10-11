@@ -437,9 +437,9 @@ export function enrichAgentCatalogSearchInputs(
  * For agent-analyzer specifically: auto-inject AGENT_YAML (and
  * LAST_RUN_OUTPUT when available) so triage doesn't have to thread
  * the full YAML string through its <plan>. Mirrors the analyze
- * route's input shape at run-now-build.ts:441-489 but stripped down
- * (no DISCOVERY_CATALOG yet — that needs the tools/templates registry
- * and we keep this PR focused on the inbox plumbing).
+ * route's input shape at run-now-build.ts:441-489, DISCOVERY_CATALOG
+ * included, so a fix can call an installed agent (agent-invoke) for work
+ * the agent is missing instead of growing a prompt to do it.
  *
  * Returns a new inputs object; the original is not mutated. When the
  * inbox message has no `agentId`, the function returns the inputs
@@ -467,6 +467,17 @@ export function enrichAgentAnalyzerInputs(
     const nodeDigest = collectLatestRunNodeDigest(ctx, targetAgentId);
     const combined = `${summary}${nodeDigest}`.trim();
     if (combined) out.LAST_RUN_OUTPUT = combined;
+  }
+  if (!out.DISCOVERY_CATALOG) {
+    try {
+      let userTools: ToolDefinition[] = [];
+      try { if (ctx.toolStore) userTools = ctx.toolStore.listTools(); } catch { /* store not available */ }
+      out.DISCOVERY_CATALOG = buildDiscoveryCatalog({
+        agents: ctx.agentStore.listAgents(),
+        tools: [...listBuiltinTools(), ...userTools],
+        templateRegistry: TEMPLATE_REGISTRY,
+      });
+    } catch { /* the analyzer still works without it */ }
   }
   return out;
 }
