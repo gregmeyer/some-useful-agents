@@ -187,7 +187,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -639,7 +639,7 @@ export function finalizeActionFromOutcome(
   // with the parsed YAML.
   if (meta.agentId === 'agent-analyzer' && nextStatus === 'completed' && runId) {
     maybeAutoProposeEditorAction(ctx, messageId, runId);
-  } else if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
+  } else if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId && !helperFor(ctx, meta)) {
     maybeAutoProposeBuilderInstallAction(ctx, messageId, runId);
   }
 
@@ -650,7 +650,10 @@ export function finalizeActionFromOutcome(
   // triage reports success on a build that produced text, not a catalog
   // entry.
   if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
-    maybeCommitBuiltAgent(ctx, messageId, runId);
+    const built = maybeCommitBuiltAgent(ctx, messageId, runId);
+    // Built as a helper for another agent: work out where that agent calls it.
+    const parent = helperFor(ctx, meta);
+    if (built && parent && built !== parent) proposeWiring(ctx, messageId, parent, built);
   }
 
   if (opts.refire !== false) maybeRefireTriage(ctx, messageId);
@@ -726,25 +729,25 @@ export function maybeCommitBuiltAgent(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   builderRunId: string,
-): void {
-  if (!ctx.inboxStore) return;
+): string | undefined {
+  if (!ctx.inboxStore) return undefined;
   const execs = ctx.runStore.listNodeExecutions(builderRunId);
   // Prefer `fix` (runs only when validate found issues) over `design`.
   const fix = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
   const design = execs.find((e) => e.nodeId === 'design' && e.status === 'completed');
   const source = (fix?.result ?? design?.result ?? '').toString();
   const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
-  if (!match) return;
+  if (!match) return undefined;
   // Run the same repair the dashboard wizard applies before committing an
   // LLM-built agent. Most important here: autoFixYaml un-escapes `{ {` back to
   // `{{` in outputWidget.template / prompts — the template pipeline escapes
   // `{{` → `{ {` to prevent re-expansion, and without this repair the inbox path
   // persists the escaped form, so the widget renders a literal `{ {outputs.X}}`.
   const builtYaml = autoFixYaml(match[1].trim());
-  if (builtYaml.length < 10) return;
+  if (builtYaml.length < 10) return undefined;
 
   let parsed;
-  try { parsed = parseAgent(builtYaml); } catch { return; }
+  try { parsed = parseAgent(builtYaml); } catch { return undefined; }
 
   // Never overwrite a real (non-draft) agent that already owns this id.
   // A draft of the same id is fair game to re-commit (iterating a build).
@@ -755,7 +758,7 @@ export function maybeCommitBuiltAgent(
     publishInboxEvent(ctx, messageId, 'message:created', {
       responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
     });
-    return;
+    return undefined;
   }
 
   // Commit as a draft regardless of what status the YAML declared — an
@@ -774,7 +777,7 @@ export function maybeCommitBuiltAgent(
       `Auto-committed (draft) from inbox build on thread ${messageId}`,
     );
   } catch {
-    return; // store rejected it (e.g. constraint) — leave the thread untouched
+    return undefined; // store rejected it (e.g. constraint) — leave the thread untouched
   }
 
   const href = `/agents/${parsed.id}`;
@@ -788,6 +791,7 @@ export function maybeCommitBuiltAgent(
   publishInboxEvent(ctx, messageId, 'message:created', {
     responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
   });
+  return parsed.id;
 }
 
 /** Hoisted from the end of `runProposedAction` so route-handled and
@@ -845,6 +849,9 @@ async function executeRouteHandledAgent(
 ): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
   if (meta.agentId === 'agent-editor') {
     return executeAgentEditor(ctx, messageId, meta);
+  }
+  if (meta.agentId === 'agent-compose') {
+    return executeAgentCompose(ctx, messageId, meta);
   }
   if (meta.agentId === 'dashboard-editor') {
     return executeDashboardEditor(ctx, meta);
@@ -1457,14 +1464,14 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
       settingsChanges: read.changes.map(({ what, before, after }) => ({ what, before, after })),
     };
   }
-  if (action.agentId !== 'agent-editor' || !action.inputs.AGENT_ID || action.base) return action;
+  if ((action.agentId !== 'agent-editor' && action.agentId !== 'agent-compose') || !action.inputs.AGENT_ID || action.base) return action;
   const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
   if (!target) return action;
   try {
     // From a notebook's conversation, a shared agent (an example, or one other
     // notebooks search with) is fixed as a copy for this notebook (lib/agent-fork.ts).
     const fork = messageId ? forkForNotebook(ctx, messageId, target.id) : undefined;
-    return { ...action, base: { version: target.version, yaml: exportAgent(target) }, ...(fork ? { fork, ctaLabel: 'Save as a copy' } : {}) };
+    return { ...action, base: { version: target.version, yaml: exportAgent(target) }, ...(fork ? { fork, ctaLabel: action.agentId === 'agent-compose' ? 'Add it, with a copy' : 'Save as a copy' } : {}) };
   } catch {
     return action;
   }
@@ -1680,6 +1687,105 @@ function extractYamlBlockFromRunNodes(
 }
 
 /**
+ * The agent a builder action is building a helper for (its FOR_AGENT input),
+ * when that agent is installed; else undefined (an ordinary build).
+ */
+function helperFor(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): string | undefined {
+  const parent = meta.inputs.FOR_AGENT?.trim();
+  return parent && ctx.agentStore.getAgent(parent) ? parent : undefined;
+}
+
+/** A helper in one line for its card: what it does and what it takes. */
+function helperAbout(ctx: ReturnType<typeof getContext>, helperId: string): string {
+  const h = ctx.agentStore.getAgent(helperId);
+  if (!h) return '';
+  const inputs = Object.keys(h.inputs ?? {});
+  const what = (h.description ?? h.name).replace(/\s+/g, ' ').replace(/^helper for [^:]+:\s*/i, '').trim().slice(0, 240);
+  return `${what}${/[.!?]$/.test(what) ? '' : '.'}${inputs.length ? ` Takes ${inputs.join(', ')}.` : ''}`;
+}
+
+/** The helper an analyzer run was wiring in (its action's COMPOSE_HELPER), if any. */
+function wiringHelperOf(ctx: ReturnType<typeof getContext>, messageId: string, analyzerRunId: string): string | undefined {
+  for (const r of ctx.inboxStore?.listResponses(messageId) ?? []) {
+    const m = r.role === 'action' ? parseActionMeta(r) : undefined;
+    if (m?.agentId === 'agent-analyzer' && m.runId === analyzerRunId) return m.inputs.COMPOSE_HELPER?.trim() || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A helper was just built for `parentId` (agent-builder with FOR_AGENT): ask
+ * agent-analyzer where `parentId` should call it. Its YAML becomes one
+ * agent-compose card (maybeAutoProposeEditorAction) that turns the helper on
+ * and saves the parent with the call. Runs on its own when the trust policy
+ * allows (the analysis only reads), like proposeAgentFix.
+ */
+export function proposeWiring(ctx: ReturnType<typeof getContext>, messageId: string, parentId: string, helperId: string): string | undefined {
+  const store = ctx.inboxStore;
+  const helper = ctx.agentStore.getAgent(helperId);
+  if (!store || !helper || !ctx.agentStore.getAgent(parentId)) return undefined;
+  if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return undefined;
+  const inputs = Object.keys(helper.inputs ?? {});
+  const action: InboxActionMeta = {
+    kind: 'action',
+    status: 'proposed',
+    agentId: 'agent-analyzer',
+    effect: 'read',
+    inputs: {
+      AGENT_ID: parentId,
+      COMPOSE_HELPER: helperId,
+      FOCUS: `Wire in the new agent \`${helperId}\` (${(helper.description ?? helper.name).replace(/\s+/g, ' ').trim().slice(0, 200)}${inputs.length ? `; inputs: ${inputs.join(', ')}` : ''}). Add ONE agent-invoke node in \`${parentId}\` that calls \`${helperId}\` at the point that needs it, map its inputs, and make the node that should use its result read it. Change nothing else.`,
+    },
+    rationale: `Work out where \`${parentId}\` should call \`${helperId}\`, then show you the change.`,
+    ctaLabel: 'Wire it in',
+  };
+  const resp = store.addResponse(messageId, 'action', action.rationale!, JSON.stringify(action));
+  publishInboxEvent(ctx, messageId, 'action:created', {
+    responseId: resp.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: resp.createdAt,
+  });
+  if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+    const startedAt = Date.now();
+    const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
+    if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
+      publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
+      const claimed = store.getResponse(resp.id) ?? resp;
+      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+        process.stderr.write(`[inbox] wiring analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
+      });
+    }
+  }
+  return resp.id;
+}
+
+/**
+ * Build and wire, on one approval: turn the helper on (active, marked
+ * "Helper for <agent>"), then save the agent that calls it, as the editor
+ * card would (a new version, or a notebook's copy). If saving the agent
+ * fails, the helper goes back to how it was.
+ */
+export function executeAgentCompose(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const helperId = meta.inputs.HELPER_ID;
+  const parentId = meta.inputs.AGENT_ID;
+  const helper = helperId ? ctx.agentStore.getAgent(helperId) : undefined;
+  if (!helper || !parentId) return { status: 'failed', refusalReason: `The helper \`${helperId ?? ''}\` isn't there any more. Ask sua to build it again.` };
+  const turnOn = helper.status !== 'active' || !/^helper for /i.test(helper.description ?? '');
+  if (turnOn) {
+    const description = /^helper for /i.test(helper.description ?? '') ? helper.description : `Helper for ${parentId}: ${(helper.description ?? helper.name).trim()}`;
+    ctx.agentStore.upsertAgent({ ...helper, status: 'active', description }, 'dashboard', `Turned on as a helper for ${parentId}`);
+  }
+  const wired = executeAgentEditor(ctx, messageId, { ...meta, agentId: 'agent-editor' });
+  if (wired.status !== 'completed') {
+    if (turnOn) ctx.agentStore.upsertAgent(helper, 'dashboard', `Put back: wiring it into ${parentId} failed`);
+    return { status: 'failed', refusalReason: `${wired.refusalReason ?? 'Saving the change failed.'} \`${helperId}\` is left as it was.` };
+  }
+  return { status: 'completed', summary: `Turned on \`${helperId}\` as a helper. ${wired.summary ?? ''}`.trim() };
+}
+
+/**
  * Extract a `<yaml>...</yaml>` block from agent-analyzer's run result, validate
  * it, and (if its id is an installed agent) auto-insert a proposed
  * `agent-editor` action card — the "approve the fix" button. Targets the YAML's
@@ -1706,6 +1812,11 @@ export function maybeAutoProposeEditorAction(
   // approve card entirely). Only require that agent to be installed.
   if (!parsed.id || !ctx.agentStore.getAgent(parsed.id)) return;
 
+  // A wiring run (proposeWiring): when its YAML calls the helper, one card
+  // turns the helper on and saves the agent that calls it.
+  const helper = wiringHelperOf(ctx, messageId, analyzerRunId);
+  const composes = !!helper && helper !== parsed.id && calledAgentIds(parsed).includes(helper);
+
   // Respect the cap so a chatty analyzer can't fan out unbounded edits.
   if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
 
@@ -1714,9 +1825,26 @@ export function maybeAutoProposeEditorAction(
   for (const r of ctx.inboxStore.listResponses(messageId)) {
     if (r.role !== 'action') continue;
     const m = parseActionMeta(r);
-    if (m && m.agentId === 'agent-editor'
+    if (m && (m.agentId === 'agent-editor' || m.agentId === 'agent-compose')
       && (m.status === 'proposed' || m.status === 'running')
       && m.inputs.NEW_YAML === proposedYaml) return;
+  }
+
+  if (composes) {
+    const compose: InboxActionMeta = {
+      kind: 'action',
+      status: 'proposed',
+      agentId: 'agent-compose',
+      effect: 'write',
+      inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, HELPER_ID: helper!, HELPER_ABOUT: helperAbout(ctx, helper!) },
+      rationale: `The new helper and the step that calls it, approved together.`,
+      ctaLabel: 'Add it and wire it in',
+    };
+    const resp = ctx.inboxStore.addResponse(messageId, 'action', compose.rationale!, JSON.stringify(withEditorBase(ctx, compose, messageId)));
+    publishInboxEvent(ctx, messageId, 'action:created', {
+      responseId: resp.id, agentId: compose.agentId, rationale: compose.rationale, inputs: compose.inputs, createdAt: resp.createdAt,
+    });
+    return;
   }
 
   const action: InboxActionMeta = {

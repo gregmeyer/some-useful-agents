@@ -188,7 +188,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -820,6 +820,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ? html`Latest <span class="mono">${meta.agentId}</span> output`
         : meta.mode === 'resolve'
           ? html`Resolved this thread`
+          : meta.agentId === 'agent-compose'
+            ? html`Add <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> and have ${meta.fork ? html`a copy of ` : html``}<span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> call it`
           : meta.agentId === 'agent-editor'
             ? meta.fork
               ? html`Copy <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> for this notebook, with the fix`
@@ -852,9 +854,11 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-steps') && meta.surfaceChanges?.length
       ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
-    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps'].includes(meta.agentId) ? html`` : meta.agentId === 'agent-editor' && meta.inputs.NEW_YAML
+    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
-      ? html`${meta.agentId === 'agent-editor' && meta.base && meta.status === 'proposed'
+      ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
+        ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`
+        : html``}${(meta.agentId === 'agent-editor' || (meta.agentId === 'agent-compose' && meta.fork)) && meta.base && meta.status === 'proposed'
         ? meta.fork
           ? html`<p class="act-card__note act-card__note--fork">Saved as a copy for this notebook, <span class="mono">${meta.fork.id}</span>, because ${meta.fork.why}. This notebook will search with the copy; <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> stays as it is.</p>`
           : html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>`
@@ -915,7 +919,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="act-card__head">
             <span class="inbox-action__headline">${headline}</span>
             ${isDispatched && meta.status === 'proposed'
-              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-editor' && meta.fork ? 'adds a copy of the agent' : meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-compose' ? 'adds an agent and changes one' : meta.agentId === 'agent-editor' && meta.fork ? 'adds a copy of the agent' : meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
               : provenance}
           </div>
           ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}
