@@ -299,7 +299,7 @@ Normally sua's keeper reads a run's output and decides what to file. An agent th
 
 ## Runs not in the notebook yet
 
-A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated.
+A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated. This works on a decided or stopped notebook too (anything learned after deciding is still worth keeping); only an archived notebook doesn't take new runs.
 
 ## The pipeline
 

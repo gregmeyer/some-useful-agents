@@ -548,11 +548,12 @@ export async function runProposedAction(
   }
   // In a notebook's conversation, what the agent found goes into the notebook
   // (options, evidence, "searched X: nothing yet"), before sua follows up.
+  // A decided or stopped notebook still keeps it (you asked for this run); only an archived one doesn't.
   if (outcome.status === 'completed' && outcome.id && !SYSTEM_AGENT_IDS.has(meta.agentId)) {
     try {
       const msg = ctx.inboxStore?.get(messageId);
       const nb = msg ? notebookForThread(ctx, messageId, msg.contextJson) : undefined;
-      if (nb && nb.status === 'active') await keepIntoNotebook(ctx, nb, meta.agentId, outcome.id, outcome.result ?? '');
+      if (nb && !nb.archivedAt) await keepIntoNotebook(ctx, nb, meta.agentId, outcome.id, outcome.result ?? '');
     } catch { /* the conversation still goes on */ }
   }
   finalizeActionFromOutcome(ctx, messageId, response.id, meta, outcome, { startedAt });

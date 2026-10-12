@@ -1161,6 +1161,17 @@ describe('runs not in the notebook yet', () => {
     expect(wf.text).toContain('class="nbw-pass is-on"');
     expect(wf.text).toContain('Added to notebook');
     expect(wf.text).toContain('Earlier run'); // run-filed, from before passes
+
+    // Decided still takes a run (anything learned since is worth keeping); archived doesn't.
+    run('run-after', 'sweep', 'completed', 10_000, `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: '2012 Outback' }] })}</notebook>`);
+    store.decide(nb.id, 'The RAV4');
+    expect((await get()).text).toContain('/runs/run-after/add');
+    expect(decodeURIComponent((await post('run-after')).headers.location.replace(/\+/g, ' '))).toContain("Adding that run's results");
+    for (let i = 0; i < 50 && !store.entries(nb.id).some((e) => e.title === '2012 Outback'); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.entries(nb.id).some((e) => e.title === '2012 Outback')).toBe(true);
+    run('run-late', 'sweep', 'completed', 5_000, keeper);
+    store.archive(nb.id);
+    expect(decodeURIComponent((await post('run-late')).headers.location.replace(/\+/g, ' '))).toContain('archived');
   });
 });
 
