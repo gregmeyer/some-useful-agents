@@ -188,6 +188,8 @@ export interface NotebookStep {
    * looks for. None: every fact the notebook tracks.
    */
   facts?: string[];
+  /** source / check: only the best `top` options in the running count (and get worked on). None: all of them. */
+  top?: number;
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -620,7 +622,7 @@ export class NotebookStore {
   }
 
   /** Change one step's status, tries or note. */
-  updateStep(id: string, stepId: string, patch: Partial<Pick<NotebookStep, 'status' | 'tries' | 'note' | 'agentId' | 'stalled' | 'movedOn'>>, now = new Date().toISOString()): Notebook {
+  updateStep(id: string, stepId: string, patch: Partial<Pick<NotebookStep, 'status' | 'tries' | 'note' | 'agentId' | 'stalled' | 'movedOn' | 'top'>>, now = new Date().toISOString()): Notebook {
     const nb = this.mustGet(id);
     const steps = (nb.steps ?? []).map((s) => {
       if (s.id !== stepId) return s;
@@ -1852,6 +1854,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     const was = prior.find((s) => s.id === id && s.kind === kind);
     const status = STEP_STATUSES.find((v) => v === x.status) ?? was?.status ?? 'todo';
     const target = typeof x.target === 'number' && Number.isFinite(x.target) ? Math.min(100, Math.max(1, Math.round(x.target))) : undefined;
+    const top = typeof x.top === 'number' && Number.isFinite(x.top) ? Math.min(50, Math.max(1, Math.round(x.top))) : undefined;
     const tries = typeof x.tries === 'number' && x.tries >= 0 ? Math.floor(x.tries) : was?.tries ?? 0;
     const note = typeof x.note === 'string' && x.note.trim() ? x.note.trim().slice(0, 200) : was?.note;
     const doneAt = typeof x.doneAt === 'string' ? x.doneAt : was?.doneAt;
@@ -1865,6 +1868,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...(typeof x.agentId === 'string' && ID_RE.test(x.agentId) ? { agentId: x.agentId } : {}),
       ...((kind === 'find' || kind === 'narrow' || kind === 'decide') && target !== undefined ? { target } : {}),
       ...(facts.length ? { facts } : {}),
+      ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
       ...(status === 'done' && movedOn ? { movedOn: true } : {}),
@@ -1896,8 +1900,10 @@ export interface NotebookStepProgress { met: boolean; have: number; want: number
  * step looks up (counted fact by fact); check, every one has each check ticked (a failed one is ruled out,
  * so it's no longer in the running); decide, only when you've confirmed it.
  */
-export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts'>): NotebookStepProgress {
-  const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
+export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'>): NotebookStepProgress {
+  const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
+  // A source or check step on the top N counts only those.
+  const options = (step.kind === 'source' || step.kind === 'check') && step.top ? ranked.slice(0, step.top) : ranked;
   if (step.kind === 'find') {
     const want = step.target ?? 5;
     const have = options.length;
@@ -2112,7 +2118,7 @@ export function criterionMet(nb: Notebook, entries: readonly NotebookEntry[], te
   if (link.kind === 'source') {
     const step = nb.steps?.find((s) => s.kind === 'source');
     // A step you moved on from short of its goal didn't source them all.
-    return step ? stepProgress(nb, entries, step).met : false;
+    return step ? stepProgress(nb, entries, { ...step, top: undefined }).met : false; // "for each" means all, not a top N
   }
   const chosen = options.filter((o) => o.chosen);
   const c = link.check.toLowerCase();

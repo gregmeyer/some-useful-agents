@@ -212,5 +212,16 @@ describe('notebook steps', () => {
     s.narrow(id, [b.id], 'over budget');
     expect(s.entries(id).find((e) => e.id === a.id)?.ruledOut?.reason).toBe('over budget');
   });
+
+  it('a source or check step on the top N counts only those', () => {
+    const { s, id } = setup();
+    const nb = s.setSteps(id, [{ title: 'Source size', kind: 'source', facts: ['employees'], top: 2.4 }, { title: 'Find 3', kind: 'find', top: 2 }]);
+    expect(nb.steps!.map((x) => x.top)).toEqual([2, undefined]);
+    for (const [title, fit, employees] of [['Acme', 90, 1200], ['Hooli', 80, undefined], ['Globex', 70, undefined]] as const) {
+      s.upsertOption(id, { title, by: 'you', data: { site: `https://${title.toLowerCase()}.example`, fit, ...(employees ? { employees } : {}) } });
+    }
+    expect(stepProgress(s.get(id)!, s.entries(id), { kind: 'source', facts: ['employees'], status: 'todo', top: 2 })).toMatchObject({ met: false, have: 1, want: 2, missing: ['Hooli — employees'] });
+    expect(stepProgress(s.get(id)!, s.entries(id), { kind: 'source', facts: ['employees'], status: 'todo' })).toMatchObject({ have: 1, want: 3 });
+  });
 });
 
