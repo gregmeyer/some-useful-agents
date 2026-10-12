@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
-import { NotebookStore, cleanSteps, stepProgress, notebookViewData, stepFunnelLabels } from './notebooks.js';
+import { NotebookStore, cleanSteps, stepProgress, notebookViewData, stepFunnelLabels, criterionLink } from './notebooks.js';
 
 let dir: string;
 let runs: RunStore;
@@ -164,5 +164,29 @@ describe('notebook steps', () => {
     expect(s.decide(id, 'Stopped looking.').decision).toBe('Stopped looking.');
     // A decision with no picks leaves the earlier picks alone.
     expect(s.entries(id).find((e) => e.id === a.id)?.chosenAt).toBeTruthy();
+  });
+
+  it('done-whens that repeat the work tick themselves; ones you set by hand are left alone', () => {
+    const { s, id } = setup();
+    s.setChecks(id, ['Clean title (VIN)', 'Water-resistant material']);
+    s.setCriteria(id, ['At least two companies that fit', 'Employees and founding year sourced for each', 'clean title', 'Water-resistant material', 'A final comp set recorded', 'We decide whether to buy', 'It sounds different']);
+    const nb = s.get(id)!;
+    expect(nb.criteria.map((c) => criterionLink(nb, c.text))).toEqual([
+      { kind: 'count', n: 2 }, { kind: 'source' }, { kind: 'check', check: 'Clean title (VIN)' }, { kind: 'check', check: 'Water-resistant material' },
+      { kind: 'decide' }, { kind: 'decide' }, undefined,
+    ]);
+    s.setSteps(id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Source size', kind: 'source', facts: ['employees', 'founded'] }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
+    const a = s.upsertOption(id, { title: 'Acme', by: 'you', data: { site: 'https://acme.example', employees: 1200 } }).entry;
+    expect(s.autoMeetCriteria(id).ticked).toEqual([]);
+    s.upsertOption(id, { title: 'Hooli', by: 'you', data: { site: 'https://hooli.example', employees: 1500, founded: 2017 } });
+    expect(s.autoMeetCriteria(id).ticked).toEqual(['At least two companies that fit']);
+    // You unticked the decision one: deciding leaves it.
+    s.markCriterion(id, 5, false);
+    // Moving on from a source step short of its goal doesn't count as sourced.
+    s.updateStep(id, 's2', { status: 'done', movedOn: true });
+    expect(s.get(id)!.criteria[1].met).toBe(false);
+    s.checkOption(id, a.id, 'Clean title (VIN)', true);
+    const done = s.decide(id, '', 'you', [a.id]);
+    expect(done.criteria.map((c) => c.met)).toEqual([true, false, true, false, true, false, false]);
   });
 });

@@ -48,10 +48,12 @@ describe('NotebookStore', () => {
     s.markCriterion(nb.id, 0, true);
     expect(notebookProgress(s.get(nb.id)!)).toEqual({ met: 1, total: 2 });
     // Editing criteria keeps "met" for unchanged text.
-    expect(s.setCriteria(nb.id, ['One fits', 'Decided by Oct 15']).criteria).toEqual([{ text: 'One fits', met: true }, { text: 'Decided by Oct 15', met: false }]);
+    expect(s.setCriteria(nb.id, ['One fits', 'Decided by Oct 15']).criteria).toEqual([{ text: 'One fits', met: true, held: true }, { text: 'Decided by Oct 15', met: false }]);
 
     const decided = s.decide(nb.id, 'Buy the RAV4');
     expect(decided).toMatchObject({ status: 'decided', decision: 'Buy the RAV4' });
+    // Deciding ticks the done-when that says so.
+    expect(decided.criteria[1]).toEqual({ text: 'Decided by Oct 15', met: true });
     expect(s.entries(nb.id)[0]).toMatchObject({ kind: 'decision', body: 'Buy the RAV4' });
     expect(s.list().map((n) => n.id)).toEqual(['buy-a-used-car-2', 'buy-a-used-car']);
     expect(s.setStatus(nb.id, 'active').status).toBe('active');
