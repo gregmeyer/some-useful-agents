@@ -217,8 +217,10 @@ notebooksRouter.get('/notebooks/:id/workflow', (req: Request, res: Response) => 
 notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const s = store(req);
-  const nb = s.get(String(req.params.id));
-  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  const found = s.get(String(req.params.id));
+  if (!found) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  // Done-whens the notebook's own work now meets tick themselves (enough options, a decision…).
+  const nb = s.autoMeetCriteria(found.id).nb;
   // A notebook with options but no fields (kept before fields existed, or
   // filled by talking): set it up once, in the background; the page redraws.
   if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);

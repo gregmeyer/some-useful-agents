@@ -110,6 +110,8 @@ export function fieldNumber(v: NotebookFieldValue | undefined): number | undefin
 export interface NotebookCriterion {
   text: string;
   met: boolean;
+  /** Set by hand (you, or sua when you said so): the notebook doesn't tick or untick it for you. */
+  held?: boolean;
 }
 
 export interface Notebook {
@@ -632,7 +634,7 @@ export class NotebookStore {
     });
     if (!steps.some((s) => s.id === stepId)) throw new Error(`No step "${stepId}".`);
     this.db.prepare('UPDATE notebooks SET steps_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(cleanSteps(steps)), now, id);
-    return this.mustGet(id);
+    return patch.status === 'done' ? this.autoMeetCriteria(id).nb : this.mustGet(id);
   }
 
   /**
@@ -1137,8 +1139,8 @@ export class NotebookStore {
   /** Replace the criteria, keeping "met" for any whose text is unchanged. */
   setCriteria(id: string, texts: readonly string[]): Notebook {
     const nb = this.mustGet(id);
-    const was = new Map(nb.criteria.map((c) => [c.text, c.met]));
-    const criteria = clean(texts, 10).map((text) => ({ text, met: was.get(text) ?? false }));
+    const was = new Map(nb.criteria.map((c) => [c.text, c]));
+    const criteria = clean(texts, 10).map((text): NotebookCriterion => ({ text, met: was.get(text)?.met ?? false, ...(was.get(text)?.held ? { held: true } : {}) }));
     this.db.prepare('UPDATE notebooks SET criteria_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(criteria), new Date().toISOString(), id);
     return this.mustGet(id);
   }
@@ -1146,9 +1148,29 @@ export class NotebookStore {
   markCriterion(id: string, index: number, met: boolean): Notebook {
     const nb = this.mustGet(id);
     if (!nb.criteria[index]) throw new Error(`There's no criterion ${String(index + 1)}.`);
-    const criteria = nb.criteria.map((c, i) => (i === index ? { ...c, met } : c));
+    const criteria = nb.criteria.map((c, i) => (i === index ? { ...c, met, held: true } : c));
     this.db.prepare('UPDATE notebooks SET criteria_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(criteria), new Date().toISOString(), id);
     return this.mustGet(id);
+  }
+
+  /**
+   * Tick the done-whens the notebook's own work now meets (criterionMet):
+   * a decision, enough options, a source step that reached its goal, a check
+   * every pick passes. Only ticks; one you set by hand is left alone.
+   * Returns the notebook, and the ones it ticked.
+   */
+  autoMeetCriteria(id: string): { nb: Notebook; ticked: string[] } {
+    const nb = this.mustGet(id);
+    const entries = this.entries(id, 1000);
+    const ticked: string[] = [];
+    const criteria = nb.criteria.map((c) => {
+      if (c.met || c.held || !criterionMet(nb, entries, c.text)) return c;
+      ticked.push(c.text);
+      return { ...c, met: true };
+    });
+    if (!ticked.length) return { nb, ticked };
+    this.db.prepare('UPDATE notebooks SET criteria_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(criteria), new Date().toISOString(), id);
+    return { nb: this.mustGet(id), ticked };
   }
 
   /**
@@ -1182,7 +1204,7 @@ export class NotebookStore {
     for (const s of nb.steps ?? []) {
       if (s.kind === 'decide' && s.status !== 'done') this.updateStep(id, s.id, { status: 'done', note: picks.length ? `${String(picks.length)} chosen` : 'decided' }, now);
     }
-    return this.mustGet(id);
+    return this.autoMeetCriteria(id).nb;
   }
 
   setStatus(id: string, status: NotebookStatus): Notebook {
@@ -2006,4 +2028,42 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks'>, options: re
   const ranked = rankOptions(nb, options);
   const lines = [head.map(cell), ...ranked.map((o, i) => row(o, i + 1)), ...(opts.ruledOut ? options.filter((o) => o.ruledOut).map((o) => row(o, undefined)) : [])];
   return `﻿${lines.map((l) => l.join(',')).join('\r\n')}\r\n`;
+}
+
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * What a done-when is about, when it repeats the notebook's own work: the
+ * decision ("A decision recorded", "decided yes/no", "A final set recorded"),
+ * a count of options ("At least 10 companies"), facts sourced ("Revenue …
+ * sourced for each"), or one of its checks ("clean title" for "Clean title
+ * (VIN)"). Anything else is yours to tick.
+ */
+export function criterionLink(nb: Pick<Notebook, 'checks'>, text: string): { kind: 'decide' } | { kind: 'count'; n: number } | { kind: 'source' } | { kind: 'check'; check: string } | undefined {
+  const t = text.toLowerCase();
+  const check = nb.checks.find((c) => { const a = loose(c); const b = loose(text); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); });
+  if (check) return { kind: 'check', check };
+  if (/\b(decid\w*|decision)\b/.test(t) || /\bfinal\b.*\b(recorded|chosen|picked)\b/.test(t)) return { kind: 'decide' };
+  const count = /\bat least (\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/.exec(t);
+  if (count) return { kind: 'count', n: NUMBER_WORDS[count[1]] ?? Number(count[1]) };
+  if (/\bsourced\b/.test(t)) return { kind: 'source' };
+  return undefined;
+}
+
+/** Whether the notebook's work meets a done-when (see criterionLink); false when it can't tell. */
+export function criterionMet(nb: Notebook, entries: readonly NotebookEntry[], text: string): boolean {
+  const link = criterionLink(nb, text);
+  if (!link) return false;
+  if (link.kind === 'decide') return nb.status === 'decided';
+  const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
+  if (link.kind === 'count') return options.length >= link.n;
+  if (link.kind === 'source') {
+    const step = nb.steps?.find((s) => s.kind === 'source');
+    // A step you moved on from short of its goal didn't source them all.
+    return step ? stepProgress(nb, entries, step).met : false;
+  }
+  const chosen = options.filter((o) => o.chosen);
+  const c = link.check.toLowerCase();
+  return nb.status === 'decided' && chosen.length > 0 && chosen.every((o) => o.checked.some((d) => d.toLowerCase() === c));
 }

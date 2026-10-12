@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, optionLink, optionPassesStep, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -77,6 +77,17 @@ export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], l
     .sort((a, b) => at(b[0]) - at(a[0]) || a[1] - b[1])
     .map(([o]) => o)
     .slice(0, limit);
+}
+
+/** "Ticks itself when you decide": what ticks a done-when for you, if anything does. */
+export function criterionHint(nb: Notebook, c: NotebookCriterion): string | undefined {
+  if (c.held) return undefined;
+  const link = criterionLink(nb, c.text);
+  if (!link) return undefined;
+  if (link.kind === 'decide') return 'Ticks itself when you decide.';
+  if (link.kind === 'count') return `Ticks itself at ${String(link.n)} in the running.`;
+  if (link.kind === 'source') return 'Ticks itself when every fact is sourced.';
+  return `Ticks itself when every option you choose passes "${link.check}".`;
 }
 
 /** The decision box's example, from the notebook's own leads. */
@@ -257,7 +268,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               <form method="POST" action="/notebooks/${id}/criteria/${String(i)}" class="nb-crit">
                 <input type="hidden" name="met" value="${c.met ? '0' : '1'}">
                 <button type="submit" class="nb-crit__btn ${c.met ? 'is-met' : ''}" aria-pressed="${c.met ? 'true' : 'false'}" title="${c.met ? 'Mark not met' : 'Mark met'}">${c.met ? '✓' : '○'}</button>
-                <span class="nb-crit__text ${c.met ? 'is-met' : ''}">${c.text}</span>
+                <span class="nb-crit__text ${c.met ? 'is-met' : ''}"${criterionHint(nb, c) ? html` title="${criterionHint(nb, c)}"` : html``}>${c.text}</span>
               </form>`) as unknown as SafeHtml[]}
           </div>
         </div>`}

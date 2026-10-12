@@ -174,6 +174,18 @@ describe('notebooks pages', () => {
     expect((await get(app, '/notebooks/nope')).status).toBe(303);
   });
 
+  it('done-whens the work meets tick themselves when the page opens, and say so; your untick stays', async () => {
+    const app = await makeApp();
+    await post(app, '/notebooks', { title: 'Cabinet', criteria: 'At least one cabinet that fits\nA decision recorded by Oct 20\nLooks nice' });
+    await post(app, '/notebooks/cabinet/entries', { kind: 'option', title: 'BEARSOLIM 24-in' });
+    const page = await get(app, '/notebooks/cabinet');
+    expect(page.text).toContain('aria-label="1 of 3 criteria met"');
+    expect(page.text).toContain('title="Ticks itself when you decide."');
+    expect(page.text).not.toMatch(/title="Ticks itself[^"]*">Looks nice/);
+    await post(app, '/notebooks/cabinet/criteria/0', { met: '0' });
+    expect((await get(app, '/notebooks/cabinet')).text).toContain('aria-label="0 of 3 criteria met"');
+  });
+
   it('Home\'s Notebooks line', async () => {
     await makeApp();
     const { renderHomeNotebooksLine } = await import('../views/notebooks.js');

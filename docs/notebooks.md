@@ -227,6 +227,13 @@ Options move through the notebook's **stages** toward a decision, and you can ru
 - **The funnel** above the options shows how many reached each stage and how many were ruled out there ("4 Found −2 → 1 Checked → 1 Test drive"); hover for the reasons.
 - **With [steps](#steps-the-work-in-order), the funnel is the steps:** Found → Facts sourced → Checked → Chosen, counted from each option itself (its facts, its ticked checks, whether you picked it), not the stage it was moved to. An option counts as far as it got in order: one with every check ticked but a fact missing stops at Found. A step kind used twice goes by its steps' titles.
 - **In conversation, sua can also tick a done-when criterion** when what you said shows it's met ("the title's clean").
+- **Done-whens that repeat the notebook's own work tick themselves**, when that work is done or when you open the page:
+  - "A decision recorded", "decided yes/no", "A final set recorded" tick when you decide;
+  - "At least 10 companies…" ticks once that many are in the running;
+  - "… sourced for each" ticks when the source step reaches its goal (not when you moved on from it short);
+  - one that names a check ("clean title" for the check "Clean title (VIN)") ticks when every option you chose passes it.
+
+  Hover one to see what ticks it. Anything else is yours to tick. Once you (or sua, at your word) tick or untick one, it's left as you set it.
 - `data.json` includes `stages`, a `funnel` (per stage: reached, here now, ruled out, top reasons; per step when it has steps), each option's `stage`, `stageIndex`, `ruledOut` and `chosen`, and `active` / `ruledOutCount`.
 
 ## How it was made
