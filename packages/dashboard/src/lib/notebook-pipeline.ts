@@ -230,6 +230,10 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       continue;
     }
     if (!key || seen.has(key)) { skipped++; continue; }
+    // "Ruled out: Vena, …" about an option the notebook has: a model's text
+    // can't rule it out (you decide those, and it may be chosen), and a
+    // ruling that didn't happen only contradicts the page. Left out.
+    if (!opts.trusted && x.kind === 'decision' && rulesOutExisting(store, nb, x.title)) { skipped++; continue; }
     seen.add(key);
     store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId });
     added++;
@@ -248,6 +252,16 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     criteriaMet++;
   }
   return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+}
+
+/** A "Ruled out: <name>, …" title naming an option the notebook already has (by title, or its organization's name). */
+export function rulesOutExisting(store: NotebookStore, nb: Notebook, title: string): boolean {
+  const m = /^\s*ruled out\s*[:\-–—]\s*([^,;:(]+)/i.exec(title);
+  if (!m) return false;
+  const name = m[1].trim();
+  if (!name) return false;
+  const orgF = nb.fields.find((f) => f.role === 'org');
+  return !!store.findOption(nb.id, name) || !!(orgF && store.findOrgOption(nb.id, { title: name, data: { [orgF.key]: name } }));
 }
 
 /** Run the keeper over one agent's output; returns what it added. */
