@@ -454,7 +454,8 @@ export function addRunToNotebook(ctx: Ctx, notebookId: string, runId: string): {
   const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = s.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'This notebook is closed. Reopen it under Edit to add to it.' };
+  // Decided or stopped still takes what you add (anything learned since is worth keeping); archived doesn't.
+  if (nb.archivedAt) return { started: false, reason: 'This notebook is archived. Bring it back to add to it.' };
   const run = unfiledRuns(ctx, nb, 50).find((r) => r.id === runId);
   if (!run) return { started: false, reason: 'That run is already in the notebook, or it isn\'t one of its agents\' finished runs.' };
   if (addingRun(ctx, runId)) return { started: false, reason: 'That run is being added already.' };

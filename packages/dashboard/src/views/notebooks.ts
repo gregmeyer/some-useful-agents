@@ -545,7 +545,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     ${unfiled.length ? html`
       <section class="nb-side__card nb-unfiled" aria-labelledby="nb-unfiled-title">
         <h2 class="nb-side__title" id="nb-unfiled-title">Runs not in this notebook yet</h2>
-        <p class="nb-unfiled__lede">These ran outside the notebook's conversation, so their results weren't added.</p>
+        <p class="nb-unfiled__lede">These finished, but what they found isn't in the notebook yet.</p>
         <ul class="nb-unfiled__list">${unfiled.map((r) => html`
           <li class="nb-unfiled__item">
             <span class="nb-unfiled__what"><a href="/runs/${encodeURIComponent(r.id)}">${r.agentId}</a> <span class="nb-unfiled__when">${formatAge(r.startedAt)}</span></span>
