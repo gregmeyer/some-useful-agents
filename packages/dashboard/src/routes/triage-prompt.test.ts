@@ -27,6 +27,18 @@ describe('loadTriageKernel', () => {
     expect(kernel).not.toContain('source=permission-request');
   });
 
+  it('teaches the ladder: run, call, build a helper, then edit', () => {
+    const kernel = loadTriageKernel();
+    const ladder = kernel.slice(kernel.indexOf("WHEN AN AGENT CAN'T DO PART OF THE JOB"));
+    const rungs = ['1. RUN.', '2. CALL IT.', '3. BUILD A HELPER.', '4. EDIT.'].map((r) => ladder.indexOf(r));
+    expect(rungs.every((i) => i > 0)).toBe(true);
+    expect([...rungs].sort((a, b) => a - b)).toEqual(rungs);
+    expect(ladder).toContain('`FOR_AGENT`');
+    // The old "only path" rule is gone, and stuck notebook steps point at the ladder.
+    expect(kernel).not.toContain('Your only\n  job for fix-applying flows');
+    expect(kernel).toMatch(/When a step is stuck[\s\S]{0,200}WHEN AN AGENT CAN'T DO PART OF THE/);
+  });
+
   it('strips the leading editor comment so it never reaches the model', () => {
     expect(loadTriageKernel()).not.toContain('<!--');
   });
