@@ -290,6 +290,7 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-stage { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); }
 .nb-stage form { margin: 0; }
 .nb-stage__chip { font-family: var(--font-mono); font-size: var(--font-size-xs); padding: 1px var(--space-2); border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary); }
+.nb-stage__chip--chosen { background: var(--color-primary); color: var(--color-bg); font-weight: var(--weight-semibold); }
 .nb-stage__out { font-size: var(--font-size-sm); color: var(--color-warn); }
 .nb-ruleout { position: relative; }
 .nb-ruleout > summary { list-style: none; cursor: pointer; }

@@ -758,6 +758,11 @@ describe('the funnel on the page and in the conversation', () => {
     expect(nb.decision).toBe('Chose Acme and Hooli. Closest in size');
     expect(nb.steps!.find((x) => x.kind === 'decide')).toMatchObject({ status: 'done', note: '2 chosen' });
     expect(store.entries('peers').filter((e) => e.chosenAt).map((e) => e.title).sort()).toEqual(['Acme', 'Hooli']);
+    // Chosen shows on the option's page, and the shortlist's data says so (the card's ribbon).
+    expect((await get(`/notebooks/peers/entries/${acme.id}`)).text).toContain('nb-stage__chip--chosen');
+    expect((await get(`/notebooks/peers/entries/${globex.id}`)).text).not.toContain('nb-stage__chip--chosen');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    expect(notebookWidgetData(store.get('peers')!, store.entries('peers')).notebook.options.filter((o) => o.chosen).map((o) => o.title).sort()).toEqual(['Acme', 'Hooli']);
 
     // One pick wanted: a radio, not a checkbox.
     await post('/notebooks/peers/status', { status: 'active' });
