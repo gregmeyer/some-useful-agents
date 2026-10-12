@@ -1592,6 +1592,11 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const out = options.filter((o) => o.ruledOut && o.stageIndex === i);
     const reasons = new Map<string, number>();
     for (const o of out) { const r = o.ruledOut!.reason.toLowerCase(); reasons.set(r, (reasons.get(r) ?? 0) + 1); }
+    // Chosen is what you picked, whatever the steps before it got to.
+    if (steps.length > 1 && steps[i]?.kind === 'decide') {
+      const picked = options.filter((o) => o.chosen && !o.ruledOut).length;
+      return { stage, reached: picked, here: picked, ruledOut: out.length, reasons: [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => ({ reason, count })) };
+    }
     return {
       stage,
       reached: options.filter((o) => o.stageIndex >= i).length,

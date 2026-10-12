@@ -347,11 +347,20 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     if (this._showOut !== undefined) showOut = this._showOut;
     if (p.ruledOut === 'show') showOut = true;
     let opts = all.filter((o) => showOut || !o.ruledOut);
+    // After a decision, the shortlist is the final set (chosen first, and only
+    // them until you untick it; kept per page in this browser).
+    const chosenCount = all.filter((o) => o.chosen && !o.ruledOut).length;
+    const chosenKey = `sua-option-only-chosen:${location.pathname}`;
+    let onlyChosen; try { onlyChosen = localStorage.getItem(chosenKey) !== '0'; } catch { onlyChosen = true; }
+    if (this._onlyChosen !== undefined) onlyChosen = this._onlyChosen;
+    onlyChosen = onlyChosen && chosenCount > 0;
+    if (onlyChosen) opts = opts.filter((o) => o.chosen && !o.ruledOut);
     // Sort: in the running first, then by the chosen field (price by default, the better way first).
     const [skey, sdir] = String(p.sort ?? 'price').trim().split(/\s+/);
     const sval = (o) => (skey === 'price' || skey === 'measure' ? o[skey] : getPath(o.fields ?? {}, skey));
     const dir = sdir === 'desc' || (sdir === undefined && skey === 'price' && priceBetter === 'higher') ? -1 : 1;
     opts = opts.map((o, i) => [o, i]).sort((a, b) => (Number(!!a[0].ruledOut) - Number(!!b[0].ruledOut))
+      || (Number(!!b[0].chosen) - Number(!!a[0].chosen))
       || (sval(a[0]) == null) - (sval(b[0]) == null) || compare(sval(a[0]) ?? '', sval(b[0]) ?? '') * dir || a[1] - b[1]).map((x) => x[0]);
     if (!all.length) return html`<p class="empty">No options yet.</p>`;
     // Filters (by stage, still listed, or any fact): chips for values the options
@@ -421,12 +430,14 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const best = active[0];
     const filtered = Object.keys(sel).length > 0;
     const shownActive = opts.filter((o) => !o.ruledOut).length;
+    const toggleChosen = () => { const v = !onlyChosen; this._onlyChosen = v; try { localStorage.setItem(chosenKey, v ? '1' : '0'); } catch { /* not kept */ } this.requestUpdate(); };
     const toggleOut = () => { const v = !showOut; this._showOut = v; try { localStorage.setItem('sua-option-show-out', v ? '1' : '0'); } catch { /* not kept */ } this.requestUpdate(); };
     const filterBar = choices.length ? html`<div class="filters" role="group" aria-label="Filter options">
       ${choices.map((f) => html`<div class="frow"><span class="flabel">${f.label}</span><span class="fchips">
         ${f.choices.map((c) => html`<button type="button" class="fchip ${c.count ? '' : 'none'}" aria-pressed=${sel[f.key] === c.value ? 'true' : 'false'} @click=${() => pick(f.key, c.value)}>${c.value}<span class="n">${c.count}</span></button>`)}</span></div>`)}
       ${filtered ? html`<button type="button" class="fclear" @click=${() => keepSel({})}>Clear filters</button>` : nothing}</div>` : nothing;
-    const toggle = html`<div class="bar"><span>${filtered ? `${shownActive} of ${active.length}` : active.length} in the running</span>
+    const toggle = html`<div class="bar"><span>${onlyChosen ? `${filtered ? `${shownActive} of ` : ''}${chosenCount} chosen, of ${all.filter((o) => !o.ruledOut).length} in the running` : `${filtered ? `${shownActive} of ${active.length}` : active.length} in the running`}</span>
+      ${chosenCount ? html`<label class="showout"><input type="checkbox" .checked=${onlyChosen} @change=${toggleChosen}> Only chosen (${chosenCount})</label>` : nothing}
       ${outCount ? html`<label class="showout"><input type="checkbox" .checked=${showOut} @change=${toggleOut}> Show ruled out (${outCount})</label>` : nothing}
       <span class="sp"></span>
       <div class="seg" role="group" aria-label="Layout">

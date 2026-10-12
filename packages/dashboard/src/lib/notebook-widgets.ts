@@ -178,7 +178,17 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const checkedTop = top.reduce((n, o) => n + (o.checked.length >= checks.length && checks.length ? 1 : 0), 0);
 
   const second = active.filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined)[1];
-  const summary = active.length === 0
+  // Decided with picks: where it stands is the final set.
+  const chosen = active.filter((o) => o.chosen);
+  const bestChosen = chosen.find((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
+  const decided = nb.status === 'decided' && chosen.length > 0;
+  const summary = decided
+    ? [
+      `**Decided: ${String(chosen.length)} chosen**, of ${String(active.length)} in the running.`,
+      chosen.length <= 3 ? `${chosen.map((o) => o.name).join(', ')}.` : '',
+      bestChosen && chosen.length > 1 ? `The ${rank.by === 'score' ? 'best fit' : 'best lead'} among them is the **${bestChosen.name}**: ${rankText(rank, bestChosen)}.` : '',
+    ].filter(Boolean).join(' ')
+    : active.length === 0
     ? (v.options.length ? `All ${String(v.options.length)} options are ruled out.` : 'No options yet. Ask sua to search, or tell it about one you saw.')
     : [
       `**${String(active.length)} in the running**${searches.length ? ` after ${String(searches.length)} search${searches.length === 1 ? '' : 'es'}` : ''}${v.ruledOutCount ? `, ${String(v.ruledOutCount)} ruled out` : ''}.`,
@@ -188,7 +198,9 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
         : '',
       furthest && furthest !== v.stages[0] ? `Furthest along: ${furthest}.` : '',
     ].filter(Boolean).join(' ');
-  const next = active.length === 0
+  const next = decided
+    ? 'reopen it if something changes; anything sua learns is still kept here.'
+    : active.length === 0
     ? 'ask sua to search again, or bring one back.'
     : top.length && checks.length && checkedTop < top.length
       ? `check ${checks.slice(0, 2).map((c) => c.toLowerCase()).join(' and ')} on the top ${top.length === 1 ? 'one' : 'two'} before you contact anyone.`

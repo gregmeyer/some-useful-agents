@@ -67,12 +67,12 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
  * The options still in the running, best first: furthest stage, then the
  * best price (lower unless the price field says higher is better).
  */
-export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3): NotebookViewOption[] {
+export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3, history?: NotebookViewHistory): NotebookViewOption[] {
   // With steps, how many it got through (a checked option missing one fact still counts its check); else the stage it was moved to (none comes last).
   const steps = nb.steps ?? [];
   const at = (o: NotebookViewOption) => (steps.length > 1 ? steps.filter((s) => optionPassesStep(nb, o, s)).length : o.stage ? nb.stages.indexOf(o.stage) : -1);
   // Best first by score (or price), then the furthest stage wins (a stable sort keeps the ranking within a stage).
-  const ranked = rankOptions(nb, notebookViewData(nb, [...entries]).notebook.options);
+  const ranked = rankOptions(nb, notebookViewData(nb, [...entries], history).notebook.options);
   return ranked.map((o, i) => [o, i] as const)
     .sort((a, b) => at(b[0]) - at(a[0]) || a[1] - b[1])
     .map(([o]) => o)
@@ -128,6 +128,8 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): Sa
     </form>`;
   }
   const want = target ? `${String(target)} ` : '';
+  // A picture column when any option has one (the kept copy; never the seller's address).
+  const thumbs = candidates.some((o) => o.image);
   const count = target ? `0 of ${String(target)} picked` : '0 picked';
   return html`<form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form" data-nb-decide${target ? html` data-target="${String(target)}"` : html``}>
     <div class="nb-decide__head">
@@ -135,11 +137,12 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): Sa
       <span class="nb-decide__count" data-nb-decide-count aria-live="polite">${count}</span>
     </div>
     <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>Pick the top ${String(target)}</button>` : html``}</p>
-    <fieldset class="nb-decide__list">
+    <fieldset class="nb-decide__list${thumbs ? ' nb-decide__list--thumbs' : ''}">
       <legend class="sr-only">${one ? 'Pick one' : `Pick ${want || 'any'}`}</legend>
       ${candidates.map((o) => html`<div class="nb-decide__row">
         <label class="nb-decide__pick">
           <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen ? html` checked` : html``}>
+          ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
           <span class="nb-decide__name">${o.title}</span>
           ${decideFacts(nb, o)}
         </label>
@@ -640,7 +643,7 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity), args.entries)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>

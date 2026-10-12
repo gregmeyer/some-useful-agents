@@ -144,8 +144,8 @@ describe('notebook steps', () => {
     expect(decided.decision).toBe('Chose Acme and Hooli.');
     expect(decided.steps!.find((x) => x.kind === 'decide')).toMatchObject({ status: 'done', note: '2 chosen' });
     const after = notebookViewData(s.get(id)!, s.entries(id)).notebook;
-    // Hooli was chosen without being checked: it's counted where it got to.
-    expect(after.funnel.map((f) => `${f.stage}:${f.reached}`)).toEqual(['Found:5', 'Facts sourced:3', 'Checked:2', 'Chosen:1']);
+    // Hooli was chosen without being checked: it counts as chosen (what you picked), and not as checked.
+    expect(after.funnel.map((f) => `${f.stage}:${f.reached}`)).toEqual(['Found:5', 'Facts sourced:3', 'Checked:2', 'Chosen:2']);
     expect(after.options.filter((o) => o.chosen).map((o) => o.title).sort()).toEqual(['Acme', 'Hooli']);
     expect(stepProgress(s.get(id)!, s.entries(id), decided.steps![3])).toMatchObject({ met: true, have: 2, want: 2 });
     expect(stepFunnelLabels([{ kind: 'find', title: 'Find' }, { kind: 'check', title: 'Check price' }, { kind: 'check', title: 'Check reviews' }])).toEqual(['Found', 'Check price', 'Check reviews']);

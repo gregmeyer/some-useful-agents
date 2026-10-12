@@ -865,6 +865,9 @@ describe('notebook photos', () => {
     expect(page.text).toContain('Get photos');
     // The header shows the notebook's picture, as the conversation card does.
     expect(page.text).toContain(`<img class="nb-hero__cover" src="/notebooks/car/entries/${e.id}/photo"`);
+    // Decide… shows it beside the option too; one with no picture keeps the column.
+    expect(page.text).toContain(`<img class="nb-decide__thumb" src="/notebooks/car/entries/${e.id}/photo"`);
+    expect(page.text).toContain('nb-decide__list nb-decide__list--thumbs');
     const bare = store.create({ title: 'Bike' });
     const barePage = await request(app).get(`/notebooks/${bare.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(barePage.text).not.toContain('nb-hero__cover');
