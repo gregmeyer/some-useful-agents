@@ -584,9 +584,16 @@ notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const all = req.query.all === '1';
-  const csv = notebookCsv(nb, notebookViewData(nb, s.entries(nb.id, 1000), s).notebook.options, { ruledOut: all });
-  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-${all ? 'all' : 'shortlist'}.csv`;
+  const options = notebookViewData(nb, s.entries(nb.id, 1000), s).notebook.options;
+  // Which rows: ?rows=chosen|running|all (all=1 is the older spelling); else
+  // the final set once you've decided, the ones in the running before.
+  // ?ids=a,b,c keeps just those: the shortlist as you filtered it.
+  const asked = String(req.query.rows ?? (req.query.all === '1' ? 'all' : ''));
+  const decidedSet = nb.status === 'decided' && options.some((o) => o.chosen && !o.ruledOut);
+  const rows = asked === 'chosen' || asked === 'running' || asked === 'all' ? asked : decidedSet ? 'chosen' : 'running';
+  const ids = typeof req.query.ids === 'string' && req.query.ids ? req.query.ids.split(',').slice(0, 500) : undefined;
+  const csv = notebookCsv(nb, options, { rows, ...(ids ? { ids } : {}) });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-${ids ? 'selection' : rows === 'all' ? 'all' : rows === 'chosen' ? 'chosen' : 'shortlist'}.csv`;
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'private, no-store' }).send(csv);
 });
 

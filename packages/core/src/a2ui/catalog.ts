@@ -128,6 +128,8 @@ const SUA_COMPONENTS = [
       ruledOut: z.enum(['show', 'hide']).optional(),
       actions: z.boolean().optional(),
       maxItems: z.number().int().min(1).max(100).optional(),
+      /** A CSV link for exactly the options shown (`?rows=all&ids=…` is added): a same-site path. */
+      csvHref: z.string().max(300).regex(/^\/[^\s"'<>?#]*$/).optional(),
       /**
        * What it can be filtered by: field keys, or `stage` / `seen` (still
        * listed vs not seen lately), as a key or {key, label}. Each shows as a
