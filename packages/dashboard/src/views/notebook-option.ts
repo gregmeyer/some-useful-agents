@@ -4,7 +4,7 @@
  * then its widgets (lib/notebook-option.ts): every fact with its source, the
  * price over time, its checks and its history.
  */
-import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
+import { sameAddress, type Notebook, type NotebookEntry } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
@@ -68,7 +68,35 @@ function standing(nb: Notebook, e: NotebookEntry, d: NotebookOptionData['option'
   return html`<span class="nbo-rank${best ? ' nbo-rank--best' : ''}">${best ? `best ${(rankF?.label ?? 'price').toLowerCase()}` : `#${String(d.rank)} of ${String(d.active)}`}</span>`;
 }
 
-export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEntry; data: NotebookOptionData; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+/**
+ * Merge with…: another option that's the same one (a listing found twice,
+ * a company two agents named differently) becomes part of this one. The
+ * likely ones (same address, same name or organization) are listed first.
+ */
+function mergeForm(nb: Notebook, e: NotebookEntry, others: readonly NotebookEntry[]): SafeHtml {
+  if (!others.length) return html``;
+  const linkF = nb.fields.find((f) => f.role === 'link');
+  const orgF = nb.fields.find((f) => f.role === 'org');
+  const addr = (x: NotebookEntry) => { const v = linkF ? x.data?.[linkF.key] : undefined; return typeof v === 'string' ? sameAddress(v) : undefined; };
+  const org = (x: NotebookEntry) => { const v = orgF ? x.data?.[orgF.key] : undefined; return typeof v === 'string' ? v.trim().toLowerCase() : undefined; };
+  // The title's lead, up to its first comma, colon, dash or bracket ("2010 RAV4", "Pigment").
+  const name = (x: NotebookEntry) => (x.title.split(/\s*(?:,|:|\(|\s[-–—]\s)/)[0] ?? '').trim().toLowerCase();
+  const likely = (x: NotebookEntry) => (!!addr(e) && addr(x) === addr(e)) || (!!org(e) && org(x) === org(e)) || name(x) === name(e);
+  const sorted = [...others].sort((a, b) => Number(likely(b)) - Number(likely(a)) || Number(!!a.ruledOut) - Number(!!b.ruledOut) || a.title.localeCompare(b.title));
+  return html`<details class="nbo-merge">
+    <summary class="btn btn--sm btn--ghost">Merge with…</summary>
+    <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}/merge" class="nbo-merge__form">
+      <label class="nbo-merge__label" for="nbo-merge-copy">The same one as this, found again? Its facts fill in what this one is missing, its checks and history come along, and it goes.</label>
+      <select id="nbo-merge-copy" name="copy" class="form-field" required>
+        <option value="">Pick the copy…</option>
+        ${sorted.map((x) => html`<option value="${x.id}">${likely(x) ? '★ ' : ''}${x.title.slice(0, 90)}${x.ruledOut ? ' (ruled out)' : ''}</option>`) as unknown as SafeHtml[]}
+      </select>
+      <button type="submit" class="btn btn--sm btn--primary">Merge into this one</button>
+    </form>
+  </details>`;
+}
+
+export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEntry; data: NotebookOptionData; others?: readonly NotebookEntry[]; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   const { nb, entry: e, data } = args;
   const o = data.option.view;
   const nbHref = `/notebooks/${encodeURIComponent(nb.id)}`;
@@ -98,6 +126,7 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
         <div class="nbo-hero__links">
           ${o.link ? html`<a class="btn btn--sm" href="${o.link}" target="_blank" rel="noopener noreferrer">${listing?.label ?? 'Listing'} ↗</a>` : html``}
           <a class="btn btn--sm btn--ghost" href="${nbHref}">← Back to the notebook</a>
+          ${mergeForm(nb, e, args.others ?? [])}
         </div>
         <p class="nbo-hero__meta">${e.by === 'you' ? 'added by you' : `found by ${by}`} ${formatAge(o.firstSeenAt)}${seenAgain ? ` · seen again ${formatAge(o.lastSeenAt)}` : ''}${o.notSeenLately && !e.ruledOut ? ` · not in the last ${String(o.missedSearches)} searches` : ''}</p>
       </div>

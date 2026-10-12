@@ -325,7 +325,22 @@ notebooksRouter.get('/notebooks/:id/entries/:entry', (req: Request, res: Respons
   if (entry.kind !== 'option') { res.redirect(302, `/notebooks/${encodeURIComponent(nb.id)}#entry-${entry.id}`); return; }
   const data = notebookOptionData(nb, entries, entry.id, widgetHistory(ctx, s));
   if (!data) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'No such option in this notebook.' })); return; }
-  res.type('html').send(renderNotebookOptionPage({ nb, entry, data, flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookOptionPage({ nb, entry, data, others: entries.filter((x) => x.kind === 'option' && x.id !== entry.id), flash: parseFlash(req) }));
+});
+
+/** Merge another option (the same one, found again) into this one: back to this option's page. */
+notebooksRouter.post('/notebooks/:id/entries/:entry/merge', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const keep = String(req.params.entry);
+  const page = (flash: string) => `/notebooks/${encodeURIComponent(id)}/entries/${encodeURIComponent(keep)}?flash=${encodeURIComponent(flash)}`;
+  try {
+    const copy = store(req).entries(id, 1000).find((e) => e.id === str(req.body?.copy) && e.kind === 'option');
+    if (!copy) { res.redirect(303, page('Pick the copy to merge in.')); return; }
+    store(req).mergeOptions(id, keep, [copy.id]);
+    res.redirect(303, page(`Merged “${copy.title}” into this one.`));
+  } catch (err) {
+    res.redirect(303, page(err instanceof Error ? err.message : String(err)));
+  }
 });
 
 notebooksRouter.post('/notebooks/:id/entries/:entry/stage', (req: Request, res: Response) => {

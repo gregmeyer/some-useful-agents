@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { NotebookStore, sameAddress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -850,6 +850,40 @@ describe('one organization, one option', () => {
     expect(opts[0]).toMatchObject({ data: { company: 'Pigment', why: 'Agile planning', revenue: 111600000, fit: 96 }, checked: ['Sells software'] });
     expect(opts[0].ruledOut).toBeUndefined();
     expect(opts[0].factMeta?.revenue).toMatchObject({ source: 'https://x.example/pigment', estimate: true });
+  });
+});
+
+describe('the same address is the same option', () => {
+  it('reads an address as what it points at', () => {
+    expect(sameAddress('https://www.cars.com/vehicle/123/?utm_source=x&gclid=1#photos')).toBe('cars.com/vehicle/123');
+    expect(sameAddress('http://Cars.com/vehicle/123')).toBe('cars.com/vehicle/123');
+    expect(sameAddress('https://example.com/item?id=9&ref=home')).toBe('example.com/item?id=9');
+    expect(sameAddress('not a url')).toBeUndefined();
+    expect(sameAddress('ftp://x.example/a')).toBeUndefined();
+  });
+
+  it('an option keyed differently but at the same listing is seen again; a shared company site on jobs is not', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-addr-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const cars = s.create({ title: 'Cars' });
+    s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const a = s.upsertOption(cars.id, { title: '2010 RAV4', by: 'agent:sweep', data: { price: 4023, url: 'https://www.cargurus.com/listing/777?utm_source=sua' } });
+    const b = s.upsertOption(cars.id, { title: '2010 Toyota RAV4 Sport', by: 'agent:vin', fingerprint: 'JTMRF4DV5AD123456', data: { price: 3900, url: 'https://cargurus.com/listing/777/' } });
+    expect(b).toMatchObject({ seenAgain: true, entry: { id: a.entry.id } });
+    expect(s.entries(cars.id).find((e) => e.id === a.entry.id)!.data).toMatchObject({ price: 3900 });
+    // A results page several listings point at: a different car there is its own option.
+    s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }, { key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const page = 'https://www.cargurus.com/Cars/l-Used-2009-Subaru-Forester-Bellingham-c16785';
+    const f1 = s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X, 177,967 mi', by: 'agent:sweep', fingerprint: 'f1', data: { miles: 177967, url: page } });
+    expect(s.upsertOption(cars.id, { title: '2010 Subaru Forester 2.5 X, 152,949 mi', by: 'agent:sweep', fingerprint: 'f2', data: { miles: 152949, url: page } }).seenAgain).toBe(false);
+    expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5X', by: 'agent:other', fingerprint: 'f3', data: { miles: 140000, url: page } }).seenAgain).toBe(false);
+    // Same year, miles within 5%: the same car, relisted.
+    expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X', by: 'agent:other', fingerprint: 'f4', data: { miles: 178400, url: page } }).entry.id).toBe(f1.entry.id);
+    const jobs = s.create({ title: 'Jobs' });
+    s.setFields(jobs.id, [{ key: 'posting', label: 'Posting', type: 'url', role: 'link' }, { key: 'site', label: 'Company site', type: 'url' }]);
+    s.upsertOption(jobs.id, { title: 'Staff Engineer, Stripe', by: 'you', data: { posting: 'https://stripe.com/jobs/1', site: 'https://stripe.com' } });
+    expect(s.upsertOption(jobs.id, { title: 'Senior Engineer, Stripe', by: 'you', data: { posting: 'https://stripe.com/jobs/2', site: 'https://stripe.com' } }).seenAgain).toBe(false);
   });
 });
 

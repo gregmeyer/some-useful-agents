@@ -942,6 +942,33 @@ describe('the funnel on the page and in the conversation', () => {
     expect(parseNotebookAdd(JSON.stringify({ picks: [] })).error).toBe('Nothing to add.');
   });
 
+  it('Merge with… on an option\'s page, and sua\'s merge, make two options one', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Cars' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }]);
+    const a = store.upsertOption(nb.id, { title: '2010 RAV4, Lynnwood', by: 'you', data: { price: 4023 } }).entry;
+    const b = store.upsertOption(nb.id, { title: '2010 RAV4, Lynnwood (dealer)', by: 'you', data: { miles: 149652 } }).entry;
+    const c = store.upsertOption(nb.id, { title: '2009 Forester', by: 'you', data: { price: 4700 } }).entry;
+    const page = (await get(`/notebooks/${nb.id}/entries/${a.id}`)).text;
+    expect(page).toContain(`action="/notebooks/${nb.id}/entries/${a.id}/merge"`);
+    expect(page).toMatch(new RegExp(`<option value="${b.id}">★ 2010 RAV4, Lynnwood \\(dealer\\)</option>[\\s\\S]*<option value="${c.id}">2009 Forester</option>`));
+    const out = await post(`/notebooks/${nb.id}/entries/${a.id}/merge`, { copy: b.id });
+    expect(decodeURIComponent(out.headers.location)).toContain(`/entries/${a.id}?flash=Merged “2010 RAV4, Lynnwood (dealer)” into this one.`);
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.id).sort()).toEqual([a.id, c.id].sort());
+    expect(store.entries(nb.id).find((e) => e.id === a.id)!.data).toEqual({ price: 4023, miles: 149652 });
+    // sua merges on their word.
+    const d = store.upsertOption(nb.id, { title: '2009 Subaru Forester 2.5X', by: 'you', data: { miles: 156292 } }).entry;
+    const r = applyNotebookAdd(store, nb.id, parseNotebookAdd(JSON.stringify({ merge: [{ option: '2009 Forester', copies: ['Subaru Forester 2.5X'] }] })).add!, 'sua');
+    expect(r.added).toEqual(['merged into 2009 Forester: 2009 Subaru Forester 2.5X']);
+    expect(store.entries(nb.id).some((e) => e.id === d.id)).toBe(false);
+  });
+
   it('sua rules out, moves, brings back and ticks criteria by name, and says what it couldn\'t find', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
