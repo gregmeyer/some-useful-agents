@@ -348,6 +348,7 @@ export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'opti
   const i = nb.stages.findIndex((s) => s === e.stage);
   const next = nb.stages.length ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
+    ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked in the decision ${formatAge(e.chosenAt)}">✓ Chosen</span>` : html``}
     ${e.stage ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
     ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">

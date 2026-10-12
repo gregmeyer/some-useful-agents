@@ -283,6 +283,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
     .best .rank { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); }
     .ribbon { position: absolute; top: 8px; right: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; background: var(--color-surface); color: var(--color-primary); border: 1px solid var(--color-primary); }
+    .ribbon.chosen { background: var(--color-primary); color: var(--color-bg); }
+    .card.chosen { border-color: var(--color-primary); }
+    .chip.chosen { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); border-radius: 999px; font-weight: 600; }
     .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
     .title { font-weight: 600; font-size: var(--font-size-sm); line-height: 1.3; }
     .out .title { text-decoration: line-through; }
@@ -440,15 +443,16 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
           ${scoreF ? html`<td class="num" title=${o.factMeta?.[scoreF.key]?.quote ? `“${o.factMeta[scoreF.key].quote}”` : ''}>${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}${o.factMeta?.[scoreF.key]?.checked ? html` <span class="ok" aria-label="quote checked in the source">✓</span>` : nothing}</td>` : nothing}
           <td class="num">${priceF && o.fields?.[priceF.key] != null ? html`${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}` : ''} ${change(o)}</td>
           <td class="num">${measureF && o.fields?.[measureF.key] != null ? html`${est(o, measureF)}${fmtField(measureF, o.fields[measureF.key])}` : ''}</td>
-          <td>${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
+          <td>${o.chosen && !o.ruledOut ? html`<span class="chip chosen">✓ chosen</span> ` : nothing}${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
           <td>${actions(o)}</td></tr>`)}</tbody></table>`;
     }
-    return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''}">
+    return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''} ${o.chosen && !o.ruledOut ? 'chosen' : ''}">
       <div class="pic">
         ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : ''}">${o.imageKind && o.imageKind !== 'listing' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
           : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
-        ${o === best ? html`<span class="ribbon">${scoreF ? 'best fit' : `best ${priceBetter === 'higher' ? 'pay' : 'price'}`}</span>` : nothing}
+        ${o.chosen && !o.ruledOut ? html`<span class="ribbon chosen" title="Picked in the decision${o === best ? `; also the ${scoreF ? 'best fit' : 'best price'}` : ''}">✓ chosen</span>`
+          : o === best ? html`<span class="ribbon">${scoreF ? 'best fit' : `best ${priceBetter === 'higher' ? 'pay' : 'price'}`}</span>` : nothing}
       </div>
       <div class="body">
         <div class="title" title=${o.title}>${named(o)}</div>
