@@ -263,6 +263,29 @@ describe('filing into a notebook of organizations', () => {
     expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('Next is **Pick 1**, with Decide.');
   });
 
+  it("the keeper puts a run's figures for an option it already has onto that option, by id; numbers not in the output stay out", async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult, passNote } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Comp set' });
+    store.setFields(nb0.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'employees', label: 'Employees', type: 'number', role: 'measure', range: true }, { key: 'revenue', label: 'Revenue', type: 'money' }, { key: 'founded', label: 'Founded', type: 'number' }]);
+    const vena = store.upsertOption(nb0.id, { title: 'Vena: Excel-centered FP&A', by: 'you', data: { company: 'Vena' } }).entry;
+    const output = '{"companies":[{"company":"Vena","employees":"501-1,000 (LinkedIn)","revenue":"passed $100M ARR (https://venasolutions.com/press)","founded":2011}]}';
+    const keeper = `<notebook>${JSON.stringify({ entries: [], facts: [{ id: vena.id, data: {
+      employees: { value: { min: 501, max: 1000 }, estimate: true }, revenue: { value: 100000000, source: 'https://venasolutions.com/press', estimate: true }, founded: 2011, fit: 99,
+    } }, { id: 'nope', data: { founded: 2011 } }] })}</notebook>`;
+    const out = applyKeeperResult(store, store.get(nb0.id)!, 'firmographic-research', 'run-f', keeper, { source: output });
+    expect(out).toMatchObject({ added: 0, factsSet: 1 });
+    const after = store.entries(nb0.id).find((e) => e.id === vena.id)!;
+    expect(after.data).toMatchObject({ company: 'Vena', employees: { min: 501, max: 1000 }, founded: 2011 });
+    expect(after.factMeta?.revenue).toMatchObject({ source: 'https://venasolutions.com/press', estimate: true });
+    expect(after.data).toMatchObject({ revenue: 100000000 });
+    expect(after.data).not.toHaveProperty('fit'); // 99 is nowhere in the output (and not a field)
+    expect(store.entries(nb0.id).filter((e) => e.kind === 'evidence')).toHaveLength(0);
+    expect(passNote('firmographic-research', out)).toBe('firmographic-research: 0 new, 1 updated, 1 number not in its output left out');
+  });
+
   it("a run that names a company the notebook has fills in its facts instead of adding it again", async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

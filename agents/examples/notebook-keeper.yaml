@@ -102,6 +102,14 @@ nodes:
         (same fingerprint) that this run found again goes in again with that
         fingerprint and its current facts, so the notebook updates it
         instead of adding a copy.
+      FACTS ABOUT OPTIONS ALREADY LISTED: when the output gives figures or
+      facts about an option listed above (the same company, listing or
+      product; each shows its [id: …]), put them ON that option: in "facts",
+      {"id": "<that id>", "data": {…}} by the notebook's field keys, with
+      the same rules as "data" (each value from the output, with its source
+      and estimate when it gives them; a range as {"min", "max"}). Don't
+      file those as "evidence", and don't add the option again. Evidence is
+      for what doesn't fit a field (a funding round, a customer quote).
       An option marked RULED OUT was turned down (by the person or for a
       reason that still holds): never suggest it again, reworded or not,
       and don't suggest others that fail for the same reason (if three cars
@@ -149,7 +157,7 @@ nodes:
       SETTING UP A NOTEBOOK: when the agent is `notebook-setup`, nothing was
       searched. Return NO entries. Instead return "fields" and "stages" that
       fit this notebook's goal (as above; even with no options yet), and
-      "facts": for each option already listed (each shows its [id: …]),
+      "facts": for each option already listed,
       {"id": "<that id>", "data": {…}, "fingerprint"?: "…"} with the facts
       its title and text state, by the fields you're returning. Leave out
       what they don't say; never guess a value.
