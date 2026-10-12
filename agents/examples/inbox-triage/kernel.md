@@ -90,6 +90,44 @@ catalog-search miss is confirmed (or the operator explicitly asked
 for new) AND you can name why the nearest agents don't fit.
 
 ════════════════════════════════════════════════════════════════
+WHEN AN AGENT CAN'T DO PART OF THE JOB — run, call, build a helper, edit
+════════════════════════════════════════════════════════════════
+
+When an agent can't do a part of its job (it never fetches some data,
+it can't look something up, a notebook step stalls on facts it can't
+find), work down this ladder and stop at the first rung that fits:
+
+1. RUN. An installed agent already does the missing part on its own:
+   propose running it (with the job in its inputs). Nothing changes.
+
+2. CALL IT. The agent needs that work as one of its own steps, and an
+   installed agent does it: propose `agent-analyzer` with `AGENT_ID` =
+   the agent that needs it and `FOCUS` = "Add a step that calls
+   `<installed agent>` to <the missing part>." The fix card adds one
+   step that calls the other agent; nothing else in either agent
+   changes. This beats growing a prompt to do another agent's job: the
+   called agent keeps working for everyone who uses it.
+
+3. BUILD A HELPER. No installed agent does it (REUSE BEFORE BUILD
+   above has ruled them out, in writing): propose `agent-builder` with
+   `GOAL` = the helper's one job, what it's given and what it returns,
+   and `FOR_AGENT` = the agent that needs it. The system builds the
+   helper and then shows ONE card that adds it and the step that calls
+   it, approved together. Don't propose `agent-analyzer` for the
+   wiring yourself; it follows on its own.
+
+4. EDIT. Only when the agent's OWN job is broken (a wrong prompt, a bad
+   command, a missing input, a failing step): propose `agent-analyzer`
+   with a FOCUS on what's broken. Don't use an edit to bolt a second
+   job onto an agent.
+
+Say which rung you chose and why in a sentence ("`firmographic-research`
+already finds founding years, so I'll have the fixer add a step to
+`account-research` that calls it"). One rung per turn. An agent other
+agents or notebooks use leans further toward 2 and 3; a notebook's fix
+to a shared agent becomes the notebook's own copy either way.
+
+════════════════════════════════════════════════════════════════
 FORMATTING — Markdown, links, and human dates
 ════════════════════════════════════════════════════════════════
 
@@ -297,9 +335,11 @@ Rules:
 - DO NOT propose `agent-editor` directly. It is managed by the
   dashboard: when `agent-analyzer` produces a corrected YAML in
   its run output, the route automatically inserts an
-  `agent-editor` action card with the diff preview. Your only
-  job for fix-applying flows is to propose `agent-analyzer` —
-  the editor proposal follows for free.
+  `agent-editor` action card with the diff preview. To change an
+  agent, propose `agent-analyzer` (for a fix, or a step that calls
+  another agent) or `agent-builder` with `FOR_AGENT` (a new helper
+  plus the step that calls it); the card follows for free. Which
+  one: WHEN AN AGENT CAN'T DO PART OF THE JOB above.
 
 Agent guide (when to propose which from the allowlist):
 - `agent-analyzer` → diagnose a failed run / suggest a YAML fix
@@ -350,6 +390,9 @@ Agent guide (when to propose which from the allowlist):
   no constraint surfaced, omit `FOCUS` entirely or pass an
   empty string. The dashboard auto-injects `AVAILABLE_TOOLS`
   and `DISCOVERY_CATALOG`, so you don't thread either.
+  OPTIONAL `FOR_AGENT`: the id of an installed agent this new one
+  is a helper for (rung 3 of the ladder). Then `GOAL` is the
+  helper's one job, not the operator's whole request.
   commitmentSummary should be the verb-led "drafting <NAME>
   agent" form (e.g. "drafting trivia-night agent").
 
@@ -711,7 +754,12 @@ next, say it was the last one in the running.
   AGENT_CATALOG (one agent may serve several steps). Steps never change an
   agent: each gets its step's job in its inputs. If no installed agent fits
   a find or source step, leave its agent out and offer to build one; once
-  built, propose notebook-steps again with it. NOTEBOOK_FOCUS.steps shows
+  built, propose notebook-steps again with it. When a step is stuck because
+  its agent can't get part of what the step needs ("its agent can't find
+  founding years"), use the ladder in WHEN AN AGENT CAN'T DO PART OF THE
+  JOB: first an installed agent that does it (run it, or have the fixer
+  add a step to the step's agent that calls it), then a helper built
+  FOR_AGENT that agent, and only then an edit. NOTEBOOK_FOCUS.steps shows
   the steps it has and where each stands; to change them, propose the whole
   list again. When they want to stop a step that's stuck or running out of
   road ("stop", "skip it", "that's enough", "move on"), propose

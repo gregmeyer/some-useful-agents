@@ -347,6 +347,23 @@ too. See [ADR-0051](adr/0051-build-and-wire-on-one-card.md).
 
 ![An example build-and-wire card: a new helper, example-founding-year, and the step in example-peer-research that calls it](images/agent-build-and-wire.png)
 
+### How sua chooses: run, call, build a helper, then edit
+
+When an agent can't do part of its job (it never fetches some data, or a
+notebook step stalls on facts its agent can't find), sua works down this ladder
+and stops at the first rung that fits:
+
+1. **Run** an installed agent that already does the missing part. Nothing
+   changes.
+2. **Call it:** a fix that adds one step calling that installed agent (above).
+3. **Build a helper** when no installed agent does it, once sua has named the
+   closest ones and why they don't fit, then wire it in on one card (above).
+4. **Edit** prompts or steps only when the agent's own job is broken, not to
+   bolt a second job onto it.
+
+sua says in a sentence which rung it chose and why. An agent that other agents
+or notebooks use leans further toward calling and helpers.
+
 ### A fix from a notebook doesn't change a shared agent
 
 A fix sua proposes in a notebook's conversation can target an agent that other
