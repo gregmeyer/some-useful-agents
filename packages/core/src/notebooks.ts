@@ -169,8 +169,8 @@ export interface NotebookFacet { labels: Record<string, string>; at: string; fai
  * notebook can check without a model (stepProgress), and the agent that
  * works toward it; it's given the job in its inputs, never edited for it.
  */
-export type NotebookStepKind = 'find' | 'source' | 'check' | 'decide';
-export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['find', 'source', 'check', 'decide'];
+export type NotebookStepKind = 'find' | 'source' | 'check' | 'narrow' | 'decide';
+export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['find', 'source', 'check', 'narrow', 'decide'];
 /** todo → running → met (waits for Continue) → done; stuck when it ran out of tries short of its goal. */
 export type NotebookStepStatus = 'todo' | 'running' | 'met' | 'stuck' | 'done';
 export interface NotebookStep {
@@ -1207,6 +1207,27 @@ export class NotebookStore {
     return this.autoMeetCriteria(id).nb;
   }
 
+  /**
+   * Narrow the list: keep these options in the running and rule out the rest
+   * (why, or "Not kept at <step>"). The notebook stays open; the first open
+   * narrow step, if any, is done ("kept 6 of 21").
+   */
+  narrow(id: string, keep: readonly string[], why = '', by = 'you'): Notebook {
+    const nb = this.mustGet(id);
+    const active = this.entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut);
+    const kept = new Set(keep);
+    if (![...kept].some((k) => active.some((e) => e.id === k))) throw new Error('Pick at least one to keep.');
+    for (const k of kept) if (!active.some((e) => e.id === k)) throw new Error('One of those isn\'t in the running any more. Reload and pick again.');
+    const step = nb.steps?.find((s) => s.kind === 'narrow' && s.status !== 'done');
+    const reason = why.trim() || `Not kept at "${step?.title ?? 'Narrow'}"`;
+    const out = active.filter((e) => !kept.has(e.id));
+    for (const e of out) this.ruleOut(id, e.id, reason, by);
+    const note = `kept ${String(kept.size)} of ${String(active.length)}`;
+    this.addEntry(id, { kind: 'decision', title: `Kept ${String(kept.size)}, ruled out ${String(out.length)}`, body: `${step ? `${step.title}: ` : ''}${note}.${why.trim() ? ` ${why.trim()}` : ''}`.slice(0, 2000), by });
+    if (step) this.updateStep(id, step.id, { status: 'done', note });
+    return this.autoMeetCriteria(id).nb;
+  }
+
   setStatus(id: string, status: NotebookStatus): Notebook {
     this.mustGet(id);
     this.db.prepare('UPDATE notebooks SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
@@ -1842,7 +1863,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     out.push({
       id, title, kind, status, tries,
       ...(typeof x.agentId === 'string' && ID_RE.test(x.agentId) ? { agentId: x.agentId } : {}),
-      ...((kind === 'find' || kind === 'decide') && target !== undefined ? { target } : {}),
+      ...((kind === 'find' || kind === 'narrow' || kind === 'decide') && target !== undefined ? { target } : {}),
       ...(facts.length ? { facts } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
@@ -1898,6 +1919,11 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     // No checks yet: nothing is checked (the step waits for some).
     return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: nb.checks.length ? want - missing.length : 0, want, missing };
   }
+  if (step.kind === 'narrow') {
+    // Yours: done when you keep some. Before then, how many are in the running against how many to keep.
+    const want = step.target ?? options.length;
+    return { met: step.status === 'done', have: step.status === 'done' ? options.length : 0, want: step.status === 'done' ? options.length : want, missing: [] };
+  }
   const want = step.target ?? Math.min(options.length, 5);
   const chosen = options.filter((o) => o.chosen).length;
   return { met: step.status === 'done', have: chosen || (step.status === 'done' ? want : 0), want, missing: [] };
@@ -1917,14 +1943,16 @@ function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'c
  * Whether one option got through a step: found (it's here), its facts
  * sourced, every check ticked, or picked in the decision.
  */
-export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen'>, step: Pick<NotebookStep, 'kind' | 'facts'>): boolean {
+export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut'>, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
   if (step.kind === 'find') return true;
+  // Kept when you narrowed (a narrow step not done yet has kept nothing).
+  if (step.kind === 'narrow') return step.status === 'done' && !o.ruledOut;
   if (step.kind === 'source') return stepFacts(nb, step).length > 0 && missingFacts(nb, o, step).length === 0;
   if (step.kind === 'check') return nb.checks.length > 0 && checksLeft(nb, o).length === 0;
   return !!o.chosen;
 }
 
-const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { find: 'Found', source: 'Facts sourced', check: 'Checked', decide: 'Chosen' };
+const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { find: 'Found', source: 'Facts sourced', check: 'Checked', narrow: 'Kept', decide: 'Chosen' };
 
 /** The funnel's stage names for a notebook's steps: "Found", "Checked"…; a kind used twice goes by its steps' titles. */
 export function stepFunnelLabels(steps: readonly Pick<NotebookStep, 'kind' | 'title'>[]): string[] {

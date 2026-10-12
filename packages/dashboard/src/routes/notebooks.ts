@@ -474,6 +474,21 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
   }
 });
 
+/** Narrow: keep the picked options in the running, rule out the rest; the notebook stays open. */
+notebooksRouter.post('/notebooks/:id/narrow', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const raw: unknown = req.body?.chosen;
+    const keep = [...new Set((Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean))];
+    const before = store(req).entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut).length;
+    const nb = store(req).narrow(id, keep, str(req.body?.decision), 'you');
+    const next = nb.steps?.find((x) => x.status !== 'done');
+    res.redirect(303, back(id, `Kept ${String(keep.length)}, ruled out ${String(before - keep.length)}.${next ? ` Next: ${next.title}.` : ''}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
 notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const status = str(req.body?.status);
