@@ -60,6 +60,15 @@ export const NOTEBOOK_PAGE_JS = `
       var form = e.target.closest && e.target.closest('[data-nb-decide]');
       if (form && e.target.name === 'chosen') decideSync(form);
     });
+    // Tick sua's picks: exactly the ones sua recommended (the rest unticked).
+    document.addEventListener('click', function (e) {
+      var sua = e.target.closest && e.target.closest('[data-nb-decide-sua]');
+      if (!sua) return;
+      var form = sua.closest('[data-nb-decide]');
+      var boxes = form.querySelectorAll('input[name="chosen"]');
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = boxes[i].hasAttribute('data-sua-pick');
+      decideSync(form);
+    });
     document.addEventListener('click', function (e) {
       var top = e.target.closest && e.target.closest('[data-nb-decide-top]');
       if (!top) return;

@@ -873,6 +873,29 @@ describe('the funnel on the page and in the conversation', () => {
     expect(again.text).toMatch(/type="radio" name="chosen" value="[^"]+" checked>/); // the earlier pick, ready to keep
   });
 
+  it("sua's picks: marked from its notebook-add, replaced by the next ones, ticked from Decide…", async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setFields(nb.id, [{ key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    for (const [t, fit] of [['Pigment', 90], ['Vena', 80], ['Planful', 70], ['Board', 60]] as const) store.upsertOption(nb.id, { title: t, by: 'agent:x', data: { fit } });
+    store.ruleOut(nb.id, store.findOption(nb.id, 'Board')!.id, 'too big');
+    const first = applyNotebookAdd(store, nb.id, parseNotebookAdd(JSON.stringify({ picks: ['Pigment', 'Vena', 'Board', 'Nope'] })).add!, 'sua');
+    expect(first.added).toEqual(['couldn\'t find an option matching "Nope"', "sua's picks: Pigment, Vena"]); // Board is ruled out
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain("Tick sua's picks (2)");
+    expect(page).toMatch(/name="chosen" value="[^"]+" data-sua-pick>[\s\S]{0,400}?<span class="nb-decide__sua"[^>]*>sua<\/span> Pigment/);
+    // The next recommendation replaces the last.
+    applyNotebookAdd(store, nb.id, parseNotebookAdd(JSON.stringify({ picks: ['Planful'] })).add!, 'sua');
+    expect(store.entries(nb.id).filter((e) => e.suggestedAt).map((e) => e.title)).toEqual(['Planful']);
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain("Tick sua's picks (1)");
+    expect(parseNotebookAdd(JSON.stringify({ picks: [] })).error).toBe('Nothing to add.');
+  });
+
   it('sua rules out, moves, brings back and ticks criteria by name, and says what it couldn\'t find', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

@@ -37,6 +37,8 @@ export interface NotebookAdd {
   reinstate: string[];
   /** Options that aren't available any more (sold, filled, taken down). */
   gone: string[];
+  /** sua's picks for the decision (replacing its earlier ones), so Decide… can tick them. */
+  picks?: string[];
   /** Done-when criteria now met, by their text (or part of it). */
   met: string[];
   /** Corrections to an option's facts, on their word: {option, data: {price: 136.64}}. */
@@ -76,12 +78,13 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     reinstate: strList(o.reinstate, 20),
     met: strList((o as { met?: unknown }).met, 10),
     gone: strList((o as { gone?: unknown }).gone, 20),
+    ...(strList((o as { picks?: unknown }).picks, 30).length ? { picks: strList((o as { picks?: unknown }).picks, 30) } : {}),
     update: (Array.isArray((o as { update?: unknown }).update) ? (o as { update: unknown[] }).update.slice(0, 20) : [])
       .map((x) => x as { option?: unknown; data?: unknown })
       .filter((x) => typeof x.option === 'string' && x.option.trim() && x.data && typeof x.data === 'object' && !Array.isArray(x.data) && Object.keys(x.data).length)
       .map((x) => ({ option: String(x.option).trim(), data: x.data as Record<string, unknown> })),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length && !add.picks?.length) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -147,6 +150,12 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     if (!o) continue;
     store.reinstate(nb.id, o.id);
     added.push(`brought back: ${o.title}`);
+  }
+  // sua's picks: after rulings, so a pick it just brought back counts.
+  if (add.picks?.length) {
+    const found = add.picks.map((ref) => ({ ref, o: option(ref) }));
+    const marked = store.suggestPicks(nb.id, found.flatMap((f) => (f.o ? [f.o.id] : [])));
+    if (marked.length) added.push(`sua's picks: ${marked.map((e) => e.title).join(', ')}`);
   }
   // Corrections change the option's own facts (and its card, page and chart), not a note beside it.
   for (const u of add.update) {

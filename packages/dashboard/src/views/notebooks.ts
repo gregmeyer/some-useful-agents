@@ -136,19 +136,21 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
   // A picture column when any option has one (the kept copy; never the seller's address).
   const thumbs = candidates.some((o) => o.image);
   const count = target ? `0 of ${String(target)} ${word}` : `0 ${word}`;
+  // sua's latest picks (from your conversation): marked, and ticked with one button.
+  const suggested = candidates.filter((o) => o.suggested).length;
   return html`<form method="POST" action="/notebooks/${id}/${narrow ? 'narrow' : 'decide'}" class="nb-decide__form" data-nb-decide data-nb-mode="${mode}" data-total="${String(candidates.length)}"${target ? html` data-target="${String(target)}"` : html``}>
     <div class="nb-decide__head">
       <h2 class="nb-act__title">${step?.title ?? (narrow ? 'Keep the ones that stay' : 'Pick what you chose')}</h2>
       <span class="nb-decide__count" data-nb-decide-count aria-live="polite">${count}</span>
     </div>
-    <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${narrow ? ' The ones you don\'t keep are ruled out (bring any back later); the notebook stays open.' : ''}${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>${narrow ? 'Keep' : 'Pick'} the top ${String(target)}</button>` : html``}</p>
+    <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${suggested ? html` <button type="button" class="nb-decide__top" data-nb-decide-sua title="Tick the ones sua recommended in your conversation">Tick sua's picks (${String(suggested)})</button>` : html``}${narrow ? ' The ones you don\'t keep are ruled out (bring any back later); the notebook stays open.' : ''}${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>${narrow ? 'Keep' : 'Pick'} the top ${String(target)}</button>` : html``}</p>
     <fieldset class="nb-decide__list${thumbs ? ' nb-decide__list--thumbs' : ''}">
       <legend class="sr-only">${narrow ? 'Keep' : one ? 'Pick one' : `Pick ${want || 'any'}`}</legend>
       ${candidates.map((o) => html`<div class="nb-decide__row">
         <label class="nb-decide__pick">
-          <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen && !narrow ? html` checked` : html``}>
+          <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen && !narrow ? html` checked` : html``}${o.suggested ? html` data-sua-pick` : html``}>
           ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
-          <span class="nb-decide__name">${o.title}</span>
+          <span class="nb-decide__name">${o.suggested ? html`<span class="nb-decide__sua" title="sua recommended this one">sua</span> ` : html``}${o.title}</span>
           ${decideFacts(nb, o)}
         </label>
         <a class="nb-decide__open" href="/notebooks/${id}/entries/${encodeURIComponent(o.id)}" title="Open ${o.name}" aria-label="Open ${o.name}">↗</a>
