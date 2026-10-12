@@ -620,6 +620,38 @@ describe('notebook pipeline (G2–G3)', () => {
     checkerReply = undefined;
   });
 
+  it('Check the top N: a check step you moved on from works again on just the best options', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setFields(nb.id, [{ key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    store.setChecks(nb.id, ['Sells software']);
+    const ids = [90, 80, 70, 60, 50].map((fit) => store.upsertOption(nb.id, { title: `Co ${String(fit)}`, by: 'you', data: { fit } }).entry.id);
+    store.setSteps(nb.id, [{ title: 'Check them', kind: 'check' }, { title: 'Pick 2', kind: 'decide', target: 2 }]);
+    store.updateStep(nb.id, 's1', { status: 'done', movedOn: true, note: '0 of 5 checked, moved on' });
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const page = (await get(`/notebooks/${nb.id}`)).text;
+    // The decide step's target says how many.
+    expect(page).toContain(`action="/notebooks/${nb.id}/steps/s1/top"`);
+    expect(page).toContain('Check the top 2 →');
+    const asked: Array<Record<string, string>> = [];
+    checkerReply = (inputs) => { asked.push(inputs); return `<notebook>${JSON.stringify({ facts: [{ id: ids[0], checked: ['Sells software'] }, { id: ids[1], checked: ['Sells software'] }] })}</notebook>`; };
+    const out = await post(`/notebooks/${nb.id}/steps/s1/top`, { top: '2' });
+    expect(decodeURIComponent(out.headers.location)).toContain('Working on Check them, for the top 2.');
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    // Only the top two were asked about, and the step's goal was those two.
+    expect((JSON.parse(asked[0].OPTIONS) as Array<{ id: string }>).map((o) => o.id)).toEqual([ids[0], ids[1]]);
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'met', top: 2, note: '2 of 2 checked' });
+    const after = (await get(`/notebooks/${nb.id}`)).text;
+    expect(after).toContain('2 of 2 checked · top 2');
+    expect(after).not.toContain('Check the top');
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/steps/s2/top`, { top: '2' })).headers.location)).toContain('Only a source or check step');
+    checkerReply = undefined;
+  });
+
   it('only an agent\'s own block ticks checks; the keeper (a model) cannot', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

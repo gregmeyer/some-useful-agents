@@ -20,7 +20,7 @@ import {
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { confirmDoneStepsAndSay, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
@@ -539,6 +539,14 @@ notebooksRouter.post('/notebooks/:id/steps/move-on', (req: Request, res: Respons
   const m = moveOnFromStep(getContext(req.app.locals), id, { stepId: str(req.body?.step) || undefined });
   const then = m.next?.started ? ` Working on ${m.next.step!.title}.` : m.next?.reason ? ` ${m.next.reason}` : '';
   res.redirect(303, back(id, m.moved ? `Moved on from ${m.step!.title}, keeping what it found.${then}` : m.reason ?? 'It could not move on.'));
+});
+
+/** Check (or source) the top N: a step you moved on from short works again on just the best options. */
+notebooksRouter.post('/notebooks/:id/steps/:step/top', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const top = Number(req.body?.top);
+  const out = focusStepOnTop(getContext(req.app.locals), id, String(req.params.step), top);
+  res.redirect(303, back(id, out.started ? `Working on ${out.step!.title}, for the top ${String(Math.round(top))}.` : out.reason ?? 'It could not start.'));
 });
 
 /**

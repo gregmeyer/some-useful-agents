@@ -328,3 +328,27 @@ export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: st
   if (!next || isYourStep(next)) return { moved: true, step };
   return { moved: true, step, next: startNotebookStep(ctx, nb.id) };
 }
+
+/** How many to focus on: the next pick or keep step's target, else 5 (never more than are in the running). */
+export function topFor(nb: Notebook, running: number): number {
+  const yours = nb.steps?.find((x) => isYourStep(x) && x.target);
+  return Math.max(1, Math.min(running, yours?.target ?? 5));
+}
+
+/**
+ * Work a source or check step again on just the best `top` options: its
+ * goal becomes those, and its agent (or sua's checker) gets only them. For a
+ * step you moved on from short, or one that got stuck. Starts it now.
+ */
+export function focusStepOnTop(ctx: Ctx, notebookId: string, stepId: string, top: number): { started: boolean; reason?: string; step?: NotebookStep } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s still running. Stop its run first.' };
+  const step = nb.steps?.find((x) => x.id === stepId);
+  if (!step || (step.kind !== 'source' && step.kind !== 'check')) return { started: false, reason: 'Only a source or check step can focus on the top options.' };
+  if (!Number.isFinite(top) || top < 1) return { started: false, reason: 'How many?' };
+  store.updateStep(nb.id, step.id, { top: Math.min(50, Math.round(top)), status: 'todo', tries: 0 });
+  return startNotebookStep(ctx, nb.id, { stepId: step.id });
+}
+

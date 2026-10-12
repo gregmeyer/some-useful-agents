@@ -11,7 +11,7 @@ import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
-import { isYourStep, yourStepButton } from '../lib/notebook-steps.js';
+import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
 import { notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 
@@ -168,8 +168,10 @@ const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', run
  * its goal ("8 of 10 found") and where it stands. The step being worked on
  * (the first not done) is marked; what it still needs is its tooltip.
  */
-export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[]): SafeHtml {
+export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], running = false): SafeHtml {
   const current = steps.find((x) => x.status !== 'done');
+  const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
+  const focus = topFor(nb, inRunning);
   return html`<ol class="nb-steps" aria-label="Steps">
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
@@ -189,7 +191,10 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
           ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
-          <span class="nb-step__meta">${progress} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          <span class="nb-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
+            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
+            : html``}
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
@@ -255,7 +260,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
         </div>
-        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries) : pipelineDiagram(stages)}
+        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
         ${nb.pipeline.length || nb.steps?.length ? html`
           <div class="nb-run">
             ${running
