@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
-import { NotebookStore, cleanSteps, stepProgress } from './notebooks.js';
+import { NotebookStore, cleanSteps, stepProgress, notebookViewData, stepFunnelLabels } from './notebooks.js';
 
 let dir: string;
 let runs: RunStore;
@@ -113,5 +113,56 @@ describe('notebook steps', () => {
     // A check step on a notebook with no checks has checked nothing yet.
     s.setChecks(id, []);
     expect(stepProgress(nb(), all(), { kind: 'check', status: 'todo' })).toMatchObject({ met: false, have: 0, want: 2 });
+  });
+
+  it('with steps, the funnel is how far each option got through them: found, facts sourced, checked, chosen', () => {
+    const { s, id } = setup();
+    s.setSteps(id, [
+      { title: 'Find 4 companies', kind: 'find', target: 4 },
+      { title: 'Source size', kind: 'source', facts: ['employees', 'founded'] },
+      { title: 'Check value', kind: 'check' },
+      { title: 'Pick the final 2', kind: 'decide', target: 2 },
+    ]);
+    const add = (title: string, data: Record<string, number | string>) => s.upsertOption(id, { title, by: 'agent:research', data: { site: `https://${title.toLowerCase()}.example`, ...data } }).entry;
+    const initech = add('Initech', {});
+    const globex = add('Globex', { employees: 1200 });
+    const hooli = add('Hooli', { employees: 1500, founded: 2017 });
+    const acme = add('Acme', { employees: 3000, founded: 2016 });
+    const umbrella = add('Umbrella', { employees: 2000, founded: 2018 });
+    s.checkOption(id, acme.id, 'Value to customers', true);
+    s.checkOption(id, umbrella.id, 'Value to customers', true);
+    s.ruleOut(id, globex.id, 'too small');
+    s.ruleOut(id, umbrella.id, 'not a peer');
+    // Moved by hand to a stage: with steps, that's not what the funnel counts.
+    s.setStages(id, ['Found', 'Shortlist']);
+    s.moveOption(id, initech.id, 'Shortlist');
+    const v = notebookViewData(s.get(id)!, s.entries(id)).notebook;
+    expect(v.funnel.map((f) => `${f.stage}:${f.reached}/${f.here}/${f.ruledOut}`)).toEqual(['Found:5/1/1', 'Facts sourced:3/1/0', 'Checked:2/1/1', 'Chosen:0/0/0']);
+    expect(v.funnel[2].reasons).toEqual([{ reason: 'not a peer', count: 1 }]);
+
+    const decided = s.decide(id, '', 'you', [acme.id, hooli.id]);
+    expect(decided.decision).toBe('Chose Acme and Hooli.');
+    expect(decided.steps!.find((x) => x.kind === 'decide')).toMatchObject({ status: 'done', note: '2 chosen' });
+    const after = notebookViewData(s.get(id)!, s.entries(id)).notebook;
+    // Hooli was chosen without being checked: it's counted where it got to.
+    expect(after.funnel.map((f) => `${f.stage}:${f.reached}`)).toEqual(['Found:5', 'Facts sourced:3', 'Checked:2', 'Chosen:1']);
+    expect(after.options.filter((o) => o.chosen).map((o) => o.title).sort()).toEqual(['Acme', 'Hooli']);
+    expect(stepProgress(s.get(id)!, s.entries(id), decided.steps![3])).toMatchObject({ met: true, have: 2, want: 2 });
+    expect(stepFunnelLabels([{ kind: 'find', title: 'Find' }, { kind: 'check', title: 'Check price' }, { kind: 'check', title: 'Check reviews' }])).toEqual(['Found', 'Check price', 'Check reviews']);
+  });
+
+  it('a decision needs a pick or a reason; picks must be options still in the running', () => {
+    const { s, id } = setup();
+    const a = s.upsertOption(id, { title: 'Initech', by: 'you', data: { site: 'https://initech.example' } }).entry;
+    const b = s.upsertOption(id, { title: 'Globex', by: 'you', data: { site: 'https://globex.example' } }).entry;
+    s.ruleOut(id, b.id, 'too small');
+    expect(() => s.decide(id, '  ', 'you', [])).toThrow('Pick what you chose');
+    expect(() => s.decide(id, '', 'you', [b.id])).toThrow('was ruled out');
+    expect(() => s.decide(id, '', 'you', ['nope'])).toThrow("isn't in this notebook");
+    expect(s.get(id)!.status).toBe('active');
+    expect(s.decide(id, 'Best fit by far.', 'you', [a.id, a.id]).decision).toBe('Chose Initech. Best fit by far.');
+    expect(s.decide(id, 'Stopped looking.').decision).toBe('Stopped looking.');
+    // A decision with no picks leaves the earlier picks alone.
+    expect(s.entries(id).find((e) => e.id === a.id)?.chosenAt).toBeTruthy();
   });
 });

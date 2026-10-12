@@ -723,6 +723,49 @@ describe('the funnel on the page and in the conversation', () => {
     expect(store.findOption('car', 'XT')?.ruledOut).toBeUndefined();
   });
 
+  it('Decide… lists the options still in to pick from, and records the picks', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await post('/notebooks', { title: 'Peers' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    store.setFields('peers', [{ key: 'site', label: 'Website', type: 'url', role: 'link' }, { key: 'employees', label: 'Employees', type: 'number', role: 'measure', unit: 'employees' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    store.setChecks('peers', ['Sells software']);
+    store.setSteps('peers', [{ title: 'Find 3', kind: 'find', target: 3 }, { title: 'Check them', kind: 'check' }, { title: 'Pick the final 2', kind: 'decide', target: 2 }]);
+    const add = (title: string, fit: number) => store.upsertOption('peers', { title, by: 'you', data: { site: `https://${title.toLowerCase()}.example`, employees: 1200, fit } }).entry;
+    const acme = add('Acme', 90);
+    const hooli = add('Hooli', 70);
+    const globex = add('Globex', 80);
+    store.checkOption('peers', acme.id, 'Sells software', true);
+    store.ruleOut('peers', globex.id, 'not a peer');
+
+    const page = await get('/notebooks/peers');
+    expect(page.text).toContain('<h2 class="nb-act__title">Pick the final 2</h2>');
+    expect(page.text).toContain('0 of 2 picked');
+    expect(page.text).toContain('2 still in, best first.');
+    expect(page.text).toMatch(/type="checkbox" name="chosen" value="[^"]+">\s*<span class="nb-decide__name">Acme<\/span>/);
+    expect(page.text).toContain('Fit 90');
+    expect(page.text).toContain('1,200 employees');
+    expect(page.text).toContain('nb-decide__checks is-all');
+    expect(page.text.indexOf('nb-decide__name">Acme')).toBeLessThan(page.text.indexOf('nb-decide__name">Hooli'));
+    expect(page.text).not.toContain('nb-decide__name">Globex'); // ruled out
+
+    const out = await post('/notebooks/peers/decide', `chosen=${acme.id}&chosen=${hooli.id}&decision=Closest+in+size`);
+    expect(decodeURIComponent(out.headers.location)).toContain('Decided.');
+    const nb = store.get('peers')!;
+    expect(nb.decision).toBe('Chose Acme and Hooli. Closest in size');
+    expect(nb.steps!.find((x) => x.kind === 'decide')).toMatchObject({ status: 'done', note: '2 chosen' });
+    expect(store.entries('peers').filter((e) => e.chosenAt).map((e) => e.title).sort()).toEqual(['Acme', 'Hooli']);
+
+    // One pick wanted: a radio, not a checkbox.
+    await post('/notebooks/peers/status', { status: 'active' });
+    store.setSteps('peers', [{ title: 'Find 3', kind: 'find', target: 3 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const again = await get('/notebooks/peers');
+    expect(again.text).toMatch(/type="radio" name="chosen" value="[^"]+" checked>/); // the earlier pick, ready to keep
+  });
+
   it('sua rules out, moves, brings back and ticks criteria by name, and says what it couldn\'t find', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

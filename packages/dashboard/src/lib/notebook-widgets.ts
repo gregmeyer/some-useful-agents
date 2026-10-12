@@ -318,12 +318,13 @@ export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'>): string[
 }
 
 /** The default layout (see the module comment). */
-export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>): ViewComponent[] {
+export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' | 'steps'>): ViewComponent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
   const scoreF = nb.fields.find((f) => f.role === 'score');
   const hasMap = !!(priceF && measureF);
-  const hasFunnel = nb.stages.length > 1;
+  // With steps the funnel is the steps (notebookViewData); else the stages.
+  const hasFunnel = (nb.steps?.length ?? 0) > 1 || nb.stages.length > 1;
   const panel = (id: string, title: string, child: string, note?: Record<string, unknown> | string): ViewComponent =>
     ({ id, component: 'Panel', title, child, ...(note ? { note } : {}) });
   const c: ViewComponent[] = [

@@ -462,7 +462,10 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
 notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
-    store(req).decide(id, str(req.body?.decision));
+    // The picks: one or several `chosen` option ids (none: the text says it).
+    const raw: unknown = req.body?.chosen;
+    const chosen = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean);
+    store(req).decide(id, str(req.body?.decision), 'you', chosen);
     res.redirect(303, back(id, 'Decided. The notebook is closed; reopen it any time.'));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
