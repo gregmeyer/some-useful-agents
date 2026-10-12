@@ -59,9 +59,11 @@ export const CHECK_BATCH = 8;
  * on them: id, name, facts by label, sources and its own notes, and (for a
  * check step) the checks it still needs, only those options, a few at a time.
  */
-export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], forChecks = false): string {
+export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], forChecks = false, top?: number): string {
   const byId = new Map(entries.map((e) => [e.id, e]));
-  let options = rankOptions(nb, notebookViewData(nb, entries).notebook.options).map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }));
+  const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
+  // A check step on the top N checks only those.
+  let options = (top ? ranked.slice(0, top) : ranked).map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }));
   if (forChecks) options = options.filter((x) => x.left.length).slice(0, CHECK_BATCH);
   else options = options.slice(0, BRIEF_OPTIONS);
   return JSON.stringify(options.map(({ o, left }) => {
@@ -73,7 +75,7 @@ export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], fo
 }
 
 /** A step being worked on, and what it still needs (stepProgress's `missing`). */
-export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind' | 'facts'>; want: number; have: number; missing: readonly string[] }
+export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind' | 'facts' | 'top'>; want: number; have: number; missing: readonly string[] }
 
 /**
  * The job a step gives its agent, in a line or a short list: what this run
@@ -113,7 +115,7 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entri
     else if (n === 'TOPIC' || n === 'QUERY' || n === 'QUESTION' || n === 'SEARCH') out[name] = job ? `${stepLine(nb, job)}\n\n${nb.statement || nb.title}` : nb.statement || nb.title;
     else if (n === 'STEP' && job) out[name] = stepLine(nb, job);
     else if (n === 'CHECKS') out[name] = JSON.stringify(nb.checks);
-    else if (n === 'OPTIONS' && entries) out[name] = optionsInput(nb, entries, job?.step.kind === 'check');
+    else if (n === 'OPTIONS' && entries) out[name] = optionsInput(nb, entries, job?.step.kind === 'check', job?.step.top);
     // An agent that files directly needs the notebook's field keys and roles.
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
   }
@@ -452,7 +454,8 @@ export function addRunToNotebook(ctx: Ctx, notebookId: string, runId: string): {
   const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = s.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'This notebook is closed. Reopen it under Edit to add to it.' };
+  // Decided or stopped still takes what you add (anything learned since is worth keeping); archived doesn't.
+  if (nb.archivedAt) return { started: false, reason: 'This notebook is archived. Bring it back to add to it.' };
   const run = unfiledRuns(ctx, nb, 50).find((r) => r.id === runId);
   if (!run) return { started: false, reason: 'That run is already in the notebook, or it isn\'t one of its agents\' finished runs.' };
   if (addingRun(ctx, runId)) return { started: false, reason: 'That run is being added already.' };

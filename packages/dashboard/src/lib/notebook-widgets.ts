@@ -324,9 +324,14 @@ function clip(text: string, n: number): string {
  * the notebook's text facts (a seller, a body style). The grid shows a filter
  * only when options differ on it, so listing every candidate is safe.
  */
-export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'>): string[] {
+export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'> & { steps?: Notebook['steps'] }): string[] {
   const text = nb.fields.filter((f) => f.type === 'text' && f.role !== 'link' && f.role !== 'image').map((f) => f.key);
-  return ['seen', ...(nb.stages.length ? ['stage'] : []), ...text].slice(0, 8);
+  return ['seen', ...(nb.stages.length && !handStagesHidden(nb) ? ['stage'] : []), ...text].slice(0, 8);
+}
+
+/** A notebook with steps: they say how far each option got, so stages moved by hand aren't shown. */
+export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
+  return (nb.steps?.length ?? 0) > 1;
 }
 
 /** The default layout (see the module comment). */
@@ -368,7 +373,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' 
   }
   c.push(
     panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb), ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}) },
+    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb), ...(handStagesHidden(nb) ? { stageChips: false } : {}), ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}) },
     // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
     { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
