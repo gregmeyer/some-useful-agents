@@ -940,6 +940,25 @@ export class NotebookStore {
     return hits.length === 1 ? hits[0] : live.length === 1 ? live[0] : undefined;
   }
 
+  /**
+   * An option at the same address in the notebook's link field (sameAddress)
+   * that is the same thing: a search-results page several listings point at
+   * isn't one, so the year in the title, the main measure (within 5%) and
+   * the organization must agree. Exactly one such, else none.
+   */
+  findByLink(notebookId: string, nb: Pick<Notebook, 'fields'>, data: Record<string, NotebookFieldValue>, title = ''): NotebookEntry | undefined {
+    const linkF = nb.fields.find((f) => f.role === 'link');
+    const v = linkF ? data[linkF.key] : undefined;
+    const want = typeof v === 'string' ? sameAddress(v) : undefined;
+    if (!linkF || !want) return undefined;
+    const all = this.entries(notebookId, 1000).filter((e) => {
+      const u = e.kind === 'option' ? e.data?.[linkF.key] : undefined;
+      return typeof u === 'string' && sameAddress(u) === want;
+    });
+    const hits = all.filter((e) => sameThing(nb, { title, data }, { title: e.title, data: e.data ?? {} }));
+    return hits.length === 1 ? hits[0] : hits.filter((e) => !e.ruledOut).length === 1 ? hits.find((e) => !e.ruledOut) : undefined;
+  }
+
   upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
     const nb = this.mustGet(notebookId);
     const facts = splitFacts(input.data, { trusted: input.trustedFacts });
@@ -977,6 +996,17 @@ export class NotebookStore {
         // Ruled out stays ruled out: a search finding it again only notes when it was seen.
         return { entry: { ...prev, data: merged, ...(mergedMeta ? { factMeta: mergedMeta } : {}), lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(prev.ruledOut ? { ruledOut: true } : {}) };
       }
+    }
+    // The same address (its listing, posting or website) is the same option,
+    // however an agent keyed it: CarGurus and an agent's VIN, say.
+    const byLink = this.findByLink(notebookId, nb, data, input.title);
+    if (byLink) {
+      const merged = { ...(byLink.data ?? {}), ...data };
+      const mergedMeta = mergeFactMeta(byLink.factMeta, data, meta);
+      this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, last_seen_at = ?, run_id = COALESCE(?, run_id) WHERE id = ?')
+        .run(JSON.stringify(merged), mergedMeta ? JSON.stringify(mergedMeta) : null, now, input.runId ?? null, byLink.id);
+      this.addSighting(byLink.id, notebookId, input.runId, now, data);
+      return { entry: { ...byLink, data: merged, ...(mergedMeta ? { factMeta: mergedMeta } : {}), lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(byLink.ruledOut ? { ruledOut: true } : {}) };
     }
     const entry = this.addEntry(notebookId, { kind: 'option', title: input.title, body: input.body, by: input.by, runId: input.runId });
     const stage = nb.stages[0];
@@ -1502,6 +1532,41 @@ export function cleanData(data: Record<string, unknown> | undefined, fields: rea
     if (v !== undefined) out[f.key] = v;
   }
   return out;
+}
+
+/**
+ * Whether two options at one address are the same thing, not two listings
+ * on one results page: the year in their titles, their main measure (miles,
+ * sq ft; within 5%) and their organization don't disagree. Price may (a
+ * relisted car drops its price).
+ */
+export function sameThing(nb: Pick<Notebook, 'fields'>, a: { title: string; data: Record<string, NotebookFieldValue> }, b: { title: string; data: Record<string, NotebookFieldValue> }): boolean {
+  const year = (t: string) => /\b(19|20)\d{2}\b/.exec(t)?.[0];
+  const ya = year(a.title); const yb = year(b.title);
+  if (ya && yb && ya !== yb) return false;
+  const m = nb.fields.find((f) => f.role === 'measure');
+  const ma = m ? fieldNumber(a.data[m.key]) : undefined; const mb = m ? fieldNumber(b.data[m.key]) : undefined;
+  if (ma !== undefined && mb !== undefined && Math.abs(ma - mb) > 0.05 * Math.max(Math.abs(ma), Math.abs(mb))) return false;
+  const o = nb.fields.find((f) => f.role === 'org');
+  const oa = o ? a.data[o.key] : undefined; const ob = o ? b.data[o.key] : undefined;
+  if (typeof oa === 'string' && typeof ob === 'string' && entryKey(oa) !== entryKey(ob)) return false;
+  return true;
+}
+
+/** Query parameters that only say where a click came from. */
+const TRACKING = /^(utm_\w+|ref|ref_src|referrer|source|gclid|fbclid|mc_cid|mc_eid|cmpid|campaign|trk|si)$/i;
+
+/**
+ * A web address as the thing it points at: no scheme, "www.", trailing
+ * slash, fragment or tracking parameters ("https://www.cars.com/vehicle/123/?utm_source=x"
+ * and "http://cars.com/vehicle/123" are the same). Undefined if it isn't one.
+ */
+export function sameAddress(url: string): string | undefined {
+  let u: URL;
+  try { u = new URL(url.trim()); } catch { return undefined; }
+  if (!/^https?:$/.test(u.protocol)) return undefined;
+  const q = [...u.searchParams].filter(([k]) => !TRACKING.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('&');
+  return `${u.hostname.replace(/^www\./, '').toLowerCase()}${u.pathname.replace(/\/+$/, '')}${q ? `?${q}` : ''}`;
 }
 
 /**

@@ -215,6 +215,10 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+### Merging duplicates
+
+When two options are the same one (a car listed twice, a company under two names), open either one's page and use **Merge with…**. Likely copies (the same address, the same name or company) are listed first with ★. The other one's facts fill in what this one is missing, its checks, picks and history come along, and it goes; this one keeps its own facts, stage, and whether it's ruled out. You can also tell sua ("those two RAV4s are the same car") and it merges them.
+
 ## Stages and ruling out: the funnel
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
@@ -300,7 +304,7 @@ Normally sua's keeper reads a run's output and decides what to file. An agent th
 
 ## Runs not in the notebook yet
 
-A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated (in a notebook of organizations, the same company by name, however each agent keys it: `pigment.com`, `pigment`, `lever:pigment`; a title that isn't the company itself, like a job there, stays its own option): figures a run gives for one the notebook has (a company's revenue, headcount, founding year) go onto that option's facts, with their source and estimate marks, rather than into evidence; the run's note says "8 updated". As with any run, a number that isn't in its output is left out. A run never rules out an option the notebook already has (that's yours to decide); a new one that breaks the limits is added as ruled out, with why. This works on a decided or stopped notebook too (anything learned after deciding is still worth keeping); only an archived notebook doesn't take new runs.
+A run's results go into the notebook by themselves when it was started from the notebook's conversation or its pipeline. A run of one of its agents started anywhere else (the agent's **Run** button, its schedule) isn't filed. The notebook page lists these under **Runs not in this notebook yet**: finished runs from the last two weeks, by agents that have filled this notebook. **Add to notebook** files one the same way: new options, evidence and notes, a search on the timeline, and pictures. Options already there are refreshed, not repeated (in a notebook of organizations, the same company by name, however each agent keys it: `pigment.com`, `pigment`, `lever:pigment`; a title that isn't the company itself, like a job there, stays its own option; and in any notebook, the same address in its link field, as long as the year in the title, the main measure (within 5%) and the company agree, since a search-results page several listings point at isn't one listing): figures a run gives for one the notebook has (a company's revenue, headcount, founding year) go onto that option's facts, with their source and estimate marks, rather than into evidence; the run's note says "8 updated". As with any run, a number that isn't in its output is left out. A run never rules out an option the notebook already has (that's yours to decide); a new one that breaks the limits is added as ruled out, with why. This works on a decided or stopped notebook too (anything learned after deciding is still worth keeping); only an archived notebook doesn't take new runs.
 
 ## The pipeline
 

@@ -39,6 +39,8 @@ export interface NotebookAdd {
   gone: string[];
   /** sua's picks for the decision (replacing its earlier ones), so Decide… can tick them. */
   picks?: string[];
+  /** Options that are the same one: each copy is merged into `option` (on their word, or the same listing). */
+  merge?: Array<{ option: string; copies: string[] }>;
   /** Done-when criteria now met, by their text (or part of it). */
   met: string[];
   /** Corrections to an option's facts, on their word: {option, data: {price: 136.64}}. */
@@ -79,12 +81,19 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     met: strList((o as { met?: unknown }).met, 10),
     gone: strList((o as { gone?: unknown }).gone, 20),
     ...(strList((o as { picks?: unknown }).picks, 30).length ? { picks: strList((o as { picks?: unknown }).picks, 30) } : {}),
+    ...((): { merge?: NotebookAdd['merge'] } => {
+      const m = (Array.isArray((o as { merge?: unknown }).merge) ? (o as { merge: unknown[] }).merge.slice(0, 10) : [])
+        .map((x) => x as { option?: unknown; copies?: unknown })
+        .filter((x) => typeof x.option === 'string' && x.option.trim() && strList(x.copies, 10).length)
+        .map((x) => ({ option: String(x.option).trim(), copies: strList(x.copies, 10) }));
+      return m.length ? { merge: m } : {};
+    })(),
     update: (Array.isArray((o as { update?: unknown }).update) ? (o as { update: unknown[] }).update.slice(0, 20) : [])
       .map((x) => x as { option?: unknown; data?: unknown })
       .filter((x) => typeof x.option === 'string' && x.option.trim() && x.data && typeof x.data === 'object' && !Array.isArray(x.data) && Object.keys(x.data).length)
       .map((x) => ({ option: String(x.option).trim(), data: x.data as Record<string, unknown> })),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length && !add.picks?.length) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length && !add.picks?.length && !add.merge?.length) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -150,6 +159,15 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
     if (!o) continue;
     store.reinstate(nb.id, o.id);
     added.push(`brought back: ${o.title}`);
+  }
+  // Copies merged before picks, so a pick lands on the one that stays.
+  for (const m of add.merge ?? []) {
+    const keep = option(m.option);
+    if (!keep) continue;
+    const copies = m.copies.map((ref) => option(ref)).filter((o): o is NonNullable<typeof o> => !!o && o.id !== keep.id);
+    if (!copies.length) continue;
+    store.mergeOptions(nb.id, keep.id, copies.map((o) => o.id));
+    added.push(`merged into ${keep.title}: ${copies.map((o) => o.title).join(', ')}`);
   }
   // sua's picks: after rulings, so a pick it just brought back counts.
   if (add.picks?.length) {
