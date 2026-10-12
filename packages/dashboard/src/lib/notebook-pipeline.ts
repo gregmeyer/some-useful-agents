@@ -175,7 +175,8 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     return g.data;
   };
   const byId = new Map(store.entries(nb.id, 1000).map((e) => [e.id, e]));
-  // Setup: facts for options the notebook already has, by id.
+  // Facts for options the notebook already has, by id: setup's, and a run's
+  // figures for an option it already has (a company's revenue and headcount).
   let factsSet = 0;
   let checksMet = 0;
   let checksFailed = 0;
@@ -195,6 +196,8 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     if (!x.data || typeof x.data !== 'object') continue;
     const own = byId.get(x.id);
     const data = grounded(x.data as Record<string, unknown>, `${own ? `${own.title}\n${own.body}\n` : ''}${opts.source ?? ''}`) ?? {};
+    // Nothing left after grounding (every number was missing from the output): nothing to set.
+    if (!Object.keys(data).length && typeof x.fingerprint !== 'string') continue;
     if (store.setOptionFacts(nb.id, x.id, data, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
   }
   const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
@@ -265,7 +268,7 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
 export function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
 /**
@@ -295,7 +298,8 @@ export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId
   }
   const setup = agentId === NOTEBOOK_SETUP;
   // Setup needs each option's id and text, to give it its facts.
-  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${setup && e.kind === 'option' ? ` [id: ${e.id}]${e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
+  // Each option with its id, so facts this run gives about one it already has go onto it ("facts"); setup also gets its text.
+  const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.kind === 'option' ? ` [id: ${e.id}]${setup && e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
   const inputs = {
     NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })), fields: nb.fields }),
     SOURCE_AGENT: agentId,
