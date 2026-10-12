@@ -15,6 +15,7 @@ export * from './usage.js';
 export * from './spend-limits.js';
 export * from './human-questions.js';
 export * from './notebooks.js';
+export * from './notebook-lineage.js';
 export * from './webhooks.js';
 export * from './run-orphan-reaper.js';
 export * from './agent-executor.js';
@@ -600,6 +601,17 @@ export {
   saveBrandTheme,
   restoreBrandThemeBackup,
   BrandThemeError,
+  listSavedBrands,
+  saveBrandAs,
+  applySavedBrand,
+  deleteSavedBrand,
+  isActiveBrand,
+  brandId,
+  type SavedBrand,
+  brandContrastIssues,
+  FONT_STACK_RE,
+  contrastRatio,
+  parseColor,
   type BrandTheme,
   type BrandPreset,
   type BrandColorToken,
@@ -620,3 +632,4 @@ export * from './items/index.js';
 
 // Surfaces: what a surface emphasizes (ADR-0049, S2).
 export * from './surfaces/index.js';
+export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';

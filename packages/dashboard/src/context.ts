@@ -247,7 +247,38 @@ export interface DashboardContext {
    * Notebook pipelines running now (goal surfaces G2), by notebook id: which
    * agent is on, step N of M. One run per notebook at a time.
    */
-  notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number }>;
+  notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; stopped?: boolean }>;
+  /** Notebooks being set up (fields, stages) right now. */
+  notebookSetups?: Set<string>;
+  /** Runs being added to a notebook from its page (Add to notebook) right now. */
+  notebookAddingRuns?: Set<string>;
+  /** Tests only: answer for the notebook drafter instead of running it. */
+  notebookDrafterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** New notebook's suggestion pills are being refreshed right now. */
+  notebookSuggesting?: boolean;
+  /** Tests only: answer for the notebook suggester instead of running it. */
+  notebookSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /**
+   * Tests only: answer for the notebook keeper instead of running it (returns
+   * the keeper's output text). Production leaves it unset.
+   */
+  notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the picture agent instead of running it. */
+  notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
+  notebookFacets?: Set<string>;
+  /** Tests only: answer for the notebook-facets agent instead of running it. */
+  notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
+  notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Notebooks whose pictures are being found or drawn right now. */
+  notebookPictures?: Set<string>;
+  /** Notebooks trying their options' listing photos right now. */
+  notebookListingPhotos?: Set<string>;
+  /** Settings → Appearance: sua is proposing a brand right now. */
+  brandProposalRunning?: boolean;
+  /** Tests only: answer for the brand maker instead of running it. Production leaves it unset. */
+  brandMakerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage

@@ -152,6 +152,9 @@ describe('Home\'s surface, drawn (S3)', () => {
     expect(out).toContain('data-panel-thread-id="item:agent:a:draft"');
     expect(out).toMatch(/All good:<\/span> Running 2 scheduled agents/);
     expect(rowTarget({ ...items[0], id: 'question:q1', subject: { threadId: 't9' } })).toBe('t9');
+    // A notebook waiting on you opens its conversation; otherwise the item pane.
+    expect(rowTarget({ ...items[0], id: 'notebook:car', state: 'open', subject: { threadId: 't7' } })).toBe('t7');
+    expect(rowTarget({ ...items[0], id: 'notebook:car', state: 'in-progress', subject: {} })).toBe('item:notebook:car');
   });
 });
 
@@ -225,6 +228,8 @@ describe('why Needs you has what it has', () => {
     const e = (id: string, kind: string, collapsed = false) => ({ item: { id, kind } as never, reasons: [], pinned: false, collapsed, primitive: 'row' as const });
     expect(needsBreakdown([e('agent:a:failing', 'alert'), e('agent:b:failing', 'alert'), e('thread:t', 'question'), e('agent:d:draft', 'decision', true)]))
       .toBe('2 agent problems · 1 waiting on your reply · 1 recent draft to look at');
+    expect(needsBreakdown([{ item: { id: 'notebook:car', kind: 'question', state: 'open' } as never, reasons: [], pinned: false, collapsed: false, primitive: 'row' as const }]))
+      .toBe('1 waiting on your reply');
     expect(needsBreakdown([])).toBe('Nothing urgent');
   });
 });

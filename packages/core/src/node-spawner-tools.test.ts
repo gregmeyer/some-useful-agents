@@ -192,6 +192,41 @@ emit({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 
     expect(res.result).not.toContain('--allowedTools');
     expect(res.result).not.toContain('--mcp-config');
   });
+
+  // web-search isn't a sua tool: it turns on the CLI's own live search. It
+  // used to be dropped silently, so starter-research's "search first" step
+  // only ever had web-fetch.
+  describe('web-search: the CLI\'s own live search', () => {
+    const searchNode: AgentNode = { id: 'gather', type: 'llm-prompt', prompt: 'search, then read', tools: ['web-search', 'json-parse'] };
+    it('gives claude WebSearch beside sua\'s tools (which no longer list web-search)', async () => {
+      const res = await spawnNodeReal(searchNode, env(), opts(['claude']));
+      expect(res.exitCode).toBe(0);
+      expect(res.result).toContain('--allowedTools mcp__sua,WebSearch');
+      expect(res.result).toContain('listed=json-parse');
+      expect(res.result).not.toContain('web-search');
+    });
+    it('turns on codex\'s live web_search', async () => {
+      const res = await spawnNodeReal(searchNode, env(), opts(['codex']));
+      expect(res.exitCode).toBe(0);
+      expect(res.result).toContain('-c web_search="live"');
+    });
+    it('needs no tool endpoint when search is the only tool', async () => {
+      const res = await spawnNodeReal({ ...searchNode, tools: ['web-search'] }, env(), opts(['claude']));
+      expect(res.result).toContain('--allowedTools WebSearch');
+      expect(res.result).not.toContain('--mcp-config');
+    });
+    it('honours claude\'s WebSearch in allowedTools on codex too', async () => {
+      const res = await spawnNodeReal({ id: 'q', type: 'llm-prompt', prompt: 'x', allowedTools: ['WebSearch'] }, env(), opts(['codex']));
+      expect(res.result).toContain('-c web_search="live"');
+      // Not asked for: no search.
+      expect((await spawnNodeReal({ id: 'q', type: 'llm-prompt', prompt: 'x' }, env(), opts(['codex']))).result).not.toContain('web_search');
+    });
+    it('skips a provider without live search, so the chain moves on', async () => {
+      const res = await spawnNodeReal({ ...searchNode, tools: ['web-search'] }, env(), opts(['apple-foundation-models', 'codex']));
+      expect(res.usedLLMProvider).toBe('codex');
+      expect(res.providerFailures?.[0]).toMatchObject({ provider: 'apple-foundation-models', category: 'tool_unavailable' });
+    });
+  });
 });
 
 describe('claudeDeniedTools', () => {

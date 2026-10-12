@@ -384,6 +384,11 @@ export async function executeAgentDag(
       };
     }
   } else {
+    // A replay starts from the inputs the prior run had; any passed here
+    // (e.g. `--input` on the CLI) win over them.
+    if (options.replayFrom) {
+      options = { ...options, inputs: { ...priorRunInputs(agent, options.replayFrom.priorRunId, deps.runStore), ...(options.inputs ?? {}) } };
+    }
     // Parent run row created up-front in 'running' state. Lets anyone polling
     // the DB see the run exists + links to per-node rows as they land.
     deps.runStore.createRun({
@@ -407,8 +412,13 @@ export async function executeAgentDag(
   }
   // Keep what a later resume needs (a durable Temporal run arrives here as a
   // "resume" of its pre-created row on its first attempt, so check the row).
-  if (agent.nodes.some((n) => isAskType(n.type)) && !resumingRun?.resumeContext) {
-    deps.runStore.updateRun(runId, { resumeContext: { inputs: options.inputs, conversationPreamble: options.conversationPreamble } });
+  // Every run keeps its inputs, so a replay can start from them; the
+  // conversation block only matters to a resume after an ask node.
+  if (!resumingRun?.resumeContext) {
+    const asks = agent.nodes.some((n) => isAskType(n.type));
+    if (asks || options.inputs) {
+      deps.runStore.updateRun(runId, { resumeContext: { inputs: options.inputs, ...(asks ? { conversationPreamble: options.conversationPreamble } : {}) } });
+    }
   }
 
   // ── Agent Behavior conditioning ──────────────────────────────────────
@@ -708,7 +718,21 @@ export async function executeAgentDag(
     }
   }
 
+  // An optional node's failure doesn't stop the run: it's recorded, and the
+  // nodes that depend on it get a note in place of its output.
+  const optionalFailures: Array<{ nodeId: string; category: NodeErrorCategory; error?: string }> = [];
+  const forgiveOptional = () => {
+    if (!firstFailure) return;
+    const failed = agent.nodes.find((n) => n.id === firstFailure!.nodeId);
+    if (!failed?.optional || firstFailure.category === 'cancelled' || firstFailure.category === 'budget_exhausted') return;
+    optionalFailures.push({ nodeId: failed.id, category: firstFailure.category, ...(firstFailure.error ? { error: firstFailure.error } : {}) });
+    const why = (firstFailure.error ?? firstFailure.category).replace(/\s+/g, ' ').slice(0, 200);
+    outputs.set(failed.id, { result: `(step "${failed.id}" didn't finish: ${why})`, exitCode: 0, source: agent.source });
+    firstFailure = undefined;
+  };
+
   for (const node of order) {
+    forgiveOptional();
     if (replaySkipIds.has(node.id)) continue;
     const nodeStartedAt = new Date().toISOString();
 
@@ -1561,6 +1585,8 @@ export async function executeAgentDag(
     }
   }
 
+  forgiveOptional();
+
   // Stopped at an ask node: the run waits, holding no process, until the
   // answer resumes it. Its spend so far is totalled now so per-day limits see it.
   if (waitingOn) {
@@ -1704,6 +1730,29 @@ export async function fireRunComplete(
     const logger = deps.notifyLogger ?? { warn: (m: string) => console.warn(`[run-complete] ${m}`) };
     logger.warn(`onRunComplete hook failed for run ${run.id}: ${(err as Error).message}`);
   }
+}
+
+/**
+ * The inputs a prior run started with: its saved `resumeContext`, or for a
+ * run from before every run saved them, the agent's declared inputs as the
+ * run's node logs recorded them (redacted values left out).
+ */
+export function priorRunInputs(agent: Agent, priorRunId: string, runStore: RunStore): Record<string, string> {
+  const prior = runStore.getRun(priorRunId);
+  if (prior?.resumeContext?.inputs) return { ...prior.resumeContext.inputs };
+  const declared = Object.keys(agent.inputs ?? {});
+  if (!declared.length) return {};
+  const out: Record<string, string> = {};
+  for (const exec of runStore.listNodeExecutions(priorRunId)) {
+    if (!exec.inputsJson) continue;
+    let env: Record<string, unknown>;
+    try { env = JSON.parse(exec.inputsJson) as Record<string, unknown>; } catch { continue; }
+    for (const name of declared) {
+      const v = env[name];
+      if (!(name in out) && typeof v === 'string' && v !== '<redacted>') out[name] = v;
+    }
+  }
+  return out;
 }
 
 // -- Topological sort --

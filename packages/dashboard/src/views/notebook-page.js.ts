@@ -5,15 +5,98 @@
  */
 export const NOTEBOOK_PAGE_JS = `
   (function () {
-    var main = document.querySelector('[data-nb-main]');
-    if (!main) return;
-    var id = main.getAttribute('data-nb-main');
+    // The notebooks list: changing the sort applies it.
+    document.addEventListener('change', function (e) {
+      var el = e.target;
+      if (el && el.matches && el.matches('select[data-autosubmit]') && el.form) el.form.submit();
+    });
+    // The header's actions: one open at a time; Escape or a click outside closes it.
+    var acts = document.querySelectorAll('[data-nb-act]');
+    for (var ai = 0; ai < acts.length; ai++) {
+      acts[ai].addEventListener('toggle', function (e) {
+        var d = e.target;
+        if (!d.open) return;
+        for (var j = 0; j < acts.length; j++) if (acts[j] !== d) acts[j].open = false;
+        var first = d.querySelector('[data-nb-decide] input[name="chosen"], textarea, input[type="text"]');
+        if (first) setTimeout(function () { first.focus(); }, 0);
+      });
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      for (var j = 0; j < acts.length; j++) if (acts[j].open) { acts[j].open = false; acts[j].querySelector('summary').focus(); }
+    });
+    document.addEventListener('click', function (e) {
+      for (var j = 0; j < acts.length; j++) if (acts[j].open && !acts[j].contains(e.target)) acts[j].open = false;
+    });
+    // Decide…: the count of picks, the button that says what it does, and
+    // "Pick the top N". With nothing picked, the why box is the decision.
+    function decideSync(form) {
+      var boxes = form.querySelectorAll('input[name="chosen"]');
+      var n = 0;
+      for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) n++;
+      var target = Number(form.getAttribute('data-target')) || 0;
+      var count = form.querySelector('[data-nb-decide-count]');
+      if (count) {
+        count.textContent = target ? n + ' of ' + target + ' picked' : n + ' picked';
+        count.classList.toggle('is-over', target > 0 && n > target);
+        count.classList.toggle('is-met', target > 0 && n === target);
+      }
+      var why = form.querySelector('textarea[name="decision"]');
+      if (why) why.required = n === 0;
+      var btn = form.querySelector('[data-nb-decide-submit]');
+      if (btn) btn.textContent = n === 0 ? 'Decide and close' : n === 1 ? 'Choose this one and close' : 'Choose these ' + n + ' and close';
+    }
+    var decideForms = document.querySelectorAll('[data-nb-decide]');
+    for (var di = 0; di < decideForms.length; di++) decideSync(decideForms[di]);
+    document.addEventListener('change', function (e) {
+      var form = e.target.closest && e.target.closest('[data-nb-decide]');
+      if (form && e.target.name === 'chosen') decideSync(form);
+    });
+    document.addEventListener('click', function (e) {
+      var top = e.target.closest && e.target.closest('[data-nb-decide-top]');
+      if (!top) return;
+      var form = top.closest('[data-nb-decide]');
+      var target = Number(form.getAttribute('data-target')) || 0;
+      var boxes = form.querySelectorAll('input[name="chosen"]');
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = i < target;
+      decideSync(form);
+    });
+    // Continue the conversation (notebook and option pages): open it in the sua drawer.
     document.addEventListener('click', function (e) {
       var btn = e.target.closest && e.target.closest('[data-nb-continue]');
       if (!btn || !window.suaPanel) return;
       e.preventDefault();
       window.suaPanel.open(btn.getAttribute('data-nb-continue'));
     });
+    // Tell sua: Enter sends (like the drawer's reply box), Shift+Enter is a new line;
+    // Cmd/Ctrl+Enter sends too.
+    document.addEventListener('keydown', function (e) {
+      var ta = e.target;
+      if (!ta || ta.tagName !== 'TEXTAREA' || !ta.hasAttribute('data-enter-sends')) return;
+      if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      if (!ta.value.trim()) return;
+      var form = ta.form;
+      if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
+    });
+    // An option's own page: its checklist saves the tick, then the page reloads.
+    var optionPage = document.querySelector('[data-nb-option]');
+    if (optionPage) {
+      document.addEventListener('a2ui-action', function (e) {
+        var d = e.detail || {};
+        if (d.name !== 'notebook-option' || !d.context || d.context.op !== 'check') return;
+        var body = new URLSearchParams();
+        body.set('item', d.context.item || '');
+        body.set('done', d.context.done ? '1' : '0');
+        var url = '/notebooks/' + encodeURIComponent(optionPage.getAttribute('data-nb-option-notebook')) + '/entries/' + encodeURIComponent(optionPage.getAttribute('data-nb-option')) + '/check';
+        fetch(url, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })
+          .then(function () { location.reload(); }, function () { location.reload(); });
+      });
+      return;
+    }
+    var main = document.querySelector('[data-nb-main]');
+    if (!main) return;
+    var id = main.getAttribute('data-nb-main');
     var count = Number(main.getAttribute('data-nb-count')) || 0;
     var changed = main.getAttribute('data-nb-changed') || '';
     // The widgets' Move / Rule out / Bring back: save it, then redraw.
@@ -22,9 +105,11 @@ export const NOTEBOOK_PAGE_JS = `
       var d = e.detail || {};
       if (d.name !== 'notebook-option' || !d.context || !d.context.id) return;
       var c = d.context;
-      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : '';
+      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' || c.op === 'gone' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : c.op === 'check' ? 'check' : '';
       if (!path) return;
       var body = new URLSearchParams();
+      if (c.op === 'check') { body.set('item', c.item || ''); body.set('done', c.done ? '1' : '0'); }
+      if (c.op === 'gone') body.set('gone', '1');
       if (c.stage) body.set('stage', c.stage);
       if (c.reason) body.set('reason', c.reason);
       fetch(base + encodeURIComponent(c.id) + '/' + path, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })
@@ -64,5 +149,27 @@ export const NOTEBOOK_PAGE_JS = `
         .catch(function () { /* keep what's shown */ });
     }
     setInterval(refresh, 5000);
+    // Closing the sua panel on this notebook's thread: what was said there shows here now.
+    document.addEventListener('sua:panel-closed', function (e) {
+      var tid = e.detail && e.detail.threadId;
+      if (!tid) return;
+      var ours = document.querySelectorAll('[data-nb-continue]');
+      var match = ours.length === 0; // no thread yet: the panel may have just started one
+      for (var i = 0; i < ours.length; i++) if (ours[i].getAttribute('data-nb-continue') === tid) match = true;
+      if (!match) return;
+      refresh(true);
+      var talk = document.querySelector('.nb-talk');
+      if (!talk) return;
+      var ae = document.activeElement;
+      if (ae && talk.contains(ae)) return; // typing there: leave it
+      fetch('/notebooks/' + encodeURIComponent(id), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+        .then(function (t) {
+          var fresh = new DOMParser().parseFromString(t, 'text/html').querySelector('.nb-talk');
+          var now = document.querySelector('.nb-talk');
+          if (fresh && now) now.replaceWith(document.importNode(fresh, true));
+        })
+        .catch(function () { /* keep what's shown */ });
+    });
   })();
 `;

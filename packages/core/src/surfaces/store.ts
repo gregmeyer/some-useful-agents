@@ -57,6 +57,11 @@ export class SurfaceStore {
     `);
   }
 
+  /** Forget a surface and its history (its owner is gone). */
+  remove(surfaceId: string): void {
+    this.db.prepare('DELETE FROM surface_versions WHERE surface_id = ?').run(surfaceId);
+  }
+
   /** The surface now (the default, as v0, before its first change). */
   current(surfaceId: string): SurfaceVersion {
     const row = this.db.prepare('SELECT * FROM surface_versions WHERE surface_id = ? ORDER BY version DESC LIMIT 1').get(surfaceId) as Record<string, unknown> | undefined;

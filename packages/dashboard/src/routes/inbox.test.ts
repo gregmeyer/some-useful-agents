@@ -111,20 +111,39 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(missing.status).toBe(404);
   });
 
-  it('/ and /inbox are the same canvas: list + thread host, autonomy control, a way in for newcomers', async () => {
+  it('/inbox is the canvas (list + thread host); / is Home: Today full width, a ⋯ menu, one ask box', async () => {
     const app = await makeApp();
     // With no agents yet, Home is onboarding.
     const empty = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(empty.text).toContain('No agents yet');
     expect(empty.text).not.toContain('data-inbox-split');
     agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
-    for (const path of ['/', '/inbox']) {
-      const res = await request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-      expect(res.status).toBe(200);
-      expect(res.text).toContain('data-inbox-split data-initial-thread=""');
-      expect(res.text).toContain('action="/inbox/trust/mode"');
-      expect(res.text).toContain('href="/start"');
-    }
+    const inbox = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(inbox.text).toContain('data-inbox-split data-initial-thread=""');
+    expect(inbox.text).toContain('action="/inbox/trust/mode"');
+    inboxStore.add({ priority: 'medium', source: 'manual', title: 'Pick a colour', body: '(empty)' });
+    const t = inboxStore.list({ limit: 1 })[0];
+    inboxStore.addResponse(t.id, 'triage', 'Blue or green?');
+    inboxStore.updateStatus(t.id, 'awaiting_user');
+    const home = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(home.status).toBe(200);
+    expect(home.text).not.toContain('data-inbox-split');
+    expect(home.text).toContain('data-home-today');
+    expect(home.text).toContain('data-surface-region="needs-you"');
+    expect(home.text).toContain(`data-panel-thread-id="${t.id}"`);
+    expect(home.text).toContain('data-home-status>1 needs you<');
+    // The ⋯ menu: autonomy, Adjust Home, the full inbox.
+    expect(home.text).toContain('class="home-menu"');
+    expect(home.text).toContain('action="/inbox/trust/mode"');
+    expect(home.text).toContain('action="/surfaces/home/ask" class="home-change"');
+    expect(home.text).toContain('href="/inbox">Open the full inbox');
+    expect(home.text).toContain('href="/start"');
+    // One place to ask: the top bar, not the panel's search box.
+    expect(home.text).not.toContain('Search or ask sua');
+    // Today redraws in place.
+    const today = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(today.body).toMatchObject({ status: '1 needs you', needs: 1 });
+    expect(today.body.html).toContain(`data-panel-thread-id="${t.id}"`);
   });
 
   it('fragment is inner HTML only (no <html>, no top-nav)', async () => {
@@ -2325,7 +2344,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
     const ctx = currentCtx!;
     const { NotebookStore } = await import('@some-useful-agents/core');
     const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-    const nb = nbs.create({ title: 'Car for Nadia', params: ['AWD'], criteria: ['One fits'] });
+    const nb = nbs.create({ title: 'Commuter car', params: ['AWD'], criteria: ['One fits'] });
     const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
       .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
@@ -2352,7 +2371,7 @@ describe('a notebook\'s conversation (sua files what you say)', () => {
       { type: 'notebook-add', rationale: 'file it', inputs: { NOTEBOOK: nb.id, CHANGES: { entries: [{ kind: 'note', title: 'New 17-year-old driver' }, { kind: 'option', title: '2011 Forester, 150k, $7,200' }, { kind: 'bogus', title: 'x' }], params: ['AWD', 'under $8,000'], criteria: ['Inspection done'] } } },
     ], []);
     const card = engine.withEditorBase(ctx, parsed.accepted[0]);
-    expect(card.inputs.NOTEBOOK_TITLE).toBe('Car for Nadia');
+    expect(card.inputs.NOTEBOOK_TITLE).toBe('Commuter car');
     expect(card.surfaceChanges?.map((c) => c.what)).toEqual(['note', 'option', 'parameter', 'parameter', 'done when']);
     expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed', summary: 'Added 4 to the notebook.' });
     expect(nbs.get(nb.id)!.params).toEqual(['AWD', 'under $8,000']);
@@ -2408,5 +2427,104 @@ describe('a notebook remembers its conversation', () => {
     const page = await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(page.text).toContain('class="nb-talk__last"');
     expect(page.text).toContain('Seattle came back empty, so I drafted Used Car Coverage Sweep.');
+  });
+});
+
+describe("talking to sua about one option, from its page", () => {
+  it('names the option, gives sua all of it in focus, and a correction shows on the card and in the summary', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Cabinet' });
+    nbs.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' }]);
+    const o = nbs.upsertOption(nb.id, { title: 'Example wall cabinet, 24" wide', by: 'agent:x', data: { price: 4023, width: 24 } }).entry;
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+
+    // The option's page has the item's talk box, beside its details (hidden with the drawer open, like the notebook's).
+    const page = await get(`/notebooks/${nb.id}/entries/${o.id}`);
+    expect(page.text).toContain('Talk to sua about this item');
+    expect(page.text).toContain(`<input type="hidden" name="option" value="${o.id}">`);
+    expect(page.text).toContain('class="nb-body__side"');
+
+    const asked = await post(`/notebooks/${nb.id}/ask`, { text: 'the price is actually $136.64', option: o.id });
+    expect(asked.status).toBe(204);
+    const thread = asked.headers['x-inbox-id'];
+    expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').map((r) => r.body)).toEqual(['About “Example wall cabinet”: the price is actually $136.64']);
+    const { describeNotebookForTriage, threadOptionFocus } = await import('../lib/notebook-chat.js');
+    const focusId = threadOptionFocus(inboxStore.get(thread)!.contextJson);
+    expect(focusId).toBe(o.id);
+    const seen = JSON.parse(describeNotebookForTriage(ctx, nbs.get(nb.id)!, focusId)) as { focus?: { id: string; facts: Record<string, string>; page: string } };
+    expect(seen.focus).toMatchObject({ id: o.id, facts: { price: '$4,023', width: '24 in' }, page: `/notebooks/${nb.id}/entries/${o.id}` });
+
+    // sua's correction, as a card waiting for approval: it says what it changes; applied, it says it corrected it.
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+    const parsed = parseProposedActions([{ type: 'notebook-add', rationale: 'their correction', inputs: { NOTEBOOK: nb.id, CHANGES: { update: [{ option: 'Example wall cabinet', data: { price: 136.64 } }] } } }], []);
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.surfaceChanges).toEqual([{ what: 'correct', before: 'Example wall cabinet', after: 'Price $136.64' }]);
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed', summary: 'Corrected 1 option.' });
+    expect(nbs.findOption(nb.id, 'Example')!.data!.price).toBe(136.64);
+
+    // Asking from the notebook's own box clears the focus.
+    await post(`/notebooks/${nb.id}/ask`, { text: 'anything else under $150?' });
+    expect(threadOptionFocus(inboxStore.get(thread)!.contextJson)).toBeUndefined();
+    expect(inboxStore.listResponses(thread).filter((r) => r.role === 'user').at(-1)!.body).toBe('anything else under $150?');
+  });
+});
+
+describe('Previous / Next on an option page, and "next" in its talk box', () => {
+  it('steps through those in the running, best first; "next" goes there without sua; sua knows the neighbours', async () => {
+    const app = await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Wagons' });
+    nbs.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const add = (title: string, price: number) => nbs.upsertOption(nb.id, { title, by: 'you', data: { price } }).entry;
+    const mid = add('Wagon B', 5000); const best = add('Wagon A', 3000); const last = add('Wagon C', 7000);
+    const out = add('Wagon D', 1000);
+    nbs.ruleOut(nb.id, out.id, 'salvage title');
+    const get = (p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (p: string, body: Record<string, string>) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`)
+      .set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send(body);
+    const page = (id: string) => `/notebooks/${nb.id}/entries/${id}`;
+
+    // #2 of 3: back to #1, on to #3 (the ruled-out one isn't in the order).
+    const html = (await get(page(mid.id))).text;
+    expect(html).toContain('data-nbo-nav');
+    expect(html).toContain(`rel="prev" data-nbo-prev href="${page(best.id)}"`);
+    expect(html).toContain(`rel="next" data-nbo-next href="${page(last.id)}"`);
+    expect(html).toContain('2 of 3');
+    expect(html).not.toContain(out.id + '","name"');
+    expect(html).toContain('src="/assets/option-nav.js"');
+    // The last has no Next; a ruled-out option has no stepping at all.
+    expect((await get(page(last.id))).text).toMatch(/rel="next" data-nbo-next href="#"\s+hidden/);
+    expect((await get(page(out.id))).text).not.toContain('data-nbo-nav');
+
+    // "Open the next item" goes to the next page: no message, no sua run.
+    const went = await post(`/notebooks/${nb.id}/ask`, { text: "I'm done with this one, open the next item in the list", option: mid.id });
+    expect(went.status).toBe(204);
+    expect(went.headers['x-navigate']).toBe(page(last.id));
+    expect(went.headers['x-inbox-id']).toBeUndefined();
+    expect(nbs.get(nb.id)!.conversationId).toBeUndefined();
+    // The page sends where Next goes after your grid filters; that wins when it's in the running.
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'previous', option: last.id, prev: best.id })).headers['x-navigate']).toBe(page(best.id));
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'previous', option: last.id, prev: out.id })).headers['x-navigate']).toBe(page(mid.id));
+    // Without a JS fetch, a redirect.
+    const plain = await request(app).post(`/notebooks/${nb.id}/ask`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({ text: 'next', option: best.id });
+    expect(plain.status).toBe(303);
+    expect(plain.headers.location).toBe(page(mid.id));
+
+    // Anything more is a question for sua, which has the neighbours in focus.
+    const asked = await post(`/notebooks/${nb.id}/ask`, { text: 'rule it out and open the next', option: mid.id });
+    expect(asked.headers['x-inbox-id']).toBeTruthy();
+    const { describeNotebookForTriage } = await import('../lib/notebook-chat.js');
+    const seen = JSON.parse(describeNotebookForTriage(ctx, nbs.get(nb.id)!, mid.id)) as { focus?: Record<string, unknown> };
+    expect(seen.focus).toMatchObject({ rank: 2, previous: { title: 'Wagon A', page: page(best.id) }, next: { title: 'Wagon C', page: page(last.id) } });
+    // "Next" from the last one has nowhere to go, so sua answers.
+    expect((await post(`/notebooks/${nb.id}/ask`, { text: 'next', option: last.id })).headers['x-inbox-id']).toBeTruthy();
   });
 });

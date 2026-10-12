@@ -37,6 +37,8 @@ export interface RunDetailOptions {
   /** Runs this run started (agent-invoke / loop nodes, agents called as tools). */
   /** Runs this run started, as a tree flattened depth-first (`depth` 0 = a direct child). */
   childRuns?: Array<Run & { depth?: number }>;
+  /** Notebooks this run (or the run that started it) filed into. */
+  notebooks?: Array<{ notebookId: string; title: string; viaParent: boolean }>;
   /**
    * Evidence-backed record of what RESULTED from this run, when the agent
    * declared an `outcome:` block. Rendered above the raw result: "did this
@@ -232,6 +234,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
           <dt>Exit code</dt><dd class="mono">${formatExitCode(run.exitCode) || html`<span class="dim">—</span>`}</dd>
           <dt>Triggered by</dt><dd>${run.triggeredBy}</dd>
           ${run.usage ? html`<dt>Cost</dt><dd title="USD at list price (what this usage costs on the API; on a subscription it is not your bill). Includes agents this run called.">${renderUsageTotal(run.usage, { linkPricing: true })}</dd>` : html``}
+          ${(opts.notebooks ?? []).length ? html`<dt>Notebook</dt><dd>${(opts.notebooks ?? []).map((n, i) => html`${i ? ', ' : ''}<a href="/notebooks/${encodeURIComponent(n.notebookId)}">${n.title}</a>${n.viaParent ? html` <span class="dim">(through the run that started this one)</span>` : html``} · <a href="/notebooks/${encodeURIComponent(n.notebookId)}/workflow">how it was made</a>`) as unknown as SafeHtml[]}</dd>` : html``}
           ${run.parentRunId ? html`<dt>Called by</dt><dd><a class="mono" href="/runs/${run.parentRunId}">${run.parentRunId.slice(0, 8)}</a>${run.parentNodeId ? html` <span class="dim">(node ${run.parentNodeId})</span>` : html``}</dd>` : html``}
           <dt>Backend</dt><dd class="mono">${run.usedWorkflowProvider ?? 'local'}${opts.temporalLink ? html` · <a href="${opts.temporalLink}" target="_blank" rel="noreferrer">View in Temporal ↗</a>` : html``}</dd>
           ${conditionedBy}

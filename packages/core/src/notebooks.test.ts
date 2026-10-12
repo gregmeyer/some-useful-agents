@@ -4,8 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
+import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint } from './notebooks.js';
+import { NotebookStore, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -15,6 +16,20 @@ let runs: RunStore;
 afterEach(() => { try { runs?.close(); } catch { /* ignore */ } if (dir) rmSync(dir, { recursive: true, force: true }); });
 
 describe('NotebookStore', () => {
+  it('knows which notebooks an agent works for: its pipeline, its searches, what it filed', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const car = s.create({ title: 'Car', pipeline: ['car-sweep'] });
+    const guitar = s.create({ title: 'Guitar' });
+    const cabinet = s.create({ title: 'Cabinet' });
+    s.recordSearch(guitar.id, 'research', 'r1', 2);
+    s.addEntry(cabinet.id, { kind: 'note', title: 'Hooks on the left', by: 'agent:research' });
+    expect(s.notebooksFedBy('car-sweep')).toEqual([car.id]);
+    expect(s.notebooksFedBy('research').sort()).toEqual([cabinet.id, guitar.id].sort());
+    expect(s.notebooksFedBy('nobody')).toEqual([]);
+  });
+
   it('starts, fills, ticks, decides and reopens a notebook', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));
@@ -33,10 +48,12 @@ describe('NotebookStore', () => {
     s.markCriterion(nb.id, 0, true);
     expect(notebookProgress(s.get(nb.id)!)).toEqual({ met: 1, total: 2 });
     // Editing criteria keeps "met" for unchanged text.
-    expect(s.setCriteria(nb.id, ['One fits', 'Decided by Oct 15']).criteria).toEqual([{ text: 'One fits', met: true }, { text: 'Decided by Oct 15', met: false }]);
+    expect(s.setCriteria(nb.id, ['One fits', 'Decided by Oct 15']).criteria).toEqual([{ text: 'One fits', met: true, held: true }, { text: 'Decided by Oct 15', met: false }]);
 
     const decided = s.decide(nb.id, 'Buy the RAV4');
     expect(decided).toMatchObject({ status: 'decided', decision: 'Buy the RAV4' });
+    // Deciding ticks the done-when that says so.
+    expect(decided.criteria[1]).toEqual({ text: 'Decided by Oct 15', met: true });
     expect(s.entries(nb.id)[0]).toMatchObject({ kind: 'decision', body: 'Buy the RAV4' });
     expect(s.list().map((n) => n.id)).toEqual(['buy-a-used-car-2', 'buy-a-used-car']);
     expect(s.setStatus(nb.id, 'active').status).toBe('active');
@@ -62,6 +79,32 @@ describe('NotebookStore', () => {
     expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({ kind: 'progress', state: 'in-progress', summary: '0 of 2 criteria met · 4 entries', href: '/notebooks/car' });
     s.decide(nb.id, 'RAV4');
     expect(collectItems(itemSourcesFromHandle(runs.databaseHandle(), agents, runs)).some((i) => i.id === 'notebook:car')).toBe(false);
+    agents.close();
+  });
+
+  it('a notebook and its conversation are one row on Home: waiting on you when sua asked something', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const agents = new AgentStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const inbox = InboxStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Car', criteria: ['a'] });
+    const thread = inbox.add({ priority: 'medium', source: 'manual', title: 'Notebook: Car', body: '(empty)' });
+    s.setConversation(nb.id, thread.id);
+    inbox.addResponse(thread.id, 'triage', 'What is your budget?');
+    inbox.updateStatus(thread.id, 'awaiting_user');
+    const collect = () => collectItems(itemSourcesFromHandle(runs.databaseHandle(), agents, runs));
+    let items = collect();
+    expect(items.some((i) => i.id === `thread:${thread.id}`)).toBe(false);
+    expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({
+      kind: 'question', state: 'open', title: 'Notebook: Car', summary: 'sua: What is your budget?', subject: { threadId: thread.id },
+    });
+    expect(items.find((i) => i.id === 'notebook:car')!.actions.map((a) => a.type)).toEqual(['reply', 'open']);
+    // Answered: back to how far along it is, still one row.
+    inbox.updateStatus(thread.id, 'open');
+    items = collect();
+    expect(items.some((i) => i.id === `thread:${thread.id}`)).toBe(false);
+    expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({ kind: 'progress', state: 'in-progress' });
     agents.close();
   });
 });
@@ -156,9 +199,9 @@ describe('notebook option fields', () => {
     s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X', body: 'no link', by: 'agent:sweep' });
     const r = s.upsertOption(nb.id, { title: '2010 RAV4 Sport', by: 'agent:sweep', data: { price: 4023, listing_url: 'https://cargurus.com/Cars/l-Used-Toyota-RAV4-mg108_L37788' } });
     expect(r.seenAgain).toBe(true);
-    const f = s.upsertOption(nb.id, { title: '2009 Subaru Forester 2.5X', by: 'agent:sweep', fingerprint: 'autotrader 767954639' });
+    const f = s.upsertOption(nb.id, { title: '2009 Subaru Forester 2.5X', by: 'agent:sweep', fingerprint: 'autotrader 700000001' });
     expect(f.seenAgain).toBe(true);
-    expect(s.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.fingerprint).sort()).toEqual(['autotrader 767954639', 'cargurus.com/cars/l-used-toyota-rav4-mg108_l37788']);
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.fingerprint).sort()).toEqual(['autotrader 700000001', 'cargurus.com/cars/l-used-toyota-rav4-mg108_l37788']);
   });
 
   it('fills in what an older option\'s text says once the notebook has fields', () => {
@@ -166,14 +209,14 @@ describe('notebook option fields', () => {
     runs = new RunStore(join(dir, 'runs.db'));
     const s = NotebookStore.fromHandle(runs.databaseHandle());
     const nb = s.create({ title: 'Buy a used car' });
-    s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X, 157k mi, $4,995, Ascend Motors', body: 'Not verified: https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle.', by: 'agent:sweep' });
+    s.addEntry(nb.id, { kind: 'option', title: '2009 Subaru Forester 2.5X, 157k mi, $4,995, Example Motors', body: 'Not verified: https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle.', by: 'agent:sweep' });
     s.addEntry(nb.id, { kind: 'option', title: 'A nice one', by: 'you' });
     expect(s.backfillOptions(nb.id)).toBe(0); // no fields yet
     s.setFields(nb.id, CAR_FIELDS);
     expect(s.backfillOptions(nb.id)).toBe(1);
     const fo = s.entries(nb.id).find((e) => e.title.startsWith('2009'))!;
-    expect(fo.data).toEqual({ price: 4995, miles: 157000, year: 2009, listing_url: 'https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle' });
-    expect(fo.fingerprint).toBe('autotrader.com/cars-for-sale/inventory/767954639');
+    expect(fo.data).toEqual({ price: 4995, miles: 157000, year: 2009, listing_url: 'https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle' });
+    expect(fo.fingerprint).toBe('autotrader.com/cars-for-sale/inventory/700000001');
     expect(s.backfillOptions(nb.id)).toBe(0); // already done
   });
 
@@ -283,7 +326,7 @@ describe('option history and not seen lately', () => {
 describe('option photos', () => {
   it('only trusts a page photo when the page is that listing', async () => {
     const { previewMatchesOption, looksLikeOneListing } = await import('./notebooks.js');
-    expect(looksLikeOneListing('https://www.autotrader.com/cars-for-sale/inventory/767954639?city=Seattle')).toBe(true);
+    expect(looksLikeOneListing('https://www.autotrader.com/cars-for-sale/inventory/700000001?city=Seattle')).toBe(true);
     expect(looksLikeOneListing('https://www.cargurus.com/Cars/l-Used-Toyota-RAV4-2006-2012-Seattle-mg108_L37788')).toBe(false);
     expect(looksLikeOneListing('https://www.edmunds.com/used-subaru-forester-seattle-wa/')).toBe(false);
     expect(looksLikeOneListing('https://cars.example/search?q=rav4&id=1234567')).toBe(false);
@@ -321,5 +364,431 @@ describe('option photos', () => {
     s.ruleOut(nb.id, b.id, 'no');
     s.removeEntry(nb.id, a.id);
     expect(s.photo(a.id)).toBeUndefined();
+  });
+});
+
+describe('fields without roles, and facts that belong to another option', () => {
+  it('infers roles and units from field names', () => {
+    const f = cleanFields([
+      { key: 'price', label: 'Price', type: 'money' }, { key: 'miles', label: 'Miles', type: 'number' },
+      { key: 'listing_url', label: 'Listing', type: 'url' }, { key: 'photo', label: 'Photo', type: 'text' },
+      { key: 'location', label: 'Where', type: 'text' }, { key: 'seller', label: 'Seller', type: 'text' }, { key: 'year', label: 'Year', type: 'number' },
+    ]);
+    expect(f.map((x) => `${x.key}:${x.type}:${x.role ?? ''}:${x.unit ?? ''}`)).toEqual([
+      'price:money:price:', 'miles:number:measure:mi', 'listing_url:url:link:', 'photo:image:image:', 'location:text:place:', 'seller:text:org:', 'year:number::',
+    ]);
+  });
+
+  it('keeps only what an option\'s own text says when given facts contradict it, and repairs stored ones', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'price', type: 'money' }, { key: 'miles', type: 'number' }, { key: 'year', type: 'number' }]);
+    const a = s.addEntry(nb.id, { kind: 'option', title: '2006 Subaru Forester 2.5X, 162k mi, $4,995, Example Motors', by: 'agent:x' });
+    // Setup mixed up ids: the 2007's numbers.
+    s.setOptionFacts(nb.id, a.id, { price: 4699, miles: 178630, year: 2007 });
+    expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
+    // Stored before this check: repaired on read.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ price: 4699, miles: 178630, year: 2007 }), a.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
+    // Rounded text still agrees: no change.
+    s.setOptionFacts(nb.id, a.id, { price: 4995, miles: 161870, year: 2006 });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+
+  it('corrects an option\'s facts on someone\'s word: the option changes, its history says so, and its title can\'t undo it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Cabinet' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'width', label: 'Width', type: 'number', unit: 'in', role: 'measure' },
+    ]);
+    const c = s.upsertOption(nb.id, { title: 'Example cabinet, 24" wide, $239', by: 'agent:x', runId: 'r1', data: { price: { value: 4023, source: 'https://shop.example/c' }, width: 24 } }).entry;
+    const r = s.correctOption(nb.id, c.id, { price: 136.64 }, 'sua');
+    expect(r.changed).toEqual([{ key: 'price', from: 4023, to: 136.64 }]);
+    expect(s.findOption(nb.id, 'cabinet')!.data).toEqual({ price: 136.64, width: 24 });
+    expect(s.findOption(nb.id, 'cabinet')!.factMeta?.price).toBeUndefined(); // the old source no longer backs it
+    expect(s.sightings(c.id).at(-1)).toMatchObject({ correctedBy: 'sua', data: { price: 136.64 } });
+    // The title says $239: the correction still stands.
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'cabinet')!.data!.price).toBe(136.64);
+    // The wrong price isn't a price move.
+    const o = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options[0];
+    expect(o.priceHistory.map((p) => p.value)).toEqual([136.64]);
+    expect(o.priceChange).toBeUndefined();
+    // Saying the same again changes nothing.
+    expect(s.correctOption(nb.id, c.id, { price: 136.64 }).changed).toEqual([]);
+  });
+
+  it('keeps a newer price a later search saw over the price in the option\'s own title', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Guitar' }).id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'url', label: 'Product', type: 'url', role: 'link' },
+    ]);
+    const url = 'https://shop.example/guitar-1';
+    const g = s.upsertOption(nb.id, { title: 'Example acoustic-electric, $279.99, in stock', by: 'agent:x', runId: 'r1', data: { price: 279.99, url } }).entry;
+    // A later search finds the same guitar (same link) at a new price.
+    s.upsertOption(nb.id, { title: 'Example acoustic-electric', by: 'agent:x', runId: 'r2', data: { price: 299.99, url } });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'Example')!.data).toEqual({ price: 299.99, url });
+    // Overwritten by the title before this fix: restored from the later search.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ price: 279.99, url }), g.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, 'Example')!.data).toEqual({ price: 299.99, url });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+});
+
+describe('archiving and deleting a notebook', () => {
+  it('archives out of lists (kept whole, restorable) and deletes everything in it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const keep = s.create({ title: 'Keep' });
+    const old = s.setFields(s.create({ title: 'Old search', cadence: '0 7 * * *' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const o = s.upsertOption(old.id, { title: 'A thing', by: 'agent:x', runId: 'r1', data: { price: 10 } }).entry;
+    s.recordSearch(old.id, 'x', 'r1', 1);
+
+    s.archive(old.id);
+    expect(s.list().map((n) => n.id)).toEqual([keep.id]);
+    expect(s.list({ status: 'active' }).map((n) => n.id)).toEqual([keep.id]);
+    expect(s.list({ archived: 'only' }).map((n) => n.id)).toEqual([old.id]);
+    expect(s.list({ archived: 'include' })).toHaveLength(2);
+    expect(s.get(old.id)!.archivedAt).toEqual(expect.any(String));
+    expect(s.entries(old.id)).toHaveLength(1); // nothing deleted
+    s.unarchive(old.id);
+    expect(s.get(old.id)!.archivedAt).toBeUndefined();
+    expect(s.list()).toHaveLength(2);
+
+    expect(s.delete(old.id)).toEqual({ entries: 1 });
+    expect(s.get(old.id)).toBeUndefined();
+    const db = runs.databaseHandle();
+    for (const t of ['notebook_entries', 'notebook_sightings', 'notebook_searches']) {
+      expect((db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE notebook_id = ?`).get(old.id) as { n: number }).n).toBe(0);
+    }
+    expect(s.sightings(o.id)).toEqual([]);
+    expect(s.delete(old.id)).toBeUndefined();
+    expect(s.list().map((n) => n.id)).toEqual([keep.id]);
+  });
+});
+
+describe('numbers a source states (groundFacts)', () => {
+  it('reads numbers the ways people write them', () => {
+    const n = numbersInText('$4,023 · 157k mi · 4.9k OBO · $1.2M revenue · 18 million users · 136.64 · 125-175k miles · two hooks');
+    for (const x of [4023, 157000, 4900, 1200000, 18000000, 136.64, 125000, 175000, 2]) expect(n).toContain(x);
+  });
+  it('keeps numbers the output states (rounded is fine), drops the rest, and keeps text', () => {
+    const out = 'Zeus & Ruta wall cabinet, 24 in wide, two hooks, MDF. Target. Around 157k miles on the other one; $4.9k.';
+    const g = groundFacts({ price: 4023, width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF', range: { min: 20, max: 24 }, src: { value: 239, source: 'https://x.example' } }, out);
+    expect(g.data).toEqual({ width: 24, hooks: 2, miles: 156870, alt: '4.9k', material: 'MDF' });
+    expect(g.dropped.map((d) => d.key).sort()).toEqual(['price', 'range', 'src']);
+  });
+});
+
+describe("an option's listing link and its photo", () => {
+  it('uses a link field, else any fact holding a web address', () => {
+    const f = (o: object) => ({ label: 'x', ...o }) as never;
+    expect(optionLink([f({ key: 'u', type: 'url', role: 'link' }), f({ key: 'a', type: 'text' })], { u: 'https://a.example/1', a: 'https://b.example/2' })).toBe('https://a.example/1');
+    expect(optionLink([f({ key: 'avail', type: 'text' }), f({ key: 'p', type: 'url' })], { avail: 'https://shop.example/p/1', p: 'https://c.example/3' })).toBe('https://c.example/3');
+    expect(optionLink([f({ key: 'avail', type: 'text' })], { avail: ' https://shop.example/p/1 ' })).toBe('https://shop.example/p/1');
+    expect(optionLink([f({ key: 'avail', type: 'text' })], { avail: 'In stock' })).toBeUndefined();
+  });
+
+  it('tries a listing photo even with a drawing; a failed try keeps the drawing and is not repeated; a photo replaces it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Cabinet' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'availability', label: 'Availability', type: 'text' }]);
+    const c = s.upsertOption(nb.id, { title: 'Example cabinet', by: 'agent:x', data: { price: 90, availability: 'https://shop.example/p/A-1' } }).entry;
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options[0].link).toBe('https://shop.example/p/A-1');
+    s.savePhoto(nb.id, c.id, 'illustration', { contentType: 'image/svg+xml', bytes: new Uint8Array([1]) }, { kind: 'illustration' });
+    expect(s.photoCandidates(nb.id).map((x) => x.link)).toEqual(['https://shop.example/p/A-1']);
+
+    s.savePhoto(nb.id, c.id, 'https://shop.example/p/A-1', { error: 'blocked' });
+    expect(s.photoKind(c.id)).toBe('illustration'); // still has its drawing
+    expect(s.photoCandidates(nb.id)).toEqual([]); // and that address isn't tried again
+
+    s.savePhoto(nb.id, c.id, 'https://shop.example/p/A-1', { contentType: 'image/jpeg', bytes: new Uint8Array([9]) });
+    expect(s.photoKind(c.id)).toBe('listing');
+    expect(s.photoCandidates(nb.id)).toEqual([]);
+  });
+});
+
+describe('shortName', () => {
+  it('cuts at a comma only when what follows is facts', () => {
+    expect(shortName('2010 Toyota RAV4 Sport 4WD, 149,652 mi, $4,023, Lynnwood')).toBe('2010 Toyota RAV4 Sport 4WD');
+    expect(shortName('Principal Engineer, Ramp')).toBe('Principal Engineer, Ramp');
+    expect(shortName('Ibanez Talman TCY621 acoustic-electric - $279.99')).toBe('Ibanez Talman TCY621 acoustic-electric');
+    expect(shortName('Plain title')).toBe('Plain title');
+  });
+});
+
+describe('how a notebook was made', () => {
+  it('collects the runs that filed into it, their sub-runs (nested), and what each left', async () => {
+    const { notebookLineage } = await import('./notebook-lineage.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-lineage-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 7, 12, m)).toISOString();
+    const run = (id: string, agentName: string, m: number, parent?: [string, string]) => runs.createRun({
+      id, agentName, status: 'completed', startedAt: at(m), completedAt: at(m + 1), triggeredBy: 'dashboard',
+      ...(parent ? { parentRunId: parent[0], parentNodeId: parent[1] } : {}),
+    } as never);
+    run('sweep-1', 'car-sweep', 0);
+    run('cl-a', 'craigslist-search', 1, ['sweep-1', 'seattle']);
+    run('cl-b', 'craigslist-search', 2, ['sweep-1', 'portland']);
+    run('geo', 'geocode', 3, ['cl-b', 'where']);
+    run('sweep-2', 'car-sweep', 30);
+    run('other', 'unrelated', 40);
+    s.recordSearch(nb.id, 'car-sweep', 'sweep-1', 2, at(5));
+    const a = s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-1', data: { price: 4023 } }).entry;
+    s.upsertOption(nb.id, { title: 'Forester', by: 'agent:car-sweep', runId: 'sweep-1' });
+    s.addEntry(nb.id, { kind: 'note', title: 'One site blocked', by: 'agent:car-sweep', runId: 'sweep-1' });
+    s.recordSearch(nb.id, 'car-sweep', 'sweep-2', 1, at(35));
+    s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-2', data: { price: 3900 } }); // seen again
+    expect(a.id).toBeTruthy();
+
+    const l = notebookLineage(s, runs, nb.id);
+    expect(l.feeders.map((f) => f.run.id)).toEqual(['sweep-2', 'sweep-1']); // newest first; 'other' never filed
+    const first = l.feeders[1];
+    expect(first).toMatchObject({ found: 2, kinds: { option: 2, note: 1 } });
+    expect(first.subRuns.map((r) => [r.id, r.parentRunId, r.parentNodeId])).toEqual([
+      ['cl-a', 'sweep-1', 'seattle'], ['cl-b', 'sweep-1', 'portland'], ['geo', 'cl-b', 'where'],
+    ]);
+    expect(l.feeders[0]).toMatchObject({ found: 1, seenAgain: 1 });
+    expect(notebookLineage(s, runs, nb.id, 1)).toMatchObject({ more: 1 });
+
+    // A run's page: which notebooks it (or the run that started it) filed into.
+    expect(s.notebooksForRuns(['geo', 'cl-b', 'sweep-1'])).toEqual([{ notebookId: 'car', title: 'Car', runId: 'sweep-1' }]);
+    expect(s.notebooksForRuns(['other'])).toEqual([]);
+  });
+});
+
+describe('passes', () => {
+  it('a pass groups its runs (in order, failed ones too); runs from before passes are one-run passes', async () => {
+    const { notebookLineage } = await import('./notebook-lineage.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-passes-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Car' });
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 7, 12, m)).toISOString();
+    const run = (id: string, agentName: string, m: number, status = 'completed') => runs.createRun({ id, agentName, status, startedAt: at(m), completedAt: at(m + 1), triggeredBy: 'dashboard' } as never);
+    run('old', 'car-sweep', 0);
+    s.recordSearch(nb.id, 'car-sweep', 'old', 2, at(1));
+    run('p1', 'car-sweep', 10);
+    run('p2', 'craigslist-search', 12, 'failed');
+    const pass = s.startPass(nb.id, 'pipeline', at(10));
+    s.addRunToPass(pass, 'p1');
+    s.addRunToPass(pass, 'p2');
+    s.addRunToPass(pass, 'p1'); // once
+    s.recordSearch(nb.id, 'car-sweep', 'p1', 3, at(11));
+    s.finishPass(pass, '3 new entries · car-sweep: 3 new · craigslist-search: failed', at(13));
+    expect(s.passes(nb.id)).toEqual([expect.objectContaining({ id: pass, kind: 'pipeline', runIds: ['p1', 'p2'], finishedAt: at(13), note: expect.stringContaining('3 new') })]);
+
+    const l = notebookLineage(s, runs, nb.id);
+    expect(l.passes.map((p) => [p.kind, p.feeders.map((f) => f.run.id)])).toEqual([['pipeline', ['p1', 'p2']], ['earlier', ['old']]]);
+    expect(l.passes[0].feeders[1]).toMatchObject({ run: { status: 'failed' }, kinds: {} }); // a failed run with nothing filed still shows in its pass
+    expect(l.passes[1]).toMatchObject({ id: 'run:old' });
+  });
+});
+
+describe('fit score', () => {
+  it('a score field (inferred from fit/icp_score) ranks options by fit instead of price', async () => {
+    const { rankBy, rankOptions } = await import('./notebooks.js');
+    const fields = cleanFields([
+      { key: 'company', type: 'text', role: 'org' }, { key: 'revenue', type: 'money', range: true },
+      { key: 'employees', type: 'number' }, { key: 'icp_score', type: 'number' },
+    ]);
+    expect(fields.find((f) => f.key === 'icp_score')).toMatchObject({ role: 'score', better: 'higher' });
+    expect(fields.find((f) => f.key === 'revenue')!.role).toBeUndefined(); // revenue isn't a price
+    expect(cleanFields([{ key: 'rating', type: 'number' }])[0].role).toBe('measure');
+    expect(rankBy({ fields })).toMatchObject({ by: 'score', better: 'higher' });
+    expect(rankBy({ fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }] })).toMatchObject({ by: 'price', better: 'lower' });
+    const opts = [{ name: 'b', score: 61 }, { name: 'a', score: 88 }, { name: 'c' }, { name: 'd', score: 95, ruledOut: { reason: 'x' } }] as never[];
+    expect(rankOptions({ fields }, opts).map((o: { name: string }) => o.name)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('where a fact came from', () => {
+  it('a fact can carry its source and an estimate flag; re-stating it replaces them; bad links are dropped', async () => {
+    const { splitFacts } = await import('./notebooks.js');
+    expect(splitFacts({ revenue: { value: 2e7, source: 'https://news.example.com/a', estimate: true }, employees: 140, range: { min: 1, max: 2 } }))
+      .toEqual({ values: { revenue: 2e7, employees: 140, range: { min: 1, max: 2 } }, meta: { revenue: { source: 'https://news.example.com/a', estimate: true } } });
+    expect(splitFacts({ x: { value: 1, confidence: 'estimate' } }).meta).toEqual({ x: { estimate: true } });
+
+    dir = mkdtempSync(join(tmpdir(), 'sua-factmeta-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'website', label: 'Website', type: 'url', role: 'link' }, { key: 'revenue', label: 'Revenue', type: 'money', range: true },
+      { key: 'employees', label: 'Employees', type: 'number', role: 'measure' },
+    ]);
+    const first = s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: {
+      website: 'https://ledgerline.example.com',
+      revenue: { value: 2e7, source: 'https://news.example.com/series-b' },
+      employees: { value: 140, estimate: true, source: 'javascript:alert(1)' },
+    } }).entry;
+    expect(first.data).toMatchObject({ revenue: 2e7, employees: 140 });
+    expect(first.factMeta).toEqual({ revenue: { source: 'https://news.example.com/series-b' }, employees: { estimate: true } });
+    // Seen again: employees now confirmed (no flag), revenue not re-stated keeps its source.
+    const again = s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: { website: 'https://ledgerline.example.com', employees: { value: 150, source: 'https://ledgerline.example.com/careers' } } }).entry;
+    expect(again.data).toMatchObject({ revenue: 2e7, employees: 150 });
+    expect(s.entries(nb.id).find((e) => e.id === first.id)!.factMeta).toEqual({
+      revenue: { source: 'https://news.example.com/series-b' }, employees: { source: 'https://ledgerline.example.com/careers' },
+    });
+    // A plain re-statement clears its meta.
+    s.upsertOption(nb.id, { title: 'Ledgerline', by: 'agent:x', data: { website: 'https://ledgerline.example.com', revenue: 2.1e7 } });
+    expect(s.entries(nb.id).find((e) => e.id === first.id)!.factMeta).toEqual({ employees: { source: 'https://ledgerline.example.com/careers' } });
+    // The view carries it to the widgets.
+    const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options[0];
+    expect(v.factMeta).toEqual({ employees: { source: 'https://ledgerline.example.com/careers' } });
+  });
+});
+
+describe("an option's text vs its facts", () => {
+  it('a link the text cites is not a mix-up and never replaces the option\'s own link; numbers still are', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'careers', label: 'Careers', type: 'url', role: 'link' },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' }, { key: 'tier', label: 'Tier', type: 'text' },
+    ]);
+    const a = s.upsertOption(nb.id, {
+      title: 'Capital: Postgres migration planned', by: 'agent:x',
+      body: 'Tier 2 (76).\n\n"an active Oracle-to-PostgreSQL migration" (https://jobs.lever.co/capital/2b44)',
+      data: { company: 'Capital', careers: 'https://jobs.lever.co/capital', fit: 76, tier: 'Tier 2' },
+    }).entry;
+    // The page's repair leaves it alone, and its facts stay whole.
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    expect(s.findOption(nb.id, 'Capital')!.data).toEqual({ company: 'Capital', careers: 'https://jobs.lever.co/capital', fit: 76, tier: 'Tier 2' });
+    // Setup giving facts: the cited post doesn't take over the careers link.
+    s.setOptionFacts(nb.id, a.id, { fit: 80 });
+    expect(s.findOption(nb.id, 'Capital')!.data).toMatchObject({ careers: 'https://jobs.lever.co/capital', fit: 80 });
+    // No link of its own yet: the text's link fills in.
+    const b = s.addEntry(nb.id, { kind: 'option', title: 'Globex', body: 'See https://globex.example.com/jobs', by: 'agent:x' });
+    expect(s.setOptionFacts(nb.id, b.id, { company: 'Globex' })!.data).toEqual({ company: 'Globex', careers: 'https://globex.example.com/jobs' });
+  });
+});
+
+describe('the words that back a fact', () => {
+  it('keeps a quote; only trusted (code-filed) facts may say it was checked; short quotes are dropped', async () => {
+    const { splitFacts } = await import('./notebooks.js');
+    const fact = { fit: { value: 88, source: 'https://jobs.example.com/1', quote: '  leading our   Kafka migration ', checked: true } };
+    expect(splitFacts(fact).meta.fit).toEqual({ source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration' });
+    expect(splitFacts(fact, { trusted: true }).meta.fit).toMatchObject({ checked: true });
+
+    dir = mkdtempSync(join(tmpdir(), 'sua-quotes-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Accounts' }).id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const a = s.upsertOption(nb.id, { title: 'Acme', by: 'agent:x', data: { company: 'Acme', ...fact }, trustedFacts: true }).entry;
+    expect(a.factMeta).toEqual({ fit: { source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration', checked: true } });
+    // A model can't claim the check.
+    const b = s.upsertOption(nb.id, { title: 'Globex', by: 'agent:keeper', data: { company: 'Globex', ...fact } }).entry;
+    expect(b.factMeta!.fit.checked).toBeUndefined();
+    // Too short to prove anything: no quote kept.
+    const c = s.upsertOption(nb.id, { title: 'Initech', by: 'agent:x', data: { company: 'Initech', fit: { value: 60, quote: 'Kafka' } }, trustedFacts: true }).entry;
+    expect(c.factMeta).toBeUndefined();
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options.find((o) => o.name === 'Acme')!.factMeta!.fit.quote).toBe('leading our Kafka migration');
+  });
+});
+
+describe('the shortlist as a spreadsheet', () => {
+  it('ranks best first, one column per field, with sources, the quote, and formula-safe text', async () => {
+    const { notebookCsv } = await import('./notebooks.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-csv-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    let nb = s.setFields(s.create({ title: 'Accounts' }).id, [
+      { key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'revenue', label: 'Revenue', type: 'money', range: true },
+      { key: 'fit', label: 'Fit', type: 'number', role: 'score' },
+    ]);
+    nb = s.setChecks(nb.id, ['Talked to a customer', 'Pricing fits']);
+    s.upsertOption(nb.id, { title: 'Globex', by: 'agent:x', data: { company: 'Globex', fit: 70 } });
+    const acme = s.upsertOption(nb.id, { title: 'Acme, "the" best', by: 'agent:x', trustedFacts: true, data: {
+      company: '=HYPERLINK("http://evil")', revenue: { value: { min: 2e7, max: 3e7 }, estimate: true },
+      fit: { value: 91, source: 'https://jobs.example.com/1', quote: 'leading our Kafka migration', checked: true },
+    } }).entry;
+    s.checkOption(nb.id, acme.id, 'Pricing fits', true);
+    const out = s.upsertOption(nb.id, { title: 'Initech', by: 'agent:x', data: { company: 'Initech', fit: 10 } }).entry;
+    s.ruleOut(nb.id, out.id, 'Unfit (10): sells printers');
+    const options = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options;
+
+    const csv = notebookCsv(s.get(nb.id)!, options);
+    expect(csv.startsWith('﻿')).toBe(true);
+    const lines = csv.slice(1).trimEnd().split('\r\n');
+    expect(lines[0]).toBe('Rank,Option,Stage,Company,Revenue,Fit,Estimates,Sources,Quote,Quote source,Quote checked,Checks done,First seen,Last seen');
+    expect(lines).toHaveLength(3); // ruled out left out
+    expect(lines[1]).toContain(`1,"Acme, ""the"" best",,"'=HYPERLINK(""http://evil"")",20000000-30000000,91,Revenue,Fit: https://jobs.example.com/1,leading our Kafka migration,https://jobs.example.com/1,yes,1 of 2,`);
+    expect(lines[2].startsWith('2,Globex,,Globex,,70,,,,,,0 of 2,')).toBe(true);
+
+    const all = notebookCsv(s.get(nb.id)!, options, { ruledOut: true }).slice(1).trimEnd().split('\r\n');
+    expect(all[0].endsWith(',Ruled out')).toBe(true);
+    expect(all[3]).toMatch(/^,Initech,.*,Unfit \(10\): sells printers$/);
+  });
+});
+
+describe('notebook facet labels', () => {
+  it('keeps short labels per field, merges new ones without changing old, trims long ones, and records a failed try', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbf-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Comp set' });
+    expect(s.get(nb.id)!.facets).toBeUndefined();
+    s.setFacetLabels(nb.id, 'value', { 'a long sentence': 'Office of the CFO', 'another one': 'Finance-led FP&A' }, '2026-10-09T00:00:00.000Z');
+    s.setFacetLabels(nb.id, 'value', { 'a long sentence': 'Changed', 'a third': '  A label far longer than twenty-four characters ' });
+    const f = s.get(nb.id)!.facets!.value;
+    expect(f.labels).toEqual({ 'a long sentence': 'Office of the CFO', 'another one': 'Finance-led FP&A', 'a third': 'A label far longer than' });
+    s.markFacetsFailed(nb.id, 'why', '2026-10-09T01:00:00.000Z');
+    expect(s.get(nb.id)!.facets!.why).toMatchObject({ labels: {}, failedAt: '2026-10-09T01:00:00.000Z' });
+  });
+});
+
+describe('options that are organizations match by name', () => {
+  const setup = () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nb-org-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    return NotebookStore.fromHandle(runs.databaseHandle());
+  };
+
+  it('a comp set: "Motive" with its facts updates "Motive: planning and forecasting", keeping what it had', () => {
+    const s = setup();
+    const nb = s.create({ title: 'Comp set' });
+    s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'employees', label: 'Employees', type: 'number', role: 'measure' }, { key: 'founded', label: 'Founded', type: 'number' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const motive = s.upsertOption(nb.id, { title: 'Motive: planning and forecasting finance hiring', by: 'you', data: { company: 'Motive', fit: 97 } }).entry;
+    const r = s.upsertOption(nb.id, { title: 'Motive', by: 'agent:firmographic-research', runId: 'run-1', data: { company: 'Motive', employees: { value: 4100, source: 'https://example.com/motive' }, founded: 2013 } });
+    expect(r.seenAgain).toBe(true);
+    expect(r.entry.id).toBe(motive.id);
+    const kept = s.findOption(nb.id, motive.id)!;
+    expect(kept.data).toEqual({ company: 'Motive', fit: 97, employees: 4100, founded: 2013 });
+    expect(kept.factMeta?.employees?.source).toBe('https://example.com/motive');
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(1);
+    // Without the company fact, the title's lead name ("Motive — …") still says which.
+    expect(s.upsertOption(nb.id, { title: 'Motive — 2025 update', by: 'you', data: { founded: 2013 } }).seenAgain).toBe(true);
+  });
+
+  it('never for listings or jobs, or when two options share the name', () => {
+    const s = setup();
+    // Jobs: the title is the role, not the company.
+    const jobs = s.create({ title: 'Jobs' });
+    s.setFields(jobs.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    s.upsertOption(jobs.id, { title: 'Staff Engineer, Payments', by: 'you', data: { company: 'Stripe' } });
+    expect(s.upsertOption(jobs.id, { title: 'Senior Engineer, Billing', by: 'you', data: { company: 'Stripe' } }).seenAgain).toBe(false);
+    // Listings: no org field at all.
+    const cars = s.create({ title: 'Cars' });
+    s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X', by: 'you', data: { price: 3495 } });
+    expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X, Everett', by: 'you', data: { price: 4100 } }).seenAgain).toBe(false);
+    // Two options for the same company: ambiguous, so a new one.
+    const comps = s.create({ title: 'Comps 2' });
+    s.setFields(comps.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    s.upsertOption(comps.id, { title: 'Acme: planning', by: 'you', data: { company: 'Acme' } });
+    s.upsertOption(comps.id, { title: 'Acme: close', by: 'you', data: { company: 'Acme', x: 1 } as never, fingerprint: 'acme-close' });
+    expect(s.findOrgOption(comps.id, { title: 'Acme', data: { company: 'Acme' } })).toBeUndefined();
   });
 });

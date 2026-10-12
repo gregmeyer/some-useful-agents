@@ -118,6 +118,10 @@ export const agentNodeSchema = z.object({
   prompt: z.string().optional(),
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
+  // If this node fails, the run carries on: it's recorded as failed, nodes
+  // that depend on it get a note instead of its output, and the run can still
+  // complete. For independent sources (one site of a multi-site search).
+  optional: z.boolean().optional(),
   allowedTools: z.array(z.string()).optional(),
   // Builtin tool ids an llm-prompt node's model may CALL mid-generation (via the
   // OpenAI-compatible tool loop), e.g. ['web-scrape','web-fetch']. Distinct from

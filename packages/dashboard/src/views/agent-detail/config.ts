@@ -312,7 +312,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
             <span class="settings-bar__count" data-settings-count aria-live="polite"></span>
             <button type="button" class="btn btn--ghost btn--sm" data-settings-discard>Discard</button>
             <button type="button" class="btn btn--sm" data-settings-review aria-expanded="false">Review</button>
-            <button type="submit" form="agent-settings" class="btn btn--primary btn--sm" data-settings-save data-next-version="${String(agent.version + 1)}">Save</button>
+            <button type="submit" form="agent-settings" class="btn btn--primary btn--sm" data-settings-save data-next-version="${String(args.nextVersion ?? agent.version + 1)}">Save</button>
           </div>
         </div>
       </div>

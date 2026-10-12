@@ -1,17 +1,32 @@
 /**
- * A notebook's widgets (notebooks step 2): its default layout as an A2UI view
- * bound to the notebook's data (`/notebook/...`, the same shape for every
- * notebook), so the same components draw a car search, a job hunt or a
- * shopping list, and can later be arranged or placed on a board.
+ * A notebook's widgets: its default layout as an A2UI view bound to the
+ * notebook's data (`/notebook/...`, the same shape for every notebook), so the
+ * same components draw a car search, a job hunt or a shopping list, and can
+ * later be arranged or placed on a board. The layout follows the "notebook as
+ * a story" design (canvas artboard 23):
  *
- * The layout: a one-line summary, a stats row, the funnel beside the market
- * map (price against the main measure, with the limits shaded), and the
- * shortlist (cards or a table) with Move / Rule out.
+ *   Where it stands + stats (2/3)  | Done when (ring + steps, 1/3)
+ *   Where they sit (map, 2/3)      | How far they got (funnel, 1/3)
+ *   Shortlist (cards / table)
+ *   Before you decide (1/3)        | How we got here (timeline, 2/3)
+ *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
-import {
+import { rankBy, rankOptions,
   notebookViewData, cleanData, fieldNumber, validateViewComponents, viewToMessages,
-  type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData, type NotebookRange, type ViewComponent,
+  type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
+  type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
+
+/** What the widgets read from the store beyond the view data: the searches. */
+export interface NotebookWidgetHistory extends NotebookViewHistory {
+  searches?(notebookId: string, limit?: number): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }>;
+  /** Recent runs of an agent (to show the ones that failed, which leave nothing in the notebook). */
+  recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
+  /** The notebook's passes (its pipeline, steps and conversation runs), to tell its own failed runs from others. */
+  passes?(notebookId: string, limit?: number): Array<{ runIds: string[] }>;
+  /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
+  notebooksFedBy?(agentId: string): string[];
+}
 
 /** Words a limit uses for a field's unit ("mi" → "miles"). */
 const UNIT_WORDS: Record<string, string[]> = {
@@ -21,64 +36,259 @@ const UNIT_WORDS: Record<string, string[]> = {
   min: ['min', 'mins', 'minute', 'minutes', 'commute'],
 };
 
-/**
- * The ranges a notebook's limits set for its price and main measure, read from
- * their text: "$3k-$6k budget" → price 3000–6000, "130k-190k miles" → measure.
- * The latest limit that names a range wins; a limit with one number isn't a range.
- */
-export function limitBands(nb: Pick<Notebook, 'params' | 'fields'>): { price?: NotebookRange; measure?: NotebookRange } {
-  const out: { price?: NotebookRange; measure?: NotebookRange } = {};
+type Dim = 'price' | 'measure';
+
+/** Each limit that names a range for the price or the main measure, in order. */
+function limitRanges(nb: Pick<Notebook, 'params' | 'fields'>): Array<{ param: string; dim: Dim; range: NotebookRange }> {
   const range = (text: string): NotebookRange | undefined => {
     const v = cleanData({ r: text }, [{ key: 'r', label: 'r', type: 'number', range: true }]).r;
     return v && typeof v === 'object' && v.max > v.min ? v : undefined;
   };
   const measure = nb.fields.find((f) => f.role === 'measure');
   const words = measure?.unit ? (UNIT_WORDS[measure.unit.toLowerCase()] ?? [measure.unit.toLowerCase()]) : [];
+  const out: Array<{ param: string; dim: Dim; range: NotebookRange }> = [];
   for (const p of nb.params) {
     const lower = p.toLowerCase();
     const r = range(p);
     if (!r) continue;
-    if (/\$|budget|price|salary|pay/.test(lower)) out.price = r;
-    else if (words.some((w) => lower.includes(w))) out.measure = r;
+    // A year range ("2005-2013 model years") is neither.
+    if (r.min >= 1900 && r.max <= 2100 && /year/.test(lower)) continue;
+    const measureWords = words.some((w) => lower.includes(w));
+    const priceWords = /\$|budget|price|salary|pay|rent/.test(lower);
+    // A bare range with no unit ("3000-8000") is about the price.
+    const bare = !measureWords && !/[a-z]{3,}/.test(lower.replace(/\d+\s*k\b/g, ''));
+    if (priceWords || bare) out.push({ param: p, dim: 'price', range: r });
+    else if (measureWords) out.push({ param: p, dim: 'measure', range: r });
   }
   return out;
 }
 
+/**
+ * The ranges a notebook's limits set for its price and main measure, read from
+ * their text: "$3k-$6k budget" → price 3000–6000, "130k-190k miles" → measure.
+ * The latest limit that names a range wins.
+ */
+export function limitBands(nb: Pick<Notebook, 'params' | 'fields'>): { price?: NotebookRange; measure?: NotebookRange } {
+  const out: { price?: NotebookRange; measure?: NotebookRange } = {};
+  for (const l of limitRanges(nb)) out[l.dim] = l.range;
+  return out;
+}
+
+/** The limits as chips; ranges for the same thing that disagree are flagged. */
+export function limitChips(nb: Pick<Notebook, 'params' | 'fields'>): { chips: Array<{ text: string; tone?: 'warn'; title?: string }>; disagree: number } {
+  const ranges = limitRanges(nb);
+  const same = (a: NotebookRange, b: NotebookRange) => a.min === b.min && a.max === b.max;
+  const conflicting = new Map<string, string>();
+  for (const dim of ['price', 'measure'] as const) {
+    const rs = ranges.filter((r) => r.dim === dim);
+    for (const r of rs) {
+      const other = rs.find((o) => o !== r && !same(o.range, r.range));
+      if (other) conflicting.set(r.param, other.param);
+    }
+  }
+  const pairs = new Set([...conflicting.entries()].map(([a, b]) => [a, b].sort().join('|')));
+  return {
+    chips: nb.params.map((p) => (conflicting.has(p)
+      ? { text: `${p} ⚠`, tone: 'warn' as const, title: `Disagrees with "${conflicting.get(p)}". The latest one is used; tell sua which is right.` }
+      : { text: p })),
+    disagree: pairs.size,
+  };
+}
+
+const money = (f: NotebookField | undefined, n: number | undefined) => (n === undefined ? '' : f?.type === 'money' ? `$${Math.round(n).toLocaleString('en-US')}` : n.toLocaleString('en-US'));
+
+/** "fit 86", "$4,023": an option's ranking value, as the notebook says it. */
+function rankText(rank: ReturnType<typeof rankBy>, o: NotebookViewOption | undefined): string {
+  if (!o) return '';
+  const v = rank.by === 'score' ? o.score : o.price;
+  if (v === undefined) return '';
+  return rank.by === 'score' ? `${(rank.field?.label ?? 'fit').toLowerCase()} ${v.toLocaleString('en-US')}` : money(rank.field, v);
+}
+
+const fmtAge = (iso: string, now: number) => {
+  const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60000));
+  return m < 60 ? `${String(m)}m ago` : m < 48 * 60 ? `${String(Math.round(m / 60))}h ago` : `${String(Math.round(m / 1440))}d ago`;
+};
+
 export interface NotebookWidgetData extends NotebookViewData {
-  notebook: NotebookViewData['notebook'] & {
+  notebook: Omit<NotebookViewData['notebook'], 'options'> & {
+    /**
+     * Each option with its own page's address (`page`), for the chart and the
+     * shortlist to link, and `facets`: the short label of each long fact it has
+     * (lib/notebook-facets.ts), for the shortlist's filter chips.
+     */
+    options: Array<NotebookViewOption & { page: string; facets?: Record<string, string> }>;
     bands: { price?: NotebookRange; measure?: NotebookRange };
     summary: string;
+    next: string;
+    statItems: Array<{ label: string; value: string; tone?: string; sub?: string }>;
+    steps: Array<{ text: string; met: boolean; note?: string }>;
+    limitChips: Array<{ text: string; tone?: string; title?: string }>;
+    limitsNote: string;
+    coverage: { sources: NotebookSearchSource[]; when: string };
+    checklist: Array<{ id: string; title: string; items: Array<{ text: string; done: boolean }> }>;
+    timeline: Array<{ at: string; title: string; body?: string; kind?: string; who?: string; tag?: string; link?: string; linkText?: string; faded?: boolean }>;
+    shortlistNote: string;
+    /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
 }
 
-/** The notebook's data plus what the default widgets show: limit bands, a summary line, stats. */
-export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookViewHistory): NotebookWidgetData {
+/** Where an option's own page is. */
+export function notebookOptionPath(notebookId: string, entryId: string): string {
+  return `/notebooks/${encodeURIComponent(notebookId)}/entries/${encodeURIComponent(entryId)}`;
+}
+
+/** A fact's value as facets are keyed: its text, spaces collapsed. */
+export const facetValueKey = (v: unknown): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+
+/**
+ * An option's short labels for the notebook's long facts (undefined when
+ * none). A value not labelled yet reads '' (no chip) rather than its sentence.
+ */
+export function optionFacets(nb: Pick<Notebook, 'facets'>, o: Pick<NotebookViewOption, 'fields'>): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const [key, f] of Object.entries(nb.facets ?? {})) {
+    const value = facetValueKey(o.fields[key]);
+    if (value && Object.keys(f.labels).length) out[key] = f.labels[value] ?? '';
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** The checks for options: the notebook's own, else "Still listed" plus the unmet done-whens. */
+export function checksFor(nb: Pick<Notebook, 'checks' | 'criteria'>): string[] {
+  if (nb.checks.length) return nb.checks;
+  return ['Still listed', ...nb.criteria.filter((c) => !c.met && !/decid/i.test(c.text)).map((c) => c.text.charAt(0).toUpperCase() + c.text.slice(1))].slice(0, 5);
+}
+
+/** The notebook's data plus what the default widgets show. */
+export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, now = Date.now()): NotebookWidgetData {
   const { notebook: v } = notebookViewData(nb, entries, history);
   const priceF = nb.fields.find((f) => f.role === 'price');
-  const better = priceF?.better ?? 'lower';
-  const active = v.options.filter((o) => !o.ruledOut);
-  const priced = active.filter((o) => o.price !== undefined).sort((a, b) => (better === 'lower' ? a.price! - b.price! : b.price! - a.price!));
-  const best = priced[0];
-  const money = (f: NotebookField | undefined, n: number | undefined) => (n === undefined ? '' : f?.type === 'money' ? `$${Math.round(n).toLocaleString('en-US')}` : n.toLocaleString('en-US'));
+  // Best first by the notebook's score field (how well it fits) when it has one, else by price.
+  const rank = rankBy(nb);
+  const better = rank.better;
+  const active = rankOptions(nb, v.options);
+  const best = active.find((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
   const furthest = [...v.funnel].reverse().find((s) => s.here > 0)?.stage ?? '';
   const nextCriterion = v.criteria.find((c) => !c.met)?.text;
+  const searches = history?.searches?.(nb.id, 20) ?? [];
+  const checks = checksFor(nb);
+  const top = active.slice(0, 2);
+  const checkedTop = top.reduce((n, o) => n + (o.checked.length >= checks.length && checks.length ? 1 : 0), 0);
+
+  const second = active.filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined)[1];
   const summary = active.length === 0
     ? (v.options.length ? `All ${String(v.options.length)} options are ruled out.` : 'No options yet. Ask sua to search, or tell it about one you saw.')
     : [
-      `**${String(active.length)} in the running**${v.ruledOutCount ? `, ${String(v.ruledOutCount)} ruled out` : ''}.`,
-      best ? `Best ${better === 'higher' ? 'pay' : 'price'}: **${money(priceF, fieldNumber(best.fields[priceF!.key]) ?? best.price)}**, ${best.title.split(',')[0]}.` : '',
+      `**${String(active.length)} in the running**${searches.length ? ` after ${String(searches.length)} search${searches.length === 1 ? '' : 'es'}` : ''}${v.ruledOutCount ? `, ${String(v.ruledOutCount)} ruled out` : ''}.`,
+      best ? `The ${rank.by === 'score' ? 'best fit' : 'best lead'} is the **${best.name}**: ${rankText(rank, best)}${rank.by === 'score' && best.price !== undefined ? `, ${money(priceF, best.price)}` : ''}${best.measure !== undefined ? `, ${best.measure.toLocaleString('en-US')} ${(() => { const mf = nb.fields.find((f) => f.role === 'measure'); return mf?.unit ?? (mf?.label ?? '').toLowerCase(); })()}`.trimEnd() : ''}${best.place ? `, in ${best.place}` : ''}.` : '',
+      second && best && rankText(rank, second)
+        ? (rank.by === 'score' ? `Next best: ${second.name} (${rankText(rank, second)}).` : `Next best: ${second.name} at ${rankText(rank, second)}.`)
+        : '',
       furthest && furthest !== v.stages[0] ? `Furthest along: ${furthest}.` : '',
-      nextCriterion ? `Next: ${nextCriterion}.` : '',
     ].filter(Boolean).join(' ');
+  const next = active.length === 0
+    ? 'ask sua to search again, or bring one back.'
+    : top.length && checks.length && checkedTop < top.length
+      ? `check ${checks.slice(0, 2).map((c) => c.toLowerCase()).join(' and ')} on the top ${top.length === 1 ? 'one' : 'two'} before you contact anyone.`
+      : nextCriterion ? `${nextCriterion}.` : 'decide.';
+
+  const { chips, disagree } = limitChips(nb);
+  const latestWithSources = searches.find((s) => s.sources.length);
+  const outOptions = v.options.filter((o) => o.ruledOut);
+
+  const timeline: NotebookWidgetData['notebook']['timeline'] = [];
+  for (const s of searches) {
+    timeline.push({
+      at: s.at, kind: 'search', who: s.agentId,
+      title: s.found ? `Search returned ${String(s.found)} option${s.found === 1 ? '' : 's'}` : 'Search returned no options',
+      ...(s.sources.length ? { body: s.sources.map((x) => `${x.name} ${x.status === 'found' ? String(x.found) : x.status}`).join(' · ') } : {}),
+      ...(s.runId ? { link: `/runs/${encodeURIComponent(s.runId)}`, linkText: `run ${s.runId.slice(0, 8)}` } : {}),
+    });
+  }
+  // Runs from before searches were recorded: rebuilt from the options each run added.
+  const recorded = new Set(searches.map((s) => s.runId).filter(Boolean));
+  const byRun = new Map<string, { at: string; agent: string; options: number }>();
+  for (const e of entries) {
+    if (!e.runId || recorded.has(e.runId) || !e.by.startsWith('agent:')) continue;
+    const g = byRun.get(e.runId) ?? { at: e.createdAt, agent: e.by.slice('agent:'.length), options: 0 };
+    if (e.createdAt < g.at) g.at = e.createdAt;
+    if (e.kind === 'option') g.options++;
+    byRun.set(e.runId, g);
+  }
+  for (const [runId, g] of byRun) {
+    timeline.push({
+      at: g.at, kind: 'search', who: g.agent,
+      title: g.options ? `Search returned ${String(g.options)} option${g.options === 1 ? '' : 's'}` : 'Search added notes, no options',
+      link: `/runs/${encodeURIComponent(runId)}`, linkText: `run ${runId.slice(0, 8)}`,
+    });
+  }
+  // Runs of the agents that feed it that failed (they leave nothing in the
+  // notebook): ones run for this notebook, and any of an agent only this
+  // notebook uses. A shared agent's failures for another notebook aren't this one's.
+  if (history?.recentRuns && history.passes) {
+    const ours = new Set(history.passes(nb.id, 200).flatMap((p) => p.runIds));
+    const onlyOurs = (agentId: string) => !!history.notebooksFedBy && history.notebooksFedBy(agentId).every((id) => id === nb.id);
+    const feeders = new Set([...nb.pipeline, ...searches.map((s) => s.agentId), ...[...byRun.values()].map((g) => g.agent)]);
+    for (const agentId of feeders) {
+      for (const r of history.recentRuns(agentId)) {
+        if (r.status !== 'failed' || r.startedAt < nb.createdAt || !(ours.has(r.id) || onlyOurs(agentId))) continue;
+        timeline.push({
+          at: r.startedAt, kind: 'search', who: agentId, faded: true,
+          title: 'Search failed', ...(r.error ? { body: clip(r.error, 140) } : {}),
+          link: `/runs/${encodeURIComponent(r.id)}`, linkText: `run ${r.id.slice(0, 8)}`,
+        });
+      }
+    }
+  }
+  for (const o of outOptions) {
+    timeline.push(o.ruledOut!.gone
+      ? { at: o.ruledOut!.at, kind: 'out', title: `No longer available: ${o.name}`, faded: true }
+      : { at: o.ruledOut!.at, kind: 'out', title: `Ruled out: ${o.name}`, body: o.ruledOut!.reason });
+  }
+  for (const e of entries) {
+    if (e.kind === 'option') {
+      if (e.stage && e.stageAt && e.stage !== nb.stages[0] && !e.ruledOut) timeline.push({ at: e.stageAt, kind: 'move', title: `${shortOf(e.title)} → ${e.stage}` });
+      continue;
+    }
+    if (/^Met: /.test(e.title)) continue;
+    timeline.push({ at: e.createdAt, kind: e.kind, title: e.title, ...(e.body ? { body: clip(e.body, 150) } : {}), ...(e.runId ? { link: `/runs/${encodeURIComponent(e.runId)}`, linkText: `run ${e.runId.slice(0, 8)}` } : {}) });
+  }
+  timeline.push({ at: nb.createdAt, kind: 'decision', title: 'Notebook started', ...(nb.statement ? { body: nb.statement } : {}) });
+  timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+
   return {
     notebook: {
       ...v,
+      options: v.options.map((o) => {
+        const facets = optionFacets(nb, o);
+        return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
+      }),
       bands: limitBands(nb),
       summary,
+      next,
+      statItems: [
+        { label: 'in the running', value: String(active.length), tone: 'ok' },
+        rank.by === 'score'
+          ? { label: `best ${(rank.field?.label ?? 'fit').toLowerCase()}`, value: best?.score !== undefined ? best.score.toLocaleString('en-US') : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) }
+          : { label: `best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`, value: best ? money(priceF, best.price) : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) },
+        { label: 'furthest along', value: furthest || '—' },
+        { label: 'ruled out', value: String(v.ruledOutCount), ...(v.ruledOutCount ? { tone: 'warn' } : {}) },
+      ],
+      steps: v.criteria.map((c, i) => ({
+        text: c.text.charAt(0).toUpperCase() + c.text.slice(1), met: c.met,
+        ...(c.met ? {} : i === v.criteria.findIndex((x) => !x.met) && top.length ? { note: `start with the top ${top.length === 1 ? 'one' : 'two'}` } : {}),
+      })),
+      limitChips: chips,
+      limitsNote: disagree ? `${String(disagree)} disagree` : '',
+      coverage: { sources: latestWithSources?.sources ?? [], when: latestWithSources ? `last search · ${fmtAge(latestWithSources.at, now)}` : '' },
+      checklist: top.map((o, i) => ({ id: o.id, title: `#${String(i + 1)} · ${o.name}`, items: checks.map((c) => ({ text: c, done: o.checked.includes(c) })) })),
+      timeline: timeline.slice(0, 80),
+      shortlistNote: `ranked by ${(rank.field?.label ?? 'price').toLowerCase()}${better === 'higher' ? ', highest first' : ''}`,
       stats: {
         active: String(active.length),
-        best: best ? money(priceF, best.price) : '—',
+        best: best ? rankText(rank, best) || '—' : '—',
         bestLabel: `Best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`,
         furthest: furthest || '—',
         ruledOut: String(v.ruledOutCount),
@@ -87,57 +297,87 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   };
 }
 
-/** The default layout: what a notebook with options looks like as widgets. */
-export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages'>): ViewComponent[] {
+const shortOf = (title: string) => title.split(',')[0].trim();
+
+/** At most `n` characters, cut at a word, with "…". */
+function clip(text: string, n: number): string {
+  const s = text.replace(/\s+/g, ' ').trim();
+  if (s.length <= n) return s;
+  const cut = s.slice(0, n);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n * 0.6)).replace(/[,;:.\s]+$/, '')}…`;
+}
+
+/**
+ * What the shortlist can be filtered by: still listed or not, its stage, and
+ * the notebook's text facts (a seller, a body style). The grid shows a filter
+ * only when options differ on it, so listing every candidate is safe.
+ */
+export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'>): string[] {
+  const text = nb.fields.filter((f) => f.type === 'text' && f.role !== 'link' && f.role !== 'image').map((f) => f.key);
+  return ['seen', ...(nb.stages.length ? ['stage'] : []), ...text].slice(0, 8);
+}
+
+/** The default layout (see the module comment). */
+export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' | 'steps'>): ViewComponent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
+  const scoreF = nb.fields.find((f) => f.role === 'score');
   const hasMap = !!(priceF && measureF);
-  const hasFunnel = nb.stages.length > 1;
-  const middle = [hasFunnel ? 'funnel_card' : '', hasMap ? 'map_card' : ''].filter(Boolean);
+  // With steps the funnel is the steps (notebookViewData); else the stages.
+  const hasFunnel = (nb.steps?.length ?? 0) > 1 || nb.stages.length > 1;
+  const panel = (id: string, title: string, child: string, note?: Record<string, unknown> | string): ViewComponent =>
+    ({ id, component: 'Panel', title, child, ...(note ? { note } : {}) });
   const c: ViewComponent[] = [
-    { id: 'root', component: 'Column', children: ['summary', 'stats', ...(middle.length ? ['middle'] : []), 'shortlist_card'] },
-    { id: 'summary', component: 'Text', text: { path: '/notebook/summary' } },
-    { id: 'stats', component: 'Row', children: ['s_active', 's_best', 's_furthest', 's_out'] },
-    { id: 's_active', component: 'Metric', label: 'In the running', value: { path: '/notebook/stats/active' } },
-    { id: 's_best', component: 'Metric', label: { path: '/notebook/stats/bestLabel' }, value: { path: '/notebook/stats/best' }, tone: 'ok' },
-    { id: 's_furthest', component: 'Metric', label: 'Furthest along', value: { path: '/notebook/stats/furthest' } },
-    { id: 's_out', component: 'Metric', label: 'Ruled out', value: { path: '/notebook/stats/ruledOut' } },
+    { id: 'root', component: 'Column', children: ['top', ...(hasMap || hasFunnel ? ['mid'] : []), 'shortlist_panel', 'low', 'ctx'] },
+    // Where it stands (two thirds), beside done-when (one third).
+    { id: 'top', component: 'Columns', children: ['story', 'steps_panel'], widths: [2, 1] },
+    { id: 'story', component: 'Column', children: ['callout', 'stats'] },
+    { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
+    { id: 'stats', component: 'StatStrip', items: { path: '/notebook/statItems' } },
+    panel('steps_panel', 'Done when', 'steps'),
+    { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
   ];
-  if (middle.length) c.push({ id: 'middle', component: 'Row', children: middle, align: 'start' });
-  if (hasFunnel) {
-    c.push(
-      { id: 'funnel_card', component: 'Card', child: 'funnel_col', weight: 2 },
-      { id: 'funnel_col', component: 'Column', children: ['funnel_title', 'funnel'] },
-      { id: 'funnel_title', component: 'Text', text: 'How far they got', variant: 'h4' },
-      { id: 'funnel', component: 'Funnel', stages: { path: '/notebook/funnel' } },
-    );
+  if (hasMap || hasFunnel) {
+    c.push({ id: 'mid', component: 'Columns', children: [...(hasMap ? ['map_panel'] : []), ...(hasFunnel ? ['funnel_panel'] : [])], widths: hasMap && hasFunnel ? [2, 1] : [1] });
   }
   if (hasMap) {
     c.push(
-      { id: 'map_card', component: 'Card', child: 'map_col', weight: 3 },
-      { id: 'map_col', component: 'Column', children: ['map_title', 'map'] },
-      { id: 'map_title', component: 'Text', text: `Where they sit: ${priceF!.label.toLowerCase()} by ${measureF!.label.toLowerCase()}`, variant: 'h4' },
+      panel('map_panel', 'Where they sit', 'map', `${priceF!.label.toLowerCase()} by ${measureF!.label.toLowerCase()} · your limits shaded`),
       {
-        id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price',
+        id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', label: 'name', href: 'page',
         xLabel: measureF!.label, yLabel: priceF!.label, xFormat: measureF!.type === 'money' ? 'money' : 'number', yFormat: priceF!.type === 'money' ? 'money' : 'number',
         xBand: { path: '/notebook/bands/measure' }, yBand: { path: '/notebook/bands/price' },
         ...(measureF!.better ? { xBetter: measureF!.better } : {}), yBetter: priceF!.better ?? 'lower',
       },
     );
   }
+  if (hasFunnel) {
+    c.push(panel('funnel_panel', 'How far they got', 'funnel', 'hover a stage for why'), { id: 'funnel', component: 'Funnel', stages: { path: '/notebook/funnel' } });
+  }
   c.push(
-    { id: 'shortlist_card', component: 'Card', child: 'shortlist_col' },
-    { id: 'shortlist_col', component: 'Column', children: ['shortlist_title', 'shortlist'] },
-    { id: 'shortlist_title', component: 'Text', text: 'Shortlist', variant: 'h4' },
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: 'price', actions: true },
+    panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
+    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb) },
+    // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
+    { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
+    panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
+    { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
+    panel('time_panel', 'How we got here', 'timeline', 'newest first'),
+    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true },
+    { id: 'ctx', component: 'Columns', children: ['cov_panel', 'lim_panel'], widths: [1, 1] },
+    panel('cov_panel', 'Where sua looked', 'coverage', { path: '/notebook/coverage/when' }),
+    { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
+    panel('lim_panel', 'Limits', 'limits', { path: '/notebook/limitsNote' }),
+    { id: 'limits', component: 'ChipList', items: { path: '/notebook/limitChips' } },
   );
   return c;
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
-export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookViewHistory): unknown[] | undefined {
+export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): unknown[] | undefined {
   if (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option')) return undefined;
   const v = validateViewComponents(notebookWidgetComponents(nb));
   if (!v.ok) return undefined;
   return viewToMessages(`notebook-${nb.id}`, v.components, notebookWidgetData(nb, entries, history));
 }
+
+export { fieldNumber };

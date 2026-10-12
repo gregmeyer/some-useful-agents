@@ -156,7 +156,7 @@ const DASHBOARD_CSS = loadDashboardCss();
  *   - run detail (status data per node): node tinted by STATUS — same
  *     pattern, status colors override type.
  */
-const GRAPH_RENDER_JS = `
+export const GRAPH_RENDER_JS = `
 // Exposed as a named global (not a bare IIFE) so the run-detail auto-poll can
 // re-run it after it swaps in a fresh [data-run-container] fragment. Scripts
 // injected via innerHTML never execute, so without an explicit re-invocation
@@ -207,6 +207,9 @@ window.renderDagViz = function () {
     'break':         { fill: '#fff7ed', border: '#ea580c', text: '#9a3412' },
     'goal':          { fill: '#ccfbf1', border: '#0f766e', text: '#115e59' },
     'ask':           { fill: '#fef9c3', border: '#a16207', text: '#854d0e' },
+    // A notebook's Workflow: the notebook, and what each run left in it.
+    notebook:        { fill: '#ccfbf1', border: '#0f766e', text: '#134e4a' },
+    entries:         { fill: '#f5f5f4', border: '#a8a29e', text: '#44403c' },
   };
   var defaultStyle = { fill: '#f9fafb', border: '#d1d5db', text: '#374151' };
 
@@ -251,11 +254,16 @@ window.renderDagViz = function () {
           // Cytoscape ≥3.27 deprecates 'width: label'. Compute width from
           // label length instead — keeps nodes hugging their text without
           // the deprecation warning.
+          // A node that calls another agent has a second line naming it.
+          'text-wrap': 'wrap',
           'width': function (n) {
-            var label = String(n.data('label') || '');
-            return Math.max(60, label.length * 7 + 20);
+            var lines = String(n.data('label') || '').split('\\n');
+            var longest = Math.max.apply(null, lines.map(function (l) { return l.length; }));
+            return Math.max(60, longest * 7 + 20);
           },
-          'height': 26,
+          'height': function (n) {
+            return 26 + 13 * (String(n.data('label') || '').split('\\n').length - 1);
+          },
           'padding': '10px',
           'shape': function (n) {
             var t = n.data('type');
@@ -283,6 +291,11 @@ window.renderDagViz = function () {
       padding: 18,
       spacingFactor: 1.25,
       grid: false,
+      // data-layout="lr" (a notebook's Workflow): left to right, so a wide
+      // last level stacks down the canvas instead of shrinking every label.
+      transform: el.getAttribute('data-layout') === 'lr'
+        ? function (_n, pos) { return { x: pos.y * 1.5, y: pos.x * 0.3 }; }
+        : function (_n, pos) { return pos; },
     },
     autoungrabify: true,
     // Wheel-zoom + drag-pan enabled so users can inspect dense DAGs without
@@ -291,7 +304,8 @@ window.renderDagViz = function () {
     userZoomingEnabled: true,
     userPanningEnabled: true,
     minZoom: 0.25,
-    maxZoom: 3,
+    // A small notebook Workflow graph (data-layout=lr) shouldn't be blown up to fill the canvas.
+    maxZoom: el.getAttribute('data-layout') === 'lr' ? 1 : 3,
     wheelSensitivity: 0.2,
     boxSelectionEnabled: false,
   });
@@ -483,6 +497,15 @@ window.renderDagViz = function () {
       edit.textContent = 'Edit node';
       edit.href = editBase + '/' + encodeURIComponent(data.id) + '/edit';
       actionsEl.appendChild(edit);
+    }
+
+    // A graph node with a link (a notebook's Workflow): open it.
+    if (data.href) {
+      var open = document.createElement('a');
+      open.className = 'btn btn--sm btn--primary';
+      open.textContent = data.type === 'notebook' || data.type === 'entries' ? 'Open the notebook' : 'Open the run';
+      open.href = data.href;
+      actionsEl.appendChild(open);
     }
 
     if (navBase) {
@@ -699,6 +722,27 @@ assetsRouter.get('/assets/vendor/a2ui-v0_9.js', (_req: Request, res: Response) =
 assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
+});
+
+// Chart arithmetic (ticks, nearest point, a point's note), imported by a2ui-sua.js.
+const CHART_MATH_JS = readAsset('chart-math.js');
+assetsRouter.get('/assets/chart-math.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(CHART_MATH_JS);
+});
+
+// An options grid's filters (choices, which options they keep), imported by a2ui-sua.js.
+const OPTION_FILTERS_JS = readAsset('option-filters.js');
+assetsRouter.get('/assets/option-filters.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(OPTION_FILTERS_JS);
+});
+
+// Previous / Next on an option's page, narrowed to the grid's filters.
+const OPTION_NAV_JS = readAsset('option-nav.js');
+assetsRouter.get('/assets/option-nav.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(OPTION_NAV_JS);
 });
 
 // Toolbar pickers (menu, searchable list, prompt), imported by the canvas editor.

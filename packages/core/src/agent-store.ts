@@ -277,7 +277,7 @@ export class AgentStore {
       throw new Error(`Cannot create new version: agent "${id}" does not exist.`);
     }
     const now = new Date().toISOString();
-    const nextVersion = existing.version + 1;
+    const nextVersion = this.nextVersion(id);
     const dag = this.extractDag(agent);
 
     this.db.exec('BEGIN');
@@ -302,6 +302,16 @@ export class AgentStore {
     }
 
     return { ...agent, version: nextVersion };
+  }
+
+  /**
+   * The number a new version gets: after the newest one, not current + 1. A
+   * rollback leaves later versions behind the current one, and current + 1
+   * would collide with them.
+   */
+  nextVersion(id: string): number {
+    const { top } = this.db.prepare(`SELECT MAX(version) AS top FROM agent_versions WHERE agent_id = ?`).get(id) as { top: number | null };
+    return Math.max(this.getAgent(id)?.version ?? 0, top ?? 0) + 1;
   }
 
   /** Rollback helper: move `current_version` to any existing version. */

@@ -11,11 +11,15 @@
 # for the case AGAINST whatever the main angle finds, so the brief comes back
 # with the disagreement already surfaced instead of one confident summary.
 #
-# The `tools:` field is what lets the model open pages mid-answer. Those are
-# builtin tool ids: an OpenAI-compatible provider (what Connect a model sets
-# up) calls them directly, and claude runs them as its own WebFetch. codex and
-# Apple Foundation Models can't open pages, so the waterfall skips them for
-# these nodes rather than let them answer without reading anything.
+# The `tools:` field is what lets the model search and open pages mid-answer.
+# `web-search` is the provider's own live search (claude, codex); web-fetch
+# and web-scrape are sua's tools. A provider that can't do all three (Apple
+# Foundation Models, a local model) is skipped for these nodes rather than
+# let it answer without reading anything.
+#
+# Both gather nodes are `optional`: if one fails or times out, the other's
+# research still reaches synthesize (with a note in place of the missing
+# one), and the brief says which side it couldn't cover.
 #
 # Run: sua workflow run starter-research --input TOPIC="local-first software"
 id: starter-research
@@ -35,6 +39,7 @@ tags:
 entryConditions:
   - user wants a researched summary or brief on a topic
   - user asks what the current state of something is and wants sources
+  - user provides a URL and wants a grounded summary
 nonEntryConditions:
   - user wants to monitor a page over time (use starter-watch)
   - user wants a written artifact rather than research (use starter-draft)
@@ -42,18 +47,27 @@ sampleQuestions:
   - Research local-first software and give me a sourced brief.
   - What's the current state of WebGPU support? Cite sources.
   - Give me the case for and against SQLite in production.
+  - Summarize https://www.sqlite.org/whentouse.html with sources.
 
 inputs:
   TOPIC:
     type: string
     default: local-first software
     required: true
-    description: What to research. A question works better than a keyword.
+    description: What to research. A question or URL works better than a keyword.
   DEPTH:
     type: enum
     values: [quick, thorough]
     default: quick
-    description: quick = 2 sources per angle, thorough = 4.
+    description: quick = lighter research, thorough = broader source coverage.
+  MIN_SOURCES_PER_ANGLE:
+    type: number
+    default: 2
+    description: Pages to open for each angle when there are that many good ones (thorough opens about twice as many).
+  MAX_CANDIDATES:
+    type: number
+    default: 5
+    description: Most candidate products or options to return for a shopping or comparison topic.
 
 outputs:
   headline:
@@ -117,7 +131,9 @@ outputWidget:
 
 nodes:
   # 1. Split the topic into two angles. Cheap, no tools — this node exists so
-  #    the two gather nodes below have genuinely different jobs.
+  #    the two gather nodes below have genuinely different jobs. It says what
+  #    to look for, never what the answer is: a plan that names products or
+  #    prices leaks them into the brief unverified.
   - id: plan
     type: llm-prompt
     prompt: |
@@ -125,55 +141,112 @@ nodes:
 
       Split this into two research angles that a careful person would want
       covered separately:
-        - main: the direct question — what is it, what's the current state
-        - counter: the skeptical read — the objections, failure cases, costs,
-          or the strongest argument that the mainstream take is wrong
+        - main: the direct question, what it asks for, and what must be verified
+        - counter: the skeptical read, including limits, objections, costs,
+          failure cases, or reasons the headline claim could be overstated
 
-      Answer with one short line describing each. Then, on the LAST line,
+      If the topic is a URL, treat that page as the primary source to summarize
+      and critique.
+
+      Important planning rules:
+        - Do not name specific products, candidates, prices, retailers, stock
+          status, specs, sources, citations, or URLs unless they already appear
+          verbatim in the Topic.
+        - Do not invent examples.
+        - Describe what to search for and verify, not what the answer is.
+
+      Answer with one short line describing each angle. Then, on the LAST line,
       emit ONLY this JSON object and nothing after it:
       {"main_angle": "...", "counter_angle": "..."}
     maxTurns: 1
-    timeout: 60
+    # A cold CLI start alone can take most of a minute.
+    timeout: 120
 
   # 2 + 3. No dependsOn between these two, so the executor runs them
   #        concurrently — this is the fan-out you can see in the graph.
+  #        Optional: one failing doesn't sink the brief.
   - id: gather-main
     type: llm-prompt
     dependsOn: [plan]
-    tools: [web-fetch, web-scrape]
+    optional: true
+    tools: [web-search, web-fetch, web-scrape]
     prompt: |
-      Research this angle: {{upstream.plan.main_angle}}
-      (Overall topic: {{inputs.TOPIC}})
+      Topic: {{inputs.TOPIC}}
 
-      Open {{inputs.DEPTH}} — 2 pages for "quick", 4 for "thorough" — using the
-      web-fetch tool. Use web-scrape when you need structured fields rather
-      than prose. If a page turns out to be thin or off-topic, go get a
-      better one instead of making do.
+      Research plan:
+      {{upstream.plan.result}}
 
-      Report what you actually found, with the URL beside each claim. Do not
-      pad with things you already believed before opening anything.
-    maxTurns: 8
-    timeout: 180
+      Research the main angle from the plan above.
+
+      Treat the plan as search guidance only. Ignore any candidate, price,
+      retailer, stock, spec, citation, or URL that appears only in the plan and
+      not in the original Topic unless you independently verify it from opened
+      pages.
+
+      If Topic is a URL, fetch that exact URL first with web-fetch and ground
+      the summary in that page. Then fetch supporting pages only if needed.
+
+      If Topic is not a URL, search the web first (web-search) to discover
+      relevant current sources and candidates. Then open the best pages with
+      web-fetch before making claims; use web-scrape when you need structured
+      fields rather than prose. Do not rely on the planning text alone as
+      evidence.
+
+      Use DEPTH to guide scope:
+        - quick: open at least {{inputs.MIN_SOURCES_PER_ANGLE}} good pages if available
+        - thorough: open about twice that many good pages if available
+
+      For shopping, recommendation, or comparison topics, return up to
+      {{inputs.MAX_CANDIDATES}} sourced candidates and verify price/spec/stock
+      claims from opened pages.
+
+      DEPTH: {{inputs.DEPTH}}
+
+      Report only what you actually found after opening pages. For each claim,
+      include the page title and URL. Do not pad with prior knowledge.
+    maxTurns: 10
+    timeout: 240
 
   - id: gather-counter
     type: llm-prompt
     dependsOn: [plan]
-    tools: [web-fetch, web-scrape]
+    optional: true
+    tools: [web-search, web-fetch, web-scrape]
     prompt: |
-      Research this angle: {{upstream.plan.counter_angle}}
-      (Overall topic: {{inputs.TOPIC}})
+      Topic: {{inputs.TOPIC}}
 
-      You are the skeptic on this one. Open {{inputs.DEPTH}} — 2 pages for
-      "quick", 4 for "thorough" — with the web-fetch tool and look for
-      objections, costs, failure reports, and credible dissent.
+      Research plan:
+      {{upstream.plan.result}}
 
-      Report what you found with the URL beside each claim. If the skeptical
-      case turns out to be weak, say so plainly — do not manufacture a
-      controversy that isn't there.
-    maxTurns: 8
-    timeout: 180
+      Research the counter angle from the plan above.
 
-  # 4. Merge. Both upstreams must finish before this starts.
+      Treat the plan as search guidance only. Ignore any candidate, price,
+      retailer, stock, spec, citation, or URL that appears only in the plan and
+      not in the original Topic unless you independently verify it from opened
+      pages.
+
+      If Topic is a URL, fetch that exact URL first with web-fetch and identify
+      what the page itself proves, what it does not prove, and where its claims
+      may be limited. Then fetch supporting or dissenting pages only if needed.
+
+      If Topic is not a URL, search the web first (web-search) to discover
+      relevant current skeptical, comparative, or limiting evidence. Then open
+      the best pages with web-fetch before making claims. Do not rely on the
+      planning text alone as evidence.
+
+      Use DEPTH to guide scope:
+        - quick: open at least {{inputs.MIN_SOURCES_PER_ANGLE}} good pages if available
+        - thorough: open about twice that many good pages if available
+
+      DEPTH: {{inputs.DEPTH}}
+
+      Report what you found with the page title and URL beside each claim. If
+      the skeptical case is weak, say so plainly. Do not manufacture controversy.
+    maxTurns: 10
+    timeout: 240
+
+  # 4. Merge. Runs once both gather nodes are done, or once one of them has
+  #    given up: a failed one arrives as `(step "…" didn't finish: …)`.
   - id: synthesize
     type: llm-prompt
     dependsOn: [gather-main, gather-counter]
@@ -190,6 +263,12 @@ nodes:
       in the research above — if something wasn't found, leave it out rather
       than filling the gap from memory.
 
+      If one side reads `(step "…" didn't finish: …)`, that research is
+      missing: write the brief from the side that finished, and say plainly
+      in "tension" that the main (or skeptical) side couldn't be researched
+      this time, so the brief is one-sided. If both are missing, say so in
+      the headline and give no bullets.
+
       Then, on the LAST line, emit ONLY this JSON object and nothing after it:
       {"headline": "one sentence answering the topic",
        "bullets": [{"point": "a concrete claim", "source_title": "page title", "source_url": "https://..."}],
@@ -197,7 +276,9 @@ nodes:
        "source_count": "3"}
 
       Rules for that JSON:
-        - 3 to 5 bullets. Each `point` is one sentence, concrete, no hedging.
+        - 3 to 5 bullets (none if no research finished).
+        - Each point is one concrete sentence, no hedging.
+        - source_title must be the title or recognizable name of the source page.
         - `source_url` must be a URL that actually appears above. If a claim
           has no source, use "" and say so in the point.
         - Keep every value a flat string. No nested objects inside bullets.

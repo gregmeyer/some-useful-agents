@@ -1,4 +1,5 @@
 import { questionStore } from '../lib/ask-human.js';
+import { collectSubRunTree, NotebookStore } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import type { Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -142,7 +143,21 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
   let childRuns;
   try { childRuns = collectSubRunTree(ctx.runStore, run.id); } catch { childRuns = undefined; }
   const question = run.status === 'waiting' ? questionStore(ctx).pendingForRun(run.id) : undefined;
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question }));
+  // The notebooks this run filed into, directly or through the run that started it.
+  let notebooks: Array<{ notebookId: string; title: string; viaParent: boolean }> = [];
+  try {
+    const chain: string[] = [run.id];
+    for (let p = run.parentRunId, n = 0; p && n < 4; n++) { chain.push(p); p = ctx.runStore.getRun(p)?.parentRunId; }
+    const found = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).notebooksForRuns(chain);
+    const byNb = new Map<string, { notebookId: string; title: string; viaParent: boolean }>();
+    for (const f of found) {
+      const prev = byNb.get(f.notebookId);
+      const via = f.runId !== run.id;
+      if (!prev || (prev.viaParent && !via)) byNb.set(f.notebookId, { notebookId: f.notebookId, title: f.title, viaParent: via });
+    }
+    notebooks = [...byNb.values()];
+  } catch { /* the run page doesn't need it */ }
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question, notebooks }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
@@ -151,27 +166,5 @@ function parseIntOr(v: unknown, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-/**
- * The runs a run started and the runs those started, depth-first, each with
- * its depth (0 = direct child). Agent calls nest at most 3 deep; the cap
- * guards against a bad parent link looping.
- */
-export function collectSubRunTree(
-  runStore: { listChildRuns(id: string): Run[] },
-  rootId: string,
-  maxDepth = 4,
-): Array<Run & { depth: number }> {
-  const out: Array<Run & { depth: number }> = [];
-  const seen = new Set<string>([rootId]);
-  const walk = (id: string, depth: number) => {
-    if (depth >= maxDepth) return;
-    for (const child of runStore.listChildRuns(id)) {
-      if (seen.has(child.id)) continue;
-      seen.add(child.id);
-      out.push({ ...child, depth });
-      walk(child.id, depth + 1);
-    }
-  };
-  walk(rootId, 0);
-  return out;
-}
+// collectSubRunTree lives in core (notebook-lineage.ts) so a notebook's Workflow can draw sub-runs too.
+export { collectSubRunTree };

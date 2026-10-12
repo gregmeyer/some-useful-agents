@@ -55,3 +55,54 @@ describe('brand theme', () => {
     expect(loadBrandTheme(dir)).toEqual(DEFAULT_BRAND_THEME);
   });
 });
+
+describe('saved brands', () => {
+  it('saves, lists A–Z, applies (keeping Undo), knows which is in use, deletes, and skips bad files', async () => {
+    const { listSavedBrands, saveBrandAs, applySavedBrand, deleteSavedBrand, isActiveBrand, loadBrandTheme, restoreBrandThemeBackup, brandsDir, brandId } = await import('./brand-theme.js');
+    const dir = mkdtempSync(join(tmpdir(), 'sua-brands-'));
+    expect(listSavedBrands(dir)).toEqual([]);
+    saveBrandAs(dir, '  Zebra  Co ', { version: 1, preset: 'neon' });
+    const acme = saveBrandAs(dir, 'Acme', { version: 1, preset: 'warm', dark: { primary: '#ff0066' } });
+    expect(acme).toMatchObject({ id: 'acme', name: 'Acme' });
+    expect(brandId('Zebra Co!')).toBe('zebra-co');
+    mkdirSync(brandsDir(dir), { recursive: true });
+    writeFileSync(join(brandsDir(dir), 'broken.json'), '{"version": 1, "dark": {"primary": "red; }"}}');
+    expect(listSavedBrands(dir).map((b) => b.name)).toEqual(['Acme', 'Zebra Co']);
+    expect(() => saveBrandAs(dir, '', {})).toThrow('Give the brand a name');
+    expect(() => saveBrandAs(dir, 'Bad', { version: 1, dark: { primary: 'red; }' } })).toThrow('Not saved');
+
+    applySavedBrand(dir, 'zebra-co');
+    applySavedBrand(dir, 'acme');
+    expect(loadBrandTheme(dir)).toMatchObject({ name: 'Acme', preset: 'warm' });
+    expect(isActiveBrand(loadBrandTheme(dir), listSavedBrands(dir)[0].theme)).toBe(true);
+    expect(isActiveBrand(loadBrandTheme(dir), listSavedBrands(dir)[1].theme)).toBe(false);
+    restoreBrandThemeBackup(dir);
+    expect(loadBrandTheme(dir).name).toBe('Zebra Co'); // Undo puts the previous brand back
+    expect(() => applySavedBrand(dir, 'nope')).toThrow('That brand is gone');
+    expect(deleteSavedBrand(dir, 'acme')).toBe(true);
+    expect(deleteSavedBrand(dir, '../theme')).toBe(false);
+    expect(listSavedBrands(dir).map((b) => b.id)).toEqual(['zebra-co']);
+  });
+});
+
+describe('brand contrast', () => {
+  it('measures contrast and flags hard-to-read themes in each mode', async () => {
+    const { contrastRatio, parseColor, brandContrastIssues, brandThemeSchema } = await import('./brand-theme.js');
+    expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0);
+    expect(contrastRatio('#fff', '#fff')).toBeCloseTo(1, 5);
+    expect(parseColor('rgb(255, 0, 0)')).toEqual([255, 0, 0]);
+    expect(parseColor('hsl(0, 100%, 50%)')!.map(Math.round)).toEqual([255, 0, 0]);
+    expect(parseColor('transparent')).toBeUndefined();
+    expect(brandContrastIssues(brandThemeSchema.parse({ version: 1 }))).toEqual([]);
+    const pale = brandThemeSchema.parse({ version: 1, light: { text: '#dddddd' } });
+    expect(brandContrastIssues(pale).join(' ')).toMatch(/Light mode: text on the page is hard to read/);
+    expect(brandContrastIssues(pale).join(' ')).not.toMatch(/Dark mode/);
+  });
+
+  it('accepts font names in any script but nothing that ends a CSS value', async () => {
+    const { brandThemeSchema } = await import('./brand-theme.js');
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: '"Söhne", "Noto Sans JP", sans-serif' } }).success).toBe(true);
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: 'Inter; } body {' } }).success).toBe(false);
+    expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: 'Inter\\' } }).success).toBe(false);
+  });
+});

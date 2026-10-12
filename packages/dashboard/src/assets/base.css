@@ -102,3 +102,9 @@ details > summary::before {
 details[open] > summary::before {
   transform: rotate(90deg);
 }
+
+/* Any picture (a message, a run's output, a widget) scales down to fit its
+   column instead of running past it and being cut off at the edge. One sized
+   only by a height attribute (an icon) keeps that height. */
+img { max-width: 100%; }
+:where(img:not([height])) { height: auto; } /* :where() = no weight, so any class that sizes an image wins */

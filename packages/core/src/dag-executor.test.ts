@@ -8,6 +8,7 @@ import { MemorySecretsStore } from './secrets-store.js';
 import { VariablesStore } from './variables-store.js';
 import {
   executeAgentDag,
+  priorRunInputs,
   topologicalSort,
   resolveUpstreamTemplate,
   type DagExecutorDeps,
@@ -746,6 +747,61 @@ describe('executeAgentDag — replay from node', () => {
     expect(replay.status).toBe('failed');
     expect(replay.error).toMatch(/missing completed outputs/);
   });
+
+  const withInputs: Agent = {
+    ...threeNodeAgent,
+    id: 'pipeline-in',
+    inputs: { TOPIC: { type: 'string' }, LIMIT: { type: 'string', default: '5' } },
+  };
+  const envOf = async (priorRunId: string, inputs?: Record<string, string>) => {
+    let pivotEnv: Record<string, string> | undefined;
+    const replay = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'dashboard', ...(inputs ? { inputs } : {}), replayFrom: { priorRunId, fromNodeId: 'summarize' } },
+      { runStore, spawnNode: async (node, env) => { if (node.id === 'summarize') pivotEnv = env; return { result: 'ok', exitCode: 0 }; } },
+    );
+    return { replay, env: pivotEnv };
+  };
+
+  it('reuses the inputs the original run had', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'kafka', LIMIT: '20' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    const { replay, env } = await envOf(original.id);
+    // TOPIC is required with no default: without the reuse the pivot node fails.
+    expect(replay.status).toBe('completed');
+    expect(env!.TOPIC).toBe('kafka');
+    expect(env!.LIMIT).toBe('20');
+    // The replay keeps them too, so a replay of the replay works.
+    expect(runStore.getRun(replay.id)!.resumeContext?.inputs).toEqual({ TOPIC: 'kafka', LIMIT: '20' });
+  });
+
+  it('lets inputs passed to the replay change some of them', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'kafka', LIMIT: '20' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    const { env } = await envOf(original.id, { LIMIT: '3' });
+    expect(env!.TOPIC).toBe('kafka');
+    expect(env!.LIMIT).toBe('3');
+  });
+
+  it('recovers declared inputs from the node logs of a run that never saved them', async () => {
+    const original = await executeAgentDag(
+      withInputs,
+      { triggeredBy: 'cli', inputs: { TOPIC: 'postgres' } },
+      { runStore, spawnNode: cannedSpawner({ fetch: { exitCode: 0, result: 'f' } }) },
+    );
+    // As a run from before every run saved its inputs.
+    runStore.databaseHandle().prepare('UPDATE runs SET resume_context_json = NULL WHERE id = ?').run(original.id);
+    expect(priorRunInputs(withInputs, original.id, runStore)).toEqual({ TOPIC: 'postgres', LIMIT: '5' });
+    const { replay, env } = await envOf(original.id);
+    expect(replay.status).toBe('completed');
+    expect(env!.TOPIC).toBe('postgres');
+  });
 });
 
 describe('executeAgentDag — env allowlist by trust level', () => {
@@ -1230,6 +1286,39 @@ describe('executeAgentDag — agent-invoke (Flow PR C)', () => {
     const execs = runStore.listNodeExecutions(run.id);
     expect(execs.find((e) => e.nodeId === 'invoke-fetcher')!.status).toBe('completed');
     expect(execs.find((e) => e.nodeId === 'process')!.status).toBe('completed');
+  });
+});
+
+describe('executeAgentDag — agent-invoke call chain guards', () => {
+  let agentStore: AgentStore;
+  beforeEach(() => { agentStore = new AgentStore(join(dir, 'runs.db')); });
+  afterEach(() => { try { agentStore.close(); } catch { /* may share DB handle */ } });
+  const invoker = (id: string, calls: string) => agentStore.createAgent(
+    { id, name: id, status: 'active', source: 'local', mcp: false, nodes: [{ id: 'call', type: 'agent-invoke' as any, agentInvokeConfig: { agentId: calls } }] },
+    'cli', 'seed',
+  );
+
+  it('stops a cycle (A → B → A) with the chain named, instead of looping', async () => {
+    invoker('ping', 'pong');
+    invoker('pong', 'ping');
+    const run = await executeAgentDag(agentStore.getAgent('ping')!, { triggeredBy: 'cli' }, { runStore, agentStore });
+    expect(run.status).toBe('failed');
+    const child = runStore.queryRuns({ limit: 10, offset: 0, statuses: [] }).rows.find((r) => r.agentName === 'pong')!;
+    const call = runStore.listNodeExecutions(child.id).find((e) => e.nodeId === 'call')!;
+    expect(call.error).toContain('already running in this call chain (ping → pong → ping)');
+  });
+
+  it('allows three levels of calls and refuses a fourth', async () => {
+    invoker('l1', 'l2');
+    invoker('l2', 'l3');
+    invoker('l3', 'l4');
+    agentStore.createAgent({ id: 'l4', name: 'l4', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'main', type: 'shell', command: 'echo deep' }] }, 'cli', 'seed');
+    expect((await executeAgentDag(agentStore.getAgent('l2')!, { triggeredBy: 'cli' }, { runStore, agentStore })).status).toBe('completed');
+    invoker('l0', 'l1');
+    const run = await executeAgentDag(agentStore.getAgent('l0')!, { triggeredBy: 'cli' }, { runStore, agentStore });
+    expect(run.status).toBe('failed');
+    const l3 = runStore.queryRuns({ limit: 50, offset: 0, statuses: [] }).rows.filter((r) => r.agentName === 'l3').map((r) => runStore.listNodeExecutions(r.id).find((e) => e.nodeId === 'call')!);
+    expect(l3.some((e) => e.error?.includes('limited to 3 levels deep'))).toBe(true);
   });
 });
 
@@ -2511,5 +2600,71 @@ describe('agent memory (memory: on)', () => {
     expect(ask.opts?.behaviorPreamble).toBeUndefined();
     expect(ask.opts?.memory).toBeUndefined();
     expect(runStore.getRun(run.id)?.recalledMemories).toBeUndefined();
+  });
+});
+
+describe('executeAgentDag — optional nodes', () => {
+  const sweep = (optional: boolean): Agent => ({
+    id: 'sweep', name: 'Sweep', status: 'active', source: 'local', mcp: false, version: 1,
+    nodes: [
+      { id: 'autotrader', type: 'claude-code', prompt: 'search autotrader', ...(optional ? { optional: true } : {}) },
+      { id: 'cargurus', type: 'claude-code', prompt: 'search cargurus', ...(optional ? { optional: true } : {}) },
+      { id: 'merge', type: 'claude-code', prompt: 'Merge {{upstream.autotrader.result}} and {{upstream.cargurus.result}}', dependsOn: ['autotrader', 'cargurus'] },
+    ],
+  });
+  const spawner = () => cannedSpawner({
+    autotrader: { exitCode: 124, error: 'Request timed out after 75s', category: 'timeout' },
+    cargurus: { exitCode: 0, result: '2 listings' },
+    merge: { exitCode: 0, result: 'ranked' },
+  });
+
+  it('a failed optional node is recorded, its siblings and the merge still run, and the run completes', async () => {
+    const run = await executeAgentDag(sweep(true), { triggeredBy: 'cli' }, { runStore, spawnNode: spawner() });
+    expect(run.status).toBe('completed');
+    expect(run.result).toBe('ranked');
+    const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
+    expect(rows.autotrader).toMatchObject({ status: 'failed', errorCategory: 'timeout' });
+    expect(rows.cargurus.status).toBe('completed');
+    expect(rows.merge.status).toBe('completed');
+    // The merge saw a note for the failed source, and the other's output.
+    expect(JSON.parse(rows.merge.upstreamInputsJson!)).toEqual({
+      autotrader: '(step "autotrader" didn\'t finish: Request timed out after 75s)',
+      cargurus: '2 listings',
+    });
+  });
+
+  it('without optional, the first failure still stops the run (unchanged)', async () => {
+    const run = await executeAgentDag(sweep(false), { triggeredBy: 'cli' }, { runStore, spawnNode: spawner() });
+    expect(run.status).toBe('failed');
+    const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
+    expect(rows.cargurus).toMatchObject({ status: 'skipped', errorCategory: 'upstream_failed' });
+    expect(rows.merge.status).toBe('skipped');
+  });
+
+  it('starter-research: one research angle failing still gets a brief (live runs used to fail outright)', async () => {
+    const { parseAgent } = await import('./agent-yaml.js');
+    const { readFileSync } = await import('node:fs');
+    const agent = parseAgent(readFileSync(join(__dirname, '..', '..', '..', 'agents', 'examples', 'starter-research.yaml'), 'utf8'));
+    expect(agent.nodes.filter((n) => n.optional).map((n) => n.id)).toEqual(['gather-main', 'gather-counter']);
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { TOPIC: 'SQLite in production' } }, { runStore, spawnNode: cannedSpawner({
+      plan: { exitCode: 0, result: 'angles\n{"main_angle": "a", "counter_angle": "b"}' },
+      'gather-main': { exitCode: 0, result: 'main findings https://example.com/a' },
+      'gather-counter': { exitCode: 1, error: 'Process exited with code 1', category: 'exit_nonzero' },
+      synthesize: { exitCode: 0, result: 'brief\n{"headline": "h", "bullets": [], "tension": "the skeptical side couldn\'t be researched", "source_count": "1"}' },
+    }) });
+    expect(run.status).toBe('completed');
+    const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
+    expect(rows['gather-counter'].status).toBe('failed');
+    expect(JSON.parse(rows.synthesize.upstreamInputsJson!)).toMatchObject({
+      'gather-main': 'main findings https://example.com/a',
+      'gather-counter': '(step "gather-counter" didn\'t finish: Process exited with code 1)',
+    });
+  });
+
+  it('round-trips through YAML', async () => {
+    const { exportAgent, parseAgent } = await import('./agent-yaml.js');
+    const parsed = parseAgent(exportAgent(sweep(true)));
+    expect(parsed.nodes.find((n) => n.id === 'autotrader')!.optional).toBe(true);
+    expect(parsed.nodes.find((n) => n.id === 'merge')!.optional).toBeUndefined();
   });
 });

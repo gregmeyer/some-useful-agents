@@ -32,6 +32,12 @@
  */
 
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
+import { renderNotebookShelf } from '../views/notebook-shelf.js';
+import { homeShelf } from '../lib/notebook-card.js';
+import { startNotebookPictures } from '../lib/notebook-pictures.js';
+import { renderHomePage, renderHomeToday, homeStatus } from '../views/home-page.js';
+import { notebookCardForThread } from '../lib/notebook-card.js';
+import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksLine } from '../views/notebooks.js';
@@ -46,12 +52,13 @@ import {
   type AutonomyMode,
   type AgentTrustLevel,
   NotebookStore,
+  type InboxMessage,
   isFixThread,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { renderInboxDetailFragment, type AgentTrustInfo } from '../views/inbox-detail.js';
 import { renderInboxPage } from '../views/inbox-page.js';
-import { render } from '../views/html.js';
+import { render, type SafeHtml } from '../views/html.js';
 import { renderPanelHome, renderPanelList, renderPanelNew, renderPanelRows } from '../views/panel-home.js';
 import { buildPanelList, panelFacets, parsePanelFilters, parsePanelTab } from '../lib/panel-inbox.js';
 import { renderNotFoundPage } from '../views/not-found.js';
@@ -110,6 +117,37 @@ export function sendInboxPage(req: Request, res: Response, threadId?: string): v
   const today = readHomeSurfaceSafe(ctx);
   res.type('html').send(renderInboxPage({ autonomyMode, threadId, flash: parseFlash(req), agentCount, availableDashboards, ...(today ? { goalLine: renderHomeGoal(today), adjustMenu: renderHomeAdjust(today) } : {}), notebooksLine: notebooksLineFor(ctx) }));
 }
+
+/**
+ * Home (`/`): Today full width, rows opening in the sua panel
+ * (views/home-page.ts). With no agents yet it's onboarding, as before.
+ */
+export function sendHomePage(req: Request, res: Response): void {
+  const ctx = getContext(req.app.locals);
+  if (ctx.agentStore.listAgents().length === 0) { sendInboxPage(req, res); return; }
+  let autonomyMode: AutonomyMode = 'full';
+  try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
+  const today = readHomeSurfaceSafe(ctx);
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), flash: parseFlash(req) }));
+}
+
+/** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
+function shelfFor(ctx: ReturnType<typeof getContext>): SafeHtml | undefined {
+  try {
+    const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const shelf = homeShelf(s, (id) => ctx.inboxStore?.get(id)?.status === 'awaiting_user');
+    // Notebooks shown without a picture get one in the background (once each).
+    for (const c of shelf.cards) if (!c.cover && c.nb.fields.length) { try { startNotebookPictures(ctx, c.nb.id); } catch { /* a nicety */ } }
+    return renderNotebookShelf(shelf);
+  } catch { return undefined; }
+}
+
+/** Home's Today, redrawn in place (home-page.js.ts). */
+inboxRouter.get('/home/today', (req: Request, res: Response) => {
+  const today = readHomeSurfaceSafe(getContext(req.app.locals));
+  const status = homeStatus(today);
+  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs });
+});
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
 
@@ -237,6 +275,11 @@ inboxRouter.get('/panel/list', (req: Request, res: Response) => {
   res.type('html').send(render(req.query.rows === '1' ? renderPanelRows(list.rows, list.wide) : renderPanelList(list)));
 });
 
+/** The notebook a thread is about, as a card; undefined for other threads or on any error. */
+function threadNotebook(ctx: ReturnType<typeof getContext>, message: InboxMessage): NotebookCard | undefined {
+  try { return notebookCardForThread(NotebookStore.fromHandle(ctx.runStore.databaseHandle()), message); } catch { return undefined; }
+}
+
 inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -257,6 +300,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
   res.type('html').send(render(renderInboxDetailFragment({
     message,
     responses,
+    notebook: threadNotebook(ctx, message),
     question: questionForMessage(ctx, message),
     triagePending,
     currentTargetYaml,

@@ -136,6 +136,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   `;
 
   const content = html`
+    ${callsSummary(args.invokes ?? [], args.invokedBy ?? [], args.connectedAgents ?? {})}
     ${goalCard(agent)}
 
     <!-- DAG + Widget preview (side-by-side when widget exists) -->
@@ -203,7 +204,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
       </div>
     </div>
 
-    ${agentCallsSection(args.invokes ?? [], args.invokedBy ?? [])}
+    ${agentCallsSection(agent.id, args.invokes ?? [], args.invokedBy ?? [], args.feedsNotebooks ?? [], args.connectedAgents ?? {})}
 
     ${routingSection}
 
@@ -302,8 +303,8 @@ function memorySection(agentId: string, memories: Memory[] | undefined): SafeHtm
  * on it (the "Call another agent" pattern on Add node), not asserted on every
  * page that isn't using it.
  */
-function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHtml {
-  if (invokes.length === 0 && invokedBy.length === 0) return html``;
+function agentCallsSection(id: string, invokes: AgentEdge[], invokedBy: AgentEdge[], notebooks: ReadonlyArray<{ id: string; title: string; status: string }>, info: ConnectedAgents): SafeHtml {
+  if (invokes.length === 0 && invokedBy.length === 0 && notebooks.length === 0) return html``;
 
   const target = (e: AgentEdge): SafeHtml => {
     if (e.dynamic) {
@@ -314,41 +315,103 @@ function agentCallsSection(invokes: AgentEdge[], invokedBy: AgentEdge[]): SafeHt
     if (!e.resolved) {
       return html`<code>${e.to}</code> <span class="badge badge--err">missing</span>`;
     }
-    return html`<a href="/agents/${e.to}" class="mono">${e.to}</a>`;
+    return html`<a href="/agents/${e.to}" class="mono">${e.to}</a>${agentTags(info[e.to])}`;
   };
 
-  const row = (label: SafeHtml, e: AgentEdge): SafeHtml => html`
-    <li style="margin-bottom: var(--space-1);">
+  // What the agent at the other end does, so the list says more than ids.
+  const about = (other: string): SafeHtml => {
+    const d = shortAbout(info[other]?.description);
+    return d ? html`<div class="dim text-xs" style="margin-top: 2px;">${d}</div>` : html``;
+  };
+  const row = (label: SafeHtml, e: AgentEdge, other: string): SafeHtml => html`
+    <li style="margin-bottom: var(--space-2);">
       ${label}
       <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : e.via === 'tool' ? ', as a tool when the model decides to' : ''}</span>
+      ${e.dynamic ? html`` : about(other)}
     </li>
   `;
+  const col = 'flex: 1 1 200px; min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);';
+  const list = 'list-style: none; padding: 0; margin: 0;';
+  const arrow = html`<span aria-hidden="true" class="dim" style="align-self: center; font-size: var(--font-size-lg);">→</span>`;
 
+  // Left to right, the way work flows: who runs it → it → what it runs and the notebooks it fills.
   return html`
-    <section style="margin-top: var(--space-6);">
-      <h2>Agent calls</h2>
+    <section style="margin-top: var(--space-6);" aria-labelledby="agent-connections">
+      <h2 id="agent-connections">Connections</h2>
       <p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">
-        Agents can run other agents, so a big job can be split across several small ones.
+        Agents can call other agents, so a big job can be split across several small ones, and fill notebooks with what they find.
       </p>
-      <div class="run-detail-grid">
-        ${invokes.length > 0 ? html`
-          <div>
-            <p class="card__title">Invokes</p>
-            <ul style="list-style: none; padding: 0; margin: 0;">
-              ${invokes.map((e) => row(target(e), e)) as unknown as SafeHtml[]}
-            </ul>
-          </div>
-        ` : html``}
+      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: stretch;">
         ${invokedBy.length > 0 ? html`
-          <div>
-            <p class="card__title">Invoked by</p>
-            <ul style="list-style: none; padding: 0; margin: 0;">
-              ${invokedBy.map((e) => row(html`<a href="/agents/${e.from}" class="mono">${e.from}</a>`, e)) as unknown as SafeHtml[]}
+          <div style="${col}">
+            <p class="card__title">Called by</p>
+            <ul style="${list}">
+              ${invokedBy.map((e) => row(html`<a href="/agents/${e.from}" class="mono">${e.from}</a>${agentTags(info[e.from])}`, e, e.from)) as unknown as SafeHtml[]}
             </ul>
+            <p class="dim text-xs" style="margin: var(--space-2) 0 0;">A change to ${id} changes what ${invokedBy.length === 1 ? 'it gets' : 'they get'}.</p>
           </div>
-        ` : html``}
+          ${arrow}` : html``}
+        <div style="${col} flex: 0 1 auto; align-self: center; border-color: var(--color-primary);">
+          <span class="mono">${id}</span>
+        </div>
+        ${invokes.length > 0 || notebooks.length > 0 ? arrow : html``}
+        ${invokes.length > 0 || notebooks.length > 0 ? html`
+          <div style="${col}">
+            ${invokes.length > 0 ? html`
+              <p class="card__title">Calls</p>
+              <ul style="${list}">
+                ${invokes.map((e) => row(target(e), e, e.to)) as unknown as SafeHtml[]}
+              </ul>` : html``}
+            ${notebooks.length > 0 ? html`
+              <p class="card__title" style="${invokes.length > 0 ? 'margin-top: var(--space-3);' : ''}">Fills notebooks</p>
+              <ul style="${list}">
+                ${notebooks.map((n) => html`<li style="margin-bottom: var(--space-1);"><a href="/notebooks/${encodeURIComponent(n.id)}">${n.title}</a>${n.status !== 'active' ? html` <span class="dim text-xs">${n.status}</span>` : html``} <a class="dim text-xs" href="/notebooks/${encodeURIComponent(n.id)}/workflow">how it was made →</a></li>`) as unknown as SafeHtml[]}
+              </ul>` : html``}
+          </div>` : html``}
       </div>
     </section>
+  `;
+}
+
+type ConnectedAgents = Record<string, { status: string; description?: string }>;
+
+/** "draft" / "paused" (it won't run on its own like that) and "helper", after an agent's id. */
+function agentTags(a: { status: string; description?: string } | undefined): SafeHtml {
+  if (!a) return html``;
+  const helper = /^Helper for /i.test(a.description ?? '');
+  return html`${a.status !== 'active' ? html` <span class="badge ${a.status === 'archived' ? 'badge--err' : 'badge--muted'}">${a.status}</span>` : html``}${helper ? html` <span class="badge badge--info">helper</span>` : html``}`;
+}
+
+/** An agent's description cut to its first sentence (and ~110 characters), minus a "Helper for X:" prefix. */
+export function shortAbout(description: string | undefined): string {
+  const d = (description ?? '').replace(/^Helper for [^:]+:\s*/i, '').trim();
+  const m = d.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? d;
+  const first = m.charAt(0).toUpperCase() + m.slice(1);
+  return first.length > 110 ? `${first.slice(0, 107).trimEnd()}…` : first;
+}
+
+/**
+ * One line at the top of the Overview: the agents this one calls and the agents
+ * that call it, linked, with a jump to Connections for how. Connections itself
+ * sits below the DAG and output widget, too far down to answer "what does this
+ * call?" at a glance. Nothing when it has no calls either way.
+ */
+function callsSummary(invokes: AgentEdge[], invokedBy: AgentEdge[], info: ConnectedAgents): SafeHtml {
+  const callees = [...new Set(invokes.filter((e) => !e.dynamic).map((e) => e.to))];
+  const dynamic = invokes.some((e) => e.dynamic);
+  const callers = [...new Set(invokedBy.map((e) => e.from))];
+  if (callees.length === 0 && !dynamic && callers.length === 0) return html``;
+  const links = (ids: string[], resolved: (id: string) => boolean): SafeHtml[] => ids.map((id, i) => html`${i > 0 ? ', ' : ''}${resolved(id)
+    ? html`<a href="/agents/${id}" class="mono">${id}</a>${agentTags(info[id])}`
+    : html`<code>${id}</code> <span class="badge badge--err">missing</span>`}`);
+  const resolvedCallee = new Set(invokes.filter((e) => e.resolved).map((e) => e.to));
+  return html`
+    <p class="agent-calls-summary" style="margin: 0 0 var(--space-4); font-size: var(--font-size-sm);">
+      ${callees.length > 0 || dynamic ? html`<span><span class="dim">Calls</span> ${links(callees, (id) => resolvedCallee.has(id)) as unknown as SafeHtml[]}${dynamic ? html`${callees.length > 0 ? ', ' : ''}<span class="dim">an agent chosen at run time</span>` : html``}</span>` : html``}
+      ${(callees.length > 0 || dynamic) && callers.length > 0 ? html`<span class="dim" aria-hidden="true"> · </span>` : html``}
+      ${callers.length > 0 ? html`<span><span class="dim">Called by</span> ${links(callers, () => true) as unknown as SafeHtml[]}</span>` : html``}
+      <a href="#agent-connections" class="dim text-xs" style="margin-left: var(--space-2);">how ↓</a>
+    </p>
   `;
 }
 

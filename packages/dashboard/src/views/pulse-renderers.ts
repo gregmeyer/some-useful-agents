@@ -125,7 +125,7 @@ function renderImage(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   const url = tile.slots.imageUrl ? String(tile.slots.imageUrl) : '';
   const alt = tile.slots.alt ? String(tile.slots.alt) : tile.signal.title;
   return wrap(tile, url
-    ? unsafeHtml(`<img class="pulse-tile__image" src="${esc(url)}" alt="${esc(alt)}" loading="lazy" style="width:100%;border-radius:var(--radius-sm);object-fit:cover;max-height:240px;">`)
+    ? unsafeHtml(`<img class="pulse-tile__image" src="${esc(url)}" alt="${esc(alt)}" loading="lazy" style="display:block;max-width:100%;max-height:240px;width:auto;height:auto;margin:0 auto;border-radius:var(--radius-sm);">`)
     : html`<div class="dim" style="font-size: var(--font-size-xs);">No image URL</div>`
   );
 }
@@ -172,7 +172,7 @@ function renderMedia(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   } else if (isVideo) {
     mediaEl = unsafeHtml(`<video src="${esc(rawUrl)}" controls preload="metadata" style="width:100%;border-radius:var(--radius-sm);"></video>`);
   } else if (isImage) {
-    mediaEl = unsafeHtml(`<img src="${esc(rawUrl)}" alt="${esc(title)}" loading="lazy" style="width:100%;border-radius:var(--radius-sm);object-fit:cover;max-height:240px;">`);
+    mediaEl = unsafeHtml(`<img src="${esc(rawUrl)}" alt="${esc(title)}" loading="lazy" style="display:block;max-width:100%;max-height:240px;width:auto;height:auto;margin:0 auto;border-radius:var(--radius-sm);">`);
   } else {
     mediaEl = unsafeHtml(`<a href="${esc(rawUrl)}" target="_blank" rel="noopener" style="color:var(--color-primary);font-family:var(--font-mono);font-size:var(--font-size-xs);word-break:break-all;">${esc(rawUrl)}</a>`);
   }

@@ -72,7 +72,7 @@ import { settingsTemporalRouter } from './routes/settings-temporal.js';
 import { helpRouter } from './routes/help.js';
 import { versionsRouter } from './routes/versions.js';
 import { imgBlockReportRouter } from './routes/img-block-report.js';
-import { inboxRouter, sendInboxPage } from './routes/inbox.js';
+import { inboxRouter, sendHomePage } from './routes/inbox.js';
 import { inboxEventsRouter } from './routes/inbox-events.js';
 import { inboxCountRouter } from './routes/inbox-count.js';
 import { itemsRouter } from './routes/items.js';
@@ -85,6 +85,7 @@ import { raiseOutcomeInbox } from './lib/outcome-inbox.js';
 import { maybeAutoFirstTouch, startInboxSweeper } from './lib/inbox-sweeper.js';
 import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
+import { startNotebookCadence } from './lib/notebook-cadence.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
@@ -264,10 +265,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
       }
     }
 
-    // Home is the inbox canvas (conversations phase 3b): what needs you and
-    // every conversation, list and thread side by side. Its top becomes the
-    // Home surface (~/.claude/plans/goal-surfaces.md).
-    sendInboxPage(req, res);
+    // Home: what needs you (Today), full width; the list-and-thread inbox
+    // canvas is /inbox (views/home-page.ts).
+    sendHomePage(req, res);
   });
 
   app.use(connectModelRouter);
@@ -753,6 +753,9 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // inbox thread each morning summarizing the previous day's runs (skipped
   // while SUA_DAILY_DIGEST=0). Same lifecycle as the sweeper; publishes via an
   // injected callback so this stays out of routes/.
+  // Notebooks' own schedules (their cadence): runs each one's pipeline when due.
+  const stopNotebookCadence = startNotebookCadence(ctx);
+
   const stopDailyDigest = startDailyDigest(ctx, {
     onPosted: (id, status) => publishInboxChanged(ctx, id, status),
     excludeAgent: (name) => SYSTEM_AGENT_IDS.has(name),
@@ -794,6 +797,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       stopInboxSweeper();
       stopQuestionSweeper();
       stopDailyDigest();
+      stopNotebookCadence();
       stopSchedulerHealth();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll

@@ -14,6 +14,27 @@ Colours can be `#rrggbb` (or `#rgb`, `#rrggbbaa`), `rgb(…)`, `rgba(…)`, `hsl
 
 **Save brand** applies it everywhere at once. **Undo last change** puts the previous theme back; **Reset to sua's default** clears it. A save from a page that's out of date (someone else changed the theme meanwhile) is refused rather than overwriting their change.
 
+## Your brands
+
+![Settings → Appearance: Update my brand and Your brands](images/appearance.png)
+
+Keep more than one look and switch between them. At the top of **Settings → Appearance → Brand**, **Your brands** lists the ones you've saved, each with a strip of its colours:
+- **Save as a brand** keeps the look in use under a name (saving with a name you've used replaces that brand).
+- **Use this** makes a saved brand the look everywhere. The previous look stays one **Undo last change** away.
+- **Delete** removes a saved brand; the look in use doesn't change.
+- **In use** marks the brand whose colours, fonts, radius and accents match the look in use.
+
+Saved brands are theme files in `.sua/brands/<name>.json`, checked like the active theme (one that doesn't validate is skipped).
+## Update my brand (sua makes one)
+
+At the top of **Settings → Appearance → Brand**, give sua your website (`https://yourcompany.com`) or a few words (`calm navy and coral, rounded`) and choose **Make my brand**. The `brand-maker` agent proposes colours for both modes, a font stack, corner radius and tile accents, and says where the look came from. A website is fetched and read; if its styles can't be read, the note says so.
+
+- **Preview first:** the proposal is drawn as a small light and dark page in its own colours. Nothing changes until you choose **Use this brand**; **Discard** drops it, and **Try again** asks again.
+- **Checked:** the proposal must pass the same checks as a hand-made theme (a font family that doesn't is dropped, not the whole brand). sua also measures contrast and lists anything hard to read: text on the page and on cards needs 4.5:1, muted text and the accent need 3:1.
+- **Undo:** using it is an ordinary save, so **Undo last change** brings the previous look back.
+
+The proposal waits in `.sua/brand-proposal.json`, one at a time.
+
 ## How it works
 
 The theme is stored at `.sua/theme.json` in your data directory and served as `/assets/theme.css`, a set of CSS custom properties (`--color-primary`, `--font-sans`, `--radius-md`, `--accent-teal`, …) on top of the design tokens. Every stylesheet and every A2UI component reads those tokens, and they reach inside each board tile, so nothing needs to know about the theme itself.
@@ -40,7 +61,7 @@ Agents style through names, never colours: tones (`neutral`, `ok`, `warn`, `err`
 ## Limits
 
 - Older widgets that set their own colours in their HTML (some `ai-template` widgets) keep those colours.
-- One theme per dashboard for now; a theme per board may follow.
+- One look in use per dashboard at a time (switch between saved brands); a theme per board may follow.
 
 ## Related
 - [Boards](boards.md) — the canvases the theme styles

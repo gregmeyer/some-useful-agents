@@ -10,8 +10,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, notebookForThread, describeNotebookForTriage } from '../lib/notebook-chat.js';
-import { startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
+import { forkForNotebook } from '../lib/agent-fork.js';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
+import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
@@ -44,6 +45,7 @@ import {
   SurfaceStore,
   SurfaceVersionConflict,
   NotebookStore,
+  calledAgentIds,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -185,15 +187,16 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
  * follow-up turn after each action resolves; without a cap, a bad
- * prompt could fan out indefinitely. 10 is enough room for a few rounds
- * of "run X, summarize, run Y on the result" without going wild.
+ * prompt could fan out indefinitely. 24 (about two per turn of
+ * MAX_AUTO_TRIAGE_TURNS) so this cap doesn't end a long chain before the
+ * turn cap would; it was 10.
  */
-const MAX_ACTIONS_PER_MESSAGE = 10;
+export const MAX_ACTIONS_PER_MESSAGE = 24;
 
 /** Truncate the sub-agent run output that's stored in action meta. */
 const ACTION_RESULT_PREVIEW_LIMIT = 500;
@@ -329,7 +332,8 @@ export async function runDispatchedAgentToTerminal(
     );
     return {
       id: run.id,
-      status: run.status,
+      // Stopped from the Stop button: say so, whatever the node reported (a shell step reads it as a timeout).
+      status: abortController.signal.aborted && run.status !== 'completed' ? 'cancelled' : run.status,
       result: typeof run.result === 'string' ? run.result : undefined,
       error: run.error,
     };
@@ -385,7 +389,9 @@ export async function runProposedAction(
       resultSummary: result.summary,
       refusalReason: result.refusalReason,
     });
-    maybeRefireTriage(ctx, messageId);
+    // A notebook step runs in the background and posts how it went itself; a
+    // follow-up turn now would only guess ("still running…") and go stale.
+    if (meta.agentId !== 'notebook-step') maybeRefireTriage(ctx, messageId);
     return;
   }
 
@@ -633,7 +639,7 @@ export function finalizeActionFromOutcome(
   // with the parsed YAML.
   if (meta.agentId === 'agent-analyzer' && nextStatus === 'completed' && runId) {
     maybeAutoProposeEditorAction(ctx, messageId, runId);
-  } else if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
+  } else if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId && !helperFor(ctx, meta)) {
     maybeAutoProposeBuilderInstallAction(ctx, messageId, runId);
   }
 
@@ -644,7 +650,10 @@ export function finalizeActionFromOutcome(
   // triage reports success on a build that produced text, not a catalog
   // entry.
   if (meta.agentId === 'agent-builder' && nextStatus === 'completed' && runId) {
-    maybeCommitBuiltAgent(ctx, messageId, runId);
+    const built = maybeCommitBuiltAgent(ctx, messageId, runId);
+    // Built as a helper for another agent: work out where that agent calls it.
+    const parent = helperFor(ctx, meta);
+    if (built && parent && built !== parent) proposeWiring(ctx, messageId, parent, built);
   }
 
   if (opts.refire !== false) maybeRefireTriage(ctx, messageId);
@@ -659,10 +668,12 @@ export function finalizeActionFromOutcome(
  * keeps proposing actions on its own. Reset when the operator posts
  * a user response.
  *
- * 5 is a comfortable headroom for analyzer → editor → catalog-search
- * chains while still catching pathological loops within a few turns.
+ * 12 leaves room for long chains (find → build → run → file → fix → rerun)
+ * without a reply after every few steps; Stop, the action cap and the
+ * convergence guard (repeated fixes without a good run) still end a loop
+ * that isn't getting anywhere. Was 5, which paused ordinary work.
  */
-const MAX_AUTO_TRIAGE_TURNS = 5;
+export const MAX_AUTO_TRIAGE_TURNS = 12;
 
 /** Delay before an auto-retry so a transient backend has a moment to recover. */
 const TRIAGE_CRASH_RETRY_DELAY_MS = 2000;
@@ -683,7 +694,7 @@ export function resetTriageCrashRetries(ctx: ReturnType<typeof getContext>, mess
  * auto-refire cap — the operator hitting Reply resets the counter so
  * fresh user input always gets a fresh budget.
  */
-function countConsecutiveTriageTurns(
+export function countConsecutiveTriageTurns(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
 ): number {
@@ -718,25 +729,25 @@ export function maybeCommitBuiltAgent(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   builderRunId: string,
-): void {
-  if (!ctx.inboxStore) return;
+): string | undefined {
+  if (!ctx.inboxStore) return undefined;
   const execs = ctx.runStore.listNodeExecutions(builderRunId);
   // Prefer `fix` (runs only when validate found issues) over `design`.
   const fix = execs.find((e) => e.nodeId === 'fix' && e.status === 'completed');
   const design = execs.find((e) => e.nodeId === 'design' && e.status === 'completed');
   const source = (fix?.result ?? design?.result ?? '').toString();
   const match = source.match(/<yaml>\s*\n?([\s\S]*?)<\/yaml>/);
-  if (!match) return;
+  if (!match) return undefined;
   // Run the same repair the dashboard wizard applies before committing an
   // LLM-built agent. Most important here: autoFixYaml un-escapes `{ {` back to
   // `{{` in outputWidget.template / prompts — the template pipeline escapes
   // `{{` → `{ {` to prevent re-expansion, and without this repair the inbox path
   // persists the escaped form, so the widget renders a literal `{ {outputs.X}}`.
   const builtYaml = autoFixYaml(match[1].trim());
-  if (builtYaml.length < 10) return;
+  if (builtYaml.length < 10) return undefined;
 
   let parsed;
-  try { parsed = parseAgent(builtYaml); } catch { return; }
+  try { parsed = parseAgent(builtYaml); } catch { return undefined; }
 
   // Never overwrite a real (non-draft) agent that already owns this id.
   // A draft of the same id is fair game to re-commit (iterating a build).
@@ -747,7 +758,7 @@ export function maybeCommitBuiltAgent(
     publishInboxEvent(ctx, messageId, 'message:created', {
       responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
     });
-    return;
+    return undefined;
   }
 
   // Commit as a draft regardless of what status the YAML declared — an
@@ -766,7 +777,7 @@ export function maybeCommitBuiltAgent(
       `Auto-committed (draft) from inbox build on thread ${messageId}`,
     );
   } catch {
-    return; // store rejected it (e.g. constraint) — leave the thread untouched
+    return undefined; // store rejected it (e.g. constraint) — leave the thread untouched
   }
 
   const href = `/agents/${parsed.id}`;
@@ -780,6 +791,7 @@ export function maybeCommitBuiltAgent(
   publishInboxEvent(ctx, messageId, 'message:created', {
     responseId: sysReply.id, role: 'system', body: note, createdAt: sysReply.createdAt,
   });
+  return parsed.id;
 }
 
 /** Hoisted from the end of `runProposedAction` so route-handled and
@@ -838,6 +850,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'agent-editor') {
     return executeAgentEditor(ctx, messageId, meta);
   }
+  if (meta.agentId === 'agent-compose') {
+    return executeAgentCompose(ctx, messageId, meta);
+  }
   if (meta.agentId === 'dashboard-editor') {
     return executeDashboardEditor(ctx, meta);
   }
@@ -858,6 +873,12 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'notebook-pipeline') {
     return executeNotebookPipeline(ctx, meta);
+  }
+  if (meta.agentId === 'notebook-step') {
+    return executeNotebookStep(ctx, meta);
+  }
+  if (meta.agentId === 'notebook-steps') {
+    return executeNotebookSteps(ctx, meta);
   }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
@@ -1063,8 +1084,14 @@ export function executeNotebookAdd(
   const { add, error } = parseNotebookAdd(meta.inputs.CHANGES ?? '');
   if (!add) return { status: 'failed', refusalReason: error };
   try {
-    const out = applyNotebookAdd(notebooksOf(ctx), meta.inputs.NOTEBOOK ?? '', add);
+    const store = notebooksOf(ctx);
+    const out = applyNotebookAdd(store, meta.inputs.NOTEBOOK ?? '', add);
+    // Options but no fields yet: set the notebook up (fields, stages, their facts).
+    if (store.needsSetup(meta.inputs.NOTEBOOK ?? '')) startNotebookSetup(ctx, meta.inputs.NOTEBOOK ?? '');
     if (out.added.length === 0) return { status: 'completed', summary: 'The notebook already has all of that.' };
+    // Only corrections: say so (they change options; nothing was added).
+    const corrected = out.added.filter((a) => a.startsWith('corrected: ')).length;
+    if (corrected && corrected === out.added.length) return { status: 'completed', summary: `Corrected ${String(corrected)} option${corrected === 1 ? '' : 's'}.` };
     return { status: 'completed', summary: `Added ${String(out.added.length)} to the notebook${out.skipped ? ` (${String(out.skipped)} it already had)` : ''}.` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
@@ -1086,6 +1113,56 @@ export function executeNotebookPipeline(
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * sua's "Set up the steps" card from a notebook's conversation: the notebook's
+ * work as steps (agents must be installed; none edited), and with RUN=1 the
+ * first one starts.
+ */
+export async function executeNotebookSteps(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const id = meta.inputs.NOTEBOOK ?? '';
+  const p = parseNotebookSteps(ctx, meta.inputs.STEPS ?? '');
+  if (!p.steps) return { status: 'failed', refusalReason: p.error };
+  try {
+    const nb = notebooksOf(ctx).setSteps(id, p.steps);
+    const list = (nb.steps ?? []).map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ');
+    const { startNotebookStep, confirmDoneSteps } = await import('../lib/notebook-steps.js');
+    // Steps the notebook's work already covers are done; the next one is where it starts.
+    const already = confirmDoneSteps(ctx, id);
+    const said = already.words ? ` ${already.words}` : '';
+    if (meta.inputs.RUN !== '1') return { status: 'completed', summary: `Steps set: ${list}.${said} Run ${already.done.length ? 'the next step' : 'step 1'} from the notebook when you're ready.` };
+    const started = startNotebookStep(ctx, id);
+    return { status: 'completed', summary: `Steps set: ${list}.${said}${started.started ? ` Working on **${started.step!.title}** now; I'll say here when it's done.` : ` ${started.reason ?? ''}`}` };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * A notebook step's Continue / Try again card (lib/notebook-steps.ts): starts
+ * the next step, or the same one again, if the notebook is still where the
+ * card left it; a stale card does nothing.
+ */
+export async function executeNotebookStep(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const { startNotebookStep, moveOnFromStep } = await import('../lib/notebook-steps.js');
+  // Move on: keep what the step found, mark it done, and start the next.
+  if (meta.inputs.MOVE === '1') {
+    const m = moveOnFromStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
+    if (!m.moved) return { status: 'failed', refusalReason: m.reason ?? 'It could not move on.' };
+    const then = m.next?.started ? ` Working on **${m.next.step!.title}** now; I'll say here when it's done.` : m.next?.reason ? ` ${m.next.reason}` : ' Next is yours: pick the final set with Decide.';
+    return { status: 'completed', summary: `Moved on from **${m.step!.title}**, keeping what it found.${then}` };
+  }
+  const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' ? meta.inputs.WAS : undefined;
+  const out = startNotebookStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP, expect: was });
+  if (!out.started) return { status: 'failed', refusalReason: out.reason ?? 'It could not start.' };
+  return { status: 'completed', summary: `Working on **${out.step!.title}**${out.step!.agentId ? ` with ${out.step!.agentId}` : ''}. I'll say here when it's done or stuck.` };
 }
 
 /**
@@ -1321,7 +1398,13 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * applying it can refuse if the agent changed in between. A no-op for other
  * actions and for agents that don't exist yet (an install).
  */
-export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta): InboxActionMeta {
+export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta, messageId?: string): InboxActionMeta {
+  if (action.agentId === 'notebook-steps' && !action.surfaceChanges) {
+    const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
+    const { steps } = parseNotebookSteps(ctx, action.inputs.STEPS ?? '');
+    if (!steps) return action;
+    return { ...action, inputs: { ...action.inputs, ...(nb ? { NOTEBOOK_TITLE: nb.title } : {}) }, surfaceChanges: describeStepsChange(nb, steps) };
+  }
   if ((action.agentId === 'notebook-add' || action.agentId === 'notebook-pipeline') && !action.surfaceChanges) {
     try {
       const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
@@ -1337,7 +1420,9 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
           ...add.moves.map((m) => ({ what: 'move', before: m.option, after: m.stage })),
           ...add.ruleOut.map((r) => ({ what: 'rule out', before: r.option, after: r.reason })),
           ...add.reinstate.map((r) => ({ what: 'bring back', before: '—', after: r })),
+          ...add.gone.map((r) => ({ what: 'no longer available', before: '—', after: r })),
           ...add.met.map((c) => ({ what: 'done when, met', before: '—', after: c })),
+          ...add.update.map((u) => ({ what: 'correct', before: u.option, after: describeCorrection(nb?.fields ?? [], u.data) })),
         ];
         return { ...action, inputs: named, surfaceChanges: changes };
       }
@@ -1379,11 +1464,14 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
       settingsChanges: read.changes.map(({ what, before, after }) => ({ what, before, after })),
     };
   }
-  if (action.agentId !== 'agent-editor' || !action.inputs.AGENT_ID || action.base) return action;
+  if ((action.agentId !== 'agent-editor' && action.agentId !== 'agent-compose') || !action.inputs.AGENT_ID || action.base) return action;
   const target = ctx.agentStore.getAgent(action.inputs.AGENT_ID);
   if (!target) return action;
   try {
-    return { ...action, base: { version: target.version, yaml: exportAgent(target) } };
+    // From a notebook's conversation, a shared agent (an example, or one other
+    // notebooks search with) is fixed as a copy for this notebook (lib/agent-fork.ts).
+    const fork = messageId ? forkForNotebook(ctx, messageId, target.id) : undefined;
+    return { ...action, base: { version: target.version, yaml: exportAgent(target) }, ...(fork ? { fork, ctaLabel: action.agentId === 'agent-compose' ? 'Add it, with a copy' : 'Save as a copy' } : {}) };
   } catch {
     return action;
   }
@@ -1437,6 +1525,20 @@ export function executeAgentEditor(
       refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
     };
   }
+  // Every agent it calls must be installed (and it can't call itself):
+  // caught here, not as a failed run later.
+  const calls = calledAgentIds(parsed);
+  if (calls.includes(agentId)) {
+    return { status: 'failed', refusalReason: `\`${agentId}\` would call itself. Refusing the edit.` };
+  }
+  const missing = calls.filter((id) => !ctx.agentStore.getAgent(id));
+  if (missing.length) {
+    return {
+      status: 'failed',
+      refusalReason: `\`${agentId}\` would call ${missing.map((id) => `\`${id}\``).join(', ')}, which ${missing.length === 1 ? "isn't" : "aren't"} installed. Install ${missing.length === 1 ? 'it' : 'them'} first, or ask sua for a fix that doesn't need ${missing.length === 1 ? 'it' : 'them'}.`,
+    };
+  }
+  if (meta.fork) return applyFixAsCopy(ctx, meta, parsed);
   // Carry the agent's ACCEPTANCE fields across the rewrite when NEW_YAML omits
   // them.
   //
@@ -1521,6 +1623,52 @@ export function executeAgentEditor(
   };
 }
 
+/**
+ * The fix, saved as a copy for the notebook (meta.fork) instead of over the
+ * shared agent: the copy is a local agent with the fixed definition, the same
+ * run-from-a-conversation grant, and no schedule (the notebook runs it). The
+ * notebook's searches switch to it; the original isn't touched.
+ */
+function applyFixAsCopy(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+  parsed: ReturnType<typeof parseAgent>,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const fork = meta.fork!;
+  const original = ctx.agentStore.getAgent(parsed.id);
+  if (original && meta.base && original.version !== meta.base.version) {
+    return { status: 'failed', refusalReason: `\`${parsed.id}\` changed since this fix was proposed (v${meta.base.version} → v${original.version}). Ask sua to look again so the fix starts from the current version.` };
+  }
+  const copy = {
+    ...parsed,
+    id: fork.id,
+    name: fork.name,
+    source: 'local' as const,
+    status: 'active' as const,
+    schedule: undefined,
+    description: `${(parsed.description ?? '').trim()}${parsed.description ? '\n\n' : ''}A copy of ${parsed.id} for the notebook "${fork.notebookTitle}", fixed there without changing ${parsed.id} (${fork.why}).`.trim(),
+    ...(original?.permissions && !parsed.permissions ? { permissions: original.permissions } : {}),
+    // What the agent is graded and held to carries over when the fix omits it (as in place).
+    ...(original?.outcome && !parsed.outcome ? { outcome: original.outcome } : {}),
+    ...(original?.successCriteria && !parsed.successCriteria ? { successCriteria: original.successCriteria } : {}),
+    ...(original?.behaviors && !parsed.behaviors ? { behaviors: original.behaviors } : {}),
+  };
+  try {
+    ctx.agentStore.upsertAgent(copy, 'dashboard', `Copy of ${parsed.id} for notebook ${fork.notebookId}, with sua's fix`);
+  } catch (err) {
+    return { status: 'failed', refusalReason: `Couldn't save the copy: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const store = notebooksOf(ctx);
+  const nb = store.get(fork.notebookId);
+  const switched = !!nb && nb.pipeline.includes(parsed.id);
+  if (nb && switched) store.update(nb.id, { pipeline: nb.pipeline.map((a) => (a === parsed.id ? fork.id : a)) });
+  const version = ctx.agentStore.getAgent(fork.id)?.version ?? 1;
+  return {
+    status: 'completed',
+    summary: `Saved the fix as \`${fork.id}\` (v${String(version)}), a copy for this notebook, because ${fork.why}.${switched ? ` This notebook now searches with the copy;` : ''} \`${parsed.id}\` is unchanged.`,
+  };
+}
+
 function extractYamlBlockFromRunNodes(
   ctx: ReturnType<typeof getContext>,
   runId: string,
@@ -1536,6 +1684,105 @@ function extractYamlBlockFromRunNodes(
     if (yaml.length >= 10) return yaml;
   }
   return undefined;
+}
+
+/**
+ * The agent a builder action is building a helper for (its FOR_AGENT input),
+ * when that agent is installed; else undefined (an ordinary build).
+ */
+function helperFor(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): string | undefined {
+  const parent = meta.inputs.FOR_AGENT?.trim();
+  return parent && ctx.agentStore.getAgent(parent) ? parent : undefined;
+}
+
+/** A helper in one line for its card: what it does and what it takes. */
+function helperAbout(ctx: ReturnType<typeof getContext>, helperId: string): string {
+  const h = ctx.agentStore.getAgent(helperId);
+  if (!h) return '';
+  const inputs = Object.keys(h.inputs ?? {});
+  const what = (h.description ?? h.name).replace(/\s+/g, ' ').replace(/^helper for [^:]+:\s*/i, '').trim().slice(0, 240);
+  return `${what}${/[.!?]$/.test(what) ? '' : '.'}${inputs.length ? ` Takes ${inputs.join(', ')}.` : ''}`;
+}
+
+/** The helper an analyzer run was wiring in (its action's COMPOSE_HELPER), if any. */
+function wiringHelperOf(ctx: ReturnType<typeof getContext>, messageId: string, analyzerRunId: string): string | undefined {
+  for (const r of ctx.inboxStore?.listResponses(messageId) ?? []) {
+    const m = r.role === 'action' ? parseActionMeta(r) : undefined;
+    if (m?.agentId === 'agent-analyzer' && m.runId === analyzerRunId) return m.inputs.COMPOSE_HELPER?.trim() || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A helper was just built for `parentId` (agent-builder with FOR_AGENT): ask
+ * agent-analyzer where `parentId` should call it. Its YAML becomes one
+ * agent-compose card (maybeAutoProposeEditorAction) that turns the helper on
+ * and saves the parent with the call. Runs on its own when the trust policy
+ * allows (the analysis only reads), like proposeAgentFix.
+ */
+export function proposeWiring(ctx: ReturnType<typeof getContext>, messageId: string, parentId: string, helperId: string): string | undefined {
+  const store = ctx.inboxStore;
+  const helper = ctx.agentStore.getAgent(helperId);
+  if (!store || !helper || !ctx.agentStore.getAgent(parentId)) return undefined;
+  if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return undefined;
+  const inputs = Object.keys(helper.inputs ?? {});
+  const action: InboxActionMeta = {
+    kind: 'action',
+    status: 'proposed',
+    agentId: 'agent-analyzer',
+    effect: 'read',
+    inputs: {
+      AGENT_ID: parentId,
+      COMPOSE_HELPER: helperId,
+      FOCUS: `Wire in the new agent \`${helperId}\` (${(helper.description ?? helper.name).replace(/\s+/g, ' ').trim().slice(0, 200)}${inputs.length ? `; inputs: ${inputs.join(', ')}` : ''}). Add ONE agent-invoke node in \`${parentId}\` that calls \`${helperId}\` at the point that needs it, map its inputs, and make the node that should use its result read it. Change nothing else.`,
+    },
+    rationale: `Work out where \`${parentId}\` should call \`${helperId}\`, then show you the change.`,
+    ctaLabel: 'Wire it in',
+  };
+  const resp = store.addResponse(messageId, 'action', action.rationale!, JSON.stringify(action));
+  publishInboxEvent(ctx, messageId, 'action:created', {
+    responseId: resp.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: resp.createdAt,
+  });
+  if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+    const startedAt = Date.now();
+    const runningMeta: InboxActionMeta = { ...action, status: 'running', startedAt, approvedBy: 'policy' };
+    if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
+      publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
+      const claimed = store.getResponse(resp.id) ?? resp;
+      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+        process.stderr.write(`[inbox] wiring analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
+      });
+    }
+  }
+  return resp.id;
+}
+
+/**
+ * Build and wire, on one approval: turn the helper on (active, marked
+ * "Helper for <agent>"), then save the agent that calls it, as the editor
+ * card would (a new version, or a notebook's copy). If saving the agent
+ * fails, the helper goes back to how it was.
+ */
+export function executeAgentCompose(
+  ctx: ReturnType<typeof getContext>,
+  messageId: string,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const helperId = meta.inputs.HELPER_ID;
+  const parentId = meta.inputs.AGENT_ID;
+  const helper = helperId ? ctx.agentStore.getAgent(helperId) : undefined;
+  if (!helper || !parentId) return { status: 'failed', refusalReason: `The helper \`${helperId ?? ''}\` isn't there any more. Ask sua to build it again.` };
+  const turnOn = helper.status !== 'active' || !/^helper for /i.test(helper.description ?? '');
+  if (turnOn) {
+    const description = /^helper for /i.test(helper.description ?? '') ? helper.description : `Helper for ${parentId}: ${(helper.description ?? helper.name).trim()}`;
+    ctx.agentStore.upsertAgent({ ...helper, status: 'active', description }, 'dashboard', `Turned on as a helper for ${parentId}`);
+  }
+  const wired = executeAgentEditor(ctx, messageId, { ...meta, agentId: 'agent-editor' });
+  if (wired.status !== 'completed') {
+    if (turnOn) ctx.agentStore.upsertAgent(helper, 'dashboard', `Put back: wiring it into ${parentId} failed`);
+    return { status: 'failed', refusalReason: `${wired.refusalReason ?? 'Saving the change failed.'} \`${helperId}\` is left as it was.` };
+  }
+  return { status: 'completed', summary: `Turned on \`${helperId}\` as a helper. ${wired.summary ?? ''}`.trim() };
 }
 
 /**
@@ -1565,6 +1812,11 @@ export function maybeAutoProposeEditorAction(
   // approve card entirely). Only require that agent to be installed.
   if (!parsed.id || !ctx.agentStore.getAgent(parsed.id)) return;
 
+  // A wiring run (proposeWiring): when its YAML calls the helper, one card
+  // turns the helper on and saves the agent that calls it.
+  const helper = wiringHelperOf(ctx, messageId, analyzerRunId);
+  const composes = !!helper && helper !== parsed.id && calledAgentIds(parsed).includes(helper);
+
   // Respect the cap so a chatty analyzer can't fan out unbounded edits.
   if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
 
@@ -1573,9 +1825,26 @@ export function maybeAutoProposeEditorAction(
   for (const r of ctx.inboxStore.listResponses(messageId)) {
     if (r.role !== 'action') continue;
     const m = parseActionMeta(r);
-    if (m && m.agentId === 'agent-editor'
+    if (m && (m.agentId === 'agent-editor' || m.agentId === 'agent-compose')
       && (m.status === 'proposed' || m.status === 'running')
       && m.inputs.NEW_YAML === proposedYaml) return;
+  }
+
+  if (composes) {
+    const compose: InboxActionMeta = {
+      kind: 'action',
+      status: 'proposed',
+      agentId: 'agent-compose',
+      effect: 'write',
+      inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, HELPER_ID: helper!, HELPER_ABOUT: helperAbout(ctx, helper!) },
+      rationale: `The new helper and the step that calls it, approved together.`,
+      ctaLabel: 'Add it and wire it in',
+    };
+    const resp = ctx.inboxStore.addResponse(messageId, 'action', compose.rationale!, JSON.stringify(withEditorBase(ctx, compose, messageId)));
+    publishInboxEvent(ctx, messageId, 'action:created', {
+      responseId: resp.id, agentId: compose.agentId, rationale: compose.rationale, inputs: compose.inputs, createdAt: resp.createdAt,
+    });
+    return;
   }
 
   const action: InboxActionMeta = {
@@ -1596,7 +1865,7 @@ export function maybeAutoProposeEditorAction(
     messageId,
     'action',
     action.rationale!,
-    JSON.stringify(withEditorBase(ctx, action)),
+    JSON.stringify(withEditorBase(ctx, action, messageId)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -1655,7 +1924,7 @@ function maybeAutoProposeBuilderInstallAction(
     messageId,
     'action',
     rationale,
-    JSON.stringify(withEditorBase(ctx, action)),
+    JSON.stringify(withEditorBase(ctx, action, messageId)),
   );
   publishInboxEvent(ctx, messageId, 'action:created', {
     responseId: editorResp.id,
@@ -2090,7 +2359,7 @@ export async function runTriageAgent(
           FOCUS_AGENT_RUN: focusAgentRun,
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
-          NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook) : '',
+          NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
           // Notebooks: goals kept over time ("where's my used car goal?").
           NOTEBOOKS: (() => {
             try {
@@ -2279,7 +2548,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
@@ -2342,7 +2611,7 @@ export async function runTriageAgent(
               ? 'Resolve this thread — nothing left to run or diagnose.'
               : `Run agent \`${action.agentId}\`.`);
         // Stamp once (base version, preview, names) so an auto-run keeps it too.
-        const stamped = withEditorBase(ctx, action);
+        const stamped = withEditorBase(ctx, action, messageId);
         const actionResp = ctx.inboxStore.addResponse(messageId, 'action', body, JSON.stringify(stamped));
         publishInboxEvent(ctx, messageId, 'action:created', {
           responseId: actionResp.id,

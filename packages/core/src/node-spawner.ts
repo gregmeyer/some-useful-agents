@@ -25,7 +25,7 @@ import type { CustomLlmProvider } from './llm-settings-store.js';
 import { resolveExposedToolDefs, buildToolExecutor } from './llm-tool-dispatch.js';
 import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
 import { startToolEndpoint, TOOL_ENDPOINT_SERVER_NAME, type ToolEndpoint } from './tool-mcp-endpoint.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ToolStore } from './tool-store.js';
@@ -44,6 +44,22 @@ import type { SecretsStore } from './secrets-store.js';
 /** Tools a node can run without: a provider that can't call them isn't skipped for them. */
 // ask-human too: a provider that can't call tools just runs without it.
 const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set<string>([...MEMORY_TOOL_IDS, 'ask-human']);
+
+/**
+ * `web-search` in a node's `tools:` isn't a sua tool: it turns on the CLI's
+ * own live search (claude's WebSearch, codex's web_search). A provider
+ * without one is skipped for that node, like any missing tool.
+ */
+export const WEB_SEARCH_TOOL_ID = 'web-search';
+
+/** Whether a node asks for live search: `tools: [web-search]`, or claude's own `WebSearch` in allowedTools (which codex now honours too). */
+export function nodeWantsWebSearch(node: Pick<AgentNode, 'tools' | 'allowedTools'>): boolean {
+  return (node.tools ?? []).includes(WEB_SEARCH_TOOL_ID)
+    || (node.allowedTools ?? []).some((t) => t === 'WebSearch' || t === WEB_SEARCH_TOOL_ID);
+}
+
+/** The node's sua tools, served over the tool endpoint (everything but `web-search`). */
+const suaToolsOf = (node: Pick<AgentNode, 'tools'>): string[] => (node.tools ?? []).filter((id) => id !== WEB_SEARCH_TOOL_ID);
 
 export interface ProviderFailure {
   provider: string;
@@ -294,6 +310,8 @@ export interface LlmSpawnOptions {
   mcpEndpoint?: { url: string; token: string };
   /** Spend cap for this attempt, USD (claude `--max-budget-usd`). */
   maxBudgetUsd?: number;
+  /** Turn on the CLI's own live web search (see `nativeWebSearch`). */
+  webSearch?: boolean;
 }
 
 /**
@@ -375,6 +393,12 @@ export interface LlmSpawner {
    */
   supportsMcpTools?: boolean;
   /**
+   * The CLI has its own live web search, turned on by `webSearch` in the
+   * spawn options. A node that declares `tools: [web-search]` skips a
+   * provider without it.
+   */
+  nativeWebSearch?: boolean;
+  /**
    * Tool calls the CLI refused during the run (raw stdout in). A refused
    * call still exits 0 with a "success" result, so without this the node
    * reads as a clean answer built on data the model never got.
@@ -387,12 +411,38 @@ export interface LlmSpawner {
    * its MCP servers' auth errors) that otherwise decides the category.
    */
   extractError?: (rawStdout: string) => string | undefined;
+  /**
+   * True when the CLI finished its turn and gave its answer (raw stdout in),
+   * so a non-zero exit after that (codex exits 1 while shutting down at
+   * times) keeps the answer, with a warning, instead of failing the node.
+   */
+  finishedTurn?: (rawStdout: string) => boolean;
+  /** Its own noise to strip from stderr before it's shown as an error ("Reading prompt from stdin..."). */
+  stderrNoise?: RegExp;
   /** The CLI's own tool calls, read back from its event stream (raw stdout in). */
   extractToolCalls?: (rawStdout: string) => ToolCallRecord[];
   /** True when the CLI stopped because it hit `maxBudgetUsd` (raw stdout in). */
   stoppedAtBudget?: (rawStdout: string) => boolean;
   /** Tokens (and cost, if the CLI reports it) for the attempt, from its event stream. */
   extractUsage?: (rawStdout: string, opts: LlmSpawnOptions) => LlmUsage | undefined;
+}
+
+/**
+ * codex finished its turn: a `turn.completed` event and a final agent
+ * message, and no `turn.failed` / `error` event.
+ */
+export function codexFinishedTurn(rawStdout: string): boolean {
+  let completed = false; let answered = false;
+  for (const line of rawStdout.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    let event: { type?: string; item?: { type?: string; text?: unknown } };
+    try { event = JSON.parse(t); } catch { continue; }
+    if (event.type === 'turn.failed' || event.type === 'error') return false;
+    if (event.type === 'turn.completed') completed = true;
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) answered = true;
+  }
+  return completed && answered;
 }
 
 /**
@@ -492,6 +542,14 @@ export function claudeDeniedTools(rawStdout: string): string[] {
 
 // ── Claude spawner ─────────────────────────────────────────────────────
 
+/** "error_max_turns: Reached maximum number of turns (8)" from a claude `result` event. */
+function claudeResultError(event: Record<string, unknown>): string | undefined {
+  const errors = Array.isArray(event.errors) ? event.errors.filter((e): e is string => typeof e === 'string') : [];
+  const subtype = typeof event.subtype === 'string' && event.subtype !== 'success' ? event.subtype : undefined;
+  if (!errors.length && !subtype) return undefined;
+  return [subtype, errors.join('; ')].filter(Boolean).join(': ');
+}
+
 /**
  * Claude CLI spawner using `--output-format stream-json` for structured
  * turn tracking. Each line of stdout is a JSON event with a `type` field.
@@ -510,7 +568,8 @@ export const claudeSpawner: LlmSpawner = {
     const args = ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
-    if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    const allowed = claudeAllowedTools(opts);
+    if (allowed.length) args.push('--allowedTools', allowed.join(','));
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
@@ -606,18 +665,41 @@ export const claudeSpawner: LlmSpawner = {
         if (event.type === 'result' && typeof event.result === 'string') {
           return event.result;
         }
+        // A failed run's result event has no text, only `errors` (e.g. on
+        // error_max_turns). Return those, not the raw stream: it carries a
+        // rate_limit_event on every run, which read as rate_limited.
+        if (event.type === 'result') return claudeResultError(event) ?? '';
       } catch { continue; }
     }
     // Fallback: if no result event found, return raw stdout (shouldn't happen).
     return stdout;
   },
 
+  extractError: (stdout) => {
+    const lines = stdout.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line.startsWith('{')) continue;
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        if (event.type === 'result') return event.is_error ? claudeResultError(event) : undefined;
+      } catch { continue; }
+    }
+    return undefined;
+  },
   supportsMcpTools: true,
+  nativeWebSearch: true,
   detectDeniedTools: claudeDeniedTools,
   extractToolCalls: claudeToolCalls,
   extractUsage: (stdout) => claudeUsage(stdout),
   stoppedAtBudget: (stdout) => /"subtype"\s*:\s*"error_max_budget_usd"/.test(stdout),
 };
+
+/** claude's --allowedTools: the node's own, plus WebSearch when it asks for live search. */
+function claudeAllowedTools(opts: LlmSpawnOptions): string[] {
+  const own = (opts.allowedTools ?? []).filter((t) => t !== WEB_SEARCH_TOOL_ID);
+  return opts.webSearch && !own.includes('WebSearch') ? [...own, 'WebSearch'] : own;
+}
 
 // ── Claude text spawner (legacy, no progress) ──────────────────────────
 
@@ -634,7 +716,8 @@ export const claudeTextSpawner: LlmSpawner = {
     const args = ['--print'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
-    if (opts.allowedTools?.length) args.push('--allowedTools', opts.allowedTools.join(','));
+    const allowed = claudeAllowedTools(opts);
+    if (allowed.length) args.push('--allowedTools', allowed.join(','));
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
@@ -644,6 +727,7 @@ export const claudeTextSpawner: LlmSpawner = {
   parseProgress(): SpawnProgress | null { return null; },
   extractResult(stdout: string): string { return stdout; },
   supportsMcpTools: true,
+  nativeWebSearch: true,
 };
 
 // ── Codex spawner ──────────────────────────────────────────────────────
@@ -711,6 +795,8 @@ export const codexSpawner: LlmSpawner = {
       }
       args.push('-c', `mcp_servers.${TOOL_ENDPOINT_SERVER_NAME}={url=${JSON.stringify(opts.mcpEndpoint.url)},bearer_token_env_var="${CODEX_TOOL_TOKEN_ENV}",default_tools_approval_mode="approve"}`);
     }
+    // Live web search (the Responses web_search tool, no per-call approval).
+    if (opts.webSearch) args.push('-c', 'web_search="live"');
     return args;
   },
 
@@ -807,8 +893,11 @@ export const codexSpawner: LlmSpawner = {
   },
 
   extractError: codexFailureMessage,
+  finishedTurn: codexFinishedTurn,
+  stderrNoise: /^Reading prompt from stdin\.\.\.\s*$/gm,
   // sua's tools reach codex over MCP (see buildArgs).
   supportsMcpTools: true,
+  nativeWebSearch: true,
   extractUsage: (stdout, opts) => {
     const usage = codexUsage(stdout);
     return usage ? { ...usage, model: opts.model ?? codexDefaultModel() } : undefined;
@@ -1007,7 +1096,7 @@ export async function spawnNodeReal(
   const upstreamOutputs: Record<string, Record<string, unknown>> = {};
   for (const [k, v] of Object.entries(env)) {
     const m = k.match(/^UPSTREAM_(.+)_RESULT$/);
-    if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = v;
+    if (m) upstreamMap[m[1].toLowerCase().replace(/_/g, '-')] = fullUpstreamResult(v, env[`${k}_FILE`]);
     const o = k.match(/^UPSTREAM_(.+)_OUTPUTS$/);
     if (o) {
       try { upstreamOutputs[o[1].toLowerCase().replace(/_/g, '-')] = JSON.parse(v) as Record<string, unknown>; } catch { /* not JSON */ }
@@ -1272,7 +1361,7 @@ async function runLlmAttempt(
   toolCtx?: AttemptToolCtx,
 ): Promise<SpawnResult> {
   const isCustom = customProviders?.some((c) => c.name === provider) ?? false;
-  const declaredTools = node.tools ?? [];
+  const declaredTools = suaToolsOf(node);
   const wantsEndpoint = !isCustom && isCliProvider(provider)
     && getSpawner(provider).supportsMcpTools === true && declaredTools.length > 0;
   if (!wantsEndpoint) {
@@ -1357,11 +1446,14 @@ async function runLlmAttemptInner(
   // through the same waterfall (contract check, classifyLlmFailure, fallback).
   const custom = customProviders?.find((c) => c.name === provider);
   if (custom && custom.kind === 'openai') {
+    if ((node.tools ?? []).includes(WEB_SEARCH_TOOL_ID)) {
+      return { result: '', exitCode: 1, category: 'tool_unavailable', error: `${provider} has no live web search, which this node declares in tools: (web-search).` };
+    }
     // Expose the tools the model may CALL: the union of node.tools and any
     // registry-id entries in node.allowedTools (back-compat). Builtin, generated
     // integration, and MCP tools are exposed (schemas + a function-name→id map);
     // non-callable ids are dropped. Empty ⇒ plain completion (no tool loop).
-    const candidateIds = [...(node.tools ?? []), ...(node.allowedTools ?? [])];
+    const candidateIds = [...suaToolsOf(node), ...(node.allowedTools ?? [])];
     const surface = buildAttemptToolSurface(candidateIds, node, childEnv, provider, toolCtx, signal);
     const tools = surface?.tools;
     const onToolCall = surface?.execute;
@@ -1400,7 +1492,15 @@ async function runLlmAttemptInner(
   // declares tools, so the waterfall moves on — running anyway is how
   // starter-watch "completed" a watch that never read the page.
   let allowedTools = node.allowedTools;
-  const declaredTools = node.tools ?? [];
+  const declaredTools = suaToolsOf(node);
+  if ((node.tools ?? []).includes(WEB_SEARCH_TOOL_ID) && !spawner.nativeWebSearch) {
+    return {
+      result: '',
+      exitCode: 1,
+      category: 'tool_unavailable',
+      error: `${provider} has no live web search, which this node declares in tools: (web-search).`,
+    };
+  }
   // Optional tools (the memory tools the executor adds for agents with memory
   // on) never make a provider skip the node: without tool support it runs
   // without them, still starting from the recalled memories.
@@ -1425,6 +1525,7 @@ async function runLlmAttemptInner(
     mcpConfigPath,
     mcpEndpoint,
     maxBudgetUsd: toolCtx?.attemptBudgetUsd,
+    ...(spawner.nativeWebSearch && nodeWantsWebSearch(node) ? { webSearch: true } : {}),
   };
   const args = spawner.buildArgs(spawnOpts, childEnv);
 
@@ -1511,7 +1612,18 @@ async function runLlmAttemptInner(
   // "model not supported" failure as auth_required.
   if (spawner.extractError && result.category === 'exit_nonzero') {
     const providerError = spawner.extractError(rawStdout);
-    if (providerError) result = { ...result, error: providerError };
+    if (providerError) {
+      result = { ...result, error: providerError };
+    } else if (spawner.finishedTurn?.(rawStdout) && result.result.trim()) {
+      // It finished and answered, then exited non-zero with no error of its
+      // own: keep the answer, and say what happened on the node.
+      const { category: _failed, ...rest } = result;
+      result = { ...rest, exitCode: 0, error: `${provider} exited with code ${String(result.exitCode)} after finishing its answer, without reporting an error. The answer was kept.` };
+    } else if (spawner.stderrNoise) {
+      // Its own banner isn't a reason: say it gave none (plus anything else stderr had).
+      const rest = (result.error ?? '').replace(spawner.stderrNoise, '').trim();
+      result = { ...result, error: rest || `${provider} exited with code ${String(result.exitCode)} without saying why.` };
+    }
   }
 
   if (spawner.classifyResult && result.exitCode === 0) {
@@ -1646,6 +1758,9 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   if (result.category === 'timeout' || haystack.includes('timed out')) {
     return 'timeout';
   }
+  // Ran out of turns: a prompt problem, not the provider's. Checked before
+  // the quota words, which turn up in the CLI's own status events.
+  if (/error_max_turns|maximum number of turns/.test(haystack)) return 'other';
   if (haystack.includes('credit balance')
     || haystack.includes('insufficient credit')
     || haystack.includes('out of credit')
@@ -1660,7 +1775,8 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   }
   if (haystack.includes('rate limit')
     || haystack.includes('rate_limit')
-    || haystack.includes('429')
+    // A status, not any number with 429 in it (costs, durations, ids).
+    || /(?:^|[^\w.-])429(?:[^\w.-]|$)/.test(haystack)
     || haystack.includes('too many requests')) {
     return 'rate_limited';
   }
@@ -1789,6 +1905,26 @@ export interface SpawnProcessOptions {
    * this run is dead" and reaped a node that was actively mid-request.
    */
   onChildExit?: () => void;
+}
+
+/**
+ * Most of an upstream result a prompt takes. The prompt goes over stdin, so
+ * it isn't bound by the env cap that spills results over 32KB to a file.
+ */
+export const PROMPT_UPSTREAM_CAP = 256 * 1024;
+
+/**
+ * An upstream result for a prompt: the full value from its spill file when
+ * the env copy was cut short. The cut copy ends "full value at $…_FILE",
+ * which sent one-turn llm nodes off to Read the file until they ran out of
+ * turns.
+ */
+export function fullUpstreamResult(inline: string, file: string | undefined): string {
+  if (!file) return inline;
+  let full: string;
+  try { full = readFileSync(file, 'utf8'); } catch { return inline; }
+  if (full.length <= PROMPT_UPSTREAM_CAP) return full;
+  return `${full.slice(0, PROMPT_UPSTREAM_CAP)}\n...(cut at ${String(PROMPT_UPSTREAM_CAP / 1024)}KB of ${String(Math.round(full.length / 1024))}KB)`;
 }
 
 /**

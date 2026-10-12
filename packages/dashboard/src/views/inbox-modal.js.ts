@@ -236,6 +236,8 @@ export const INBOX_MODAL_JS = `
       // The panel remembers its thread so Cmd-K brings it back.
       var keep = currentId;
       savePanel(keep, 'closed');
+      // Pages showing this thread elsewhere (a notebook's talk box) catch up.
+      try { document.dispatchEvent(new CustomEvent('sua:panel-closed', { detail: { threadId: keep } })); } catch (_) {}
       if (panelMode === 'min' || reduceMotion) { teardownModal(); return; }
       easePanel(false);
       document.body.classList.remove('has-sua-panel', 'has-sua-panel--docked', 'has-sua-panel--wide');
@@ -1354,6 +1356,9 @@ export const INBOX_MODAL_JS = `
       body: askBody
     })
       .then(function (r) {
+        // "Next" from an option's page: the server says where to go, no conversation.
+        var to = r.headers.get('X-Navigate');
+        if (r.ok && to && to.charAt(0) === '/' && to.charAt(1) !== '/') { window.location.assign(to); return; }
         var id = r.headers.get('X-Inbox-Id');
         if (!r.ok || !id) throw new Error('ask-fix ' + r.status);
         var text = form.querySelector('textarea, input[type=text]');
@@ -1521,6 +1526,10 @@ export const INBOX_MODAL_JS = `
     if (saved.mode !== 'docked' && saved.mode !== 'wide' && saved.mode !== 'min') return;
     // Its own page shows the thread already.
     if (saved.id && window.location.pathname === inboxThreadHref(saved.id)) return;
+    // A page with its own conversation (a notebook) brings an open panel to it.
+    var pageThread = document.querySelector('[data-page-thread]');
+    var own = pageThread && pageThread.getAttribute('data-page-thread');
+    if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
     if (saved.id) openFor(saved.id, { panel: saved.mode, restore: true });
     else if (saved.mode === 'min') { panelMode = 'min'; applyPanel(); }
     else { panelMode = saved.mode; openPanelHome({ restore: true }); }

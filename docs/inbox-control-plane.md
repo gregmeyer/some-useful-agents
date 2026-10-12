@@ -37,6 +37,11 @@ The autonomy loop (the "control plane" half) now runs by default:
   stranded `running` by a restart against run-store truth, re-attaches
   waiters to in-flight Temporal runs, and re-fires triage once per thread
   whose turn died with the old process.
+- **How far sua goes on its own**: after an action finishes, sua takes
+  another turn to report or carry on. Between your replies it takes up to
+  12 such turns and runs up to 24 actions, then pauses and asks you to
+  reply. Your reply resets both. **Stop** halts it sooner, and repeated
+  fixes to one agent without a good run end automatic fixing.
 - **Bounded thread replay**: each triage turn (and the learning extractor)
   sees the thread as `[role] body` lines, most recent kept within 16 KB,
   with a note like "(49 earlier entries left out for length)" when a long
@@ -292,6 +297,97 @@ when the focus agent's latest run actually achieved its outcome, not merely when
 it exited 0. An `undetermined` outcome leaves the thread open.
 
 See [outcome detection](outcome-detection.md).
+
+### A fix can call another agent instead of rewriting this one
+
+When sua asks `agent-analyzer` for a fix from a conversation, the analyzer now
+gets the list of your installed agents (the same catalog it gets from an agent's
+**Suggest improvements**). It decides which kind of fix it is:
+
+- **The agent's own job is broken** (a wrong prompt, a bad command, a node
+  that fails): it fixes that node.
+- **The agent is missing a piece of work another agent already does** (a lookup
+  it can't do, data it never fetches): it adds an `agent-invoke` step that calls
+  that agent and feeds its result to the next step, instead of growing a prompt
+  to do the other agent's job. The called agent is unchanged and keeps working
+  for everyone who uses it.
+
+The edit card lists what changes in plain words above the diff, for example:
+
+- **New step:** "enrich calls firmographic-research, after synthesize"
+- **Prompt:** "synthesize's prompt is rewritten"
+- **Order:** "tidy now runs after search"
+- **New input:** "REGION"
+
+![A fix card for an example agent: New step, enrich calls example-firmographics after synthesize; its prompt is rewritten; a new input](images/agent-fix-calls-agent.png)
+
+A called agent must be installed, and calls are limited to 3 levels with no
+loops (see [flows](flows.md#agent-invoke)).
+
+### Build a helper and wire it in, on one card
+
+When no installed agent does the missing work, sua can build a small **helper**
+for it and wire it into the agent that needs it, approved together:
+
+1. sua builds the helper (`agent-builder` with `FOR_AGENT`). The builder keeps
+   it to the one job, gives it the inputs it needs and a JSON result, and starts
+   its description with "Helper for <agent>:". It's saved as a draft, with no
+   separate Install card.
+2. sua works out where the agent should call it (`agent-analyzer` on that agent,
+   asked for one step that calls the helper). This only reads, so it runs on its
+   own when your trust settings allow.
+3. One **Add it and wire it in** card shows what the helper does and takes, the
+   change to the agent in plain words, and the diff. Approving it turns the
+   helper on and saves the agent with the new step, as a new version (or as a
+   copy for a notebook, like any fix to a shared agent). If saving the agent
+   fails, the helper is put back as a draft, so nothing is left half done.
+
+Helpers are ordinary agents in your agents list, so other agents can call them
+too. See [ADR-0051](adr/0051-build-and-wire-on-one-card.md).
+
+![An example build-and-wire card: a new helper, example-founding-year, and the step in example-peer-research that calls it](images/agent-build-and-wire.png)
+
+### How sua chooses: run, call, build a helper, then edit
+
+When an agent can't do part of its job (it never fetches some data, or a
+notebook step stalls on facts its agent can't find), sua works down this ladder
+and stops at the first rung that fits:
+
+1. **Run** an installed agent that already does the missing part. Nothing
+   changes.
+2. **Call it:** a fix that adds one step calling that installed agent (above).
+3. **Build a helper** when no installed agent does it, once sua has named the
+   closest ones and why they don't fit, then wire it in on one card (above).
+4. **Edit** prompts or steps only when the agent's own job is broken, not to
+   bolt a second job onto it.
+
+sua says in a sentence which rung it chose and why. An agent that other agents
+or notebooks use leans further toward calling and helpers.
+
+### A fix from a notebook doesn't change a shared agent
+
+A fix sua proposes in a notebook's conversation can target an agent that other
+things depend on. Changing it in place would change them too: on 2026-10-09 a
+fix for a comp-set notebook turned the general `starter-research` into a
+firmographics pipeline, which another notebook also searched with. So when the
+agent is **shared**, meaning one of sua's example agents or one another notebook
+searches with, the fix is saved as a **copy for this notebook**:
+
+- The card says so before you approve it ("Saved as a copy for this notebook,
+  `starter-research-comp-set`, because another notebook searches with it…"),
+  and its button reads **Save as a copy**.
+- The copy, `<agent>-<notebook>`, is a local agent with the fixed definition,
+  named "<agent's name> (<notebook>)". It keeps the original's
+  run-from-a-conversation grant, outcome, success criteria and behaviors, but no
+  schedule, since the notebook runs it.
+- This notebook's searches switch to the copy. The original and every other
+  notebook are left as they were.
+- A later fix to the copy, which only this notebook uses, edits the copy in
+  place. A later fix aimed at the original from the same notebook updates the
+  same copy.
+
+A fix asked for from the agent's own page or its own conversation still changes
+the agent itself, since that's the agent you meant.
 
 ### Why an inbox fix can't quietly lower the bar
 

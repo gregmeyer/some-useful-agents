@@ -82,8 +82,20 @@ nodes:
       Options carry their facts as data, so they can be compared, charted
       and shown as cards:
       - "data": one value per field key from the notebook's fields (numbers
-        as numbers: 4023, not "$4,023"; addresses as full https links). Leave
-        out what the output doesn't say; never guess a value.
+        as plain numbers, without "$" or commas; addresses as full https
+        links). Every value must appear in the output above. Leave out what
+        the output doesn't say (a price it doesn't give stays out); never
+        guess a value, and never copy a value from these instructions. When the
+        output says where a figure came from, or that it's approximate
+        (revenue and headcount usually are), give it as
+        {"value": <the number>, "source": "https://…", "estimate": true}
+        instead of the bare value ("source" only as a full https link the
+        output gives; "estimate": true only when it says or clearly implies
+        the figure is a guess). Except: when
+        the notebook has a field with role "score" (how well an option
+        fits), give each option you add a score from 0 to 100 for how well
+        it matches the notebook's parameters and criteria, judged from what
+        the output says about it.
       - "fingerprint": what makes it the same option next time, in order of
         preference: a VIN or listing id, else the listing's address, else
         "year make model miles seller". An option already listed above
@@ -102,7 +114,8 @@ nodes:
       "price" (what it costs, or pays), "measure" (the main number to
       compare: miles, sq ft, commute minutes, rating), "place", "org" (the
       company or seller), "link" (the listing), "image" (a photo or logo),
-      "when". For money and numbers, "better": "higher" or "lower" (a price
+      "when", "score" (how well it fits: an ICP or match score, better
+      higher; options then rank by it). For money and numbers, "better": "higher" or "lower" (a price
       is better lower, a salary or a rating higher), and "range": true when
       values come as a span ("$150k–$180k"); give a range's value as
       {"min": 150000, "max": 180000}. For cars: price, miles, year,
@@ -110,8 +123,20 @@ nodes:
       (money, price role, better higher, range), title, company (org),
       location, remote, level, posted (when), posting_url. For products:
       price, rating (measure, better higher), store (org), in_stock,
-      product_url, photo.
-      With the fields, also return "stages": the 3–6 steps an option goes
+      product_url, photo. For accounts or leads to qualify: company (org),
+      website (link), industry, location (place), revenue (money, range),
+      employees (number, measure, range), fit (number, role "score").
+      Where it looked: when the output is a search that names the sites or
+      sources it tried, return "sources": [{"name": "CarGurus", "found": 2,
+      "status": "found" | "none" | "blocked" | "skipped", "note"?: "why"}],
+      one per site, from what the output says (a site that refused or
+      errored is "blocked"; one it chose not to search is "skipped").
+
+      With the fields, also return "checks": the 3–5 things to confirm on an
+      option before deciding (cars: Still listed, Clean title (VIN),
+      Accident history, Pre-purchase inspection; jobs: Salary confirmed,
+      Remote policy, Talked to the team; products: In stock, Return
+      policy). And "stages": the 3–6 steps an option goes
       through on the way to a decision, starting with where new ones land.
       For cars: Found, Checked, Test drive, Offer, Bought. For jobs: Found,
       Applied, Screen, Interview, Offer. For products: Found, Shortlist,
@@ -121,15 +146,26 @@ nodes:
       that fits yet"), so the notebook remembers it was tried. If the output
       is an error or unrelated, return no entries.
 
+      SETTING UP A NOTEBOOK: when the agent is `notebook-setup`, nothing was
+      searched. Return NO entries. Instead return "fields" and "stages" that
+      fit this notebook's goal (as above; even with no options yet), and
+      "facts": for each option already listed (each shows its [id: …]),
+      {"id": "<that id>", "data": {…}, "fingerprint"?: "…"} with the facts
+      its title and text state, by the fields you're returning. Leave out
+      what they don't say; never guess a value.
+
       Criteria: if the output clearly shows a criterion is now met, list its
       index with a short reason. Never mark a criterion met on a guess.
 
       Reply with only this, as valid JSON:
       <notebook>
-      {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"price": 4023}, "fingerprint": "…"},
+      {"entries": [{"kind": "option", "title": "…", "body": "…", "data": {"<field key>": <value from the output>}, "fingerprint": "…"},
                    {"kind": "note", "title": "…", "body": "…"}],
        "fields": [],
        "stages": [],
+       "checks": [],
+       "sources": [],
+       "facts": [],
        "criteriaMet": [{"index": 0, "why": "…"}],
        "summary": "one line: what this run added"}
       </notebook>

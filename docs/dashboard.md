@@ -44,15 +44,23 @@ Asking sua opens the answer in a panel beside the page, not over it, so you can 
 
 On Home the same inbox fills the page instead (below), so it's one inbox at two widths.
 
-## `/` — Home (your inbox)
+## `/` — Home
 
-The first tab, **Today**, is drawn from Home's surface: what needs you, what's happening, and whether everything else is fine, ordered by your rules. Items that aren't conversations (a failing agent, a draft) open beside the list with their actions and why they're there. See [surfaces](surfaces.md#homes-today-tab).
+![Home: how things stand, your notebooks, and Today](images/home.png)
 
-Home is your inbox on one canvas: the list on the left (ask box, **Needs you · Open · Conversations · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox` is the same page, and `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. The **Autonomy** control (Full / Approve first / Off) sits above it. It's the same inbox the conversation panel shows beside other pages.
+Home is what needs you, on one page:
+- **The header** says how things stand ("2 need you", or "Nothing needs you") beside the title, with a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
+- **Your notebooks**: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with its picture, the best option so far and its price, its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**. On a phone the cards are a row you swipe.
+- **Today** fills the page: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.
+- **Ask sua** in the bar at the top; there's no second ask box on Home.
 
 With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
 
-On Home the list also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
+## `/inbox` — the full inbox
+
+Every conversation on one canvas: the list on the left (ask box, **Today · Open · Chats · Done**, search), the open thread on the right with its conversation, action cards and inline widgets. Replies stream in over the chat WebSocket. `/inbox/:id` opens it with that thread selected; picking a thread updates the address. On a narrow screen you see the list or the thread, with **← Inbox** to go back. It's the same inbox the conversation panel shows beside other pages.
+
+The list here also has **Filter and sort** (where a thread came from, its agent, a tag, starred only; sort by latest activity, oldest first or priority; every tab's count follows the filters), a ★ on each thread, and checkboxes: select threads, or all on the page, then **Resolve** or **Dismiss** them together. Starred threads lead whatever sort you pick.
 
 ## `/agents` — Agents list
 
@@ -107,7 +115,10 @@ Six tabs:
 ### Overview
 - **DAG visualization** — Cytoscape canvas with wheel-zoom + drag-pan. A floating toolbar in the bottom-right has **+** (zoom in), **⧇** (fit to view), and **−** (zoom out) buttons; clicks bind to `cy.zoom()` / `cy.fit()`. The canvas height adapts to graph size — 380px default, 240px compact for 1–2-node DAGs — so a small graph doesn't drown in an empty grid and a dense one stays readable without leaving the page. Click any node for the action dialog (Edit, Replay-from-here, Jump to details).
 - **Edit wiring** — toggles the canvas into a wiring editor. Drag one node onto another to make the second depend on the first, or click a source node then a target if you'd rather not drag. Click an edge to remove it. **Save wiring** writes every change as a *single* new version, so restructuring five nodes is one entry in history rather than five. Cycles are refused (with the path that closes the loop), and so is cutting an edge whose downstream still reads `{{upstream.x.result}}` or `$UPSTREAM_X_RESULT` — those would crash the node. Cutting one that an `onlyIf` predicate still names saves with a warning, because it does not crash, it just quietly changes which branch runs. Run detail's DAG is never editable: it's a record of what happened.
-- **Agent calls** — what this agent invokes and what invokes it, each linked, with the node that does the calling. A target chosen at run time (e.g. `{{inputs.LOGGER_AGENT_ID}}`) is shown as "chosen at run time" rather than a dead link; one naming an agent that no longer exists is badged `missing`. The section is omitted entirely for agents that neither call nor are called.
+- **Calls / Called by** — one line at the top of the Overview names the agents this one calls and the agents that call it, linked, each tagged `draft` or `paused` when it won't run on its own and `helper` when it was built as one; **how ↓** jumps to Connections. In the diagram, a step that calls another agent names it on a second line (`founded → example-founding-year`).
+- **Connections** — laid out left to right: the agents that call this one (**Called by**), then this agent, then what it calls (**Calls**) and the notebooks it fills (each with a link to how that notebook was made). Each agent shows the first sentence of what it does, and the Called by side reminds you that a change here changes what they get. Each agent is linked, with the node that does the calling. A target chosen at run time (e.g. `{{inputs.LOGGER_AGENT_ID}}`) is shown as "chosen at run time" rather than a dead link; one naming an agent that no longer exists is badged `missing`. The section is omitted entirely for agents that neither call, are called, nor fill a notebook. On the agents list, a **feeds N notebooks** badge marks agents that fill notebooks, and the **Feeds notebooks** chip narrows the list to them.
+
+  ![An example agent's Overview: the Calls and Called by line, the diagram naming the agent each step calls, and Connections with what each agent does](images/agent-calls-and-called-by.png)
 - Latest run's output widget (if declared)
 - Stats strip: total runs, success rate, avg duration
 - Signal + output widget previews
@@ -128,12 +139,12 @@ One page, with a section menu on the left. Each section has a one-line summary o
 - **Connections**: the inbound webhook and notify-when-finished.
 - **Access**: whether sua can run it from a conversation, which hosts its widgets may load images from, which agents it can hand work to, and its secrets.
 
-Model, When it runs, Where it shows, and the first two Access settings save together. As you change them, the changed sections are marked, and a bar at the bottom says how many changes are unsaved, with **Discard**, **Review** (each change as before → after) and **Save**. Saving applies them all at once; if any changes what the agent does, they become one new version (**Save as vN**), which you can roll back from Versions. A new schedule takes effect when the scheduler restarts (`sua daemon restart --service schedule`). Inputs, the webhook, notify and hand-off agents save on their own, and their sections say so.
+Model, When it runs, Where it shows, and the first two Access settings save together. As you change them, the changed sections are marked, and a bar at the bottom says how many changes are unsaved, with **Discard**, **Review** (each change as before → after) and **Save**. Saving applies them all at once; if any changes what the agent does, they become one new version (**Save as vN**), which you can roll back from Versions. After a rollback, the next version is numbered after the newest one (roll v9 back to v8, and the next save is v10), so no version is overwritten. A new schedule takes effect when the scheduler restarts (`sua daemon restart --service schedule`). Inputs, the webhook, notify and hand-off agents save on their own, and their sections say so.
 
 **Ask sua to change this agent** (top of Settings) opens a conversation in the panel with what you typed. sua answers with a **Change N settings** card that lists each change as before → after. **Apply** saves them the same way Save does (one new version if any change affects what the agent does). **Not now** skips it, and **Open in Settings** jumps back to the page. sua can propose the same card in any conversation about an agent ("run it weekdays at 9 and let Claude Desktop call it").
 
 ### Runs
-Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs.
+Paginated run history. Filter by status. Click any row for per-node stdout/exit codes/errors. "Replay from node" button re-runs starting at any node, reusing upstream outputs and the original run's inputs.
 
 ### YAML
 Editor for the raw YAML. Zod validation on save. Versioned — each save creates a new `agent_versions` row.
@@ -199,6 +210,8 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
 ## `/pulse` — the board
+
+![Pulse with six placed tiles](images/pulse.png)
 
 Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
 

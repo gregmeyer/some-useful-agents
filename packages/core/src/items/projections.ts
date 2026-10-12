@@ -262,9 +262,10 @@ export function schedulerItem(status: SchedulerStatus, scheduledAgents: number, 
 
 /**
  * An active notebook, on Home in Happening now: what it's for and how far
- * along it is. (G4 makes "something new since you looked" an open item.)
+ * along it is. When its conversation is waiting on you (`waiting`, that
+ * thread's item), the notebook itself needs you: one row, not two.
  */
-export function notebookItem(nb: Notebook, entryCount: number): Item | undefined {
+export function notebookItem(nb: Notebook, entryCount: number, waiting?: Item): Item | undefined {
   if (nb.status !== 'active') return undefined;
   const met = nb.criteria.filter((c) => c.met).length;
   const parts = [
@@ -272,6 +273,22 @@ export function notebookItem(nb: Notebook, entryCount: number): Item | undefined
     `${String(entryCount)} entr${entryCount === 1 ? 'y' : 'ies'}`,
   ].filter(Boolean);
   const href = `/notebooks/${encodeURIComponent(nb.id)}`;
+  if (waiting) {
+    return {
+      id: `notebook:${nb.id}`,
+      kind: waiting.kind,
+      title: `Notebook: ${nb.title}`,
+      summary: waiting.summary ?? parts.join(' · '),
+      urgency: waiting.urgency,
+      state: 'open',
+      subject: { ...(waiting.subject.threadId ? { threadId: waiting.subject.threadId } : {}) },
+      value: nb.criteria.length ? `${String(met)}/${String(nb.criteria.length)}` : String(entryCount),
+      actions: [...waiting.actions, { type: 'open', label: 'Open the notebook', href }],
+      evidence: waiting.evidence,
+      provenance: { source: 'notebooks', producedBy: 'system', at: waiting.provenance.at > nb.updatedAt ? waiting.provenance.at : nb.updatedAt },
+      href,
+    };
+  }
   return {
     id: `notebook:${nb.id}`,
     kind: 'progress',

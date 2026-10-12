@@ -451,16 +451,18 @@ export function parseProposedActions(
     }
     // `notebook-add` puts what the operator said into a notebook (applied as you
     // talk); `notebook-pipeline` sets its agents + schedule (a card to approve).
-    if (type === 'notebook-add' || type === 'notebook-pipeline') {
+    // `notebook-steps` lays out its work as steps (a card to approve).
+    if (type === 'notebook-add' || type === 'notebook-pipeline' || type === 'notebook-steps') {
       const inputs: Record<string, string> = {};
       if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
         for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
           if (typeof v === 'string') inputs[k] = v;
-          else if ((k === 'CHANGES' || k === 'AGENTS') && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+          else if ((k === 'CHANGES' || k === 'AGENTS' || k === 'STEPS') && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
         }
       }
-      if (!inputs.NOTEBOOK || (type === 'notebook-add' ? !inputs.CHANGES : !inputs.AGENTS)) {
-        rejected.push({ agentId: type, reason: `${type} needs inputs.NOTEBOOK and inputs.${type === 'notebook-add' ? 'CHANGES' : 'AGENTS'}` });
+      const need = type === 'notebook-add' ? 'CHANGES' : type === 'notebook-steps' ? 'STEPS' : 'AGENTS';
+      if (!inputs.NOTEBOOK || !inputs[need]) {
+        rejected.push({ agentId: type, reason: `${type} needs inputs.NOTEBOOK and inputs.${need}` });
         continue;
       }
       if (type === 'notebook-add') {
@@ -474,7 +476,23 @@ export function parseProposedActions(
         inputs,
         rationale: rationaleRaw || undefined,
         effect: 'write',
-        ctaLabel: type === 'notebook-add' ? 'Add' : 'Set it up',
+        ctaLabel: type === 'notebook-add' ? 'Add' : type === 'notebook-steps' ? (inputs.RUN === '1' ? 'Set them up and start' : 'Set them up') : 'Set it up',
+      });
+      continue;
+    }
+    // `notebook-step` acts on the notebook's current step: MOVE "1" moves on
+    // from it with what it found (when they say to stop, skip or move on), else
+    // it runs it (Continue, Try again). A card to approve, like the step's own.
+    if (type === 'notebook-step') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const nbId = typeof raw.NOTEBOOK === 'string' ? raw.NOTEBOOK : '';
+      if (!nbId) { rejected.push({ agentId: type, reason: 'notebook-step needs inputs.NOTEBOOK' }); continue; }
+      const move = raw.MOVE === '1' || raw.MOVE === 1 || raw.MOVE === true;
+      accepted.push({
+        kind: 'action', status: 'proposed', agentId: type, effect: 'write',
+        inputs: { NOTEBOOK: nbId, ...(typeof raw.STEP === 'string' && raw.STEP ? { STEP: raw.STEP } : {}), ...(move ? { MOVE: '1' } : {}) },
+        rationale: rationaleRaw || undefined,
+        ctaLabel: move ? 'Move on' : 'Run the step',
       });
       continue;
     }

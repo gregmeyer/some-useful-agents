@@ -165,6 +165,18 @@ describe('AgentStore versioning', () => {
     expect(store.getAgent('hello')!.nodes[0].command).toBe('echo v1');
   });
 
+  it('a new version after a rollback goes after the newest one, not current + 1', () => {
+    store.createAgent(seed(), 'cli');
+    store.createNewVersion('hello', seed({ nodes: [{ id: 'main', type: 'shell', command: 'echo v2' }] }), 'cli');
+    store.setCurrentVersion('hello', 1);
+    expect(store.nextVersion('hello')).toBe(3);
+    // Used to fail: UNIQUE constraint failed: agent_versions.agent_id, agent_versions.version.
+    const v3 = store.createNewVersion('hello', seed({ nodes: [{ id: 'main', type: 'shell', command: 'echo v3' }] }), 'import');
+    expect(v3.version).toBe(3);
+    expect(store.getAgent('hello')!.version).toBe(3);
+    expect(store.getVersion('hello', 2)!.dag.nodes[0]).toMatchObject({ command: 'echo v2' });
+  });
+
   it('setCurrentVersion throws on non-existent version', () => {
     store.createAgent(seed(), 'cli');
     expect(() => store.setCurrentVersion('hello', 99)).toThrow(/no version 99/);

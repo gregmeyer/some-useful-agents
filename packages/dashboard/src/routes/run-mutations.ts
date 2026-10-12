@@ -155,7 +155,7 @@ runMutationsRouter.post('/runs/:id/replay', async (req: Request, res: Response) 
     agent,
     {
       triggeredBy: 'dashboard',
-      inputs: {},
+      // No inputs: the executor reuses the ones the original run had.
       replayFrom: { priorRunId: id, fromNodeId },
     },
     {

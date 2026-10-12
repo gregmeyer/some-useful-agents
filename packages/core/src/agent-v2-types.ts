@@ -267,6 +267,12 @@ export interface AgentNode {
   prompt?: string;
   model?: string;
   maxTurns?: number;
+  /**
+   * If it fails, the run carries on: the failure is recorded, nodes that
+   * depend on it get a short note instead of its output, and the run can
+   * still complete. For independent sources, e.g. one site of a search.
+   */
+  optional?: boolean;
   allowedTools?: string[];
   /** Builtin tool ids the model may call mid-generation (OpenAI-compatible tool loop). */
   tools?: string[];

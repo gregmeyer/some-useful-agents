@@ -128,6 +128,12 @@ const SUA_COMPONENTS = [
       ruledOut: z.enum(['show', 'hide']).optional(),
       actions: z.boolean().optional(),
       maxItems: z.number().int().min(1).max(100).optional(),
+      /**
+       * What it can be filtered by: field keys, or `stage` / `seen` (still
+       * listed vs not seen lately), as a key or {key, label}. Each shows as a
+       * row of chips for the values the options have (hidden when they don't differ).
+       */
+      filters: z.array(z.union([z.string().min(1).max(64), z.object({ key: z.string().min(1).max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
     }).strict(),
   },
   {
@@ -140,6 +146,8 @@ const SUA_COMPONENTS = [
       x: z.string().min(1).max(64),
       y: z.string().min(1).max(64),
       label: z.string().max(64).optional(),
+      /** Key into each item for its link (a path on this dashboard, like `/notebooks/…`): a click on the dot opens it. */
+      href: z.string().max(64).optional(),
       xLabel: Str.optional(),
       yLabel: Str.optional(),
       xFormat: z.enum(['number', 'money']).optional(),
@@ -150,6 +158,60 @@ const SUA_COMPONENTS = [
       xBetter: z.enum(['higher', 'lower']).optional(),
       yBetter: z.enum(['higher', 'lower']).optional(),
     }).strict(),
+  },
+  {
+    name: 'Columns',
+    summary: 'Children side by side with relative widths (e.g. [3, 2]); they stack on a narrow screen. `align: start` lets each keep its own height (default: stretch to the tallest).',
+    example: { id: 'cols', component: 'Columns', children: ['cols_a', 'cols_b'], widths: [3, 2] },
+    schema: Common.extend({ children: CS.ChildList, widths: z.array(z.number().min(1).max(12)).max(6).optional(), align: z.enum(['stretch', 'start']).optional() }).strict(),
+  },
+  {
+    name: 'Panel',
+    summary: 'A titled frame for a widget: a mono title, an optional note on the right, and its child.',
+    example: { id: 'p', component: 'Panel', title: 'Shortlist', note: 'ranked by price', child: 'p_body' },
+    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId }).strict(),
+  },
+  {
+    name: 'Callout',
+    summary: 'A highlighted paragraph with a small label (e.g. "Where it stands"), and an optional "Next:" line; text may use **bold**.',
+    example: { id: 'c', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
+    schema: Common.extend({ label: Str.optional(), text: Str, next: Str.optional() }).strict(),
+  },
+  {
+    name: 'StatStrip',
+    summary: 'A row of boxed stats from an array of {label, value, tone?, sub?}.',
+    example: { id: 's', component: 'StatStrip', items: { path: '/notebook/statItems' } },
+    schema: Common.extend({ items: CS.DynamicValue }).strict(),
+  },
+  {
+    name: 'Steps',
+    summary: 'Progress as a ring plus a path of steps, from an array of {text, met, note?}; the first unmet step is "now".',
+    example: { id: 'st', component: 'Steps', steps: { path: '/notebook/criteria' }, label: 'Done when' },
+    schema: Common.extend({ steps: CS.DynamicValue, label: Str.optional() }).strict(),
+  },
+  {
+    name: 'Coverage',
+    summary: 'Where a search looked: a bar per source from an array of {name, found, status: found | none | blocked | skipped, note?}.',
+    example: { id: 'cov', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+    schema: Common.extend({ sources: CS.DynamicValue, note: Str.optional() }).strict(),
+  },
+  {
+    name: 'Checklist',
+    summary: 'Groups of checkboxes from an array of {id, title, items: [{text, done}]}; ticking sends a `notebook-option` check action.',
+    example: { id: 'chk', component: 'Checklist', groups: { path: '/notebook/checklist' } },
+    schema: Common.extend({ groups: CS.DynamicValue, actions: z.boolean().optional() }).strict(),
+  },
+  {
+    name: 'Timeline',
+    summary: 'Events newest first from an array of {at, title, body?, kind?, who?, faded?, tag?, link?}. `filters` adds chips by kind (searches, notes, decisions and rulings, moves); past `maxItems`, a Show all link.',
+    example: { id: 'tl', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+    schema: Common.extend({ events: CS.DynamicValue, maxItems: z.number().int().min(1).max(50).optional(), filters: z.boolean().optional() }).strict(),
+  },
+  {
+    name: 'ChipList',
+    summary: 'Short chips from an array of strings or {text, tone?, title?}; a warn chip stands out.',
+    example: { id: 'lim', component: 'ChipList', items: { path: '/notebook/limitChips' } },
+    schema: Common.extend({ items: CS.DynamicValue }).strict(),
   },
   {
     name: 'SanitizedHtml',

@@ -65,6 +65,12 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`.
 - For codex, the reason comes from its own `turn.failed` event rather than
   stderr, which also carries log noise (e.g. an MCP server's expired token)
   that used to misclassify failures as `auth_required`.
+- codex sometimes exits with code 1 **after** finishing its turn: its answer is given and its turn completed, and it reports no error. That answer is kept. The node completes, with a warning on it ("codex exited with code 1 after finishing its answer, without reporting an error. The answer was kept."), instead of failing and skipping every step after it. When codex fails without finishing and gives no reason, the error says so ("codex exited with code 1 without saying why"), not its "Reading prompt from stdin..." banner.
+- For claude, the reason comes from its final `result` event (e.g.
+  `error_max_turns: Reached maximum number of turns (1)`). Running out of turns
+  is the prompt's problem, not the provider's, so it doesn't fall through. Its
+  event stream carries a rate-limit status on every run, which used to read as
+  `rate_limited`; a 429 now has to stand alone, not sit inside a cost or an id.
 - A custom endpoint participates identically — a down endpoint classifies as
   unreachable and falls through; a 401/429 maps to auth/rate-limited.
 - A node that declares `tools:` skips any provider that can't call them
@@ -230,6 +236,20 @@ MCP servers don't leak into agent runs, and `--allowedTools mcp__sua`. The endpo
 file are removed when the attempt ends. See [ADR-0036](adr/0036-serve-sua-tools-to-claude-over-mcp.md).
 
 codex gets the same endpoint as config flags on `codex exec`: `-c mcp_servers.sua={url=…, bearer_token_env_var="SUA_TOOL_ENDPOINT_TOKEN", default_tools_approval_mode="approve"}`, with the token in that environment variable (never in argv). The tools are pre-approved because `exec` has nobody to approve them, and every MCP server in your own codex config is switched off for the run (`-c mcp_servers.<name>.enabled=false`, from `codex mcp list --json`), so only sua's tools load. Your other codex settings (model, reasoning effort) still apply. See [ADR-0044](adr/0044-serve-sua-tools-to-codex-over-mcp.md).
+
+**Live web search (`web-search`).** `web-search` in a node's `tools:` isn't a sua tool. It
+turns on the CLI's own live search:
+
+| Provider | `web-search` |
+|---|---|
+| `claude` | `WebSearch` added to `--allowedTools` |
+| `codex` | `-c web_search="live"` (the Responses `web_search` tool, no per-call approval) |
+| OpenAI-compatible, Apple Foundation Models | none, so they're skipped (`tool_unavailable`) |
+
+Declare it beside `web-fetch` so the model can find pages, then read them:
+`tools: [web-search, web-fetch, web-scrape]`. A node that names claude's own `WebSearch`
+in `allowedTools` also gets codex's search when codex answers. That way is only a
+request, though: it never skips a provider.
 
 A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
 never "succeeds" without the tools it declared.

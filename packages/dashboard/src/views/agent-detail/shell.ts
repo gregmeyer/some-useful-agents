@@ -10,6 +10,8 @@ import type { AgentEdge } from '../../lib/agent-graph.js';
 export type AgentTab = 'overview' | 'chat' | 'nodes' | 'config' | 'runs' | 'yaml';
 
 export interface AgentDetailArgs {
+  /** The number the next saved version gets (after a rollback it isn't current + 1). */
+  nextVersion?: number;
   agent: Agent;
   recentRuns: Run[];
   secretsStore: SecretsStore;
@@ -56,6 +58,10 @@ export interface AgentDetailArgs {
    */
   invokes?: AgentEdge[];
   invokedBy?: AgentEdge[];
+  /** Status and description of each agent on either side of those edges, by id. */
+  connectedAgents?: Record<string, { status: string; description?: string }>;
+  /** Notebooks this agent fills (in their pipeline, or it has filed into them). */
+  feedsNotebooks?: Array<{ id: string; title: string; status: string }>;
   /**
    * What this agent remembers between runs, when it has `memory:` on.
    * Undefined when memory is off, so the Overview shows no section.

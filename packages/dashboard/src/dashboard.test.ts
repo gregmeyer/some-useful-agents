@@ -1176,13 +1176,51 @@ describe('Agents that call agents are visible', () => {
     // showed was a "used by N" badge on the list — nothing on the agent itself.
     const caller = await authed('/agents/boss');
     expect(caller.status).toBe(200);
-    expect(caller.text).toContain('Agent calls');
-    expect(caller.text).toContain('Invokes');
+    expect(caller.text).toContain('Connections');
+    expect(caller.text).toContain('>Calls<');
     expect(caller.text).toContain('href="/agents/worker-a"');
 
     const callee = await authed('/agents/worker-a');
-    expect(callee.text).toContain('Invoked by');
+    expect(callee.text).toContain('Called by');
     expect(callee.text).toContain('href="/agents/boss"');
+  });
+
+  it('says what it calls at the top, with what each agent does and whether it would run', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'year-finder', name: 'year-finder', status: 'draft', source: 'local', mcp: false,
+      description: 'Helper for boss: finds the year a company was founded. Returns JSON.',
+      nodes: [{ id: 'go', type: 'shell', command: 'echo 1999' }],
+    } as never, 'cli');
+    agentStore.createAgent({
+      id: 'boss', name: 'boss', status: 'active', source: 'local', mcp: false,
+      description: 'Researches a company.',
+      nodes: [
+        { id: 'found', type: 'agent-invoke', agentInvokeConfig: { agentId: 'year-finder' } },
+        { id: 'pick', type: 'agent-invoke', agentInvokeConfig: { agentId: '{{inputs.WHO}}' }, dependsOn: ['found'] },
+      ],
+    } as never, 'cli');
+    const authed = (p: string) => request(app).get(p)
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+
+    const caller = await authed('/agents/boss');
+    const summary = caller.text.slice(caller.text.indexOf('agent-calls-summary'));
+    expect(summary.slice(0, 900)).toMatch(/Calls<\/span>\s*<a href="\/agents\/year-finder"/);
+    expect(summary.slice(0, 900)).toContain('an agent chosen at run time');
+    // It comes before the diagram, not under the output widget.
+    expect(caller.text.indexOf('agent-calls-summary')).toBeLessThan(caller.text.indexOf('id="agent-connections"'));
+    // A draft callee won't run on its own; a helper says so; its job is spelled out without the prefix.
+    expect(caller.text).toMatch(/year-finder<\/a> <span class="badge badge--muted">draft<\/span> <span class="badge badge--info">helper<\/span>/);
+    expect(caller.text).toContain('Finds the year a company was founded.');
+    // The diagram names the agent a node calls.
+    expect(caller.text).toContain('found\\n→ year-finder');
+    expect(caller.text).not.toContain('Helper for boss: finds');
+
+    const callee = await authed('/agents/year-finder');
+    expect(callee.text).toMatch(/Called by<\/span>\s*<a href="\/agents\/boss"/);
+    expect(callee.text).toContain('Researches a company.');
+    expect(callee.text).toContain('A change to year-finder changes what it gets.');
   });
 
   it('says nothing on an agent that composes nothing', async () => {
@@ -1196,7 +1234,8 @@ describe('Agents that call agents are visible', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     // No empty card asserting a capability this agent isn't using.
-    expect(res.text).not.toContain('Agent calls');
+    expect(res.text).not.toContain('id="agent-connections"');
+    expect(res.text).not.toContain('agent-calls-summary');
   });
 
   it('offers a one-click filter whose count matches what it returns', async () => {

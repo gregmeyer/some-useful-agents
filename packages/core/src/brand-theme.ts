@@ -11,7 +11,7 @@
  * nothing in a theme can break out of a CSS declaration.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
@@ -32,7 +32,9 @@ export type BrandPreset = typeof BRAND_PRESETS[number];
 /** #rgb[a], #rrggbb[aa], rgb()/rgba()/hsl()/hsla() with plain numbers, or `transparent`. */
 const COLOR_RE = /^(#[0-9a-f]{3,4}|#[0-9a-f]{6}|#[0-9a-f]{8}|(rgb|rgba|hsl|hsla)\(\s*[0-9.\s,%/deg]+\)|transparent)$/i;
 const color = z.string().trim().max(64).regex(COLOR_RE, 'a colour: #rrggbb, rgb(…), rgba(…), hsl(…) or transparent');
-const font = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9 ,"'\-]+$/, 'a font stack: family names separated by commas');
+// Letters and digits in any script ("Söhne", "Noto Sans JP"); nothing that could end a CSS value.
+export const FONT_STACK_RE = /^[\p{L}\p{N} ,"'\-]+$/u;
+const font = z.string().trim().min(1).max(200).regex(FONT_STACK_RE, 'a font stack: family names separated by commas');
 const px = z.number().int().min(0).max(40);
 const colors = z.object(Object.fromEntries(BRAND_COLOR_TOKENS.map((t) => [t, color.optional()]))).strict();
 
@@ -200,4 +202,134 @@ export function restoreBrandThemeBackup(dataDir: string, opts: { expectedVersion
   if (!existsSync(backup)) throw new BrandThemeError('There is no earlier theme to go back to.');
   writeChecked(dataDir, readFileSync(backup, 'utf-8'), opts.expectedVersion);
   return { version: brandThemeVersion(dataDir) };
+}
+
+// ── Saved brands: named themes you can keep, switch between and delete ──
+// Each is a theme file in `.sua/brands/<id>.json`, checked like the active one.
+
+export interface SavedBrand { id: string; name: string; theme: BrandTheme; savedAt: string }
+
+export function brandsDir(dataDir: string): string {
+  return join(dataDir, '.sua', 'brands');
+}
+
+/** "Acme Corp!" → "acme-corp". */
+export function brandId(name: string): string {
+  return name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'brand';
+}
+
+/** Saved brands, A–Z. Files that don't validate are skipped. */
+export function listSavedBrands(dataDir: string): SavedBrand[] {
+  let files: string[];
+  try { files = readdirSync(brandsDir(dataDir)).filter((f) => /^[a-z0-9-]+\.json$/.test(f)); } catch { return []; }
+  const out: SavedBrand[] = [];
+  for (const f of files) {
+    try {
+      const path = join(brandsDir(dataDir), f);
+      const parsed = brandThemeSchema.safeParse(JSON.parse(readFileSync(path, 'utf-8')));
+      if (!parsed.success) continue;
+      const id = f.replace(/\.json$/, '');
+      out.push({ id, name: parsed.data.name ?? id, theme: parsed.data, savedAt: statSync(path).mtime.toISOString() });
+    } catch { /* unreadable: skip */ }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Save a theme as a named brand (replacing one with the same name). */
+export function saveBrandAs(dataDir: string, name: string, theme: unknown): SavedBrand {
+  const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+  if (!clean) throw new BrandThemeError('Give the brand a name.');
+  const parsed = brandThemeSchema.safeParse({ ...(theme as object), name: clean });
+  if (!parsed.success) {
+    throw new BrandThemeError(`Not saved: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(theme)'}: ${i.message}`).join('; ')}`);
+  }
+  const id = brandId(clean);
+  mkdirSync(brandsDir(dataDir), { recursive: true });
+  const path = join(brandsDir(dataDir), `${id}.json`);
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(parsed.data, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, path);
+  return { id, name: clean, theme: parsed.data, savedAt: new Date().toISOString() };
+}
+
+/** Make a saved brand the dashboard's theme (the previous one stays one Undo away). */
+export function applySavedBrand(dataDir: string, id: string, opts: { expectedVersion?: string } = {}): { version: string; theme: BrandTheme } {
+  const brand = listSavedBrands(dataDir).find((b) => b.id === id);
+  if (!brand) throw new BrandThemeError('That brand is gone.');
+  return saveBrandTheme(dataDir, brand.theme, opts);
+}
+
+export function deleteSavedBrand(dataDir: string, id: string): boolean {
+  if (!/^[a-z0-9-]+$/.test(id)) return false;
+  try { unlinkSync(join(brandsDir(dataDir), `${id}.json`)); return true; } catch { return false; }
+}
+
+/** Is this saved brand the one in use (same colours, fonts, radius and accents)? */
+export function isActiveBrand(active: BrandTheme, brand: BrandTheme): boolean {
+  const strip = (t: BrandTheme) => JSON.stringify({ ...t, name: undefined });
+  return strip(active) === strip(brand);
+}
+
+// ── Contrast: is a theme readable? (WCAG 2 relative luminance) ──
+
+/** sua's own token values (tokens.css), for colours a theme leaves unset. */
+const BASE_TOKENS: Record<'dark' | 'light', Partial<Record<BrandColorToken, string>>> = {
+  dark: { bg: '#1a1918', surface: '#242220', text: '#e7e5e4', 'text-muted': '#a8a29e', primary: '#2dd4bf' },
+  light: { bg: '#faf9f7', surface: '#ffffff', text: '#1c1917', 'text-muted': '#78716c', primary: '#0f766e' },
+};
+
+/** A colour as [r, g, b] in 0–255, or undefined for ones we can't read (transparent, odd forms). */
+export function parseColor(c: string): [number, number, number] | undefined {
+  const s = c.trim().toLowerCase();
+  let m = /^#([0-9a-f]{3,8})$/.exec(s);
+  if (m) {
+    let h = m[1];
+    if (h.length === 3 || h.length === 4) h = h.slice(0, 3).split('').map((x) => x + x).join('');
+    if (h.length === 8) h = h.slice(0, 6);
+    if (h.length !== 6) return undefined;
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(s);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  m = /^hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/.exec(s);
+  if (m) {
+    const h = Number(m[1]) / 360; const sat = Number(m[2]) / 100; const l = Number(m[3]) / 100;
+    const f = (n: number) => { const k = (n + h * 12) % 12; const a = sat * Math.min(l, 1 - l); return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
+    return [f(0) * 255, f(8) * 255, f(4) * 255];
+  }
+  return undefined;
+}
+
+function luminance([r, g, b]: [number, number, number]): number {
+  const ch = (v: number) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+}
+
+/** WCAG contrast ratio between two colours (1–21), or undefined when either can't be read. */
+export function contrastRatio(a: string, b: string): number | undefined {
+  const x = parseColor(a); const y = parseColor(b);
+  if (!x || !y) return undefined;
+  const [hi, lo] = [luminance(x), luminance(y)].sort((p, q) => q - p);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * Where a theme is hard to read: text on the page and on cards (needs 4.5:1),
+ * muted text and the accent on the page (3:1), in both modes.
+ */
+export function brandContrastIssues(theme: BrandTheme): string[] {
+  const r = resolveBrandTheme(theme);
+  const out: string[] = [];
+  for (const mode of ['dark', 'light'] as const) {
+    const t = { ...BASE_TOKENS[mode], ...(r[mode] as Partial<Record<BrandColorToken, string>>) };
+    const check = (fg: BrandColorToken, bg: BrandColorToken, min: number, what: string) => {
+      const ratio = contrastRatio(t[fg] ?? '', t[bg] ?? '');
+      if (ratio !== undefined && ratio < min) out.push(`${mode === 'dark' ? 'Dark' : 'Light'} mode: ${what} is hard to read (${ratio.toFixed(1)}:1, needs ${String(min)}:1).`);
+    };
+    check('text', 'bg', 4.5, 'text on the page');
+    check('text', 'surface', 4.5, 'text on cards');
+    check('text-muted', 'surface', 3, 'muted text');
+    check('primary', 'bg', 3, 'the accent on the page');
+  }
+  return out;
 }
