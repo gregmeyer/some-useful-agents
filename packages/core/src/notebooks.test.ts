@@ -797,11 +797,59 @@ describe('options that are organizations match by name', () => {
     s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
     s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X', by: 'you', data: { price: 3495 } });
     expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X, Everett', by: 'you', data: { price: 4100 } }).seenAgain).toBe(false);
-    // Two options for the same company: ambiguous, so a new one.
+    // Two options in the running for the same company (kept before this matched): ambiguous, so none.
     const comps = s.create({ title: 'Comps 2' });
     s.setFields(comps.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }]);
-    s.upsertOption(comps.id, { title: 'Acme: planning', by: 'you', data: { company: 'Acme' } });
-    s.upsertOption(comps.id, { title: 'Acme: close', by: 'you', data: { company: 'Acme', x: 1 } as never, fingerprint: 'acme-close' });
+    for (const t of ['Acme: planning', 'Acme: close']) s.setOptionFacts(comps.id, s.addEntry(comps.id, { kind: 'option', title: t, by: 'you' }).id, { company: 'Acme' });
     expect(s.findOrgOption(comps.id, { title: 'Acme', data: { company: 'Acme' } })).toBeUndefined();
+    // One of them ruled out: the other is the one.
+    const close = s.findOption(comps.id, 'Acme: close')!;
+    s.ruleOut(comps.id, close.id, 'dup');
+    expect(s.findOrgOption(comps.id, { title: 'Acme', data: { company: 'Acme' } })?.title).toBe('Acme: planning');
   });
 });
+
+describe('one organization, one option', () => {
+  it('a company keyed differently by another agent is the same option; a job at it is not', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-org-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Comp set' });
+    s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'website', label: 'Website', type: 'url', role: 'link' }, { key: 'revenue', label: 'Revenue', type: 'money' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const a = s.upsertOption(nb.id, { title: 'Pigment: connected business planning', by: 'agent:starter', data: { company: 'Pigment', website: 'https://www.pigment.com' } });
+    expect(a.entry.fingerprint).toBe('pigment.com');
+    const b = s.upsertOption(nb.id, { title: 'Pigment', by: 'agent:firmo', fingerprint: 'pigment', data: { company: 'Pigment', revenue: 111600000 } });
+    expect(b).toMatchObject({ seenAgain: true, entry: { id: a.entry.id } });
+    const c = s.upsertOption(nb.id, { title: 'Pigment: AI business planning platform', by: 'agent:acct', fingerprint: 'lever:pigment', data: { company: 'Pigment', fit: 96 } });
+    expect(c.entry.id).toBe(a.entry.id);
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(1);
+    expect(s.entries(nb.id).find((e) => e.id === a.entry.id)!.data).toMatchObject({ revenue: 111600000, fit: 96 });
+    // A job at Pigment isn't Pigment.
+    const job = s.upsertOption(nb.id, { title: 'Staff Engineer, Pigment', by: 'agent:jobs', fingerprint: 'lever:pigment/123', data: { company: 'Pigment' } });
+    expect(job.seenAgain).toBe(false);
+  });
+
+  it('merges copies into one: its own facts first, gaps filled, checks and picks combined, copies gone', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-org-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Comp set' });
+    s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'why', label: 'Why', type: 'text' }, { key: 'revenue', label: 'Revenue', type: 'money' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    s.setChecks(nb.id, ['Sells software', 'Big enough']);
+    const keep = s.addEntry(nb.id, { kind: 'option', title: 'Pigment: planning', by: 'you' });
+    s.setOptionFacts(nb.id, keep.id, { company: 'Pigment', why: 'Agile planning' });
+    const b = s.addEntry(nb.id, { kind: 'option', title: 'Pigment', by: 'agent:firmo' });
+    s.setOptionFacts(nb.id, b.id, { company: 'Pigment', why: 'Cutting observability costs', revenue: { value: 111600000, source: 'https://x.example/pigment', estimate: true } });
+    const c = s.addEntry(nb.id, { kind: 'option', title: 'Pigment: AI planning', by: 'agent:acct' });
+    s.setOptionFacts(nb.id, c.id, { company: 'Pigment', fit: 96 });
+    s.checkOption(nb.id, c.id, 'Sells software', true);
+    s.ruleOut(nb.id, c.id, 'Fails revenue');
+    expect(s.mergeOptions(nb.id, keep.id, [b.id, c.id, keep.id])).toBe(2);
+    const opts = s.entries(nb.id).filter((e) => e.kind === 'option');
+    expect(opts.map((e) => e.id)).toEqual([keep.id]);
+    expect(opts[0]).toMatchObject({ data: { company: 'Pigment', why: 'Agile planning', revenue: 111600000, fit: 96 }, checked: ['Sells software'] });
+    expect(opts[0].ruledOut).toBeUndefined();
+    expect(opts[0].factMeta?.revenue).toMatchObject({ source: 'https://x.example/pigment', estimate: true });
+  });
+});
+

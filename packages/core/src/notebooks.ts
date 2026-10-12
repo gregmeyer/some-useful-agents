@@ -935,7 +935,9 @@ export class NotebookStore {
       const k = typeof v === 'string' ? entryKey(v) : '';
       return !!k && k === org && entryKey(e.title).startsWith(k);
     });
-    return hits.length === 1 ? hits[0] : undefined;
+    // Copies kept before this matched: the one still in the running, if only one is.
+    const live = hits.filter((e) => !e.ruledOut);
+    return hits.length === 1 ? hits[0] : live.length === 1 ? live[0] : undefined;
   }
 
   upsertOption(notebookId: string, input: NewOption): { entry: NotebookEntry; seenAgain: boolean; ruledOut?: boolean } {
@@ -945,8 +947,11 @@ export class NotebookStore {
     const meta = cleanFactMeta(facts.meta, data);
     const fingerprint = optionFingerprint(input.fingerprint, data, nb.fields);
     const now = new Date().toISOString();
-    // No link or id to go by, but the notebook's options are organizations: the same one, by name.
-    const byOrg = fingerprint ? undefined : this.findOrgOption(notebookId, { title: input.title, data });
+    // The notebook's options are organizations: the same one, by name, when
+    // there's no link or id to go by, or the one given matches nothing (agents
+    // key a company differently: "pigment.com", "pigment", "lever:pigment").
+    const byFingerprint = fingerprint ? this.db.prepare("SELECT 1 FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint) : undefined;
+    const byOrg = byFingerprint ? undefined : this.findOrgOption(notebookId, { title: input.title, data });
     if (byOrg) {
       const merged = { ...(byOrg.data ?? {}), ...data };
       const mergedMeta = mergeFactMeta(byOrg.factMeta, data, meta);
@@ -1276,6 +1281,42 @@ export class NotebookStore {
   entries(notebookId: string, limit = 200): NotebookEntry[] {
     return (this.db.prepare('SELECT * FROM notebook_entries WHERE notebook_id = ? ORDER BY created_at DESC LIMIT ?').all(notebookId, limit) as Array<Record<string, unknown>>)
       .map((r) => this.toEntry(r));
+  }
+
+  /**
+   * Merge copies of one option into `keepId`: it keeps its own facts and
+   * fills gaps from the copies (their sources with them); checks ticked on
+   * any count; chosen or sua's pick on any carries over; their sightings
+   * (and a picture, if it has none) move to it; the copies are removed. Its
+   * stage and whether it's ruled out stay its own. Returns how many merged.
+   */
+  mergeOptions(notebookId: string, keepId: string, copyIds: readonly string[]): number {
+    const keep = this.mustGetOption(notebookId, keepId);
+    const copies = [...new Set(copyIds)].filter((id) => id !== keepId).map((id) => this.mustGetOption(notebookId, id));
+    if (!copies.length) return 0;
+    let data: Record<string, NotebookFieldValue> = { ...(keep.data ?? {}) };
+    let meta: Record<string, NotebookFactMeta> = { ...(keep.factMeta ?? {}) };
+    const checked = [...(keep.checked ?? [])];
+    let chosen = keep.chosenAt; let suggested = keep.suggestedAt;
+    for (const c of copies) {
+      for (const [k, v] of Object.entries(c.data ?? {})) {
+        if (data[k] !== undefined && data[k] !== '') continue;
+        data = { ...data, [k]: v };
+        if (c.factMeta?.[k]) meta = { ...meta, [k]: c.factMeta[k] };
+      }
+      for (const x of c.checked ?? []) if (!checked.some((y) => y.toLowerCase() === x.toLowerCase())) checked.push(x);
+      chosen ??= c.chosenAt; suggested ??= c.suggestedAt;
+    }
+    const hasPhoto = !!this.db.prepare('SELECT 1 FROM notebook_photos WHERE entry_id = ?').get(keep.id);
+    for (const c of copies) {
+      this.db.prepare('UPDATE notebook_sightings SET entry_id = ? WHERE entry_id = ?').run(keep.id, c.id);
+      if (!hasPhoto) this.db.prepare('UPDATE notebook_photos SET entry_id = ? WHERE entry_id = ? AND NOT EXISTS (SELECT 1 FROM notebook_photos WHERE entry_id = ?)').run(keep.id, c.id, keep.id);
+      this.removeEntry(notebookId, c.id);
+    }
+    this.db.prepare('UPDATE notebook_entries SET data_json = ?, fact_meta_json = ?, checked_json = ?, chosen_at = ?, suggested_at = ? WHERE id = ?')
+      .run(Object.keys(data).length ? JSON.stringify(data) : null, Object.keys(meta).length ? JSON.stringify(meta) : null, checked.length ? JSON.stringify(checked) : null, chosen ?? null, suggested ?? null, keep.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), notebookId);
+    return copies.length;
   }
 
   removeEntry(notebookId: string, entryId: string): boolean {
