@@ -85,8 +85,8 @@ export interface StepJob { step: Pick<NotebookStep, 'title' | 'kind' | 'facts' |
 export function stepLine(nb: Notebook, job: StepJob): string {
   const list = (xs: readonly string[]) => `${xs.slice(0, 40).map((x) => `- ${x}`).join('\n')}${xs.length > 40 ? `\n- and ${String(xs.length - 40)} more` : ''}`;
   const head = `This step: ${job.step.title}.`;
-  if (job.step.kind === 'find') return `${head} Find ${String(Math.max(1, job.want - job.have))} more options that fit (the notebook wants ${String(job.want)} in the running and has ${String(job.have)}). Don't bring back ones it already has.`;
-  if (job.step.kind === 'source') return `${head} Don't look for new options. For these options only, find the missing facts${job.step.facts?.length ? ` (only ${stepFacts(nb, job.step).map((f) => f.label.toLowerCase()).join(', ')})` : ''}, each with a source:\n${list(job.missing)}`;
+  if (job.step.kind === 'find') return `${head} Find ${String(Math.max(1, job.want - job.have))} more options that fit (the notebook wants ${String(job.want)} in the running and has ${String(job.have)}). Don't bring back ones it already has. Give each one's own page (the listing, posting or product page itself), not a search-results page that lists many.`;
+  if (job.step.kind === 'source') return `${head} Don't look for new options. For these options only, find the missing facts${job.step.facts?.length ? ` (only ${stepFacts(nb, job.step).map((f) => f.label.toLowerCase()).join(', ')})` : ''}, each with a source${stepFacts(nb, job.step).some((f) => f.role === 'link') ? `; for ${nb.fields.find((f) => f.role === 'link')!.label.toLowerCase()}, each one's own page (its listing, posting or product page), not a search page` : ''}:\n${list(job.missing)}`;
   if (job.step.kind === 'check') return `${head} Don't look for new options. Check each of these options against what's listed after it (${nb.checks.join('; ')}), and say whether it's met, quoting the source:\n${list(job.missing)}`;
   return head;
 }

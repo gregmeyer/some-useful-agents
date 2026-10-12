@@ -215,6 +215,10 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+### Each option's own page
+
+A list is most useful when each option links to its own page: the listing, the job posting, the product page, not a search page that lists many. Agents are asked for that (a find step's job says so, and sua's keeper leaves out a results page rather than file it as the link). When a link is a search page anyway, because several options share it or it's shaped like one (`/search`, `?q=`, CarGurus `/Cars/l-…`, Edmunds `/used-2011-…-seattle-wa`, Craigslist `/search/`), its button reads **Search page ↗** instead of the listing, it never counts as two options being the same, and **Where it stands** says how many lack their own page once most do. To find them, add a source step that looks up the link field ("Find each car's own listing", with the link field's key as its fact); a search-page link counts as missing until it's replaced.
+
 ### Merging duplicates
 
 When two options are the same one (a car listed twice, a company under two names), open either one's page and use **Merge with…**. Likely copies (the same address, the same name or company) are listed first with ★. The other one's facts fill in what this one is missing, its checks, picks and history come along, and it goes; this one keeps its own facts, stage, and whether it's ruled out. You can also tell sua ("those two RAV4s are the same car") and it merges them.

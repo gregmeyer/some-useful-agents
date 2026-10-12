@@ -289,6 +289,12 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
+    // Options whose link is a search page, not their own (a source step on the link field finds them).
+    ...((): { linkIsList?: string } => {
+      const live = notebookViewData(nb, all).notebook.options.filter((x) => !x.ruledOut);
+      const n = live.filter((x) => x.linkIsList).length;
+      return n ? { linkIsList: `${String(n)} of ${String(live.length)} options in the running link to a search page, not their own` } : {};
+    })(),
     ...(focus ? { focus } : {}),
   });
 }

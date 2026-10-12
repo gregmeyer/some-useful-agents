@@ -88,7 +88,10 @@ nodes:
       and shown as cards:
       - "data": one value per field key from the notebook's fields (numbers
         as plain numbers, without "$" or commas; addresses as full https
-        links). Every value must appear in the output above. Leave out what
+        links). The link field is the option's OWN page (its listing,
+        posting or product page), never a search-results page that lists
+        many: if the output only gives a results page for it, leave the
+        link out. Every value must appear in the output above. Leave out what
         the output doesn't say (a price it doesn't give stays out); never
         guess a value, and never copy a value from these instructions. When the
         output says where a figure came from, or that it's approximate

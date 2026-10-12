@@ -106,7 +106,8 @@ nodes:
         running, else 10 for companies or leads, 5 otherwise),
         "source" (look up facts a search won't give, e.g. headcount,
         revenue, founding year for companies; "facts": the keys of the
-        fields above it looks up, only those),
+        fields above it looks up, only those; the link field's key when
+        each option needs its own listing or posting page found),
         "check" (confirm the checks above on each option, with a source),
         "narrow" (they keep the ones that stay in the running and rule out
         the rest, without deciding; "target": about how many to keep),
