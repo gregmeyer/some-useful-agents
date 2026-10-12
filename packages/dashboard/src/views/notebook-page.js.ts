@@ -17,7 +17,7 @@ export const NOTEBOOK_PAGE_JS = `
         var d = e.target;
         if (!d.open) return;
         for (var j = 0; j < acts.length; j++) if (acts[j] !== d) acts[j].open = false;
-        var first = d.querySelector('textarea, input[type="text"]');
+        var first = d.querySelector('[data-nb-decide] input[name="chosen"], textarea, input[type="text"]');
         if (first) setTimeout(function () { first.focus(); }, 0);
       });
     }
@@ -28,15 +28,38 @@ export const NOTEBOOK_PAGE_JS = `
     document.addEventListener('click', function (e) {
       for (var j = 0; j < acts.length; j++) if (acts[j].open && !acts[j].contains(e.target)) acts[j].open = false;
     });
-    // Decide…: an option chip starts the answer with it.
+    // Decide…: the count of picks, the button that says what it does, and
+    // "Pick the top N". With nothing picked, the why box is the decision.
+    function decideSync(form) {
+      var boxes = form.querySelectorAll('input[name="chosen"]');
+      var n = 0;
+      for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) n++;
+      var target = Number(form.getAttribute('data-target')) || 0;
+      var count = form.querySelector('[data-nb-decide-count]');
+      if (count) {
+        count.textContent = target ? n + ' of ' + target + ' picked' : n + ' picked';
+        count.classList.toggle('is-over', target > 0 && n > target);
+        count.classList.toggle('is-met', target > 0 && n === target);
+      }
+      var why = form.querySelector('textarea[name="decision"]');
+      if (why) why.required = n === 0;
+      var btn = form.querySelector('[data-nb-decide-submit]');
+      if (btn) btn.textContent = n === 0 ? 'Decide and close' : n === 1 ? 'Choose this one and close' : 'Choose these ' + n + ' and close';
+    }
+    var decideForms = document.querySelectorAll('[data-nb-decide]');
+    for (var di = 0; di < decideForms.length; di++) decideSync(decideForms[di]);
+    document.addEventListener('change', function (e) {
+      var form = e.target.closest && e.target.closest('[data-nb-decide]');
+      if (form && e.target.name === 'chosen') decideSync(form);
+    });
     document.addEventListener('click', function (e) {
-      var pick = e.target.closest && e.target.closest('[data-nb-decide-pick]');
-      if (!pick) return;
-      var ta = document.getElementById('nb-decision');
-      if (!ta) return;
-      ta.value = pick.getAttribute('data-nb-decide-pick') + ta.value.replace(/^Chose [^:]*: /, '');
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
+      var top = e.target.closest && e.target.closest('[data-nb-decide-top]');
+      if (!top) return;
+      var form = top.closest('[data-nb-decide]');
+      var target = Number(form.getAttribute('data-target')) || 0;
+      var boxes = form.querySelectorAll('input[name="chosen"]');
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = i < target;
+      decideSync(form);
     });
     // Continue the conversation (notebook and option pages): open it in the sua drawer.
     document.addEventListener('click', function (e) {

@@ -103,7 +103,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **+ Add entry** (in the header, beside **Decide…**) adds a note, an option, evidence, or a decision.
 - **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule.
 - **The schedule runs the pipeline.** A notebook with a schedule ("every morning") runs its searches when it's due, the same as pressing Run. The header says when it runs next. Each due time runs once. After the dashboard has been off, it catches up with one run, not one per missed time. A new or changed schedule waits for its next time. A schedule needs at least one search to run; without one the header says so. Scheduled runs are marked **on schedule** in **How it was made**. Schedules run while the dashboard is running (always, under `sua daemon`). See [ADR-0050](adr/0050-notebook-schedules-run-in-the-dashboard.md). Editing the criteria keeps the ticks on the ones you didn't change.
-- **Decide…** records what you decided and why. The decision is also kept as an entry, and the notebook closes. **Reopen** any time; **Stop** pauses a notebook without deciding.
+- **Decide…** lists the options still in the running, best first, with their fit, price or measure and how many checks they pass. Tick the ones you chose (one, with a radio button, when the decide step wants one), say why if you like, and **Choose these N and close**. The picks are marked chosen, the decision ("Chose Acme and Hooli. Closest in size") is kept as an entry, the decide step is done, and the notebook closes. **Pick the top N** ticks the best N for you. With nothing in the running, you just say what you decided. **Reopen** any time (your picks stay ticked); **Stop** pauses a notebook without deciding.
 
 ## Option facts
 
@@ -165,7 +165,7 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 **Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. That text describes the option when it was filed, though: when a later search finds the same option again (by its link) and sees a newer price or measure, the newer facts win over the text. Facts stored before this check are repaired when you open the notebook. Only numbers count: a link in the text (a source, the post a quote came from) never counts as a mix-up and never replaces the option's own link; it fills in only when the option has none. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
 
-**Deciding** (**Decide…** in the header) speaks about this notebook. Its example names your leading options (furthest stage first, then the best price), and **Start from** chips for up to three options still in the running begin the answer with "Chose ___: ". Recording the decision closes the notebook.
+**Deciding** (**Decide…** in the header) lists every option still in the running to pick from: with steps, the ones that got through the most steps first, then the best fit (or price); without, the furthest stage first. Each row opens its option's page (↗). The count ("3 of 10 picked") follows the decide step's target. Recording the decision closes the notebook.
 
 ## An option's page
 
@@ -225,8 +225,9 @@ Options move through the notebook's **stages** toward a decision, and you can ru
   - A ruled-out option **stays in the notebook,** dimmed and at the end of its section, showing where it was ruled out and why: "Ruled out at Applied: no callback". **Bring back** undoes it, and so does moving it to a stage.
   - **Ruled out stays ruled out.** When a search finds the same option again (same fingerprint), it isn't suggested again. The keeper also sees why options were ruled out and skips others that fail for the same reason. When three or more are ruled out for one reason, sua offers to make it a limit.
 - **The funnel** above the options shows how many reached each stage and how many were ruled out there ("4 Found −2 → 1 Checked → 1 Test drive"); hover for the reasons.
+- **With [steps](#steps-the-work-in-order), the funnel is the steps:** Found → Facts sourced → Checked → Chosen, counted from each option itself (its facts, its ticked checks, whether you picked it), not the stage it was moved to. An option counts as far as it got in order: one with every check ticked but a fact missing stops at Found. A step kind used twice goes by its steps' titles.
 - **In conversation, sua can also tick a done-when criterion** when what you said shows it's met ("the title's clean").
-- `data.json` includes `stages`, a `funnel` (per stage: reached, here now, ruled out, top reasons), each option's `stage`, `stageIndex` and `ruledOut`, and `active` / `ruledOutCount`.
+- `data.json` includes `stages`, a `funnel` (per stage: reached, here now, ruled out, top reasons; per step when it has steps), each option's `stage`, `stageIndex`, `ruledOut` and `chosen`, and `active` / `ruledOutCount`.
 
 ## How it was made
 
@@ -362,7 +363,7 @@ While a notebook has steps left, the main button in its header is **Next step �
      ![An example notebook whose sourcing step couldn't get any further: the header's main button is Move on, with Try again beside it](images/notebook-step-move-on.png)
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
    - **Stopped:** **Stop** in the header (or the run's own Stop button) stops the step's run, and the step stops too, as stuck with **Move on** first, instead of starting another try. What earlier runs found is kept.
-- **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
+- **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs. Picking there marks the step done ("2 chosen").
 - **A closed conversation comes back:** when a step finishes or stops short and the notebook's conversation was dismissed or resolved (by you, or cleared from Today), sua reopens it as waiting on you, so the step's message and its cards show under **need your reply**. A conversation that's still open keeps its status.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 

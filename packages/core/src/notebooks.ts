@@ -229,6 +229,8 @@ export interface NotebookEntry {
   ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
   /** The notebook's checks ticked for this option. */
   checked?: string[];
+  /** When it was picked in the notebook's decision. */
+  chosenAt?: string;
   createdAt: string;
 }
 
@@ -380,7 +382,7 @@ export class NotebookStore {
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
-      ['notebooks', 'steps_json TEXT'],
+      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -1149,14 +1151,37 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  /** Close with a decision: recorded as an entry too, so the history reads in one place. */
-  decide(id: string, decision: string, by = 'you'): Notebook {
-    const text = decision.trim().slice(0, 2000);
-    if (!text) throw new Error('Say what you decided.');
-    this.mustGet(id);
+  /**
+   * Close with a decision: recorded as an entry too, so the history reads in
+   * one place. `chosen`: the options picked (ids of options still in the
+   * running), marked chosen; the rest are unmarked. With picks, why is
+   * optional ("Chose A and B." says it); the decide step, if any, is done.
+   */
+  decide(id: string, decision: string, by = 'you', chosen: readonly string[] = []): Notebook {
+    const nb = this.mustGet(id);
+    const options = this.entries(id, 1000).filter((e) => e.kind === 'option');
+    const picks = [...new Set(chosen)].map((c) => {
+      const o = options.find((e) => e.id === c);
+      if (!o) throw new Error('One of the picks isn\'t in this notebook any more. Reload and pick again.');
+      if (o.ruledOut) throw new Error(`${o.title} was ruled out. Bring it back first, or leave it out.`);
+      return o;
+    });
+    const why = decision.trim();
+    const names = picks.map((o) => o.title);
+    const said = names.length ? `Chose ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`}.` : '';
+    const text = [said, why].filter(Boolean).join(' ').slice(0, 2000);
+    if (!text) throw new Error('Pick what you chose, or say what you decided.');
     const now = new Date().toISOString();
     this.db.prepare("UPDATE notebooks SET status = 'decided', decision = ?, decided_at = ?, updated_at = ? WHERE id = ?").run(text, now, now, id);
+    if (picks.length) {
+      this.db.prepare('UPDATE notebook_entries SET chosen_at = NULL WHERE notebook_id = ?').run(id);
+      const mark = this.db.prepare('UPDATE notebook_entries SET chosen_at = ? WHERE id = ?');
+      for (const o of picks) mark.run(now, o.id);
+    }
     this.addEntry(id, { kind: 'decision', title: 'Decided', body: text, by });
+    for (const s of nb.steps ?? []) {
+      if (s.kind === 'decide' && s.status !== 'done') this.updateStep(id, s.id, { status: 'done', note: picks.length ? `${String(picks.length)} chosen` : 'decided' }, now);
+    }
     return this.mustGet(id);
   }
 
@@ -1245,6 +1270,7 @@ export class NotebookStore {
       ...(r.checked_json ? { checked: (() => { try { return JSON.parse(String(r.checked_json)) as string[]; } catch { return []; } })() } : {}),
       ...(r.stage_at ? { stageAt: String(r.stage_at) } : {}),
       ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}), ...(r.ruled_out_gone ? { gone: true } : {}) } } : {}),
+      ...(r.chosen_at ? { chosenAt: String(r.chosen_at) } : {}),
       createdAt: String(r.created_at),
     };
   }
@@ -1424,10 +1450,12 @@ export interface NotebookViewOption {
   missedSearches: number;
   /** Missed the last 2 or more of those searches: likely sold, filled or taken down. */
   notSeenLately: boolean;
-  /** Its stage, and that stage's position (0 = the first). */
+  /** Its stage, and its place in the funnel (0 = the first; with steps, the furthest step it got through). */
   stage?: string;
   stageIndex: number;
   ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
+  /** Picked in the notebook's decision. */
+  chosen?: boolean;
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -1523,10 +1551,22 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       ...(e.stage ? { stage: e.stage } : {}),
       stageIndex: Math.max(0, nb.stages.findIndex((s) => s === (e.ruledOut?.stage ?? e.stage))),
       ...(e.ruledOut ? { ruledOut: e.ruledOut } : {}),
+      ...(e.chosenAt ? { chosen: true } : {}),
     };
   });
   options.sort((a, b) => Number(!!a.ruledOut) - Number(!!b.ruledOut));
-  const funnel: NotebookFunnelStage[] = nb.stages.map((stage, i) => {
+  // With steps, the funnel is the steps: how far each option got through them
+  // (found, facts sourced, checked, chosen), not the stages it was moved to by hand.
+  const steps = nb.steps ?? [];
+  const funnelStages = steps.length > 1 ? stepFunnelLabels(steps) : nb.stages;
+  if (steps.length > 1) {
+    for (const o of options) {
+      let i = 0;
+      while (i + 1 < steps.length && optionPassesStep(nb, o, steps[i + 1])) i++;
+      o.stageIndex = i;
+    }
+  }
+  const funnel: NotebookFunnelStage[] = funnelStages.map((stage, i) => {
     const out = options.filter((o) => o.ruledOut && o.stageIndex === i);
     const reasons = new Map<string, number>();
     for (const o of out) { const r = o.ruledOut!.reason.toLowerCase(); reasons.set(r, (reasons.get(r) ?? 0) + 1); }
@@ -1817,7 +1857,7 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
   }
   if (step.kind === 'source') {
     const tracked = stepFacts(nb, step);
-    const gaps = options.map((o) => ({ o, gaps: tracked.filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '') }));
+    const gaps = options.map((o) => ({ o, gaps: missingFacts(nb, o, step) }));
     const missing = gaps.filter((x) => x.gaps.length).map((x) => `${x.o.name} — ${x.gaps.map((f) => f.label.toLowerCase()).join(', ')}`);
     // Fact by fact, so each one found shows (a company with 2 of its 3 facts isn't 0).
     const want = options.length * tracked.length;
@@ -1825,14 +1865,43 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     return { met: options.length > 0 && tracked.length > 0 && !missing.length, have, want, missing };
   }
   if (step.kind === 'check') {
-    const missing = nb.checks.length ? options.map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }))
+    const missing = nb.checks.length ? options.map((o) => ({ o, left: checksLeft(nb, o) }))
       .filter((x) => x.left.length).map((x) => `${x.o.name} — ${x.left.join(', ')}`) : [];
     const want = options.length;
     // No checks yet: nothing is checked (the step waits for some).
     return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: nb.checks.length ? want - missing.length : 0, want, missing };
   }
   const want = step.target ?? Math.min(options.length, 5);
-  return { met: step.status === 'done', have: step.status === 'done' ? want : 0, want, missing: [] };
+  const chosen = options.filter((o) => o.chosen).length;
+  return { met: step.status === 'done', have: chosen || (step.status === 'done' ? want : 0), want, missing: [] };
+}
+
+/** The facts a source step looks up that an option doesn't have yet. */
+function missingFacts(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookViewOption, 'fields'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
+  return stepFacts(nb, step).filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '');
+}
+
+/** The notebook's checks not yet ticked for an option. */
+function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'checked'>): string[] {
+  return nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase()));
+}
+
+/**
+ * Whether one option got through a step: found (it's here), its facts
+ * sourced, every check ticked, or picked in the decision.
+ */
+export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen'>, step: Pick<NotebookStep, 'kind' | 'facts'>): boolean {
+  if (step.kind === 'find') return true;
+  if (step.kind === 'source') return stepFacts(nb, step).length > 0 && missingFacts(nb, o, step).length === 0;
+  if (step.kind === 'check') return nb.checks.length > 0 && checksLeft(nb, o).length === 0;
+  return !!o.chosen;
+}
+
+const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { find: 'Found', source: 'Facts sourced', check: 'Checked', decide: 'Chosen' };
+
+/** The funnel's stage names for a notebook's steps: "Found", "Checked"…; a kind used twice goes by its steps' titles. */
+export function stepFunnelLabels(steps: readonly Pick<NotebookStep, 'kind' | 'title'>[]): string[] {
+  return steps.map((s) => (steps.filter((x) => x.kind === s.kind).length > 1 ? s.title : STEP_FUNNEL_WORD[s.kind]));
 }
 
 /** The options still in the running, best first by `rankBy` (ones without a value last). */

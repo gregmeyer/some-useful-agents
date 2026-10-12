@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, optionLink, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { nextFireTime, optionLink, optionPassesStep, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -68,11 +68,13 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
  * best price (lower unless the price field says higher is better).
  */
 export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3): NotebookViewOption[] {
-  const stageAt = (s?: string) => (s ? nb.stages.indexOf(s) : -1);
+  // With steps, how many it got through (a checked option missing one fact still counts its check); else the stage it was moved to (none comes last).
+  const steps = nb.steps ?? [];
+  const at = (o: NotebookViewOption) => (steps.length > 1 ? steps.filter((s) => optionPassesStep(nb, o, s)).length : o.stage ? nb.stages.indexOf(o.stage) : -1);
   // Best first by score (or price), then the furthest stage wins (a stable sort keeps the ranking within a stage).
   const ranked = rankOptions(nb, notebookViewData(nb, [...entries]).notebook.options);
   return ranked.map((o, i) => [o, i] as const)
-    .sort((a, b) => stageAt(b[0].stage) - stageAt(a[0].stage) || a[1] - b[1])
+    .sort((a, b) => at(b[0]) - at(a[0]) || a[1] - b[1])
     .map(([o]) => o)
     .slice(0, limit);
 }
@@ -82,6 +84,61 @@ export function decisionPlaceholder(leads: readonly Pick<NotebookViewOption, 'na
   if (leads.length >= 2) return `Chose ${leads[0].name}: why it fits. Not ${leads[1].name}: why not.`;
   if (leads.length === 1) return `Chose ${leads[0].name}: why it fits.`;
   return 'What you chose, and why. Or why you stopped looking.';
+}
+
+/** "Fit 85 · $120M · 1,200 employees": an option's ranking facts, for the decide list. */
+function decideFacts(nb: Notebook, o: NotebookViewOption): SafeHtml {
+  const facts = (['score', 'price', 'measure'] as const)
+    .map((role) => nb.fields.find((f) => f.role === role))
+    .filter((f): f is NotebookField => !!f && o.fields[f.key] !== undefined && o.fields[f.key] !== '')
+    // "Fit 91", "1,645 employees" (a count without a unit says what it counts), "$4,023".
+    .map((f) => html`<span title="${f.label}">${f.role === 'score' ? `${f.label} ` : ''}${formatFieldValue(f, o.fields[f.key])}${f.role === 'measure' && !f.unit && f.type === 'number' ? ` ${f.label.toLowerCase()}` : ''}</span>`);
+  const checks = nb.checks.length ? nb.checks.filter((c) => o.checked.some((d) => d.toLowerCase() === c.toLowerCase())).length : -1;
+  if (!facts.length && checks < 0) return html``;
+  return html`<span class="nb-decide__facts">${facts as unknown as SafeHtml[]}${checks >= 0 ? html`<span class="nb-decide__checks${checks === nb.checks.length ? ' is-all' : ''}" title="Checks ticked">${String(checks)}/${String(nb.checks.length)} checked</span>` : html``}</span>`;
+}
+
+/**
+ * Decide…: pick from the options still in the running (best first, with
+ * their facts and checks), then say why if you like. One pick when the
+ * decide step wants one; any number otherwise. With nothing in the running,
+ * just say what you decided.
+ */
+function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  const step = nb.steps?.find((s) => s.kind === 'decide');
+  const target = step?.target;
+  const one = target === 1;
+  if (!candidates.length) {
+    return html`<form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
+      <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
+      <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder([])}"></textarea>
+      <button type="submit" class="btn btn--primary btn--sm">Record the decision and close</button>
+    </form>`;
+  }
+  const want = target ? `${String(target)} ` : '';
+  const count = target ? `0 of ${String(target)} picked` : '0 picked';
+  return html`<form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form" data-nb-decide${target ? html` data-target="${String(target)}"` : html``}>
+    <div class="nb-decide__head">
+      <h2 class="nb-act__title">${step?.title ?? 'Pick what you chose'}</h2>
+      <span class="nb-decide__count" data-nb-decide-count aria-live="polite">${count}</span>
+    </div>
+    <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>Pick the top ${String(target)}</button>` : html``}</p>
+    <fieldset class="nb-decide__list">
+      <legend class="sr-only">${one ? 'Pick one' : `Pick ${want || 'any'}`}</legend>
+      ${candidates.map((o) => html`<div class="nb-decide__row">
+        <label class="nb-decide__pick">
+          <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen ? html` checked` : html``}>
+          <span class="nb-decide__name">${o.title}</span>
+          ${decideFacts(nb, o)}
+        </label>
+        <a class="nb-decide__open" href="/notebooks/${id}/entries/${encodeURIComponent(o.id)}" title="Open ${o.name}" aria-label="Open ${o.name}">↗</a>
+      </div>`) as unknown as SafeHtml[]}
+    </fieldset>
+    <label for="nb-decision" class="nb-progress__label">Why${one ? ' this one' : ' these'}? <span class="nb-decide__optional">optional</span></label>
+    <textarea id="nb-decision" name="decision" rows="2" class="form-field" placeholder="In a line or two, so you remember later."></textarea>
+    <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit>Decide and close</button>
+  </form>`;
 }
 
 const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'facts', check: 'checked', decide: 'chosen' };
@@ -306,7 +363,7 @@ export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'opti
 
 /** Found 9 → Checked 2 → Test drive 0 · 3 ruled out: how far options got. */
 function funnelStrip(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
-  if (nb.stages.length === 0) return html``;
+  if (nb.stages.length === 0 && !nb.steps?.length) return html``;
   const { funnel, ruledOutCount } = notebookViewData(nb, entries).notebook;
   return html`<ol class="nb-funnel" aria-label="How far options got">
     ${funnel.map((f, i) => html`<li class="nb-funnel__step${f.here ? ' nb-funnel__step--here' : ''}" title="${String(f.reached)} reached ${f.stage}; ${String(f.here)} here now${f.ruledOut ? `; ${String(f.ruledOut)} ruled out here (${f.reasons.map((r) => `${r.reason} ×${String(r.count)}`).join(', ')})` : ''}">
@@ -543,16 +600,8 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
       ${nb.status === 'active' ? html`
         <details class="nb-act nb-decide" data-nb-act>
           <summary class="btn btn--sm${step || running ? '' : ' btn--primary'}">Decide…</summary>
-          <div class="nb-act__panel">
-            <form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
-              <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
-              ${leads.length ? html`<div class="nb-decide__picks" role="group" aria-label="Start from an option">
-                <span class="nb-decide__picks-label">Start from</span>
-                ${leads.map((o) => html`<button type="button" class="nb-decide__pick" data-nb-decide-pick="${`Chose ${o.name}: `}">${o.name}</button>`) as unknown as SafeHtml[]}
-              </div>` : html``}
-              <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder(leads)}"></textarea>
-              <button type="submit" class="btn btn--primary btn--sm">Record the decision and close</button>
-            </form>
+          <div class="nb-act__panel nb-act__panel--decide">
+            ${decideForm(nb, leads)}
           </div>
         </details>` : html`
         <form method="POST" action="/notebooks/${id}/status" class="nb-reopen"><input type="hidden" name="status" value="active"><button type="submit" class="btn btn--sm">Reopen</button></form>`}
@@ -579,7 +628,7 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries), args.entries)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity), args.entries)}
     ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
