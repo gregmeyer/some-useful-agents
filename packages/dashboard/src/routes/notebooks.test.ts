@@ -645,6 +645,36 @@ describe('notebook pipeline (G2–G3)', () => {
   });
 });
 
+describe("a step's news reopens a closed conversation", () => {
+  it('puts a dismissed or resolved thread back to waiting on you; an open one keeps its status', async () => {
+    const app = await makeApp();
+    const post = (path: string) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    agentStore.createAgent({ id: 'one-finder', name: 'Finder', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `echo '<notebook>{"entries":[{"kind":"option","title":"Example Co"}]}</notebook>'` }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const settle = async (id: string) => { for (let i = 0; i < 400 && (store.get(id)!.steps ?? []).some((x) => x.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25)); };
+    const ctx = app.locals as never;
+
+    for (const closed of ['dismissed', 'resolved', 'triaged'] as const) {
+      const nb = store.create({ title: `Example peers ${closed}` });
+      store.setSteps(nb.id, [
+        { title: 'Find 1 company', kind: 'find', agentId: 'one-finder', target: 1 },
+        { title: 'Pick 1', kind: 'decide', target: 1 },
+      ]);
+      const thread = inbox.add({ priority: 'medium', source: 'manual', title: `Notebook: ${nb.title}`, body: '(empty)' }).id;
+      store.setConversation(nb.id, thread);
+      inbox.updateStatus(thread, closed);
+      await post(`/notebooks/${nb.id}/run`);
+      await settle(nb.id);
+      expect(inbox.listResponses(thread).some((r) => r.body.includes('Step 1 of 2 is done: **Find 1 company**'))).toBe(true);
+      // Closed: back in "need your reply". Open (sua may be mid-turn): untouched.
+      expect(inbox.get(thread)!.status).toBe(closed === 'triaged' ? 'triaged' : 'awaiting_user');
+    }
+  });
+});
+
 describe('the talk box follows the notebook', () => {
   it('suggests the next useful thing to tell sua, step by step', async () => {
     await makeApp();

@@ -363,6 +363,7 @@ While a notebook has steps left, the main button in its header is **Next step â†
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
    - **Stopped:** **Stop** in the header (or the run's own Stop button) stops the step's run, and the step stops too, as stuck with **Move on** first, instead of starting another try. What earlier runs found is kept.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs.
+- **A closed conversation comes back:** when a step finishes or stops short and the notebook's conversation was dismissed or resolved (by you, or cleared from Today), sua reopens it as waiting on you, so the step's message and its cards show under **need your reply**. A conversation that's still open keeps its status.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 
 ### sua's checker
