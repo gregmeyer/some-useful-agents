@@ -104,7 +104,14 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       page: parsePageParamsFromQuery(req.query as Record<string, unknown>),
     };
     // One pass over the store gives both directions of the call graph.
-    const graph = buildAgentGraph(ctx.agentStore.listAgents());
+    const allAgents = ctx.agentStore.listAgents();
+    const graph = buildAgentGraph(allAgents);
+    const invokes = graph.invokes.get(v2Agent.id) ?? [];
+    const invokedBy = graph.invokedBy.get(v2Agent.id) ?? [];
+    const connected = new Set([...invokes.map((e) => e.to), ...invokedBy.map((e) => e.from)]);
+    const connectedAgents = Object.fromEntries(allAgents
+      .filter((a) => connected.has(a.id))
+      .map((a) => [a.id, { status: a.status, description: a.description }]));
     const html = await renderAgentDetailV2({
       agent: v2Agent,
       recentRuns: rows,
@@ -114,8 +121,9 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       from: fromParam,
       widgetControls,
       behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
-      invokes: graph.invokes.get(v2Agent.id) ?? [],
-      invokedBy: graph.invokedBy.get(v2Agent.id) ?? [],
+      invokes,
+      invokedBy,
+      connectedAgents,
       feedsNotebooks: NotebookStore.fromHandle(ctx.runStore.databaseHandle()).notebooksByAgent(SYSTEM_AGENT_IDS).get(v2Agent.id) ?? [],
       memories: loadMemories(ctx, v2Agent),
       spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],

@@ -156,7 +156,7 @@ const DASHBOARD_CSS = loadDashboardCss();
  *   - run detail (status data per node): node tinted by STATUS — same
  *     pattern, status colors override type.
  */
-const GRAPH_RENDER_JS = `
+export const GRAPH_RENDER_JS = `
 // Exposed as a named global (not a bare IIFE) so the run-detail auto-poll can
 // re-run it after it swaps in a fresh [data-run-container] fragment. Scripts
 // injected via innerHTML never execute, so without an explicit re-invocation
@@ -254,11 +254,16 @@ window.renderDagViz = function () {
           // Cytoscape ≥3.27 deprecates 'width: label'. Compute width from
           // label length instead — keeps nodes hugging their text without
           // the deprecation warning.
+          // A node that calls another agent has a second line naming it.
+          'text-wrap': 'wrap',
           'width': function (n) {
-            var label = String(n.data('label') || '');
-            return Math.max(60, label.length * 7 + 20);
+            var lines = String(n.data('label') || '').split('\\n');
+            var longest = Math.max.apply(null, lines.map(function (l) { return l.length; }));
+            return Math.max(60, longest * 7 + 20);
           },
-          'height': 26,
+          'height': function (n) {
+            return 26 + 13 * (String(n.data('label') || '').split('\\n').length - 1);
+          },
           'padding': '10px',
           'shape': function (n) {
             var t = n.data('type');

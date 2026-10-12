@@ -220,10 +220,14 @@ function buildElements(nodes: AgentNode[], execByNodeId: Map<string, NodeExecuti
   const out: unknown[] = [];
   for (const n of nodes) {
     const exec = execByNodeId.get(n.id);
+    // A node that calls another agent names it on a second line, so the
+    // diagram answers "what does this call?" without opening each node.
+    const callee = n.type === 'agent-invoke' ? n.agentInvokeConfig?.agentId : n.type === 'loop' ? n.loopConfig?.agentId : undefined;
+    const calls = callee && !/\{\{|\$\{|\$UPSTREAM_/.test(callee) ? callee : undefined;
     out.push({
       data: {
         id: n.id,
-        label: n.id,
+        label: calls ? `${n.id}\n→ ${calls}` : n.id,
         type: n.type,
         status: exec?.status,
         // Per-node metadata surfaced by the node-click dialog. Kept on
