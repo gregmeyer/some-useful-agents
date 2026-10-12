@@ -233,6 +233,8 @@ export interface NotebookEntry {
   checked?: string[];
   /** When it was picked in the notebook's decision. */
   chosenAt?: string;
+  /** When sua recommended it for the decision (its latest picks). */
+  suggestedAt?: string;
   createdAt: string;
 }
 
@@ -384,7 +386,7 @@ export class NotebookStore {
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
-      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'],
+      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -1228,6 +1230,25 @@ export class NotebookStore {
     return this.autoMeetCriteria(id).nb;
   }
 
+  /**
+   * sua's picks for the decision: these options (still in the running)
+   * replace its earlier picks. Decide… can tick them in one go. Returns the
+   * ones marked.
+   */
+  suggestPicks(id: string, entryIds: readonly string[]): NotebookEntry[] {
+    this.mustGet(id);
+    const active = this.entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut);
+    // In sua's order.
+    const picks = [...new Set(entryIds)].flatMap((id) => active.filter((e) => e.id === id));
+    if (!picks.length) return [];
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET suggested_at = NULL WHERE notebook_id = ?').run(id);
+    const mark = this.db.prepare('UPDATE notebook_entries SET suggested_at = ? WHERE id = ?');
+    for (const e of picks) mark.run(now, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, id);
+    return picks;
+  }
+
   setStatus(id: string, status: NotebookStatus): Notebook {
     this.mustGet(id);
     this.db.prepare('UPDATE notebooks SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
@@ -1314,6 +1335,7 @@ export class NotebookStore {
       ...(r.stage_at ? { stageAt: String(r.stage_at) } : {}),
       ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}), ...(r.ruled_out_gone ? { gone: true } : {}) } } : {}),
       ...(r.chosen_at ? { chosenAt: String(r.chosen_at) } : {}),
+      ...(r.suggested_at ? { suggestedAt: String(r.suggested_at) } : {}),
       createdAt: String(r.created_at),
     };
   }
@@ -1499,6 +1521,8 @@ export interface NotebookViewOption {
   ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
   /** Picked in the notebook's decision. */
   chosen?: boolean;
+  /** One of sua's latest picks for the decision. */
+  suggested?: boolean;
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -1595,6 +1619,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       stageIndex: Math.max(0, nb.stages.findIndex((s) => s === (e.ruledOut?.stage ?? e.stage))),
       ...(e.ruledOut ? { ruledOut: e.ruledOut } : {}),
       ...(e.chosenAt ? { chosen: true } : {}),
+      ...(e.suggestedAt ? { suggested: true } : {}),
     };
   });
   options.sort((a, b) => Number(!!a.ruledOut) - Number(!!b.ruledOut));

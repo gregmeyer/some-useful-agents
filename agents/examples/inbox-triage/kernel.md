@@ -693,6 +693,10 @@ next, say it was the last one in the running.
   - "replaceParams": true, with "params" as the WHOLE new list, when what
     they said contradicts limits it already has (new budget, mileage, years,
     places): the old ones go. Otherwise params are added.
+  - "picks": ["<title or a distinctive part>", …] whenever you recommend which
+    options to choose (or keep): the whole list, replacing your earlier picks.
+    They show as yours in Decide… (and Narrow…), with "Tick sua's picks", so
+    always send them along with a recommendation instead of only naming them.
   - "ruleOut": [{"option": "<title, or a distinctive part: 'Plaid', 'the XT'>",
     "reason": "their words: 'no callback', 'didn't like the color', 'too
     pricey'"}] when they turn an option down. It stays in the notebook as
