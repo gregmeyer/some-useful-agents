@@ -14,7 +14,7 @@ import { NotebookStore, stepProgress, type Agent, type InboxActionMeta, type Not
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
-import { publishInboxEvent } from '../routes/inbox-shared.js';
+import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, pipelineInputs } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
 
@@ -88,6 +88,19 @@ export function confirmDoneSteps(ctx: Ctx, notebookId: string): { done: Notebook
   return { done: done.map((d) => d.step), words: `The notebook already has what ${done.length === 1 ? 'this step needs' : 'these steps need'}, so ${done.length === 1 ? 'it’s' : 'they’re'} done: ${was}.${then}` };
 }
 
+/**
+ * A step's news goes to the notebook's one conversation even when you've
+ * dismissed or resolved it (or Today cleared it): put it back where you'll
+ * see it, waiting on you, as your own message from the notebook already does.
+ * An open thread keeps its status (sua may be mid-turn on it).
+ */
+function reopenForStepNews(ctx: Ctx, threadId: string): void {
+  const cur = ctx.inboxStore?.get(threadId);
+  if (!cur || (cur.status !== 'resolved' && cur.status !== 'dismissed')) return;
+  ctx.inboxStore!.updateStatus(threadId, 'awaiting_user');
+  publishInboxChanged(ctx, threadId, 'awaiting_user');
+}
+
 /** confirmDoneSteps, said in the notebook's conversation when any step was already done. */
 export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: NotebookStep[]; words?: string } {
   const out = confirmDoneSteps(ctx, notebookId);
@@ -96,6 +109,7 @@ export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: No
   if (threadId && out.words) {
     const msg = ctx.inboxStore!.addResponse(threadId, 'triage', out.words);
     publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+    reopenForStepNews(ctx, threadId);
   }
   return out;
 }
@@ -242,6 +256,7 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
       : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}), still getting closer. Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+  reopenForStepNews(ctx, threadId);
   // No card after the last step, or before a decide step (that's the Decide button).
   if (p.met && (!next || next.kind === 'decide')) return msg.id;
   const card = (action: InboxActionMeta): string => {
