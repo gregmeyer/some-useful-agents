@@ -10,7 +10,7 @@ name: Notebook Keeper
 description: >
   Reads what one agent in a notebook's pipeline found, against the notebook's
   goal, parameters, criteria and existing entries, and writes the new options,
-  evidence, notes and ruled-out decisions worth keeping.
+  evidence, notes, and new options it rules out, worth keeping.
 status: active
 source: examples
 
@@ -67,15 +67,20 @@ nodes:
       Write entries of four kinds:
       - "option": a concrete candidate for the goal (a specific car, job,
         product, place), with its key facts in the title
-        ("2019 Toyota RAV4 XLE AWD, 54k mi, $24,900"). Only options that fit
-        the parameters.
+        ("2019 Toyota RAV4 XLE AWD, 54k mi, $24,900"). Options that fit the
+        parameters; a notable new one that breaks them is ruled out (below).
       - "evidence": a fact that supports or rules out an option, or bears on
         a criterion ("Carfax: RAV4 clean, one owner").
       - "note": a useful observation for the goal that isn't a candidate or a
         fact about one (a market trend, a tip, a caution).
-      - "decision": ONLY for ruling an option out, with why
-        ("Ruled out: 2019 Outback, CVT recall not done"). Options that break
-        the parameters become decisions like this when they're notable.
+      - "decision": a ruling the search itself made that isn't about one
+        option ("Skipped dealers outside 50 miles"). Rare.
+      Ruling options out: a NEW option that breaks the parameters goes in as
+      an "option" with "ruleOut": "why" ("Unfit: founded 1987, before the
+      2015 limit"), so it's kept as ruled out and not suggested again. NEVER
+      rule out, or write "Ruled out: …" about, an option already listed
+      above: the person decides those, and some are already chosen. Put
+      what this run found about it in "facts" (and a note if it matters).
       Titles are one line (under 120 characters); put details in "body"
       (1–3 sentences). At most 12 entries.
 

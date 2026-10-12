@@ -263,6 +263,29 @@ describe('filing into a notebook of organizations', () => {
     expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('Next is **Pick 1**, with Decide.');
   });
 
+  it('the keeper can\'t write "Ruled out: …" about an option the notebook has; a new one it rules out is kept ruled out', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Comp set' });
+    store.setFields(nb0.id, [{ key: 'company', label: 'Company', type: 'text', role: 'org' }, { key: 'founded', label: 'Founded', type: 'number' }]);
+    store.upsertOption(nb0.id, { title: 'Vena: Excel-centered FP&A', by: 'you', data: { company: 'Vena' } });
+    store.upsertOption(nb0.id, { title: 'Prophix: Office-of-CFO suite', by: 'you', data: { company: 'Prophix' } });
+    const keeper = `<notebook>${JSON.stringify({ entries: [
+      { kind: 'decision', title: 'Ruled out: Vena, founded 2011 with 501–1,000 employees', body: '' },
+      { kind: 'decision', title: 'Ruled out - Prophix (founded 1987)', body: '' },
+      { kind: 'decision', title: 'Skipped vendors outside North America and Europe', body: '' },
+      { kind: 'option', title: 'Adaptive Insights', body: 'Founded 2003.', data: { company: 'Adaptive Insights', founded: 2003 }, ruleOut: 'Unfit: founded 2003, before 2015' },
+    ] })}</notebook>`;
+    const out = applyKeeperResult(store, store.get(nb0.id)!, 'firmographic-research', 'run-r', keeper, { source: 'Adaptive Insights founded 2003' });
+    expect(out).toMatchObject({ added: 2, skipped: 2 });
+    const all = store.entries(nb0.id);
+    expect(all.filter((e) => e.kind === 'decision').map((e) => e.title)).toEqual(['Skipped vendors outside North America and Europe']);
+    expect(all.find((e) => e.title === 'Adaptive Insights')?.ruledOut).toMatchObject({ reason: 'Unfit: founded 2003, before 2015', by: 'agent:firmographic-research' });
+    expect(all.filter((e) => e.kind === 'option' && e.ruledOut).map((e) => e.title)).toEqual(['Adaptive Insights']);
+  });
+
   it("the keeper puts a run's figures for an option it already has onto that option, by id; numbers not in the output stay out", async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
