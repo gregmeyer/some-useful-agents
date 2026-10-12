@@ -453,6 +453,8 @@ export function enrichAgentAnalyzerInputs(
   inputs: Record<string, string>,
 ): Record<string, string> {
   const out: Record<string, string> = { ...inputs };
+  // Which helper a wiring run is for: read by the engine from the action, not an analyzer input.
+  delete out.COMPOSE_HELPER;
   if (!out.AGENT_YAML && targetAgentId) {
     const target = ctx.agentStore.getAgent(targetAgentId);
     if (target) {
@@ -505,16 +507,24 @@ export function enrichAgentBuilderInputs(
   // so executeAgentDag's input-resolution doesn't reject it as an
   // undeclared key.
   delete out.PROVIDER;
+  // FOR_AGENT: the agent this one is a helper for (the engine wires it in
+  // after the build). Not a builder input: it becomes part of the brief.
+  const forAgent = out.FOR_AGENT?.trim();
+  delete out.FOR_AGENT;
+  const helperHints = forAgent ? [
+    `This agent is a helper: \`${forAgent}\` will call it as one step (an agent-invoke node), so build only that one job.`,
+    'Declare the inputs it needs (UPPERCASE names) and finish with its result as one line of JSON, so the caller can read its fields.',
+    `Start its description with "Helper for ${forAgent}: ".`,
+    'Leave out schedules and output widgets.',
+  ].join(' ') : '';
   const focusHints = [
     'Prefer the simplest viable agent for the goal.',
     'Use one llm-prompt node when possible instead of a multi-step DAG.',
     'Infer explicit run inputs from the request instead of leaving them implicit.',
-    'Include a basic output widget for the final structured result.',
+    ...(forAgent ? [] : ['Include a basic output widget for the final structured result.']),
     'Set permissions.inboxRunnable: true so inbox triage can run the installed agent from threads.',
   ].join(' ');
-  out.FOCUS = out.FOCUS && out.FOCUS.trim().length > 0
-    ? `${out.FOCUS.trim()} ${focusHints}`.trim()
-    : focusHints;
+  out.FOCUS = [out.FOCUS?.trim(), helperHints, focusHints].filter(Boolean).join(' ');
   try {
     const builtins = listBuiltinTools();
     let userTools: ToolDefinition[] = [];

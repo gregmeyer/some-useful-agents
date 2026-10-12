@@ -324,6 +324,29 @@ The edit card lists what changes in plain words above the diff, for example:
 A called agent must be installed, and calls are limited to 3 levels with no
 loops (see [flows](flows.md#agent-invoke)).
 
+### Build a helper and wire it in, on one card
+
+When no installed agent does the missing work, sua can build a small **helper**
+for it and wire it into the agent that needs it, approved together:
+
+1. sua builds the helper (`agent-builder` with `FOR_AGENT`). The builder keeps
+   it to the one job, gives it the inputs it needs and a JSON result, and starts
+   its description with "Helper for <agent>:". It's saved as a draft, with no
+   separate Install card.
+2. sua works out where the agent should call it (`agent-analyzer` on that agent,
+   asked for one step that calls the helper). This only reads, so it runs on its
+   own when your trust settings allow.
+3. One **Add it and wire it in** card shows what the helper does and takes, the
+   change to the agent in plain words, and the diff. Approving it turns the
+   helper on and saves the agent with the new step, as a new version (or as a
+   copy for a notebook, like any fix to a shared agent). If saving the agent
+   fails, the helper is put back as a draft, so nothing is left half done.
+
+Helpers are ordinary agents in your agents list, so other agents can call them
+too. See [ADR-0051](adr/0051-build-and-wire-on-one-card.md).
+
+![An example build-and-wire card: a new helper, example-founding-year, and the step in example-peer-research that calls it](images/agent-build-and-wire.png)
+
 ### A fix from a notebook doesn't change a shared agent
 
 A fix sua proposes in a notebook's conversation can target an agent that other
