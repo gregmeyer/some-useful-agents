@@ -98,12 +98,12 @@ function rows(name: string, values: readonly string[], label: string): SafeHtml 
     </div>`;
 }
 
-const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { find: 'find', source: 'source', check: 'check', decide: 'decide' };
+const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { find: 'find', source: 'source', check: 'check', narrow: 'narrow', decide: 'decide' };
 
 /**
  * The work in steps: each with its title (editable), what kind of step it
  * is, and which of your agents does it (a check step can use sua's checker;
- * decide is yours). Removable; sua takes them one at a time.
+ * narrow and decide are yours). Removable; sua takes them one at a time.
  */
 function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: string; description: string }>): SafeHtml {
   return html`<div class="nbd-field"><span class="nbd-field__label">Steps</span>
@@ -113,7 +113,7 @@ function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: st
         <input type="hidden" name="step_target" value="${st.target !== undefined ? String(st.target) : ''}">
         <span class="nbd-step__kind">${STEP_KIND_WORD[st.kind]}</span>
         <input name="step_title" value="${st.title}" aria-label="Step" class="nbd-step__title">
-        ${st.kind === 'decide'
+        ${st.kind === 'decide' || st.kind === 'narrow'
           ? html`<input type="hidden" name="step_agent" value=""><span class="nbd-step__by">you</span>`
           : html`<select name="step_agent" aria-label="Agent for ${st.title}" class="nbd-step__agent">
               <option value="">${st.kind === 'check' ? 'sua’s checker' : 'needs an agent'}</option>

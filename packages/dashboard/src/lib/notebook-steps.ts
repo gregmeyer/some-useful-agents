@@ -40,10 +40,25 @@ export function hasOpenSteps(nb: Pick<Notebook, 'steps'>): boolean {
   return !!currentStep(nb);
 }
 
+/** A step you do yourself (no agent): narrowing the list, or deciding. */
+export function isYourStep(step: Pick<NotebookStep, 'kind'>): boolean {
+  return step.kind === 'decide' || step.kind === 'narrow';
+}
+
+/** The header button a step of yours is done with. */
+export function yourStepButton(step: Pick<NotebookStep, 'kind'>): string {
+  return step.kind === 'narrow' ? 'Narrow' : 'Decide';
+}
+
+/** "This step is yours: …", for a step of yours. */
+function yoursReason(step: Pick<NotebookStep, 'kind'>): string {
+  return step.kind === 'narrow' ? 'This step is yours: keep the ones that stay in the running with Narrow.' : 'This step is yours: pick the final set with Decide.';
+}
+
 /** "8 of 10 found" — a step's progress in a few words. */
 export function progressWords(step: Pick<NotebookStep, 'kind'>, p: Pick<NotebookStepProgress, 'have' | 'want'>): string {
   if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} found`;
-  const unit = step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : 'chosen';
+  const unit = step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
 }
 
@@ -66,7 +81,7 @@ export function confirmDoneSteps(ctx: Ctx, notebookId: string): { done: Notebook
   for (const step of nb.steps) {
     if (step.status === 'done') continue;
     if (step.status === 'running') break;
-    if (step.kind === 'decide') { next = { step }; break; }
+    if (isYourStep(step)) { next = { step }; break; }
     const p = stepProgress(nb, entries, step);
     const words = progressWords(step, p);
     if (!p.met) {
@@ -81,8 +96,8 @@ export function confirmDoneSteps(ctx: Ctx, notebookId: string): { done: Notebook
   const n = (s: NotebookStep) => String(nb!.steps!.findIndex((x) => x.id === s.id) + 1);
   const was = done.map((d) => `step ${n(d.step)}, **${d.step.title}** (${d.words})`).join('; ');
   const then = next
-    ? next.step.kind === 'decide'
-      ? ` Next is **${next.step.title}**, with Decide.`
+    ? isYourStep(next.step)
+      ? ` Next is **${next.step.title}**, with ${yourStepButton(next.step)}.`
       : ` Next is step ${n(next.step)}, **${next.step.title}** (${next.words ?? 'not started'}).`
     : ' That was every step.';
   return { done: done.map((d) => d.step), words: `The notebook already has what ${done.length === 1 ? 'this step needs' : 'these steps need'}, so ${done.length === 1 ? 'it’s' : 'they’re'} done: ${was}.${then}` };
@@ -136,7 +151,7 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     step = currentStep(nb);
     if (!step) return { started: false, reason: 'All its steps are done.' };
   }
-  if (step.kind === 'decide') return { started: false, reason: 'This step is yours: pick the final set with Decide.', step };
+  if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
   // A check step without an agent uses sua's checker.
   const agentId = step.agentId ?? (step.kind === 'check' ? NOTEBOOK_CHECKER_ID : undefined);
@@ -257,8 +272,8 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   reopenForStepNews(ctx, threadId);
-  // No card after the last step, or before a decide step (that's the Decide button).
-  if (p.met && (!next || next.kind === 'decide')) return msg.id;
+  // No card after the last step, or before a step of yours (that's its Narrow or Decide button).
+  if (p.met && (!next || isYourStep(next))) return msg.id;
   const card = (action: InboxActionMeta): string => {
     const c = inbox.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
     publishInboxEvent(ctx, threadId, 'action:created', { responseId: c.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: c.createdAt });
@@ -304,12 +319,36 @@ export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: st
   const step = currentStep(nb);
   if (!step) return { moved: false, reason: 'All its steps are done.' };
   if (opts.stepId && opts.stepId !== step.id) return { moved: false, reason: 'It has already moved on from that step.' };
-  if (step.kind === 'decide') return { moved: false, reason: 'This step is yours: pick the final set with Decide.' };
+  if (isYourStep(step)) return { moved: false, reason: yoursReason(step) };
   const p = stepProgress(nb, store.entries(nb.id, 1000), step);
   const words = progressWords(step, p);
   const after = store.updateStep(nb.id, step.id, { status: 'done', movedOn: true, note: `${words}, moved on` });
   store.noteRun(nb.id, `${step.title}: moved on with ${words}`);
   const next = currentStep(after);
-  if (!next || next.kind === 'decide') return { moved: true, step };
+  if (!next || isYourStep(next)) return { moved: true, step };
   return { moved: true, step, next: startNotebookStep(ctx, nb.id) };
 }
+
+/** How many to focus on: the next pick or keep step's target, else 5 (never more than are in the running). */
+export function topFor(nb: Notebook, running: number): number {
+  const yours = nb.steps?.find((x) => isYourStep(x) && x.target);
+  return Math.max(1, Math.min(running, yours?.target ?? 5));
+}
+
+/**
+ * Work a source or check step again on just the best `top` options: its
+ * goal becomes those, and its agent (or sua's checker) gets only them. For a
+ * step you moved on from short, or one that got stuck. Starts it now.
+ */
+export function focusStepOnTop(ctx: Ctx, notebookId: string, stepId: string, top: number): { started: boolean; reason?: string; step?: NotebookStep } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s still running. Stop its run first.' };
+  const step = nb.steps?.find((x) => x.id === stepId);
+  if (!step || (step.kind !== 'source' && step.kind !== 'check')) return { started: false, reason: 'Only a source or check step can focus on the top options.' };
+  if (!Number.isFinite(top) || top < 1) return { started: false, reason: 'How many?' };
+  store.updateStep(nb.id, step.id, { top: Math.min(50, Math.round(top)), status: 'todo', tries: 0 });
+  return startNotebookStep(ctx, nb.id, { stepId: step.id });
+}
+

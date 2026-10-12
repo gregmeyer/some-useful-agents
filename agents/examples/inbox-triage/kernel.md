@@ -748,8 +748,10 @@ next, say it was the last one in the running.
   Kinds: find (options; target = how many), source (facts the options are
   missing; "facts" = the notebook's fact keys its agent looks up, when it
   doesn't look up every fact the notebook tracks), check (the notebook's checks, each confirmed with a quote; no
-  agent = sua's checker, which needs the notebook to have checks), decide
-  (they pick; target = how many). 2–6 steps, find first, decide last.
+  agent = sua's checker, which needs the notebook to have checks), narrow
+  (they keep the ones that stay in the running, the rest are ruled out, the
+  notebook stays open; target = about how many to keep; done with Narrow…),
+  decide (they pick; target = how many). 2–6 steps, find first, decide last.
   Agents: only installed ones whose description fits that step's job, from
   AGENT_CATALOG (one agent may serve several steps). Steps never change an
   agent: each gets its step's job in its inputs. If no installed agent fits

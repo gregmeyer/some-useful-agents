@@ -226,6 +226,7 @@ Options move through the notebook's **stages** toward a decision, and you can ru
   - **Ruled out stays ruled out.** When a search finds the same option again (same fingerprint), it isn't suggested again. The keeper also sees why options were ruled out and skips others that fail for the same reason. When three or more are ruled out for one reason, sua offers to make it a limit.
 - **The funnel** above the options shows how many reached each stage and how many were ruled out there ("4 Found −2 → 1 Checked → 1 Test drive"); hover for the reasons.
 - **With [steps](#steps-the-work-in-order), the funnel is the steps:** Found → Facts sourced → Checked → Chosen, counted from each option itself (its facts, its ticked checks, whether you picked it), not the stage it was moved to. An option counts as far as it got in order: one with every check ticked but a fact missing stops at Found. A step kind used twice goes by its steps' titles.
+- **With steps, stages moved by hand are hidden:** shortlist cards and the option page drop the stage chip and the **Move to … →** button, the table's Stage column and the stage filter go, and a ruled-out option reads "Ruled out: why" rather than "at Found". The steps say how far each option got. Your stages are kept (Edit still lists them) and come back if you remove the steps.
 - **In conversation, sua can also tick a done-when criterion** when what you said shows it's met ("the title's clean").
 - **Done-whens that repeat the notebook's own work tick themselves**, when that work is done or when you open the page:
   - "A decision recorded", "decided yes/no", "A final set recorded" tick when you decide;
@@ -332,6 +333,7 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 | `find` | at least `target` options in the running (5 if not given) | "8 of 10 found" |
 | `source` | every option in the running has each fact the step looks up: its `facts` (field keys or labels) when it names them, else every fact the notebook tracks (not its link, picture or fit score). Counted fact by fact | "93 of 120 facts" |
 | `check` | every option in the running has each of the notebook's checks ticked; one that fails is ruled out, so it's no longer in the running | "12 of 12 checked" |
+| `narrow` | you've kept the ones that stay in the running (the rest are ruled out); `target` is about how many | "keep 6" |
 | `decide` | you've confirmed the final set of `target` options | "pick 10" |
 
 - **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
@@ -372,6 +374,8 @@ While a notebook has steps left, the main button in its header is **Next step �
      ![An example notebook whose sourcing step couldn't get any further: the header's main button is Move on, with Try again beside it](images/notebook-step-move-on.png)
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.
    - **Stopped:** **Stop** in the header (or the run's own Stop button) stops the step's run, and the step stops too, as stuck with **Move on** first, instead of starting another try. What earlier runs found is kept.
+- **Narrow:** a narrow step is yours too, for cutting the list down without deciding ("Decide which cars stay in the running"). While it's the current step, **Narrow…** is the header's main button: the same list as Decide, with pictures and facts. Tick the ones to keep and **Keep 6, rule out 15**. The rest are ruled out, with your reason if you give one (else "Not kept at …"), the step is done ("kept 6 of 21"), and the notebook stays open for the next step. Bring any back from its card. In the funnel it's **Kept**.
+- **Check (or source) the top N:** a check or source step you moved on from short, or one that got stuck, shows **Check the top 5 →** (or **Source the top 10 →**) under it. It works on that step again for just the best options in the running: its goal becomes those, and its agent (or sua's checker) is given only them. N is your decide or narrow step's target, else 5. The step then reads "2 of 5 checked · top 5". A done-when like "… sourced for each" still means all of them.
 - **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs. Picking there marks the step done ("2 chosen").
 - **A closed conversation comes back:** when a step finishes or stops short and the notebook's conversation was dismissed or resolved (by you, or cleared from Today), sua reopens it as waiting on you, so the step's message and its cards show under **need your reply**. A conversation that's still open keeps its status.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.

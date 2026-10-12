@@ -189,4 +189,39 @@ describe('notebook steps', () => {
     const done = s.decide(id, '', 'you', [a.id]);
     expect(done.criteria.map((c) => c.met)).toEqual([true, false, true, false, true, false, false]);
   });
+
+  it('a narrow step keeps some, rules out the rest with why, and leaves the notebook open', () => {
+    const { s, id } = setup();
+    s.setSteps(id, [{ title: 'Find 3', kind: 'find', target: 3 }, { title: 'Keep a shortlist', kind: 'narrow', target: 2 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const add = (title: string) => s.upsertOption(id, { title, by: 'you', data: { site: `https://${title.toLowerCase()}.example` } }).entry;
+    const a = add('Acme'); const b = add('Hooli'); const c = add('Globex');
+    expect(stepProgress(s.get(id)!, s.entries(id), s.get(id)!.steps![1])).toMatchObject({ met: false, have: 0, want: 2 });
+    expect(() => s.narrow(id, [])).toThrow('Pick at least one');
+    s.ruleOut(id, c.id, 'too small');
+    expect(() => s.narrow(id, [a.id, c.id])).toThrow("isn't in the running");
+    const nb = s.narrow(id, [a.id], '');
+    expect(nb.status).toBe('active');
+    expect(nb.steps![1]).toMatchObject({ status: 'done', note: 'kept 1 of 2' });
+    expect(s.entries(id).find((e) => e.id === b.id)?.ruledOut).toMatchObject({ reason: 'Not kept at "Keep a shortlist"', by: 'you' });
+    expect(s.entries(id).find((e) => e.kind === 'decision')?.title).toBe('Kept 1, ruled out 1');
+    const v = notebookViewData(s.get(id)!, s.entries(id)).notebook;
+    expect(v.funnel.map((f) => `${f.stage}:${f.reached}`)).toEqual(['Found:3', 'Kept:1', 'Chosen:0']);
+    // Your own reason is kept as theirs.
+    s.reinstate(id, b.id);
+    s.updateStep(id, 's2', { status: 'todo' });
+    s.narrow(id, [b.id], 'over budget');
+    expect(s.entries(id).find((e) => e.id === a.id)?.ruledOut?.reason).toBe('over budget');
+  });
+
+  it('a source or check step on the top N counts only those', () => {
+    const { s, id } = setup();
+    const nb = s.setSteps(id, [{ title: 'Source size', kind: 'source', facts: ['employees'], top: 2.4 }, { title: 'Find 3', kind: 'find', top: 2 }]);
+    expect(nb.steps!.map((x) => x.top)).toEqual([2, undefined]);
+    for (const [title, fit, employees] of [['Acme', 90, 1200], ['Hooli', 80, undefined], ['Globex', 70, undefined]] as const) {
+      s.upsertOption(id, { title, by: 'you', data: { site: `https://${title.toLowerCase()}.example`, fit, ...(employees ? { employees } : {}) } });
+    }
+    expect(stepProgress(s.get(id)!, s.entries(id), { kind: 'source', facts: ['employees'], status: 'todo', top: 2 })).toMatchObject({ met: false, have: 1, want: 2, missing: ['Hooli — employees'] });
+    expect(stepProgress(s.get(id)!, s.entries(id), { kind: 'source', facts: ['employees'], status: 'todo' })).toMatchObject({ have: 1, want: 3 });
+  });
 });
+

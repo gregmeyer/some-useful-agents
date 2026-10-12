@@ -8,7 +8,7 @@
 import { rankOptions, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
-import { notebookWidgetData, checksFor, defaultFilters, optionFacets, type NotebookWidgetHistory } from './notebook-widgets.js';
+import { notebookWidgetData, checksFor, defaultFilters, handStagesHidden, optionFacets, type NotebookWidgetHistory } from './notebook-widgets.js';
 import { formatFieldValue } from '../views/notebooks.js';
 
 /** The store's sightings carry the run that saw each one. */
@@ -131,7 +131,7 @@ function optionTimeline(nb: Notebook, e: NotebookEntry, history?: NotebookOption
   if (e.ruledOut) {
     out.push(e.ruledOut.gone
       ? { at: e.ruledOut.at, kind: 'out', who: who(e.ruledOut.by), title: 'No longer available', faded: true }
-      : { at: e.ruledOut.at, kind: 'out', who: who(e.ruledOut.by), title: `Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}`, body: e.ruledOut.reason });
+      : { at: e.ruledOut.at, kind: 'out', who: who(e.ruledOut.by), title: `Ruled out${e.ruledOut.stage && !handStagesHidden(nb) ? ` at ${e.ruledOut.stage}` : ''}`, body: e.ruledOut.reason });
   }
   return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }

@@ -256,6 +256,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     layout: z.enum(['grid', 'table']).optional(), sort: z.string().max(80).optional(), ruledOut: z.enum(['show', 'hide']).optional(),
     actions: z.boolean().optional(), maxItems: z.number().int().min(1).max(100).optional(),
     csvHref: z.string().max(300).regex(/^\/[^\s"'<>?#]*$/).optional(),
+    stageChips: z.boolean().optional(),
     filters: z.array(z.union([z.string().max(64), z.object({ key: z.string().max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
   }).strict(),
   css`
@@ -339,7 +340,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .fclear { all: unset; cursor: pointer; align-self: flex-start; font-size: var(--font-size-xs); color: var(--color-primary); }`,
   function (p) {
     const fields = Array.isArray(p.fields) ? p.fields : [];
-    const stages = Array.isArray(p.stages) ? p.stages.map(String) : [];
+    // stageChips: false hides stages entirely (chips, column, filter, Move): steps say how far each got.
+    const showStages = p.stageChips !== false;
+    const stages = showStages && Array.isArray(p.stages) ? p.stages.map(String) : [];
     const byRole = (r) => fields.find((f) => f.role === r);
     const priceF = byRole('price'); const measureF = byRole('measure'); const scoreF = byRole('score');
     const priceBetter = priceF?.better ?? 'lower';
@@ -450,7 +453,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       </div></div>${filterBar}`;
     if (!opts.length) return html`${toggle}<p class="empty">No options match these filters. <button type="button" class="fclear" @click=${() => keepSel({})}>Clear filters</button></p>`;
     if (layout === 'table') {
-      return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th>${scoreF ? html`<th>${scoreF.label}</th>` : nothing}<th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>Stage</th><th></th></tr></thead><tbody>
+      return html`${toggle}<table><thead><tr><th>#</th><th></th><th>Option</th>${scoreF ? html`<th>${scoreF.label}</th>` : nothing}<th>${priceF?.label ?? 'Price'}</th><th>${measureF?.label ?? ''}</th><th>${showStages ? 'Stage' : ''}</th><th></th></tr></thead><tbody>
         ${opts.map((o) => html`<tr class="${o.ruledOut ? 'out' : o === best ? 'best' : ''}">
           <td class="num">${o.ruledOut ? '·' : active.indexOf(o) + 1}</td>
           <td>${safeUrl(o.image) ? html`<img class="thumb" src=${safeUrl(o.image)} alt="" loading="lazy">` : nothing}</td>
@@ -458,7 +461,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
           ${scoreF ? html`<td class="num" title=${o.factMeta?.[scoreF.key]?.quote ? `“${o.factMeta[scoreF.key].quote}”` : ''}>${est(o, scoreF)}${fmtField(scoreF, o.fields?.[scoreF.key])}${o.factMeta?.[scoreF.key]?.checked ? html` <span class="ok" aria-label="quote checked in the source">✓</span>` : nothing}</td>` : nothing}
           <td class="num">${priceF && o.fields?.[priceF.key] != null ? html`${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}` : ''} ${change(o)}</td>
           <td class="num">${measureF && o.fields?.[measureF.key] != null ? html`${est(o, measureF)}${fmtField(measureF, o.fields[measureF.key])}` : ''}</td>
-          <td>${o.chosen && !o.ruledOut ? html`<span class="chip chosen">✓ chosen</span> ` : nothing}${o.stage ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
+          <td>${o.chosen && !o.ruledOut ? html`<span class="chip chosen">✓ chosen</span> ` : nothing}${o.stage && showStages ? html`<span class="chip stage">${o.stage}</span>` : nothing}</td>
           <td>${actions(o)}</td></tr>`)}</tbody></table>`;
     }
     return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''} ${o.chosen && !o.ruledOut ? 'chosen' : ''}">
@@ -476,8 +479,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
         <div class="chips">${facts(o).map((f) => fact(o, f.key, f.text, f.label))}${change(o)}
           ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>
-        <div class="chips">${o.stage && !o.ruledOut ? html`<span class="chip stage">${o.stage}</span>` : nothing}</div>
-        ${o.ruledOut ? (o.ruledOut.gone ? html`<div class="why gone-why">No longer available</div>` : html`<div class="why">Ruled out${o.ruledOut.stage ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>`) : nothing}
+        ${o.stage && !o.ruledOut && showStages ? html`<div class="chips"><span class="chip stage">${o.stage}</span></div>` : nothing}
+        ${o.ruledOut ? (o.ruledOut.gone ? html`<div class="why gone-why">No longer available</div>` : html`<div class="why">Ruled out${o.ruledOut.stage && showStages ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>`) : nothing}
         ${actions(o)}
       </div></article>`)}</div>`;
   });

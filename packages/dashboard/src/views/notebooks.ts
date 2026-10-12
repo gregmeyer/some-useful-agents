@@ -11,7 +11,8 @@ import { renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
-import { notebookWidgetMessages } from '../lib/notebook-widgets.js';
+import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
+import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
@@ -113,14 +114,18 @@ function decideFacts(nb: Notebook, o: NotebookViewOption): SafeHtml {
  * Decide…: pick from the options still in the running (best first, with
  * their facts and checks), then say why if you like. One pick when the
  * decide step wants one; any number otherwise. With nothing in the running,
- * just say what you decided.
+ * just say what you decided. Narrow… is the same list for a narrow step:
+ * keep some, the rest are ruled out, and the notebook stays open.
  */
-function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): SafeHtml {
+function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mode: 'decide' | 'narrow' = 'decide'): SafeHtml {
   const id = encodeURIComponent(nb.id);
-  const step = nb.steps?.find((s) => s.kind === 'decide');
+  const narrow = mode === 'narrow';
+  const step = narrow ? nb.steps?.find((s) => s.kind === 'narrow' && s.status !== 'done') : nb.steps?.find((s) => s.kind === 'decide');
   const target = step?.target;
-  const one = target === 1;
-  if (!candidates.length) {
+  const one = !narrow && target === 1;
+  const why = narrow ? 'nb-narrow-why' : 'nb-decision';
+  const word = narrow ? 'kept' : 'picked';
+  if (!candidates.length && !narrow) {
     return html`<form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form">
       <label for="nb-decision" class="nb-progress__label">What did you decide, and why?</label>
       <textarea id="nb-decision" name="decision" rows="4" required class="form-field" placeholder="${decisionPlaceholder([])}"></textarea>
@@ -130,18 +135,18 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): Sa
   const want = target ? `${String(target)} ` : '';
   // A picture column when any option has one (the kept copy; never the seller's address).
   const thumbs = candidates.some((o) => o.image);
-  const count = target ? `0 of ${String(target)} picked` : '0 picked';
-  return html`<form method="POST" action="/notebooks/${id}/decide" class="nb-decide__form" data-nb-decide${target ? html` data-target="${String(target)}"` : html``}>
+  const count = target ? `0 of ${String(target)} ${word}` : `0 ${word}`;
+  return html`<form method="POST" action="/notebooks/${id}/${narrow ? 'narrow' : 'decide'}" class="nb-decide__form" data-nb-decide data-nb-mode="${mode}" data-total="${String(candidates.length)}"${target ? html` data-target="${String(target)}"` : html``}>
     <div class="nb-decide__head">
-      <h2 class="nb-act__title">${step?.title ?? 'Pick what you chose'}</h2>
+      <h2 class="nb-act__title">${step?.title ?? (narrow ? 'Keep the ones that stay' : 'Pick what you chose')}</h2>
       <span class="nb-decide__count" data-nb-decide-count aria-live="polite">${count}</span>
     </div>
-    <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>Pick the top ${String(target)}</button>` : html``}</p>
+    <p class="nb-decide__hint">${String(candidates.length)} still in, best first.${narrow ? ' The ones you don\'t keep are ruled out (bring any back later); the notebook stays open.' : ''}${target && target > 1 && candidates.length > target ? html` <button type="button" class="nb-decide__top" data-nb-decide-top>${narrow ? 'Keep' : 'Pick'} the top ${String(target)}</button>` : html``}</p>
     <fieldset class="nb-decide__list${thumbs ? ' nb-decide__list--thumbs' : ''}">
-      <legend class="sr-only">${one ? 'Pick one' : `Pick ${want || 'any'}`}</legend>
+      <legend class="sr-only">${narrow ? 'Keep' : one ? 'Pick one' : `Pick ${want || 'any'}`}</legend>
       ${candidates.map((o) => html`<div class="nb-decide__row">
         <label class="nb-decide__pick">
-          <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen ? html` checked` : html``}>
+          <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen && !narrow ? html` checked` : html``}>
           ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
           <span class="nb-decide__name">${o.title}</span>
           ${decideFacts(nb, o)}
@@ -149,13 +154,13 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[]): Sa
         <a class="nb-decide__open" href="/notebooks/${id}/entries/${encodeURIComponent(o.id)}" title="Open ${o.name}" aria-label="Open ${o.name}">↗</a>
       </div>`) as unknown as SafeHtml[]}
     </fieldset>
-    <label for="nb-decision" class="nb-progress__label">Why${one ? ' this one' : ' these'}? <span class="nb-decide__optional">optional</span></label>
-    <textarea id="nb-decision" name="decision" rows="2" class="form-field" placeholder="In a line or two, so you remember later."></textarea>
-    <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit>Decide and close</button>
+    <label for="${why}" class="nb-progress__label">${narrow ? 'Why not the rest?' : `Why${one ? ' this one' : ' these'}?`} <span class="nb-decide__optional">optional${narrow ? ', kept as their reason' : ''}</span></label>
+    <textarea id="${why}" name="decision" rows="2" class="form-field" placeholder="${narrow ? 'e.g. over budget, or too many miles' : 'In a line or two, so you remember later.'}"></textarea>
+    <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit${narrow ? html` disabled` : html``}>${narrow ? 'Keep these' : 'Decide and close'}</button>
   </form>`;
 }
 
-const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'facts', check: 'checked', decide: 'chosen' };
+const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen' };
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**
@@ -163,17 +168,20 @@ const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', run
  * its goal ("8 of 10 found") and where it stands. The step being worked on
  * (the first not done) is marked; what it still needs is its tooltip.
  */
-export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[]): SafeHtml {
+export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], running = false): SafeHtml {
   const current = steps.find((x) => x.status !== 'done');
+  const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
+  const focus = topFor(nb, inRunning);
   return html`<ol class="nb-steps" aria-label="Steps">
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
-      const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : step.kind === 'decide' ? 'you' : '');
+      const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : isYourStep(step) ? 'you' : '');
       // A source step that looks up only some facts names them.
       const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
       const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
       const progress = step.kind === 'decide' && step.status !== 'done' ? `pick ${String(p.want)}`
+        : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
       return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}" title="${missing || step.note || ''}">
@@ -183,7 +191,10 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
           ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
-          <span class="nb-step__meta">${progress} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          <span class="nb-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
+            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
+            : html``}
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
@@ -205,11 +216,11 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string; mov
   const of = `of ${String(steps.length)}`;
   if (step.status === 'met') {
     if (!next) return { label: 'Finish', hint: `Step ${String(i + 1)} ${of} is done; that was the last.` };
-    return next.kind === 'decide'
-      ? { note: `Step ${String(i + 1)} is done. Next: ${next.title}, with Decide.` }
+    return isYourStep(next)
+      ? { note: `Step ${String(i + 1)} is done. Next: ${next.title}, with ${yourStepButton(next)}.` }
       : { label: 'Next step', hint: `Step ${String(i + 1)} is done. Next: step ${String(i + 2)} ${of}, ${next.title}.` };
   }
-  if (step.kind === 'decide') return { note: `Next: ${step.title}, with Decide.` };
+  if (isYourStep(step)) return { note: `Next: ${step.title}, with ${yourStepButton(step)}.` };
   // A check step without an agent uses sua's checker; find and source need one.
   if (!step.agentId && step.kind !== 'check') return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
   if (step.status !== 'stuck') return { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
@@ -249,7 +260,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
         </div>
-        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries) : pipelineDiagram(stages)}
+        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
         ${nb.pipeline.length || nb.steps?.length ? html`
           <div class="nb-run">
             ${running
@@ -353,17 +364,19 @@ const QUICK_REASONS = ['Not interested', 'Too expensive', 'No reply', 'Failed a 
 export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'option' } = {}): SafeHtml {
   const base = `/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}`;
   const to = opts.back === 'option' ? html`<input type="hidden" name="back" value="option">` : html``;
+  // With steps, how far it got is the steps' to say: no stage chip or Move button.
+  const hidden = handStagesHidden(nb);
   if (e.ruledOut) {
     return html`<div class="nb-stage nb-stage--out">
-      <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
+      <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage && !hidden ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
       <form method="POST" action="${base}/reinstate">${to}<button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
     </div>`;
   }
   const i = nb.stages.findIndex((s) => s === e.stage);
-  const next = nb.stages.length ? nb.stages[i + 1] : undefined;
+  const next = nb.stages.length && !hidden ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
     ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked in the decision ${formatAge(e.chosenAt)}">✓ Chosen</span>` : html``}
-    ${e.stage ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
+    ${e.stage && !hidden ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
     ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">
       <summary class="btn btn--sm btn--ghost">Rule out…</summary>
@@ -628,6 +641,9 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
   // While it has steps left, the next one is the header's main button (Decide steps aside).
   const next = nb.status === 'active' ? nextStepAction(nb) : undefined;
   const step = next && 'label' in next ? next : undefined;
+  // The current step is a narrow step: Narrow… is the main button.
+  const current = nb.steps?.find((x) => x.status !== 'done');
+  const narrowing = current?.kind === 'narrow' ? current : undefined;
   return html`
     <div class="nb-acts">
       ${running && nb.steps?.some((x) => x.status !== 'done')
@@ -635,9 +651,16 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         : step
           ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
           : html``}
+      ${nb.status === 'active' && narrowing && !running ? html`
+        <details class="nb-act nb-decide nb-narrow" data-nb-act>
+          <summary class="btn btn--sm btn--primary" title="${narrowing.title}">Narrow…</summary>
+          <div class="nb-act__panel nb-act__panel--decide">
+            ${decideForm(nb, leads, 'narrow')}
+          </div>
+        </details>` : html``}
       ${nb.status === 'active' ? html`
         <details class="nb-act nb-decide" data-nb-act>
-          <summary class="btn btn--sm${step || running ? '' : ' btn--primary'}">Decide…</summary>
+          <summary class="btn btn--sm${step || running || narrowing ? '' : ' btn--primary'}">Decide…</summary>
           <div class="nb-act__panel nb-act__panel--decide">
             ${decideForm(nb, leads)}
           </div>

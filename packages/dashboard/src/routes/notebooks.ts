@@ -20,7 +20,7 @@ import {
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { confirmDoneStepsAndSay, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { notebookCard } from '../lib/notebook-card.js';
@@ -474,6 +474,21 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
   }
 });
 
+/** Narrow: keep the picked options in the running, rule out the rest; the notebook stays open. */
+notebooksRouter.post('/notebooks/:id/narrow', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const raw: unknown = req.body?.chosen;
+    const keep = [...new Set((Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean))];
+    const before = store(req).entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut).length;
+    const nb = store(req).narrow(id, keep, str(req.body?.decision), 'you');
+    const next = nb.steps?.find((x) => x.status !== 'done');
+    res.redirect(303, back(id, `Kept ${String(keep.length)}, ruled out ${String(before - keep.length)}.${next ? ` Next: ${next.title}.` : ''}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
 notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const status = str(req.body?.status);
@@ -524,6 +539,14 @@ notebooksRouter.post('/notebooks/:id/steps/move-on', (req: Request, res: Respons
   const m = moveOnFromStep(getContext(req.app.locals), id, { stepId: str(req.body?.step) || undefined });
   const then = m.next?.started ? ` Working on ${m.next.step!.title}.` : m.next?.reason ? ` ${m.next.reason}` : '';
   res.redirect(303, back(id, m.moved ? `Moved on from ${m.step!.title}, keeping what it found.${then}` : m.reason ?? 'It could not move on.'));
+});
+
+/** Check (or source) the top N: a step you moved on from short works again on just the best options. */
+notebooksRouter.post('/notebooks/:id/steps/:step/top', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const top = Number(req.body?.top);
+  const out = focusStepOnTop(getContext(req.app.locals), id, String(req.params.step), top);
+  res.redirect(303, back(id, out.started ? `Working on ${out.step!.title}, for the top ${String(Math.round(top))}.` : out.reason ?? 'It could not start.'));
 });
 
 /**
