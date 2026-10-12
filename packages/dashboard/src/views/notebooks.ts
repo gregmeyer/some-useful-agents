@@ -12,7 +12,7 @@ import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
-import { notebookWidgetMessages } from '../lib/notebook-widgets.js';
+import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
@@ -364,17 +364,19 @@ const QUICK_REASONS = ['Not interested', 'Too expensive', 'No reply', 'Failed a 
 export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'option' } = {}): SafeHtml {
   const base = `/notebooks/${encodeURIComponent(nb.id)}/entries/${e.id}`;
   const to = opts.back === 'option' ? html`<input type="hidden" name="back" value="option">` : html``;
+  // With steps, how far it got is the steps' to say: no stage chip or Move button.
+  const hidden = handStagesHidden(nb);
   if (e.ruledOut) {
     return html`<div class="nb-stage nb-stage--out">
-      <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
+      <span class="nb-stage__out">${e.ruledOut.gone ? 'No longer available' : html`Ruled out${e.ruledOut.stage && !hidden ? ` at ${e.ruledOut.stage}` : ''}: ${e.ruledOut.reason}`}</span>
       <form method="POST" action="${base}/reinstate">${to}<button type="submit" class="btn btn--sm btn--ghost">Bring back</button></form>
     </div>`;
   }
   const i = nb.stages.findIndex((s) => s === e.stage);
-  const next = nb.stages.length ? nb.stages[i + 1] : undefined;
+  const next = nb.stages.length && !hidden ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
     ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked in the decision ${formatAge(e.chosenAt)}">✓ Chosen</span>` : html``}
-    ${e.stage ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
+    ${e.stage && !hidden ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
     ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">
       <summary class="btn btn--sm btn--ghost">Rule out…</summary>
