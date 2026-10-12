@@ -269,7 +269,9 @@ An agent "fills" a notebook when it's in the notebook's searches or has filed in
 
 ## Download the shortlist
 
-**Download CSV** in a notebook's header saves its shortlist as a spreadsheet, best first (by fit when the notebook has a fit score, else by price). It has one column per fact (numbers as plain numbers, ranges as `min-max`), then which facts are estimates, where facts came from, the quote that backs the ranking and whether it was checked, how many of the notebook's checks are done, and when each option was first and last seen. Add `?all=1` to the address to include ruled-out options, with why. It opens cleanly in Excel, Numbers and Google Sheets. Text that a spreadsheet would run as a formula is prefixed with `'`.
+**Download CSV** in a notebook's header saves options as a spreadsheet and asks which ones: **Chosen** (once you've decided), **In the running**, or **Everything, with ruled out** (ruled-out ones last, with why). Best first (by fit when the notebook has a fit score, else by price), chosen ones ahead of the rest. To pick rows yourself, filter the shortlist (its chips, **Only chosen**, **Show ruled out**) and use **CSV of these N** in its bar: you get exactly the options it shows.
+
+Each row has one column per fact (numbers as plain numbers, ranges as `min-max`), **Chosen** (once any are), then which facts are estimates, where facts came from, the quote that backs the ranking and whether it was checked, how many of the notebook's checks are done, and when each option was first and last seen. **Stage** is how far it got: with steps, the funnel's words (Found, Facts sourced, Checked, Chosen). It opens cleanly in Excel, Numbers and Google Sheets. Text that a spreadsheet would run as a formula is prefixed with `'`. By address: `shortlist.csv?rows=chosen|running|all`, and `&ids=a,b` for exact options; a plain `shortlist.csv` is the chosen ones once you've decided, else the ones in the running.
 
 ## Filing directly (for agent authors)
 

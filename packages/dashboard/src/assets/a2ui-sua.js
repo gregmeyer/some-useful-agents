@@ -255,6 +255,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     options: CommonSchemas.DynamicValue, fields: CommonSchemas.DynamicValue.optional(), stages: CommonSchemas.DynamicValue.optional(),
     layout: z.enum(['grid', 'table']).optional(), sort: z.string().max(80).optional(), ruledOut: z.enum(['show', 'hide']).optional(),
     actions: z.boolean().optional(), maxItems: z.number().int().min(1).max(100).optional(),
+    csvHref: z.string().max(300).regex(/^\/[^\s"'<>?#]*$/).optional(),
     filters: z.array(z.union([z.string().max(64), z.object({ key: z.string().max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
   }).strict(),
   css`
@@ -329,6 +330,8 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .fchips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
     .fchip.none { color: var(--color-text-subtle, var(--color-text-muted)); border-style: dashed; }
     .fchip { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 2px 9px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
+    .csvlink { font-size: var(--font-size-xs); color: var(--color-primary); text-decoration: none; white-space: nowrap; }
+    .csvlink:hover, .csvlink:focus-visible { text-decoration: underline; }
     .fchip .n { margin-left: 4px; font-family: var(--font-mono); color: var(--color-text-muted); }
     .fchip[aria-pressed="true"] { background: var(--color-primary-soft); border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; }
     .fchip[aria-pressed="true"] .n { color: var(--color-primary); }
@@ -439,6 +442,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const toggle = html`<div class="bar"><span>${onlyChosen ? `${filtered ? `${shownActive} of ` : ''}${chosenCount} chosen, of ${all.filter((o) => !o.ruledOut).length} in the running` : `${filtered ? `${shownActive} of ${active.length}` : active.length} in the running`}</span>
       ${chosenCount ? html`<label class="showout"><input type="checkbox" .checked=${onlyChosen} @change=${toggleChosen}> Only chosen (${chosenCount})</label>` : nothing}
       ${outCount ? html`<label class="showout"><input type="checkbox" .checked=${showOut} @change=${toggleOut}> Show ruled out (${outCount})</label>` : nothing}
+      ${p.csvHref && opts.length ? html`<a class="csvlink" href=${`${p.csvHref}?rows=all&ids=${opts.map((o) => encodeURIComponent(o.id)).join(',')}`} download title="Exactly the options shown here, as a spreadsheet">CSV of these ${opts.length}</a>` : nothing}
       <span class="sp"></span>
       <div class="seg" role="group" aria-label="Layout">
         <button type="button" aria-pressed=${layout === 'grid' ? 'true' : 'false'} @click=${() => set('_layout', 'grid')}>Grid</button>

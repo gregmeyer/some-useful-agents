@@ -330,7 +330,7 @@ export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'>): string[
 }
 
 /** The default layout (see the module comment). */
-export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' | 'steps'>): ViewComponent[] {
+export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string }): ViewComponent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
   const scoreF = nb.fields.find((f) => f.role === 'score');
@@ -368,7 +368,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' 
   }
   c.push(
     panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb) },
+    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb), ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}) },
     // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
     { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),

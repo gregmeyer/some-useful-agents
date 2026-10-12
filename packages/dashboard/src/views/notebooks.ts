@@ -597,6 +597,29 @@ function stepButton(nb: Notebook, b: { label: string; hint: string; moveOn?: boo
 }
 
 /**
+ * Download CSV: which options go in. The chosen ones (once you've picked),
+ * the ones in the running, or everything with the ruled-out ones and why.
+ * The shortlist's own "CSV of these" takes it as you filtered it.
+ */
+function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[]): SafeHtml {
+  const href = `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv`;
+  const chosen = running.filter((o) => o.chosen).length;
+  const all = entries.filter((e) => e.kind === 'option').length;
+  const item = (rows: string, label: string, n: number, hint: string) =>
+    html`<a class="nb-csv__item" href="${href}?rows=${rows}" download title="${hint}">${label} <span class="nb-csv__n">${String(n)}</span></a>`;
+  return html`<details class="nb-act nb-csv" data-nb-act>
+    <summary class="btn btn--sm btn--ghost">Download CSV</summary>
+    <div class="nb-act__panel nb-csv__panel">
+      <span class="nb-progress__label">Which options?</span>
+      ${chosen ? item('chosen', 'Chosen', chosen, 'The options you picked, best first') : html``}
+      ${item('running', 'In the running', running.length, chosen ? 'Every option still in, chosen first' : 'Every option still in, best first')}
+      ${all > running.length ? item('all', 'Everything, with ruled out', all, 'Ruled-out ones last, with why') : html``}
+      <span class="nb-csv__hint">To pick rows yourself, filter the shortlist and use its <b>CSV of these</b>.</span>
+    </div>
+  </details>`;
+}
+
+/**
  * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
  * button that opens its form below it; one open at a time (notebook-page.js.ts).
  */
@@ -634,7 +657,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ${editNotebookForm(nb)}
         </div>
       </details>
-      ${entries.some((e) => e.kind === 'option') ? html`<a class="btn btn--sm btn--ghost" href="/notebooks/${id}/shortlist.csv" download title="The shortlist as a spreadsheet, best first">Download CSV</a>` : html``}
+      ${entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
     </div>`;
 }
 
