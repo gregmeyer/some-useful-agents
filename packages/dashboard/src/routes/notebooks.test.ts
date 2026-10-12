@@ -735,6 +735,35 @@ describe('the funnel on the page and in the conversation', () => {
     expect(store.findOption('car', 'XT')?.ruledOut).toBeUndefined();
   });
 
+  it('Narrow… keeps the picks, rules out the rest, and the notebook stays open', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await post('/notebooks', { title: 'Cars' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    store.setFields('cars', [{ key: 'url', label: 'Listing', type: 'url', role: 'link' }, { key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    store.setSteps('cars', [{ title: 'Find 3', kind: 'find', target: 3, status: 'done' }, { title: 'Decide which cars stay in the running', kind: 'narrow' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const add = (title: string, price: number) => store.upsertOption('cars', { title, by: 'you', data: { url: `https://cars.example/${String(price)}`, price } }).entry;
+    const rav = add('RAV4', 9000); const crv = add('CR-V', 11000); add('Outback', 14000);
+    const page = (await get('/notebooks/cars')).text;
+    expect(page).toContain('title="Decide which cars stay in the running">Narrow…</summary>');
+    expect(page).toContain('action="/notebooks/cars/narrow"');
+    expect(page).toContain('data-nb-mode="narrow"');
+    expect(page).toMatch(/<summary class="btn btn--sm">Decide…<\/summary>/); // not the main button now
+    expect(page).toContain('keep the best · to do');
+    const out = await post('/notebooks/cars/narrow', `chosen=${rav.id}&chosen=${crv.id}&decision=Too+pricey`);
+    expect(decodeURIComponent(out.headers.location)).toContain('Kept 2, ruled out 1. Next: Pick one.');
+    const nb = store.get('cars')!;
+    expect(nb.status).toBe('active');
+    expect(store.findOption('cars', 'Outback')?.ruledOut?.reason).toBe('Too pricey');
+    const after = (await get('/notebooks/cars')).text;
+    expect(after).not.toContain('Narrow…</summary>');
+    expect(after).toContain('<summary class="btn btn--sm btn--primary">Decide…</summary>');
+    expect(decodeURIComponent((await post('/notebooks/cars/narrow', {})).headers.location)).toContain('Pick at least one');
+  });
+
   it('Decide… lists the options still in to pick from, and records the picks', async () => {
     const app = await makeApp();
     const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)

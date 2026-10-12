@@ -35,15 +35,23 @@ export const NOTEBOOK_PAGE_JS = `
       var n = 0;
       for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) n++;
       var target = Number(form.getAttribute('data-target')) || 0;
+      var narrow = form.getAttribute('data-nb-mode') === 'narrow';
+      var word = narrow ? ' kept' : ' picked';
       var count = form.querySelector('[data-nb-decide-count]');
       if (count) {
-        count.textContent = target ? n + ' of ' + target + ' picked' : n + ' picked';
+        count.textContent = target ? n + ' of ' + target + word : n + word;
         count.classList.toggle('is-over', target > 0 && n > target);
         count.classList.toggle('is-met', target > 0 && n === target);
       }
       var why = form.querySelector('textarea[name="decision"]');
-      if (why) why.required = n === 0;
       var btn = form.querySelector('[data-nb-decide-submit]');
+      if (narrow) {
+        // Keep at least one; the rest are ruled out.
+        var out = (Number(form.getAttribute('data-total')) || boxes.length) - n;
+        if (btn) { btn.disabled = n === 0; btn.textContent = n === 0 ? 'Keep these' : 'Keep ' + n + (out ? ', rule out ' + out : ''); }
+        return;
+      }
+      if (why) why.required = n === 0;
       if (btn) btn.textContent = n === 0 ? 'Decide and close' : n === 1 ? 'Choose this one and close' : 'Choose these ' + n + ' and close';
     }
     var decideForms = document.querySelectorAll('[data-nb-decide]');
