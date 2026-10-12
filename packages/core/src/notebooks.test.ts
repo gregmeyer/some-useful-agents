@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, sameAddress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { NotebookStore, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -874,16 +874,43 @@ describe('the same address is the same option', () => {
     expect(s.entries(cars.id).find((e) => e.id === a.entry.id)!.data).toMatchObject({ price: 3900 });
     // A results page several listings point at: a different car there is its own option.
     s.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }, { key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
-    const page = 'https://www.cargurus.com/Cars/l-Used-2009-Subaru-Forester-Bellingham-c16785';
+    // A dealer's page several cars share (not shaped like a search page, so only the facts tell them apart).
+    const page = 'https://dealer.example/used-subarus';
     const f1 = s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X, 177,967 mi', by: 'agent:sweep', fingerprint: 'f1', data: { miles: 177967, url: page } });
     expect(s.upsertOption(cars.id, { title: '2010 Subaru Forester 2.5 X, 152,949 mi', by: 'agent:sweep', fingerprint: 'f2', data: { miles: 152949, url: page } }).seenAgain).toBe(false);
     expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5X', by: 'agent:other', fingerprint: 'f3', data: { miles: 140000, url: page } }).seenAgain).toBe(false);
-    // Same year, miles within 5%: the same car, relisted.
+    // Same year, miles within 5%: the same car, relisted. (A search-shaped page never matches: isListPage.)
     expect(s.upsertOption(cars.id, { title: '2008 Subaru Forester 2.5 X', by: 'agent:other', fingerprint: 'f4', data: { miles: 178400, url: page } }).entry.id).toBe(f1.entry.id);
     const jobs = s.create({ title: 'Jobs' });
     s.setFields(jobs.id, [{ key: 'posting', label: 'Posting', type: 'url', role: 'link' }, { key: 'site', label: 'Company site', type: 'url' }]);
     s.upsertOption(jobs.id, { title: 'Staff Engineer, Stripe', by: 'you', data: { posting: 'https://stripe.com/jobs/1', site: 'https://stripe.com' } });
     expect(s.upsertOption(jobs.id, { title: 'Senior Engineer, Stripe', by: 'you', data: { posting: 'https://stripe.com/jobs/2', site: 'https://stripe.com' } }).seenAgain).toBe(false);
+  });
+});
+
+describe("an option's own page, not a search page", () => {
+  it('tells search and results pages from an item\'s own page', () => {
+    for (const u of ['https://www.cargurus.com/Cars/l-Used-2009-Subaru-Forester-Bellingham-c16785_L37799', 'https://www.edmunds.com/used-2011-subaru-forester-seattle-wa/',
+      'https://seattle.craigslist.org/search/cta?query=forester', 'https://example.com/search?q=cabinet', 'https://shop.example/s?k=24+inch+cabinet', 'https://cars.example/results?zip=98101']) expect([u, isListPage(u)]).toEqual([u, true]);
+    for (const u of ['https://www.cargurus.com/details/412345678', 'https://www.edmunds.com/subaru/forester/2011/vin/JF2SHADC1BH712345/', 'https://seattle.craigslist.org/see/cto/d/everett-2008-forester/7781234567.html',
+      'https://www.autotrader.com/cars-for-sale/vehicle/700000001', 'https://jobs.lever.co/pigment/c0d1156b', 'https://www.lowes.com/pd/bearsolim-24-in/5014223?zip=98101']) expect([u, isListPage(u)]).toEqual([u, false]);
+  });
+
+  it('marks links several options share or shaped like a search page; a source step on the link counts them missing', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-own-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Cars' });
+    s.setFields(nb.id, [{ key: 'miles', label: 'Miles', type: 'number', role: 'measure' }, { key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const shared = 'https://dealer.example/used-subarus';
+    s.upsertOption(nb.id, { title: '2008 Forester', by: 'x', fingerprint: 'a', data: { miles: 177967, url: shared } });
+    s.upsertOption(nb.id, { title: '2010 Forester', by: 'x', fingerprint: 'b', data: { miles: 152949, url: shared } });
+    s.upsertOption(nb.id, { title: '2009 Forester', by: 'x', fingerprint: 'c', data: { miles: 140000, url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-c1' } });
+    s.upsertOption(nb.id, { title: '2010 RAV4', by: 'x', fingerprint: 'd', data: { miles: 149652, url: 'https://www.cargurus.com/details/412345678' } });
+    const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options;
+    expect(Object.fromEntries(v.map((o) => [o.title, !!o.linkIsList]))).toEqual({ '2008 Forester': true, '2010 Forester': true, '2009 Forester': true, '2010 RAV4': false });
+    const step = { kind: 'source' as const, facts: ['url'], status: 'todo' as const };
+    expect(stepProgress(s.get(nb.id)!, s.entries(nb.id), step)).toMatchObject({ met: false, have: 1, want: 4 });
   });
 });
 

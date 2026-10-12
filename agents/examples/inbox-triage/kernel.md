@@ -755,7 +755,9 @@ next, say it was the last one in the running.
                  "RUN": "1" (start step 1 now, optional) } }`
   Kinds: find (options; target = how many), source (facts the options are
   missing; "facts" = the notebook's fact keys its agent looks up, when it
-  doesn't look up every fact the notebook tracks), check (the notebook's checks, each confirmed with a quote; no
+  doesn't look up every fact the notebook tracks; the link field's key to
+  find each option's own listing or posting page, when its links are search
+  pages, shown as linkIsList in NOTEBOOK_FOCUS), check (the notebook's checks, each confirmed with a quote; no
   agent = sua's checker, which needs the notebook to have checks), narrow
   (they keep the ones that stay in the running, the rest are ruled out, the
   notebook stays open; target = about how many to keep; done with Narrow…),

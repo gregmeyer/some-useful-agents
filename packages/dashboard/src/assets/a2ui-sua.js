@@ -427,7 +427,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       <input type="text" placeholder="or your words" aria-label="Reason" @keydown=${(e) => { if (e.key === 'Enter' && e.target.value.trim()) { set('_menu', ''); act({ op: 'ruleOut', id: o.id, reason: e.target.value.trim() }); } }}>
     </div>` : nothing);
     const actions = (o) => html`<div class="acts">
-      ${safeUrl(o.link) ? html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">${byRole('link')?.label ?? 'Listing'} ↗</a>` : nothing}
+      ${safeUrl(o.link) ? (o.linkIsList
+        ? html`<a class="btn ghost" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer" title="Where it was found: a search page that lists many, not this one's own">Search page ↗</a>`
+        : html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">${byRole('link')?.label ?? 'Listing'} ↗</a>`) : nothing}
       ${p.actions && !o.ruledOut && next(o) ? html`<button type="button" class="btn" @click=${() => act({ op: 'move', id: o.id, stage: next(o) })}>${next(o)} →</button>` : nothing}
       ${p.actions && !o.ruledOut ? html`<button type="button" class="btn ghost" aria-expanded=${this._menu === o.id ? 'true' : 'false'} @click=${() => set('_menu', this._menu === o.id ? '' : o.id)}>Rule out…</button>` : nothing}
       ${p.actions && o.ruledOut ? html`<button type="button" class="btn ghost" @click=${() => act({ op: 'reinstate', id: o.id })}>Bring back</button>` : nothing}

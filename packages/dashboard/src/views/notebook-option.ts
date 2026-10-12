@@ -124,7 +124,9 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
         ${data.option.priceNow ? html`<div class="nbo-hero__price">${data.option.priceNow}${o.priceChange ? html` ${priceChangeChip(nb, o.priceChange)}` : html``}</div>` : html``}
         ${optionStage(nb, e, { back: 'option' })}
         <div class="nbo-hero__links">
-          ${o.link ? html`<a class="btn btn--sm" href="${o.link}" target="_blank" rel="noopener noreferrer">${listing?.label ?? 'Listing'} ↗</a>` : html``}
+          ${o.link ? (o.linkIsList
+            ? html`<a class="btn btn--sm btn--ghost" href="${o.link}" target="_blank" rel="noopener noreferrer" title="Where it was found: a search page that lists many, not this one's own">Search page ↗</a>`
+            : html`<a class="btn btn--sm" href="${o.link}" target="_blank" rel="noopener noreferrer">${listing?.label ?? 'Listing'} ↗</a>`) : html``}
           <a class="btn btn--sm btn--ghost" href="${nbHref}">← Back to the notebook</a>
           ${mergeForm(nb, e, args.others ?? [])}
         </div>

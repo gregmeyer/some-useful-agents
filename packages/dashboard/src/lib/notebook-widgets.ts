@@ -198,10 +198,14 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
         : '',
       furthest && furthest !== v.stages[0] ? `Furthest along: ${furthest}.` : '',
     ].filter(Boolean).join(' ');
+  const listLinks = active.filter((o) => o.linkIsList).length;
   const next = decided
     ? 'reopen it if something changes; anything sua learns is still kept here.'
     : active.length === 0
     ? 'ask sua to search again, or bring one back.'
+    // Most only link to a search page: their own pages come first (a source step on the link finds them).
+    : listLinks * 2 >= active.length && listLinks > 1
+      ? `find each one's own ${(nb.fields.find((f) => f.role === 'link')?.label ?? 'listing').toLowerCase()}: ${String(listLinks)} of ${String(active.length)} link to a search page. Ask sua for a step that finds them.`
     : top.length && checks.length && checkedTop < top.length
       ? `check ${checks.slice(0, 2).map((c) => c.toLowerCase()).join(' and ')} on the top ${top.length === 1 ? 'one' : 'two'} before you contact anyone.`
       : nextCriterion ? `${nextCriterion}.` : 'decide.';

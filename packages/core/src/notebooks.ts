@@ -949,7 +949,7 @@ export class NotebookStore {
   findByLink(notebookId: string, nb: Pick<Notebook, 'fields'>, data: Record<string, NotebookFieldValue>, title = ''): NotebookEntry | undefined {
     const linkF = nb.fields.find((f) => f.role === 'link');
     const v = linkF ? data[linkF.key] : undefined;
-    const want = typeof v === 'string' ? sameAddress(v) : undefined;
+    const want = typeof v === 'string' && !isListPage(v) ? sameAddress(v) : undefined;
     if (!linkF || !want) return undefined;
     const all = this.entries(notebookId, 1000).filter((e) => {
       const u = e.kind === 'option' ? e.data?.[linkF.key] : undefined;
@@ -1553,6 +1553,28 @@ export function sameThing(nb: Pick<Notebook, 'fields'>, a: { title: string; data
   return true;
 }
 
+/** Query keys a search or results page carries ("?q=forester&zip=98101"). */
+const SEARCH_KEYS = /^(q|query|keyword|keywords|search|searchterm|search_query|k|zip|zipcode|postal|distance|radius|sort|page)$/i;
+
+/**
+ * Whether an address looks like a search or results page (many items) rather
+ * than one item's own page: a /search or /results path, search parameters,
+ * or a known site's list pages (CarGurus /Cars/l-…, Edmunds /used-2011-…-wa,
+ * Craigslist /search/). Conservative: unknown shapes count as an item's own.
+ */
+export function isListPage(url: string): boolean {
+  let u: URL;
+  try { u = new URL(url.trim()); } catch { return false; }
+  const host = u.hostname.replace(/^www\./, '').toLowerCase();
+  const path = u.pathname.toLowerCase();
+  if (/(^|\/)(search|results|s|browse|find)(\/|$)/.test(path)) return true;
+  if ([...u.searchParams.keys()].some((k) => SEARCH_KEYS.test(k)) && !/\d{4,}/.test(path)) return true;
+  if (host.endsWith('cargurus.com') && /^\/cars\/l-/.test(path)) return true;
+  if (host.endsWith('edmunds.com') && /^\/used-[a-z0-9-]+$/.test(path.replace(/\/$/, '')) && !/vin/.test(path)) return true;
+  if (host.endsWith('craigslist.org') && /\/search\//.test(path)) return true;
+  return false;
+}
+
 /** Query parameters that only say where a click came from. */
 const TRACKING = /^(utm_\w+|ref|ref_src|referrer|source|gclid|fbclid|mc_cid|mc_eid|cmpid|campaign|trk|si)$/i;
 
@@ -1631,6 +1653,8 @@ export interface NotebookViewOption {
   chosen?: boolean;
   /** One of sua's latest picks for the decision. */
   suggested?: boolean;
+  /** Its link is a search or results page (several options share it, or it looks like one), not its own. */
+  linkIsList?: boolean;
 }
 
 /** One stage of the funnel: how many got this far, are here now, or were ruled out here (and why). */
@@ -1731,6 +1755,17 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     };
   });
   options.sort((a, b) => Number(!!a.ruledOut) - Number(!!b.ruledOut));
+  // A link several options share, or one shaped like a search page, isn't any one option's own.
+  const linkF = nb.fields.find((f) => f.role === 'link');
+  if (linkF) {
+    const addr = (o: NotebookViewOption) => { const v = o.fields[linkF.key]; return typeof v === 'string' ? sameAddress(v) : undefined; };
+    const count = new Map<string, number>();
+    for (const o of options) { const a = addr(o); if (a) count.set(a, (count.get(a) ?? 0) + 1); }
+    for (const o of options) {
+      const v = o.fields[linkF.key]; const a = addr(o);
+      if (a && ((count.get(a) ?? 0) > 1 || (typeof v === 'string' && isListPage(v)))) o.linkIsList = true;
+    }
+  }
   // With steps, the funnel is the steps: how far each option got through them
   // (found, facts sourced, checked, chosen), not the stages it was moved to by hand.
   const steps = nb.steps ?? [];
@@ -2018,7 +2053,8 @@ export function trackedFacts(nb: Pick<Notebook, 'fields'>): NotebookField[] {
 /** The facts a source step looks up: the ones it names that the notebook tracks, else all it tracks. */
 export function stepFacts(nb: Pick<Notebook, 'fields'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
   const tracked = trackedFacts(nb);
-  const named = step.facts?.length ? tracked.filter((f) => step.facts!.includes(f.key)) : [];
+  // Named, a step may also look up each option's own page (the link field).
+  const named = step.facts?.length ? nb.fields.filter((f) => step.facts!.includes(f.key) && (tracked.includes(f) || f.role === 'link')) : [];
   return named.length ? named : tracked;
 }
 
@@ -2067,8 +2103,9 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
 }
 
 /** The facts a source step looks up that an option doesn't have yet. */
-function missingFacts(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookViewOption, 'fields'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
-  return stepFacts(nb, step).filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '');
+function missingFacts(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookViewOption, 'fields' | 'linkIsList'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
+  // A link to a search page isn't the option's own page yet.
+  return stepFacts(nb, step).filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '' || (f.role === 'link' && !!o.linkIsList));
 }
 
 /** The notebook's checks not yet ticked for an option. */
@@ -2080,7 +2117,7 @@ function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'c
  * Whether one option got through a step: found (it's here), its facts
  * sourced, every check ticked, or picked in the decision.
  */
-export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut'>, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
+export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut' | 'linkIsList'>, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
   if (step.kind === 'find') return true;
   // Kept when you narrowed (a narrow step not done yet has kept nothing).
   if (step.kind === 'narrow') return step.status === 'done' && !o.ruledOut;

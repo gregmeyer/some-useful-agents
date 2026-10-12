@@ -439,7 +439,7 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(pipelineInputs({ inputs: { NOTEBOOK: {}, TOPIC: {}, STEP: {}, DEPTH: {} } } as never, nb, store.entries(nb.id), job)).toEqual({
       NOTEBOOK: `${line}\nFind software comps\n${gaps}`, TOPIC: `${line}\n\nFind software comps`, STEP: line,
     });
-    expect(stepLine(nb, { step: { title: 'Find 10', kind: 'find' }, want: 10, have: 4, missing: [] })).toBe("This step: Find 10. Find 6 more options that fit (the notebook wants 10 in the running and has 4). Don't bring back ones it already has.");
+    expect(stepLine(nb, { step: { title: 'Find 10', kind: 'find' }, want: 10, have: 4, missing: [] })).toBe("This step: Find 10. Find 6 more options that fit (the notebook wants 10 in the running and has 4). Don't bring back ones it already has. Give each one's own page (the listing, posting or product page itself), not a search-results page that lists many.");
     // Without a step: as before, and no STEP.
     expect(pipelineInputs({ inputs: { TOPIC: {}, STEP: {} } } as never, nb)).toEqual({ TOPIC: 'Find software comps' });
   });
@@ -869,6 +869,23 @@ describe('the funnel on the page and in the conversation', () => {
     const out = (await get(`/notebooks/${nb.id}/entries/${b.id}`)).text;
     expect(out).toContain('Ruled out: too pricey');
     expect(out).not.toContain('Ruled out at Found');
+  });
+
+  it('a link to a search page says so, and Where it stands asks for their own pages', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Cars' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'listing_url', label: 'Listing URL', type: 'url', role: 'link' }]);
+    const a = store.upsertOption(nb.id, { title: '2008 Forester', by: 'x', fingerprint: 'a', data: { price: 3495, listing_url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-c1' } }).entry;
+    store.upsertOption(nb.id, { title: '2010 Forester', by: 'x', fingerprint: 'b', data: { price: 4199, listing_url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-c1' } });
+    const b = store.upsertOption(nb.id, { title: '2010 RAV4', by: 'x', fingerprint: 'c', data: { price: 4023, listing_url: 'https://www.cargurus.com/details/412345678' } }).entry;
+    const page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"linkIsList":true');
+    expect(page).toContain("find each one's own listing url: 2 of 3 link to a search page. Ask sua for a step that finds them.");
+    expect((await get(`/notebooks/${nb.id}/entries/${a.id}`)).text).toContain('>Search page ↗</a>');
+    expect((await get(`/notebooks/${nb.id}/entries/${b.id}`)).text).toContain('>Listing URL ↗</a>');
   });
 
   it('Decide… lists the options still in to pick from, and records the picks', async () => {
