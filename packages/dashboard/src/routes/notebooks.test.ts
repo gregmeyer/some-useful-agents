@@ -796,6 +796,35 @@ describe('the funnel on the page and in the conversation', () => {
     expect(decodeURIComponent((await post('/notebooks/cars/narrow', {})).headers.location)).toContain('Pick at least one');
   });
 
+  it('with steps, hand-moved stages are hidden: no stage chip, Move button or stage filter', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Cars' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'color', label: 'Color', type: 'text' }]);
+    store.setStages(nb.id, ['Found', 'Verified']);
+    const a = store.upsertOption(nb.id, { title: 'RAV4', by: 'you', data: { price: 9000, color: 'red' } }).entry;
+    const b = store.upsertOption(nb.id, { title: 'CR-V', by: 'you', data: { price: 9500, color: 'blue' } }).entry;
+    store.ruleOut(nb.id, b.id, 'too pricey');
+    // Without steps: stages as before.
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).not.toContain('"stageChips":false');
+    expect(page).toContain('"filters":["seen","stage","color"]');
+    expect((await get(`/notebooks/${nb.id}/entries/${a.id}`)).text).toContain('Move to Verified →');
+    store.setSteps(nb.id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"stageChips":false');
+    expect(page).toContain('"filters":["seen","color"]');
+    const opt = (await get(`/notebooks/${nb.id}/entries/${a.id}`)).text;
+    expect(opt).not.toContain('Move to Verified');
+    expect(opt).not.toContain('class="nb-stage__chip" title="Stage');
+    expect(opt).toContain('Rule out…');
+    const out = (await get(`/notebooks/${nb.id}/entries/${b.id}`)).text;
+    expect(out).toContain('Ruled out: too pricey');
+    expect(out).not.toContain('Ruled out at Found');
+  });
+
   it('Decide… lists the options still in to pick from, and records the picks', async () => {
     const app = await makeApp();
     const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)
