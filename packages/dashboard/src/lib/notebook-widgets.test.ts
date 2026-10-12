@@ -199,5 +199,15 @@ describe('a notebook ranked by fit', () => {
     expect(d.statItems[1]).toMatchObject({ label: 'best fit', value: '88' });
     expect(d.shortlistNote).toBe('ranked by fit, highest first');
     expect(notebookWidgetComponents(nb).find((c) => c.id === 'shortlist')).toMatchObject({ sort: 'fit desc' });
+
+    // Decided with picks: where it stands is the final set.
+    const decided = { ...(nb as object), status: 'decided' } as never;
+    const picked = [
+      { ...(entries as Array<Record<string, unknown>>)[0], chosenAt: '2026-10-02T00:00:00Z' },
+      (entries as Array<Record<string, unknown>>)[1],
+    ] as never;
+    const after = notebookWidgetData(decided, picked).notebook;
+    expect(after.summary).toBe('**Decided: 1 chosen**, of 2 in the running. Closewise.');
+    expect(after.next).toBe('reopen it if something changes; anything sua learns is still kept here.');
   });
 });

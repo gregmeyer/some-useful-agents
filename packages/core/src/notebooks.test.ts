@@ -730,6 +730,19 @@ describe('the shortlist as a spreadsheet', () => {
     const all = notebookCsv(s.get(nb.id)!, options, { ruledOut: true }).slice(1).trimEnd().split('\r\n');
     expect(all[0].endsWith(',Ruled out')).toBe(true);
     expect(all[3]).toMatch(/^,Initech,.*,Unfit \(10\): sells printers$/);
+
+    // With steps, Stage is how far it got; once picked, a Chosen column, and rows: 'chosen' keeps just those.
+    s.setSteps(nb.id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Check them', kind: 'check' }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
+    const globex = s.findOption(nb.id, 'Globex')!;
+    s.decide(nb.id, '', 'you', [globex.id]);
+    const after = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options;
+    const picked = notebookCsv(s.get(nb.id)!, after, { rows: 'chosen' }).slice(1).trimEnd().split('\r\n');
+    expect(picked[0]).toBe('Rank,Option,Stage,Company,Revenue,Fit,Chosen,Estimates,Sources,Quote,Quote source,Quote checked,Checks done,First seen,Last seen');
+    expect(picked).toHaveLength(2);
+    expect(picked[1].startsWith('1,Globex,Chosen,Globex,,70,yes,')).toBe(true);
+    const sel = notebookCsv(s.get(nb.id)!, after, { rows: 'all', ids: [acme.id, out.id] }).slice(1).trimEnd().split('\r\n');
+    expect(sel.map((l) => l.split(',')[1])).toEqual(['Option', '"Acme', 'Initech']);
+    expect(sel[0]).not.toContain('Chosen'); // none of these was picked
   });
 });
 

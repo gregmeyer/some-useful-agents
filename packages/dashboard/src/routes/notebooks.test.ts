@@ -865,6 +865,9 @@ describe('notebook photos', () => {
     expect(page.text).toContain('Get photos');
     // The header shows the notebook's picture, as the conversation card does.
     expect(page.text).toContain(`<img class="nb-hero__cover" src="/notebooks/car/entries/${e.id}/photo"`);
+    // Decide… shows it beside the option too; one with no picture keeps the column.
+    expect(page.text).toContain(`<img class="nb-decide__thumb" src="/notebooks/car/entries/${e.id}/photo"`);
+    expect(page.text).toContain('nb-decide__list nb-decide__list--thumbs');
     const bare = store.create({ title: 'Bike' });
     const barePage = await request(app).get(`/notebooks/${bare.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(barePage.text).not.toContain('nb-hero__cover');
@@ -1519,9 +1522,9 @@ describe('download the shortlist', () => {
     const nb = store.setFields(store.create({ title: 'Accounts to call' }).id, [{ key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('shortlist.csv');
-    store.upsertOption(nb.id, { title: 'Low', by: 'agent:x', data: { fit: 40 } });
-    store.upsertOption(nb.id, { title: 'High', by: 'agent:x', data: { fit: 90 } });
-    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/shortlist.csv"`);
+    const low = store.upsertOption(nb.id, { title: 'Low', by: 'agent:x', data: { fit: 40 } }).entry;
+    const high = store.upsertOption(nb.id, { title: 'High', by: 'agent:x', data: { fit: 90 } }).entry;
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/shortlist.csv?rows=running"`);
     const res = await get(`/notebooks/${nb.id}/shortlist.csv`);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/csv');
@@ -1530,6 +1533,22 @@ describe('download the shortlist', () => {
     expect(rows.slice(1).map((r) => r.split(',').slice(0, 2).join(','))).toEqual(['1,High', '2,Low']);
     expect((await get(`/notebooks/${nb.id}/shortlist.csv?all=1`)).headers['content-disposition']).toContain('-all.csv');
     expect((await get('/notebooks/nope/shortlist.csv')).status).toBe(404);
+
+    // Decided: the CSV is the final set unless you ask for more; ids take exactly those.
+    store.decide(nb.id, '', 'you', [low.id]);
+    const page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toMatch(/shortlist\.csv\?rows=chosen" download[^>]*>Chosen <span class="nb-csv__n">1</);
+    expect(page).toContain('"csvHref":"/notebooks/');
+    const chosen = await get(`/notebooks/${nb.id}/shortlist.csv`);
+    expect(chosen.headers['content-disposition']).toContain('-chosen.csv');
+    const crows = chosen.text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(crows[0]).toContain(',Fit,Chosen,');
+    expect(crows.slice(1).map((r) => r.split(',').slice(0, 2).join(','))).toEqual(['1,Low']);
+    const running = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(running.slice(1).map((r) => r.split(',').slice(0, 2).join(','))).toEqual(['1,Low', '2,High']); // chosen first
+    const picked = await get(`/notebooks/${nb.id}/shortlist.csv?rows=all&ids=${high.id}`);
+    expect(picked.headers['content-disposition']).toContain('-selection.csv');
+    expect(picked.text.replace(/^\uFEFF/, '').trimEnd().split('\r\n').slice(1).map((r) => r.split(',')[1])).toEqual(['High']);
   });
 });
 

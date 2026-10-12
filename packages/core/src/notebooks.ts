@@ -1592,6 +1592,11 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const out = options.filter((o) => o.ruledOut && o.stageIndex === i);
     const reasons = new Map<string, number>();
     for (const o of out) { const r = o.ruledOut!.reason.toLowerCase(); reasons.set(r, (reasons.get(r) ?? 0) + 1); }
+    // Chosen is what you picked, whatever the steps before it got to.
+    if (steps.length > 1 && steps[i]?.kind === 'decide') {
+      const picked = options.filter((o) => o.chosen && !o.ruledOut).length;
+      return { stage, reached: picked, here: picked, ruledOut: out.length, reasons: [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([reason, count]) => ({ reason, count })) };
+    }
     return {
       stage,
       reached: options.filter((o) => o.stageIndex >= i).length,
@@ -1989,14 +1994,27 @@ function mergeFactMeta(prev: Record<string, NotebookFactMeta> | undefined, state
   return Object.keys(out).length ? out : undefined;
 }
 
+/** Which options a CSV has: the chosen ones, the ones in the running, or all of them (ruled out too). */
+export type NotebookCsvRows = 'chosen' | 'running' | 'all';
+
 /**
- * The shortlist as a spreadsheet (CSV): best first by `rankBy`, one column
- * per field (numbers raw, ranges "min-max"), then where facts came from, the
- * quote that backs the ranking, the checks done and when it was seen. With
- * `ruledOut`, ruled-out options follow, with why. Excel-safe: a UTF-8 BOM,
+ * The shortlist as a spreadsheet (CSV): best first by `rankBy` (chosen first
+ * once there's a decision), one column per field (numbers raw, ranges
+ * "min-max"), then whether it was chosen, where facts came from, the quote
+ * that backs the ranking, the checks done and when it was seen. `rows` picks
+ * the options; `ids`, when given, keeps just those (the shortlist as you
+ * filtered it). Ruled-out ones come last, with why. Excel-safe: a UTF-8 BOM,
  * CRLF lines, and text that could run as a formula is prefixed with '.
  */
-export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks'>, options: readonly NotebookViewOption[], opts: { ruledOut?: boolean } = {}): string {
+export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, options: readonly NotebookViewOption[], opts: { ruledOut?: boolean; rows?: NotebookCsvRows; ids?: readonly string[] } = {}): string {
+  const rows: NotebookCsvRows = opts.rows ?? (opts.ruledOut ? 'all' : 'running');
+  const keep = opts.ids ? new Set(opts.ids) : undefined;
+  const pool = options.filter((o) => !keep || keep.has(o.id));
+  const withOut = rows === 'all' && pool.some((o) => o.ruledOut);
+  const anyChosen = pool.some((o) => o.chosen && !o.ruledOut);
+  // With steps, the stage is how far it got through them (the funnel's words), not one moved to by hand.
+  const stepLabels = (nb.steps?.length ?? 0) > 1 ? stepFunnelLabels(nb.steps!) : undefined;
+  const decideAt = nb.steps?.findIndex((x) => x.kind === 'decide') ?? -1;
   const cell = (v: unknown): string => {
     if (v === undefined || v === null) return '';
     let s = typeof v === 'number' ? String(v) : String(v);
@@ -2007,26 +2025,31 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks'>, options: re
     v === undefined ? undefined : isRange(v) ? `${String(v.min)}-${String(v.max)}` : v;
   const label = (f: NotebookField) => (f.unit ? `${f.label} (${f.unit})` : f.label);
   const scoreKey = rankBy(nb).field?.key;
-  const head = ['Rank', 'Option', 'Stage', ...nb.fields.map(label), 'Estimates', 'Sources', 'Quote', 'Quote source', 'Quote checked',
-    ...(nb.checks.length ? ['Checks done'] : []), 'First seen', 'Last seen', ...(opts.ruledOut ? ['Ruled out'] : [])];
+  const head = ['Rank', 'Option', 'Stage', ...nb.fields.map(label), ...(anyChosen ? ['Chosen'] : []), 'Estimates', 'Sources', 'Quote', 'Quote source', 'Quote checked',
+    ...(nb.checks.length ? ['Checks done'] : []), 'First seen', 'Last seen', ...(withOut ? ['Ruled out'] : [])];
   const row = (o: NotebookViewOption, rank: number | undefined): string[] => {
     const meta = o.factMeta ?? {};
     const byKey = new Map(nb.fields.map((f) => [f.key, f.label]));
     const qKey = [scoreKey, ...nb.fields.map((f) => f.key)].find((k) => k && meta[k]?.quote);
     const q = qKey ? meta[qKey] : undefined;
     return [
-      rank === undefined ? '' : String(rank), o.title, o.stage ?? '',
+      // A pick reads as chosen, as the funnel counts it, whatever the steps before it got to.
+      rank === undefined ? '' : String(rank), o.title, (stepLabels ? (o.chosen && !o.ruledOut && decideAt >= 0 ? stepLabels[decideAt] : stepLabels[o.stageIndex]) : o.stage) ?? '',
       ...nb.fields.map((f) => value(o.fields[f.key])),
+      ...(anyChosen ? [o.chosen && !o.ruledOut ? 'yes' : ''] : []),
       Object.entries(meta).filter(([, m]) => m.estimate).map(([k]) => byKey.get(k) ?? k).join('; '),
       Object.entries(meta).filter(([, m]) => m.source).map(([k, m]) => `${byKey.get(k) ?? k}: ${m.source ?? ''}`).join('; '),
       q?.quote ?? '', q?.source ?? '', q ? (q.checked ? 'yes' : 'no') : '',
       ...(nb.checks.length ? [`${String(nb.checks.filter((c) => o.checked.includes(c)).length)} of ${String(nb.checks.length)}`] : []),
       o.firstSeenAt.slice(0, 10), o.lastSeenAt.slice(0, 10),
-      ...(opts.ruledOut ? [o.ruledOut?.reason ?? ''] : []),
+      ...(withOut ? [o.ruledOut?.reason ?? ''] : []),
     ].map(cell);
   };
-  const ranked = rankOptions(nb, options);
-  const lines = [head.map(cell), ...ranked.map((o, i) => row(o, i + 1)), ...(opts.ruledOut ? options.filter((o) => o.ruledOut).map((o) => row(o, undefined)) : [])];
+  // Best first, chosen ahead of the rest (a stable sort keeps the ranking within each).
+  const ranked = rankOptions(nb, pool).map((o, i) => [o, i] as const)
+    .sort((a, b) => Number(!!b[0].chosen) - Number(!!a[0].chosen) || a[1] - b[1]).map(([o]) => o)
+    .filter((o) => rows !== 'chosen' || o.chosen);
+  const lines = [head.map(cell), ...ranked.map((o, i) => row(o, i + 1)), ...(withOut ? pool.filter((o) => o.ruledOut).map((o) => row(o, undefined)) : [])];
   return `﻿${lines.map((l) => l.join(',')).join('\r\n')}\r\n`;
 }
 
