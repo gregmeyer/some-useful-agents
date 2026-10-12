@@ -1569,7 +1569,8 @@ export function isListPage(url: string): boolean {
   const path = u.pathname.toLowerCase();
   if (/(^|\/)(search|results|s|browse|find)(\/|$)/.test(path)) return true;
   if ([...u.searchParams.keys()].some((k) => SEARCH_KEYS.test(k)) && !/\d{4,}/.test(path)) return true;
-  if (host.endsWith('cargurus.com') && /^\/cars\/l-/.test(path)) return true;
+  // CarGurus list pages: /Cars/l-Used-… (by place) and /Cars/s-Used-… (by price or style).
+  if (host.endsWith('cargurus.com') && /^\/cars\/[ls]-/.test(path)) return true;
   if (host.endsWith('edmunds.com') && /^\/used-[a-z0-9-]+$/.test(path.replace(/\/$/, '')) && !/vin/.test(path)) return true;
   if (host.endsWith('craigslist.org') && /\/search\//.test(path)) return true;
   return false;

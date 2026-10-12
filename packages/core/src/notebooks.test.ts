@@ -890,7 +890,7 @@ describe('the same address is the same option', () => {
 
 describe("an option's own page, not a search page", () => {
   it('tells search and results pages from an item\'s own page', () => {
-    for (const u of ['https://www.cargurus.com/Cars/l-Used-2009-Subaru-Forester-Bellingham-c16785_L37799', 'https://www.edmunds.com/used-2011-subaru-forester-seattle-wa/',
+    for (const u of ['https://www.cargurus.com/Cars/l-Used-2009-Subaru-Forester-Bellingham-c16785_L37799', 'https://www.cargurus.com/Cars/s-Used-Subaru-Forester-Under-10000-Bay-Center-d374_spt377_L37941', 'https://www.edmunds.com/used-2011-subaru-forester-seattle-wa/',
       'https://seattle.craigslist.org/search/cta?query=forester', 'https://example.com/search?q=cabinet', 'https://shop.example/s?k=24+inch+cabinet', 'https://cars.example/results?zip=98101']) expect([u, isListPage(u)]).toEqual([u, true]);
     for (const u of ['https://www.cargurus.com/details/412345678', 'https://www.edmunds.com/subaru/forester/2011/vin/JF2SHADC1BH712345/', 'https://seattle.craigslist.org/see/cto/d/everett-2008-forester/7781234567.html',
       'https://www.autotrader.com/cars-for-sale/vehicle/700000001', 'https://jobs.lever.co/pigment/c0d1156b', 'https://www.lowes.com/pd/bearsolim-24-in/5014223?zip=98101']) expect([u, isListPage(u)]).toEqual([u, false]);
