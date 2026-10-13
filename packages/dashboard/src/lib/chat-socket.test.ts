@@ -330,3 +330,38 @@ describe('an agent conversation continued from the sua panel', () => {
     ws.close();
   });
 });
+
+describe('a conversation opened while its reply is being written', () => {
+  let release: () => void = () => {};
+  const slowModel: SpawnNodeFn = async (_node, _env, _opts, onProgress) => {
+    onProgress?.({ timestamp: new Date().toISOString(), type: 'output_delta', message: 'Thinking it over… ' });
+    await new Promise<void>((r) => { release = r; });
+    return { result: 'Done.', exitCode: 0 };
+  };
+
+  it('shows it working in the thread and the list, then settles', async () => {
+    await start(slowModel);
+    const { ws, next } = await connect(goodHeaders());
+    ws.send(JSON.stringify({ type: 'chat.send', ref: 'a', agentId: 'weather', text: 'take your time' }));
+    const started = await next((f) => f.type === 'chat.started');
+    const sid = String(started.sessionId);
+    await next((f) => f.event === 'token');
+    const get = (p: string) => request(server!).get(p).set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+
+    let frag = (await get(`/inbox/${sid}/fragment`)).text;
+    expect(frag).toContain(`data-agent-run="${String(started.runId)}"`);
+    expect(frag).toContain('Working…');
+    expect(frag).toContain('data-agent-live-text');
+    expect(frag).toContain('placeholder="weather is replying…"');
+    expect(frag).toMatch(/<textarea[^>]*\sdisabled/);
+    expect((await get('/panel/list?tab=conversations')).text).toContain('weather is replying…');
+
+    release();
+    await next((f) => f.event === 'turn-end');
+    frag = (await get(`/inbox/${sid}/fragment`)).text;
+    expect(frag).not.toContain('data-agent-run=');
+    expect(frag).toContain('placeholder="Reply to weather…"');
+    expect((await get('/panel/list?tab=conversations')).text).not.toContain('is replying…');
+    ws.close();
+  });
+});

@@ -70,6 +70,10 @@
   color: var(--color-info, #60a5fa);
 }
 .inbox-msg[data-pending] .inbox-msg__writing { color: var(--color-text-subtle); }
+/* A pulsing dot so "Working…" reads as live, not a finished message. */
+.inbox-msg__writing::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: middle; animation: inbox-working-pulse 1.4s ease-in-out infinite; }
+@keyframes inbox-working-pulse { 0%, 100% { opacity: .25; transform: scale(.75); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .inbox-msg__writing::before { animation: none; } }
 .inbox-msg__text {
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -2518,6 +2522,10 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 .panel-row__dot--approve { background: var(--color-warn); }
 .panel-row__dot--answer { background: var(--color-info); }
 .panel-row__dot--fail { background: var(--color-err); }
+/* Being answered right now (lib/conversation-working.ts). */
+.panel-row__dot--working { background: var(--color-primary); animation: inbox-working-pulse 1.4s ease-in-out infinite; }
+.panel-row__working { color: var(--color-primary); font-style: italic; }
+@media (prefers-reduced-motion: reduce) { .panel-row__dot--working { animation: none; } }
 .panel-row__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-sm); }
 .panel-row__title.is-strong { font-weight: 600; }
 .panel-row__age { font-size: var(--font-size-xs); color: var(--color-text-subtle); }

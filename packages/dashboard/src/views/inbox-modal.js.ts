@@ -287,6 +287,9 @@ export const INBOX_MODAL_JS = `
   function agentBubble() {
     var li = content.querySelector('[data-agent-stream-bubble]');
     if (li) return li;
+    // The server drew a "Working…" bubble for a turn already going (inbox-detail.ts): fill that.
+    var drawn = content.querySelector('[data-agent-live-text]');
+    if (drawn) return drawn.closest('.inbox-msg') || drawn.parentNode;
     var ul = timelineList();
     if (!ul) return null;
     li = window.suaThread.entry({
@@ -341,10 +344,23 @@ export const INBOX_MODAL_JS = `
       refresh();
     }
   }
+  // A turn already going when the thread opened: replay its events so far (since -1),
+  // ignoring earlier turns' events still in the channel's buffer.
+  var agentReplayRun = '';
   function watchAgentConversation(id) {
     if (!window.suaSocket || (agentWatch && agentWatch.id === id)) return;
     unwatchAgentConversation();
-    agentWatch = { id: id, off: window.suaSocket.subscribe('session:' + id, onAgentEvent) };
+    var mark = content.querySelector('[data-agent-conversation]');
+    agentReplayRun = (mark && mark.getAttribute('data-agent-run')) || '';
+    var handler = function (type, data) {
+      if (agentReplayRun) {
+        if (!data || data.runId !== agentReplayRun) return; // an earlier turn, replayed from the buffer
+        if (type === 'turn-end') agentReplayRun = '';
+      }
+      onAgentEvent(type, data);
+    };
+    agentWatch = { id: id, off: window.suaSocket.subscribe('session:' + id, handler, agentReplayRun ? { since: -1 } : undefined) };
+    if (agentReplayRun && !agentLive) agentLive = { raw: '', widgets: {}, runId: agentReplayRun };
   }
   function unwatchAgentConversation() {
     if (agentWatch) { try { agentWatch.off(); } catch (_) { /* noop */ } agentWatch = null; }

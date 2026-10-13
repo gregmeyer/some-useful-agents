@@ -69,7 +69,8 @@ const SUA_COMPONENTS = [
       rows: CS.DynamicValue,
       columns: z.array(z.object({
         key: z.string().min(1).max(64),
-        label: z.string().min(1).max(80),
+        // Empty is fine: the first column of a comparison is often the row headings.
+        label: z.string().max(80),
         format: z.enum(['text', 'link']).optional(),
         /** For a link column: the row field whose value is the link's text (e.g. "name"). */
         linkText: z.string().min(1).max(64).optional(),

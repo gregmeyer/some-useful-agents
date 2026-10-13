@@ -156,14 +156,14 @@ function groupOf(row: PanelRow, tab: PanelList['tab'], now: number): string {
 /** Rows, grouped under headings when `groupBy` is given (the first page); "Show more" appends bare rows. */
 export function renderPanelRows(rows: PanelRow[], wide = false, groupBy?: PanelList['tab']): SafeHtml {
   const now = Date.now();
-  const row = ({ message: m, latest, kind }: PanelRow) => html`
+  const row = ({ message: m, latest, kind, working }: PanelRow) => html`
     <li class="panel-row ${wide ? 'panel-row--wide' : ''}">
       ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${m.id}" aria-label="Select “${m.title}”">` : html``}
       <button type="button" class="panel-row__main" data-panel-thread-id="${m.id}">
-        <span class="panel-row__dot ${kind ? `panel-row__dot--${kind}` : ''}" aria-hidden="true"></span>
+        <span class="panel-row__dot ${working ? 'panel-row__dot--working' : kind ? `panel-row__dot--${kind}` : ''}" aria-hidden="true"></span>
         <span class="panel-row__title ${kind ? 'is-strong' : ''}">${m.title}</span>
         <span class="panel-row__age">${formatAge(new Date(m.lastActivityAt ?? m.createdAt).toISOString())}</span>
-        <span class="panel-row__latest">${latest ? html`${latest.who === 'you' ? 'You: ' : latest.who === 'sua' ? 'sua: ' : ''}${latest.text}` : html`${m.agentId ?? ''}`}</span>
+        <span class="panel-row__latest">${working ? html`<span class="panel-row__working">${working}</span>` : latest ? html`${latest.who === 'you' ? 'You: ' : latest.who === 'sua' ? 'sua: ' : ''}${latest.text}` : html`${m.agentId ?? ''}`}</span>
         <span class="panel-row__tag ${kind ? `panel-row__tag--${kind}` : ''}">${kind ? KIND_TAG[kind] : ''}</span>
       </button>
       ${wide
