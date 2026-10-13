@@ -215,6 +215,10 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+### A brief to share
+
+**Open the brief** (under **Download / share**) shows the notebook as one polished page to send: the goal, where it stands, the decision or the shortlist (each option's key facts, its own page, its checks), the limits and the done-whens. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and **Download the brief** saves it as one HTML file. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it).
+
 ### Each option's own page
 
 A list is most useful when each option links to its own page: the listing, the job posting, the product page, not a search page that lists many. Agents are asked for that (a find step's job says so, and sua's keeper leaves out a results page rather than file it as the link). When a link is a search page anyway, because several options share it or it's shaped like one (`/search`, `?q=`, CarGurus `/Cars/l-…`, Edmunds `/used-2011-…-seattle-wa`, Craigslist `/search/`), its button reads **Search page ↗** instead of the listing, it never counts as two options being the same, and **Where it stands** says how many lack their own page once most do. To find them, add a source step that looks up the link field ("Find each car's own listing", with the link field's key as its fact); a search-page link counts as missing until it's replaced.
@@ -278,9 +282,9 @@ An agent "fills" a notebook when it's in the notebook's searches or has filed in
 
 ## Download the shortlist
 
-**Download CSV** in a notebook's header saves options as a spreadsheet and asks which ones: **Chosen** (once you've decided), **In the running**, or **Everything, with ruled out** (ruled-out ones last, with why). Best first (by fit when the notebook has a fit score, else by price), chosen ones ahead of the rest. To pick rows yourself, filter the shortlist (its chips, **Only chosen**, **Show ruled out**) and use **CSV of these N** in its bar: you get exactly the options it shows.
+**Download / share** in a notebook's header saves options as a spreadsheet and asks which ones: **Chosen** (once you've decided), **In the running**, or **Everything, with ruled out** (ruled-out ones last, with why). Best first (by fit when the notebook has a fit score, else by price), chosen ones ahead of the rest. To pick rows yourself, filter the shortlist (its chips, **Only chosen**, **Show ruled out**) and use **CSV of these N** in its bar: you get exactly the options it shows.
 
-Each row has one column per fact (numbers as plain numbers, ranges as `min-max`), **Chosen** (once any are), then which facts are estimates, where facts came from, the quote that backs the ranking and whether it was checked, how many of the notebook's checks are done, and when each option was first and last seen. **Stage** is how far it got: with steps, the funnel's words (Found, Facts sourced, Checked, Chosen). It opens cleanly in Excel, Numbers and Google Sheets. Text that a spreadsheet would run as a formula is prefixed with `'`. By address: `shortlist.csv?rows=chosen|running|all`, and `&ids=a,b` for exact options; a plain `shortlist.csv` is the chosen ones once you've decided, else the ones in the running.
+Each row has one column per fact (numbers as plain numbers, ranges as `min-max`), **Chosen** (once any are), then which facts are estimates, where facts came from, the quote that backs the ranking and whether it was checked, how many of the notebook's checks are done, and when each option was first and last seen. **Stage** is how far it got: with steps, the funnel's words (Found, Facts sourced, Checked, Chosen). It opens cleanly in Excel, Numbers and Google Sheets. Text that a spreadsheet would run as a formula is prefixed with `'`. With a link field, **Own page** has each option's own listing (only when it has one) and **Found on** the search page when that's all it has. By address: `shortlist.csv?rows=chosen|running|all`, and `&ids=a,b` for exact options; a plain `shortlist.csv` is the chosen ones once you've decided, else the ones in the running.
 
 ## Filing directly (for agent authors)
 

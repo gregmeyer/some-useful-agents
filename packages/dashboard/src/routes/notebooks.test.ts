@@ -1728,6 +1728,47 @@ describe('a run that files its own structured block', () => {
   });
 });
 
+describe('a brief to share', () => {
+  it('is one self-contained page: the goal, where it stands, the options with facts, own page and checks; the CSV says own page vs search page', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Car for Nadia', statement: 'A reliable used car for a new driver', params: ['under $6,000'], criteria: ['A decision recorded'] });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure', unit: 'mi' }, { key: 'listing_url', label: 'Listing URL', type: 'url', role: 'link' }]);
+    store.setChecks(nb.id, ['Clean title', 'Accident history']);
+    const a = store.upsertOption(nb.id, { title: '2010 Subaru Forester <b>', by: 'x', fingerprint: 'a', data: { price: 4999, miles: 164988, listing_url: 'https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6' } }).entry;
+    store.upsertOption(nb.id, { title: '2009 Forester', by: 'x', fingerprint: 'b', data: { price: 4700, listing_url: 'https://www.cargurus.com/Cars/l-Used-Subaru-Forester-c1' } });
+    store.checkOption(nb.id, a.id, 'Clean title', true);
+    const res = await get(`/notebooks/${nb.id}/brief.html`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    const t = res.text;
+    expect(t.startsWith('<!doctype html>')).toBe(true);
+    expect(t).toContain('<title>Car for Nadia</title>');
+    expect(t).toContain('A reliable used car for a new driver');
+    expect(t).toContain('<strong>2 in the running</strong>');
+    expect(t).toContain('2010 Subaru Forester &lt;b&gt;'); // escaped
+    expect(t).toContain('<dd>$4,999</dd>');
+    expect(t).toContain('<dd>164,988 mi</dd>');
+    expect(t).toContain('href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">Own page ↗</a>');
+    expect(t).toContain('Found on a search page');
+    expect(t).toContain('1/2 checks');
+    expect(t).toContain('<span class="chip">under $6,000</span>');
+    expect(t).not.toMatch(/<script/);
+    expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
+    const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
+    expect(csv[0]).toMatch(/^Rank,Option,Stage,Own page,Found on,Price,Miles \(mi\),Listing URL,/);
+    expect(csv.find((l) => l.includes('2010 Subaru'))).toContain(',https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6,,');
+    expect(csv.find((l) => l.includes('2009 Forester'))).toContain(',,https://www.cargurus.com/Cars/l-Used-Subaru-Forester-c1,');
+    const { renderNotebookBrief } = await import('../views/notebook-brief.js');
+    const frag = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id) , fragment: true });
+    expect(frag.startsWith('<title>')).toBe(true);
+    expect(frag).not.toContain('<html');
+  });
+});
+
 describe('download the shortlist', () => {
   it('sends a CSV attachment best first, and the header links to it once there are options', async () => {
     const app = await makeApp();
