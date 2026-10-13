@@ -49,7 +49,7 @@
 }
 
 .pulse-container__label {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -204,7 +204,7 @@
 }
 
 .pulse-tile__title {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -791,7 +791,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border-bottom: 1px solid var(--color-border);
 }
 .pulse-configure-modal__header h3 {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-lg);
   font-weight: var(--weight-bold);
 }
@@ -820,7 +820,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
   margin-bottom: var(--space-2);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
 }
 .pulse-configure-modal__footer {
   display: flex;
@@ -1055,7 +1055,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   border-bottom: 1px solid var(--color-border);
 }
 .add-tile-modal__header h3 {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-lg);
   font-weight: var(--weight-bold);
 }
@@ -1083,7 +1083,7 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   margin: var(--space-3) 0 var(--space-2);
 }
 .add-tile-grid {

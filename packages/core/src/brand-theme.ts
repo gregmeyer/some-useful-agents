@@ -45,7 +45,8 @@ export const brandThemeSchema = z.object({
   preset: z.enum(BRAND_PRESETS).default('default'),
   dark: colors.default({}),
   light: colors.default({}),
-  fonts: z.object({ sans: font.optional(), mono: font.optional() }).strict().default({}),
+  // display: headings, titles and labels (sua's default is its code font).
+  fonts: z.object({ sans: font.optional(), mono: font.optional(), display: font.optional() }).strict().default({}),
   radius: z.object({ sm: px.optional(), md: px.optional(), lg: px.optional() }).strict().default({}),
   accents: z.object(Object.fromEntries(BRAND_ACCENTS.map((a) => [a, color.optional()]))).strict().default({}),
 }).strict();
@@ -59,7 +60,7 @@ export const DEFAULT_ACCENTS: Record<typeof BRAND_ACCENTS[number], string> = {
 };
 
 type Tokens = Partial<Record<BrandColorToken, string>>;
-interface PresetDef { dark: Tokens; light: Tokens; fonts?: { sans?: string }; radius?: { sm?: number; md?: number; lg?: number } }
+interface PresetDef { dark: Tokens; light: Tokens; fonts?: { sans?: string; display?: string }; radius?: { sm?: number; md?: number; lg?: number } }
 
 /** The presets (formerly the per-browser "widget themes"). Default changes nothing. */
 export const BRAND_PRESET_DEFS: Record<BrandPreset, PresetDef> = {
@@ -98,7 +99,7 @@ export const BRAND_PRESET_DEFS: Record<BrandPreset, PresetDef> = {
       err: '#a23b28', 'err-soft': 'rgba(162, 59, 40, 0.12)', info: '#40607a', 'info-soft': 'rgba(64, 96, 122, 0.12)',
     },
     light: {},
-    fonts: { sans: '"Charter", "Iowan Old Style", Georgia, "Times New Roman", serif' },
+    fonts: { sans: '"Charter", "Iowan Old Style", Georgia, "Times New Roman", serif', display: '"Charter", "Iowan Old Style", Georgia, serif' },
     radius: { sm: 8, md: 12, lg: 16 },
   },
 };
@@ -126,7 +127,7 @@ export function brandThemeCss(theme: BrandTheme): string {
   const decl = (vars: Array<[string, string | undefined]>) => vars.filter(([, v]) => v !== undefined).map(([k, v]) => `  ${k}: ${v};`).join('\n');
   const colorVars = (t: Tokens) => BRAND_COLOR_TOKENS.map((k) => [`--color-${k}`, t[k]] as [string, string | undefined]);
   const shared: Array<[string, string | undefined]> = [
-    ['--font-sans', r.fonts.sans], ['--font-mono', r.fonts.mono],
+    ['--font-sans', r.fonts.sans], ['--font-mono', r.fonts.mono], ['--font-display', r.fonts.display],
     ['--radius-sm', r.radius.sm !== undefined ? `${r.radius.sm}px` : undefined],
     ['--radius-md', r.radius.md !== undefined ? `${r.radius.md}px` : undefined],
     ['--radius-lg', r.radius.lg !== undefined ? `${r.radius.lg}px` : undefined],

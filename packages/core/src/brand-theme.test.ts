@@ -106,3 +106,14 @@ describe('brand contrast', () => {
     expect(brandThemeSchema.safeParse({ version: 1, fonts: { sans: 'Inter\\' } }).success).toBe(false);
   });
 });
+
+describe('a brand heading font', () => {
+  it('sets --font-display when a brand gives one, and the editorial preset has its own', async () => {
+    const { brandThemeCss, brandThemeSchema } = await import('./brand-theme.js');
+    const t = brandThemeSchema.parse({ version: 1, preset: 'default', fonts: { sans: 'system-ui, sans-serif', display: '"SF Pro Display", system-ui, sans-serif' } });
+    expect(brandThemeCss(t)).toContain('--font-display: "SF Pro Display", system-ui, sans-serif;');
+    expect(brandThemeCss(brandThemeSchema.parse({ version: 1, preset: 'default' }))).not.toContain('--font-display');
+    expect(brandThemeCss(brandThemeSchema.parse({ version: 1, preset: 'editorial' }))).toContain('--font-display: "Charter"');
+  });
+});
+
