@@ -271,7 +271,88 @@ export const INBOX_MODAL_JS = `
     return '/inbox/' + encodeURIComponent(id);
   }
 
+  // ── An agent's conversation, live (its Chat tab's turn, shown here) ──
+  // The thread fragment marks an agent's conversation; the panel then also
+  // follows the agent's session channel (lib/chat-turn.ts events): the reply
+  // streams into a bubble and its widgets build up as they're written, then
+  // the turn's end refreshes from source. A refresh mid-turn redraws the bubble.
+  var agentWatch = null; // { id, off }
+  var agentLive = null;  // { raw, widgets: {index: messages}, runId } while a turn streams
+  function agentVisibleText(raw) {
+    var t = raw.replace(/<a2ui>[\\s\\S]*?<\\/a2ui>/gi, '');
+    var open = t.lastIndexOf('<a2ui>');
+    if (open >= 0) t = t.slice(0, open);
+    return t.replace(/<a2?u?i?$/i, '');
+  }
+  function agentBubble() {
+    var li = content.querySelector('[data-agent-stream-bubble]');
+    if (li) return li;
+    var ul = timelineList();
+    if (!ul) return null;
+    li = window.suaThread.entry({
+      role: 'agent', sigil: 'agent', label: (content.querySelector('[data-agent-conversation]') || { getAttribute: function () { return 'Agent'; } }).getAttribute('data-agent-conversation') || 'Agent', writing: 'Working…', classes: 'inbox-msg--new',
+      attrs: { 'data-agent-stream-bubble': '1' },
+      html: '<div class="agent-chat__live-text" data-agent-live-text></div><div class="agent-chat__live-widgets" data-agent-live-widgets></div>',
+    });
+    ul.appendChild(li);
+    return li;
+  }
+  function drawAgentLive() {
+    if (!agentLive) return;
+    var li = agentBubble();
+    if (!li) return;
+    var text = li.querySelector('[data-agent-live-text]');
+    if (text) text.textContent = agentVisibleText(agentLive.raw);
+    var slot = li.querySelector('[data-agent-live-widgets]');
+    if (!slot) return;
+    Object.keys(agentLive.widgets).forEach(function (index) {
+      var json = JSON.stringify(agentLive.widgets[index]);
+      var old = slot.querySelector('[data-live-widget="' + index + '"]');
+      if (old && old.getAttribute('data-json-len') === String(json.length)) return; // unchanged
+      var el = document.createElement('div');
+      el.className = 'a2ui-host';
+      el.setAttribute('data-a2ui-surface', '');
+      el.setAttribute('data-surface-id', 'panel-live-' + agentLive.runId + '-' + index);
+      el.setAttribute('data-live-widget', index);
+      el.setAttribute('data-json-len', String(json.length));
+      var script = document.createElement('script');
+      script.type = 'application/json';
+      script.textContent = json;
+      el.appendChild(script);
+      if (old) old.replaceWith(el); else slot.appendChild(el);
+    });
+    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
+    if (nearBottom) content.scrollTop = content.scrollHeight;
+  }
+  function onAgentEvent(type, data) {
+    if (type === 'turn-start') {
+      agentLive = { raw: '', widgets: {}, runId: (data && data.runId) || '' };
+      drawAgentLive();
+    } else if (type === 'token' && data) {
+      if (!agentLive) agentLive = { raw: '', widgets: {}, runId: data.runId || '' };
+      agentLive.raw += data.text || '';
+      drawAgentLive();
+    } else if (type === 'widget' && data && data.messages) {
+      if (!agentLive) agentLive = { raw: '', widgets: {}, runId: data.runId || '' };
+      agentLive.widgets[data.index] = data.messages;
+      drawAgentLive();
+    } else if (type === 'turn-end') {
+      agentLive = null;
+      refresh();
+    }
+  }
+  function watchAgentConversation(id) {
+    if (!window.suaSocket || (agentWatch && agentWatch.id === id)) return;
+    unwatchAgentConversation();
+    agentWatch = { id: id, off: window.suaSocket.subscribe('session:' + id, onAgentEvent) };
+  }
+  function unwatchAgentConversation() {
+    if (agentWatch) { try { agentWatch.off(); } catch (_) { /* noop */ } agentWatch = null; }
+    agentLive = null;
+  }
+
   function closeEventSource() {
+    unwatchAgentConversation();
     if (eventSource) {
       try { eventSource.close(); } catch (_) { /* noop */ }
       eventSource = null;
@@ -688,6 +769,8 @@ export const INBOX_MODAL_JS = `
           if (openKeys[detailsKey(nowDetails[ni])]) nowDetails[ni].setAttribute('open', '');
         }
         applyAnimations();
+        // An agent's conversation: follow its live turns, and keep a reply that's streaming on screen.
+        if (content.querySelector('[data-agent-conversation]')) { watchAgentConversation(id); if (agentLive) drawAgentLive(); }
         if (wasNearBottom) {
           scrollToBottom();
         } else {

@@ -305,3 +305,28 @@ describe('chat WebSocket, widgets inside a reply', () => {
     ws.close();
   });
 });
+
+describe('an agent conversation continued from the sua panel', () => {
+  it('sends the reply to the agent (not sua), streams on its channel, and marks the thread for the panel', async () => {
+    await start(deltaModel);
+    const { ws, next, frames } = await connect(goodHeaders());
+    ws.send(JSON.stringify({ type: 'chat.send', ref: 'a', agentId: 'weather', text: 'hi' }));
+    const started = await next((f) => f.type === 'chat.started');
+    await next((f) => f.event === 'turn-end');
+    const sid = String(started.sessionId);
+    const runsBefore = runStore.listRuns({ agentName: 'weather', limit: 10 }).length;
+
+    // The panel replies through inbox.send, like any thread.
+    ws.send(JSON.stringify({ type: 'inbox.send', ref: 'p', threadId: sid, text: 'and tomorrow?' }));
+    expect(await next((f) => f.ref === 'p')).toMatchObject({ type: 'inbox.sent', threadId: sid });
+    await next((f) => f.event === 'turn-end' && (f.data as { runId: string }).runId !== started.runId);
+    expect(runStore.listRuns({ agentName: 'weather', limit: 10 }).length).toBe(runsBefore + 1);
+    expect(frames.filter((f) => f.event === 'token').length).toBeGreaterThan(3); // the second turn streamed too
+    expect(inboxStore.listResponses(sid).some((r) => r.role === 'triage')).toBe(false); // sua stayed out of it
+    expect(inboxStore.listResponses(sid).filter((r) => r.role === 'user').map((r) => r.body)).toEqual(['hi', 'and tomorrow?']);
+
+    const frag = await request(server!).get(`/inbox/${sid}/fragment`).set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain('data-agent-conversation="weather"');
+    ws.close();
+  });
+});

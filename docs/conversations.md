@@ -95,3 +95,5 @@ They aren't listed in the inbox yet; the inbox split view will show them alongsi
 Upgrading from 0.29 or earlier copies existing conversations over the first time sua opens the database, keeping their ids (so `--session <id>` still works). The old tables stay as `sessions_legacy` and `session_turns_legacy`.
 
 Design notes: [ADR-0039](adr/0039-conversations-by-transcript.md), [ADR-0048](adr/0048-conversations-in-the-inbox-store.md).
+
+**An agent's conversation in the panel.** Opened in the sua panel (⌘K) or on Home, an agent's conversation stays the agent's: what you type goes to the agent (the box says "Reply to <agent>…"), its reply streams in with any widgets building up, and its replies are labelled with the agent. sua doesn't answer in it.
