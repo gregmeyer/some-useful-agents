@@ -19,6 +19,32 @@ export const AGENT_CHAT_JS = `
   var base = '/agents/' + encodeURIComponent(agentId) + '/chat';
   var subscribed = '';
   var startedHere = false; // a conversation created on this page (sidebar + title need a full render)
+  var liveRaw = ''; // the reply's text so far, widget blocks included
+
+  // The reply's words without its widget blocks (closed ones, and one still being written).
+  function visibleText(raw) {
+    var t = raw.replace(/<a2ui>[\\s\\S]*?<\\/a2ui>/gi, '');
+    var open = t.lastIndexOf('<a2ui>');
+    if (open >= 0) t = t.slice(0, open);
+    return t.replace(/<a2?u?i?$/i, '');
+  }
+  // Draw (or redraw) the reply's index-th widget from its A2UI messages.
+  function drawWidget(index, messages) {
+    var slot = host.querySelector('[data-chat-live-widgets]');
+    if (!slot) return;
+    var id = 'chat-live-' + runId + '-' + index;
+    var el = document.createElement('div');
+    el.className = 'a2ui-host';
+    el.setAttribute('data-a2ui-surface', '');
+    el.setAttribute('data-surface-id', id);
+    el.setAttribute('data-live-widget', String(index));
+    var script = document.createElement('script');
+    script.type = 'application/json';
+    script.textContent = JSON.stringify(messages);
+    el.appendChild(script);
+    var old = slot.querySelector('[data-live-widget="' + index + '"]');
+    if (old) old.replaceWith(el); else slot.appendChild(el);
+  }
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   function setBusy(busy) {
@@ -47,7 +73,11 @@ export const AGENT_CHAT_JS = `
     if (runId && data && data.runId && data.runId !== runId) return; // an earlier turn's replay
     var slots = liveSlots();
     if (type === 'token' && slots.text) {
-      slots.text.textContent += data.text;
+      liveRaw += data.text;
+      slots.text.textContent = visibleText(liveRaw);
+      scrollEnd();
+    } else if (type === 'widget' && data && data.messages) {
+      drawWidget(data.index, data.messages);
       scrollEnd();
     } else if (type === 'tool' && slots.tools) {
       if (data.status === 'call') {
@@ -84,13 +114,14 @@ export const AGENT_CHAT_JS = `
   // events. Used by the composer and by widget clicks (A2UI actions).
   function startTurn(frame, displayText) {
     setBusy(true);
+    liveRaw = '';
     var list = host.querySelector('.agent-chat__transcript');
     if (!list) { host.innerHTML = ''; list = window.suaThread.list(host, 'agent-chat__transcript'); }
     // The shared thread rows (thread.js.ts): your message, then the reply as it streams.
     list.appendChild(window.suaThread.entry({ role: 'user', sigil: 'you', label: 'You', text: displayText }));
     list.appendChild(window.suaThread.entry({
       role: 'agent', sigil: 'agent', label: 'Agent', writing: 'Working…',
-      html: '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div>',
+      html: '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div><div class="agent-chat__live-widgets" data-chat-live-widgets></div>',
     }));
     scrollEnd();
     // The server subscribes this connection to the conversation before the

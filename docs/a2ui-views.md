@@ -128,6 +128,8 @@ On the agent's **Chat** tab, each reply whose run produced a valid view shows th
 - { id: choiceLabel, component: Text, text: { path: label } }
 ```
 
+**Widgets inside any reply.** On the dashboard's Chat tab, every agent (with or without a `view:`) is told it may add a widget to its reply when that helps: several numbers, a comparison, a list of items with the same fields, choices to pick from. It writes `<a2ui>{"components": [...], "data": {...}}</a2ui>` between its words, binding values under `/data`. While the reply streams, the widget is drawn as each component is complete (parts not written yet show as "…"), then once more with its data when the block closes; the saved reply draws it in place of the block. Each component is checked like any view; one that doesn't check out shows as a short note while the rest of the widget is drawn, and a block that can't be read at all says so with its source one click away. The history the agent sees next turn says "(a widget)" instead of the JSON. The CLI and MCP don't draw widgets, so agents aren't told about them there. Streaming needs a provider that streams (Claude); others send the reply in one piece.
+
 Outside chat (Pulse tiles, dashboards, the run page, inbox threads), a Button whose action is named `run-agent` runs an agent instead: its context is `{ agent: <id>, in_<INPUT>: <value>, … }` (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
 
 The click travels over the chat WebSocket like a typed message (see [conversations.md](conversations.md)), so the reply streams the same way.

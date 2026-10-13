@@ -1676,6 +1676,8 @@
    catalog's --a2ui-* variables mapped onto sua tokens. */
 .a2ui-host {
   margin-top: var(--space-2);
+  /* A widget inside a pre-wrap message body (chat) would show its templates' whitespace as blank lines. */
+  white-space: normal;
   --a2ui-color-primary: var(--color-primary);
   --a2ui-color-primary-hover: var(--color-primary-hover);
   --a2ui-color-primary-light: var(--color-primary-soft);

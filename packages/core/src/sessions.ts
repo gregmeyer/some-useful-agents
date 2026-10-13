@@ -13,6 +13,7 @@
  * declared, otherwise the agent's only required string input (or only string
  * input). An agent with no such input isn't conversational, and says why.
  */
+import { stripInlineWidgets } from './a2ui/inline.js';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
@@ -316,7 +317,8 @@ export function formatConversationBlock(turns: readonly SessionTurn[]): string {
   const footer = 'END OF CONVERSATION SO FAR';
   const { lines, dropped } = budgetTranscript(
     turns.map((t) => {
-      const text = t.role === 'agent' && t.failed ? `(no reply: that run failed — ${t.text.trim().slice(0, 200)})` : t.text.trim();
+      // A widget block in a reply is noise in the history: say there was one.
+      const text = t.role === 'agent' && t.failed ? `(no reply: that run failed — ${t.text.trim().slice(0, 200)})` : stripInlineWidgets(t.text).trim();
       return `${t.role === 'user' ? 'User' : 'You'}: ${text}`;
     }),
     {
