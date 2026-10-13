@@ -560,6 +560,7 @@ export {
   type ViewValidation,
   type ResolvedView,
 } from './a2ui/view.js';
+export { starterView, humanizeName, type StarterViewArgs } from './a2ui/starter.js';
 export {
   BOARD_COLUMNS,
   BOARD_ROW_PX,

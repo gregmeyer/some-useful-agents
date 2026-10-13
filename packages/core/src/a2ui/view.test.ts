@@ -163,3 +163,14 @@ describe('output series', () => {
     expect(outputSeries(many).n.at(-1)).toBe(VIEW_SERIES_MAX + 4);
   });
 });
+
+describe('outputs from a step that printed JSON', () => {
+  it('unpacks a lone JSON result into fields, keeping /outputs/result', async () => {
+    const { runOutputs } = await import('./view.js');
+    const run = { result: '' } as Run;
+    const exec = (outputsJson: string) => [{ status: 'completed', outputsJson } as NodeExecutionRecord];
+    expect(runOutputs(run, exec('{"result":"{\\"count\\":5}"}'))).toEqual({ count: 5, result: '{"count":5}' });
+    expect(runOutputs(run, exec('{"result":"plain text"}'))).toEqual({ result: 'plain text' });
+    expect(runOutputs(run, exec('{"result":"{\\"a\\":1}","other":2}'))).toEqual({ result: '{"a":1}', other: 2 });
+  });
+});

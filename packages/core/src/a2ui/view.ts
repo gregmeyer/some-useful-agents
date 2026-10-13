@@ -151,12 +151,25 @@ function parseObject(text: string | undefined): Record<string, unknown> | undefi
   } catch { return undefined; }
 }
 
+/**
+ * A step whose only output is `result` holding a JSON object (a shell or
+ * prompt step that printed JSON) gets that object's fields as outputs too,
+ * so a view binds `/outputs/articles` rather than parsing text.
+ * `/outputs/result` stays.
+ */
+function unwrapResult(o: Record<string, unknown>): Record<string, unknown> {
+  const keys = Object.keys(o);
+  if (keys.length !== 1 || keys[0] !== 'result' || typeof o.result !== 'string') return o;
+  const inner = parseObject(o.result.trim());
+  return inner ? { ...inner, result: o.result } : o;
+}
+
 /** The outputs a view binds to at `/outputs`. */
 export function runOutputs(run: Pick<Run, 'result'>, nodeExecutions: readonly NodeExecutionRecord[]): Record<string, unknown> {
   const completed = nodeExecutions.filter((e) => e.status === 'completed');
   for (let i = completed.length - 1; i >= 0; i--) {
     const o = parseObject(completed[i].outputsJson);
-    if (o && Object.keys(o).length > 0) return o;
+    if (o && Object.keys(o).length > 0) return unwrapResult(o);
   }
   return parseObject(run.result) ?? {};
 }
