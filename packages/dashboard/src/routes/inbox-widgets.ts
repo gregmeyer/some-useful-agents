@@ -163,7 +163,7 @@ function renderActionWidget(
   if (!run?.result) return undefined;
   if (agent.view) {
     if (run.status !== 'completed') return undefined;
-    return renderRunView(agent, run, ctx.runStore.listNodeExecutions(run.id), `inbox-${messageId}-${run.id}`);
+    return renderRunView(agent, run, ctx.runStore.listNodeExecutions(run.id), `inbox-${messageId}-${run.id}`, { runStore: ctx.runStore });
   }
 
   const blockedHosts = unallowedWidgetImageHosts({

@@ -153,3 +153,13 @@ describe('prepareViewForRender (SanitizedHtml never reaches the browser unsaniti
     expect(resolvePointer({ a: { 'b/c': [1, 2] } }, '/a/b~1c/1')).toBe(2);
   });
 });
+
+describe('output series', () => {
+  it('keeps numeric outputs (numbers or "1,200"-style text) oldest first, capped', async () => {
+    const { outputSeries, VIEW_SERIES_MAX } = await import('./view.js');
+    expect(outputSeries([{ stars: '1,100', name: 'a' }, { stars: 1200 }, { stars: 'n/a' }, { stars: '$1,300' }])).toEqual({ stars: [1100, 1200, 1300] });
+    const many = Array.from({ length: VIEW_SERIES_MAX + 5 }, (_, i) => ({ n: i }));
+    expect(outputSeries(many).n).toHaveLength(VIEW_SERIES_MAX);
+    expect(outputSeries(many).n.at(-1)).toBe(VIEW_SERIES_MAX + 4);
+  });
+});

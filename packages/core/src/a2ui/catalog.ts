@@ -104,7 +104,7 @@ const SUA_COMPONENTS = [
   {
     name: 'Sparkline',
     summary: 'A small line chart of a series of numbers, with an optional label and current value.',
-    example: { id: 'trend', component: 'Sparkline', values: { path: '/outputs/history' }, label: 'Stars this week', current: { path: '/outputs/stars' } },
+    example: { id: 'trend', component: 'Sparkline', values: { path: '/series/stars' }, label: 'Stars, run by run', current: { path: '/outputs/stars' } },
     schema: Common.extend({ values: CS.DynamicValue, label: Str.optional(), current: Str.optional() }).strict(),
   },
   {

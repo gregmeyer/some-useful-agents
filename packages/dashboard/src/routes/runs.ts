@@ -3,6 +3,7 @@ import { collectSubRunTree, NotebookStore } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import type { Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { viewHistory } from '../lib/a2ui-surface.js';
 import { renderRunsList } from '../views/runs-list.js';
 import { renderRunDetail } from '../views/run-detail.js';
 import { temporalWorkflowLink } from '../lib/temporal-link.js';
@@ -157,7 +158,8 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     }
     notebooks = [...byNb.values()];
   } catch { /* the run page doesn't need it */ }
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question, notebooks }));
+  const history = agent?.view && run.status === 'completed' ? viewHistory(agent, run, ctx.runStore) : undefined;
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question, notebooks, viewHistory: history }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {

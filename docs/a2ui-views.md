@@ -38,8 +38,23 @@ Every view gets the same data model, built from the run:
 | `/result` | the run's result text |
 | `/inputs/<NAME>` | the inputs the run had |
 | `/run/status`, `/run/startedAt`, `/run/completedAt`, `/run/durationMs`, `/run/costUsd` | facts about the run |
-| `/history` | earlier runs, newest first: `[{ outputs, completedAt }]` (for trends) |
+| `/history` | the agent's earlier completed runs, newest first (up to 29): `[{ outputs, completedAt }]` |
+| `/series/<name>` | each numeric output as a list of numbers, oldest first, ending with this run (up to 30); `"1,200"` and `"$4.50"` count as numbers. Bind a `Sparkline`'s `values` here |
+| `/agent/id`, `/agent/name` | the agent the view belongs to |
 | `/data` | (generated views) the data the view brought with it |
+
+Earlier runs are read only when a declared view mentions `/history` or `/series` (and for every generated view).
+
+```yaml
+view:
+  components:
+    - { id: root, component: Column, children: [trend, again] }
+    - { id: trend, component: Sparkline, label: Stars, values: { path: /series/stars }, current: { path: /outputs/stars } }
+    - { id: again, component: Button, child: again_label, action: { event: { name: run-agent, context: { in_REPO: { path: /inputs/REPO } } } } }
+    - { id: again_label, component: Text, text: Run again }
+```
+
+**Run buttons.** A `Button` whose action is `run-agent` runs the view's own agent: in place on a board tile, and elsewhere it starts the run and opens it. Inputs travel in the context as `in_<NAME>` (a literal or one binding each). The action always targets the view's agent, whatever `context.agent` says, so a view can't start another agent. In the agent chat, any action (this one included) becomes your next message instead.
 
 A prop is either a literal (`text: "Weather"`) or bound (`value: { path: /outputs/temp }`). Lists repeat a template over an array: `children: { path: /outputs/items, componentId: row }`, where paths inside `row` without a leading `/` are relative to the item. See the [A2UI v0.9 spec](https://a2ui.org/specification/v0.9.1-a2ui/) for functions like `formatNumber` and `formatDate`.
 
