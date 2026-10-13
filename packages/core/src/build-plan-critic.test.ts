@@ -290,3 +290,21 @@ describe('formatCriticFeedback', () => {
     expect(out).toMatch(/- c\[0\]: thing two/);
   });
 });
+
+describe('critiquePlan view binding checks', () => {
+  const yamlWithView = (binding: string, outputs = 'outputs:\n  open_count: { type: number }\n') =>
+    `id: issues\nname: Issues\nnodes:\n  - id: n1\n    type: shell\n    command: echo hi\n${outputs}view:\n  components:\n    - { id: root, component: Metric, label: Open, value: { path: ${binding} } }\n`;
+
+  it('flags a view binding an output the agent does not declare', () => {
+    const result = critiquePlan(planFor({ newAgents: [{ id: 'issues', purpose: 'p', yaml: yamlWithView('/outputs/opencount') }] }), { existingAgentIds: new Set() });
+    expect(result.ok).toBe(false);
+    expect(result.errors[0].message).toContain('binds /outputs/opencount');
+    expect(result.errors[0].message).toContain('declares open_count');
+  });
+
+  it('accepts declared outputs, /result, and agents that declare no outputs', () => {
+    for (const yaml of [yamlWithView('/outputs/open_count'), yamlWithView('/outputs/result'), yamlWithView('/outputs/anything', '')]) {
+      expect(critiquePlan(planFor({ newAgents: [{ id: 'issues', purpose: 'p', yaml }] }), { existingAgentIds: new Set() }).ok).toBe(true);
+    }
+  });
+});

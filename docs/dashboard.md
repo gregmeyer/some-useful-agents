@@ -255,7 +255,7 @@ the run, as before.
 
 **Tiles run themselves.** Adding an agent to a dashboard runs it once automatically, so a freshly added tile is never blank. If a widget references an external image host blocked by the dashboard's CSP, the tile shows a one-click **allow** modal that appends the host to the agent's `permissions.imgSrc` allowlist.
 
-**✨ Suggest a layout** — on Pulse and any named dashboard. The layout planner proposes an arrangement that opens in the editor for you to adjust and save. (With boards switched off, the previous **Improve layout** wizard is still there, including drafting new agents inline; see [Build from a goal § Improve layout](build-from-goal.md#improve-layout-path-a--path-b).)
+**✨ Suggest a layout** — on Pulse and any named dashboard. The layout planner proposes an arrangement that opens in the editor for you to adjust and save.
 
 **Dashboards dropdown** — in the board header; switches between the default board and any named dashboard, with a "New dashboard name" field to create one inline. Long names truncate with a tooltip. **+ Install from Packs** opens an in-place modal listing every registered-but-uninstalled pack with an Install button (you stay on the board), plus a "Browse all packs →" link to the full `/packs` page.
 

@@ -57,7 +57,7 @@ nodes:
       The mapping maps dot-paths from the agent's structured output to template slots.
       Use "result" to reference the full raw output. Use literal strings for static labels.
       Always include both format: (text/number/table/json/chart) and template: fields.
-      Always include outputWidget: when the agent produces structured JSON output.
+      When the agent produces structured JSON output, include a view: (see VIEWS above) with outputs: declaring every field it binds, and signal.template: widget. Add an outputWidget only for a capture-image control or diff-apply actions, never alongside a view.
       For agent-invoke and loop nodes, use agents listed in AVAILABLE AGENTS above.
 
       DESIGN GUIDELINES:

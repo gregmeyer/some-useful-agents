@@ -5,10 +5,8 @@ widgets, and dashboard tiles for you. Two entry points share the same machinery:
 
 - **Build from goal** — the Build button on `/` and `/agents`. Starts from an
   empty goal and can produce one agent or a whole dashboard.
-- **Improve layout** — the wizard on Pulse and any `/dashboards/:id` when boards are switched off
-  (Settings → Appearance). Starts from an *existing* layout and proposes what to surface, add, or
-  create. With boards on (the default), use **✨ Suggest a layout** to rearrange a board, and
-  **＋ New board** to [build a board from a request](boards.md#build-a-board-from-a-request), which
+- **Boards** — on Pulse and any `/dashboards/:id`, **✨ Suggest a layout** rearranges a board, and
+  **＋ New board** [builds a board from a request](boards.md#build-a-board-from-a-request), which
   also drafts missing agents behind one approval.
 
 ## The build flow
@@ -119,30 +117,21 @@ saved. Current checks include:
 - **signal.template = widget** — an agent that declares an `outputWidget` must use
   `signal.template: widget` so its Pulse tile mirrors the widget. A mismatch
   (e.g. `text-image`) produces a broken tile, so the critic flags it.
+- **View bindings** — a new agent's `view:` may only bind `/outputs/<name>` fields
+  its `outputs:` declares (when it declares any); a typo or a renamed field would
+  draw an empty widget forever, so the critic sends it back.
 
-## Improve layout (Path A / Path B)
+## How new agents look
 
-This wizard belongs to the previous Pulse layout (Settings → Appearance → *Show Pulse and dashboards as boards* off). On boards, **✨ Suggest a layout** and **＋ New board** cover the same ground; see [Boards](boards.md).
+Drafted agents describe their results with a [`view:`](a2ui-views.md) (A2UI
+components bound to their outputs) rather than an `outputWidget`: the drafter,
+agent-builder and build-planner get a VIEWS guide in their catalog (built from
+the component catalog, `viewAuthoringGuide`), with the shape, the data paths, the
+components and the rules (lead with the key number, bind rather than copy
+values, inputs plus a Run button instead of `interactive`). An `outputWidget` is
+still used for a `capture-image` control or `diff-apply` actions. An invalid
+view fails to parse, and the parse error goes back to the drafter like any other.
 
-The Improve-layout wizard reuses the same drafter, but it starts from a current
-layout and emits a `LayoutPlan` (`packages/core/src/layout-plan-schema.ts`) that
-sorts agents into containers and adds two extra arrays:
-
-- **Path A — `toAdd[]`** — agents you already have installed but that aren't on
-  this surface yet. One click adds them.
-- **Path B — `needsNew[]`** — specs for agents that *don't exist yet* (a
-  `purpose` and optional `suggestedName`). The wizard drafts them inline via
-  `/agents/draft-one` and adds the results.
-
-Curation differs by surface: on Pulse, un-surfaced agents get `pulseVisible:
-false`; on a named dashboard, the commit endpoint rewrites
-`layout.sections[].agentIds`, so un-surfaced agents are removed from the
-dashboard (recover them with **Add tile**).
-
-Routes:
-
-- Pulse — `pulse-layout-plan.ts` (`/pulse/layout-plan…`)
-- Dashboards — `dashboard-layout-plan.ts` (`/dashboards/:id/layout-plan…`)
 
 ## Telemetry
 

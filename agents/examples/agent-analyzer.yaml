@@ -78,7 +78,7 @@ nodes:
       - Opportunities to split or merge nodes for clarity
       - Unused or redundant dependencies between nodes
       - Prompt improvements for llm-prompt nodes
-      - Missing or improvable outputWidget declarations
+      - How its results look: an agent with structured JSON output and neither a view: nor an outputWidget can get a view: (see VIEWS); keep an existing outputWidget unless the focus is how it looks
       - Whether the agent would benefit from control-flow nodes (conditional, switch, loop, agent-invoke)
       - Whether a richer signal template would better showcase the output on Pulse
       - Whether existing agents could be invoked as sub-agents via agent-invoke or loop nodes
@@ -86,9 +86,9 @@ nodes:
       NODE & WIDGET DISCOVERY CATALOG:
       {{inputs.DISCOVERY_CATALOG}}
 
-      Use the catalog above to suggest appropriate signal templates, output widgets,
-      control-flow patterns, and sub-agent invocations. Always suggest both signal:
-      and outputWidget: when the agent produces structured output.
+      Use the catalog above to suggest appropriate signal templates, views,
+      control-flow patterns, and sub-agent invocations. When you add how results
+      look, add a view: (with outputs: declaring what it binds), not a new outputWidget.
 
       FIX, OR CALL ANOTHER AGENT — decide before you change anything:
       - When the agent's OWN job is broken (a wrong prompt, a bad command, a
@@ -163,6 +163,7 @@ nodes:
       - outputWidget.type must be one of: dashboard, key-value, diff-apply, raw.
       - outputWidget.fields[].type must be one of: text, code, badge, action, metric, stat.
       - outputWidget field names must match keys in the agent's JSON output.
+      - A view: binds only to /outputs/<field> keys the agent's JSON output has (declared under outputs:), /series/<field>, /inputs/<NAME> or /result.
 
       Respond in EXACTLY this format (keep the XML tags):
       <classification>NO_IMPROVEMENTS | SUGGESTIONS | REWRITE</classification>
