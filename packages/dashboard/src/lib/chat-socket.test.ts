@@ -267,3 +267,41 @@ describe('chat WebSocket, inline A2UI views', () => {
     ws.close();
   });
 });
+
+describe('chat WebSocket, widgets inside a reply', () => {
+  const W = '{"components":[{"id":"root","component":"Column","children":["a","b"]},{"id":"a","component":"Metric","label":"Price","value":{"path":"/data/p"}},{"id":"b","component":"Text","text":"in stock"}],"data":{"p":"$5"}}';
+  const reply = `Here you go.\n<a2ui>${W}</a2ui>\nAnything else?`;
+  let seenPrompt = '';
+  /** Streams the reply in small pieces, the way claude does. */
+  const widgetModel: SpawnNodeFn = async (_node, _env, opts, onProgress) => {
+    seenPrompt = String((opts as { behaviorPreamble?: string } | undefined)?.behaviorPreamble ?? '');
+    const at = () => new Date().toISOString();
+    for (let i = 0; i < reply.length; i += 20) onProgress?.({ timestamp: at(), type: 'output_delta', message: reply.slice(i, i + 20) });
+    return { result: reply, exitCode: 0 };
+  };
+
+  it('tells the model it can add widgets, draws them as they stream, and in the saved reply', async () => {
+    await start(widgetModel);
+    const { ws, next, frames } = await connect(goodHeaders());
+    ws.send(JSON.stringify({ type: 'chat.send', ref: 'a', agentId: 'weather', text: 'price?' }));
+    const started = await next((f) => f.type === 'chat.started');
+    await next((f) => f.event === 'turn-end');
+    expect(seenPrompt).toContain('WIDGETS IN YOUR REPLY');
+
+    const widgets = frames.filter((f) => f.event === 'widget').map((f) => f.data as { index: number; messages: Array<Record<string, unknown>> });
+    expect(widgets.length).toBeGreaterThan(1); // partial draws, then the closed block
+    const last = widgets[widgets.length - 1];
+    expect(last.index).toBe(0);
+    expect(JSON.stringify(last.messages)).toContain('"p":"$5"');
+    expect(JSON.stringify(widgets[0].messages)).toContain('…'); // a child not written yet
+
+    const sid = String(started.sessionId);
+    const frag = await request(server!).get(`/agents/weather/chat?session=${sid}&fragment=transcript`)
+      .set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(frag.text).toContain(`data-surface-id="chat-${String(started.runId)}-w0"`);
+    expect(frag.text).toContain('Here you go.');
+    expect(frag.text).toContain('Anything else?');
+    expect(frag.text).not.toContain('&lt;a2ui&gt;');
+    ws.close();
+  });
+});

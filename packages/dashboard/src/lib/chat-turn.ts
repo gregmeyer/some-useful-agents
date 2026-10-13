@@ -1,4 +1,9 @@
 import {
+  chatWidgetGuide,
+  parseInlineWidget,
+  partialInlineWidget,
+  prepareViewForRender,
+  viewToMessages,
   completeAgentTurn,
   executeAgentDag,
   isAppleIntegrationEnabled,
@@ -37,20 +42,53 @@ export function chatBus(ctx: DashboardContext): InboxEventBus {
  *   (claude streams small deltas; codex and OpenAI-compatible endpoints send
  *   whole messages).
  * - `tool` {name, status: call|result, preview?, isError?}.
+ * - `widget` {runId, nodeId, index, messages}: the reply's `index`th inline
+ *   widget (docs/a2ui-views.md, "In chat") as A2UI messages: drawn as its
+ *   components complete, then once more with its data when the block closes.
  * - `turn-end` {runId, status}: the reply is recorded; re-render from source.
  */
 function publish(ctx: DashboardContext, sessionId: string, type: string, data: Record<string, unknown>): void {
   try { chatBus(ctx).publish(sessionChannel(sessionId), { type, data }); } catch { /* never break a run */ }
 }
 
-function relayProgress(ctx: DashboardContext, sessionId: string, runId: string, nodeId: string, p: SpawnProgress, streamed: Set<string>): void {
+/** Per node: the text so far, and how far each of its widgets has been drawn. */
+type WidgetTrack = Map<string, { text: string; drawn: Map<number, number>; closed: number }>;
+
+/** Draw the reply's widgets as they're written: complete components first, then the whole block with its data. */
+function relayWidgets(ctx: DashboardContext, sessionId: string, runId: string, nodeId: string, delta: string, track: WidgetTrack, imgHosts: string[]): void {
+  const t = track.get(nodeId) ?? { text: '', drawn: new Map<number, number>(), closed: 0 };
+  track.set(nodeId, t);
+  t.text += delta;
+  if (!t.text.includes('<a2ui>')) return;
+  const send = (index: number, components: Parameters<typeof prepareViewForRender>[0], data: unknown) => {
+    const model = { data };
+    publish(ctx, sessionId, 'widget', { runId, nodeId, index, messages: viewToMessages(`chat-live-${runId}-${String(index)}`, prepareViewForRender(components, model), model) });
+  };
+  // Blocks that just closed: the real thing, with its data.
+  const closedBlocks = [...t.text.matchAll(/<a2ui>([\s\S]*?)<\/a2ui>/gi)];
+  for (let i = t.closed; i < closedBlocks.length; i++) {
+    const w = parseInlineWidget(closedBlocks[i][1], imgHosts);
+    if ('components' in w) send(i, w.components, w.data);
+  }
+  t.closed = closedBlocks.length;
+  // The block being written: redraw when another component is complete.
+  const partial = partialInlineWidget(t.text, imgHosts);
+  if (partial && partial.count > (t.drawn.get(partial.index) ?? 0)) {
+    t.drawn.set(partial.index, partial.count);
+    send(partial.index, partial.components, {});
+  }
+}
+
+function relayProgress(ctx: DashboardContext, sessionId: string, runId: string, nodeId: string, p: SpawnProgress, streamed: Set<string>, widgets: WidgetTrack, imgHosts: string[]): void {
   if (p.type === 'output_delta' && p.message) {
     streamed.add(nodeId);
     publish(ctx, sessionId, 'token', { runId, text: p.message, nodeId });
+    relayWidgets(ctx, sessionId, runId, nodeId, p.message, widgets, imgHosts);
   } else if (p.type === 'output_chunk' && p.message) {
     // A provider that streamed deltas for this node already sent this text.
     if (streamed.has(nodeId)) return;
     publish(ctx, sessionId, 'token', { runId, text: p.message, nodeId });
+    relayWidgets(ctx, sessionId, runId, nodeId, p.message, widgets, imgHosts);
   } else if (p.type === 'tool_use' && p.toolName) {
     publish(ctx, sessionId, 'tool', {
       runId, name: p.toolName, status: p.toolStatus ?? 'call', nodeId,
@@ -78,7 +116,9 @@ export async function startChatTurn(
   },
 ): Promise<{ session: Session; runId: string }> {
   const prepared = prepareAgentTurn({ agent, sessions, message: args.message, sessionId: args.sessionId, runStore: ctx.runStore });
-  const { session, runId, inputs, conversationPreamble } = prepared;
+  const { session, runId, inputs } = prepared;
+  // The dashboard can draw widgets in a reply (other chat surfaces can't, so it's said only here).
+  const conversationPreamble = `${chatWidgetGuide()}\n${prepared.conversationPreamble}`;
   try { args.onSession?.(session, runId); } catch { /* a subscriber problem never blocks the turn */ }
 
   if (resolveRunBackend(ctx.provider, agent) === 'temporal' && ctx.provider.submitDagRun) {
@@ -107,6 +147,8 @@ export async function startChatTurn(
 
   publish(ctx, session.id, 'turn-start', { runId, streaming: true });
   const streamedNodes = new Set<string>();
+  const widgetTrack: WidgetTrack = new Map();
+  const imgHosts = agent.permissions?.imgSrc ?? [];
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
   void executeAgentDag(
@@ -133,7 +175,7 @@ export async function startChatTurn(
       // A failed turn shows in the conversation; no separate inbox thread.
       onRunComplete: ctx.onRunCompleteQuiet,
       experimentalApple: isAppleIntegrationEnabled(),
-      inboxOnProgress: ({ nodeId, progress }) => relayProgress(ctx, session.id, runId, nodeId, progress, streamedNodes),
+      inboxOnProgress: ({ nodeId, progress }) => relayProgress(ctx, session.id, runId, nodeId, progress, streamedNodes, widgetTrack, imgHosts),
     },
   )
     .then((run) => {

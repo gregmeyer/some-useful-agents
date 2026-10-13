@@ -562,6 +562,7 @@ export {
 } from './a2ui/view.js';
 export { starterView, humanizeName, type StarterViewArgs } from './a2ui/starter.js';
 export { viewAuthoringGuide, viewOutputNames } from './a2ui/guide.js';
+export { splitReply, stripInlineWidgets, parseInlineWidget, partialInlineWidget, chatWidgetGuide, type ReplyPart } from './a2ui/inline.js';
 export {
   BOARD_COLUMNS,
   BOARD_ROW_PX,
