@@ -392,9 +392,11 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // Group consecutive same-role conversation turns (Claude/Slack-style): the
   // speaker sigil shows once per run. Actions always break a group (they're
   // tool calls, not speech).
+  // An agent's conversation: its replies are labelled with the agent, and you reply to it, not sua.
+  const agentConversation = message.source === 'conversation' && message.agentId ? message.agentId : undefined;
   const timeline = responses.map((r, i) =>
     renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
-      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors));
+      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation));
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by
@@ -428,7 +430,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
           data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar thread-composer">
           <textarea name="body" rows="1" required maxlength="8192"
             ${triagePending ? 'disabled' : ''}
-            placeholder="${triagePending ? 'sua is replying…' : 'Reply to sua…'}"
+            placeholder="${triagePending ? 'sua is replying…' : message.source === 'conversation' && message.agentId ? `Reply to ${message.agentId}…` : 'Reply to sua…'}"
             class="inbox-chatbar__input" data-inbox-autogrow data-inbox-chat-enter
             aria-label="Reply to this thread"></textarea>
           <button type="submit" class="thread-composer__send"
@@ -445,6 +447,10 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // bottom-right is gone.
   return html`
     <div class="inbox-detail">
+      ${message.source === 'conversation' && message.agentId
+        // An agent's conversation: the panel follows the agent's live turns (views/inbox-modal.js.ts).
+        ? html`<span hidden data-agent-conversation="${message.agentId}"></span>`
+        : html``}
       <div class="inbox-detail__header">
         <header class="inbox-modal__title-row">
           <h3 id="inbox-modal-title" class="inbox-modal__title">${message.title}</h3>
@@ -638,9 +644,10 @@ function renderConversationEntry(
   agentTrust?: Map<string, AgentTrustInfo>,
   grouped = false,
   runBehaviors?: Record<string, string[]>,
+  agentLabel?: string,
 ): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust, runBehaviors);
-  const role = (ROLE_LABEL[r.role] ?? r.role);
+  const role = r.role === 'agent' && agentLabel ? agentLabel : (ROLE_LABEL[r.role] ?? r.role);
   const sigil = ROLE_AVATAR[r.role] ?? r.role.slice(0, 3).toLowerCase();
   // Verification verdict notes (B1 + B3): B1 tags its verify-on-resolve system
   // notes with a `kind`; surface them distinctly so a "Verified" vs "couldn't

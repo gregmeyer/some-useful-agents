@@ -41,6 +41,8 @@ import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksLine } from '../views/notebooks.js';
+import { SessionStore } from '@some-useful-agents/core';
+import { startChatTurn } from '../lib/chat-turn.js';
 import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
@@ -708,6 +710,19 @@ export function addInboxReply(
   // A fresh reply is genuine re-engagement, so lift any operator Stop and let
   // triage run again for this turn. Clears both the in-memory set and the
   // persisted `paused` column (the restart-surviving form of Stop).
+  // An agent's conversation (its Chat tab, opened in the panel or on Home):
+  // the reply goes to that agent, not to sua.
+  const thread = ctx.inboxStore.get(id);
+  const agent = thread?.source === 'conversation' && thread.agentId ? ctx.agentStore.getAgent(thread.agentId) : null;
+  if (agent && agent.status !== 'archived') {
+    void startChatTurn(ctx, SessionStore.fromHandle(ctx.runStore.databaseHandle()), agent, { message: bodyRaw, sessionId: id })
+      .then(() => publishInboxEvent(ctx, id, 'message:created', { role: 'user', body: bodyRaw }))
+      .catch((err) => {
+        try { ctx.inboxStore?.addResponse(id, 'system', `Couldn't send that to ${agent.name}: ${err instanceof Error ? err.message : String(err)}`); } catch { /* best-effort */ }
+        publishInboxEvent(ctx, id, 'message:created', { role: 'system' });
+      });
+    return { ok: true };
+  }
   ctx.inboxTriageStopped?.delete(id);
   try { ctx.inboxStore.setPaused(id, false); } catch { /* best-effort */ }
   let userResponse;
