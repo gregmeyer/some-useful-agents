@@ -898,14 +898,16 @@ answer, an explanation, a question or a single number.
 - Components and their props (use exactly these):
   {"id":"root","component":"Column","children":["a","b"]}
   {"id":"s","component":"StatStrip","items":{"path":"/data/stats"}}  — stats: [{"label","value","tone?":"ok|warn|err","sub?"}]
-  {"id":"t","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"name","label":"Agent"},{"key":"url","label":"Link","format":"link"}],"maxRows":10}
+  {"id":"t","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"name","label":"Agent"},{"key":"url","label":"Link","format":"link","linkText":"name"}],"maxRows":10}
   {"id":"k","component":"KeyValue","items":{"path":"/data/facts"}}  — facts: [{"label","value","url?"}]
   {"id":"c","component":"ChipList","items":{"path":"/data/tags"}}
   {"id":"m","component":"Metric","label":"Failed today","value":{"path":"/data/failed"},"tone":"err"}
   {"id":"x","component":"Callout","label":"Next","text":"…"}
   {"id":"h","component":"Text","text":"…","variant":"caption"}
 - Links in a Table (format: link) may be dashboard paths like
-  /agents/<id> or /runs/<id>. No buttons: offer next steps as "links".
+  /agents/<id> or /runs/<id>; "linkText" names the row field shown as
+  the link's text (else it shows the agent id, "run ab12cd34" or the
+  address). No buttons: offer next steps as "links".
 - Only facts you have from the context above: never invent rows.
 
 Example:

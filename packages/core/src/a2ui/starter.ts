@@ -64,10 +64,12 @@ export function starterView(args: StarterViewArgs): ViewComponent[] {
         const first = value[0] as Record<string, unknown>;
         const keys = Object.keys(first).slice(0, 6);
         const isUrl = (k: string) => typeof first[k] === 'string' && /^https?:\/\//.test(first[k] as string);
+        // A link shows the row's first plain-text field (its title or name) instead of the address.
+        const textKey = keys.find((k) => typeof first[k] === 'string' && !isUrl(k));
         comps.push(
           { id, component: 'Column', children: [`${id}_l`, `${id}_t`] },
           { id: `${id}_l`, component: 'Text', text: label(name), variant: 'caption' },
-          { id: `${id}_t`, component: 'Table', rows: bind(pointer(name)), columns: keys.map((k) => ({ key: k, label: humanizeName(k), ...(isUrl(k) ? { format: 'link' } : {}) })), maxRows: 20 },
+          { id: `${id}_t`, component: 'Table', rows: bind(pointer(name)), columns: keys.map((k) => ({ key: k, label: humanizeName(k), ...(isUrl(k) ? { format: 'link', ...(textKey ? { linkText: textKey } : {}) } : {}) })), maxRows: 20 },
         );
         parts.push(id);
       } else if (value.every((v) => typeof v === 'string' || typeof v === 'number')) {

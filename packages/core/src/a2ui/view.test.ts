@@ -174,3 +174,12 @@ describe('outputs from a step that printed JSON', () => {
     expect(runOutputs(run, exec('{"result":"{\\"a\\":1}","other":2}'))).toEqual({ result: '{"a":1}', other: 2 });
   });
 });
+
+describe('Table link columns', () => {
+  it('accept linkText (the row field shown as the link text)', async () => {
+    const { validateViewComponents } = await import('./view.js');
+    const table = (col: Record<string, unknown>) => validateViewComponents([{ id: 'root', component: 'Table', rows: { path: '/outputs/rows' }, columns: [{ key: 'url', label: 'Link', ...col }] }]);
+    expect(table({ format: 'link', linkText: 'name' }).ok).toBe(true);
+    expect(table({ format: 'link', linkTxt: 'name' }).ok).toBe(false); // a typo is still refused
+  });
+});

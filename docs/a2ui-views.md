@@ -77,7 +77,7 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Metric` | `label`, `value`, `unit?`, `delta?`, `tone?` (neutral/ok/warn/err) | a big number |
 | `Badge` | `text`, `tone?` | a status pill |
 | `KeyValue` | `items` (array of `{label, value, url?, note?}`) | facts; `url` links the value, `note` is a short line under it (a source, a quote) |
-| `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link}]` (1–12), `maxRows?`, `sortColumns?` + `defaultSort?` ("col" or "col desc"), `filterColumns?` + `filterPlaceholder?`, `pageSize?` | rows of results; sorting (click a header), filtering and paging happen in the browser |
+| `Table` | `rows` (array of objects), `columns: [{key, label, format?: text \| link, linkText?}]` (1–12; a link column shows the row field `linkText` names as its text, else the agent id / "run ab12cd34" for a dashboard path or the address without `https://`; a cell may also be `{label, url}`), `maxRows?`, `sortColumns?` + `defaultSort?` ("col" or "col desc"), `filterColumns?` + `filterPlaceholder?`, `pageSize?` | rows of results; sorting (click a header), filtering and paging happen in the browser |
 | `Disclosure` | `label`, `child` (a component id), `open?` | a collapsible section |
 | `Link` | `text`, `url` (http/https, or a dashboard path starting with `/`) | a link, opens in a new tab |
 | `Code` | `text`, `language?` | preformatted text |
