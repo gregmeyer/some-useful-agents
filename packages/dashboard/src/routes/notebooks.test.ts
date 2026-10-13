@@ -197,6 +197,39 @@ describe('notebooks pages', () => {
 });
 
 describe('filing into a notebook of organizations', () => {
+  it('shows that it is working: the running step turns, and background work is named in the header', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Gadgets', pipeline: ['sched-agent'] });
+    store.setSteps(nb.id, [{ title: 'Find 5', kind: 'find', agentId: 'sched-agent', target: 5, status: 'running' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const page = async () => (await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`)).text;
+    const ctx = (await import('../context.js')).getContext(app.locals);
+
+    // A 'running' status left behind (nothing actually running): no spinner, no working line.
+    let html = await page();
+    expect(html).not.toContain('is-live');
+    expect(html).not.toContain('data-notebook-running');
+
+    // The step is really running, and photos are being found too.
+    ctx.notebookPipelines ??= new Map();
+    ctx.notebookPipelines.set(nb.id, { agentId: 'sched-agent', step: 1, of: 2, startedAt: Date.now() });
+    ctx.notebookPictures ??= new Set();
+    ctx.notebookPictures.add(nb.id);
+    html = await page();
+    expect(html).toMatch(/class="nb-step nb-step--running[^"]* is-live"/);
+    expect(html).toContain('Running step 1 of 2 · Finding photos…');
+    expect(html).toContain('nb-working__dot');
+    expect(html).toContain('location.reload()');
+
+    // Only background work: still says so, and still reloads.
+    ctx.notebookPipelines.delete(nb.id);
+    html = await page();
+    expect(html).toContain('Finding photos… <span class="nb-working__note">');
+    expect(html).toContain('location.reload()');
+    ctx.notebookPictures.delete(nb.id);
+  });
+
   it('steps are set by hand and shown with how far each is toward its goal', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

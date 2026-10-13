@@ -253,6 +253,12 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-run { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .nb-run__form { margin: 0; }
 .nb-run__now { font-size: var(--font-size-sm); color: var(--color-primary); }
+/* The notebook is working (views/notebooks.ts workingLine): a pulsing dot so it reads as live. */
+.nb-working { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-primary); }
+.nb-working__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); animation: nb-working-pulse 1.4s ease-in-out infinite; }
+.nb-working__note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+@keyframes nb-working-pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .nb-working__dot { animation: none; } }
 .nb-run__last { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .nb-pipe__node--running circle { stroke: var(--color-primary); stroke-dasharray: 4 3; animation: nb-spin 1.6s linear infinite; transform-box: fill-box; transform-origin: center; }
 .nb-pipe__node--running .nb-pipe__glyph { fill: var(--color-primary); }
@@ -616,6 +622,15 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step__n { flex: none; display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--color-border-strong); font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-step--done .nb-step__n { background: var(--color-ok-soft); border-color: var(--color-ok); color: var(--color-ok); }
 .nb-step--current .nb-step__n { border-color: var(--color-primary); color: var(--color-primary); }
+/* The step that's running: its number ring turns and the step edge glows, so it's plain it hasn't ended. */
+/* is-live: running now, not a status left behind by a restart. */
+.nb-step--running.is-live { border-color: var(--color-primary); box-shadow: inset 3px 0 0 var(--color-primary); }
+.nb-step--running.is-live .nb-step__n { position: relative; border-color: transparent; color: var(--color-primary); }
+.nb-step--running.is-live .nb-step__n::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 2px solid var(--color-primary); border-right-color: transparent; animation: nb-step-spin 1s linear infinite; }
+.nb-step--running.is-live .nb-step__meta { color: var(--color-primary); }
+.nb-step--running.is-live .nb-step__bar > span { animation: nb-working-pulse 1.4s ease-in-out infinite; }
+@keyframes nb-step-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .nb-step--running.is-live .nb-step__n::after, .nb-step--running.is-live .nb-step__bar > span { animation: none; } }
 .nb-step__body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nb-step__title { font-weight: var(--weight-bold); font-size: var(--font-size-sm); color: var(--color-text); }
 .nb-step__by { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

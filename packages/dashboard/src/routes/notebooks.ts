@@ -29,7 +29,7 @@ import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunnin
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, greetNotebook, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
-import { startNotebookPictures } from '../lib/notebook-pictures.js';
+import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures.js';
 import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
@@ -250,7 +250,15 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
   const coverPhoto = s.coverPhoto(nb.id);
-  res.type('html').send(renderNotebookPage({ nb, unfiled: unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) })), ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  // What sua is doing for this notebook in the background (shown as working in the header).
+  const unfiled = unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) }));
+  const busy = [
+    ...(picturesRunning(ctx, nb.id) ? ['Finding photos'] : []),
+    ...(ctx.notebookListingPhotos?.has(nb.id) ? ['Getting listing photos'] : []),
+    ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),
+    ...(unfiled.some((r) => r.adding) ? ['Adding a run'] : []),
+  ];
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {

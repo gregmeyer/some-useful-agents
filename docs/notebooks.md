@@ -409,3 +409,5 @@ The step runs again while each run gets further, up to 3 times per press, so a l
 
 - **G4:** one schedule for the notebook (runs now; see above). Still to come: each run shows what's new or changed, and progress against the criteria.
 - **G5:** "start a notebook to research X" from sua drafts the notebook, its pipeline and schedule behind one approval.
+
+**When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. A step whose status says running but isn't (left by a restart) doesn't spin.
