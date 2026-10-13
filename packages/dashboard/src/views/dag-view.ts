@@ -13,7 +13,7 @@ import { html, unsafeHtml, type SafeHtml } from './html.js';
 export function dagPayload(agent: Pick<Agent, 'nodes'>, nodeExecs: readonly NodeExecutionRecord[] = []): string {
   const execByNodeId = new Map<string, NodeExecutionRecord>();
   for (const e of nodeExecs) execByNodeId.set(e.nodeId, e);
-  return JSON.stringify({ elements: buildElements(agent.nodes, execByNodeId) });
+  return JSON.stringify({ elements: buildElements(agent.nodes, execByNodeId, true) });
 }
 
 export function renderDagView(args: {
@@ -58,7 +58,7 @@ export function renderDagView(args: {
   const execByNodeId = new Map<string, NodeExecutionRecord>();
   for (const e of nodeExecs ?? []) execByNodeId.set(e.nodeId, e);
 
-  const elements = buildElements(agent.nodes, execByNodeId);
+  const elements = buildElements(agent.nodes, execByNodeId, nodeExecs !== undefined);
   const payload = JSON.stringify({ elements });
   const navAttr = navBase ? ` data-nav-base="${escapeAttr(navBase)}"` : '';
   const replayAttr = replay
@@ -223,7 +223,11 @@ export function renderDagFallback(agent: Agent): SafeHtml {
   `;
 }
 
-function buildElements(nodes: AgentNode[], execByNodeId: Map<string, NodeExecutionRecord>): unknown[] {
+/**
+ * `inRun`: drawing a run, so a step with no execution yet is `not-started`
+ * (grey, dashed) instead of coloured by its type like a finished one.
+ */
+function buildElements(nodes: AgentNode[], execByNodeId: Map<string, NodeExecutionRecord>, inRun = false): unknown[] {
   const out: unknown[] = [];
   for (const n of nodes) {
     const exec = execByNodeId.get(n.id);
@@ -236,7 +240,7 @@ function buildElements(nodes: AgentNode[], execByNodeId: Map<string, NodeExecuti
         id: n.id,
         label: calls ? `${n.id}\n→ ${calls}` : n.id,
         type: n.type,
-        status: exec?.status,
+        status: exec?.status ?? (inRun ? 'not-started' : undefined),
         // Per-node metadata surfaced by the node-click dialog. Kept on
         // the element so the client bootstrap can render without a
         // second fetch.
