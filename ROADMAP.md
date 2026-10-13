@@ -5,6 +5,14 @@ on direction.
 
 ## Recently shipped
 
+### Unreleased (next: v0.30)
+A goal you keep over time, and a calmer place to talk to sua:
+- **Conversations everywhere** — one [conversation](docs/conversations.md) model behind the inbox, agent chat and a sua panel beside every page; ask sua to fix an agent or change its settings, and approve the change on a card before it applies; archive agents and dashboards.
+- **Home, redesigned** — [goal surfaces](docs/surfaces.md): an item index and surface model, a Today tab of only what needs you (pin, move, hide, make it a rule, ask sua to change it, Undo), and a shelf of your notebooks.
+- **Notebooks** — [a goal you keep over time](docs/notebooks.md): start one from a sentence; sua sets up its fields, stages and steps (find → source → check → decide) and works through them, pausing after each. Options are compared on facts with sources and quotes; ranked by price or fit; drawn as widgets with photos, price history and their own pages; filtered, merged when they're the same thing, and ruled out with reasons. Decide picks the final set, which the page, the CSV and a shareable brief all follow. Schedules run a notebook's pipeline.
+- **Agents that compose** — a fix can call one of your agents, or build a helper and wire it in, instead of rewriting the agent; an agent's page shows which agents it calls and which call it; loops and too-deep chains stop cleanly.
+- **Brands** — keep several, propose one from a website (**Update my brand**), with a separate heading font.
+
 ### v0.29
 Boards that agents can build, on a canvas:
 - **Boards are canvases** — Pulse and every dashboard are one [A2UI surface](docs/boards.md): sections, responsive grids, rows, tabs and cards, each agent's tile drawn inside by its own view. **✎ Arrange** (an outline editor), **✨ Suggest a layout**, versioned saves with undo, Save as pack.
@@ -93,7 +101,13 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 
 ## Now
 
-**Authoring on the canvas.** Boards are canvases agents can build (v0.29). Next: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3), and removing the previous widget renderer and the previous Pulse layout (kept one more release), are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
+- **Release v0.30** — everything under Unreleased above.
+- **Notebooks, rough edges** — a sweep keeps what its working sources found when one source fails; the explanation of why a step came out the way it did; Home's shelf shows each notebook's lead option.
+- **Data connectors for notebooks** — company research needs a firmographic source (revenue, headcount) beyond web search; the biggest gap left for account-research notebooks.
+
+## Then: authoring on the canvas
+
+Boards are canvases agents can build (v0.29). Next there: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3), and removing the previous widget renderer and the previous Pulse layout, are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
 
 ## Next (3–6 months)
 
