@@ -6,7 +6,7 @@
  * `fragment` leaves out the document wrapper, for a host that adds its own
  * (a Claude artifact).
  */
-import { isListPage, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption } from '@some-useful-agents/core';
+import { isListPage, rankOptions, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -25,6 +25,8 @@ function facts(nb: Notebook, o: NotebookViewOption): Array<{ label: string; valu
   const rest = nb.fields.filter((f) => !byRole.includes(f) && !skip.has(f.role ?? '') && f.type !== 'url' && f.type !== 'image');
   return [...byRole, ...rest]
     .filter((f) => o.fields[f.key] !== undefined && o.fields[f.key] !== '')
+    // The organization when the name already starts with it ("Vena: Excel-centered FP&A").
+    .filter((f) => !(f.role === 'org' && typeof o.fields[f.key] === 'string' && o.title.toLowerCase().startsWith(String(o.fields[f.key]).toLowerCase())))
     .map((f) => ({ label: f.label, value: formatFieldValue(f, o.fields[f.key]) }))
     .filter((x) => x.value.length <= 60)
     .slice(0, 6);
@@ -52,7 +54,8 @@ function optionRow(nb: Notebook, o: NotebookViewOption, n: number): SafeHtml {
 export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; fragment?: boolean; now?: Date }): string {
   const { nb } = args;
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
-  const active = d.options.filter((o) => !o.ruledOut);
+  // Best first, by the notebook's own ranking (fit, else price).
+  const active = rankOptions(nb, d.options);
   const chosen = active.filter((o) => o.chosen);
   const decided = nb.status === 'decided';
   // Decided: the final set, then the rest. Else the shortlist, best first (the widget data's order).
