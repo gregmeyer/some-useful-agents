@@ -8,7 +8,6 @@ import {
   buildLoopbackAllowlist, loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';
@@ -118,22 +117,14 @@ describe('boards are canvases', () => {
     expect((await get(app, '/boards/tile/ghost.json')).status).toBe(404);
   });
 
-  it('redirects /boards/<id> to the page; with boards off the old pages return and /boards/<id>/canvas previews', async () => {
+  it('redirects /boards/<id> (and the old /canvas preview address) to the page', async () => {
     const app = await setup();
     expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');
     expect((await get(app, '/boards/user:morning')).headers.location).toBe('/dashboards/user%3Amorning');
     expect((await get(app, '/boards/user:morning/canvas')).headers.location).toBe('/dashboards/user%3Amorning');
     expect((await get(app, '/boards/nope')).status).toBe(404);
     expect((await get(app, '/boards/nope.json')).status).toBe(404);
-    setDashboardPrefs({ boardPages: false });
-    try {
-      expect((await get(app, '/pulse')).text).toContain('id="pulse-tile-data"');
-      expect((await get(app, '/boards/pulse')).headers.location).toBe('/boards/pulse/canvas');
-      const preview = await get(app, '/boards/pulse/canvas');
-      expect(preview.status).toBe(200);
-      expect(preview.text).toContain('Canvas preview');
-      expect(preview.text).toContain('data-board-canvas="pulse"');
-    } finally { setDashboardPrefs({ boardPages: true }); }
+    expect((await get(app, '/boards/nope/canvas')).status).toBe(404);
   });
 });
 

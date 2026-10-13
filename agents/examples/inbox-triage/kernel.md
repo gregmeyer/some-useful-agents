@@ -585,6 +585,7 @@ before → after and clicks Apply; nothing changes until they do.
   - `model`: a model id, or `""` for the provider's default
   - `schedule`: a 5-field cron, or `""` for "only when asked"
   - `runOn`: `"local"`, `"temporal"` (durable, survives restarts), or `""` for the default
+  - `timeoutMinutes`: stop a run after this many minutes (a number), or `0` for no limit
   - `pulseVisible`, `dashboardVisible`, `mcp` (AI apps can call it), `inboxRunnable` (sua may run it from a conversation): `true` / `false`
   - `imgSrc`: the FULL list of image hosts afterwards (an array of host names)
 - Read FOCUS_AGENT_SETTINGS (below) for the current values; only include

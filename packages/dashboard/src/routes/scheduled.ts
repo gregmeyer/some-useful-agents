@@ -120,3 +120,20 @@ scheduledRouter.post('/scheduled/:id/resume', (req, res) =>
 // draft is "scheduled-in-intent but never fires" until the user activates.
 scheduledRouter.post('/scheduled/:id/activate', (req, res) =>
   flipStatus(req, res, 'active', { imperative: 'Activate', past: 'Activated' }));
+
+// Clear removes the cron from the agent row (like an empty schedule in its
+// Settings); the agent stays and runs when asked. The page asks first.
+scheduledRouter.post('/scheduled/:id/clear', (req, res) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const agent = ctx.agentStore.getAgent(id);
+  const back = (msg: string) => res.redirect(303, `/scheduled?flash=${encodeURIComponent(msg)}`);
+  if (!agent) { back(`No agent "${id}".`); return; }
+  if (!agent.schedule) { back(`"${agent.name}" has no schedule.`); return; }
+  try {
+    ctx.agentStore.updateAgentMeta(id, { schedule: undefined });
+    back(`Cleared the schedule on "${agent.name}". The scheduler drops it when it restarts (sua daemon restart --service schedule).`);
+  } catch (err) {
+    back(`Clear failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+});

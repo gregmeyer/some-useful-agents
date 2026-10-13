@@ -11,7 +11,6 @@ import type { DashboardContext } from './context.js';
 import { SESSION_COOKIE } from './auth-middleware.js';
 import { SEEN_COOKIE } from './session.js';
 import { buildLoopbackAllowlist, loadPolicyDocument } from '@some-useful-agents/core';
-import { setDashboardPrefs } from './lib/dashboard-prefs.js';
 import { MemorySecretsSession } from './secrets-session.js';
 import { drainInFlight } from './test-drain.js';
 
@@ -143,6 +142,16 @@ describe('Dashboard auth', () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+  });
+
+  it('/health counts only the last hour of runs, and reports what the reaper cleaned up', async () => {
+    const app = await makeApp();
+    runStore.createRun({ id: 'h-old', agentName: 'hello', status: 'completed', startedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(), triggeredBy: 'cli' });
+    runStore.createRun({ id: 'h-new', agentName: 'hello', status: 'completed', startedAt: new Date().toISOString(), triggeredBy: 'cli' });
+    const res = await request(app).get('/health');
+    expect(res.body.runs_last_hour).toBe(1);
+    expect(res.body.reaper.watchdog).toMatchObject({ runs: expect.any(Number), nodes: expect.any(Number), processesKilled: expect.any(Number) });
+    expect(JSON.stringify(res.body.reaper)).not.toContain('h-');
   });
 
   it('redirects /agents to /auth without a cookie', async () => {
@@ -4308,18 +4317,9 @@ describe('Widget controls (PR H)', () => {
     expect(def.text).toMatch(/data-field="uv"\s+data-hidden="1"/);
   });
 
-  it('runs URL params through to run-detail too (previous renderer)', async () => {
+  it('draws a controls widget on run-detail with A2UI (views are Tabs)', async () => {
     const app = await makeApp();
     seedControlsAgent();
-    // URL-param controls belong to the previous renderer; A2UI does them in the browser.
-    setDashboardPrefs({ a2uiWidgets: false });
-    const res = await request(app).get('/runs/r-w?wv=imperial')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('wc-row');
-    expect(res.text).toMatch(/<a[^>]*class="[^"]*wc-chip--active[^"]*"[^>]*data-view-id="imperial"/);
-    setDashboardPrefs({ a2uiWidgets: true });
     const a2ui = await request(app).get('/runs/r-w').set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(a2ui.text).toContain('data-a2ui-surface'); // A2UI by default: the views are Tabs
     expect(a2ui.text).toContain('"component":"Tabs"');
@@ -4615,6 +4615,25 @@ describe('/scheduled — scheduled-agents page (and pause/resume)', () => {
     expect(decodeURIComponent(res.headers.location)).toMatch(/flash=Activated/);
     expect(agentStore.getAgent('to-activate')?.status).toBe('active');
     expect(agentStore.getAgent('to-activate')?.schedule).toBe('0 8 * * *');
+  });
+
+  it('Clear asks in the page, then removes the schedule and keeps the agent', async () => {
+    const app = await makeApp();
+    agentStore.createAgent({
+      id: 'to-clear', name: 'To Clear', status: 'active', source: 'local', mcp: false,
+      schedule: '0 8 * * *',
+      nodes: [{ id: 'main', type: 'shell', command: 'echo hi' }],
+    }, 'cli');
+    const page = await request(app).get('/scheduled').set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(page.text).toMatch(/action="\/scheduled\/to-clear\/clear"[^>]*data-confirm-modal="To Clear stops running on its schedule/);
+
+    const res = await request(app).post('/scheduled/to-clear/clear')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(res.status).toBe(303);
+    expect(decodeURIComponent(res.headers.location)).toContain('Cleared the schedule on "To Clear"');
+    expect(agentStore.getAgent('to-clear')?.schedule).toBeUndefined();
+    expect(agentStore.getAgent('to-clear')?.status).toBe('active');
   });
 
   it('POST /scheduled/:id/activate on an already-active agent is a no-op with a flash', async () => {

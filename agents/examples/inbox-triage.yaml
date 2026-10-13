@@ -152,7 +152,7 @@ inputs:
     description: >
       FOCUS_AGENT's current settings as JSON, in the field names an
       `agent-settings` action's CHANGES uses (provider, model, schedule,
-      runOn, pulseVisible, dashboardVisible, mcp, inboxRunnable, imgSrc),
+      runOn, timeoutMinutes, pulseVisible, dashboardVisible, mcp, inboxRunnable, imgSrc),
       plus its status and version. Empty when the thread isn't about an agent.
   ALLOWED_SUB_AGENTS:
     type: string

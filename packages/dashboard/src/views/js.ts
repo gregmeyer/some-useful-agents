@@ -234,6 +234,64 @@ export const DASHBOARD_JS = `
     }
   });
 
+  // ── In-page confirm ────────────────────────────────────────────────
+  // Forms tagged data-confirm-modal="message" (with optional
+  // data-confirm-label / data-confirm-title) ask in a styled dialog
+  // before submitting, instead of the browser's confirm().
+  (function () {
+    var modal = null;
+    var onOk = null;
+    function close() { if (modal) modal.style.display = 'none'; onOk = null; }
+    function ensure() {
+      if (modal) return modal;
+      modal = document.createElement('div');
+      modal.className = 'pulse-configure-modal';
+      modal.style.display = 'none';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.setAttribute('aria-labelledby', 'sua-confirm-title');
+      modal.innerHTML =
+        '<div class="pulse-configure-modal__content" style="max-width: 360px;">' +
+          '<div class="pulse-configure-modal__header">' +
+            '<h3 style="margin: 0;" id="sua-confirm-title"></h3>' +
+            '<button type="button" class="pulse-configure-modal__close" title="Close" data-confirm-close>×</button>' +
+          '</div>' +
+          '<div class="pulse-configure-modal__section">' +
+            '<p style="margin: 0; font-size: var(--font-size-sm);" id="sua-confirm-message"></p>' +
+          '</div>' +
+          '<div class="pulse-configure-modal__footer">' +
+            '<button type="button" class="btn btn--ghost btn--sm" data-confirm-close>Cancel</button>' +
+            '<button type="button" class="btn btn--primary btn--sm" id="sua-confirm-ok"></button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal || (e.target.closest && e.target.closest('[data-confirm-close]'))) close();
+      });
+      document.getElementById('sua-confirm-ok').addEventListener('click', function () {
+        var cb = onOk;
+        close();
+        if (cb) cb();
+      });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && modal.style.display !== 'none') close(); });
+      return modal;
+    }
+    document.addEventListener('submit', function (e) {
+      var form = e.target;
+      if (!form || !form.matches || !form.matches('form[data-confirm-modal]')) return;
+      e.preventDefault();
+      var m = ensure();
+      var label = form.getAttribute('data-confirm-label') || 'OK';
+      document.getElementById('sua-confirm-message').textContent = form.getAttribute('data-confirm-modal') || 'Are you sure?';
+      document.getElementById('sua-confirm-title').textContent = form.getAttribute('data-confirm-title') || (label + '?');
+      var ok = document.getElementById('sua-confirm-ok');
+      ok.textContent = label;
+      onOk = function () { form.submit(); };
+      m.style.display = 'flex';
+      ok.focus();
+    });
+  })();
+
   // ── Node vars filter ───────────────────────────────────────────────
   // Live filter by name or value on resolved variables
   (function () {

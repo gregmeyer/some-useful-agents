@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { getSchedulerStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { getBuildInfo } from '../build-info.js';
+import { reaperStats } from '../lib/reaper-stats.js';
 
 const startedAt = Date.now();
 
@@ -15,13 +16,7 @@ healthRouter.get('/health', (req: Request, res: Response) => {
 
   let runsLastHour = 0;
   try {
-    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
-    const { total } = ctx.runStore.queryRuns({ limit: 0 });
-    // total is without time filter; we want last-hour count. Fall back to
-    // total if the run store doesn't have time filtering (it doesn't yet);
-    // health stays directional rather than precise.
-    runsLastHour = total;
-    void hourAgo;
+    runsLastHour = ctx.runStore.queryRuns({ since: new Date(Date.now() - 3_600_000).toISOString(), limit: 0 }).total;
   } catch {
     runsLastHour = -1;
   }
@@ -44,6 +39,7 @@ healthRouter.get('/health', (req: Request, res: Response) => {
     uptime_s: uptimeSeconds,
     runs_last_hour: runsLastHour,
     scheduler,
+    reaper: reaperStats(),
     commit: build.commit,
     builtAt: build.builtAt,
   });

@@ -15,7 +15,6 @@ import { markdownToText } from '@some-useful-agents/core';
  */
 import { renderRunView, renderLegacySurface } from '../lib/a2ui-surface.js';
 import { legacyWidgetView } from '../lib/legacy-view.js';
-import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
 import {
   exportAgent,
   unallowedWidgetImageHosts,
@@ -175,10 +174,8 @@ function renderActionWidget(
   if (blockedHosts.length > 0) {
     return renderBlockedInlineWidgetNotice(agent.id, messageId, blockedHosts);
   }
-  if (a2uiWidgetsEnabled()) {
-    const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(agent.outputWidget, run.result), { widget: agent.outputWidget });
-    if (surface) return surface;
-  }
+  const surface = renderLegacySurface(`inbox-${messageId}-${run.id}`, legacyWidgetView(agent.outputWidget, run.result), { widget: agent.outputWidget });
+  if (surface) return surface;
   return renderOutputWidget(agent.outputWidget, run.result, agent.id);
 }
 

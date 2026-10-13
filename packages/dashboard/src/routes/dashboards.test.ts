@@ -15,7 +15,6 @@ import {
   loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
@@ -84,8 +83,6 @@ async function makeApp() {
   };
 
   const app = buildDashboardApp(ctx);
-  // These cover the previous dashboard layout (kept one release); boards.test.ts covers the board page.
-  setDashboardPrefs({ boardPages: false });
   return app;
 }
 
@@ -106,7 +103,7 @@ afterEach(async () => {
 });
 
 describe('dashboards routes', () => {
-  it('GET /dashboards/:id renders sections + tiles', async () => {
+  it('GET /dashboards/:id renders the dashboard as a board', async () => {
     const app = await makeApp();
     dashboardsStore.upsertDashboard({
       id: 'starter:main',
@@ -120,67 +117,11 @@ describe('dashboards routes', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('Main');
+    expect(res.text).toContain('data-board-canvas="starter:main"');
     expect(res.text).toContain('Greetings');
-    expect(res.text).toContain('data-agent-id="hello"');
-    expect(res.text).toContain('from pack: starter');
-    // Pulse-parity tile chrome.
-    expect(res.text).toContain('id="dashboard-containers"');
-    expect(res.text).toContain('data-dashboard-id="starter:main"');
-    expect(res.text).toContain('id="dashboard-edit-toggle"');
-    expect(res.text).toContain('id="dashboard-tile-data"');
-    expect(res.text).toContain('class="pulse-tile__resize-handle"');
-    expect(res.text).toContain('class="pulse-tile__configure-btn"');
-    expect(res.text).toContain('class="pulse-tile__palette-btn"');
-    // × button removes from this dashboard, not from Pulse.
-    expect(res.text).toContain('action="/dashboards/starter%3Amain/sections/0/tiles/0/delete"');
-    expect(res.text).not.toContain('action="/agents/hello/signal/toggle"');
-  });
-
-  it('renders missing-agent placeholders for ids the agent store doesn\'t know', async () => {
-    const app = await makeApp();
-    dashboardsStore.upsertDashboard({
-      id: 'd1',
-      packId: null,
-      name: 'D1',
-      layout: { sections: [{ title: 'Mixed', agentIds: ['hello', 'ghost-agent'] }] },
-    });
-    const res = await request(app)
-      .get('/dashboards/d1')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('data-agent-id="hello"');
-    expect(res.text).toContain('ghost-agent');
-    expect(res.text).toContain('not installed');
-  });
-
-  it('exposes the add-tile picker on /dashboards/:id', async () => {
-    const app = await makeApp();
-    dashboardsStore.upsertDashboard({
-      id: 'user:in-place',
-      packId: null,
-      name: 'InPlace',
-      layout: { sections: [{ title: 'Empty', agentIds: [] }] },
-    });
-    const res = await request(app)
-      .get('/dashboards/user:in-place')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    // Single + Add tile button lives in the top action bar, outside the
-    // widget-layout host that gets client-side wiped on render.
-    expect(res.text).toContain('add-tile-btn');
-    expect(res.text).toContain('data-dashboard-id="user:in-place"');
-    expect(res.text).toContain('data-section-idx="0"');
-    // Available-agents JSON is embedded and includes the signal-bearing "hello".
-    expect(res.text).toContain('id="dashboard-available-agents"');
-    const m = res.text.match(/<script type="application\/json" id="dashboard-available-agents">([\s\S]*?)<\/script>/);
-    expect(m).not.toBeNull();
-    const agents = JSON.parse(m![1]);
-    expect(Array.isArray(agents)).toBe(true);
-    expect(agents.find((a: { id: string }) => a.id === 'hello')).toBeDefined();
-    expect(agents[0]).toMatchObject({ id: expect.any(String), name: expect.any(String) });
-    expect(agents[0]).toHaveProperty('lastFiredAt');
+    expect(res.text).toContain('hello');
+    // The previous layout is gone.
+    expect(res.text).not.toContain('id="dashboard-containers"');
   });
 
   it('GET /dashboards/unknown 404s', async () => {
@@ -266,61 +207,5 @@ describe('dashboards routes', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).not.toContain('class="dashboards-dropdown"');
-  });
-
-  it('per-section placement overrides the agent-global LayoutHintsStore entry', async () => {
-    const app = await makeApp();
-    // Agent-global hint: 1x1 / grow / no height (what Pulse would see).
-    layoutHintsStore.setHint('hello', { size: '1x1', tileFit: 'grow' });
-    // Dashboard places the same agent with 2x2 / scroll / pinned 240px.
-    dashboardsStore.upsertDashboard({
-      id: 'user:big-card',
-      packId: null,
-      name: 'Big Card',
-      layout: {
-        sections: [{
-          title: 'Hero',
-          agentIds: ['hello'],
-          placements: { hello: { size: '2x2', tileFit: 'scroll', height: 240 } },
-        }],
-      },
-    });
-
-    const res = await request(app)
-      .get('/dashboards/user%3Abig-card')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    // Per-placement wins on every axis.
-    expect(res.text).toMatch(/data-tile-size="2x2"/);
-    expect(res.text).toMatch(/pulse-tile--fit-scroll/);
-    expect(res.text).toMatch(/style="height: 240px"/);
-  });
-
-  it('falls through to agent-global hint when a placement field is undefined', async () => {
-    const app = await makeApp();
-    layoutHintsStore.setHint('hello', { size: '2x1', tileFit: 'scroll' });
-    dashboardsStore.upsertDashboard({
-      id: 'user:partial',
-      packId: null,
-      name: 'Partial',
-      layout: {
-        sections: [{
-          title: 'Hero',
-          agentIds: ['hello'],
-          // Only override height; size + tileFit should fall through to the hint.
-          placements: { hello: { height: 180 } },
-        }],
-      },
-    });
-
-    const res = await request(app)
-      .get('/dashboards/user%3Apartial')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.text).toMatch(/data-tile-size="2x1"/);
-    expect(res.text).toMatch(/pulse-tile--fit-scroll/);
-    expect(res.text).toMatch(/style="height: 180px"/);
   });
 });

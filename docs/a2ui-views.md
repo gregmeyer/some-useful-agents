@@ -75,14 +75,14 @@ If a **generated** view isn't valid on a run, the run page says why and shows th
 
 ## Existing widgets are drawn with A2UI too
 
-Agents' existing widgets (Pulse `signal` templates and `outputWidget`s) are drawn through the same renderer, without changing any agent. This is the default; **Settings → Appearance → Widget renderer** switches back to the previous renderer if a widget looks wrong. That fallback stays for one release and is then removed. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
+Agents' existing widgets (Pulse `signal` templates and `outputWidget`s) are drawn through the same renderer, without changing any agent. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.
 
 | Converted | Still on the previous renderer |
 | --- | --- |
 | templates: metric, text-headline, status, comparison, key-value, story, table, time-series (Sparkline), funnel, image, text-image, media (images and video files); `widget` | media with a YouTube/Vimeo link (embedded) |
 | widgets: key-value, raw, dashboard, ai-template; **interactive widgets** (a form for the agent's inputs and a Run button that runs it in place); **controls**: sort / filter / paginate (on the table, in the browser), view-switch (Tabs, default first), field-toggle (a collapsible section); preview fields (a link to the file) | diff-apply, action fields, table columns with href/text templates, array controls on ai-templates, the capture-image control |
 
-**Every widget in the 44 example agents converts**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing with the previous renderer, so nothing disappears. A widget with a `capture-image` control stays on the previous renderer (the PNG capture can't see inside A2UI components); a `copy` control works on A2UI widgets. The setting applies to the whole dashboard.
+**Every widget in the 44 example agents converts**: 26 of 26 Pulse templates and 22 of 22 output widgets. Anything not converted keeps drawing with the previous renderer, so nothing disappears. A widget with a `capture-image` control stays on the previous renderer (the PNG capture can't see inside A2UI components); a `copy` control works on A2UI widgets.
 
 ## In chat: replies are widgets, clicks are messages
 

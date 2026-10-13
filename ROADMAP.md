@@ -107,7 +107,7 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 
 ## Then: authoring on the canvas
 
-Boards are canvases agents can build (v0.29). Next there: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3), and removing the previous widget renderer and the previous Pulse layout, are queued alongside. Smaller follow-ups: orphan-reaper stats on `/health`; a `timeoutSec` editor in agent config; one-click "Clear schedule" on `/scheduled`.
+Boards are canvases agents can build (v0.29). Next there: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3) is queued alongside. Done first: the previous widget renderer and Pulse layout are removed, and the small follow-ups (reaper stats on `/health`, a time limit in agent Settings, Clear on `/scheduled`) shipped.
 
 ## Next (3–6 months)
 

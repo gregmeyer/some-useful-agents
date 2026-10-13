@@ -98,9 +98,9 @@ afterEach(async () => {
 });
 
 
-const FIELDS = 'provider,model,schedule,runOn,pulseVisible,dashboardVisible,mcp,inboxRunnable,imgSrc';
+const FIELDS = 'provider,model,schedule,runOn,timeoutMinutes,pulseVisible,dashboardVisible,mcp,inboxRunnable,imgSrc';
 /** The page as it posts with nothing changed. */
-const unchanged = { _fields: FIELDS, provider: '', model: '', schedule: '', runOn: '', pulseVisible: '1', dashboardVisible: '1', imgSrc: '' };
+const unchanged = { _fields: FIELDS, provider: '', model: '', schedule: '', runOn: '', timeoutMinutes: '', pulseVisible: '1', dashboardVisible: '1', imgSrc: '' };
 
 function post(app: Awaited<ReturnType<typeof makeApp>>, body: Record<string, string>, ajax = false) {
   const r = request(app).post('/agents/sched-agent/settings')
@@ -110,6 +110,22 @@ function post(app: Awaited<ReturnType<typeof makeApp>>, body: Record<string, str
 }
 
 describe('POST /agents/:id/settings', () => {
+  it('sets a whole-run time limit in minutes, stored as timeoutSec, and clears it', async () => {
+    const app = await makeApp();
+    const before = agentStore.getAgent('sched-agent')!.version;
+    let res = await post(app, { ...unchanged, timeoutMinutes: '15' });
+    expect(decodeURIComponent(res.headers.location)).toContain(`Saved as v${String(before + 1)}: Stop a run after.`);
+    expect(agentStore.getAgent('sched-agent')!.timeoutSec).toBe(900);
+    res = await post(app, { ...unchanged, timeoutMinutes: '15', preview: '1' }, true);
+    expect(res.body.changes).toEqual([]);
+    res = await post(app, { ...unchanged, timeoutMinutes: 'soon', preview: '1' }, true);
+    expect(res.body.errors[0]).toContain("isn't a number of minutes");
+    res = await post(app, { ...unchanged, preview: '1' }, true);
+    expect(res.body.changes[0]).toMatchObject({ what: 'Stop a run after', before: '15 min', after: 'No limit' });
+    await post(app, { ...unchanged });
+    expect(agentStore.getAgent('sched-agent')!.timeoutSec).toBeUndefined();
+  });
+
   it('previews the changes in plain words without saving', async () => {
     const app = await makeApp();
     const res = await post(app, { ...unchanged, schedule: '0 9 * * 1-5', mcp: '1', preview: '1' }, true);

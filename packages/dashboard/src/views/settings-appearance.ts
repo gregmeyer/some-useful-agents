@@ -133,7 +133,7 @@ const FORM_TOKENS: Array<[BrandColorToken, string]> = [
   ['ok', 'Good'], ['warn', 'Warning'], ['err', 'Error'],
 ];
 
-export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPages?: boolean; brand?: BrandFormInput } = {}): SafeHtml {
+export function renderSettingsAppearance(opts: { brand?: BrandFormInput } = {}): SafeHtml {
   const brand = opts.brand;
   const presets = THEMES.filter((t) => t.id !== 'light');
   const cards = presets.map((t) => html`
@@ -236,40 +236,6 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPag
         })();
       </script>`)}` : html``}
     </div>
-
-    <section id="a2ui-widgets" style="margin-top: var(--space-6);">
-      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Widget renderer</h2>
-      <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3);">
-        Agents' widgets (Pulse templates and output widgets) are drawn with the
-        <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md">A2UI renderer</a>,
-        the one agent views use. If a widget looks wrong, untick this to switch back to the previous
-        renderer for now (and tell us which agent): it stays one release as a fallback, then it's removed.
-        Applies to everyone using this dashboard.
-      </p>
-      <form method="POST" action="/settings/appearance/a2ui" class="settings-pricing__form">
-        <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
-          <input type="checkbox" name="enabled" value="1" ${opts.a2uiWidgets ? 'checked' : ''}>
-          <span>Draw widgets with A2UI</span>
-        </label>
-        <button type="submit" class="btn btn--sm">Save</button>
-      </form>
-    </section>
-
-    <section id="board-pages" style="margin-top: var(--space-6);">
-      <h2 style="margin-top: 0; margin-bottom: var(--space-2);">Pulse and dashboards</h2>
-      <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-3);">
-        Pulse and your dashboards are <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/boards.md">boards</a>:
-        canvases you arrange with sections, tabs and grids, saved for every browser, and arrangeable by agents. Untick this to go back to
-        the previous layout for now: it stays one release as a fallback, then it's removed. Applies to everyone using this dashboard.
-      </p>
-      <form method="POST" action="/settings/appearance/boards" class="settings-pricing__form">
-        <label class="settings-pricing__field" style="flex-direction: row; align-items: center; gap: var(--space-2);">
-          <input type="checkbox" name="enabled" value="1" ${opts.boardPages ? 'checked' : ''}>
-          <span>Show Pulse and dashboards as boards</span>
-        </label>
-        <button type="submit" class="btn btn--sm">Save</button>
-      </form>
-    </section>
 
   `;
 }

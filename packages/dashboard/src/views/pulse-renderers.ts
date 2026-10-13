@@ -3,7 +3,6 @@
  * SafeHtml for the tile's inner content (wrapped by tileWrap in pulse.ts).
  */
 
-import { a2uiWidgetsEnabled } from '../lib/dashboard-prefs.js';
 import { renderLegacySurface, legacySurfaceMessages } from '../lib/a2ui-surface.js';
 import { legacyInteractiveView, legacySignalView, legacyWidgetView, type LegacyView } from '../lib/legacy-view.js';
 import type { OutputWidgetSchema, SignalTemplate } from '@some-useful-agents/core';
@@ -333,11 +332,10 @@ export function renderTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   if (tile.agent.view && !tile.agent.signal) {
     return wrap(tile, html`<p class="dim" style="font-size: var(--font-size-xs);">No runs yet.</p>`);
   }
-  // Preview (Settings → Appearance): existing templates/widgets drawn through A2UI.
-  if (a2uiWidgetsEnabled()) {
-    const surface = legacyTileSurface(tile);
-    if (surface) return wrap(tile, surface);
-  }
+  // Templates and output widgets are drawn through A2UI; the renderers below
+  // are the fallback for what the converter can't draw yet.
+  const surface = legacyTileSurface(tile);
+  if (surface) return wrap(tile, surface);
   // An INTERACTIVE outputWidget is a tile-level mini-app (inputs form + run
   // button) and renders without a prior run, so it must own the tile even when
   // signal.template wasn't set to 'widget'. Pulse dispatches on signal.template,
@@ -390,7 +388,6 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
   return wrap(tile, widgetHtml ?? html`<p class="dim" style="font-size: var(--font-size-xs);">Widget render failed.</p>`);
 }
 
-/** The tile's signal template or output widget, converted to an A2UI surface; undefined → old renderer. */
 /** The converted pre-A2UI view of a tile, or undefined when there's nothing to draw (no run yet). */
 function legacyTileView(tile: PulseTile): { legacy: LegacyView; widget?: OutputWidgetSchema } | undefined {
   const agent = tile.agent;

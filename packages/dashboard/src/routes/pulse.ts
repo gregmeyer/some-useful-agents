@@ -1,16 +1,13 @@
-import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
 import { renderBoardPage } from './boards.js';
 import { Router, type Request, type Response } from 'express';
-import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent, type Run } from '@some-useful-agents/core';
+import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { render } from '../views/html.js';
-import { layout } from '../views/layout.js';
-import { tileWrap, renderPulseBoard, type PulseTile } from '../views/pulse.js';
+import { tileWrap, type PulseTile } from '../views/pulse.js';
 import { renderTile } from '../views/pulse-renderers.js';
 import { buildPulseTile, withTileSignal, attachLayoutHints } from '../views/pulse-tile-builder.js';
-import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
+import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { schedulerTileState } from '../lib/scheduler-tile.js';
 
 export const pulseRouter: Router = Router();
@@ -42,14 +39,6 @@ function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeo
 }
 
 // ── Virtual system tiles ─────────────────────────────────────────────────
-
-const SYSTEM_IDS = [
-  '_system-runs-today',
-  '_system-failure-rate',
-  '_system-avg-duration',
-  '_system-agent-count',
-  '_system-scheduler',
-] as const;
 
 function virtualAgent(id: string, name: string): Agent {
   return {
@@ -189,23 +178,10 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
   return { systemTiles, tiles, hiddenTiles, installedDashboards, availablePacks };
 }
 
-// Pulse is a first-class page: the signals board (system tiles + agent signal
-// tiles + arrangement affordances). It moved off the Mission Control home `/`
-// (which now leads with the cadence inbox feed). `renderPulseBoard` is
-// layout-less, so we wrap it here; its default heading is `<h1>Pulse</h1>` and
-// `editable` defaults on, giving the full arrange/hide/improve toolbar.
+// Pulse is a board (docs/boards.md), with the toolbar to arrange it.
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const flash = parsePulseFlash(req);
-  // Pulse is a board (docs/boards.md) unless the previous layout is switched back on.
-  if (boardPagesEnabled()) {
-    res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
-    return;
-  }
-  const board = buildPulseBoardData(ctx);
-  const description = 'Your board of agents — each tile shows one agent’s latest result, '
-    + 'and you can run it right from the tile.';
-  res.send(render(layout({ title: 'Pulse', activeNav: 'pulse', flash }, renderPulseBoard(board, { description }))));
+  res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash: parsePulseFlash(req) })!);
 });
 
 export function parsePulseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {

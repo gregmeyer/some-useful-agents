@@ -8,18 +8,10 @@
  * (added via the editor in PR 5).
  */
 
-import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
 import { renderBoardPage } from './boards.js';
 import { Router, type Request, type Response } from 'express';
-import { BoardsStore, dashboardToPackManifest, sectionsFromBoardDoc, sectionsFromBoardItems, type Agent, type AgentSignal } from '@some-useful-agents/core';
+import { BoardsStore, dashboardToPackManifest, sectionsFromBoardDoc, sectionsFromBoardItems } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import {
-  renderDashboardPage,
-  type AvailableAgent,
-  type DashboardSectionRender,
-} from '../views/dashboards.js';
-import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
-import type { PulseTile } from '../views/pulse-types.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 
 export const dashboardsRouter: Router = Router();
@@ -42,91 +34,7 @@ dashboardsRouter.get('/dashboards/:id', (req: Request, res: Response) => {
     }));
     return;
   }
-  // A dashboard is a board (docs/boards.md) unless the previous layout is switched back on.
-  if (boardPagesEnabled()) {
-    res.type('html').send(renderBoardPage(ctx, id, { flash: parseFlash(req) })!);
-    return;
-  }
-
-  // Build tiles for each section. Agents that aren't installed render
-  // as muted placeholder cards so the user knows what's missing.
-  const sections: DashboardSectionRender[] = dashboard.layout.sections.map((s) => {
-    const tiles: PulseTile[] = [];
-    const missingAgentIds: string[] = [];
-    for (const agentId of s.agentIds) {
-      const agent = withTileSignal(ctx.agentStore.getAgent(agentId));
-      if (!agent || !agent.signal) {
-        missingAgentIds.push(agentId);
-        continue;
-      }
-      tiles.push(buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore }));
-    }
-    // Decorate with the agent-global hint first, then layer this
-    // section's per-placement overrides on top. Each defined placement
-    // field wins; undefined fields fall through to the hint, signal,
-    // or default — same precedence as Pulse, plus a dashboard-scoped
-    // layer above it.
-    attachLayoutHints(tiles, ctx.layoutHintsStore);
-    if (s.placements) {
-      for (const tile of tiles) {
-        const placement = s.placements[tile.agent.id];
-        if (!placement) continue;
-        const base = tile.layoutHint ?? { agentId: tile.agent.id, updatedAt: 0 };
-        tile.layoutHint = {
-          ...base,
-          ...(placement.size !== undefined ? { size: placement.size } : {}),
-          ...(placement.tileFit !== undefined ? { tileFit: placement.tileFit } : {}),
-          ...(placement.height !== undefined ? { height: placement.height } : {}),
-        };
-      }
-    }
-    return { title: s.title, tiles, missingAgentIds, agentIds: [...s.agentIds] };
-  });
-
-  const installedDashboards = ctx.dashboardsStore.listDashboards();
-  const flash = parseFlash(req);
-
-  // Pool of agents the user could add to any section: every signal-bearing
-  // agent. The modal filters out ones already placed in the section it was
-  // opened from, but we expose the whole pool so the "Suggested" row (by
-  // recency) is stable across sections.
-  const availableAgents: AvailableAgent[] = ctx.agentStore
-    .listAgents()
-    .map(withTileSignal)
-    .filter((a) => a.signal)
-    .map((a) => {
-      let lastFiredAt: string | null = null;
-      try {
-        const recent = ctx.runStore.listRuns({ agentName: a.id, limit: 1 });
-        if (recent.length > 0) lastFiredAt = recent[0].startedAt;
-      } catch { /* no runs */ }
-      return {
-        id: a.id,
-        name: a.name,
-        icon: a.signal?.icon ?? null,
-        template: a.signal?.template ?? null,
-        description: a.description ?? null,
-        lastFiredAt,
-      };
-    });
-
-  // Offer to delete the dashboard when the tile-delete redirect flagged
-  // it empty (?emptyDashboard=1), it's user-owned, and it really has no
-  // tiles left. Server-driven so the client doesn't depend on parsing
-  // the query string itself.
-  const totalTiles = sections.reduce((n, s) => n + s.tiles.length + s.missingAgentIds.length, 0);
-  const offerDeleteEmpty = req.query.emptyDashboard === '1'
-    && dashboard.packId === null
-    && totalTiles === 0;
-
-  res.type('html').send(renderDashboardPage({
-    dashboard,
-    sections,
-    installedDashboards,
-    availableAgents,
-    flash,
-    offerDeleteEmpty,
-  }));
+  res.type('html').send(renderBoardPage(ctx, id, { flash: parseFlash(req) })!);
 });
 
 /**

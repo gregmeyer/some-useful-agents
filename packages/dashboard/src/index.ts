@@ -1,3 +1,4 @@
+import { recordBootReap, recordWatchdogReap } from './lib/reaper-stats.js';
 import express, { type Application } from 'express';
 import type { Server } from 'node:http';
 import { dirname } from 'node:path';
@@ -57,7 +58,6 @@ import { buildRouter } from './routes/run-now-build.js';
 import { attachChatSocket } from './lib/chat-socket.js';
 import { boardsRouter } from './routes/boards.js';
 import { reportInterruptedBoardBuilds, startQueuedBoardBuilds, watchQueuedBoardBuilds } from './lib/board-build.js';
-import { setDashboardPrefsDir } from './lib/dashboard-prefs.js';
 import { buildTryRouter } from './routes/build-try.js';
 import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
@@ -165,7 +165,6 @@ export interface DashboardHandle {
 export function buildDashboardApp(ctx: DashboardContext): Application {
   const app = express();
   app.locals = ctx as unknown as Application['locals'];
-  setDashboardPrefsDir(ctx.dataDir);
 
   // Inbound webhooks: before the body parsers (a GitHub signature covers the
   // raw bytes) and before the session check (callers are outside services;
@@ -379,6 +378,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   // check defends against PID reuse. This stops the token bleed for orphans
   // still streaming to the Anthropic API at boot time.
   const reapResult = reapOrphanedRuns(runStore);
+  recordBootReap(reapResult);
   if (reapResult.runsReaped > 0) {
     console.warn(
       `[orphan-reaper] Finalized ${reapResult.runsReaped} run(s) and ${reapResult.nodesReaped} node execution(s) ` +
@@ -542,6 +542,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   const stuckWatchdog = setInterval(() => {
     try {
       const res = reapStuckRuns(runStore);
+      recordWatchdogReap(res);
       if (res.runsReaped > 0) {
         console.warn(
           `[stuck-run-watchdog] Reaped ${res.runsReaped} stuck run(s) and ${res.nodesReaped} node execution(s) ` +

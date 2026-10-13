@@ -53,7 +53,6 @@ import {
 import { existsSync } from 'node:fs';
 import { renderSettingsPolicies, type PolicyCheck, type PolicySource } from '../views/settings-policies.js';
 import { listPickableTools } from '../views/tools-multipicker.js';
-import { a2uiWidgetsEnabled, boardPagesEnabled, setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import { renderSettingsShell } from '../views/settings-shell.js';
 import { renderSettingsSecrets } from '../views/settings-secrets.js';
 import { renderSettingsVariables } from '../views/settings-variables.js';
@@ -765,8 +764,6 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const theme = loadBrandTheme(ctx.dataDir);
   const body = renderSettingsAppearance({
-    a2uiWidgets: a2uiWidgetsEnabled(),
-    boardPages: boardPagesEnabled(),
     brand: {
       theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme),
       saved: listSavedBrands(ctx.dataDir).map((b) => ({ id: b.id, name: b.name, active: isActiveBrand(theme, b.theme), effective: resolveBrandTheme(b.theme) })),
@@ -774,19 +771,6 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
     },
   });
   res.type('html').send(renderSettingsShell({ active: 'appearance', body, flash }));
-});
-
-/** Settings → Appearance: A2UI renderer for widgets (default on; off = the previous renderer, kept one release). */
-settingsRouter.post('/settings/appearance/a2ui', (req: Request, res: Response) => {
-  const enabled = req.body?.enabled === '1';
-  try {
-    setDashboardPrefs({ a2uiWidgets: enabled });
-    redirectWith(res, '/settings/appearance#a2ui-widgets', 'flash', enabled
-      ? 'Widgets draw with the A2UI renderer.'
-      : 'Widgets draw with the previous renderer. It will be removed in a future release, so please report what looked wrong.');
-  } catch (err) {
-    redirectWith(res, '/settings/appearance#a2ui-widgets', 'error', (err as Error).message);
-  }
 });
 
 /**
@@ -912,19 +896,6 @@ settingsRouter.post('/settings/appearance/brand/undo', (req: Request, res: Respo
     redirectWith(res, '/settings/appearance#brand', 'flash', 'The previous brand is back.');
   } catch (err) {
     redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
-  }
-});
-
-/** Settings → Appearance: Pulse and dashboards as boards (default on; off = the previous layout, kept one release). */
-settingsRouter.post('/settings/appearance/boards', (req: Request, res: Response) => {
-  const enabled = req.body?.enabled === '1';
-  try {
-    setDashboardPrefs({ boardPages: enabled });
-    redirectWith(res, '/settings/appearance#board-pages', 'flash', enabled
-      ? 'Pulse and dashboards show as boards.'
-      : 'Pulse and dashboards use the previous layout. It will be removed in a future release, so please tell us what you missed.');
-  } catch (err) {
-    redirectWith(res, '/settings/appearance#board-pages', 'error', (err as Error).message);
   }
 });
 
