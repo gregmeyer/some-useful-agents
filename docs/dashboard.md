@@ -135,7 +135,7 @@ One page, with a section menu on the left. Each section has a one-line summary o
 - **Inputs**: what you can pass when it runs. **Edit inputs** opens the editor (name, type, default, description; enum types get a values column).
 - **Model**: the provider and model every prompt step uses. A step can still pick its own model in the YAML.
 - **When it runs**: preset chips (Only when asked, Hourly, Daily 8am, Weekdays 9am, Mondays 9am), or a custom five-field schedule; a time limit for a whole run (**Stop a run after**, in minutes; the agent's `timeoutSec`); whether runs are durable (Temporal).
-- **Where it shows**: Pulse, the agents list, AI apps (MCP); the output widget (see [Output widget editor](#output-widget-editor)).
+- **Where it shows**: Pulse, the agents list, AI apps (MCP); the output widget (see [Output widget editor](#output-widget-editor)) and the view, edited with a live preview (see [The View editor](a2ui-views.md#the-view-editor)).
 - **Connections**: the inbound webhook and notify-when-finished.
 - **Access**: whether sua can run it from a conversation, which hosts its widgets may load images from, which agents it can hand work to, and its secrets.
 

@@ -28,6 +28,14 @@ view:
 
 A generated view's node outputs `<a2ui>…</a2ui>` around JSON (or a ```json fence, or bare JSON). The JSON is either the component list or `{ "components": [...], "data": {...} }`; `data` is extra data the view can bind to at `/data`.
 
+## The View editor
+
+Settings → Where it shows → **View** opens `/agents/<id>/view`: the view as YAML on the left, drawn on the right with the agent's last completed run (and its earlier runs, for trends) as you type. Mistakes show under the text and turn Save off. **Save as vN** stores it as the agent's `view:` in a new version (roll back from Versions); **Remove view** goes back to the output widget or plain text.
+
+An agent without a view starts from one built from what its last run output (`starterView`): numbers as metrics, with a trend line when there are earlier runs; short text as labelled lines; lists of objects as tables (web addresses as links); lists of words as chips; long text as a paragraph. Labels come from the old output widget's fields where it had them. **Start from its outputs** puts that starter back. Below the editor, **What it can bind to** lists every path with its value from the last run, and **sua components** lists the catalog with an example of each.
+
+When a step's only output is `result` and it holds a JSON object (a step that printed JSON), that object's fields are outputs too: `/outputs/articles`, alongside `/outputs/result`.
+
 ## What a view can bind to
 
 Every view gets the same data model, built from the run:

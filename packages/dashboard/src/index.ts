@@ -52,6 +52,7 @@ import { agentsRouter } from './routes/agents.js';
 import { agentInstallRouter } from './routes/agent-install.js';
 import { agentNodesRouter } from './routes/agent-nodes.js';
 import { agentInputsRouter } from './routes/agent-inputs.js';
+import { agentViewRouter } from './routes/agent-view.js';
 import { runsRouter } from './routes/runs.js';
 import { runNowRouter } from './routes/run-now.js';
 import { buildRouter } from './routes/run-now-build.js';
@@ -274,6 +275,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(agentsRouter);
   app.use(agentNodesRouter);
   app.use(agentInputsRouter);
+  app.use(agentViewRouter);
   app.use(runsRouter);
   app.use(runNowRouter);
   app.use(buildRouter);

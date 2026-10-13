@@ -162,6 +162,13 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
         : 'None: runs show as text'}</span>
       <a class="btn btn--ghost btn--sm" href="/agents/${id}/output-widget">${widget ? 'Edit' : 'Set up'}</a>
     </div>
+    <div class="settings-row">
+      <span class="settings-row__label">View</span>
+      <span class="settings-row__value">${!agent.view
+        ? (widget ? 'None: runs use the output widget' : 'None')
+        : 'from' in agent.view ? `Written by its "${agent.view.from}" step each run` : `${String(agent.view.components.length)} components; shown instead of the widget`}</span>
+      <a class="btn btn--ghost btn--sm" href="/agents/${id}/view">${agent.view ? 'Edit' : 'Set up'}</a>
+    </div>
   `);
 
   // ── Connections (own saves) ────────────────────────────────────────
