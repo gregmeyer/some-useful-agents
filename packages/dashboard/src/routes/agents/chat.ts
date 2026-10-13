@@ -139,7 +139,7 @@ function replyViews(ctx: Ctx, agent: Agent, turns: readonly SessionTurn[]): Reco
     if (t.role !== 'agent' || !t.runId || t.failed) continue;
     const run = ctx.runStore.getRun(t.runId);
     if (!run || run.status !== 'completed') continue;
-    out[t.runId] = renderRunView(agent, run, ctx.runStore.listNodeExecutions(t.runId), `chat-${t.runId}`);
+    out[t.runId] = renderRunView(agent, run, ctx.runStore.listNodeExecutions(t.runId), `chat-${t.runId}`, { runStore: ctx.runStore });
   }
   return out;
 }

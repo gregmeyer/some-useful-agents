@@ -130,8 +130,15 @@ export interface ViewDataModel {
   result: string;
   inputs: Record<string, string>;
   run: { id: string; status: string; startedAt: string; completedAt?: string; durationMs?: number; costUsd?: number };
-  /** Earlier runs, newest first (for sparklines): their outputs and when they ended. */
+  /** Earlier runs, newest first: their outputs and when they ended. */
   history: Array<{ outputs: Record<string, unknown>; completedAt?: string }>;
+  /**
+   * Each numeric output as a series, oldest first, ending with this run:
+   * `/series/<output>` is what a Sparkline's `values` binds to.
+   */
+  series: Record<string, number[]>;
+  /** The agent the view belongs to (a Run button's action targets it). */
+  agent?: { id: string; name?: string };
   /** Extra data a generated view brought with it. */
   data?: unknown;
 }
@@ -154,17 +161,48 @@ export function runOutputs(run: Pick<Run, 'result'>, nodeExecutions: readonly No
   return parseObject(run.result) ?? {};
 }
 
-/** The data model a view binds to, built from a run (and, for sparklines, earlier runs). */
+/** How many points a `/series/<output>` keeps (the newest). */
+export const VIEW_SERIES_MAX = 30;
+
+function numeric(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v.trim().replace(/[$,%\s]/g, ''));
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
+/** Numeric outputs across runs (oldest first) as one series per output name. */
+export function outputSeries(outputsOldestFirst: ReadonlyArray<Record<string, unknown>>): Record<string, number[]> {
+  const names = new Set<string>();
+  for (const o of outputsOldestFirst) for (const k of Object.keys(o)) if (numeric(o[k]) !== undefined) names.add(k);
+  const out: Record<string, number[]> = {};
+  for (const name of names) {
+    const values = outputsOldestFirst.map((o) => numeric(o[name])).filter((n): n is number => n !== undefined);
+    out[name] = values.slice(-VIEW_SERIES_MAX);
+  }
+  return out;
+}
+
+/** The data model a view binds to, built from a run (and, for trends, earlier runs). */
 export function buildViewDataModel(args: {
   run: Run;
   nodeExecutions: readonly NodeExecutionRecord[];
   inputs?: Record<string, string>;
+  /** Earlier runs of the agent, newest first. */
   history?: ReadonlyArray<{ run: Run; nodeExecutions: readonly NodeExecutionRecord[] }>;
+  agent?: { id: string; name?: string };
 }): ViewDataModel {
   const { run } = args;
+  const outputs = runOutputs(run, args.nodeExecutions);
+  const history = (args.history ?? []).map((h) => ({
+    outputs: runOutputs(h.run, h.nodeExecutions),
+    ...(h.run.completedAt ? { completedAt: h.run.completedAt } : {}),
+  }));
   const durationMs = run.completedAt ? Date.parse(run.completedAt) - Date.parse(run.startedAt) : undefined;
   return {
-    outputs: runOutputs(run, args.nodeExecutions),
+    outputs,
     result: run.result ?? '',
     inputs: { ...(run.resumeContext?.inputs ?? {}), ...(args.inputs ?? {}) },
     run: {
@@ -175,10 +213,9 @@ export function buildViewDataModel(args: {
       ...(durationMs !== undefined && Number.isFinite(durationMs) ? { durationMs } : {}),
       ...(run.usage?.costUsd !== undefined ? { costUsd: run.usage.costUsd } : {}),
     },
-    history: (args.history ?? []).map((h) => ({
-      outputs: runOutputs(h.run, h.nodeExecutions),
-      ...(h.run.completedAt ? { completedAt: h.run.completedAt } : {}),
-    })),
+    history,
+    series: outputSeries([...history.map((h) => h.outputs).reverse(), outputs]),
+    ...(args.agent ? { agent: args.agent } : {}),
   };
 }
 

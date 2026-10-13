@@ -547,6 +547,8 @@ export {
   validateViewComponents,
   extractGeneratedView,
   buildViewDataModel,
+  outputSeries,
+  VIEW_SERIES_MAX,
   runOutputs,
   resolveAgentView,
   viewToMessages,

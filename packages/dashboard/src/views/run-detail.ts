@@ -8,7 +8,7 @@ import { renderDagView, renderDagFallback } from './dag-view.js';
 import { renderOutputWidget, type WidgetControlState } from './output-widgets.js';
 import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
-import { renderRunView, renderLegacySurface } from '../lib/a2ui-surface.js';
+import { renderRunView, renderLegacySurface, type RunViewOptions } from '../lib/a2ui-surface.js';
 import { legacyWidgetView } from '../lib/legacy-view.js';
 import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
@@ -33,6 +33,8 @@ export interface RunDetailOptions {
   temporalLink?: string;
   /** Recorded tool calls by node id (the `tool_calls` table). Older runs have none. */
   toolCalls?: Map<string, ToolCallRecord[]>;
+  /** The agent's earlier completed runs, for its view's `/history` and `/series` (lib/a2ui-surface.ts viewHistory). */
+  viewHistory?: RunViewOptions['history'];
   /** Runs this run started (agent-invoke / loop nodes, agents called as tools). */
   /** Runs this run started, as a tree flattened depth-first (`depth` 0 = a direct child). */
   childRuns?: Array<Run & { depth?: number }>;
@@ -51,7 +53,7 @@ export interface RunDetailOptions {
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns, question } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns, question, viewHistory } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -277,7 +279,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
             ${!inProgress && run.result
               ? (widgetBlocked
                   ? widgetHiddenNotice
-                  : runWidget(agent, run, nodeExecutions, widgetControls))
+                  : runWidget(agent, run, nodeExecutions, widgetControls, viewHistory))
               : inProgress
                 ? html`<p class="dim" style="font-size: var(--font-size-xs);">Run in progress...</p>`
                 : html`<p class="dim" style="font-size: var(--font-size-xs);">No output yet.</p>`}
@@ -314,7 +316,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
         <div data-poll-region="result">${run.result
           ? (widgetBlocked
               ? widgetHiddenNotice
-              : runWidget(agent, run, nodeExecutions, widgetControls))
+              : runWidget(agent, run, nodeExecutions, widgetControls, viewHistory))
           : html`<p class="dim">No output yet.</p>`}</div>
       `}
       ${cancelModal}
@@ -787,6 +789,7 @@ function runWidget(
   run: Run,
   nodeExecutions: NodeExecutionRecord[] | undefined,
   widgetControls: Parameters<typeof renderOutputWidget>[3],
+  viewHistory?: RunViewOptions['history'],
 ): SafeHtml {
   const fallback = () => (agent?.outputWidget
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
@@ -796,7 +799,7 @@ function runWidget(
     if (surface) return surface;
   }
   if (agent?.view && run.status === 'completed') {
-    const view = renderRunView(agent, run, nodeExecutions ?? [], `run-${run.id}`);
+    const view = renderRunView(agent, run, nodeExecutions ?? [], `run-${run.id}`, { history: viewHistory });
     if (String(view).includes('data-a2ui-surface')) return view;
     return html`${view}${fallback()}`;
   }

@@ -82,6 +82,20 @@ describe('A2UI views across the dashboard', () => {
     expect(bad.text).not.toContain('data-a2ui-surface');
   });
 
+  it('a view trend shows every run so far, on the run page and the Pulse tile', async () => {
+    const { app } = await setup();
+    ctx.agentStore.createAgent({ id: 'trendy', name: 'Trendy', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'count', type: 'llm-prompt', prompt: 'x' }],
+      view: { components: [{ id: 'root', component: 'Sparkline', label: 'Price', values: { path: '/series/price' } }] } } as never, 'cli');
+    let last;
+    for (let i = 0; i < 3; i++) {
+      last = await executeAgentDag(ctx.agentStore.getAgent('trendy') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
+      await new Promise((r) => setTimeout(r, 5)); // distinct startedAt
+    }
+    expect((await get(app, `/runs/${last!.id}`)).text).toContain('"series":{"price":[89,89,89]}');
+    expect((await get(app, '/pulse/tile/trendy')).text).toContain('"series":{"price":[89,89,89]}');
+  });
+
   it('an agent with only a view gets a Pulse tile drawn from it, and the tile refresh returns it too', async () => {
     const { app } = await setup();
     const pulse = await get(app, '/pulse');
