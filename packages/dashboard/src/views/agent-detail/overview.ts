@@ -184,18 +184,20 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
 
     ${goalCard(agent)}
     ${agent.nodes.length === 1 && agent.nodes[0].type === 'goal' ? html`` : html`
-      <section class="agent-how" aria-labelledby="agent-how-title">
+      <section class="agent-how" aria-labelledby="agent-how-title"${args.liveRun ? html` data-agent-live-run="${args.liveRun.run.id}" data-agent-live-agent="${agent.id}"` : html``}>
         <div class="agent-how__head">
           <h2 class="section-label" id="agent-how-title">How it works</h2>
+          ${args.liveRun ? html`<span class="agent-how__live"><span class="agent-result__dot" aria-hidden="true"></span> <span data-agent-live-step>${liveStepText(args.liveRun.nodeExecutions)}</span></span>` : html``}
           <a href="/agents/${agent.id}/nodes" class="dim text-xs">Edit in Nodes →</a>
         </div>
         <p class="agent-how__chain">${agent.nodes.map((n, i) => html`${i > 0 ? html`<span class="dim" aria-hidden="true"> → </span>` : html``}<a href="/agents/${agent.id}/nodes/${encodeURIComponent(n.id)}/edit" class="mono" title="${n.type}">${n.id}</a>`) as unknown as SafeHtml[]}
           <span class="dim text-xs"> · ${String(agent.nodes.length)} step${agent.nodes.length === 1 ? '' : 's'}</span></p>
-        <details class="agent-how__diagram">
+        <details class="agent-how__diagram"${args.liveRun ? html` open` : html``}>
           <summary class="dim">Show the diagram</summary>
           ${renderDagFallback(agent)}
           ${renderDagView({
             agent,
+            ...(args.liveRun ? { nodeExecs: args.liveRun.nodeExecutions } : {}),
             editBase: `/agents/${agent.id}/nodes`,
             editable: true,
             replay: latestCompletedRun
@@ -308,6 +310,12 @@ function connectionsList(id: string, invokes: AgentEdge[], invokedBy: AgentEdge[
         <ul>${notebooks.map((n) => html`<li><a href="/notebooks/${encodeURIComponent(n.id)}">${n.title}</a>${n.status !== 'active' ? html` <span class="dim text-xs">${n.status}</span>` : html``} <a class="dim text-xs" href="/notebooks/${encodeURIComponent(n.id)}/workflow">how it was made →</a></li>`) as unknown as SafeHtml[]}</ul>` : html``}
     </div>
   `;
+}
+
+/** "Running: fetch" (the steps working now), or "Starting…" before the first one begins. */
+export function liveStepText(execs: ReadonlyArray<{ nodeId: string; status: string }>): string {
+  const now = execs.filter((e) => e.status === 'running').map((e) => e.nodeId);
+  return now.length > 0 ? `Running: ${now.join(', ')}` : 'Starting…';
 }
 
 /** The first line of an error, cut to fit one line. */

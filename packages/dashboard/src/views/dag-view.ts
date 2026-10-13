@@ -9,6 +9,13 @@ import { html, unsafeHtml, type SafeHtml } from './html.js';
  * provided via `nodeExecs`) colors the node; without it, we color by
  * node type (shell vs claude-code).
  */
+/** The canvas's Cytoscape payload (what #dag-data holds), for live updates of node statuses. */
+export function dagPayload(agent: Pick<Agent, 'nodes'>, nodeExecs: readonly NodeExecutionRecord[] = []): string {
+  const execByNodeId = new Map<string, NodeExecutionRecord>();
+  for (const e of nodeExecs) execByNodeId.set(e.nodeId, e);
+  return JSON.stringify({ elements: buildElements(agent.nodes, execByNodeId) });
+}
+
 export function renderDagView(args: {
   agent: Agent;
   /** Optional — when rendering /runs/:id we know the per-node status. */
