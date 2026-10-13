@@ -178,6 +178,18 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const checkedTop = top.reduce((n, o) => n + (o.checked.length >= checks.length && checks.length ? 1 : 0), 0);
 
   const second = active.filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined)[1];
+  // What's left: options whose checks aren't all ticked, ones without their own page, and the steps to go.
+  const own = nb.checks.length ? nb.checks : [];
+  const toCheck = own.length ? active.filter((o) => own.some((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase()))).length : 0;
+  const linkF = nb.fields.find((f) => f.role === 'link');
+  const noOwnLink = linkF ? active.filter((o) => !o.link || o.linkIsList).length : 0;
+  const stepWord = (k: string) => (k === 'narrow' ? 'Narrow' : k === 'decide' ? 'Decide' : k === 'check' ? 'check' : k === 'source' ? 'source' : 'find');
+  const stepsLeft = (nb.steps ?? []).filter((x) => x.status !== 'done').map((x) => `${x.title} (${stepWord(x.kind)})`);
+  const leftLine = [
+    toCheck ? `**${String(toCheck)} of ${String(active.length)} still to check**` : own.length && active.length ? 'every one checked' : '',
+    noOwnLink ? `**${String(noOwnLink)} without their own ${(linkF?.label ?? 'listing').replace(/\s*(url|link)$/i, '').toLowerCase() || 'page'}**` : '',
+  ].filter(Boolean).join(', ');
+  const stepsLine = stepsLeft.length ? `**Steps left:** ${stepsLeft.length === 1 ? stepsLeft[0] : `${stepsLeft.slice(0, -1).join(', ')}, then ${stepsLeft[stepsLeft.length - 1]}`}.` : '';
   // Decided with picks: where it stands is the final set.
   const chosen = active.filter((o) => o.chosen);
   const bestChosen = chosen.find((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
@@ -192,11 +204,13 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
     ? (v.options.length ? `All ${String(v.options.length)} options are ruled out.` : 'No options yet. Ask sua to search, or tell it about one you saw.')
     : [
       `**${String(active.length)} in the running**${searches.length ? ` after ${String(searches.length)} search${searches.length === 1 ? '' : 'es'}` : ''}${v.ruledOutCount ? `, ${String(v.ruledOutCount)} ruled out` : ''}.`,
+      leftLine ? `${leftLine.charAt(0).toUpperCase()}${leftLine.slice(1)}.` : '',
       best ? `The ${rank.by === 'score' ? 'best fit' : 'best lead'} is the **${best.name}**: ${rankText(rank, best)}${rank.by === 'score' && best.price !== undefined ? `, ${money(priceF, best.price)}` : ''}${best.measure !== undefined ? `, ${best.measure.toLocaleString('en-US')} ${(() => { const mf = nb.fields.find((f) => f.role === 'measure'); return mf?.unit ?? (mf?.label ?? '').toLowerCase(); })()}`.trimEnd() : ''}${best.place ? `, in ${best.place}` : ''}.` : '',
       second && best && rankText(rank, second)
         ? (rank.by === 'score' ? `Next best: ${second.name} (${rankText(rank, second)}).` : `Next best: ${second.name} at ${rankText(rank, second)}.`)
         : '',
       furthest && furthest !== v.stages[0] ? `Furthest along: ${furthest}.` : '',
+      stepsLine,
     ].filter(Boolean).join(' ');
   const listLinks = active.filter((o) => o.linkIsList).length;
   const next = decided
