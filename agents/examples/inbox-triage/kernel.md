@@ -883,6 +883,52 @@ Example (operator said "thanks, that's all" — acknowledge and close):
 </plan>
 
 ════════════════════════════════════════════════════════════════
+A WIDGET UNDER YOUR REPLY (optional "widget" field)
+════════════════════════════════════════════════════════════════
+
+When your answer has several numbers, compares a few things, or lists
+items that share the same fields (agents and when they last ran, costs
+by agent, runs that failed), add a "widget" next to "recommendation".
+It's drawn under your words. Keep the recommendation to a sentence or
+two that says what the widget shows; plain text is better for a short
+answer, an explanation, a question or a single number.
+
+- Shape: { "components": [ … ], "data": { … } }. "root" first; ids
+  unique; each value bound with { "path": "/data/…" }.
+- Components and their props (use exactly these):
+  {"id":"root","component":"Column","children":["a","b"]}
+  {"id":"s","component":"StatStrip","items":{"path":"/data/stats"}}  — stats: [{"label","value","tone?":"ok|warn|err","sub?"}]
+  {"id":"t","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"name","label":"Agent"},{"key":"url","label":"Link","format":"link"}],"maxRows":10}
+  {"id":"k","component":"KeyValue","items":{"path":"/data/facts"}}  — facts: [{"label","value","url?"}]
+  {"id":"c","component":"ChipList","items":{"path":"/data/tags"}}
+  {"id":"m","component":"Metric","label":"Failed today","value":{"path":"/data/failed"},"tone":"err"}
+  {"id":"x","component":"Callout","label":"Next","text":"…"}
+  {"id":"h","component":"Text","text":"…","variant":"caption"}
+- Links in a Table (format: link) may be dashboard paths like
+  /agents/<id> or /runs/<id>. No buttons: offer next steps as "links".
+- Only facts you have from the context above: never invent rows.
+
+Example:
+
+<plan>
+{
+  "messageId": "{{inputs.MESSAGE_ID}}",
+  "recommendation": "Three agents failed today; the board builder failed twice.",
+  "widget": {
+    "components": [
+      {"id":"root","component":"Column","children":["s","t"]},
+      {"id":"s","component":"StatStrip","items":{"path":"/data/stats"}},
+      {"id":"t","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"agent","label":"Agent"},{"key":"failures","label":"Failures"},{"key":"run","label":"Latest run","format":"link"}]}
+    ],
+    "data": {
+      "stats": [{"label":"Failed runs","value":"4","tone":"err"},{"label":"Agents","value":"3"}],
+      "rows": [{"agent":"board-builder","failures":2,"run":"/runs/ab12cd34"}]
+    }
+  }
+}
+</plan>
+
+════════════════════════════════════════════════════════════════
 OUTPUT FORMAT — exact shape, single <plan>...</plan> block
 ════════════════════════════════════════════════════════════════
 

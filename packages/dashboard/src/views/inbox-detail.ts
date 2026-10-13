@@ -1,3 +1,5 @@
+import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
+import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
 import type { NotebookCard } from './notebooks.js';
 import type { HumanQuestion } from '@some-useful-agents/core';
@@ -597,6 +599,20 @@ export function mdBody(text: string): SafeHtml {
  * (parseTriageLinks); we re-escape on render. Links open in a new tab so
  * following a CTA keeps the inbox open.
  */
+/** The widget sua put under its reply (checked when it was saved), drawn as an A2UI surface. */
+function renderTriageWidget(responseId: string, metaJson?: string): SafeHtml {
+  if (!metaJson) return html``;
+  let widget: { components?: ViewComponent[]; data?: unknown } | undefined;
+  try {
+    const raw = (JSON.parse(metaJson) as { widget?: unknown }).widget;
+    widget = typeof raw === 'string' ? JSON.parse(raw) as typeof widget : undefined;
+  } catch { return html``; }
+  if (!widget || !Array.isArray(widget.components)) return html``;
+  const model = { data: widget.data ?? {} };
+  const id = `triage-${responseId}`;
+  return renderSurfaceHost(id, viewToMessages(id, prepareViewForRender(widget.components, model), model), { label: 'Widget in sua\'s reply' });
+}
+
 function renderTriageLinks(metaJson?: string): SafeHtml {
   if (!metaJson) return html``;
   let links: Array<{ label?: unknown; href?: unknown }> = [];
@@ -646,7 +662,7 @@ function renderConversationEntry(
     classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
     metaBefore: verifyBadge,
     body: mdBody(r.body),
-    after: r.role === 'triage' ? renderTriageLinks(r.metaJson) : undefined,
+    after: r.role === 'triage' ? html`${renderTriageWidget(r.id, r.metaJson)}${renderTriageLinks(r.metaJson)}` : undefined,
   });
 }
 
