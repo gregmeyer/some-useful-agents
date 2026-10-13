@@ -9,7 +9,8 @@ import { WIDGET_TYPES as WIDGET_TYPE_INFO, FIELD_TYPES as FIELD_TYPE_INFO, EXAMP
 
 // ── Run inputs form ─────────────────────────────────────────────────────
 
-export function renderRunInputsForm(agent: Agent, from?: string, previousInputs?: Record<string, string>): SafeHtml {
+/** The inputs form for a run: in the Run now modal, or `inline` on the Overview (no title, no Cancel). */
+export function renderRunInputsForm(agent: Agent, from?: string, previousInputs?: Record<string, string>, opts: { inline?: boolean } = {}): SafeHtml {
   const inputs = Object.entries(agent.inputs ?? {});
   const FIELD = 'padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 100%;';
 
@@ -69,11 +70,11 @@ export function renderRunInputsForm(agent: Agent, from?: string, previousInputs?
   return html`
     <form method="POST" action="/agents/${agent.id}/run" data-run-form="${agent.id}">
       ${from ? html`<input type="hidden" name="from" value="${from}">` : html``}
-      <h3 style="margin: 0 0 var(--space-3);">Run ${agent.id}</h3>
-      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-4);">Set input values for this run.</p>
+      ${opts.inline ? html`` : html`<h3 style="margin: 0 0 var(--space-3);">Run ${agent.id}</h3>
+      <p class="dim" style="font-size: var(--font-size-xs); margin: 0 0 var(--space-4);">Set input values for this run.</p>`}
       ${fields as unknown as SafeHtml[]}
       <div style="display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-3);">
-        <button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Cancel</button>
+        ${opts.inline ? html`` : html`<button type="button" class="btn btn--ghost btn--sm" data-close-modal="1">Cancel</button>`}
         <button type="submit" class="btn btn--primary btn--sm">Run</button>
       </div>
     </form>

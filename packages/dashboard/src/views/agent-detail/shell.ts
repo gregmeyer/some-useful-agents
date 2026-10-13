@@ -1,4 +1,5 @@
-import type { Agent, BlockedImgHost, EffectiveSpendLimits, Memory, Run, SecretsStore, Webhook } from '@some-useful-agents/core';
+import type { Agent, BlockedImgHost, EffectiveSpendLimits, Memory, NodeExecutionRecord, Run, SecretsStore, Webhook } from '@some-useful-agents/core';
+import type { RunViewOptions } from '../../lib/a2ui-surface.js';
 import { html, render, type SafeHtml } from '../html.js';
 import { layout } from '../layout.js';
 import { pageHeader, type PageHeaderBack } from '../page-header.js';
@@ -71,6 +72,8 @@ export interface AgentDetailArgs {
   spend7d?: { costUsd: number; costComplete: boolean; runs: number };
   /** Spend limits in force for this agent, today's spend, and providers that can't be held to them. */
   spendLimits?: { limits: EffectiveSpendLimits; spentToday: number; unenforceable: string[] };
+  /** The latest completed run, with what its view needs (the Overview's Latest result). */
+  latestResult?: { run: Run; nodeExecutions: NodeExecutionRecord[]; history: RunViewOptions['history'] };
   /** The agent's inbound webhook (Config tab), and the URL base it's reached at. */
   webhook?: { hook?: Webhook; baseUrl: string };
 }
@@ -89,6 +92,16 @@ export function agentTabStrip(agentId: string, active: AgentTab): SafeHtml {
       ${tabs.map((t) => html`<a href="${t.href}" class="${t.id === active ? 'is-active' : ''}">${t.label}</a>`) as unknown as SafeHtml[]}
     </nav>
   `;
+}
+
+/** The description under the title: two lines, with "more" when it runs longer. */
+function agentDescription(text: string | undefined): SafeHtml {
+  const d = (text ?? '').trim();
+  if (!d) return html``;
+  if (d.length <= 180) return html`<p class="agent-desc">${d}</p>`;
+  return html`<div class="agent-desc-wrap"><p class="agent-desc agent-desc--clamped" id="agent-desc">${d}</p>
+    <button type="button" class="agent-desc__more" aria-controls="agent-desc" aria-expanded="false"
+      onclick="var p=document.getElementById('agent-desc');var open=p.classList.toggle('is-open');this.setAttribute('aria-expanded',String(open));this.textContent=open?'less':'more';">more</button></div>`;
 }
 
 export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string {
@@ -136,17 +149,25 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
         </form>`,
         sourceBadge(source),
       ],
-      cta: html`<span style="display: inline-flex; gap: var(--space-2);">
+      cta: html`<span class="agent-actions">
         ${agent.status === 'archived' ? html`` : html`<form method="POST" action="/agents/${agent.id}/ask-fix" data-ask-fix style="display: inline; margin: 0;">
-          <button type="submit" class="btn btn--ghost btn--sm" title="sua looks at why this agent isn't working and drafts a fix you approve, in the panel">Ask sua to fix this</button>
+          <button type="submit" class="btn btn--sm" title="Tell sua what's wrong or what to change; it drafts a fix you approve, in the panel">Ask sua</button>
         </form>`}
-        <button type="button" class="btn btn--ghost btn--sm" id="suggest-btn" data-agent-id="${agent.id}">Suggest improvements</button>
-        <a class="btn btn--ghost btn--sm" href="/agents/${agent.id}/versions">Versions</a>
+        <details class="home-menu agent-menu">
+          <summary class="btn btn--sm btn--ghost home-menu__btn" aria-label="More for ${agent.id}">⋯</summary>
+          <div class="home-menu__panel agent-menu__panel">
+            <button type="button" class="agent-menu__item" id="suggest-btn" data-agent-id="${agent.id}" onclick="this.closest('details').open=false;">Suggest improvements</button>
+            <a class="agent-menu__item" href="/agents/${agent.id}/view#redesign">Redesign how results look</a>
+            <a class="agent-menu__item" href="/agents/${agent.id}/view">Edit the view</a>
+            <a class="agent-menu__item" href="/agents/${agent.id}/versions">Versions</a>
+            <a class="agent-menu__item" href="/agents/${agent.id}/yaml">YAML</a>
+          </div>
+        </details>
         ${agent.status === 'archived' ? html`` : runNowButton}
       </span>`,
-      description: agent.description ?? undefined,
       back,
     })}
+    ${agentDescription(agent.description)}
     ${warningBanner}
     ${agentTabStrip(agent.id, args.activeTab)}
     <div class="agent-detail__tab-content">

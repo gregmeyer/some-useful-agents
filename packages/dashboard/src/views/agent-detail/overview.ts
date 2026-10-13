@@ -1,8 +1,8 @@
 import { html, type SafeHtml } from '../html.js';
-import { statusBadge, formatDuration, formatAge, cronToHuman } from '../components.js';
+import { formatDuration, formatAge, cronToHuman } from '../components.js';
 import { renderDagView, renderDagFallback } from '../dag-view.js';
-import { renderInteractiveWidget } from '../interactive-widget.js';
-import { renderOutputWidget } from '../output-widgets.js';
+import { runWidget } from '../run-detail.js';
+import { renderRunInputsForm } from '../agent-detail-helpers.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import type { AgentEdge } from '../../lib/agent-graph.js';
 import { formatUsd, type Memory } from '@some-useful-agents/core';
@@ -98,22 +98,6 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     </section>
   `;
 
-  const runRows = recentRuns.slice(0, 5).map((r) => html`
-    <tr>
-      <td><a href="/runs/${r.id}" class="mono">${r.id.slice(0, 8)}</a></td>
-      <td>${statusBadge(r.status)}</td>
-      <td class="dim">${formatAge(r.startedAt)}</td>
-      <td class="dim">${formatDuration(r.startedAt, r.completedAt)}</td>
-    </tr>
-  `);
-
-  /**
-   * "Held to" — the behavior specs conditioning this agent's llm-prompt nodes.
-   *
-   * A declared behavior that will not resolve makes the agent unrunnable, so an
-   * unusable one is called out here rather than left to surface as a failed run
-   * later. Omitted entirely when the agent declares none, which is most of them.
-   */
   const declared = agent.behaviors ?? [];
   const heldTo = declared.length === 0 ? html`` : html`
     <dt>Held to</dt>
@@ -135,14 +119,80 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     </dd>
   `;
 
-  const content = html`
-    ${callsSummary(args.invokes ?? [], args.invokedBy ?? [], args.connectedAgents ?? {})}
-    ${goalCard(agent)}
+  const last = args.latestResult;
+  const newest = recentRuns[0];
+  const running = recentRuns.find((r) => r.status === 'running' || r.status === 'pending');
+  const newestFailed = newest && newest.status === 'failed' && (!last || newest.startedAt > last.run.startedAt) ? newest : undefined;
+  const hasInputs = Object.keys(agent.inputs ?? {}).length > 0;
+  const canRunInline = hasInputs && agent.status !== 'archived' && !hasCommunityShellNode;
 
-    <!-- DAG + Widget preview (side-by-side when widget exists) -->
-    ${agent.outputWidget ? html`
-      <div class="run-detail-grid">
-        <div>
+  const latestResult = html`
+    <section class="agent-result" aria-labelledby="agent-result-title">
+      <div class="agent-result__head">
+        <h2 class="section-label" id="agent-result-title">Latest result</h2>
+        ${last ? html`<span class="dim agent-result__meta">${formatAge(last.run.completedAt ?? last.run.startedAt)} · ${formatDuration(last.run.startedAt, last.run.completedAt)} · <a href="/runs/${last.run.id}">open the run →</a></span>` : html``}
+      </div>
+      ${running ? html`<p class="agent-result__note"><span class="agent-result__dot" aria-hidden="true"></span>Running now, started ${formatAge(running.startedAt)}. <a href="/runs/${running.id}">Watch it →</a></p>` : html``}
+      ${newestFailed && !running ? html`<p class="agent-result__note agent-result__note--err">The newest run failed ${formatAge(newestFailed.startedAt)}${newestFailed.error ? html`: <span class="agent-result__err">${firstLine(newestFailed.error)}</span>` : html``}. <a href="/runs/${newestFailed.id}">Open it →</a>${last ? html` Below is the last one that finished.` : html``}</p>` : html``}
+      <div class="agent-result__body">
+        ${last
+          ? runWidget(agent, last.run, last.nodeExecutions, widgetControls, last.history, `latest-${agent.id}`)
+          : html`<p class="dim agent-result__empty">No result yet. ${agent.status === 'archived' ? 'Restore it to run it.' : 'Run it to see what it makes.'}</p>`}
+      </div>
+      ${canRunInline ? html`<details class="agent-result__inputs"${last ? html`` : html` open`}>
+        <summary>Run with ${last ? 'different' : 'these'} inputs</summary>
+        ${renderRunInputsForm(agent, args.from, previousInputs, { inline: true })}
+      </details>` : html``}
+    </section>
+  `;
+
+  // The last runs, oldest to newest, as dots; how many finished.
+  const strip = recentRuns.slice(0, 12).reverse();
+  const finished = strip.filter((r) => r.status === 'completed').length;
+  const ended = strip.filter((r) => r.status === 'completed' || r.status === 'failed' || r.status === 'cancelled').length;
+  const looks = agent.view ? ('from' in agent.view ? 'A view its step writes' : 'Its view') : agent.outputWidget ? 'Its output widget' : 'Plain text';
+
+  const glance = html`
+    <aside class="agent-glance" aria-label="At a glance">
+      <h2 class="section-label">At a glance</h2>
+      <div class="agent-glance__runs">
+        ${strip.length === 0 ? html`<span class="dim">No runs yet.</span>` : html`
+          <span class="agent-glance__dots">${strip.map((r) => html`<a href="/runs/${r.id}" class="run-dot run-dot--${r.status}" title="${r.status}, ${formatAge(r.startedAt)}" aria-label="Run ${r.id.slice(0, 8)}: ${r.status}, ${formatAge(r.startedAt)}"></a>`) as unknown as SafeHtml[]}</span>
+          <span class="dim">${ended > 0 ? `${String(finished)} of ${String(ended)} finished` : `${String(strip.length)} running`}</span>
+          <a href="/agents/${agent.id}/runs" class="agent-glance__all">All runs →</a>`}
+      </div>
+      <dl class="kv agent-glance__facts">
+        <dt>Version</dt><dd class="mono">v${String(agent.version)} <a href="/agents/${agent.id}/versions" class="dim text-xs">history</a></dd>
+        <dt>Model</dt><dd class="mono">${agent.provider ?? 'claude'} · ${agent.model ?? 'default'}</dd>
+        <dt>Runs</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`Only when asked`}</dd>
+        <dt>Looks</dt><dd>${looks} <a href="/agents/${agent.id}/view" class="dim text-xs">edit</a></dd>
+        ${agent.mcp ? html`<dt>AI apps</dt><dd>Can call it (MCP)</dd>` : html``}
+        ${args.spend7d ? html`<dt>Spend, 7 days</dt><dd><span class="mono" title="USD at list price, incl. agents it called">${formatUsd(args.spend7d.costUsd, args.spend7d.costComplete)}</span> <span class="dim">over ${String(args.spend7d.runs)} run${args.spend7d.runs === 1 ? '' : 's'}</span></dd>` : html``}
+        ${spendLimitsRow(args.spendLimits)}
+        ${heldTo}
+      </dl>
+      ${toolBadges.length > 0 ? html`<div class="agent-glance__tools">${toolBadges as unknown as SafeHtml[]}</div>` : html``}
+      ${connectionsList(agent.id, args.invokes ?? [], args.invokedBy ?? [], args.feedsNotebooks ?? [], args.connectedAgents ?? {})}
+    </aside>
+  `;
+
+  const content = html`
+    <div class="agent-overview">
+      ${latestResult}
+      ${glance}
+    </div>
+
+    ${goalCard(agent)}
+    ${agent.nodes.length === 1 && agent.nodes[0].type === 'goal' ? html`` : html`
+      <section class="agent-how" aria-labelledby="agent-how-title">
+        <div class="agent-how__head">
+          <h2 class="section-label" id="agent-how-title">How it works</h2>
+          <a href="/agents/${agent.id}/nodes" class="dim text-xs">Edit in Nodes →</a>
+        </div>
+        <p class="agent-how__chain">${agent.nodes.map((n, i) => html`${i > 0 ? html`<span class="dim" aria-hidden="true"> → </span>` : html``}<a href="/agents/${agent.id}/nodes/${encodeURIComponent(n.id)}/edit" class="mono" title="${n.type}">${n.id}</a>`) as unknown as SafeHtml[]}
+          <span class="dim text-xs"> · ${String(agent.nodes.length)} step${agent.nodes.length === 1 ? '' : 's'}</span></p>
+        <details class="agent-how__diagram">
+          <summary class="dim">Show the diagram</summary>
           ${renderDagFallback(agent)}
           ${renderDagView({
             agent,
@@ -152,77 +202,15 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
               ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
               : undefined,
           })}
-        </div>
-        <div class="card" style="padding: var(--space-4);">
-          <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
-            <h3 style="margin: 0;">Output widget</h3>
-            <span class="badge badge--muted" style="font-size: var(--font-size-xs);">${agent.outputWidget.type}</span>
-          </div>
-          ${agent.outputWidget.interactive
-            ? renderInteractiveWidget({
-                agent,
-                widget: agent.outputWidget,
-                lastRun: latestRun && latestRun.status === 'completed' && typeof latestRun.result === 'string'
-                  ? latestRun
-                  : undefined,
-                previousInputs,
-              })
-            : latestCompletedRun?.result
-            ? html`
-              ${renderOutputWidget(agent.outputWidget, latestCompletedRun.result, agent.id, widgetControls, agent.inputs) ?? html`<p class="dim" style="font-size: var(--font-size-xs);">No output to preview.</p>`}
-              <p class="dim" style="font-size: var(--font-size-xs); margin: var(--space-3) 0 0;">From run <a href="/runs/${latestCompletedRun.id}" class="mono">${latestCompletedRun.id.slice(0, 8)}</a></p>
-            `
-            : html`<p class="dim" style="font-size: var(--font-size-xs); margin: 0;">Run the agent to see a preview.</p>`}
-        </div>
-      </div>
-    ` : html`
-      ${renderDagFallback(agent)}
-      ${renderDagView({
-        agent,
-        editBase: `/agents/${agent.id}/nodes`,
-        editable: true,
-        replay: latestCompletedRun
-          ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
-          : undefined,
-      })}
-    `}
-
-    <!-- Quick stats -->
-    <div class="agent-stats">
-      <dl class="kv">
-        <dt>Version</dt><dd class="mono">v${String(agent.version)} <a href="/agents/${agent.id}/versions" class="dim" style="font-size: var(--font-size-xs);">history</a></dd>
-        <dt>Provider</dt><dd class="mono">${agent.provider ?? 'claude'} / ${agent.model ?? 'default'}</dd>
-        <dt>Schedule</dt><dd>${agent.schedule ? html`<span title="${agent.schedule}">${cronToHuman(agent.schedule)}</span>` : html`<span class="dim">none</span>`}</dd>
-        <dt>MCP</dt><dd>${agent.mcp ? 'exposed' : html`<span class="dim">not exposed</span>`}</dd>
-        <dt>Nodes</dt><dd>${String(agent.nodes.length)}</dd>
-        ${args.spend7d ? html`<dt>Spend, 7 days</dt><dd><span class="mono" title="USD at list price, incl. agents it called">${formatUsd(args.spend7d.costUsd, args.spend7d.costComplete)}</span> <span class="dim">over ${String(args.spend7d.runs)} run${args.spend7d.runs === 1 ? '' : 's'}</span> <a href="/settings/usage" class="dim" style="font-size: var(--font-size-xs);">usage</a></dd>` : html``}
-        ${spendLimitsRow(args.spendLimits)}
-        ${heldTo}
-      </dl>
-      <div style="display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2);">
-        ${toolBadges as unknown as SafeHtml[]}
-      </div>
-    </div>
-
-    ${agentCallsSection(agent.id, args.invokes ?? [], args.invokedBy ?? [], args.feedsNotebooks ?? [], args.connectedAgents ?? {})}
-
-    ${routingSection}
+        </details>
+      </section>`}
 
     ${memorySection(agent.id, args.memories)}
 
-    <!-- Recent runs -->
-    <section>
-      <h2>Recent runs</h2>
-      ${recentRuns.length === 0
-        ? html`<p class="dim">No runs yet. Hit "Run now" to get started.</p>`
-        : html`
-          <table class="table">
-            <thead><tr><th>ID</th><th>Status</th><th>Started</th><th>Duration</th></tr></thead>
-            <tbody>${runRows as unknown as SafeHtml[]}</tbody>
-          </table>
-          ${recentRuns.length > 5 ? html`<p style="margin-top: var(--space-2);"><a href="/agents/${agent.id}/runs" style="font-size: var(--font-size-xs);">View all runs &rarr;</a></p>` : html``}
-        `}
-    </section>
+    ${hasRouting ? html`<details class="agent-when">
+      <summary><span class="section-label">When to use it</span>${sampleQuestions.length > 0 ? html` <span class="dim text-xs">${String(sampleQuestions.length)} thing${sampleQuestions.length === 1 ? '' : 's'} you can ask</span>` : html``}</summary>
+      ${routingSection}
+    </details>` : html``}
 
     <!-- Danger zone — hard delete. Hidden behind a disclosure so it
          can't be hit by an idle scroll-and-click. The form's input
@@ -296,81 +284,36 @@ function memorySection(agentId: string, memories: Memory[] | undefined): SafeHtm
 }
 
 /**
- * This agent's place in the agent-to-agent call graph.
- *
- * Rendered only when there is something to show. An agent that composes
- * nothing gets no empty card — the capability is offered where you would act
- * on it (the "Call another agent" pattern on Add node), not asserted on every
- * page that isn't using it.
+ * This agent's place in the call graph, in the side column: who calls it,
+ * what it calls, and the notebooks it fills. Nothing when it has none.
+ * (`id="agent-connections"` keeps old "how ↓" links working.)
  */
-function agentCallsSection(id: string, invokes: AgentEdge[], invokedBy: AgentEdge[], notebooks: ReadonlyArray<{ id: string; title: string; status: string }>, info: ConnectedAgents): SafeHtml {
+function connectionsList(id: string, invokes: AgentEdge[], invokedBy: AgentEdge[], notebooks: ReadonlyArray<{ id: string; title: string; status: string }>, info: ConnectedAgents): SafeHtml {
   if (invokes.length === 0 && invokedBy.length === 0 && notebooks.length === 0) return html``;
-
-  const target = (e: AgentEdge): SafeHtml => {
-    if (e.dynamic) {
-      // The callee is chosen at run time, so there is nothing to link to.
-      // Say that rather than rendering a dead link to a template string.
-      return html`<span class="dim">chosen at run time</span> <code class="text-xs">${e.to}</code>`;
-    }
-    if (!e.resolved) {
-      return html`<code>${e.to}</code> <span class="badge badge--err">missing</span>`;
-    }
-    return html`<a href="/agents/${e.to}" class="mono">${e.to}</a>${agentTags(info[e.to])}`;
-  };
-
-  // What the agent at the other end does, so the list says more than ids.
-  const about = (other: string): SafeHtml => {
-    const d = shortAbout(info[other]?.description);
-    return d ? html`<div class="dim text-xs" style="margin-top: 2px;">${d}</div>` : html``;
-  };
-  const row = (label: SafeHtml, e: AgentEdge, other: string): SafeHtml => html`
-    <li style="margin-bottom: var(--space-2);">
-      ${label}
-      <span class="dim text-xs">via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : e.via === 'tool' ? ', as a tool when the model decides to' : ''}</span>
-      ${e.dynamic ? html`` : about(other)}
-    </li>
-  `;
-  const col = 'flex: 1 1 200px; min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);';
-  const list = 'list-style: none; padding: 0; margin: 0;';
-  const arrow = html`<span aria-hidden="true" class="dim" style="align-self: center; font-size: var(--font-size-lg);">→</span>`;
-
-  // Left to right, the way work flows: who runs it → it → what it runs and the notebooks it fills.
+  const callers = [...new Map(invokedBy.map((e) => [e.from, e])).values()];
+  const callees = [...new Map(invokes.map((e) => [e.dynamic ? `~${e.to}` : e.to, e])).values()];
+  const via = (e: AgentEdge) => html`<span class="dim text-xs"> via <code>${e.nodeId}</code>${e.via === 'loop' ? ', once per item' : e.via === 'tool' ? ', as a tool when the model decides to' : ''}</span>`;
+  const callee = (e: AgentEdge): SafeHtml => e.dynamic
+    ? html`<span class="dim">an agent chosen at run time</span>`
+    : !e.resolved ? html`<code>${e.to}</code> <span class="badge badge--err">missing</span>`
+    : html`<a href="/agents/${e.to}" class="mono" title="${shortAbout(info[e.to]?.description)}">${e.to}</a>${agentTags(info[e.to])}`;
   return html`
-    <section style="margin-top: var(--space-6);" aria-labelledby="agent-connections">
-      <h2 id="agent-connections">Connections</h2>
-      <p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-3);">
-        Agents can call other agents, so a big job can be split across several small ones, and fill notebooks with what they find.
-      </p>
-      <div style="display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: stretch;">
-        ${invokedBy.length > 0 ? html`
-          <div style="${col}">
-            <p class="card__title">Called by</p>
-            <ul style="${list}">
-              ${invokedBy.map((e) => row(html`<a href="/agents/${e.from}" class="mono">${e.from}</a>${agentTags(info[e.from])}`, e, e.from)) as unknown as SafeHtml[]}
-            </ul>
-            <p class="dim text-xs" style="margin: var(--space-2) 0 0;">A change to ${id} changes what ${invokedBy.length === 1 ? 'it gets' : 'they get'}.</p>
-          </div>
-          ${arrow}` : html``}
-        <div style="${col} flex: 0 1 auto; align-self: center; border-color: var(--color-primary);">
-          <span class="mono">${id}</span>
-        </div>
-        ${invokes.length > 0 || notebooks.length > 0 ? arrow : html``}
-        ${invokes.length > 0 || notebooks.length > 0 ? html`
-          <div style="${col}">
-            ${invokes.length > 0 ? html`
-              <p class="card__title">Calls</p>
-              <ul style="${list}">
-                ${invokes.map((e) => row(target(e), e, e.to)) as unknown as SafeHtml[]}
-              </ul>` : html``}
-            ${notebooks.length > 0 ? html`
-              <p class="card__title" style="${invokes.length > 0 ? 'margin-top: var(--space-3);' : ''}">Fills notebooks</p>
-              <ul style="${list}">
-                ${notebooks.map((n) => html`<li style="margin-bottom: var(--space-1);"><a href="/notebooks/${encodeURIComponent(n.id)}">${n.title}</a>${n.status !== 'active' ? html` <span class="dim text-xs">${n.status}</span>` : html``} <a class="dim text-xs" href="/notebooks/${encodeURIComponent(n.id)}/workflow">how it was made →</a></li>`) as unknown as SafeHtml[]}
-              </ul>` : html``}
-          </div>` : html``}
-      </div>
-    </section>
+    <div class="agent-glance__links" id="agent-connections">
+      ${callers.length > 0 ? html`<p class="agent-glance__label">Called by</p>
+        <ul>${callers.map((e) => html`<li><a href="/agents/${e.from}" class="mono" title="${shortAbout(info[e.from]?.description)}">${e.from}</a>${agentTags(info[e.from])}${via(e)}</li>`) as unknown as SafeHtml[]}</ul>
+        <p class="dim text-xs agent-glance__note">A change to ${id} changes what ${callers.length === 1 ? 'it gets' : 'they get'}.</p>` : html``}
+      ${callees.length > 0 ? html`<p class="agent-glance__label">Calls</p>
+        <ul>${callees.map((e) => html`<li>${callee(e)}${via(e)}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+      ${notebooks.length > 0 ? html`<p class="agent-glance__label">Fills notebooks</p>
+        <ul>${notebooks.map((n) => html`<li><a href="/notebooks/${encodeURIComponent(n.id)}">${n.title}</a>${n.status !== 'active' ? html` <span class="dim text-xs">${n.status}</span>` : html``} <a class="dim text-xs" href="/notebooks/${encodeURIComponent(n.id)}/workflow">how it was made →</a></li>`) as unknown as SafeHtml[]}</ul>` : html``}
+    </div>
   `;
+}
+
+/** The first line of an error, cut to fit one line. */
+function firstLine(text: string): string {
+  const line = text.split('\n')[0].trim();
+  return line.length > 140 ? `${line.slice(0, 137)}…` : line;
 }
 
 type ConnectedAgents = Record<string, { status: string; description?: string }>;
@@ -388,31 +331,6 @@ export function shortAbout(description: string | undefined): string {
   const m = d.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? d;
   const first = m.charAt(0).toUpperCase() + m.slice(1);
   return first.length > 110 ? `${first.slice(0, 107).trimEnd()}…` : first;
-}
-
-/**
- * One line at the top of the Overview: the agents this one calls and the agents
- * that call it, linked, with a jump to Connections for how. Connections itself
- * sits below the DAG and output widget, too far down to answer "what does this
- * call?" at a glance. Nothing when it has no calls either way.
- */
-function callsSummary(invokes: AgentEdge[], invokedBy: AgentEdge[], info: ConnectedAgents): SafeHtml {
-  const callees = [...new Set(invokes.filter((e) => !e.dynamic).map((e) => e.to))];
-  const dynamic = invokes.some((e) => e.dynamic);
-  const callers = [...new Set(invokedBy.map((e) => e.from))];
-  if (callees.length === 0 && !dynamic && callers.length === 0) return html``;
-  const links = (ids: string[], resolved: (id: string) => boolean): SafeHtml[] => ids.map((id, i) => html`${i > 0 ? ', ' : ''}${resolved(id)
-    ? html`<a href="/agents/${id}" class="mono">${id}</a>${agentTags(info[id])}`
-    : html`<code>${id}</code> <span class="badge badge--err">missing</span>`}`);
-  const resolvedCallee = new Set(invokes.filter((e) => e.resolved).map((e) => e.to));
-  return html`
-    <p class="agent-calls-summary" style="margin: 0 0 var(--space-4); font-size: var(--font-size-sm);">
-      ${callees.length > 0 || dynamic ? html`<span><span class="dim">Calls</span> ${links(callees, (id) => resolvedCallee.has(id)) as unknown as SafeHtml[]}${dynamic ? html`${callees.length > 0 ? ', ' : ''}<span class="dim">an agent chosen at run time</span>` : html``}</span>` : html``}
-      ${(callees.length > 0 || dynamic) && callers.length > 0 ? html`<span class="dim" aria-hidden="true"> · </span>` : html``}
-      ${callers.length > 0 ? html`<span><span class="dim">Called by</span> ${links(callers, () => true) as unknown as SafeHtml[]}</span>` : html``}
-      <a href="#agent-connections" class="dim text-xs" style="margin-left: var(--space-2);">how ↓</a>
-    </p>
-  `;
 }
 
 /** "Limits: $2.00 a day ($0.40 spent today) · $0.50 a run", with where they come from. */

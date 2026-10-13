@@ -65,6 +65,7 @@ function loadMemories(
   }
 }
 import { deriveBack } from '../../views/page-header.js';
+import { viewHistory } from '../../lib/a2ui-surface.js';
 import {
   parseHiddenFieldsParam,
   parseSortParamsFromQuery,
@@ -128,6 +129,11 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       memories: loadMemories(ctx, v2Agent),
       spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],
       spendLimits: loadSpendLimits(ctx, v2Agent),
+      latestResult: (() => {
+        const run = rows.find((r) => r.status === 'completed');
+        if (!run) return undefined;
+        return { run, nodeExecutions: ctx.runStore.listNodeExecutions(run.id), history: viewHistory(v2Agent, run, ctx.runStore) };
+      })(),
     });
     res.type('html').send(html);
     return;
