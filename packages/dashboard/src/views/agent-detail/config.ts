@@ -7,7 +7,7 @@ import {
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import { formatAge } from '../components.js';
 import { LLM_PROVIDERS, PROVIDERS, type Agent, type Webhook } from '@some-useful-agents/core';
-import { SETTINGS_SECTIONS, whenLabel, runOnLabel } from '../../lib/agent-settings.js';
+import { SETTINGS_SECTIONS, whenLabel, runOnLabel, timeoutLabel } from '../../lib/agent-settings.js';
 
 /** Schedule presets on the "When it runs" chips. `''` = only when asked. */
 const SCHEDULE_PRESETS: ReadonlyArray<{ cron: string; label: string }> = [
@@ -19,7 +19,7 @@ const SCHEDULE_PRESETS: ReadonlyArray<{ cron: string; label: string }> = [
 ];
 
 /** The batched form's fields; the server applies only these. */
-const BATCHED_FIELDS = 'provider,model,schedule,runOn,pulseVisible,dashboardVisible,mcp,inboxRunnable,imgSrc';
+const BATCHED_FIELDS = 'provider,model,schedule,runOn,timeoutMinutes,pulseVisible,dashboardVisible,mcp,inboxRunnable,imgSrc';
 
 /** One Settings section: title + a plain one-line summary, then its controls. */
 function settingsSection(id: string, title: string, summary: SafeHtml | string, body: SafeHtml, opts: { ownSave?: boolean } = {}): SafeHtml {
@@ -112,13 +112,15 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
   const runOnValue = agent.runOn ?? '';
   const runOnOption = (val: string) =>
     html`<option value="${val}"${runOnValue === val ? unsafeHtml(' selected') : unsafeHtml('')}>${runOnLabel(val || undefined)}</option>`;
-  const whenSection = settingsSection('when', 'When it runs', whenLabel(agent.schedule), html`
+  const timeoutMinutes = agent.timeoutSec ? String(Math.round((agent.timeoutSec / 60) * 100) / 100) : '';
+  const whenSummary = agent.timeoutSec ? `${whenLabel(agent.schedule)} · stops after ${timeoutLabel(agent.timeoutSec)}` : whenLabel(agent.schedule);
+  const whenSection = settingsSection('when', 'When it runs', whenSummary, html`
     <div class="settings-chips" role="group" aria-label="Schedule presets">
       ${SCHEDULE_PRESETS.map((p) => html`<button type="button" class="settings-chip" data-cron="${p.cron}" aria-pressed="${p.cron === schedule ? 'true' : 'false'}">${p.label}</button>`) as unknown as SafeHtml[]}
     </div>
     ${notLive}
-    <details class="settings-more"${!isPreset || runOnValue ? unsafeHtml(' open') : unsafeHtml('')}>
-      <summary>More: a custom schedule, or run durably</summary>
+    <details class="settings-more"${!isPreset || runOnValue || timeoutMinutes ? unsafeHtml(' open') : unsafeHtml('')}>
+      <summary>More: a custom schedule, a time limit, or run durably</summary>
       <div class="settings-more__body settings-fields">
         <label class="settings-field">
           <span class="settings-field__label">Custom schedule</span>
@@ -129,6 +131,11 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
           <span class="settings-field__label">Runs</span>
           <select name="runOn" form="agent-settings" class="form-field" data-versioned>${runOnOption('')}${runOnOption('local')}${runOnOption('temporal')}</select>
           <span class="settings-hint">Durable runs survive a restart; they need the dashboard on Temporal and a worker.</span>
+        </label>
+        <label class="settings-field">
+          <span class="settings-field__label">Stop a run after (minutes)</span>
+          <input type="number" name="timeoutMinutes" form="agent-settings" class="form-field" value="${timeoutMinutes}" min="0" step="any" placeholder="No limit" inputmode="decimal" data-versioned>
+          <span class="settings-hint">A whole-run limit, on top of each step's own. Empty means no limit.</span>
         </label>
       </div>
     </details>

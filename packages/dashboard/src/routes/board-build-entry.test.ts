@@ -12,7 +12,6 @@ import { BoardBuildStore, queueBoardBuild } from '@some-useful-agents/core';
 import { startQueuedBoardBuilds } from '../lib/board-build.js';
 import { parseProposedActions } from './inbox-plan.js';
 import { executeBoardBuild } from './inbox-engine.js';
-import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';

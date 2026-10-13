@@ -1,26 +1,19 @@
 /**
  * Pulse page layout: types, tile chrome (header/footer/wrapper),
- * auto-palette resolution, and the page renderer.
+ * and auto-palette resolution. Pulse itself is a board (routes/boards.ts).
  *
  * Template renderers live in pulse-renderers.ts.
  * Helpers (markdown, stringify, etc.) live in pulse-helpers.ts.
  * Template registry + extraction live in pulse-templates.ts.
  */
 
-import type { Agent, AgentSignal, Run, SignalTemplate } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
 import { esc } from './pulse-helpers.js';
-import { renderTile } from './pulse-renderers.js';
 import { renderTileRunControl } from './output-widgets.js';
-import { buildDashboardOptions, renderDashboardsDropdown } from './dashboards-dropdown.js';
-import { renderInstallPacksModal } from './install-packs-modal.js';
-import { improveLayoutButton, improveLayoutModal } from './improve-layout-modal.js';
-import { pageIntro } from './page-intro.js';
-import { computeTileGroups } from '../lib/pulse-groups.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
-import type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
+import type { PulseTile } from './pulse-types.js';
 
 // ── Tile chrome ──────────────────────────────────────────────────────────
 
@@ -211,183 +204,5 @@ function tileFooter(tile: PulseTile): SafeHtml {
         : html`<span class="pulse-tile__age">${age}</span>`}
       ${runControl ?? html``}
     </div>
-  `;
-}
-
-/**
- * Bumped whenever the board's grouping scheme changes shape. The client
- * layout engine reseeds a stored localStorage layout once when it sees a
- * newer version — without that, anyone who had already loaded Pulse would
- * keep their old flat arrangement and never see the new grouping.
- *   1 — implicit: one flat `_default` grid, or client-synthesized Health/Agents
- *   2 — server-computed Recent / Idle / Never run
- */
-export const PULSE_LAYOUT_VERSION = 2;
-
-/**
- * What the board shows when it has no tiles.
- *
- * Previously it showed an empty grid and nothing else — no explanation of why
- * the page was blank or what would put something on it. Grouping made that
- * worse, because with no groups there is not even a grid left to render.
- *
- * The two reasons for an empty board need different answers: everything is
- * hidden (recoverable right here) versus no agent declares a `signal:` block
- * at all (a concept the reader has probably never met).
- */
-function emptyBoard(hiddenCount: number): SafeHtml {
-  if (hiddenCount > 0) {
-    // The Show all control already lives in the hidden-count strip below, so
-    // point at it rather than rendering a second button that does the same.
-    return html`
-      <div class="pulse-empty">
-        <h2>Every tile is hidden</h2>
-        <p>All ${String(hiddenCount)} of your signals are hidden from Pulse. Restore
-        them with <strong>Show all</strong> just below, or bring back individual
-        ones from <a href="/agents">Agents</a>.</p>
-      </div>
-    `;
-  }
-  return html`
-    <div class="pulse-empty">
-      <h2>Nothing on the board yet</h2>
-      <p>A tile appears here when an agent declares a <code>signal:</code> block —
-      that is the agent saying "show my latest result on the board". You can add
-      one from any agent's <strong>Config</strong> tab.</p>
-      <p class="dim">Tiles are runnable: once an agent is here you can run it
-      from the board without opening it.</p>
-      <div class="pulse-empty__actions">
-        <a class="btn btn--primary btn--sm" href="/agents">Browse agents</a>
-        <a class="btn btn--ghost btn--sm" href="/start">Start here</a>
-      </div>
-    </div>
-  `;
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────
-
-/**
- * The Pulse BOARD content — system + agent signal tiles, hidden-count restore,
- * dashboards dropdown, and the JSON `<script>` blocks the pulse JS reads. NO
- * `layout()` wrapper, so callers can compose it (e.g. the Mission Control home
- * stacks it between a "Needs you" strip and a recent-activity section).
- *
- * `opts.heading` replaces the default `<h1>Pulse</h1>`, and `opts.description`
- * adds the eyebrow line every other top-level page has. Both are opt-in because
- * the home embeds this board under its OWN heading — a "this is Pulse"
- * description there would describe the wrong page. `opts.editable`
- * (default true) gates the board-level arrangement affordances — Hide all /
- * Improve layout / Edit layout / + Add group, the layout modal, and the Pulse
- * page-intro. On the home it's false so the board stays glanceable and
- * arrangement routes to `/pulse`; per-tile configure/hide/run controls are
- * unaffected.
- */
-export function renderPulseBoard(
-  input: PulsePageInput,
-  opts: { heading?: SafeHtml; description?: string; editable?: boolean } = {},
-): SafeHtml {
-  const editable = opts.editable !== false;
-  const { systemTiles, tiles, hiddenTiles } = input;
-  const agentTileCount = tiles.length;
-  const systemTileCount = systemTiles.length;
-  const hiddenCount = hiddenTiles.length;
-
-  const allTileIds = [...systemTiles.map((t) => t.agent.id), ...tiles.map((t) => t.agent.id)];
-  const systemTileIds = systemTiles.map((t) => t.agent.id);
-
-  const doRenderTile = (tile: PulseTile) => renderTile(tile, tileWrap);
-
-  // Group + order by how recently each agent ran. The board used to be one
-  // flat grid in store order, which told the reader nothing; on a run console
-  // the useful sort is what you used last. See lib/pulse-groups.ts.
-  //
-  // The client layout engine re-renders the grid from localStorage, so these
-  // groups are also published in `pulse-tile-data` for it to seed from. This
-  // server markup is what a no-JS reader (and the first paint) actually sees,
-  // so it has to be correctly grouped on its own.
-  const groups = computeTileGroups(tiles, systemTileIds);
-  const tileById = new Map<string, PulseTile>(
-    [...systemTiles, ...tiles].map((t) => [t.agent.id, t]),
-  );
-  const groupSections = groups.map((g) => html`
-    <section class="pulse-container" data-container-id="${g.id}">
-      <div class="pulse-container__header">
-        <span class="pulse-container__label">${g.label}</span>
-        <span class="pulse-container__count">${String(g.tiles.length)}</span>
-      </div>
-      <div class="pulse-grid" data-container-id="${g.id}">
-        ${g.tiles
-          .map((id) => tileById.get(id))
-          .filter((t): t is PulseTile => Boolean(t))
-          .map(doRenderTile) as unknown as SafeHtml[]}
-      </div>
-    </section>
-  `);
-
-  const dropdownOptions = buildDashboardOptions(input.installedDashboards ?? []);
-  // Only render the dropdown when there's more than just the Default
-  // entry — otherwise it's noise.
-  const dropdown = dropdownOptions.length > 1
-    ? renderDashboardsDropdown({ options: dropdownOptions, activeHref: '/pulse' })
-    : html``;
-
-  return html`
-    ${/* flex-wrap so the description can sit on its own full-width row beneath
-          the title and controls, the way pageHeader lays it out. */ html``}
-    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-6);">
-      ${opts.heading ?? html`<h1 style="margin: 0;">Pulse</h1>`}
-      <span style="font-size: var(--font-size-sm); color: var(--color-text-muted);">
-        ${String(agentTileCount)} agent${agentTileCount !== 1 ? 's' : ''}${systemTileCount > 0 ? html` + ${String(systemTileCount)} system` : html``}${hiddenCount > 0 ? html` · ${String(hiddenCount)} hidden` : html``}
-      </span>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: var(--space-2);">
-        ${dropdownOptions.length > 1 ? dropdown : html``}
-        ${editable ? html`
-        ${tiles.length > 0 ? html`
-          <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" onsubmit="return confirm('Hide all ${String(tiles.length)} signal${tiles.length !== 1 ? 's' : ''} from Pulse? They\\'ll move to the hidden section and can be restored individually.');">
-            <button type="submit" class="btn btn--ghost btn--sm" title="Move every visible tile to the hidden section. Useful before installing packs.">Hide all</button>
-          </form>
-        ` : html``}
-        ${hiddenCount > 0 && tiles.length === 0 ? html`
-          <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;">
-            <button type="submit" class="btn btn--ghost btn--sm">Show all</button>
-          </form>
-        ` : html``}
-        ${improveLayoutButton()}
-        <a class="btn btn--ghost btn--sm" href="/boards/pulse" title="Arrange Pulse freely on a grid (preview)">Board view</a>
-        <button type="button" class="btn btn--ghost btn--sm" id="pulse-edit-toggle">\u270E Edit layout</button>
-        <button type="button" class="btn btn--ghost btn--sm" id="pulse-add-container" style="display: none;">+ Add group</button>
-        ` : html``}
-      </div>
-      ${opts.description ? html`<p class="page-header__description">${opts.description}</p>` : html``}
-    </div>
-
-    ${editable ? pageIntro({
-      key: 'pulse',
-      text: 'Drag tiles to reorder them, or use Improve layout to pick what shows and how big it is.',
-      learnMore: { href: 'https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md', label: 'Dashboard tour' },
-    }) : html``}
-
-    <div id="pulse-containers">
-      ${groupSections.length > 0
-        ? (groupSections as unknown as SafeHtml[])
-        : emptyBoard(hiddenCount)}
-    </div>
-
-    ${hiddenCount > 0 ? html`
-      <div class="pulse-hidden-section" style="margin-top: var(--space-6); display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted);">
-        <span>${String(hiddenCount)} signal${hiddenCount !== 1 ? 's' : ''} hidden from Pulse.</span>
-        <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;">
-          <button type="submit" class="btn btn--ghost btn--sm">Show all</button>
-        </form>
-        <a class="btn btn--ghost btn--sm" href="/agents">Manage in /agents</a>
-      </div>
-    ` : html``}
-
-    ${editable ? improveLayoutModal() : html``}
-
-    ${dropdownOptions.length > 1 ? renderInstallPacksModal(input.availablePacks ?? []) : html``}
-
-    ${unsafeHtml(`<script type="application/json" id="pulse-tile-data">${JSON.stringify({ allTileIds, systemTileIds, groups, layoutVersion: PULSE_LAYOUT_VERSION })}</script>`)}
-    ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY)}</script>`)}
   `;
 }

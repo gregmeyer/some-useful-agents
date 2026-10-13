@@ -8,7 +8,6 @@ import {
   buildLoopbackAllowlist, loadAgents,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import { setDashboardPrefs } from '../lib/dashboard-prefs.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';

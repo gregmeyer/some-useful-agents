@@ -101,25 +101,19 @@ describe('A2UI views across the dashboard', () => {
 });
 
 describe('A2UI is the default widget renderer', () => {
-  it('draws existing widgets with A2UI unless Settings → Appearance switches back to the previous renderer', async () => {
+  it('draws existing widgets with A2UI, and the old renderer switch is gone', async () => {
     const { app } = await setup();
     ctx.agentStore.createAgent({ id: 'stars', name: 'Stars', status: 'active', source: 'local', mcp: false,
       nodes: [{ id: 'count', type: 'llm-prompt', prompt: 'x' }],
       signal: { title: 'Stars', template: 'metric', mapping: { value: 'price' } } } as never, 'cli');
     const run = await executeAgentDag(ctx.agentStore.getAgent('stars') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
     expect(run.status).toBe('completed');
-    const post = (body: string) => request(app).post('/settings/appearance/a2ui').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
-
-    let tile = await get(app, '/pulse/tile/stars');
+    const tile = await get(app, '/pulse/tile/stars');
     expect(tile.text).toContain('data-surface-id="tile-stars"');
     expect(tile.text).toContain('"value":"$89"');
-    expect((await get(app, '/settings/appearance')).text).toMatch(/name="enabled" value="1" checked/);
-    expect((await post('')).status).toBe(303);
-    tile = await get(app, '/pulse/tile/stars');
-    expect(tile.text).not.toContain('data-surface-id="tile-stars"');
-    await post('enabled=1');
-    tile = await get(app, '/pulse/tile/stars');
-    expect(tile.text).toContain('data-surface-id="tile-stars"');
+    const appearance = (await get(app, '/settings/appearance')).text;
+    expect(appearance).not.toContain('/settings/appearance/a2ui');
+    expect(appearance).not.toContain('/settings/appearance/boards');
   });
 
   it('keeps a widget with a capture-image control on the previous renderer, and puts a copy control above A2UI widgets', async () => {

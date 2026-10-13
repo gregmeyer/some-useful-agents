@@ -2,8 +2,6 @@
 
 Pulse (`/pulse`) and every named dashboard (`/dashboards/<id>`) are **boards**. A board is drawn as a single A2UI surface, a canvas, so it can use any layout A2UI can express: titled sections, responsive grids of tiles, rows, tabs and cards. Every agent's tile is drawn inside the board by the agent's own view. The layout is stored by the dashboard, not your browser, so it's the same everywhere, and agents can arrange it too.
 
-The previous layout is one switch away for this release: Settings → Appearance → **Show Pulse and dashboards as boards**. With it off, `/boards/<id>/canvas` still shows a board's canvas.
-
 ## Tiles
 
 Each tile shows an agent's latest result, drawn with the agent's view (or its widget, converted), and keeps its controls:

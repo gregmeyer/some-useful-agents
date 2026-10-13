@@ -1,137 +1,4 @@
-/* ---------- Pulse ---------- */
 
-/* -- Containers -- */
-/* -- Canvas mode: free-form positioned containers -- */
-.pulse-canvas {
-  position: relative;
-  min-height: 600px;
-}
-.pulse-canvas .pulse-container:not(.pulse-container--positioned) {
-  /* Fallback: containers without positions still flow normally. */
-  position: relative;
-}
-
-.pulse-container {
-  margin-bottom: var(--space-6);
-}
-.pulse-container--positioned {
-  position: absolute;
-  min-width: 280px;
-  margin-bottom: 0;
-}
-.pulse-container--dragging {
-  opacity: 0.85;
-  z-index: 50;
-  box-shadow: var(--shadow-md);
-}
-.pulse-edit-mode .pulse-container__header {
-  cursor: grab;
-}
-.pulse-edit-mode .pulse-container--dragging .pulse-container__header {
-  cursor: grabbing;
-}
-
-.pulse-container__header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  min-height: 28px;
-}
-
-/* Tile count beside a group label. Tabular so Recent/Idle/Never run
-   read as a scannable column rather than jittering with digit width. */
-.pulse-container__count {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-subtle);
-  font-variant-numeric: tabular-nums;
-}
-
-.pulse-container__label {
-  font-family: var(--font-display);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-muted);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
-  outline: none;
-  cursor: text;
-}
-
-.pulse-container__label:focus {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-raised);
-}
-
-.pulse-container__delete {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-  opacity: 0;
-  transition: opacity 100ms ease;
-  padding: 0 var(--space-1);
-}
-
-.pulse-container:hover .pulse-container__delete {
-  opacity: 1;
-}
-
-.pulse-container__delete:hover {
-  color: var(--color-err);
-}
-
-.pulse-container__empty {
-  border: 2px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-6);
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-family: var(--font-mono);
-  min-height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pulse-container--drop-target .pulse-grid,
-.pulse-container--drop-target .pulse-container__empty {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft, rgba(45,212,191,0.05));
-}
-
-/* -- Grid: fixed 4 columns, masonry-style row packing --
- * `grid-auto-rows: 8px` defines a small implicit row unit. Each tile then
- * gets `grid-row: span N` computed in JS (see pulse-masonry.js.ts) from its
- * rendered height, so a 200px tile occupies ~25 row-units while a 1115px
- * tile occupies ~140. This eliminates the "void below a short tile in a
- * tall row" problem with the old `align-items: start` row-major layout —
- * voids belonged to the tile's grid cell and were undrop-targetable.
- * `grid-auto-flow: dense` lets smaller tiles backfill earlier holes when
- * the user explicitly drops or resizes. `align-items: start` is kept as a
- * safety net for the brief moment before the JS snapper runs after load. */
-.pulse-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: 8px;
-  grid-auto-flow: dense;
-  gap: var(--space-4);
-  min-height: 20px;
-  border: 2px solid transparent;
-  border-radius: var(--radius-md);
-  transition: border-color 150ms ease, background 150ms ease;
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .pulse-grid { grid-template-columns: repeat(2, 1fr); }
-}
 
 .pulse-tile {
   background: var(--color-surface);
@@ -340,34 +207,6 @@
   color: var(--color-text-muted);
 }
 
-.pulse-empty {
-  text-align: center;
-  padding: var(--space-12) var(--space-4);
-  color: var(--color-text-muted);
-}
-
-.pulse-empty h2 {
-  margin: 0 0 var(--space-3);
-  color: var(--color-text);
-}
-
-.pulse-empty p {
-  font-size: var(--font-size-sm);
-  margin: 0 0 var(--space-3);
-}
-
-.pulse-empty__example {
-  display: inline-block;
-  text-align: left;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  margin: var(--space-3) 0;
-}
-
 /* -- Markdown body in tiles -- */
 .pulse-tile__body--md { line-height: 1.6; }
 .pulse-tile__body--md a { color: var(--color-primary); }
@@ -523,38 +362,6 @@
   color: var(--color-text);
 }
 
-/* -- Edit mode -- */
-body:not(.pulse-edit-mode) .pulse-container__delete,
-body:not(.pulse-edit-mode) .pulse-tile__palette-btn,
-body:not(.pulse-edit-mode) .pulse-tile__toggle {
-  display: none !important;
-}
-
-body:not(.pulse-edit-mode) .pulse-container__label {
-  pointer-events: none;
-}
-
-body.pulse-edit-mode .pulse-tile {
-  cursor: grab;
-  overflow: hidden !important;
-}
-
-body:not(.pulse-edit-mode) .pulse-tile {
-  overflow-y: auto;
-}
-
-body.pulse-edit-mode .pulse-tile:active {
-  cursor: grabbing;
-}
-
-body.pulse-edit-mode .pulse-container__empty {
-  display: flex;
-}
-
-body:not(.pulse-edit-mode) .pulse-container__empty {
-  display: none;
-}
-
 /* -- Resize handle -- */
 .pulse-tile__resize-handle {
   display: none;
@@ -577,49 +384,6 @@ body:not(.pulse-edit-mode) .pulse-container__empty {
   border-right: 2px solid var(--color-text-muted);
   border-bottom: 2px solid var(--color-text-muted);
   opacity: 0.6;
-}
-
-body.pulse-edit-mode .pulse-tile {
-  position: relative;
-}
-
-body.pulse-edit-mode .pulse-tile__resize-handle {
-  display: block;
-}
-
-body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
-  opacity: 1;
-  border-color: var(--color-primary);
-}
-
-.pulse-tile--resizing {
-  outline: 2px solid var(--color-primary);
-  outline-offset: -1px;
-  z-index: 10;
-}
-
-/* Resize ghost overlay shown during drag */
-.pulse-resize-ghost {
-  position: absolute;
-  border: 2px dashed var(--color-primary);
-  border-radius: var(--radius-md);
-  background: var(--color-primary-soft, rgba(45,212,191,0.08));
-  pointer-events: none;
-  z-index: 100;
-  transition: width 100ms ease, height 100ms ease;
-}
-
-/* -- Drag and drop -- */
-.pulse-tile--dragging {
-  opacity: 0.4;
-}
-
-.pulse-drop-indicator {
-  height: 3px;
-  background: var(--color-primary);
-  border-radius: 2px;
-  grid-column: 1 / -1;
-  pointer-events: none;
 }
 
 /* -- Palette button -- */
@@ -1179,34 +943,6 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
   font-size: var(--font-size-xl);
 }
 
-
-/* ── Empty board ───────────────────────────────────────────────────
-   Shown when no agent declares a signal, or when everything is hidden.
-   Before this the page rendered an empty grid with no explanation of
-   why it was blank — and once tiles were grouped, not even a grid. */
-.pulse-empty {
-  max-width: 52ch;
-  padding: var(--space-8) 0;
-}
-
-.pulse-empty h2 {
-  margin: 0 0 var(--space-3);
-  font-size: var(--font-size-lg);
-}
-
-.pulse-empty p {
-  margin: 0 0 var(--space-3);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-muted);
-  line-height: 1.6;
-}
-
-.pulse-empty__actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-}
-
 /* Board toolbar (board pages and the canvas editor). */
 .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); }
 .board-toolbar__status { font-size: var(--font-size-xs); }
@@ -1246,3 +982,6 @@ body.pulse-edit-mode .pulse-tile__resize-handle:hover::after {
 .board-build { margin-bottom: var(--space-3); }
 .board-approval { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .board-build__drafts { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+
+/* A tile scrolls its own overflow (this used to sit under body:not(.pulse-edit-mode)). */
+.pulse-tile { overflow-y: auto; }

@@ -26,7 +26,7 @@ link carries the bearer token, so treat it like a password — and note that
 
 Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESIGN.md](../DESIGN.md).
 
-The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`. See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
+The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`, alongside `runs_last_hour`, the scheduler's heartbeat, and `reaper`: what the boot reaper and the stuck-run watchdog have cleaned up since the dashboard started (counts only). See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
 
 ## Navigation
 
@@ -95,7 +95,7 @@ Sibling tab in the Agents strip (Agents · Tools · Nodes · Runs · Packs · **
 | `draft` | **Activate** | Sets status=`active`. First-time activation for an agent that was authored but never turned on. Same semantic as Resume but different copy ("Activated" vs "Resumed"). |
 | `archived` | — | No row action. Use Edit. |
 
-Every row also has an **Edit** link to `/agents/:id/config` for cron changes or permanent clearing (clearing is intentionally not a one-click row action — it's less reversible than Pause).
+Every row also has **Clear**, which removes the schedule (the agent stays and runs when asked; it asks first, in the page, since the cron is gone afterwards), and an **Edit** link to `/agents/:id/config` for cron changes. The scheduler drops a cleared schedule when it restarts.
 
 **Inline hints in the Next fire column** (the page reads as transparently as possible):
 
@@ -134,7 +134,7 @@ One page, with a section menu on the left. Each section has a one-line summary o
 
 - **Inputs**: what you can pass when it runs. **Edit inputs** opens the editor (name, type, default, description; enum types get a values column).
 - **Model**: the provider and model every prompt step uses. A step can still pick its own model in the YAML.
-- **When it runs**: preset chips (Only when asked, Hourly, Daily 8am, Weekdays 9am, Mondays 9am), or a custom five-field schedule; whether runs are durable (Temporal).
+- **When it runs**: preset chips (Only when asked, Hourly, Daily 8am, Weekdays 9am, Mondays 9am), or a custom five-field schedule; a time limit for a whole run (**Stop a run after**, in minutes; the agent's `timeoutSec`); whether runs are durable (Temporal).
 - **Where it shows**: Pulse, the agents list, AI apps (MCP); the output widget (see [Output widget editor](#output-widget-editor)).
 - **Connections**: the inbound webhook and notify-when-finished.
 - **Access**: whether sua can run it from a conversation, which hosts its widgets may load images from, which agents it can hand work to, and its secrets.
@@ -213,9 +213,9 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 ![Pulse with six placed tiles](images/pulse.png)
 
-Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next. (Settings → Appearance switches back to the previous layout for one release.)
+Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next.
 
-The board is your agents at a glance. Each agent with a `signal:` block, or an A2UI `view:`, gets a tile showing its latest result, and every tile has a **Run** button. Tiles are drawn with [A2UI](a2ui-views.md) (sorting, filtering, tabs and run-in-place forms work in the browser); Settings → Appearance switches back to the previous renderer for one more release.
+The board is your agents at a glance. Each agent with a `signal:` block, or an A2UI `view:`, gets a tile showing its latest result, and every tile has a **Run** button. Tiles are drawn with [A2UI](a2ui-views.md) (sorting, filtering, tabs and run-in-place forms work in the browser).
 
 **13 templates:** `metric`, `time-series`, `text-headline`, `text-image`, `image`, `table`, `status`, `media`, `widget`, `comparison`, `key-value`, `story`, `funnel`.
 
@@ -298,7 +298,7 @@ The tool policy: the rules in order ("the last match decides"), add / edit / reo
 Connection status for the durable backend. See [Temporal](temporal.md).
 
 ### Appearance
-The **Brand** theme (a preset, then your colours, fonts, corner radius and tile accents, for everyone; see [Brand theme](brand.md)), the **Widget renderer** switch (widgets are drawn with A2UI; untick to use the previous renderer for one more release), and **Pulse and dashboards** (untick to use the previous layout for one more release). See [A2UI views](a2ui-views.md).
+The **Brand** theme (a preset, then your colours, fonts, corner radius and tile accents, for everyone; see [Brand theme](brand.md)); widgets and boards are drawn with [A2UI](a2ui-views.md).
 
 ### General
 Data paths, retention, scheduler heartbeat.

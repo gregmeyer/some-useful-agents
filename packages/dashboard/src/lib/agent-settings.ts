@@ -33,7 +33,7 @@ export type SettingsSection = typeof SETTINGS_SECTIONS[number]['id'];
 
 /** The fields the batched form may carry. Only fields named in `_fields` are applied. */
 export const SETTINGS_FIELDS = [
-  'provider', 'model', 'schedule', 'runOn', 'pulseVisible', 'dashboardVisible', 'mcp', 'inboxRunnable', 'imgSrc',
+  'provider', 'model', 'schedule', 'runOn', 'timeoutMinutes', 'pulseVisible', 'dashboardVisible', 'mcp', 'inboxRunnable', 'imgSrc',
 ] as const;
 type SettingsField = typeof SETTINGS_FIELDS[number];
 
@@ -89,6 +89,14 @@ export function runOnLabel(runOn: string | undefined): string {
   if (runOn === 'local') return 'In the dashboard';
   if (runOn === 'temporal') return 'Durably (survives restarts)';
   return 'Default';
+}
+
+/** An agent's whole-run time limit, in words. Unset or 0 = no limit. */
+export function timeoutLabel(sec: number | undefined): string {
+  if (!sec) return 'No limit';
+  if (sec % 3600 === 0) return `${String(sec / 3600)} h`;
+  if (sec % 60 === 0) return `${String(sec / 60)} min`;
+  return `${String(sec)} s`;
 }
 
 const onOff = (v: boolean): string => (v ? 'on' : 'off');
@@ -150,6 +158,19 @@ export function readSettingsForm(agent: Agent, body: Record<string, unknown>): S
     else {
       next.runOn = (raw || undefined) as Agent['runOn'];
       add('runOn', 'when', 'Runs', runOnLabel(agent.runOn), runOnLabel(next.runOn));
+    }
+  }
+
+  // Stop a run after N minutes; the agent stores it as `timeoutSec`.
+  if (fields.has('timeoutMinutes')) {
+    const raw = str(body.timeoutMinutes);
+    const minutes = Number(raw);
+    if (raw && (!Number.isFinite(minutes) || minutes < 0)) {
+      errors.push(`"${raw}" isn't a number of minutes. Leave it empty for no limit.`);
+    } else {
+      const sec = raw ? Math.round(minutes * 60) : 0;
+      next.timeoutSec = sec > 0 ? sec : undefined;
+      add('timeoutMinutes', 'when', 'Stop a run after', timeoutLabel(agent.timeoutSec), timeoutLabel(next.timeoutSec));
     }
   }
 
@@ -265,6 +286,7 @@ export function describeSettings(agent: Agent): string {
     model: agent.model ?? '',
     schedule: agent.schedule ?? '',
     runOn: agent.runOn ?? '',
+    timeoutMinutes: agent.timeoutSec ? agent.timeoutSec / 60 : 0,
     pulseVisible: agent.pulseVisible !== false,
     dashboardVisible: agent.dashboardVisible !== false,
     mcp: !!agent.mcp,

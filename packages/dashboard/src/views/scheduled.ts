@@ -5,10 +5,10 @@
  * are scheduled-in-intent even if they don't fire today, and the user
  * needs to see them here to decide whether to resume or clear.
  *
- * Clear-schedule (permanent removal) is intentionally NOT a row action —
- * it's a less-reversible decision and lives on the agent detail page
- * (POST /agents/:id/schedule). Run-now likewise lives elsewhere; this
- * page is the management surface, not the operate-it surface.
+ * Clear removes the schedule (the agent stays, and runs when asked); it
+ * asks first, in the page, since the cron is gone afterwards. Run-now
+ * lives elsewhere; this page is the management surface, not the
+ * operate-it surface.
  */
 
 import type { Agent } from '@some-useful-agents/core';
@@ -166,6 +166,7 @@ function renderRow(row: ScheduledRowInput): SafeHtml {
         ${isActive ? renderPauseForm(agent.id) : html``}
         ${isPaused ? renderResumeForm(agent.id) : html``}
         ${isDraft ? renderActivateForm(agent.id) : html``}
+        ${renderClearForm(agent)}
         <a href="/agents/${agent.id}/config" class="btn btn--sm btn--ghost" style="margin-left: var(--space-2);">Edit</a>
       </td>
     </tr>
@@ -192,6 +193,16 @@ function renderActivateForm(agentId: string): SafeHtml {
   return html`
     <form method="POST" action="/scheduled/${agentId}/activate" style="display: inline;">
       <button type="submit" class="btn btn--sm btn--primary" title="Activate this draft. The scheduler will start firing on its declared cron.">Activate</button>
+    </form>
+  `;
+}
+
+function renderClearForm(agent: Agent): SafeHtml {
+  return html`
+    <form method="POST" action="/scheduled/${agent.id}/clear" style="display: inline;"
+      data-confirm-modal="${agent.name} stops running on its schedule (${cronToHuman(agent.schedule ?? '')}). The agent stays, and still runs when you ask. You can set a schedule again in its Settings."
+      data-confirm-label="Clear schedule" data-confirm-title="Clear the schedule?">
+      <button type="submit" class="btn btn--sm btn--ghost" title="Remove the schedule. The agent stays and runs when asked.">Clear</button>
     </form>
   `;
 }

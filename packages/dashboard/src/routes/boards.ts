@@ -26,7 +26,6 @@ import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, st
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
-import { boardPagesEnabled } from '../lib/dashboard-prefs.js';
 import { buildPulseBoardData } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
@@ -203,9 +202,8 @@ boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
 
 type Flash = { kind: 'ok' | 'error' | 'info'; message: string } | undefined;
 
-/** The page a board lives at: /pulse, /dashboards/<id> (or /boards/<id> when board pages are off). */
+/** The page a board lives at: /pulse or /dashboards/<id>. */
 export function boardPageUrl(id: string): string {
-  if (!boardPagesEnabled()) return `/boards/${encodeURIComponent(id)}/canvas`;
   return id === PULSE_BOARD_ID ? '/pulse' : `/dashboards/${encodeURIComponent(id)}`;
 }
 
@@ -272,9 +270,6 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
         </div>
       </div>`;
-  }
-  if (!boardPagesEnabled()) {
-    header = html`${header}<p class="dim" style="font-size: var(--font-size-sm);">Canvas preview. Turn on boards in <a href="/settings/appearance#board-pages">Settings → Appearance</a> to make this the page.</p>`;
   }
 
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
@@ -511,19 +506,10 @@ boardsRouter.get('/boards/:id/build.json', (req: Request, res: Response) => {
   res.json(b);
 });
 
-/** A board's canvas page when board pages are off (with them on, the board lives at /pulse or /dashboards/<id>). */
-boardsRouter.get('/boards/:id/canvas', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = String(req.params.id);
-  if (boardPagesEnabled() && resolveBoard(ctx, id)) { res.redirect(302, boardPageUrl(id)); return; }
-  const page = renderBoardPage(ctx, id);
-  if (!page) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
-  res.type('html').send(page);
-});
-
-boardsRouter.get('/boards/:id', (req: Request, res: Response) => {
+/** /boards/<id> and its old /canvas preview address both lead to the board's page. */
+boardsRouter.get(['/boards/:id', '/boards/:id/canvas'], (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
   if (!resolveBoard(ctx, id)) { res.status(404).type('html').send(render(layout({ title: 'Board not found' }, pageHeader({ title: 'Board not found', description: `There's no board "${id}".` })))); return; }
-  res.redirect(302, boardPagesEnabled() ? boardPageUrl(id) : `/boards/${encodeURIComponent(id)}/canvas`);
+  res.redirect(302, boardPageUrl(id));
 });
