@@ -124,3 +124,65 @@ describe('the View editor', () => {
     expect((await get(app, '/agents/shop/config')).text).toContain('href="/agents/shop/view"');
   });
 });
+
+describe('Redesign with sua', () => {
+  const settle = async () => { for (let i = 0; i < 50 && ctx.viewDesignerRunning?.size; i++) await new Promise((r) => setTimeout(r, 10)); };
+
+  it('asks the designer with the view, real data and catalog, retries once with the errors, and shows both views', async () => {
+    const app = await setup();
+    await runShop();
+    const seen: Array<Record<string, string>> = [];
+    ctx.viewDesignerRun = async (inputs) => {
+      seen.push(inputs);
+      return seen.length === 1
+        ? '<view>{"components":[{"id":"root","component":"Nope"}]}</view>'
+        : '<view>{"why":"Leads with the price.","components":[{"id":"root","component":"Metric","label":"Price","value":{"path":"/outputs/price"}}]}</view>';
+    };
+    const res = await post(app, '/agents/shop/view/redesign', { request: 'lead with the price' });
+    expect(decodeURIComponent(res.headers.location)).toContain('sua is redesigning the view');
+    await settle();
+    expect(seen).toHaveLength(2);
+    expect(seen[0].REQUEST).toBe('lead with the price');
+    expect(seen[0].DATA).toContain('"price":"$89"');
+    expect(seen[0].CATALOG).toContain('Sparkline');
+    expect(seen[0].CURRENT).toContain('"component":"Table"'); // the starter, since it has no view
+    expect(seen[1].FIX).toContain('Nope');
+    expect((await get(app, '/agents/shop/view/proposal.json')).body).toEqual({ status: 'ready' });
+    const page = await get(app, '/agents/shop/view');
+    expect(page.text).toContain("sua's proposal");
+    expect(page.text).toContain('Leads with the price.');
+    expect(page.text).toContain('data-surface-id="view-now"');
+    expect(page.text).toContain('data-surface-id="view-proposed"');
+    expect(page.text).toContain('Use this (save as v2)');
+  });
+
+  it('uses the proposal as a new version, or discards it', async () => {
+    const app = await setup();
+    await runShop();
+    ctx.viewDesignerRun = async () => '<view>{"components":[{"id":"root","component":"Metric","label":"Price","value":{"path":"/outputs/price"}}]}</view>';
+    await post(app, '/agents/shop/view/redesign', {});
+    await settle();
+    let res = await post(app, '/agents/shop/view/proposal/use', { baseVersion: '1' });
+    expect(decodeURIComponent(res.headers.location)).toContain("Saved sua's view as v2");
+    const v = ctx.agentStore.getAgent('shop')!.view;
+    expect(v && 'components' in v ? v.components[0].component : '').toBe('Metric');
+    expect((await get(app, '/agents/shop/view/proposal.json')).body).toEqual({ status: 'none' });
+
+    await post(app, '/agents/shop/view/redesign', {});
+    await settle();
+    res = await post(app, '/agents/shop/view/proposal/discard', {});
+    expect(decodeURIComponent(res.headers.location)).toContain('Discarded');
+    expect((await get(app, '/agents/shop/view/proposal.json')).body).toEqual({ status: 'none' });
+  });
+
+  it('says why when the designer never produces a valid view', async () => {
+    const app = await setup();
+    await runShop();
+    ctx.viewDesignerRun = async () => 'no view here';
+    await post(app, '/agents/shop/view/redesign', {});
+    await settle();
+    const page = await get(app, '/agents/shop/view');
+    expect(page.text.replace(/&#39;/g, "'")).toContain("sua's redesign didn't work out: sua didn't come back with a view.</p>");
+    expect(page.text).toContain('Try again');
+  });
+});

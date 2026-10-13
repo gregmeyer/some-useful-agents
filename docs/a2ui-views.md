@@ -34,6 +34,8 @@ Settings → Where it shows → **View** opens `/agents/<id>/view`: the view as 
 
 An agent without a view starts from one built from what its last run output (`starterView`): numbers as metrics, with a trend line when there are earlier runs; short text as labelled lines; lists of objects as tables (web addresses as links); lists of words as chips; long text as a paragraph. Labels come from the old output widget's fields where it had them. **Start from its outputs** puts that starter back. Below the editor, **What it can bind to** lists every path with its value from the last run, and **sua components** lists the catalog with an example of each.
 
+**Redesign with sua.** At the top of the View editor (or from **✎** on a board tile), say what should change, or nothing, and press **Redesign**. sua's `view-designer` agent gets the current view (or the starter), a trimmed sample of the last run's data (lists cut to 5, text to 300 characters), the component catalog and your [brand](brand.md) guide, and proposes a view with a one-line reason. It's validated like any view; when it isn't valid, sua tries once more, told what was wrong. The page shows **Now** and **Proposed** side by side, drawn with the same run: **Use this** saves it as a new version (roll back from Versions), **Edit it first** puts it in the editor unsaved, **Discard** drops it, and **Ask for something different** tries again. One proposal per agent at a time; it's kept in `.sua/view-proposals/` until you use or discard it.
+
 When a step's only output is `result` and it holds a JSON object (a step that printed JSON), that object's fields are outputs too: `/outputs/articles`, alongside `/outputs/result`.
 
 ## What a view can bind to

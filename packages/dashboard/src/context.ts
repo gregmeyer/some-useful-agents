@@ -279,6 +279,10 @@ export interface DashboardContext {
   brandProposalRunning?: boolean;
   /** Tests only: answer for the brand maker instead of running it. Production leaves it unset. */
   brandMakerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** The view designer is running for these agent ids (one proposal per agent at a time). */
+  viewDesignerRunning?: Set<string>;
+  /** Tests: stand in for the view-designer agent; gets its inputs, returns its reply. */
+  viewDesignerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Message ids the operator has explicitly STOPPED (clicked Cancel/Stop).
    * While present, `maybeRefireTriage` will not auto-fire a follow-up triage

@@ -1,0 +1,97 @@
+# View Designer — proposes a better A2UI view for one agent's runs
+# (docs/a2ui-views.md, "Redesign this widget"). Route-dispatched only, by the
+# View editor's Redesign (dashboard lib/view-designer.ts); never proposed in
+# triage. Its <view> JSON is validated like any view before you see it, side
+# by side with the current one; nothing changes until you use it.
+
+id: view-designer
+name: View Designer
+description: >
+  Proposes a better view for an agent's results (layout, emphasis, charts,
+  a Run button) from its current view, a sample of its real data and sua's
+  component catalog.
+status: active
+source: examples
+
+inputs:
+  AGENT:
+    type: string
+    required: true
+    description: The agent's name and what it does.
+  CURRENT:
+    type: string
+    required: true
+    description: Its current view (or the starter built from its outputs), as JSON.
+  DATA:
+    type: string
+    required: true
+    description: The data the view binds to, from its last run (trimmed), as JSON.
+  CATALOG:
+    type: string
+    required: true
+    description: The components a view can use, with examples.
+  BRAND:
+    type: string
+    required: false
+    default: ""
+    description: The brand guide (tones and accents by name).
+  REQUEST:
+    type: string
+    required: false
+    default: ""
+    description: What the person asked for, if anything.
+  FIX:
+    type: string
+    required: false
+    default: ""
+    description: Why the previous proposal didn't validate, to fix this time.
+
+nodes:
+  - id: design
+    type: llm-prompt
+    maxTurns: 2
+    timeout: 180
+    outputContract:
+      mustMatch: '<view>[\s\S]*?</view>'
+      description: a <view> JSON block
+    prompt: |
+      You design how one agent's results look in a dashboard: on its run
+      page, as a board tile (often small, about 3 columns of 12) and in chat.
+
+      The agent: {{inputs.AGENT}}
+
+      Its view now (A2UI components, a flat list; `root` is the top):
+      {{inputs.CURRENT}}
+
+      The data a view binds to, from its last run. Paths start at the top,
+      e.g. /outputs/price, /series/price (numbers across runs, oldest first,
+      for a Sparkline's values), /inputs/CITY, /result, /run/completedAt:
+      {{inputs.DATA}}
+
+      Components you can use:
+      {{inputs.CATALOG}}
+
+      {{inputs.BRAND}}
+
+      What the person asked for (may be empty): {{inputs.REQUEST}}
+
+      Fix this from your last try (may be empty): {{inputs.FIX}}
+
+      Make it better for someone glancing at it:
+      - Lead with the one or two numbers or facts that matter most (a Metric
+        or StatStrip), then the detail (Table, KeyValue, ChipList, text).
+      - A Sparkline over /series/<name> when that series has 2+ points.
+      - Tables: the 3–5 columns worth reading, links as format: link,
+        maxRows around 10, sortColumns when there are many rows.
+      - A Run button only if running it again is useful: a Button whose
+        action is { "event": { "name": "run-agent", "context": {} } } (its
+        inputs go in context as in_<NAME>). It always runs this agent.
+      - Bind every value to a path that exists in the data above. Never
+        type a value from the sample into the view as a literal: the view
+        is reused for every run.
+      - Style through names (tones like ok / warn / err), never colours.
+      - At most about 40 components. Ids are short, unique, word characters.
+
+      Reply with only this, the JSON valid:
+
+      <view>{"why": "one sentence on what you changed and why", "components": [ … ]}</view>

@@ -80,9 +80,10 @@ export function renderViewPreview(
   agent: Pick<Agent, 'id' | 'name' | 'permissions'>,
   components: ViewComponent[],
   sample: ViewSample | undefined,
+  surfaceId = 'view-preview',
 ): SafeHtml {
   if (!sample) return html`<p class="dim view-editor__note">Run the agent once to preview its view with real data.</p>`;
-  return renderRunView({ ...agent, view: { components } }, sample.run, sample.nodeExecutions, 'view-preview', { history: sample.history });
+  return renderRunView({ ...agent, view: { components } }, sample.run, sample.nodeExecutions, surfaceId, { history: sample.history });
 }
 
 /** Paths a view can bind to, with this run's values, for the editor's reference list. */
