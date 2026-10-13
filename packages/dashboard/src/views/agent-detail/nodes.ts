@@ -1,9 +1,12 @@
 import { html, type SafeHtml } from '../html.js';
 import { oneLine } from '../agent-detail-helpers.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
+import { renderDagView, renderDagFallback } from '../dag-view.js';
 
 export async function renderAgentNodes(args: AgentDetailArgs): Promise<string> {
-  const { agent, secretsStore } = args;
+  const { agent, secretsStore, recentRuns } = args;
+  const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
+  const hasCommunityShellNode = agent.source === 'community' && agent.nodes.some((n) => n.type === 'shell');
 
   const nodeRows = agent.nodes.map((n) => {
     const body = n.type === 'shell' ? oneLine(n.command ?? '') : n.type === 'goal' ? oneLine(n.goal ?? '') : oneLine(n.prompt ?? '');
@@ -44,6 +47,18 @@ export async function renderAgentNodes(args: AgentDetailArgs): Promise<string> {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-4);">
       <h2 style="margin: 0;">Nodes</h2>
       <a class="btn btn--primary btn--sm" href="/agents/${agent.id}/add-node">+ Add node</a>
+    </div>
+    <!-- The canvas: click a node for its actions, or Edit wiring to rearrange (docs/dashboard.md). -->
+    <div class="agent-nodes__canvas">
+      ${renderDagFallback(agent)}
+      ${renderDagView({
+        agent,
+        editBase: `/agents/${agent.id}/nodes`,
+        editable: true,
+        replay: latestCompletedRun
+          ? { priorRunId: latestCompletedRun.id, requiresCommunityConfirm: hasCommunityShellNode }
+          : undefined,
+      })}
     </div>
     <table class="table">
       <thead><tr><th>Id</th><th>Type</th><th>Depends on</th><th>Secrets</th><th>Body</th><th></th></tr></thead>

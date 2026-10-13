@@ -1328,6 +1328,23 @@ describe('Graph wiring editor', () => {
     expect(after.version).toBe(before + 1);
   });
 
+  it('shows the canvas on the Nodes tab, and a save from there goes back there', async () => {
+    const app = await makeApp();
+    seed('wire-tab', [
+      { id: 'a', type: 'shell', command: 'echo a' },
+      { id: 'b', type: 'shell', command: 'echo b' },
+    ]);
+    const nodes = await request(app).get('/agents/wire-tab/nodes')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(nodes.text).toContain('data-dag-edit-toolbar');
+    expect(nodes.text).toContain('/agents/wire-tab/graph');
+    const fromNodes = await post(app, 'wire-tab', { a: [], b: ['a'] }).set('Referer', `http://127.0.0.1:${PORT}/agents/wire-tab/nodes`);
+    expect(fromNodes.headers.location).toMatch(/^\/agents\/wire-tab\/nodes/);
+    const fromOverview = await post(app, 'wire-tab', { a: [], b: [] }).set('Referer', `http://127.0.0.1:${PORT}/agents/wire-tab`);
+    expect(fromOverview.headers.location).toMatch(/^\/agents\/wire-tab(\?|$)/);
+  });
+
   it('omits dependsOn entirely when a node is disconnected, rather than storing []', async () => {
     const app = await makeApp();
     seed('wire-clear', [

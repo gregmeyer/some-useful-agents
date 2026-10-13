@@ -512,7 +512,9 @@ agentNodesRouter.post('/agents/:name/graph', (req: Request, res: Response) => {
     res.status(404).redirect(303, '/agents');
     return;
   }
-  const back = `/agents/${encodeURIComponent(agent.id)}`;
+  // Back to the tab the canvas was on: the Nodes tab, or the Overview.
+  const fromNodes = /\/agents\/[^/?#]+\/nodes(?:[?#]|$)/.test(String(req.headers.referer ?? ''));
+  const back = `/agents/${encodeURIComponent(agent.id)}${fromNodes ? '/nodes' : ''}`;
   const fail = (msg: string): void => {
     res.status(400).redirect(303, `${back}?flash=${encodeURIComponent(msg)}`);
   };
