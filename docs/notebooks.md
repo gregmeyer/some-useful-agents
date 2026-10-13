@@ -145,7 +145,7 @@ Options record their facts as data, not only as text, so they can be compared, s
 
 Once a notebook has fields and options, its page is drawn as A2UI widgets (see [A2UI views](a2ui-views.md)), the same for a car, a job or a product:
 
-- **Where it stands:** a short paragraph (how many are in the running, the best lead and the next best, the furthest stage) with **Next:**, e.g. "check still listed and clean title on the top two before you contact anyone". Beside it, **Done when** shows a progress ring and the steps, with the current one highlighted.
+- **Where it stands:** a short paragraph (how many are in the running; how many still need their checks and how many lack their own page; the best lead and the next best; the furthest stage; and the steps left) with **Next:**, e.g. "check still listed and clean title on the top two before you contact anyone". Beside it, **Done when** shows a progress ring and the steps, with the current one highlighted.
 - **Stats:** in the running, best price (or pay), furthest along, ruled out.
 - **Where they sit:** price against the main measure (miles, sq ft, commute). Your limits are shaded, the best lead in the running is highlighted, and ruled-out options are hollow. Hover or tap a dot for its name, price and measure in full, and where it stands. Click a dot to open [its page](#an-options-page); on a phone, tap it, then **Open →**. **How far they got** shows the funnel per stage, with ruled-out counts (hover for why).
 - **Shortlist:** cards (photo or "No photo yet", rank, a short name, price, facts, stage, price move) or a table. A card's or row's name opens the option's page. **Filters** above the cards narrow the list. Each shows as a row of chips, and each chip says how many options picking it would show:
