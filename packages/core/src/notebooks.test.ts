@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -911,6 +911,29 @@ describe("an option's own page, not a search page", () => {
     expect(Object.fromEntries(v.map((o) => [o.title, !!o.linkIsList]))).toEqual({ '2008 Forester': true, '2010 Forester': true, '2009 Forester': true, '2010 RAV4': false });
     const step = { kind: 'source' as const, facts: ['url'], status: 'todo' as const };
     expect(stepProgress(s.get(nb.id)!, s.entries(nb.id), step)).toMatchObject({ met: false, have: 1, want: 4 });
+  });
+});
+
+describe('one form for a VIN', () => {
+  it('reads a VIN key however it was written', () => {
+    for (const k of ['vin|jf1sg63648h718869', 'vin:JF1SG63648H718869', 'JF1SG63648H718869', 'VIN JF1SG63648H718869', ' vin#jf1sg63648h718869 ']) expect([k, vinKey(k)]).toEqual([k, 'jf1sg63648h718869']);
+    for (const k of ['cargurus|jf1sg63648h718869|x', 'abcdefghjklmnprst', '12345678901234567', 'vin|short']) expect([k, vinKey(k)]).toEqual([k, undefined]);
+  });
+
+  it('a car kept as "vin:…" is the same car as "vin|…" or the bare VIN, and takes the one form', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-vin-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Cars' });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }]);
+    // Kept before this change, in the colon form.
+    const old = s.addEntry(nb.id, { kind: 'option', title: '2011 Forester', by: 'x' });
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET fingerprint = ? WHERE id = ?').run('vin:jf2shaec3bh747334', old.id);
+    const again = s.upsertOption(nb.id, { title: '2011 Subaru Forester 2.5X Limited', by: 'x', fingerprint: 'vin|JF2SHAEC3BH747334', data: { price: 5995 } });
+    expect(again).toMatchObject({ seenAgain: true, entry: { id: old.id } });
+    expect(s.entries(nb.id).find((e) => e.id === old.id)?.fingerprint).toBe('vin|jf2shaec3bh747334');
+    expect(s.upsertOption(nb.id, { title: '2011 Forester', by: 'y', fingerprint: 'JF2SHAEC3BH747334', data: { miles: 150182 } }).entry.id).toBe(old.id);
+    expect(s.entries(nb.id).filter((e) => e.kind === 'option')).toHaveLength(1);
   });
 });
 

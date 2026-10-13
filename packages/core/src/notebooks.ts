@@ -969,7 +969,8 @@ export class NotebookStore {
     // The notebook's options are organizations: the same one, by name, when
     // there's no link or id to go by, or the one given matches nothing (agents
     // key a company differently: "pigment.com", "pigment", "lever:pigment").
-    const byFingerprint = fingerprint ? this.db.prepare("SELECT 1 FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint) : undefined;
+    const vinFp = fingerprint?.startsWith('vin|') ? fingerprint.slice(4) : undefined;
+    const byFingerprint = fingerprint ? this.db.prepare("SELECT 1 FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint IN (?, ?, ?, ?) LIMIT 1").get(notebookId, fingerprint, vinFp ? `vin:${vinFp}` : fingerprint, vinFp ?? fingerprint, vinFp ? `vin ${vinFp}` : fingerprint) : undefined;
     const byOrg = byFingerprint ? undefined : this.findOrgOption(notebookId, { title: input.title, data });
     if (byOrg) {
       const merged = { ...(byOrg.data ?? {}), ...data };
@@ -980,7 +981,11 @@ export class NotebookStore {
       return { entry: { ...byOrg, data: merged, ...(mergedMeta ? { factMeta: mergedMeta } : {}), lastSeenAt: now, ...(input.runId ? { runId: input.runId } : {}) }, seenAgain: true, ...(byOrg.ruledOut ? { ruledOut: true } : {}) };
     }
     if (fingerprint) {
-      const row = this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint) as Record<string, unknown> | undefined;
+      // A VIN kept in another form before ("vin:…", the bare VIN): the same car, and its key takes the one form.
+      const vin = fingerprint.startsWith('vin|') ? fingerprint.slice(4) : undefined;
+      const row = (this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint = ? LIMIT 1").get(notebookId, fingerprint)
+        ?? (vin ? this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint IN (?, ?, ?) LIMIT 1").get(notebookId, `vin:${vin}`, vin, `vin ${vin}`) : undefined)) as Record<string, unknown> | undefined;
+      if (row && vin && row.fingerprint !== fingerprint) this.db.prepare('UPDATE notebook_entries SET fingerprint = ? WHERE id = ?').run(fingerprint, String(row.id));
       // An option kept before fingerprints existed: the same title, or its text holds this listing's address.
       const legacy = row ? undefined : (this.db.prepare("SELECT * FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND fingerprint IS NULL").all(notebookId) as Array<Record<string, unknown>>)
         .find((r) => entryKey(String(r.title)) === entryKey(input.title) || String(r.body ?? '').toLowerCase().replace(/https?:\/\/(www\.)?/g, '').includes(fingerprint));
@@ -1596,8 +1601,21 @@ export function sameAddress(url: string): string | undefined {
  * What makes an option the same one next run: the fingerprint the agent gave
  * (a VIN, a listing id), else the option's link without tracking bits.
  */
+/**
+ * A key that is just a vehicle's VIN, however an agent wrote it ("vin|…",
+ * "vin:…", "VIN …", or the bare 17 characters): the VIN, lower case. Else undefined.
+ */
+export function vinKey(key: string): string | undefined {
+  const m = /^\s*(?:vin\s*[:|#=\-]?\s*)?([a-hj-npr-z0-9]{17})\s*$/i.exec(key);
+  // A VIN has letters and digits both (not a 17-letter word).
+  return m && /\d/.test(m[1]) && /[a-z]/i.test(m[1]) ? m[1].toLowerCase() : undefined;
+}
+
 export function optionFingerprint(given: string | undefined, data: Record<string, NotebookFieldValue>, fields: readonly NotebookField[]): string | undefined {
   const g = typeof given === 'string' ? given.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  // One form for a VIN, so "vin:JF1…" and "vin|jf1…" from two runs are one car.
+  const vin = g ? vinKey(g) : undefined;
+  if (vin) return `vin|${vin}`;
   if (g) return g;
   const link = fields.find((f) => f.role === 'link');
   const url = link ? data[link.key] : undefined;
