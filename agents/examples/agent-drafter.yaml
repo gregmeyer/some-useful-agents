@@ -175,6 +175,19 @@ nodes:
       - llm-prompt / claude-code nodes: use double-brace inputs.NAME syntax in prompts.
       - signal block REQUIRED. signal.title is REQUIRED and is a short literal
         string used as the Pulse tile chrome label.
+      - **Results: write a `view:`** (see VIEWS in the catalog) when the agent's
+        result is structured JSON: declare every field it binds under `outputs:`,
+        set `signal: { title: "…", template: widget }` with no mapping, and do
+        NOT add an outputWidget too. The outputWidget rules below apply only when
+        you need one (a capture-image control, diff-apply action buttons) or the
+        request asks for one.
+          ✓ outputs: { open_count: { type: number }, issues: { type: array } }
+            signal: { title: "Open issues", template: widget }
+            view:
+              components:
+                - { id: root, component: Column, children: [n, rows] }
+                - { id: n, component: Metric, label: Open, value: { path: /outputs/open_count } }
+                - { id: rows, component: Table, rows: { path: /outputs/issues }, columns: [{ key: title, label: Title }] }
       - **When the agent declares an outputWidget, signal.template MUST be
         `widget` — never a named slot template like `text-image`, `metric`,
         `text-headline`, etc.** Pulse renders the tile from signal.template,
@@ -185,7 +198,9 @@ nodes:
             outputWidget: { type: ai-template, template: "<div>...</div>" }
           ✗ signal: { template: text-image }   # with an outputWidget present
         Omit signal.mapping when template is "widget" — the widget drives layout.
-      - When the agent declares any inputs:, set outputWidget.interactive: true so
+      - When the agent declares any inputs: and has a view, add a TextField per
+        input and a Run button to the view (the recipe in VIEWS). With an
+        outputWidget instead, set outputWidget.interactive: true so
         Pulse renders an inline inputs form. Skip this flag for purely scheduled
         agents that take no runtime inputs.
       - outputWidget.type: one of dashboard, key-value, diff-apply, raw, ai-template.

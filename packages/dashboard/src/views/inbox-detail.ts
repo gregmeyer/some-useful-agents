@@ -188,7 +188,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'view-redesign', 'board-build',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 

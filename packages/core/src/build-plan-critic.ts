@@ -22,6 +22,8 @@
  * into the planner for retry.
  */
 
+import { viewOutputNames } from './a2ui/guide.js';
+import type { ViewComponent } from './a2ui/view.js';
 import { parseAgent } from './agent-yaml.js';
 import type { BuildPlan } from './build-plan-schema.js';
 
@@ -150,6 +152,20 @@ export function critiquePlan(plan: BuildPlan, ctx: PlanCriticContext): PlanCriti
         }
       });
     });
+
+    // A view's /outputs bindings must be outputs the agent declares (when it
+    // declares any): a typo or a renamed field draws an empty widget forever.
+    const view = (agent as { view?: { components?: ViewComponent[] } }).view;
+    const declared = agent.outputs ? new Set(Object.keys(agent.outputs)) : undefined;
+    if (view?.components && declared && declared.size > 0) {
+      const missing = viewOutputNames(view.components).filter((n) => n !== 'result' && !declared.has(n));
+      if (missing.length > 0) {
+        errors.push({
+          path: `newAgents[${i}].yaml.view`,
+          message: `The view in newAgent "${a.id}" binds /outputs/${missing.join(', /outputs/')}, but the agent's outputs: doesn't declare ${missing.length === 1 ? 'it' : 'them'} (it declares ${[...declared].join(', ')}). Bind a declared output, or declare the field and make the last step produce it.`,
+        });
+      }
+    }
 
     // ai-template path check: the placeholder substituter ONLY supports
     // single-level paths (`{{outputs.NAME}}`, `{{item.FIELD}}`). Nested

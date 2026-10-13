@@ -101,8 +101,9 @@ nodes:
       - id MUST be lowercase-with-hyphens AND must NOT collide with any id already in INSTALLED AGENTS.
       - Add `schedule:` to NEW agents if the goal asks for "daily" / "every morning" / etc.
       - DO NOT propose modifying any existing agent. (The user does that via /agents/<id>/yaml.)
-      - Each new agent's YAML should include both signal: and outputWidget: blocks so dashboard
-        tiles render correctly.
+      - Each new agent's YAML should include a signal: block and, when its result is structured
+        JSON, a view: (see VIEWS in the catalog) with outputs: declaring every field it binds, so
+        its run page and dashboard tile render well. Use outputWidget only where VIEWS says.
       - **signal.title is REQUIRED** when the signal block is present. It's a literal short string
         used as the chrome label on the Pulse tile (e.g. "HN Top Stories", "Daily Joke"). Omitting
         it causes schema validation to fail with "signal.title: Required".
@@ -112,7 +113,8 @@ nodes:
         text-headline` will render the bare headline on Pulse and the rich widget never appears.
         With `signal.template: widget`, Pulse mirrors the agent's outputWidget. Omit `signal.mapping`
         in that case; the widget drives layout, no slot mapping needed.
-      - When the agent declares any `inputs:`, set `outputWidget.interactive: true`. This wires
+      - When an agent with a view declares `inputs:`, put a TextField per input and a Run button
+        in its view (the recipe in VIEWS). When it uses an outputWidget instead, set `outputWidget.interactive: true`. This wires
         the pulse tile to render an inline inputs form + run button so users can re-run with
         tweaked values without leaving the dashboard. Skip this flag for purely scheduled agents
         that take no runtime inputs.

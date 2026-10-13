@@ -60,6 +60,8 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toContain('## NODE TYPES');
     expect(catalog).toContain('## SIGNAL TEMPLATES');
     expect(catalog).toContain('## OUTPUT WIDGET TYPES');
+    expect(catalog).toContain('## VIEWS (view: in agent YAML)');
+    expect(catalog.indexOf('## VIEWS')).toBeLessThan(catalog.indexOf('## OUTPUT WIDGET TYPES'));
     expect(catalog).toContain('## AVAILABLE AGENTS');
     expect(catalog).toContain('## ARCHITECTURE PATTERNS');
     expect(catalog).toContain('## WIDGET & SIGNAL DESIGN');
@@ -194,13 +196,13 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toMatch(/USE WHEN.*view-switch|view-switch.*USE WHEN/is);
   });
 
-  it('stays under 14000 chars with typical data (4000 → 11000 over time; +500 for v3 composition hints; +1500 for table field type docs)', () => {
+  it('stays under 18500 chars with typical data (4000 → 11000 over time; +500 for v3 composition hints; +1500 for table field type docs; +4500 for the VIEWS guide, now the way new agents show results)', () => {
     const catalog = buildDiscoveryCatalog({
       agents: MOCK_AGENTS,
       tools: [],
       templateRegistry: MOCK_REGISTRY,
     });
-    expect(catalog.length).toBeLessThan(14000);
+    expect(catalog.length).toBeLessThan(18500);
   });
 
   it('handles empty agents gracefully', () => {

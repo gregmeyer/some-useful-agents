@@ -533,6 +533,29 @@ ready" message. Don't pick agents or pin tiles one by one for this.
   `links: [{ "label": "Open the board", "href": "/dashboards/<id>" }]`.
 
 ════════════════════════════════════════════════════════════════
+REDESIGNING HOW AN AGENT'S RESULTS LOOK
+════════════════════════════════════════════════════════════════
+
+When the operator wants an agent's tile, widget or results to look
+better or different — "make this tile better", "the weather widget is
+cluttered, lead with today's high", "show a trend line for the price
+agent" — propose a `view-redesign` action. sua's view designer proposes
+a new view from the agent's current one and its real data; the operator
+compares the two side by side on the agent's View page and chooses.
+Nothing changes until they use it, so this runs without approval.
+
+- Shape:
+  `{ "type": "view-redesign", "rationale": "…",
+     "inputs": { "AGENT_ID": "<the agent's id>",
+                 "REQUEST": "<what should change, in the operator's words, or empty>" } }`
+- AGENT_ID: the agent in focus (FOCUS_AGENT) or the one named; ask which
+  if it's unclear. Use `agent-editor` instead when they want the agent to
+  DO something different, not look different.
+- The result carries the View page link. In your follow-up turn say the
+  proposal takes a minute or two and offer
+  `links: [{ "label": "Compare the views", "href": "/agents/<id>/view#redesign" }]`.
+
+════════════════════════════════════════════════════════════════
 CHANGING AN AGENT'S SCHEDULE — how often it runs
 ════════════════════════════════════════════════════════════════
 

@@ -16,6 +16,8 @@ import {
   type SpawnNodeFn,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
+import { parseProposedActions } from './inbox-plan.js';
+import { executeViewRedesign } from './inbox-engine.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
 import { MemorySecretsSession } from '../secrets-session.js';
@@ -184,5 +186,25 @@ describe('Redesign with sua', () => {
     const page = await get(app, '/agents/shop/view');
     expect(page.text.replace(/&#39;/g, "'")).toContain("sua's redesign didn't work out: sua didn't come back with a view.</p>");
     expect(page.text).toContain('Try again');
+  });
+});
+
+describe('Ask sua: view-redesign', () => {
+  it('parses a view-redesign action (AGENT_ID required) and runs it without approval', async () => {
+    const ok = parseProposedActions([{ type: 'view-redesign', rationale: 'r', inputs: { AGENT_ID: 'shop', REQUEST: 'lead with the price' } }], []);
+    expect(ok.accepted[0]).toMatchObject({ agentId: 'view-redesign', effect: 'read', inputs: { AGENT_ID: 'shop' } });
+    expect(parseProposedActions([{ type: 'view-redesign', inputs: {} }], []).rejected[0].reason).toContain('AGENT_ID');
+
+    await setup();
+    await runShop();
+    let asked = '';
+    ctx.viewDesignerRun = async (inputs) => { asked = inputs.REQUEST; return '<view>{"components":[{"id":"root","component":"Metric","label":"Price","value":{"path":"/outputs/price"}}]}</view>'; };
+    const out = executeViewRedesign(ctx, ok.accepted[0]);
+    expect(out.status).toBe('completed');
+    expect(out.summary).toContain('/agents/shop/view#redesign');
+    for (let i = 0; i < 50 && ctx.viewDesignerRunning?.size; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(asked).toBe('lead with the price');
+    expect(ctx.agentStore.getAgent('shop')!.view).toBeUndefined(); // nothing changes until it's used
+    expect(executeViewRedesign(ctx, { ...ok.accepted[0], inputs: { AGENT_ID: 'nope' } }).status).toBe('failed');
   });
 });

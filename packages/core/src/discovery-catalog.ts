@@ -7,6 +7,7 @@
  * as tools and agents change.
  */
 
+import { viewAuthoringGuide } from './a2ui/guide.js';
 import type { Agent } from './agent-v2-types.js';
 import type { ToolDefinition } from './tool-types.js';
 import type { Dashboard } from './dashboards-store.js';
@@ -150,8 +151,8 @@ const PATTERNS = `
 
 const WIDGET_GUIDANCE = `
 ## WIDGET & SIGNAL DESIGN
-- Always include BOTH signal: (for Pulse tiles) AND outputWidget: (for agent detail) when output is structured JSON.
-- Signal template and outputWidget type are independent. Signal controls the Pulse tile. Widget controls the run detail view.
+- When output is structured JSON, include a signal: (the tile's title, icon, size, accent) AND a view: (see VIEWS) that draws the run page and the tile. outputWidget is the older way; use it only where VIEWS says.
+- Without a view, the signal template controls the Pulse tile and outputWidget the run detail view; they are independent.
 - Use size: "2x1" for templates with body text (text-headline, story, table, comparison).
 - Use accent color to group related agents visually (teal, blue, green, orange, red, purple).
 - Use thresholds on metric tiles to auto-color: thresholds: [{ above: 90, palette: accent-red }, { above: 50, palette: accent-orange }].
@@ -269,6 +270,7 @@ export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   const sections: string[] = [
     buildNodeTypesSection(),
     buildTemplateSection(opts.templateRegistry),
+    viewAuthoringGuide(),
     OUTPUT_WIDGETS,
     buildAgentsSection(opts.agents),
   ];

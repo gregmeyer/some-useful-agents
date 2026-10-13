@@ -98,6 +98,10 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
 
+## Who writes views
+
+You, in the View editor; sua, with **Redesign**; and the agents that write agents: new agents from Build from a goal, New board and sua's fixes get a `view:` instead of an `outputWidget` (see [Build from a goal § How new agents look](build-from-goal.md#how-new-agents-look)). In a conversation, "make this tile better" or "show a trend for the price agent" starts a redesign (a `view-redesign` action, which runs without approval since nothing changes until you use the proposal) and replies with the link to compare.
+
 ## Existing widgets are drawn with A2UI too
 
 Agents' existing widgets (Pulse `signal` templates and `outputWidget`s) are drawn through the same renderer, without changing any agent. A converter lays out the values the old renderers would show: slot mapping, field extraction and ai-template substitution + sanitizing all run on the server exactly as before, and the view only arranges them. Threshold and accent colours carry over to metrics.

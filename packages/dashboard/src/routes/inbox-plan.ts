@@ -526,6 +526,29 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `view-redesign` asks sua's view designer for a better view of one agent (route-handled).
+    if (type === 'view-redesign') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof k === 'string' && typeof v === 'string') inputs[k] = v;
+        }
+      }
+      if (!(inputs.AGENT_ID ?? '').trim()) {
+        rejected.push({ agentId: 'view-redesign', reason: 'view-redesign requires inputs.AGENT_ID' });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'view-redesign',
+        inputs,
+        rationale: rationaleRaw || undefined,
+        effect: 'read',
+        ctaLabel: 'Redesign',
+      });
+      continue;
+    }
     // `board-build` builds a whole board from a request (route-handled pseudo-agent).
     if (type === 'board-build') {
       const inputs: Record<string, string> = {};

@@ -49,6 +49,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
+import { startViewProposal } from '../lib/view-designer.js';
 import { maybeKickoffFirstRun } from './dashboard-first-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { autoFixYaml } from './run-now-build.js';
@@ -143,6 +144,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'dashboard-editor',
   'agent-schedule',
   'board-build',
+  // Only asks for a proposal; the operator compares and chooses on the View page.
+  'view-redesign',
   // Additive and removable entry by entry: what you said goes into the notebook as you talk.
   'notebook-add',
 ]);
@@ -187,7 +190,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -884,10 +887,32 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
+  if (meta.agentId === 'view-redesign') {
+    return executeViewRedesign(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
   };
+}
+
+/**
+ * Execute a `view-redesign` action (docs/a2ui-views.md, Redesign with sua):
+ * start the view designer for the agent and return the View page link at
+ * once. Nothing about the agent changes until the operator uses the proposal.
+ */
+export function executeViewRedesign(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const id = (meta.inputs.AGENT_ID ?? '').trim();
+  const agent = id ? ctx.agentStore.getAgent(id) : null;
+  if (!agent) return { status: 'failed', refusalReason: `view-redesign needs the AGENT_ID of an installed agent${id ? ` ("${id}" isn't one)` : ''}.` };
+  const link = `/agents/${encodeURIComponent(agent.id)}/view#redesign`;
+  if (!startViewProposal(ctx, agent, meta.inputs.REQUEST ?? '')) {
+    return { status: 'completed', summary: `sua is already redesigning ${agent.name}'s view (or the view designer isn't available). See ${link}.` };
+  }
+  return { status: 'completed', summary: `Redesigning ${agent.name}'s view now. In a minute or two the proposal is at ${link}, beside the current view; nothing changes until it's used.` };
 }
 
 /**
