@@ -210,4 +210,23 @@ describe('a notebook ranked by fit', () => {
     expect(after.summary).toBe('**Decided: 1 chosen**, of 2 in the running. Closewise.');
     expect(after.next).toBe('reopen it if something changes; anything sua learns is still kept here.');
   });
+
+  it("says what's left: how many still to check, how many without their own page, and the steps to go", async () => {
+    const { notebookWidgetData } = await import('./notebook-widgets.js');
+    const fields = [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'listing_url', label: 'Listing URL', type: 'url', role: 'link' }];
+    const nb = { id: 'cars', title: 'Cars', statement: '', params: [], criteria: [], status: 'active', pipeline: [], checks: ['Clean title', 'Accident history'], stages: [], fields,
+      steps: [{ id: 's1', title: 'Find cars', kind: 'find', status: 'done', tries: 0 }, { id: 's2', title: 'Keep the best', kind: 'narrow', status: 'todo', tries: 0 }, { id: 's3', title: 'Pick the car', kind: 'decide', status: 'todo', tries: 0 }],
+      createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' } as never;
+    const opt = (id: string, data: Record<string, unknown>, checked: string[] = []) => ({ id, notebookId: 'cars', kind: 'option', title: id, body: '', by: 'x', createdAt: '2026-10-01T00:00:00Z', data, checked });
+    const entries = [
+      opt('a', { price: 4000, listing_url: 'https://www.craigslist.org/view/d/a/1' }, ['Clean title', 'Accident history']),
+      opt('b', { price: 4500, listing_url: 'https://www.cargurus.com/Cars/l-Used-Subaru-c1' }, ['Clean title']),
+      opt('c', { price: 5000 }),
+    ] as never;
+    const d = notebookWidgetData(nb, entries).notebook;
+    expect(d.summary).toContain('**3 in the running**.');
+    expect(d.summary).toContain('**2 of 3 still to check**, **2 without their own listing**.');
+    expect(d.summary).toContain('**Steps left:** Keep the best (Narrow), then Pick the car (Decide).');
+  });
 });
+
