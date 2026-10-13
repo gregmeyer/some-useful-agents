@@ -36,6 +36,8 @@ main.main--wide {
   transition: border-color 120ms ease-out;
 }
 .app-ask:focus-within { border-bottom-color: var(--color-primary); }
+/* The sua panel has its own reply box: one place to type at a time. */
+body.has-sua-panel .app-ask { display: none; }
 .app-ask .home-ask--bar {
   max-width: var(--content-max);
   margin: 0 auto;
