@@ -224,6 +224,7 @@ describe('the agent Overview leads with the latest result', () => {
     expect(page).toContain('1 of 1 finished');
     expect(page).toContain('Only when asked');
     expect(page).toContain('href="/agents/shop/view#redesign"');
+    expect(page).toContain('href="/agents/shop/view?redesign=1#redesign"'); // ✎ Change how this looks, on the result
     expect(page).toContain('How it works');
     expect(page).not.toContain('Recent runs');
   });

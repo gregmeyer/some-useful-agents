@@ -190,6 +190,8 @@ window.renderDagViz = function () {
     cancelled: { fill: '#fef3c7', border: '#b45309', text: '#92400e' },
     skipped:   { fill: '#f3f4f6', border: '#9ca3af', text: '#6b7280' },
     waiting:   { fill: '#fef9c3', border: '#a16207', text: '#854d0e' },
+    // A step of this run that hasn't started (or never will): grey and dashed.
+    'not-started': { fill: '#f5f5f4', border: '#a8a29e', text: '#78716c' },
   };
   // Type tints — agent-detail nodes (no status) use these. Both shell
   // and claude-code stay in the project's accent palette so the DAG
@@ -272,6 +274,10 @@ window.renderDagViz = function () {
           'border-width': 1,
           'corner-radius': '6px',
         },
+      },
+      {
+        selector: 'node[status = "not-started"]',
+        style: { 'border-style': 'dashed' },
       },
       {
         selector: 'edge',
@@ -450,7 +456,7 @@ window.renderDagViz = function () {
         : data.status === 'running' || data.status === 'pending' ? 'info'
         : data.status === 'cancelled' ? 'warn'
         : 'muted';
-      statusEl.appendChild(badge(sKind, data.status));
+      statusEl.appendChild(badge(sKind, data.status === 'not-started' ? 'not started' : data.status));
     }
 
     depsEl.textContent = data.dependsOn && data.dependsOn.length > 0 ? data.dependsOn : '—';
