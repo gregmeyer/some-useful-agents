@@ -1,5 +1,6 @@
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
+import { renderReplyBody } from '../lib/reply-body.js';
 import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
 import type { NotebookCard } from './notebooks.js';
 import type { HumanQuestion } from '@some-useful-agents/core';
@@ -661,7 +662,8 @@ function renderConversationEntry(
     grouped,
     classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
     metaBefore: verifyBadge,
-    body: mdBody(r.body),
+    // An agent's reply in a conversation may carry widgets (drawn as on its Chat tab).
+    body: r.role === 'agent' ? renderReplyBody(r.body, `reply-${r.id}`) : mdBody(r.body),
     after: r.role === 'triage' ? html`${renderTriageWidget(r.id, r.metaJson)}${renderTriageLinks(r.metaJson)}` : undefined,
   });
 }
