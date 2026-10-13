@@ -55,9 +55,16 @@ nodes:
       - Readable: text on bg and on surface at least 4.5:1; text-muted on
         surface and primary on bg at least 3:1. Dark mode is dark; light
         mode is light.
-      - Fonts: a stack that works without downloading anything, the brand's
+      - Fonts: stacks that work without downloading anything, the brand's
         font first if it has one, then system fallbacks, e.g.
         "Inter", system-ui, -apple-system, "Segoe UI", sans-serif.
+        "sans" is body text; "display" is headings, titles and labels. Always
+        set "display": the brand's heading face, or its body face if it uses
+        one face. Without it, headings stay in sua's own monospace and the
+        brand reads as sua's default. Set "mono" only for a code face the
+        brand clearly has.
+      - Make it look like the brand, not like sua with a new accent: take the
+        surfaces, borders and how rounded things are from the brand too.
       - radius sm/md/lg in px (0–40) to match how rounded the brand feels.
       - accents: six tile colours (teal, blue, green, orange, red, purple)
         in the brand's palette.
@@ -70,7 +77,7 @@ nodes:
       {"name": "short name", "preset": "default",
        "dark": {"bg": "#…", "surface": "#…", "surface-raised": "#…", "border": "#…", "border-strong": "#…", "text": "#…", "text-muted": "#…", "primary": "#…", "primary-hover": "#…", "primary-soft": "#…"},
        "light": {…the same keys…},
-       "fonts": {"sans": "…"},
+       "fonts": {"sans": "…", "display": "…"},
        "radius": {"sm": 6, "md": 10, "lg": 14},
        "accents": {"teal": "#…", "blue": "#…", "green": "#…", "orange": "#…", "red": "#…", "purple": "#…"},
        "why": "one sentence: where the look came from"}

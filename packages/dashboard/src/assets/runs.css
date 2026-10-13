@@ -272,7 +272,7 @@
 }
 .settings-section.is-changed { border-color: var(--color-warn); box-shadow: inset 3px 0 0 var(--color-warn); }
 .settings-section__head { display: flex; flex-direction: column; gap: 2px; }
-.settings-section__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-md); font-weight: 700; }
+.settings-section__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-md); font-weight: 700; }
 .settings-section__summary { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .settings-section__own { margin: 0; color: var(--color-text-subtle); font-size: var(--font-size-xs); }
 

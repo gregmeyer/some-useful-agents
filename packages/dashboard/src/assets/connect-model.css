@@ -14,7 +14,7 @@
 /* ---------- Masthead ---------- */
 
 .connect__kicker {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
@@ -24,7 +24,7 @@
 }
 
 .connect__title {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-2xl);
   font-weight: var(--weight-bold);
   line-height: var(--line-heading);
@@ -75,7 +75,7 @@
 }
 
 .connect-card__title {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-lg);
   font-weight: var(--weight-bold);
   margin: var(--space-2) 0 var(--space-1);
@@ -118,7 +118,7 @@
 }
 
 .connect-field__label {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   text-transform: uppercase;
@@ -140,7 +140,7 @@
 }
 
 .connect__section-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
   text-transform: uppercase;

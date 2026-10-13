@@ -182,7 +182,7 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPag
       ${brand ? html`
       ${renderBrandMaker(brand)}
       ${renderSavedBrands(brand)}
-      <h3 class="brands__title" style="margin: var(--space-6) 0 var(--space-3);">The look in use</h3>
+      <h3 class="brands__title" style="margin: var(--space-6) 0 var(--space-3);">The look in use${brand.theme.name ? html`: ${brand.theme.name}` : html``}</h3>
       <form method="POST" action="/settings/appearance/brand" class="brand-form">
         <input type="hidden" name="version" value="${brand.version}">
         <div class="theme-grid">${cards as unknown as SafeHtml[]}</div>
@@ -195,6 +195,8 @@ export function renderSettingsAppearance(opts: { a2uiWidgets?: boolean; boardPag
         <fieldset class="brand-fieldset brand-fieldset--inline"><legend>Type and shape</legend>
           <label class="brand-field brand-field--wide"><span class="brand-field__label">Text font</span>
             <input type="text" name="fonts.sans" value="${brand.theme.fonts.sans ?? ''}" placeholder="${brand.effective.fonts.sans ?? 'system-ui, sans-serif'}" spellcheck="false"></label>
+          <label class="brand-field brand-field--wide"><span class="brand-field__label">Heading font</span>
+            <input type="text" name="fonts.display" value="${brand.theme.fonts.display ?? ''}" placeholder="${brand.effective.fonts.display ?? 'the code font'}" spellcheck="false"></label>
           <label class="brand-field brand-field--wide"><span class="brand-field__label">Code font</span>
             <input type="text" name="fonts.mono" value="${brand.theme.fonts.mono ?? ''}" placeholder="${brand.effective.fonts.mono ?? 'JetBrains Mono, monospace'}" spellcheck="false"></label>
           ${(['sm', 'md', 'lg'] as const).map((k) => html`<label class="brand-field"><span class="brand-field__label">Corner radius ${k} (px)</span>

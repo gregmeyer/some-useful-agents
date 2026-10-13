@@ -815,7 +815,7 @@ settingsRouter.post('/settings/appearance/brand', (req: Request, res: Response) 
       preset: str('preset') || 'default',
       dark: group('dark', BRAND_COLOR_TOKENS),
       light: group('light', BRAND_COLOR_TOKENS),
-      fonts: group('fonts', ['sans', 'mono']),
+      fonts: group('fonts', ['sans', 'mono', 'display']),
       radius: group('radius', ['sm', 'md', 'lg'], true),
       accents: group('accents', BRAND_ACCENTS),
     };
@@ -889,8 +889,10 @@ settingsRouter.post('/settings/appearance/brand/proposal/use', (req: Request, re
   if (p?.status !== 'ready') { redirectWith(res, '/settings/appearance#brand-maker-title', 'error', 'There is no brand to use. Make one first.'); return; }
   try {
     saveBrandTheme(ctx.dataDir, p.theme, { expectedVersion: typeof req.body?.version === 'string' ? req.body.version : undefined });
+    // Kept under Your brands too, so you can switch back to it later.
+    const kept = saveBrandAs(ctx.dataDir, p.theme.name ?? 'Proposed brand', p.theme);
     discardBrandProposal(ctx.dataDir);
-    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using ${p.theme.name ? `"${p.theme.name}"` : 'sua\'s proposed brand'} everywhere. Undo last change puts the previous look back.`);
+    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using "${kept.name}" everywhere, and it's saved under Your brands. Undo last change puts the previous look back.`);
   } catch (err) {
     redirectWith(res, '/settings/appearance#brand-maker-title', 'error', (err as Error).message);
   }

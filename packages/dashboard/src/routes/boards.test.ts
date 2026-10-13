@@ -369,7 +369,11 @@ describe('update my brand (sua proposes one)', () => {
     const css = await themeCss();
     expect(css).toContain('--color-primary: #e0533d;');
     expect(css).toContain('--font-sans: "Söhne", system-ui, sans-serif;'); // the bad family is dropped, not the brand
-    expect((await get(app, '/settings/appearance')).text).not.toContain('Use this brand');
+    const after = (await get(app, '/settings/appearance')).text;
+    expect(after).not.toContain('Use this brand');
+    // Used, it's kept under Your brands as the one in use, and the page names it.
+    expect(after).toMatch(/<span class="brands__name">Harbor<\/span>\s*<span class="brands__badge">In use<\/span>/);
+    expect(after).toContain('The look in use: Harbor');
   });
 
   it('flags hard-to-read colours, reports a broken proposal, and discards', async () => {
