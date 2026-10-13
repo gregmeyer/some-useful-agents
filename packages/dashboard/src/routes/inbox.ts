@@ -43,6 +43,7 @@ import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksLine } from '../views/notebooks.js';
 import { SessionStore } from '@some-useful-agents/core';
 import { startChatTurn } from '../lib/chat-turn.js';
+import { conversationWorking, agentTurnInProgress } from '../lib/conversation-working.js';
 import { Router, type Request, type Response } from 'express';
 import {
   AUTONOMY_MODES,
@@ -235,6 +236,7 @@ function panelListFor(req: Request) {
   if (!ctx.inboxStore) return undefined;
   const offset = Number.parseInt(String(req.query.offset ?? '0'), 10);
   return buildPanelList(ctx.inboxStore, {
+    working: (m) => conversationWorking(ctx, m),
     tab: parsePanelTab(req.query.tab),
     q: typeof req.query.q === 'string' ? req.query.q : '',
     offset: Number.isFinite(offset) ? offset : 0,
@@ -305,6 +307,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     notebook: threadNotebook(ctx, message),
     question: questionForMessage(ctx, message),
     triagePending,
+    agentTurn: agentTurnInProgress(ctx, message, responses),
     currentTargetYaml,
     inlineActionWidgets,
     runBehaviors,

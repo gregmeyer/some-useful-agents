@@ -183,3 +183,10 @@ describe('Table link columns', () => {
     expect(table({ format: 'link', linkTxt: 'name' }).ok).toBe(false); // a typo is still refused
   });
 });
+
+describe('Table column labels', () => {
+  it('may be empty (the row-heading column of a comparison table)', async () => {
+    const { validateViewComponents } = await import('./view.js');
+    expect(validateViewComponents([{ id: 'root', component: 'Table', rows: { path: '/data/rows' }, columns: [{ key: 'factor', label: '' }, { key: 'bart', label: 'BART' }] }]).ok).toBe(true);
+  });
+});

@@ -97,3 +97,5 @@ Upgrading from 0.29 or earlier copies existing conversations over the first time
 Design notes: [ADR-0039](adr/0039-conversations-by-transcript.md), [ADR-0048](adr/0048-conversations-in-the-inbox-store.md).
 
 **An agent's conversation in the panel.** Opened in the sua panel (⌘K) or on Home, an agent's conversation stays the agent's: what you type goes to the agent (the box says "Reply to <agent>…"), its reply streams in with any widgets building up, and its replies are labelled with the agent. sua doesn't answer in it.
+
+**While a reply is being written.** A reply in progress shows a pulsing "Working…" wherever it appears. Open an agent's conversation mid-reply (in the panel or on Home) and you see the reply so far, then the rest as it streams; the box says "<agent> is replying…" until it's done. In the conversation lists, a conversation being answered shows a pulsing dot and "sua is working…" or "<agent> is replying…" in place of its last line. The **Chats** tab lists your conversations with agents as well as with sua.

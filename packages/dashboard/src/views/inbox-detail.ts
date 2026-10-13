@@ -48,6 +48,8 @@ export interface InboxDetailOptions {
    * thinking indicator that inbox-modal.js polls on.
    */
   triagePending?: boolean;
+  /** An agent's conversation whose reply is being written: the panel shows it working and follows it live. */
+  agentTurn?: { runId: string };
   /**
    * Current YAML of the agent referenced by `message.agentId`, used
    * to render the unified diff inside `agent-editor`-targeting action
@@ -214,7 +216,7 @@ function collectReferencedAgents(message: InboxMessage, responses: InboxResponse
 }
 
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
-  const { message, responses, flash, triagePending, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust, runBehaviors } = opts;
+  const { message, responses, flash, triagePending, agentTurn, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust, runBehaviors } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
   const isTerminal = message.status === 'dismissed' || message.status === 'resolved';
   const learningsBlock = (pendingLearnings ?? []).length > 0
@@ -408,6 +410,10 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         ? (opts.question ? html`` : html`<p class="dim" style="font-size: var(--font-size-sm); margin: 0 0 var(--space-2);">No replies yet. Write below and sua will reply here.</p>`)
         : renderThread(timeline)}
       ${triagePending ? renderThinkingIndicator(message.id) : html``}
+      ${agentTurn && message.agentId ? html`<ul class="inbox-timeline"><li class="inbox-timeline__entry">${renderThreadMessage({
+        role: 'agent', sigil: 'agent', label: message.agentId, writing: 'Working…',
+        body: html`<div class="agent-chat__live-text" data-agent-live-text></div><div class="agent-chat__live-widgets" data-agent-live-widgets></div>`,
+      })}</li></ul>` : html``}
     </section>
   `;
 
@@ -429,12 +435,12 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
         <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
           data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar thread-composer">
           <textarea name="body" rows="1" required maxlength="8192"
-            ${triagePending ? 'disabled' : ''}
-            placeholder="${triagePending ? 'sua is replying…' : message.source === 'conversation' && message.agentId ? `Reply to ${message.agentId}…` : 'Reply to sua…'}"
+            ${triagePending || agentTurn ? 'disabled' : ''}
+            placeholder="${triagePending ? 'sua is replying…' : agentTurn ? `${message.agentId ?? 'The agent'} is replying…` : message.source === 'conversation' && message.agentId ? `Reply to ${message.agentId}…` : 'Reply to sua…'}"
             class="inbox-chatbar__input" data-inbox-autogrow data-inbox-chat-enter
             aria-label="Reply to this thread"></textarea>
           <button type="submit" class="thread-composer__send"
-            title="Send (Enter)" aria-label="Send" ${triagePending ? 'disabled' : ''}>${SEND_ARROW}</button>
+            title="Send (Enter)" aria-label="Send" ${triagePending || agentTurn ? 'disabled' : ''}>${SEND_ARROW}</button>
         </form>
         <div class="inbox-composer__aux">
           <span class="inbox-composer__hint" aria-hidden="true">↵ send · ⇧↵ new line · Esc closes</span>
@@ -449,7 +455,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     <div class="inbox-detail">
       ${message.source === 'conversation' && message.agentId
         // An agent's conversation: the panel follows the agent's live turns (views/inbox-modal.js.ts).
-        ? html`<span hidden data-agent-conversation="${message.agentId}"></span>`
+        ? html`<span hidden data-agent-conversation="${message.agentId}"${agentTurn ? html` data-agent-run="${agentTurn.runId}"` : html``}></span>`
         : html``}
       <div class="inbox-detail__header">
         <header class="inbox-modal__title-row">

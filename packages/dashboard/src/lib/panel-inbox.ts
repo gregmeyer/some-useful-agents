@@ -24,7 +24,8 @@ function tabQuery(tab: PanelTab): ListMessagesOpts {
     case 'needs': return { status: 'awaiting_user', sort: 'age', dir: 'asc' };
     // Statuses spelled out: a search otherwise spans finished threads too.
     case 'open': return { statuses: ['open', 'triaged', 'awaiting_user', 'verifying'], sort: 'age', dir: 'desc' };
-    case 'conversations': return { sources: ['manual'], statuses: ['open', 'triaged', 'awaiting_user', 'verifying', 'resolved'], sort: 'age', dir: 'desc' };
+    // Chats: your conversations with sua and with agents (their Chat tabs).
+    case 'conversations': return { sources: ['manual', 'conversation'], statuses: ['open', 'triaged', 'awaiting_user', 'verifying', 'resolved'], sort: 'age', dir: 'desc' };
     case 'done': return { statuses: ['resolved', 'dismissed'], sort: 'age', dir: 'desc' };
   }
 }
@@ -41,6 +42,8 @@ export interface PanelRow {
   kind?: PanelRowKind;
   /** The latest reply, as one line of plain text. */
   latest?: { who: 'you' | 'sua' | 'system'; text: string };
+  /** Being answered right now: "sua is working…" / "<agent> is replying…" (lib/conversation-working.ts). */
+  working?: string;
 }
 
 /** Narrowing and ordering, on Home's full-width list only (phase 3b-2). */
@@ -119,7 +122,7 @@ export function panelFacets(store: InboxStore): PanelFacets {
   };
 }
 
-export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: string; offset?: number; filters?: PanelFilters; wide?: boolean; today?: HomeSurface }): PanelList {
+export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: string; offset?: number; filters?: PanelFilters; wide?: boolean; today?: HomeSurface; working?: (m: InboxMessage) => string | undefined }): PanelList {
   const q = (args.q ?? '').trim().slice(0, 200);
   const filters = args.wide ? (args.filters ?? {}) : {};
   const query = (t: PanelTab): ListMessagesOpts | null => {
@@ -148,9 +151,11 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
       const latest = preview.latestResponse;
       // The same rule the item index uses (core items/projections.ts).
       const kind: PanelRowKind | undefined = threadAttention(message, preview.proposedActions?.count ?? 0);
+      const working = args.working?.(message);
       return {
         message,
         ...(kind ? { kind } : {}),
+        ...(working ? { working } : {}),
         latest: latest ? { who: latest.role === 'user' ? 'you' as const : latest.role === 'triage' ? 'sua' as const : 'system' as const, text: oneLine(latest.body) } : undefined,
       };
     });
