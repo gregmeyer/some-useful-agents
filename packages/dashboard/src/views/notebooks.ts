@@ -186,7 +186,8 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
-      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}" title="${missing || step.note || ''}">
+      // is-live: the step is really running now (a 'running' status left by a restart doesn't spin).
+      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${missing || step.note || ''}">
         <span class="nb-step__n" aria-hidden="true">${step.status === 'done' ? '✓' : String(i + 1)}</span>
         <span class="nb-step__body">
           <span class="nb-step__title">${step.title}</span>
@@ -239,7 +240,18 @@ function runButton(nb: Notebook): SafeHtml {
   return nb.pipeline.length ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/run" class="nb-run__form"><button type="submit" class="btn btn--sm">Run the pipeline now</button></form>` : html``;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = []): SafeHtml {
+/**
+ * The notebook is working: the step or pass that's running and anything sua
+ * is doing in the background (photos, filter labels), with a moving dot so
+ * it reads as live. The page reloads until it's quiet (renderNotebookPage).
+ */
+function workingLine(running: { step: number; of: number } | undefined, busy: readonly string[]): SafeHtml {
+  const parts = [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy];
+  if (parts.length === 0) return html``;
+  return html`<span class="nb-working" data-notebook-running role="status"><span class="nb-working__dot" aria-hidden="true"></span>${parts.join(' · ')}… <span class="nb-working__note">this page updates as it goes</span></span>`;
+}
+
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -265,13 +277,13 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
         ${nb.pipeline.length || nb.steps?.length ? html`
           <div class="nb-run">
-            ${running
-              ? html`<span class="nb-run__now" data-notebook-running role="status">Running step ${String(running.step)} of ${String(running.of)}… this page updates as it goes.</span>`
+            ${running || busy.length
+              ? workingLine(running, busy)
               : nb.status === 'active'
                 ? runButton(nb)
                 : html``}
             ${nb.lastRunAt && !running ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
-          </div>` : html``}
+          </div>` : busy.length ? html`<div class="nb-run">${workingLine(undefined, busy)}</div>` : html``}
         ${nb.status === 'decided' && nb.decision ? html`<div class="nb-decided"><strong>Decided ${formatAge(nb.decidedAt ?? nb.updatedAt)}:</strong> ${nb.decision}</div>` : html``}
       </div>
       <aside class="nb-hero__side${widgets ? ' nb-hero__side--slim' : ''}" aria-label="Done when">
@@ -689,13 +701,13 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
     </div>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries)}
-    ${args.running ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [])}
+    ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled)}</aside>
