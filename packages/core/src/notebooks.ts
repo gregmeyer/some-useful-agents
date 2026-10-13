@@ -2246,7 +2246,9 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
     v === undefined ? undefined : isRange(v) ? `${String(v.min)}-${String(v.max)}` : v;
   const label = (f: NotebookField) => (f.unit ? `${f.label} (${f.unit})` : f.label);
   const scoreKey = rankBy(nb).field?.key;
-  const head = ['Rank', 'Option', 'Stage', ...nb.fields.map(label), ...(anyChosen ? ['Chosen'] : []), 'Estimates', 'Sources', 'Quote', 'Quote source', 'Quote checked',
+  // With a link field: each one's own page, and the search page when that's all it has.
+  const hasLink = nb.fields.some((f) => f.role === 'link');
+  const head = ['Rank', 'Option', 'Stage', ...(hasLink ? ['Own page', 'Found on'] : []), ...nb.fields.map(label), ...(anyChosen ? ['Chosen'] : []), 'Estimates', 'Sources', 'Quote', 'Quote source', 'Quote checked',
     ...(nb.checks.length ? ['Checks done'] : []), 'First seen', 'Last seen', ...(withOut ? ['Ruled out'] : [])];
   const row = (o: NotebookViewOption, rank: number | undefined): string[] => {
     const meta = o.factMeta ?? {};
@@ -2256,6 +2258,7 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
     return [
       // A pick reads as chosen, as the funnel counts it, whatever the steps before it got to.
       rank === undefined ? '' : String(rank), o.title, (stepLabels ? (o.chosen && !o.ruledOut && decideAt >= 0 ? stepLabels[decideAt] : stepLabels[o.stageIndex]) : o.stage) ?? '',
+      ...(hasLink ? [o.link && !o.linkIsList ? o.link : '', o.link && o.linkIsList ? o.link : ''] : []),
       ...nb.fields.map((f) => value(o.fields[f.key])),
       ...(anyChosen ? [o.chosen && !o.ruledOut ? 'yes' : ''] : []),
       Object.entries(meta).filter(([, m]) => m.estimate).map(([k]) => byKey.get(k) ?? k).join('; '),

@@ -23,6 +23,7 @@ import { getContext } from '../context.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
+import { renderNotebookBrief } from '../views/notebook-brief.js';
 import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -618,6 +619,17 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
 });
 
 // The shortlist as a spreadsheet; ?all=1 adds ruled-out options with why.
+/** A notebook as a brief to share: one self-contained page (?download=1 saves it). */
+notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  const page = renderNotebookBrief({ nb, entries: s.entries(nb.id, 1000), history: widgetHistory(ctx, s) });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief.html`;
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
+});
+
 notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response) => {
   const s = store(req);
   const nb = s.get(String(req.params.id));
