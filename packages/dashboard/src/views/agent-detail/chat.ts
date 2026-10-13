@@ -1,5 +1,5 @@
-import { parseInlineWidget, prepareViewForRender, splitReply, viewToMessages, type HumanQuestion, type Session, type SessionTurn } from '@some-useful-agents/core';
-import { renderSurfaceHost } from '../../lib/a2ui-surface.js';
+import type { HumanQuestion, Session, SessionTurn } from '@some-useful-agents/core';
+import { renderReplyBody } from '../../lib/reply-body.js';
 import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import { formatAge } from '../components.js';
 import { mdBody } from '../inbox-detail.js';
@@ -132,7 +132,7 @@ export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentC
     if (view && String(view).includes('data-a2ui-surface')) {
       return html`${view}<details class="agent-chat__raw"><summary class="dim">Show the raw reply</summary>${mdBody(t.text)}</details>`;
     }
-    return html`${replyBody(t, agent.permissions?.imgSrc ?? [])}${view ?? html``}`;
+    return html`${renderReplyBody(t.text, `chat-${t.runId ?? 'reply'}`, agent.permissions?.imgSrc ?? [])}${view ?? html``}`;
   };
   const rows = chat.turns.map((t, i) => renderThreadMessage({
     role: t.role,
@@ -164,26 +164,4 @@ export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentC
         Ask ${agent.name} something. Each message is a run of this agent, and it sees the conversation so far${chat.chatInput ? html` (your message fills its <code>${chat.chatInput}</code> input)` : html``}.
       </p>`
     : renderThread(rows, { className: 'agent-chat__transcript' });
-}
-
-/**
- * A reply's text with its inline widgets drawn in place (docs/a2ui-views.md,
- * "In chat"). A widget that doesn't check out says so, with its source one
- * click away; the rest of the reply still shows.
- */
-function replyBody(t: SessionTurn, imgHosts: string[]): SafeHtml {
-  const parts = splitReply(t.text);
-  if (!parts.some((p) => p.kind === 'widget')) return mdBody(t.text);
-  let n = 0;
-  return html`${parts.map((p) => {
-    if (p.kind === 'text') return mdBody(p.text.trim()); // the blank lines around a block aren't content
-    const i = n++;
-    const w = parseInlineWidget(p.raw, imgHosts);
-    if ('error' in w) {
-      return html`<details class="agent-chat__raw"><summary class="dim">A widget in this reply couldn't be shown</summary><p class="dim">${w.error.slice(0, 300)}</p><pre class="mono">${p.raw}</pre></details>`;
-    }
-    const model = { data: w.data };
-    const id = `chat-${t.runId ?? 'reply'}-w${String(i)}`;
-    return renderSurfaceHost(id, viewToMessages(id, prepareViewForRender(w.components, model), model), { label: 'Widget in the reply' });
-  }) as unknown as SafeHtml[]}`;
 }

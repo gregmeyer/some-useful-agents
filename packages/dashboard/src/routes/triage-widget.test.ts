@@ -32,3 +32,17 @@ describe("a widget under sua's reply", () => {
     expect(out).toContain('"Failed runs"');
   });
 });
+
+describe("an agent's reply in the sua panel / Home conversation view", () => {
+  it('draws its inline widget instead of the raw block', () => {
+    const now = new Date().toISOString();
+    const message = { id: 's1', priority: 'low', source: 'conversation', title: 'SFO to SF', body: '(empty)', status: 'awaiting_user', tags: [], createdAt: now, updatedAt: now } as unknown as InboxMessage;
+    const W = '{"components":[{"id":"root","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"m","label":"Mode"}]}],"data":{"rows":[{"m":"BART"}]}}';
+    const reply = { id: 'r2', messageId: 's1', role: 'agent', body: `Here you go.\n<a2ui>${W}</a2ui>\nSafe travels.`, createdAt: now } as unknown as InboxResponse;
+    const out = String(renderInboxDetailFragment({ message, responses: [reply] } as never));
+    expect(out).toContain('data-surface-id="reply-r2-w0"');
+    expect(out).toContain('Here you go.');
+    expect(out).toContain('Safe travels.');
+    expect(out).not.toContain('&lt;a2ui&gt;');
+  });
+});
