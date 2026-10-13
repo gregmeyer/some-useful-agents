@@ -5,15 +5,17 @@ import { fileURLToPath } from 'node:url';
 
 // Pictures in views show whole, scaled to fit their frame: a tall photo in a
 // wide frame (a guitar on a card) used to be cut down to a strip, or to
-// stretch its card. Only generated art and 16:9 video thumbnails still fill.
+// stretch its card. Only generated art, 16:9 video thumbnails and the small
+// Decide… thumbnails (a fixed 56×42 chip beside a name) still fill.
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (...p: string[]) => readFileSync(join(here, '..', ...p), 'utf8');
 
 describe('pictures fit their frames', () => {
-  it('no photo frame crops (object-fit: cover only on generated art and video thumbnails)', () => {
+  it('no photo frame crops (object-fit: cover only on generated art and thumbnails)', () => {
     const sources = { 'notebooks.css': read('assets', 'notebooks.css'), 'inbox.css': read('assets', 'inbox.css'), 'pulse.css': read('assets', 'pulse.css'), 'a2ui-sua.js': read('assets', 'a2ui-sua.js'), 'pulse-renderers.ts': read('views', 'pulse-renderers.ts') };
     const covers = Object.entries(sources).flatMap(([f, s]) => s.split('\n').filter((l) => /object-fit:\s*cover/.test(l)).map((l) => `${f}: ${l.trim().slice(0, 60)}`));
     expect(covers).toEqual([
+      'notebooks.css: .nb-decide__thumb { grid-row: span 2; width: 56px; height: 4',
       'notebooks.css: .nbl-card__art { object-fit: cover; }',
       'inbox.css: .nbs-card__cover svg { object-fit: cover; }',
       expect.stringMatching(/^pulse-renderers\.ts: .*thumbUrl/), // a YouTube thumbnail: always 16:9
