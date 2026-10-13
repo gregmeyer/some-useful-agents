@@ -33,6 +33,16 @@ const tones = new Set(['neutral', 'ok', 'warn', 'err']);
 const tone = (t) => (tones.has(t) ? t : 'neutral');
 // http(s), or a same-origin dashboard path ("/x", not "//host").
 const safeUrl = (u) => (typeof u === 'string' && /^(https?:\/\/|\/(?!\/))/i.test(u) ? u : undefined);
+/** A link's text when nothing names one: a dashboard path's last part ("run ab12cd34" for a run), a web address without its scheme or www, kept short. */
+const linkLabel = (u) => {
+  if (u.startsWith('/')) {
+    const parts = u.split(/[?#]/)[0].split('/').filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
+    if (parts[0] === 'runs' && parts[1]) return `run ${parts[1].slice(0, 8)}`;
+    return parts[parts.length - 1] || u;
+  }
+  const t = u.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
+  return t.length > 48 ? `${t.slice(0, 45)}…` : t;
+};
 
 const shared = css`
   :host { display: block; color: var(--color-text); font-size: var(--font-size-sm); }
@@ -88,7 +98,8 @@ const KeyValue = define('KeyValue', 'sua-a2ui-keyvalue',
     return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${value(it)}${it?.note ? html`<span class="note">${it.note}</span>` : nothing}</dd>`)}</dl>`;
   });
 
-const cellText = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+// A {label, url} link cell sorts and filters by its label.
+const cellText = (v) => (v == null ? '' : typeof v === 'object' ? (typeof v.label === 'string' ? v.label : typeof v.text === 'string' ? v.text : JSON.stringify(v)) : String(v));
 const compare = (a, b) => {
   const na = Number(a); const nb = Number(b);
   if (a !== '' && b !== '' && Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
@@ -100,7 +111,7 @@ const compare = (a, b) => {
 const Table = define('Table', 'sua-a2ui-table',
   Common.extend({
     rows: CommonSchemas.DynamicValue,
-    columns: z.array(z.object({ key: z.string(), label: z.string(), format: z.enum(['text', 'link']).optional() }).strict()).min(1).max(12),
+    columns: z.array(z.object({ key: z.string(), label: z.string(), format: z.enum(['text', 'link']).optional(), linkText: z.string().optional() }).strict()).min(1).max(12),
     maxRows: z.number().int().min(1).max(200).optional(),
     sortColumns: z.array(z.string()).max(12).optional(),
     defaultSort: z.string().max(80).optional(),
@@ -115,8 +126,8 @@ const Table = define('Table', 'sua-a2ui-table',
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
     th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: break-word; }
     th { white-space: nowrap; }
-    /* Only links (long addresses) may break anywhere; words and numbers stay whole. */
-    td a { overflow-wrap: anywhere; }
+    /* Link text is a name or a short address (≤48 characters), so it wraps like words. */
+    td a { overflow-wrap: break-word; }
     .tools { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
     input[type=search] { flex: 1; padding: 4px 8px; background: var(--color-surface-raised); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); }
     .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -143,7 +154,14 @@ const Table = define('Table', 'sua-a2ui-table',
     const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     const cell = (row, col) => {
       const v = row?.[col.key];
-      if (col.format === 'link') { const u = safeUrl(v); return u ? html`<a href="${u}" target="_blank" rel="noopener noreferrer">${u.replace(/^https?:\/\//, '')}</a>` : cellText(v); }
+      if (col.format === 'link') {
+        // A cell may be the address, or {label, url}; the column's linkText names a row field for the text.
+        const obj = v && typeof v === 'object' ? v : undefined;
+        const u = safeUrl(obj ? (obj.url ?? obj.href) : v);
+        if (!u) return cellText(obj ? (obj.label ?? obj.text) : v);
+        const named = col.linkText ? cellText(row?.[col.linkText]) : obj ? cellText(obj.label ?? obj.text) : '';
+        return html`<a href="${u}" target="_blank" rel="noopener noreferrer" title="${u}">${named || linkLabel(u)}</a>`;
+      }
       return cellText(v);
     };
     const header = (c) => {

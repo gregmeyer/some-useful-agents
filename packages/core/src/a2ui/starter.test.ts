@@ -36,6 +36,6 @@ describe('starter view from a step that printed JSON', () => {
   it('uses the fields, not the raw result text, and links URL columns', () => {
     const comps = starterView({ outputs: { articles: [{ title: 'A', url: 'https://a.example' }], count: 5, result: '{"articles":[]}' } });
     expect(comps.some((c) => c.id === 'o_result')).toBe(false);
-    expect(comps.find((c) => c.id === 'o_articles_t')!.columns).toEqual([{ key: 'title', label: 'Title' }, { key: 'url', label: 'Url', format: 'link' }]);
+    expect(comps.find((c) => c.id === 'o_articles_t')!.columns).toEqual([{ key: 'title', label: 'Title' }, { key: 'url', label: 'Url', format: 'link', linkText: 'title' }]);
   });
 });

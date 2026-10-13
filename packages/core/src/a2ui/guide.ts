@@ -30,7 +30,7 @@ view:
     - { id: root, component: Column, children: [top, trend, rows] }
     - { id: top, component: Metric, label: Open issues, value: { path: /outputs/open_count } }
     - { id: trend, component: Sparkline, label: "Open issues, run by run", values: { path: /series/open_count } }
-    - { id: rows, component: Table, rows: { path: /outputs/issues }, columns: [{ key: title, label: Title }, { key: url, label: Link, format: link }], maxRows: 10 }
+    - { id: rows, component: Table, rows: { path: /outputs/issues }, columns: [{ key: title, label: Title }, { key: url, label: Link, format: link, linkText: title }], maxRows: 10 }
 
 Data a view binds to (a prop is a literal, or { path: ... }):
 - /outputs/<name>: the agent's JSON result fields (its last step's structured outputs, or its result parsed as JSON). Declare each one under the agent's outputs:.
@@ -43,7 +43,7 @@ ${sua}
 Rules:
 - Lead with the one or two numbers or facts that matter (Metric, StatStrip), then the detail (Table, KeyValue, ChipList, Text).
 - Bind values to paths; never type a sample value into the view: it is reused for every run.
-- Tables: the 3–5 columns worth reading; links as format: link; maxRows about 10.
+- Tables: the 3–5 columns worth reading; links as format: link (linkText: the row field to show as the link's text); maxRows about 10.
 - Inputs and a Run button (instead of outputWidget.interactive): a TextField per input with value: { path: /inputs/NAME }, then { id: run, component: Button, child: run_label, action: { event: { name: run-agent, context: { in_NAME: { path: /inputs/NAME } } } } } and { id: run_label, component: Text, text: Run }. It always runs this agent.
 - Style through tones (neutral, ok, warn, err), never colours. Ids: short, unique, word characters. At most about 40 components.
 - signal: still names the tile (title, icon, size, accent); with a view, the view draws it, so set signal.template: widget and no mapping.`;

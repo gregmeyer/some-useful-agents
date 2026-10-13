@@ -60,10 +60,10 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Table',
-    summary: 'Rows (an array of objects) shown in named columns; link columns render the value as a link. Optional sortColumns/defaultSort, filterColumns/filterPlaceholder and pageSize make it sortable, filterable and paged in the browser.',
+    summary: 'Rows (an array of objects) shown in named columns; link columns render the value as a link (`linkText` names the row field to show as its text; a cell can also be {label, url}). Optional sortColumns/defaultSort, filterColumns/filterPlaceholder and pageSize make it sortable, filterable and paged in the browser.',
     example: {
       id: 'jobs', component: 'Table', rows: { path: '/outputs/jobs' },
-      columns: [{ key: 'title', label: 'Role' }, { key: 'url', label: 'Link', format: 'link' }],
+      columns: [{ key: 'title', label: 'Role' }, { key: 'url', label: 'Link', format: 'link', linkText: 'company' }],
     },
     schema: Common.extend({
       rows: CS.DynamicValue,
@@ -71,6 +71,8 @@ const SUA_COMPONENTS = [
         key: z.string().min(1).max(64),
         label: z.string().min(1).max(80),
         format: z.enum(['text', 'link']).optional(),
+        /** For a link column: the row field whose value is the link's text (e.g. "name"). */
+        linkText: z.string().min(1).max(64).optional(),
       }).strict()).min(1).max(12),
       maxRows: z.number().int().min(1).max(200).optional(),
       /** Columns the viewer can sort by (click the header); `defaultSort` is "col" or "col desc". */
