@@ -113,7 +113,10 @@ const Table = define('Table', 'sua-a2ui-table',
     table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
-    th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: anywhere; }
+    th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: break-word; }
+    th { white-space: nowrap; }
+    /* Only links (long addresses) may break anywhere; words and numbers stay whole. */
+    td a { overflow-wrap: anywhere; }
     .tools { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
     input[type=search] { flex: 1; padding: 4px 8px; background: var(--color-surface-raised); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; font-size: var(--font-size-sm); }
     .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -978,7 +981,7 @@ const tileStyles = css`
   header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .archived { flex: none; font-size: var(--font-size-xs); color: var(--color-warn); border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; text-decoration: none; }
   .title { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .icon-btn { background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; border-radius: var(--radius-sm, 4px); }
+  .icon-btn { background: none; border: 0; padding: 2px 4px; color: var(--color-text-muted); cursor: pointer; font-size: var(--font-size-sm); line-height: 1; text-decoration: none; border-radius: var(--radius-sm, 4px); }
   .icon-btn:hover, .icon-btn:focus-visible { color: var(--color-text); background: var(--color-surface-raised); outline: none; }
   form { display: inline; margin: 0; }
   .body { flex: 1; min-width: 0; overflow: auto; }
@@ -1030,6 +1033,7 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
         ${t.icon ? html`<span aria-hidden="true">${t.icon}</span>` : nothing}
         <span class="title" title=${t.title}>${t.title}</span>
         ${t.archived ? html`<a class="archived" href=${href} title="This agent is archived; open it to restore">archived</a>` : nothing}
+        ${t.configure ? html`<a class="icon-btn" href=${`${href}/view?redesign=1#redesign`} title="Redesign this widget with sua" aria-label="Redesign ${t.title}">✎</a>` : nothing}
         ${t.configure ? html`<button type="button" class="icon-btn" title="Configure tile" aria-label="Configure ${t.title}" @click=${() => this.configure(p.agentId, t)}>⚙</button>` : nothing}
         ${t.hideAction ? html`<form method="POST" action=${t.hideAction}><button type="submit" class="icon-btn" title="Hide from Pulse (restore it from the hidden section)" aria-label="Hide ${t.title} from Pulse">×</button></form>` : nothing}
       </header>

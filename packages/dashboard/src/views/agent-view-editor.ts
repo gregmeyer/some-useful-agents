@@ -22,6 +22,71 @@ export interface RenderViewEditorArgs {
   /** When the preview's run finished (none = no completed run yet). */
   sampleAt?: string;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  /** sua's redesign, when one was asked for (lib/view-designer.ts); a ready one carries both previews. */
+  proposal?: {
+    status: 'working' | 'ready' | 'failed';
+    request: string;
+    at: string;
+    why?: string;
+    error?: string;
+    text?: string;
+    preview?: SafeHtml;
+    currentPreview?: SafeHtml;
+  };
+  /** Opened from a tile's Redesign: put the cursor in the request field. */
+  redesignFocus?: boolean;
+}
+
+/** Ask sua for a redesign: an optional request and a button. */
+function redesignForm(id: string, label: string, request = '', focus = false): SafeHtml {
+  return html`<form method="POST" action="/agents/${id}/view/redesign" class="view-redesign__ask">
+    <input type="text" name="request" class="form-field" value="${request}" maxlength="500" placeholder="What should change? (optional) e.g. lead with the price, show a trend" aria-label="What should change"${focus ? unsafeHtml(' autofocus') : unsafeHtml('')}>
+    <button type="submit" class="btn btn--sm">${label}</button>
+  </form>`;
+}
+
+function redesignSection(args: RenderViewEditorArgs, id: string, nextVersion: string): SafeHtml {
+  const p = args.proposal;
+  if (!p) {
+    return html`<section class="view-redesign" id="redesign" aria-label="Redesign">
+      <div class="view-redesign__head"><span class="section-label">Redesign with sua</span>
+        <span class="dim view-editor__note">sua proposes a better view from this one, its real data and your brand. Nothing changes until you use it.</span></div>
+      ${redesignForm(id, 'Redesign', '', args.redesignFocus)}
+    </section>`;
+  }
+  if (p.status === 'working') {
+    return html`<section class="view-redesign" id="redesign" aria-label="Redesign" data-view-proposal-working="${args.agent.id}">
+      <p class="view-redesign__working" role="status" aria-live="polite"><span class="view-redesign__dot" aria-hidden="true"></span>
+        sua is redesigning this view${p.request ? html`: <q>${p.request}</q>` : html``}. This page updates when it's ready.</p>
+    </section>`;
+  }
+  if (p.status === 'failed') {
+    return html`<section class="view-redesign" id="redesign" aria-label="Redesign">
+      <p class="view-redesign__failed">sua's redesign didn't work out: ${(p.error ?? 'no reason given').replace(/([^.!?])$/, '$1.')}</p>
+      ${redesignForm(id, 'Try again', p.request)}
+    </section>`;
+  }
+  return html`<section class="view-redesign view-redesign--ready" id="redesign" aria-label="sua's proposal">
+    <div class="view-redesign__head"><span class="section-label">sua's proposal</span>
+      <span class="dim view-editor__note">${p.request ? html`You asked: <q>${p.request}</q> · ` : html``}${formatAge(p.at)}</span></div>
+    ${p.why ? html`<p class="view-redesign__why">${p.why}</p>` : html``}
+    <div class="view-redesign__compare">
+      <div class="view-redesign__side"><span class="section-label">Now</span><div class="view-editor__surface">${p.currentPreview ?? html``}</div></div>
+      <div class="view-redesign__side"><span class="section-label">Proposed</span><div class="view-editor__surface">${p.preview ?? html``}</div></div>
+    </div>
+    <div class="view-editor__actions">
+      <form method="POST" action="/agents/${id}/view/proposal/use" class="view-editor__remove">
+        <input type="hidden" name="baseVersion" value="${String(args.agent.version)}">
+        <button type="submit" class="btn btn--primary btn--sm">Use this (save as v${nextVersion})</button>
+      </form>
+      <button type="button" class="btn btn--ghost btn--sm" data-view-proposal-edit>Edit it first</button>
+      <script type="application/json" data-view-proposal-text>${unsafeHtml(JSON.stringify(p.text ?? '').replace(/</g, '\\u003c'))}</script>
+      <form method="POST" action="/agents/${id}/view/proposal/discard" class="view-editor__remove">
+        <button type="submit" class="btn btn--ghost btn--sm">Discard</button>
+      </form>
+    </div>
+    <details class="view-redesign__again"><summary class="dim">Ask for something different</summary>${redesignForm(id, 'Try again', p.request)}</details>
+  </section>`;
 }
 
 export function renderViewEditorPage(args: RenderViewEditorArgs): string {
@@ -47,6 +112,7 @@ export function renderViewEditorPage(args: RenderViewEditorArgs): string {
       back: { href: `/agents/${id}/config`, label: 'Back to Settings' },
     })}
     <p class="view-editor__status">${status}</p>
+    ${redesignSection(args, id, nextVersion)}
     <div class="view-editor" data-view-editor="${agent.id}">
       <div class="view-editor__left">
       <form method="POST" action="/agents/${id}/view" class="view-editor__edit">

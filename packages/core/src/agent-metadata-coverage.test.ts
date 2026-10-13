@@ -63,6 +63,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'inbox-learning-extractor': 'post-resolution distillation, runs unattended',
   'notebook-keeper': 'notebook pipeline only: turns a run into notebook entries, never proposed',
   'brand-maker': 'Settings → Appearance only: proposes a brand theme, never proposed',
+  'view-designer': 'View editor only: proposes a better view for one agent, never proposed',
   'notebook-drafter': 'New notebook only: drafts a notebook from a sentence, never proposed',
   'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',

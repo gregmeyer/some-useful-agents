@@ -7,6 +7,33 @@
  */
 export const VIEW_EDITOR_JS = `
 (function () {
+  // A redesign in progress: check every few seconds, reload when it's done.
+  var working = document.querySelector('[data-view-proposal-working]');
+  if (working) {
+    var wid = working.getAttribute('data-view-proposal-working');
+    var tries = 0;
+    var poll = function () {
+      fetch('/agents/' + encodeURIComponent(wid) + '/view/proposal.json', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.status !== 'working') { location.hash = 'redesign'; location.reload(); } else if (++tries < 150) setTimeout(poll, 4000); })
+        .catch(function () { if (++tries < 150) setTimeout(poll, 8000); });
+    };
+    setTimeout(poll, 4000);
+  }
+  // "Edit it first": the proposal goes into the editor, unsaved.
+  var editBtn = document.querySelector('[data-view-proposal-edit]');
+  var proposalEl = document.querySelector('[data-view-proposal-text]');
+  if (editBtn && proposalEl) editBtn.addEventListener('click', function () {
+    var t = document.querySelector('[data-view-text]');
+    if (!t) return;
+    try { t.value = JSON.parse(proposalEl.textContent || '""'); } catch (_) { return; }
+    t.dispatchEvent(new Event('input'));
+    t.scrollIntoView({ block: 'center' });
+    t.focus();
+  });
+})();
+
+(function () {
   var root = document.querySelector('[data-view-editor]');
   if (!root) return;
   var agentId = root.getAttribute('data-view-editor');
