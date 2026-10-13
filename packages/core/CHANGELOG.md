@@ -1,5 +1,79 @@
 # @some-useful-agents/core
 
+## 0.30.0
+
+### Minor Changes
+
+- 2b55f7b: Agents that compose: sua calls or builds a helper before it rewrites an agent.
+  
+  See [docs/agents-as-tools.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/agents-as-tools.md) and ADR-0051.
+  
+  - A fix from sua can call one of your agents instead of rewriting the agent it fixes, or build a helper agent and wire it in, on one card.
+  - An agent's page says which agents it calls and which call it, at the top.
+  - Agents that call other agents stop cleanly on a loop or a too-deep chain.
+  - A fix sua makes from a notebook becomes a copy, so it doesn't change an agent other notebooks use.
+- 2b55f7b: Brands: keep several, let sua propose one, and change the heading font.
+  
+  See [docs/brand.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/brand.md).
+  
+  - Keep several brands under Your brands and switch between them. A brand you use is kept there.
+  - **Update my brand:** sua proposes a brand from your website or a few words, with contrast checks.
+  - Headings, titles and labels follow a brand's own heading font.
+- 2b55f7b: Conversations everywhere: one conversation model, and a sua panel beside every page.
+  
+  Agent chat and the inbox now share one store and one thread view, shown in a sua panel you can open next to any page. sua knows which page you asked from, so "this dashboard" means the one you're on. See [docs/conversations.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/conversations.md).
+  
+  - **Ask sua to fix or change an agent:** sua asks what's wrong first, keeps one conversation per problem, and shows the fix on a card (with its diff) that you approve before it applies. Settings changes work the same way.
+  - **An agent's Settings tab:** sections in plain words, with one Save.
+  - **A calmer drawer and thread:** one field to search or ask, grouped threads, suggestion pills, a ⋯ menu with Copy link, and agent widgets inline. Filter, star and act on many threads at once.
+  - **Archive agents and dashboards** you aren't using; they come back with one click.
+  - **Boards:** ask sua to arrange the board you're on, a searchable agent picker, and a tunable Suggest a layout.
+  - sua carries on longer between your replies (12 turns, 24 actions).
+- 2b55f7b: Engine and builder fixes.
+  
+  - One site failing no longer sinks a whole multi-site search, and sua builds multi-source agents as one step per source, plus a merge.
+  - `web-search` in a node's tools turns on the provider's own live search.
+  - An llm step gets the whole of a big upstream result. A claude step that runs out of turns is no longer reported as rate limited. A codex step that finished its answer isn't failed by a late exit code.
+  - Replay from a node reuses the original run's inputs.
+  - Agents can't be saved with a node reference the executor won't fill in. An agent rolled back to an older version can be changed again.
+  - The research starter still writes a brief when one research angle fails.
+  - Pictures are scaled to fit their frames instead of being cropped. Test data no longer uses real names, places or listings.
+- 2b55f7b: Home, redesigned: a page of what needs you, and a shelf of your notebooks.
+  
+  Home is now drawn from a goal surface (ADR-0049): an item index of everything that needs you, and a versioned surface model of your goal, rules and pins. See [docs/surfaces.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/surfaces.md).
+  
+  - **Today** shows only what needs you, and says why. Pin, move or hide things, turn a change into a rule, or ask sua to change Home. What changed is listed, with Undo, and Home keeps itself current. Dismissed things stay dismissed.
+  - **A notebooks shelf** on Home, with each notebook shown once.
+  - A one-line header, and the dashboard fits on a phone.
+- 2b55f7b: Notebook facts you can trust: sources, quotes and one option per thing.
+  
+  - **Facts carry their source and the quote that backs them,** and say which are estimates. A notebook only keeps numbers the search actually stated, and never copies example values from its instructions.
+  - **Agents can file into a notebook directly** with a `<notebook>` block, and can rule options out. A new account-research agent fills a notebook of companies from public job posts.
+  - **One option per thing:** a company found by different agents stays one option, the same address (or a car's VIN, however it's written) is the same option, and **Merge with…** merges the rest. A run that names an option the notebook already has fills in that option's facts, instead of writing a new entry or a text-only "Ruled out".
+  - **Each option's own page, not a search page:** results pages (including CarGurus listings) don't count as an option's link, and a web-address fact becomes a link and a source for the option's photo.
+  - A notebook's searches hear what it already has and which facts are missing. Long facts get short filter labels, and a filter that would pick out only one option isn't offered.
+  - A newer price beats the price in an option's title, and a link in an option's text no longer wipes its facts.
+- 2b55f7b: Notebook steps: find, source, check, decide, one at a time.
+  
+  A notebook can lay out its work as steps, and works through them one at a time, pausing after each. sua drafts the steps from your sentence or the conversation, and adds them to a notebook that started without any. See [docs/notebooks.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/notebooks.md).
+  
+  - **A Next step button** in the header. Steps set up partway through start where the work is.
+  - **A source step** names the facts it looks up and counts them one by one. **A check step** (the notebook-checker agent) ticks a check only when a quote shows it.
+  - **A narrow step** cuts the list without closing the notebook. When a step can't do every option, it can check or source just the top ones. When it can't go further, it stops gracefully, with Move on.
+  - Done-whens that repeat the notebook's own work tick themselves. Stages moved by hand stop showing on notebooks with steps.
+  - **Decide…** picks from the options still in the running (with pictures), can tick sua's picks, and marks them "✓ chosen". A decided notebook shows its final set on its page and in its CSV, and still files what its agents find.
+- 2b55f7b: Notebooks: a goal you keep over time, which sua fills in for you.
+  
+  A notebook holds a search you keep coming back to (a car, a job, a comp set of companies), and its options are compared side by side. See [docs/notebooks.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/notebooks.md).
+  
+  - **Start one from a sentence.** sua drafts it (drafts are kept until you start or discard them), suggests notebooks from your conversations, and sets up its fields, stages and facts.
+  - **Its pipeline and schedule fill it in.** Runs are grouped into passes, the timeline shows every search (filterable), and you can see how a notebook was made. Runs from elsewhere can be added to it. The catalog shows which agents fill notebooks.
+  - **Talk to sua about a notebook, or about one option.** It files what it finds and applies your corrections to the option.
+  - **Options as widgets:** a summary of where it stands and what's left, stats, a funnel of stages, a price map (scatter with hover notes) and a shortlist you can filter by attributes. Options get photos (or a drawing that looks like the thing), price history, a "not seen lately" state, and their own page with Previous / Next.
+  - **Rank by price or by fit.** Rule options out with a reason.
+  - **Share it:** download the shortlist as a CSV (with each option's own page), or a self-contained brief.
+  - The Notebooks page has covers, search, filters and pages. Notebooks can be archived or deleted.
+
 ## 0.29.0
 
 ### Minor Changes
