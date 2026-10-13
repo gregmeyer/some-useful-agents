@@ -5,7 +5,7 @@
  * executor, the auto-propose / auto-commit helpers, and the learning
  * extractor. The D↔E call cycle (runTriageAgent ↔ runProposedAction /
  * maybeRefireTriage) lives entirely in this one file so no cross-file
- * import cycle is created — the route handlers in inbox.ts call into the
+import cycle is created — the route handlers in inbox.ts call into the
  * exported entry points only.
  */
 
@@ -89,7 +89,7 @@ import {
 } from './inbox-catalog.js';
 import {
   parseProposedActions,
-  parseTriageLinks,
+  parseTriageLinks, parseTriageWidget,
   hasRecoveryRefireSinceLastUser,
   postTriageFailureFallback,
   planTriageCrashRecovery,
@@ -2488,7 +2488,7 @@ export async function runTriageAgent(
       postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
-    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown };
+    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown; widget?: unknown };
     try {
       parsed = JSON.parse(planJson);
     } catch {
@@ -2523,6 +2523,10 @@ export async function runTriageAgent(
     if (verifyHint) triageMeta.verifyHint = verifyHint;
     if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
     if (links.length > 0) triageMeta.links = JSON.stringify(links);
+    // A widget under the reply (docs/a2ui-views.md, "In chat"): checked like any
+    // view; a part that doesn't check out becomes a note, an unreadable one is dropped.
+    const widget = parseTriageWidget(parsed.widget);
+    if (widget) triageMeta.widget = widget;
     const triageReply = ctx.inboxStore.addResponse(
       messageId,
       'triage',

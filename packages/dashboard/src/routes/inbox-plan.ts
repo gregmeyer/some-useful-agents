@@ -1,3 +1,4 @@
+import { parseInlineWidget } from '@some-useful-agents/core';
 import {
   isSafeUrl,
   type InboxActionMeta,
@@ -202,6 +203,17 @@ export function hasRecoveryRefireSinceLastUser(
  * dropped — only real agents get linked. The genuine link is emitted by the
  * system after the build actually commits (see maybeCommitBuiltAgent).
  */
+/**
+ * The plan's optional `widget` ({components, data}), checked like any view, as
+ * the JSON kept on the triage reply; undefined when there's none or it can't
+ * be read. A part that doesn't check out becomes a note (core repairComponents).
+ */
+export function parseTriageWidget(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const w = parseInlineWidget(JSON.stringify(raw));
+  return 'components' in w ? JSON.stringify({ components: w.components, data: w.data }) : undefined;
+}
+
 export function parseTriageLinks(
   raw: unknown,
   agentExists?: (id: string) => boolean,
