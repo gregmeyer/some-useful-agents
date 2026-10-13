@@ -130,7 +130,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     <section class="agent-result" aria-labelledby="agent-result-title">
       <div class="agent-result__head">
         <h2 class="section-label" id="agent-result-title">Latest result</h2>
-        ${last ? html`<span class="dim agent-result__meta">${formatAge(last.run.completedAt ?? last.run.startedAt)} · ${formatDuration(last.run.startedAt, last.run.completedAt)} · <a href="/runs/${last.run.id}">open the run →</a></span>` : html``}
+        ${last ? html`<span class="dim agent-result__meta">${formatAge(last.run.completedAt ?? last.run.startedAt)} · ${formatDuration(last.run.startedAt, last.run.completedAt)} · <a href="/runs/${last.run.id}">open the run →</a>${agent.status === 'archived' ? html`` : html` · <a href="/agents/${agent.id}/view?redesign=1#redesign" title="sua proposes a better look from this result; you compare and choose">✎ Change how this looks</a>`}</span>` : html``}
       </div>
       ${running ? html`<p class="agent-result__note"><span class="agent-result__dot" aria-hidden="true"></span>Running now, started ${formatAge(running.startedAt)}. <a href="/runs/${running.id}">Watch it →</a></p>` : html``}
       ${newestFailed && !running ? html`<p class="agent-result__note agent-result__note--err">The newest run failed ${formatAge(newestFailed.startedAt)}${newestFailed.error ? html`: <span class="agent-result__err">${firstLine(newestFailed.error)}</span>` : html``}. <a href="/runs/${newestFailed.id}">Open it →</a>${last ? html` Below is the last one that finished.` : html``}</p>` : html``}

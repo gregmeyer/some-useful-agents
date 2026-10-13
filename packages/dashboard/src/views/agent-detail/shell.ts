@@ -153,7 +153,7 @@ export function agentPageShell(args: AgentDetailArgs, content: SafeHtml): string
       ],
       cta: html`<span class="agent-actions">
         ${agent.status === 'archived' ? html`` : html`<form method="POST" action="/agents/${agent.id}/ask-fix" data-ask-fix style="display: inline; margin: 0;">
-          <button type="submit" class="btn btn--sm" title="Tell sua what's wrong or what to change; it drafts a fix you approve, in the panel">Ask sua</button>
+          <button type="submit" class="btn btn--sm" title="Tell sua what to change: what it does, or how its results look. It drafts the change for you to approve, in the panel">Ask sua</button>
         </form>`}
         <details class="home-menu agent-menu">
           <summary class="btn btn--sm btn--ghost home-menu__btn" aria-label="More for ${agent.id}">⋯</summary>
