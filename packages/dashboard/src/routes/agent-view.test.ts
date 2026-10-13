@@ -208,3 +208,45 @@ describe('Ask sua: view-redesign', () => {
     expect(executeViewRedesign(ctx, { ...ok.accepted[0], inputs: { AGENT_ID: 'nope' } }).status).toBe('failed');
   });
 });
+
+describe('the agent Overview leads with the latest result', () => {
+  it('shows no result before a run, then the latest result, run dots and the ⋯ menu', async () => {
+    const app = await setup();
+    let page = (await get(app, '/agents/shop')).text;
+    expect(page).toContain('No result yet. Run it to see what it makes.');
+    expect(page).toContain('No runs yet.');
+    await runShop();
+    page = (await get(app, '/agents/shop')).text;
+    expect(page).toContain('Latest result');
+    expect(page).toContain('data-surface-id="latest-shop"');
+    expect(page).toContain('"$89"');
+    expect(page).toContain('run-dot run-dot--completed');
+    expect(page).toContain('1 of 1 finished');
+    expect(page).toContain('Only when asked');
+    expect(page).toContain('href="/agents/shop/view#redesign"');
+    expect(page).toContain('How it works');
+    expect(page).not.toContain('Recent runs');
+  });
+
+  it('says when the newest run failed, above the last one that finished', async () => {
+    const app = await setup();
+    await runShop();
+    ctx.runStore.createRun({ id: 'later-fail', agentName: 'shop', status: 'failed', startedAt: new Date(Date.now() + 1000).toISOString(), triggeredBy: 'cli', error: 'HTTP 503 from the store\nstack…' } as never);
+    const page = (await get(app, '/agents/shop')).text;
+    expect(page).toContain('The newest run failed');
+    expect(page).toContain('HTTP 503 from the store');
+    expect(page).not.toContain('stack…');
+    expect(page).toContain('Below is the last one that finished.');
+    expect(page).toContain('run-dot run-dot--failed');
+  });
+
+  it('shows what the run said when none of the widget\'s fields are in it', async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'chatty', name: 'Chatty', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'say', type: 'llm-prompt', prompt: 'x' }],
+      outputWidget: { type: 'raw', fields: [{ name: 'missing', type: 'text' }] } } as never, 'cli');
+    await executeAgentDag(ctx.agentStore.getAgent('chatty') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: async () => ({ result: 'Found 2 roles at Rula.', exitCode: 0 }) });
+    const page = (await get(app, '/agents/chatty')).text;
+    expect(page).toContain('Found 2 roles at Rula.');
+  });
+});

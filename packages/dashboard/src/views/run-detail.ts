@@ -780,26 +780,32 @@ function renderExhaustedHint(e: NodeExecutionRecord, node: AgentNode | undefined
 }
 
 /**
- * The result area: the agent's A2UI view when it has one (docs/a2ui-views.md),
+ * The result area (the run page, and the agent Overview's Latest result):
+ * the agent's A2UI view when it has one (docs/a2ui-views.md),
  * else its output widget, else the raw output. A generated view that wasn't
  * valid this run shows why, then the output widget (or raw output) below it.
  */
-function runWidget(
+export function runWidget(
   agent: Agent | undefined,
   run: Run,
   nodeExecutions: NodeExecutionRecord[] | undefined,
   widgetControls: Parameters<typeof renderOutputWidget>[3],
   viewHistory?: RunViewOptions['history'],
+  surfaceId = `run-${run.id}`,
 ): SafeHtml {
   const fallback = () => (agent?.outputWidget
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
     : outputFrame(run.result ?? ''));
   if (!agent?.view && agent?.outputWidget && run.status === 'completed') {
-    const surface = renderLegacySurface(`run-${run.id}`, legacyWidgetView(agent.outputWidget, run.result ?? ''), { widget: agent.outputWidget });
+    const legacy = legacyWidgetView(agent.outputWidget, run.result ?? '');
+    // None of the widget's fields are in this output: the old renderer would
+    // draw an empty widget, so show what the run actually said.
+    if ('unsupported' in legacy && /no fields in this output/.test(legacy.unsupported) && (run.result ?? '').trim()) return outputFrame(run.result ?? '');
+    const surface = renderLegacySurface(surfaceId, legacy, { widget: agent.outputWidget });
     if (surface) return surface;
   }
   if (agent?.view && run.status === 'completed') {
-    const view = renderRunView(agent, run, nodeExecutions ?? [], `run-${run.id}`, { history: viewHistory });
+    const view = renderRunView(agent, run, nodeExecutions ?? [], surfaceId, { history: viewHistory });
     if (String(view).includes('data-a2ui-surface')) return view;
     return html`${view}${fallback()}`;
   }

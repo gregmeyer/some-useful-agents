@@ -1185,7 +1185,7 @@ describe('Agents that call agents are visible', () => {
     // showed was a "used by N" badge on the list — nothing on the agent itself.
     const caller = await authed('/agents/boss');
     expect(caller.status).toBe(200);
-    expect(caller.text).toContain('Connections');
+    expect(caller.text).toContain('id="agent-connections"');
     expect(caller.text).toContain('>Calls<');
     expect(caller.text).toContain('href="/agents/worker-a"');
 
@@ -1214,11 +1214,11 @@ describe('Agents that call agents are visible', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
 
     const caller = await authed('/agents/boss');
-    const summary = caller.text.slice(caller.text.indexOf('agent-calls-summary'));
-    expect(summary.slice(0, 900)).toMatch(/Calls<\/span>\s*<a href="\/agents\/year-finder"/);
-    expect(summary.slice(0, 900)).toContain('an agent chosen at run time');
-    // It comes before the diagram, not under the output widget.
-    expect(caller.text.indexOf('agent-calls-summary')).toBeLessThan(caller.text.indexOf('id="agent-connections"'));
+    const glance = caller.text.slice(caller.text.indexOf('id="agent-connections"'));
+    expect(glance.slice(0, 1500)).toMatch(/Calls<\/p>\s*<ul><li><a href="\/agents\/year-finder"/);
+    expect(glance.slice(0, 1500)).toContain('an agent chosen at run time');
+    // In the side column at the top, before how it works.
+    expect(caller.text.indexOf('id="agent-connections"')).toBeLessThan(caller.text.indexOf('How it works'));
     // A draft callee won't run on its own; a helper says so; its job is spelled out without the prefix.
     expect(caller.text).toMatch(/year-finder<\/a> <span class="badge badge--muted">draft<\/span> <span class="badge badge--info">helper<\/span>/);
     expect(caller.text).toContain('Finds the year a company was founded.');
@@ -1227,7 +1227,7 @@ describe('Agents that call agents are visible', () => {
     expect(caller.text).not.toContain('Helper for boss: finds');
 
     const callee = await authed('/agents/year-finder');
-    expect(callee.text).toMatch(/Called by<\/span>\s*<a href="\/agents\/boss"/);
+    expect(callee.text).toMatch(/Called by<\/p>\s*<ul><li><a href="\/agents\/boss"/);
     expect(callee.text).toContain('Researches a company.');
     expect(callee.text).toContain('A change to year-finder changes what it gets.');
   });
@@ -4251,17 +4251,17 @@ describe('Widget controls (PR H)', () => {
     });
   }
 
-  it('renders the controls row above the widget body on agent overview', async () => {
+  it('draws the latest result on the agent overview with A2UI: view-switch as Tabs, field-toggle as a Disclosure', async () => {
     const app = await makeApp();
     seedControlsAgent();
     const res = await request(app).get('/agents/weather')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    expect(res.text).toContain('wc-row');
-    expect(res.text).toContain('data-widget-control="replay"');
-    expect(res.text).toContain('data-widget-control="view-switch"');
-    expect(res.text).toContain('data-widget-control="field-toggle"');
+    expect(res.text).toContain('Latest result');
+    expect(res.text).toContain('data-surface-id="latest-weather"');
+    expect(res.text).toContain('"component":"Tabs"');
+    expect(res.text).toContain('"component":"Disclosure"');
   });
 
   it('replay control renders a POST form to /agents/:id/run with input_<NAME>', async () => {
@@ -4272,49 +4272,6 @@ describe('Widget controls (PR H)', () => {
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.text).toMatch(/<form\s+method="POST"\s+action="\/agents\/weather\/run"/);
     expect(res.text).toContain('name="input_CITY"');
-  });
-
-  it('view-switch with ?wv=imperial filters fields to that view only', async () => {
-    const app = await makeApp();
-    seedControlsAgent();
-    const def = await request(app).get('/agents/weather')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    // Default view = metric → temp_c visible, temp_f hidden.
-    expect(def.text).toContain('temp_c');
-    // The dashboard renderer skips fields whose value is undefined; with the
-    // imperial view active, temp_c is filtered out before extraction. The
-    // field's label should not appear in the rendered widget body for the
-    // active view.
-    const imp = await request(app).get('/agents/weather?wv=imperial')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(imp.text).toContain('temp_f');
-    // The chip for imperial should be styled active (badge, not badge--muted).
-    // Active chip uses class="badge" (not badge--muted). Look for the
-    // specific imperial chip's class via the surrounding anchor tag.
-    expect(imp.text).toMatch(/<a[^>]*class="[^"]*wc-chip--active[^"]*"[^>]*data-view-id="imperial"/);
-  });
-
-  it('field-toggle hides default-hidden fields by default and reveals them via ?wh', async () => {
-    const app = await makeApp();
-    seedControlsAgent();
-    // Default state: uv is default-hidden, so its label "uv" shouldn't appear
-    // inside the widget body. It still appears in the controls row chip.
-    const def = await request(app).get('/agents/weather')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    // Controls chip references uv by name attribute regardless of state.
-    expect(def.text).toContain('data-field="uv"');
-    // Reveal: ?wh= mentions a toggle field but excludes uv → uv now visible.
-    // Our grammar: when ?wh mentions any toggle field, ?wh becomes the
-    // authoritative hidden set. ?wh=  (empty) wouldn't trigger override, so
-    // pass a different toggle target. With only uv in the toggle, the way to
-    // reveal uv is to omit it from ?wh. Pass `?wh=` empty — defaults apply
-    // → uv stays hidden. To reveal, we need controls with multiple fields.
-    // For this single-field toggle, click-to-reveal sets ?wh= empty which
-    // falls back to defaults. Verify the chip's href reflects this.
-    expect(def.text).toMatch(/data-field="uv"\s+data-hidden="1"/);
   });
 
   it('draws a controls widget on run-detail with A2UI (views are Tabs)', async () => {
