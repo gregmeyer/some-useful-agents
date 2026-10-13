@@ -250,3 +250,28 @@ describe('the agent Overview leads with the latest result', () => {
     expect(page).toContain('Found 2 roles at Rula.');
   });
 });
+
+describe('the Overview diagram while a run is in progress', () => {
+  it('opens the diagram on the running step, and live.json follows it until it ends', async () => {
+    const app = await setup();
+    const startedAt = new Date().toISOString();
+    ctx.runStore.createRun({ id: 'live-1', agentName: 'shop', status: 'running', startedAt, triggeredBy: 'cli' } as never);
+    ctx.runStore.createNodeExecution({ runId: 'live-1', nodeId: 'look', workflowVersion: 1, status: 'running', startedAt } as never);
+    const page = (await get(app, '/agents/shop')).text;
+    expect(page).toContain('data-agent-live-run="live-1"');
+    expect(page).toMatch(/<details class="agent-how__diagram" open>/);
+    expect(page).toContain('Running: look');
+    expect(page).toContain('"status":"running"');
+
+    let live = (await get(app, '/agents/shop/live.json?run=live-1')).body;
+    expect(live.status).toBe('running');
+    expect(live.step).toBe('Running: look');
+    expect(JSON.parse(live.dag).elements.find((e: { data: { id: string } }) => e.data.id === 'look').data.status).toBe('running');
+
+    ctx.runStore.updateRun('live-1', { status: 'completed', completedAt: new Date().toISOString(), result: '{"price":"$90"}' });
+    live = (await get(app, '/agents/shop/live.json?run=live-1')).body;
+    expect(live.status).toBe('completed');
+    expect((await get(app, '/agents/shop/live.json?run=nope')).status).toBe(404);
+    expect((await get(app, '/agents/shop')).text).not.toContain('data-agent-live-run');
+  });
+});

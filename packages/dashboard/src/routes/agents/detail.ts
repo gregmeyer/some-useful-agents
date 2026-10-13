@@ -66,6 +66,8 @@ function loadMemories(
 }
 import { deriveBack } from '../../views/page-header.js';
 import { viewHistory } from '../../lib/a2ui-surface.js';
+import { dagPayload } from '../../views/dag-view.js';
+import { liveStepText } from '../../views/agent-detail/overview.js';
 import {
   parseHiddenFieldsParam,
   parseSortParamsFromQuery,
@@ -74,6 +76,22 @@ import {
 } from '../../views/output-widgets.js';
 
 export const agentDetailRouter: Router = Router();
+
+/**
+ * GET /agents/:name/live.json?run=<id>: a run in progress, for the Overview's
+ * diagram (views/agent-live-dag.js.ts): its status, the canvas payload with
+ * node statuses, and which steps are running.
+ */
+agentDetailRouter.get('/agents/:name/live.json', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = String(Array.isArray(req.params.name) ? req.params.name[0] : req.params.name);
+  const agent = ctx.agentStore.getAgent(name);
+  const runId = typeof req.query.run === 'string' ? req.query.run : '';
+  const run = runId ? ctx.runStore.getRun(runId) : null;
+  if (!agent || !run || run.agentName !== agent.id) { res.status(404).json({ error: 'No such run for this agent.' }); return; }
+  const execs = ctx.runStore.listNodeExecutions(run.id);
+  res.json({ status: run.status, dag: dagPayload(agent, execs), step: liveStepText(execs) });
+});
 
 agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -129,6 +147,10 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       memories: loadMemories(ctx, v2Agent),
       spend7d: ctx.runStore.usageSummary(new Date(Date.now() - 7 * 86_400_000).toISOString(), { agentName: v2Agent.id }).byAgent[0],
       spendLimits: loadSpendLimits(ctx, v2Agent),
+      liveRun: (() => {
+        const run = rows.find((r) => r.status === 'running' || r.status === 'pending');
+        return run ? { run, nodeExecutions: ctx.runStore.listNodeExecutions(run.id) } : undefined;
+      })(),
       latestResult: (() => {
         const run = rows.find((r) => r.status === 'completed');
         if (!run) return undefined;

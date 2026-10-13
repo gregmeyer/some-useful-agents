@@ -74,6 +74,8 @@ export interface AgentDetailArgs {
   spendLimits?: { limits: EffectiveSpendLimits; spentToday: number; unenforceable: string[] };
   /** The latest completed run, with what its view needs (the Overview's Latest result). */
   latestResult?: { run: Run; nodeExecutions: NodeExecutionRecord[]; history: RunViewOptions['history'] };
+  /** A run in progress and its steps so far: the Overview's diagram opens on it and pulses the running step. */
+  liveRun?: { run: Run; nodeExecutions: NodeExecutionRecord[] };
   /** The agent's inbound webhook (Config tab), and the URL base it's reached at. */
   webhook?: { hook?: Webhook; baseUrl: string };
 }
