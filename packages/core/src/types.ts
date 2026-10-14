@@ -184,6 +184,26 @@ export interface Provider {
    * providers without a durable path (local).
    */
   submitDagRun?(agent: Agent, opts: SubmitDagRunOptions): Promise<Run>;
+  /**
+   * What a durable run (`submitDagRun`) is producing right now, for live
+   * listeners: each node's text so far and its other progress events, as the
+   * worker last reported them (about once a second). Undefined when the run
+   * isn't running there or nothing has been reported yet.
+   */
+  liveRunProgress?(runId: string): Promise<LiveRunProgress | undefined>;
+}
+
+/**
+ * A running node's or run's live progress as the Temporal worker reports it
+ * (heartbeat details). Text deltas are folded into `text` (per node), so the
+ * report stays the size of the reply instead of one event per token; every
+ * other event (tool calls, whole messages) is listed in order.
+ */
+export interface LiveRunProgress {
+  /** Progress events other than text deltas, in order, each with its node. */
+  events: Array<{ nodeId: string; event: import('./node-spawner.js').SpawnProgress }>;
+  /** Text streamed so far, per node. */
+  text: Record<string, string>;
 }
 
 /** Options for {@link Provider.submitDagRun}. */

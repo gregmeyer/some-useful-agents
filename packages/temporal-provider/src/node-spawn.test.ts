@@ -173,6 +173,25 @@ describe('createTemporalSpawnNode', () => {
   });
 });
 
+describe('createTemporalSpawnNode — live progress ({ live } heartbeats)', () => {
+  it('passes on the text written so far as deltas, each piece once, and other events in order', async () => {
+    let report: { events: Array<{ nodeId: string; event: SpawnProgress }>; text: Record<string, string> } = { events: [{ nodeId: 'n', event: { timestamp: 't1', type: 'turn_start', turn: 1 } }], text: { n: 'Hel' } };
+    const client = fakeClient({
+      result: { result: 'ok', exitCode: 0 },
+      resultAfterMs: 80,
+      describe: () => ({ pendingActivities: [{ heartbeatDetails: { live: report } }] }),
+    });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc', progressPollMs: 10 });
+    setTimeout(() => {
+      report = { events: [...report.events, { nodeId: 'n', event: { timestamp: 't2', type: 'tool_use', message: 'bash' } }], text: { n: 'Hello there' } };
+    }, 35);
+    const seen: SpawnProgress[] = [];
+    await spawn(node(), { PATH: '/usr/bin' }, spawnOpts, (e) => seen.push(e));
+    expect(seen.filter((e) => e.type !== 'output_delta').map((e) => e.type)).toEqual(['turn_start', 'tool_use']);
+    expect(seen.filter((e) => e.type === 'output_delta').map((e) => e.message).join('')).toBe('Hello there');
+  });
+});
+
 describe('createTemporalSpawnNode — worker parity inputs', () => {
   it('sends same-host paths (never custom provider definitions or keys) so the worker loads them itself', async () => {
     let args: unknown[] = [];

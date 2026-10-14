@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import type { SpawnNodeFn, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
-import { stripSensitiveEnv } from '@some-useful-agents/core';
+import { newLiveCursor, stripSensitiveEnv, takeNewProgress } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import type { RunNodeActivityInput } from './activities.js';
+import { extractLiveProgress, heartbeatDetails, type DescribeLike } from './live-progress.js';
 
 export interface CreateTemporalSpawnNodeOptions {
   /** A connected Temporal client (reuse the provider's). */
@@ -30,24 +31,12 @@ export interface CreateTemporalSpawnNodeOptions {
 }
 
 /**
- * Minimal shape of a Temporal workflow description we read for progress. The
- * worker heartbeats `{ progress: SpawnProgress[] }`; depending on SDK surfacing
- * `heartbeatDetails` may arrive as that object or wrapped in a details array.
- */
-interface DescribeLike {
-  pendingActivities?: Array<{ heartbeatDetails?: unknown }>;
-}
-
-/**
- * Pull the accumulated progress trail out of a workflow `describe()` result.
- * Defensive about how the data converter surfaces heartbeat details (single
- * object vs. array-of-details). Returns [] when there's no pending activity or
- * no heartbeat yet.
+ * Pull the accumulated progress trail (an older worker's `{ progress }`
+ * heartbeat) out of a workflow `describe()` result. Returns [] when there's
+ * no pending activity or no heartbeat yet.
  */
 export function extractHeartbeatProgress(description: DescribeLike): SpawnProgress[] {
-  for (const act of description.pendingActivities ?? []) {
-    const d = act.heartbeatDetails;
-    const obj = Array.isArray(d) ? d[0] : d;
+  for (const obj of heartbeatDetails(description)) {
     const progress = (obj as { progress?: unknown } | undefined)?.progress;
     if (Array.isArray(progress)) return progress as SpawnProgress[];
   }
@@ -140,22 +129,31 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
     if (signal?.aborted) onAbort();
     else signal?.addEventListener('abort', onAbort, { once: true });
 
-    // Live progress: poll the workflow's heartbeated progress trail and re-emit
-    // any events not yet surfaced through the real onProgress. Because the
+    // Live progress: poll the workflow's heartbeated progress and re-emit
+    // whatever isn't yet surfaced through the real onProgress. Because the
     // executor still orchestrates in-process, this drives the normal path —
     // node_executions.progressJson writes AND the inbox token stream — for
-    // Temporal runs, at ~poll-interval granularity (not token-by-token).
+    // Temporal runs, a second's worth of text at a time (the worker's
+    // heartbeat throttle, worker.ts).
     let progressTimer: ReturnType<typeof setTimeout> | undefined;
     let emitted = 0;
+    const cursor = newLiveCursor();
     let polling = false;
     const poll = async (): Promise<void> => {
       if (polling) return;
       polling = true;
       try {
         const desc = await handle.describe();
-        const trail = extractHeartbeatProgress(desc as DescribeLike);
-        for (let i = emitted; i < trail.length; i++) onProgress?.(trail[i]);
-        emitted = Math.max(emitted, trail.length);
+        // A worker reports { live } (text folded per node, live-progress.ts);
+        // an older one, the { progress } trail of every event.
+        const live = extractLiveProgress(desc as DescribeLike);
+        if (live) {
+          for (const { event } of takeNewProgress(live, cursor)) onProgress?.(event);
+        } else {
+          const trail = extractHeartbeatProgress(desc as DescribeLike);
+          for (let i = emitted; i < trail.length; i++) onProgress?.(trail[i]);
+          emitted = Math.max(emitted, trail.length);
+        }
       } catch { /* describe races completion — ignore, the result settles below */ }
       finally { polling = false; }
     };

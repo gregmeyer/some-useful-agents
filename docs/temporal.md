@@ -28,11 +28,19 @@ run a worker, and monitor it.
 > the dashboard orchestrated and offloaded each node; the durable per-run mode
 > above supersedes it for run-now / scheduled runs.)
 >
-> Live progress (turn / tool-use events, the inbox "thinking…" stream) is
-> surfaced for Temporal runs too: the worker heartbeats its progress trail and
-> the dashboard re-broadcasts it at ~1s granularity (not token-by-token, and the
-> final fraction-of-a-second batch may be dropped — the run result is always
-> captured).
+> Live progress is surfaced for Temporal runs too: sua's replies stream into a
+> conversation, a chat agent's reply (run durably) streams with its widgets, and
+> tool calls show as they happen. The worker puts what a node or run has
+> produced so far in its activity heartbeat: the text written so far per node,
+> plus its other events in order (`{ live }`, `live-progress.ts`). The dashboard
+> reads it back with `describe()` (decoding the heartbeat payloads) about once a
+> second and passes on what's new. The worker heartbeats at most once a second
+> (`maxHeartbeatThrottleInterval`); Temporal's default of 80% of the heartbeat
+> timeout (24 seconds and up) would hide a whole reply. So text arrives a
+> second's worth at a time, not token by token. The last fraction of a second
+> isn't relayed, but the run's result is always recorded. A durable chat turn
+> is watched until it ends, then its reply is recorded and the conversation is
+> told the turn ended (`provider.liveRunProgress`, `chat-turn.ts`).
 >
 > Secrets a node declares are read on the worker from the secrets file and never
 > travel in the Temporal activity payload (which Temporal persists in history). A

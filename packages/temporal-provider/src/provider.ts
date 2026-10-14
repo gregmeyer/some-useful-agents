@@ -1,7 +1,8 @@
 import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
+import { extractLiveProgress, type DescribeLike } from './live-progress.js';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
-import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent, SubmitDagRunOptions } from '@some-useful-agents/core';
+import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent, SubmitDagRunOptions, LiveRunProgress } from '@some-useful-agents/core';
 import { RunStore } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import { createTemporalSpawnNode } from './node-spawn.js';
@@ -169,6 +170,15 @@ export class TemporalProvider implements Provider {
     void this.trackDagCompletion(runId, handle.workflowId);
 
     return { ...run, status: 'running' };
+  }
+
+  /** What a durable run is producing right now (its activity's heartbeat; live-progress.ts). */
+  async liveRunProgress(runId: string): Promise<LiveRunProgress | undefined> {
+    try {
+      return extractLiveProgress(await this.client.workflow.getHandle(`sua-run-${runId}`).describe() as DescribeLike);
+    } catch {
+      return undefined; // not started yet, or already done
+    }
   }
 
   /**
