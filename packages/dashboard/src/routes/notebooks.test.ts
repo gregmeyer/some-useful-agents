@@ -969,6 +969,57 @@ describe('the funnel on the page and in the conversation', () => {
     expect(again.text).toMatch(/type="radio" name="chosen" value="[^"]+" checked>/); // the earlier pick, ready to keep
   });
 
+  it('Pick: one option at a time, or Save picks from Decide…, without closing the notebook', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await post('/notebooks', { title: 'Gadgets' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    store.setSteps('gadgets', [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick which to buy', kind: 'decide', target: 1 }]);
+    store.updateStep('gadgets', store.get('gadgets')!.steps![0].id, { status: 'done' });
+    const radio = store.upsertOption('gadgets', { title: 'Radio', by: 'you' }).entry;
+    const lamp = store.upsertOption('gadgets', { title: 'Lamp', by: 'you' }).entry;
+
+    // The step card opens Decide…, which can save picks without closing.
+    const page = (await get('/notebooks/gadgets')).text;
+    expect(page).toContain('data-nb-open-act="decide"');
+    expect(page).toContain('data-nb-act-name="decide"');
+    expect(page).toContain('Save picks, keep it open');
+    // The option page has Pick this one.
+    expect((await get(`/notebooks/gadgets/entries/${radio.id}`)).text).toContain('>Pick this one</button>');
+
+    const picked = await post(`/notebooks/gadgets/entries/${radio.id}/choose`, { back: 'option' });
+    expect(decodeURIComponent(picked.headers.location)).toContain(`/entries/${radio.id}?flash=Picked Radio.`);
+    let nb = store.get('gadgets')!;
+    expect(nb.status).toBe('active');
+    expect(nb.steps![1]).toMatchObject({ status: 'done', note: '1 chosen' });
+    const opt = (await get(`/notebooks/gadgets/entries/${radio.id}`)).text;
+    expect(opt).toContain('✓ Picked');
+    expect(opt).toContain('>Unpick</button>');
+
+    // Taking it back opens the step again.
+    await post(`/notebooks/gadgets/entries/${radio.id}/choose`, { on: '0' });
+    nb = store.get('gadgets')!;
+    expect(store.entries('gadgets').some((e) => e.chosenAt)).toBe(false);
+    expect(nb.steps![1].status).toBe('todo');
+
+    // Save picks from Decide…: these are the picks, and it stays open.
+    const saved = await post('/notebooks/gadgets/decide', `chosen=${lamp.id}&keep=1`);
+    expect(decodeURIComponent(saved.headers.location)).toContain('Picked 1. The notebook stays open.');
+    nb = store.get('gadgets')!;
+    expect(nb.status).toBe('active');
+    expect(nb.decision).toBeUndefined();
+    expect(store.entries('gadgets').filter((e) => e.chosenAt).map((e) => e.title)).toEqual(['Lamp']);
+    expect(nb.steps![1].status).toBe('done');
+
+    // A ruled-out option can't be picked.
+    store.ruleOut('gadgets', radio.id, 'meh');
+    const no = await post(`/notebooks/gadgets/entries/${radio.id}/choose`);
+    expect(decodeURIComponent(no.headers.location)).toContain('was ruled out');
+  });
+
   it("sua's picks: marked from its notebook-add, replaced by the next ones, ticked from Decide…", async () => {
     const app = await makeApp();
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

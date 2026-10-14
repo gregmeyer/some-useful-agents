@@ -666,3 +666,6 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbo-merge__form { position: absolute; z-index: 20; top: calc(100% + var(--space-1)); left: 0; width: min(420px, calc(100vw - 32px)); display: grid; gap: var(--space-2); padding: var(--space-3); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
 .nbo-merge__label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-csv__brief-label { padding-top: var(--space-2); }
+
+/* Decide…: Decide and close, or save the picks and keep looking. */
+.nb-decide__submit { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
