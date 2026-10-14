@@ -89,7 +89,8 @@ describe('browser components match the core catalog', () => {
     for (const d of [...suaComponentDocs(), ...boardComponentDocs()]) {
       // Its schema only: up to the styles that follow it.
       const block = (blocks.find((b) => b.startsWith(`define('${d.name}'`)) ?? '').split('css`')[0];
-      const schema = suaCatalog().components.get(d.name)?.schema as { shape?: Record<string, unknown> } | undefined;
+      const components = suaCatalog().components as unknown as Map<string, { schema?: { shape?: Record<string, unknown> } }>;
+      const schema = components.get(d.name)?.schema;
       for (const key of Object.keys(schema?.shape ?? {})) {
         if (['id', 'component', 'weight', 'accessibility'].includes(key)) continue;
         if (!new RegExp(`\\b${key}\\s*:`).test(block)) missing.push(`${d.name}.${key}`);
