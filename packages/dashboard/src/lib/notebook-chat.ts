@@ -255,6 +255,27 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
   return store.list({ archived: 'include' }).find((n) => n.conversationId === threadId);
 }
 
+/**
+ * The notebook a conversation has turned to: sua's latest reply that links a
+ * notebook links just this one ("which notebook next?" → "the car for
+ * Nadia"). A reply linking several (a list of notebooks) settles nothing.
+ * Only for what sua sees: results still file into a notebook only by
+ * `notebookForThread`.
+ */
+export function notebookTalkedAbout(ctx: Ctx, threadId: string): Notebook | undefined {
+  const replies = (ctx.inboxStore?.listResponses(threadId) ?? []).filter((r) => r.role === 'triage');
+  const store = notebooksOf(ctx);
+  for (let i = replies.length - 1; i >= 0; i--) {
+    const text = `${replies[i].body}\n${replies[i].metaJson ?? ''}`;
+    const ids = new Set([...text.matchAll(/\/notebooks\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]));
+    if (ids.size === 0) continue;
+    if (ids.size > 1) return undefined;
+    const nb = store.get([...ids][0]);
+    return nb && !nb.archivedAt ? nb : undefined;
+  }
+  return undefined;
+}
+
 /** The options before and after one in the running, as sua links them. */
 function neighboursFor(nb: Notebook, entries: Parameters<typeof notebookViewData>[1], store: NotebookStore, id: string): { rank?: number; previous?: { title: string; page: string }; next?: { title: string; page: string } } {
   const order = rankOptions(nb, notebookViewData(nb, entries, store).notebook.options);
