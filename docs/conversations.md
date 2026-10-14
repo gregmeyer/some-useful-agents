@@ -55,6 +55,7 @@ The Chat tab and inbox threads talk to the dashboard over one WebSocket per tab 
 
 - **Text streams in** as the model writes it with Claude (it sends small pieces). Codex and OpenAI-compatible endpoints send each message whole, so with them you see each message arrive, plus the tool calls as they happen.
 - **Tool calls** appear under the reply while it's being worked on (`→ web-fetch …`, in red if one failed).
+- **Scroll up while it writes:** a streaming reply follows the end of the conversation until you scroll up, then stays where you are. Scroll back to the bottom, or send a message, and it follows again.
 - When the turn ends, the conversation re-renders from what was stored, so the finished reply is formatted exactly as it is on reload.
 - A dropped connection reconnects by itself and picks up the events it missed. Without WebSocket support the tab falls back to sending the form and reloading until the reply lands.
 - On the durable (Temporal) backend, the reply's text, tool calls and widgets arrive about once a second, read back from the worker (see [temporal.md](temporal.md)), and the conversation hears when the turn ends.

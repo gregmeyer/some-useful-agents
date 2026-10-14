@@ -19,6 +19,8 @@ export const INBOX_MODAL_JS = `
 (function () {
   var modal = document.getElementById('inbox-modal');
   var content = modal && document.getElementById('inbox-modal-content');
+  // A reply that's streaming stays in view, until you scroll up to read (thread.js.ts).
+  var tail = content && window.suaThread ? window.suaThread.follow(content) : { stick: function () { if (content) content.scrollTop = content.scrollHeight; }, reset: function () {}, following: function () { return true; } };
   if (!content) return;
 
   // Per-open state.
@@ -336,8 +338,7 @@ export const INBOX_MODAL_JS = `
     Object.keys(agentLive.widgets).forEach(function (index) {
       drawLiveWidget(slot, index, agentLive.widgets[index], 'panel-live-' + agentLive.runId + '-' + index);
     });
-    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
-    if (nearBottom) content.scrollTop = content.scrollHeight;
+    tail.stick();
   }
   /** A reply's widget while it's being written (sua's or an agent's), redrawn as components arrive. */
   function drawLiveWidget(slot, index, messages, surfaceId) {
@@ -517,8 +518,7 @@ export const INBOX_MODAL_JS = `
         text.parentNode.insertBefore(slot, text.nextSibling);
       }
       drawLiveWidget(slot, '0', data.messages, 'triage-live-' + (currentId || '') + '-0');
-      var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
-      if (nearBottom) content.scrollTop = content.scrollHeight;
+      tail.stick();
     });
     // triage:complete — keep the bubble in place; the watchdog or
     // the canonical fragment refresh (scheduled by onAnyEvent for
@@ -604,10 +604,7 @@ export const INBOX_MODAL_JS = `
     // Only follow the new streaming bubble down if the operator was already at
     // the bottom. If they've scrolled up to read a tall widget, a triage reply
     // starting to stream must not yank them to the bottom.
-    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
-    requestAnimationFrame(function () {
-      if (nearBottom) content.scrollTop = content.scrollHeight;
-    });
+    requestAnimationFrame(function () { tail.stick(); });
     return text;
   }
 
@@ -640,8 +637,7 @@ export const INBOX_MODAL_JS = `
       // buffer is small (1 reply at a time) and rebuilding once per
       // frame is cheaper than chasing diffs through escape handling.
       el.textContent = display;
-      var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
-      if (nearBottom) content.scrollTop = content.scrollHeight;
+      tail.stick();
     });
   }
 
@@ -822,7 +818,7 @@ export const INBOX_MODAL_JS = `
         // a tall inline widget whose top is above the fold — keep their
         // position instead of yanking them back down on every poll refresh.
         var prevScrollTop = content.scrollTop;
-        var wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
+        var wasNearBottom = tail.following();
         // Keep what the operator expanded (Details, a diff, the summary) expanded.
         var openKeys = {};
         var wasOpen = content.querySelectorAll('details[open]');
@@ -919,6 +915,8 @@ export const INBOX_MODAL_JS = `
   function openFor(id, opts) {
     if (!modal) return;
     opts = opts || {};
+    // A thread you open starts at its latest reply, following it.
+    if (id !== currentId) tail.reset();
     // Where it shows: an explicit panel mode, else wherever the thread
     // view already is (a thread opened from the panel stays in the panel;
     // from the minimized panel, it comes back docked).
@@ -1251,10 +1249,8 @@ export const INBOX_MODAL_JS = `
     });
     ul.appendChild(li);
     // Scroll the optimistic message into view so the operator sees
-    // it land.
-    requestAnimationFrame(function () {
-      content.scrollTop = content.scrollHeight;
-    });
+    // it land, and follow the reply to it.
+    requestAnimationFrame(function () { tail.reset(); tail.stick(); });
     return li;
   }
 
