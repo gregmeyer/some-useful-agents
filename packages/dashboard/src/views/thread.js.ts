@@ -57,6 +57,39 @@ export const THREAD_JS = `
     return li;
   }
 
-  window.suaThread = { list: list, entry: entry };
+  /**
+   * Keep a streaming reply in view without fighting you: it follows the
+   * bottom until you scroll up (wheel, touch, keys or the scrollbar), and
+   * picks up again once you scroll back down to the end. \`el\` is the
+   * scrolling box; none means the page.
+   */
+  function follow(el) {
+    var page = !el;
+    var box = function () { return el || document.scrollingElement || document.documentElement; };
+    var on = true, lastTop = box().scrollTop, inputAt = 0, held = false;
+    var gap = function () { var b = box(); return b.scrollHeight - b.scrollTop - (page ? window.innerHeight : b.clientHeight); };
+    var target = page ? window : el;
+    var mark = function () { inputAt = Date.now(); };
+    target.addEventListener('wheel', function (e) { mark(); if (e.deltaY < 0) on = false; }, { passive: true });
+    target.addEventListener('touchmove', mark, { passive: true });
+    target.addEventListener('pointerdown', function () { held = true; mark(); });
+    window.addEventListener('pointerup', function () { held = false; });
+    window.addEventListener('keydown', function (e) { if (/^(PageUp|ArrowUp|Home)$/.test(e.key)) mark(); });
+    target.addEventListener('scroll', function () {
+      var t = box().scrollTop;
+      var byYou = held || Date.now() - inputAt < 500;
+      if (byYou && t < lastTop - 1) on = false;
+      else if (gap() < 24) on = true;
+      lastTop = t;
+    }, { passive: true });
+    return {
+      stick: function () { if (on) { var b = box(); b.scrollTop = b.scrollHeight; } },
+      // Follow again (you sent something, or opened another conversation); stick() then scrolls.
+      reset: function () { on = true; },
+      following: function () { return on; },
+    };
+  }
+
+  window.suaThread = { list: list, entry: entry, follow: follow };
 })();
 `;
