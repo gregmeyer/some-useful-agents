@@ -638,3 +638,4 @@ export * from './items/index.js';
 // Surfaces: what a surface emphasizes (ADR-0049, S2).
 export * from './surfaces/index.js';
 export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';
+export { createLiveProgress, newLiveCursor, takeNewProgress, type LiveCursor } from './live-progress.js';

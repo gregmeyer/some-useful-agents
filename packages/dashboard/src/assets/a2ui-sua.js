@@ -130,7 +130,8 @@ const Table = define('Table', 'sua-a2ui-table',
     pageSize: z.number().int().min(1).max(200).optional(),
   }).strict(),
   css`
-    :host { overflow-x: auto; }
+    /* A block, so a table wider than its place (a narrow panel) scrolls sideways instead of being cut off. */
+    :host { display: block; max-width: 100%; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }

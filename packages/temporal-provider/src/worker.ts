@@ -31,6 +31,11 @@ export async function startWorker(options: StartWorkerOptions = {}): Promise<Wor
     taskQueue,
     workflowsPath,
     activities,
+    // Heartbeats carry live progress (live-progress.ts): the text a reply has
+    // so far reaches the dashboard about once a second. Without this, Temporal
+    // throttles them to 80% of the heartbeat timeout (24s+), so a reply would
+    // show nothing until it's done.
+    maxHeartbeatThrottleInterval: '1 second',
   });
 
   return worker;

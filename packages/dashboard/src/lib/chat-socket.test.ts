@@ -176,6 +176,40 @@ describe('chat WebSocket', () => {
     ws.close();
   });
 
+  it('on the durable backend, relays what the worker reports (text, widgets), then records the reply and ends the turn', async () => {
+    await start();
+    // A Temporal-like provider: the run happens elsewhere; its progress is read back.
+    const W = '{"components":[{"id":"root","component":"Row","children":["a"]},{"id":"a","component":"Button","child":"al","action":{"event":{"name":"pick","context":{"message":"Lisbon"}}}},{"id":"al","component":"Text","text":"Lisbon"}],"data":{}}';
+    let report: { events: unknown[]; text: Record<string, string> } | undefined;
+    Object.defineProperty(provider, 'name', { value: 'temporal', configurable: true });
+    Object.assign(provider, {
+      submitDagRun: async (agent: { name: string }, opts: { runId: string }) => {
+        const run = { id: opts.runId, agentName: agent.name, status: 'running' as const, startedAt: new Date().toISOString(), triggeredBy: 'dashboard' as const };
+        runStore.createRun(run);
+        setTimeout(() => { report = { events: [], text: { answer: 'Which city? ' } }; }, 200);
+        setTimeout(() => { report = { events: [], text: { answer: `Which city? <a2ui>${W}</a2ui>` } }; }, 1300);
+        setTimeout(() => { runStore.updateRun(opts.runId, { status: 'completed', completedAt: new Date().toISOString(), result: `Which city? <a2ui>${W}</a2ui>` }); }, 2400);
+        return run;
+      },
+      liveRunProgress: async () => report,
+    });
+    const { ws, next, frames } = await connect(goodHeaders());
+    await next((f) => f.type === 'hello');
+    ws.send(JSON.stringify({ type: 'chat.send', ref: 'd', agentId: 'weather', text: 'Weather?' }));
+    const started = await next((f) => f.type === 'chat.started');
+    await next((f) => f.event === 'turn-end');
+    const ev = frames.filter((f) => f.type === 'event');
+    expect(ev[0]).toMatchObject({ event: 'turn-start', data: { streaming: true } });
+    expect(ev.filter((f) => f.event === 'token').map((f) => (f.data as { text: string }).text).join('')).toBe(`Which city? <a2ui>${W}</a2ui>`);
+    expect(ev.some((f) => f.event === 'widget')).toBe(true);
+    expect(ev[ev.length - 1]).toMatchObject({ event: 'turn-end', data: { status: 'completed' } });
+    const frag = await request(server!).get(`/agents/weather/chat?session=${String(started.sessionId)}&fragment=transcript`)
+      .set('Host', `127.0.0.1:${port}`).set('Cookie', COOKIE);
+    expect(frag.headers['x-chat-pending']).toBe('0');
+    expect(frag.text).toContain('Which city?');
+    ws.close();
+  }, 15000);
+
   it('a second client catches up on a turn by subscribing with since=-1', async () => {
     await start();
     const a = await connect(goodHeaders());
