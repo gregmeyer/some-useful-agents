@@ -289,7 +289,12 @@ function neighboursFor(nb: Notebook, entries: Parameters<typeof notebookViewData
 export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?: string): string {
   const store = notebooksOf(ctx);
   const all = store.entries(nb.id, 1000);
-  const entries = all.slice(0, 60).map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  // Every option still in the running (an older one is no less in it), then
+  // the newest of the rest, so sua's count matches the notebook's.
+  const running = all.filter((e) => e.kind === 'option' && !e.ruledOut);
+  const rest = all.filter((e) => !(e.kind === 'option' && !e.ruledOut)).slice(0, Math.max(20, 60 - running.length));
+  const entries = [...running.slice(0, 200), ...rest].map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  const ruledOut = all.filter((e) => e.kind === 'option' && e.ruledOut).length;
   // The option they last asked about from its own page: all of it, so sua can answer about it.
   const o = focusOptionId ? all.find((e) => e.id === focusOptionId && e.kind === 'option') : undefined;
   const focus = o ? {
@@ -309,7 +314,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
-    entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
+    inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
+    link: `/notebooks/${encodeURIComponent(nb.id)}`,
     // Options whose link is a search page, not their own (a source step on the link field finds them).
     ...((): { linkIsList?: string } => {
       const live = notebookViewData(nb, all).notebook.options.filter((x) => !x.ruledOut);

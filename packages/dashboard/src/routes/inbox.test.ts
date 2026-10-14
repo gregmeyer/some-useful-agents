@@ -2451,6 +2451,34 @@ describe('a conversation that turns to a notebook', () => {
     inboxStore.addResponse(t.id, 'triage', 'Here are three I would keep.');
     expect(notebookTalkedAbout(ctx, t.id)?.id).toBe(car.id);
   });
+
+  it('shows sua every option still in the running, however many notes came after', async () => {
+    await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { describeNotebookForTriage } = await import('../lib/notebook-chat.js');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Car' });
+    const early = ['2008 Forester', '2009 Forester', '2010 RAV4'].map((title) => nbs.upsertOption(nb.id, { title, by: 'agent:x' }).entry);
+    const gone = nbs.upsertOption(nb.id, { title: '2006 Outback', by: 'agent:x' }).entry;
+    nbs.ruleOut(nb.id, gone.id, 'too many miles');
+    for (let i = 0; i < 80; i++) nbs.addEntry(nb.id, { kind: 'note', title: `note ${String(i)}`, by: 'you' });
+    nbs.upsertOption(nb.id, { title: '2011 Forester', by: 'agent:x' });
+    const seen = JSON.parse(describeNotebookForTriage(ctx, nbs.get(nb.id)!)) as { inTheRunning: number; ruledOut: number; entries: string[]; entriesShown?: string };
+    expect(seen.inTheRunning).toBe(4);
+    expect(seen.ruledOut).toBe(1);
+    for (const o of early) expect(seen.entries).toContain(`option: ${o.title}`);
+    expect(seen.entries).toContain('option: 2011 Forester');
+    expect(seen.entriesShown).toMatch(/every option in the running/);
+  });
+
+  it("opens only a dashboard path sua was asked for", async () => {
+    await makeApp();
+    const { parseTriageOpen } = await import('./inbox-plan.js');
+    expect(parseTriageOpen('/notebooks/buy-a-used-car')).toBe('/notebooks/buy-a-used-car');
+    expect(parseTriageOpen(' /agents/x?tab=chat ')).toBe('/agents/x?tab=chat');
+    for (const bad of ['//evil.example', 'https://evil.example', 'javascript:alert(1)', '/a\\b', '/a b', 42, undefined]) expect(parseTriageOpen(bad)).toBeUndefined();
+  });
 });
 
 describe("talking to sua about one option, from its page", () => {
