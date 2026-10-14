@@ -8,6 +8,7 @@ import {
   budgetTranscript,
   droppedNote,
   takeWithinBudget,
+  stripInlineWidgets,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
@@ -345,7 +346,8 @@ export function formatConversationSnapshot(
       const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''})` : '';
       return `[action] ${r.body}${suffix}`;
     }
-    return `[${r.role}] ${r.body}`;
+    // A widget's JSON is noise here; what the person picked from it is their next message.
+    return `[${r.role}] ${stripInlineWidgets(r.body)}`;
   });
   const note = (n: number) => droppedNote(n, 'entry', 'entries');
   // Reserve room for the note so adding it can't push the block past budget.

@@ -334,23 +334,27 @@ export const INBOX_MODAL_JS = `
     var slot = li.querySelector('[data-agent-live-widgets]');
     if (!slot) return;
     Object.keys(agentLive.widgets).forEach(function (index) {
-      var json = JSON.stringify(agentLive.widgets[index]);
-      var old = slot.querySelector('[data-live-widget="' + index + '"]');
-      if (old && old.getAttribute('data-json-len') === String(json.length)) return; // unchanged
-      var el = document.createElement('div');
-      el.className = 'a2ui-host';
-      el.setAttribute('data-a2ui-surface', '');
-      el.setAttribute('data-surface-id', 'panel-live-' + agentLive.runId + '-' + index);
-      el.setAttribute('data-live-widget', index);
-      el.setAttribute('data-json-len', String(json.length));
-      var script = document.createElement('script');
-      script.type = 'application/json';
-      script.textContent = json;
-      el.appendChild(script);
-      if (old) old.replaceWith(el); else slot.appendChild(el);
+      drawLiveWidget(slot, index, agentLive.widgets[index], 'panel-live-' + agentLive.runId + '-' + index);
     });
     var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
     if (nearBottom) content.scrollTop = content.scrollHeight;
+  }
+  /** A reply's widget while it's being written (sua's or an agent's), redrawn as components arrive. */
+  function drawLiveWidget(slot, index, messages, surfaceId) {
+    var json = JSON.stringify(messages);
+    var old = slot.querySelector('[data-live-widget="' + index + '"]');
+    if (old && old.getAttribute('data-json-len') === String(json.length)) return; // unchanged
+    var el = document.createElement('div');
+    el.className = 'a2ui-host';
+    el.setAttribute('data-a2ui-surface', '');
+    el.setAttribute('data-surface-id', surfaceId);
+    el.setAttribute('data-live-widget', index);
+    el.setAttribute('data-json-len', String(json.length));
+    var script = document.createElement('script');
+    script.type = 'application/json';
+    script.textContent = json;
+    el.appendChild(script);
+    if (old) old.replaceWith(el); else slot.appendChild(el);
   }
   function onAgentEvent(type, data) {
     if (type === 'turn-start') {
@@ -498,6 +502,24 @@ export const INBOX_MODAL_JS = `
       if (!chunk) return;
       appendStreamingText(bubble, String(chunk));
     });
+    // triage:widget — sua's widget as it's written, under the streaming text.
+    es.addEventListener('triage:widget', function (ev) {
+      sseAliveAt = Date.now();
+      var text = ensureStreamingBubble();
+      if (!text) return;
+      var data;
+      try { data = JSON.parse(ev.data); } catch (_) { return; }
+      if (!data || !data.messages) return;
+      var slot = text.parentNode.querySelector('[data-triage-live-widgets]');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.setAttribute('data-triage-live-widgets', '');
+        text.parentNode.insertBefore(slot, text.nextSibling);
+      }
+      drawLiveWidget(slot, '0', data.messages, 'triage-live-' + (currentId || '') + '-0');
+      var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
+      if (nearBottom) content.scrollTop = content.scrollHeight;
+    });
     // triage:complete — keep the bubble in place; the watchdog or
     // the canonical fragment refresh (scheduled by onAnyEvent for
     // message:created → fired on triage's addResponse) will swap in
@@ -613,6 +635,7 @@ export const INBOX_MODAL_JS = `
       if (!el) return;
       var display = extractRecommendationFromStream(streamFullBuffer);
       if (display === null) display = streamFullBuffer;
+      display = agentVisibleText(display); // a widget block in the text draws when it's saved
       // Re-render the visible text from scratch on each tick — the
       // buffer is small (1 reply at a time) and rebuilding once per
       // frame is cheaper than chasing diffs through escape handling.

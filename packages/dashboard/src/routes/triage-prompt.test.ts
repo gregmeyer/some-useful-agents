@@ -8,6 +8,7 @@
  * playbook, never the others — that's the whole point of the de-monolith.
  */
 import { describe, it, expect } from 'vitest';
+import { replyWidgetComponents } from '@some-useful-agents/core';
 import { loadTriageKernel, loadTriagePlaybook } from './triage-prompt.js';
 
 describe('loadTriageKernel', () => {
@@ -37,6 +38,14 @@ describe('loadTriageKernel', () => {
     // The old "only path" rule is gone, and stuck notebook steps point at the ladder.
     expect(kernel).not.toContain('Your only\n  job for fix-applying flows');
     expect(kernel).toMatch(/When a step is stuck[\s\S]{0,200}WHEN AN AGENT CAN'T DO PART OF THE/);
+  });
+
+  it("gets the chat agents' widget components, Buttons included (one list for every conversation)", () => {
+    const kernel = loadTriageKernel();
+    expect(kernel).not.toContain('@@REPLY_WIDGET_COMPONENTS@@');
+    expect(kernel).toContain(replyWidgetComponents());
+    expect(kernel).toContain("A Button's click is sent as the person's next message");
+    expect(kernel).not.toContain('No buttons');
   });
 
   it('strips the leading editor comment so it never reaches the model', () => {

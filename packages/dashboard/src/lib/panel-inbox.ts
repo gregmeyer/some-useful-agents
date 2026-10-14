@@ -1,4 +1,4 @@
-import { INBOX_SOURCES, markdownToText, threadAttention, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
+import { INBOX_SOURCES, markdownToText, stripInlineWidgets, threadAttention, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
 import { buildRowPreview } from '../routes/inbox-shared.js';
 import type { HomeSurface } from './home-surface.js';
 
@@ -163,5 +163,5 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
 }
 
 function oneLine(markdown: string): string {
-  return markdownToText(markdown.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 140);
+  return markdownToText(stripInlineWidgets(markdown.replace(/<plan>[\s\S]*?<\/plan>/g, ' '), ' ')).replace(/\s+/g, ' ').trim().slice(0, 140);
 }

@@ -46,6 +46,9 @@ import {
   SurfaceVersionConflict,
   NotebookStore,
   calledAgentIds,
+  partialInlineWidget,
+  prepareViewForRender,
+  viewToMessages,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -90,6 +93,7 @@ import {
 import {
   parseProposedActions,
   parseTriageLinks, parseTriageWidget,
+  triageReplyBody,
   hasRecoveryRefireSinceLastUser,
   postTriageFailureFallback,
   planTriageCrashRecovery,
@@ -2368,6 +2372,10 @@ export async function runTriageAgent(
   } catch { /* ignore — message may have been dismissed mid-flight */ }
 
   try {
+    // The plan as it streams, and how many of its widget's components are drawn so far.
+    let planStream = '';
+    let widgetDrawn = 0;
+    const streamedNodes = new Set<string>();
     const runPromise = executeAgentDag(
       triage,
       {
@@ -2439,17 +2447,32 @@ export async function runTriageAgent(
         // run-failure thread for a failed triage turn would feed the inbox
         // back into itself (auto-first-touch → triage → failure → new item).
         // Forward token-level progress from the triage LLM node to
-        // the SSE bus. Filtered to output_chunk so we don't spam
-        // clients with turn_start / tool_use markers (those still
+        // the SSE bus. Filtered to output text (deltas, else whole
+        // messages) so we don't spam clients with turn_start / tool_use markers (those still
         // land in progressJson via the DB path). Other progress
         // types remain DB-only.
         inboxOnProgress: ({ nodeId, progress }) => {
-          if (progress.type !== 'output_chunk') return;
+          // Text deltas as the model writes (Claude), else each message whole;
+          // a node that streamed deltas already sent its messages' text.
+          if (progress.type === 'output_delta') streamedNodes.add(nodeId);
+          else if (progress.type !== 'output_chunk' || streamedNodes.has(nodeId)) return;
           if (!progress.message) return;
           publishInboxEvent(ctx, messageId, 'triage:token', {
             nodeId,
             chunk: progress.message,
             at: Date.now(),
+          });
+          // The plan's widget, drawn as it's written (as an agent's reply's
+          // widgets are): redraw each time another component is complete.
+          planStream += progress.message;
+          const at = planStream.indexOf('"widget"');
+          if (at < 0) return;
+          const partial = partialInlineWidget(`<a2ui>${planStream.slice(at)}`);
+          if (!partial || partial.count <= widgetDrawn) return;
+          widgetDrawn = partial.count;
+          const model = { data: {} };
+          publishInboxEvent(ctx, messageId, 'triage:widget', {
+            messages: viewToMessages(`triage-live-${messageId}`, prepareViewForRender(partial.components, model), model),
           });
         },
       },
@@ -2525,14 +2548,14 @@ export async function runTriageAgent(
     if (verifyHint) triageMeta.verifyHint = verifyHint;
     if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
     if (links.length > 0) triageMeta.links = JSON.stringify(links);
-    // A widget under the reply (docs/a2ui-views.md, "In chat"): checked like any
-    // view; a part that doesn't check out becomes a note, an unreadable one is dropped.
-    const widget = parseTriageWidget(parsed.widget);
-    if (widget) triageMeta.widget = widget;
+    // sua's widget (docs/a2ui-views.md, "In chat"): checked like any view (a part
+    // that doesn't check out becomes a note, an unreadable one is dropped), then
+    // kept inline in the reply, as an agent's reply keeps it (triageReplyBody).
+    const body = triageReplyBody(rec, parseTriageWidget(parsed.widget));
     const triageReply = ctx.inboxStore.addResponse(
       messageId,
       'triage',
-      rec,
+      body,
       Object.keys(triageMeta).length > 0 ? JSON.stringify(triageMeta) : undefined,
     );
     // The canonical "triage finished" signal. Clients use this to

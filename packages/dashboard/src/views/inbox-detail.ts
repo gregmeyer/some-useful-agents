@@ -617,7 +617,7 @@ export function mdBody(text: string): SafeHtml {
  * (parseTriageLinks); we re-escape on render. Links open in a new tab so
  * following a CTA keeps the inbox open.
  */
-/** The widget sua put under its reply (checked when it was saved), drawn as an A2UI surface. */
+/** The widget sua put under a reply saved before widgets were kept inline (its meta), drawn as an A2UI surface. */
 function renderTriageWidget(responseId: string, metaJson?: string): SafeHtml {
   if (!metaJson) return html``;
   let widget: { components?: ViewComponent[]; data?: unknown } | undefined;
@@ -682,7 +682,10 @@ function renderConversationEntry(
     classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
     metaBefore: verifyBadge,
     // An agent's reply in a conversation may carry widgets (drawn as on its Chat tab).
-    body: r.role === 'agent' ? renderReplyBody(r.body, `reply-${r.id}`, reply.imgHosts ?? [], reply.answered !== undefined ? { answered: reply.answered } : {}) : mdBody(r.body),
+    // A reply, sua's or an agent's, may carry widgets inline (ADR-0047): drawn in place, answered once you reply.
+    body: r.role === 'agent' || r.role === 'triage'
+      ? renderReplyBody(r.body, `reply-${r.id}`, r.role === 'agent' ? reply.imgHosts ?? [] : [], reply.answered !== undefined ? { answered: reply.answered } : {})
+      : mdBody(r.body),
     after: r.role === 'triage' ? html`${renderTriageWidget(r.id, r.metaJson)}${renderTriageLinks(r.metaJson)}` : undefined,
   });
 }
