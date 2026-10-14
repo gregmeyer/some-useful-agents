@@ -45,4 +45,16 @@ describe("an agent's reply in the sua panel / Home conversation view", () => {
     expect(out).toContain('Safe travels.');
     expect(out).not.toContain('&lt;a2ui&gt;');
   });
+
+  it('once you answer, the earlier reply\'s buttons are spent and your pick is ticked', () => {
+    const now = new Date().toISOString();
+    const message = { id: 's2', priority: 'low', source: 'conversation', agentId: 'chat-helper', title: 'Pumpkins', body: '(empty)', status: 'awaiting_user', tags: [], createdAt: now, updatedAt: now } as unknown as InboxMessage;
+    const W = '{"components":[{"id":"root","component":"Row","children":["a","b"]},{"id":"a","component":"Button","child":"al","action":{"event":{"name":"pick","context":{"message":"This weekend"}}}},{"id":"al","component":"Text","text":"This weekend"},{"id":"b","component":"Button","child":"bl","action":{"event":{"name":"pick","context":{"message":"Next weekend"}}}},{"id":"bl","component":"Text","text":"Next weekend"}],"data":{}}';
+    const ask = { id: 'q1', messageId: 's2', role: 'agent', body: `Which weekend?\n<a2ui>${W}</a2ui>`, createdAt: now } as unknown as InboxResponse;
+    const pick = { id: 'u1', messageId: 's2', role: 'user', body: 'Next weekend', createdAt: now } as unknown as InboxResponse;
+    const again = { id: 'q2', messageId: 's2', role: 'agent', body: `Anything else?\n<a2ui>${W}</a2ui>`, createdAt: now } as unknown as InboxResponse;
+    const out = String(renderInboxDetailFragment({ message, responses: [ask, pick, again] } as never));
+    expect(out.match(/reply-widget is-answered/g)).toHaveLength(1); // the first one only; the latest is live
+    expect(out).toContain('✓ Next weekend');
+  });
 });

@@ -50,6 +50,8 @@ export interface InboxDetailOptions {
   triagePending?: boolean;
   /** An agent's conversation whose reply is being written: the panel shows it working and follows it live. */
   agentTurn?: { runId: string };
+  /** Image hosts the conversation's agent may show in its widgets (its permissions.imgSrc), as on its Chat tab. */
+  imgHosts?: string[];
   /**
    * Current YAML of the agent referenced by `message.agentId`, used
    * to render the unified diff inside `agent-editor`-targeting action
@@ -396,9 +398,12 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // tool calls, not speech).
   // An agent's conversation: its replies are labelled with the agent, and you reply to it, not sua.
   const agentConversation = message.source === 'conversation' && message.agentId ? message.agentId : undefined;
+  // A reply's widget buttons are spent once the person has said something after it.
+  const answeredBy = (i: number) => responses.slice(i + 1).find((x) => x.role === 'user')?.body;
   const timeline = responses.map((r, i) =>
     renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
-      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation));
+      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation,
+      { answered: answeredBy(i), imgHosts: opts.imgHosts ?? [] }));
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by
@@ -651,6 +656,7 @@ function renderConversationEntry(
   grouped = false,
   runBehaviors?: Record<string, string[]>,
   agentLabel?: string,
+  reply: { answered?: string; imgHosts?: string[] } = {},
 ): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust, runBehaviors);
   const role = r.role === 'agent' && agentLabel ? agentLabel : (ROLE_LABEL[r.role] ?? r.role);
@@ -676,7 +682,7 @@ function renderConversationEntry(
     classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
     metaBefore: verifyBadge,
     // An agent's reply in a conversation may carry widgets (drawn as on its Chat tab).
-    body: r.role === 'agent' ? renderReplyBody(r.body, `reply-${r.id}`) : mdBody(r.body),
+    body: r.role === 'agent' ? renderReplyBody(r.body, `reply-${r.id}`, reply.imgHosts ?? [], reply.answered !== undefined ? { answered: reply.answered } : {}) : mdBody(r.body),
     after: r.role === 'triage' ? html`${renderTriageWidget(r.id, r.metaJson)}${renderTriageLinks(r.metaJson)}` : undefined,
   });
 }
