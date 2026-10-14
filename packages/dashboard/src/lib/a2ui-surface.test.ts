@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { suaComponentDocs, boardComponentDocs, type Run } from '@some-useful-agents/core';
+import { suaComponentDocs, boardComponentDocs, suaCatalog, type Run } from '@some-useful-agents/core';
 import { renderRunView, renderSurfaceHost, runViewMessages, viewHistory } from './a2ui-surface.js';
 import { actionToMessage } from './chat-turn.js';
 
@@ -79,5 +79,22 @@ describe('browser components match the core catalog', () => {
     expect(defined).toEqual([...suaComponentDocs(), ...boardComponentDocs()].map((d) => d.name).sort());
     // Board-only components are never offered to agent views.
     expect(suaComponentDocs().map((d) => d.name)).not.toContain('AgentTile');
+  });
+
+  it("accepts every prop the server's schema does (a prop it doesn't know fails the whole widget)", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf8');
+    const blocks = js.split(/(?=define\(')/).slice(1);
+    const missing: string[] = [];
+    for (const d of [...suaComponentDocs(), ...boardComponentDocs()]) {
+      // Its schema only: up to the styles that follow it.
+      const block = (blocks.find((b) => b.startsWith(`define('${d.name}'`)) ?? '').split('css`')[0];
+      const schema = suaCatalog().components.get(d.name)?.schema as { shape?: Record<string, unknown> } | undefined;
+      for (const key of Object.keys(schema?.shape ?? {})) {
+        if (['id', 'component', 'weight', 'accessibility'].includes(key)) continue;
+        if (!new RegExp(`\\b${key}\\s*:`).test(block)) missing.push(`${d.name}.${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });
