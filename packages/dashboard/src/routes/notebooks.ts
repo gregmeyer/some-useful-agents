@@ -373,6 +373,18 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/rule-out', (req: Request, re
   }
 });
 
+/** Pick an option (`on=0` takes the pick back); the notebook stays open. */
+notebooksRouter.post('/notebooks/:id/entries/:entry/choose', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const on = req.body?.on !== '0';
+    const e = store(req).choose(id, String(req.params.entry), on);
+    res.redirect(303, backFrom(req, id, e.id, on ? `Picked ${e.title}.` : `Took back the pick: ${e.title}.`));
+  } catch (err) {
+    res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
+  }
+});
+
 // Tick (or untick) one of the notebook's checks for an option.
 /**
  * Set the notebook's steps: `steps` is a JSON list of {title, kind, agentId?,
@@ -491,6 +503,15 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
     // The picks: one or several `chosen` option ids (none: the text says it).
     const raw: unknown = req.body?.chosen;
     const chosen = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean);
+    // Save picks, keep it open: these are the picks now, and the notebook stays active.
+    if (req.body?.keep === '1') {
+      const s = store(req);
+      const running = s.entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut);
+      for (const o of running) if (!!o.chosenAt !== chosen.includes(o.id)) s.choose(id, o.id, chosen.includes(o.id));
+      const n = running.filter((o) => chosen.includes(o.id)).length;
+      res.redirect(303, back(id, n ? `Picked ${String(n)}. The notebook stays open.` : 'No picks now.'));
+      return;
+    }
     store(req).decide(id, str(req.body?.decision), 'you', chosen);
     res.redirect(303, back(id, 'Decided. The notebook is closed; reopen it any time.'));
   } catch (err) {

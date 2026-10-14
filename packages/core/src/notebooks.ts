@@ -792,6 +792,30 @@ export class NotebookStore {
     return this.mustGetOption(notebookId, entryId);
   }
 
+  /**
+   * Pick one option (or take the pick back) without closing the notebook:
+   * "I bought this one", while you keep looking. The open decide step is
+   * done once there are as many picks as it wants, and open again when a
+   * pick taken back leaves it short.
+   */
+  choose(notebookId: string, entryId: string, on = true): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    if (on && e.ruledOut) throw new Error(`${e.title} was ruled out. Bring it back first.`);
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET chosen_at = ? WHERE id = ?').run(on ? (e.chosenAt ?? now) : null, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    const nb = this.mustGet(notebookId);
+    const options = this.entries(notebookId, 1000).filter((x) => x.kind === 'option' && !x.ruledOut);
+    const picks = options.filter((x) => x.chosenAt).length;
+    const step = nb.status === 'active' ? nb.steps?.find((s) => s.kind === 'decide') : undefined;
+    if (step) {
+      const want = step.target ?? Math.min(options.length, 5);
+      if (step.status !== 'done' && picks >= Math.max(1, want)) this.updateStep(notebookId, step.id, { status: 'done', note: `${String(picks)} chosen` }, now);
+      else if (step.status === 'done' && picks < Math.max(1, want)) this.updateStep(notebookId, step.id, { status: 'todo', note: picks ? `${String(picks)} chosen` : undefined }, now);
+    }
+    return this.mustGetOption(notebookId, entryId);
+  }
+
   private addSighting(entryId: string, notebookId: string, runId: string | undefined, at: string, data: Record<string, NotebookFieldValue>): void {
     if (Object.keys(data).length === 0) return;
     this.db.prepare('INSERT INTO notebook_sightings (entry_id, notebook_id, run_id, at, data_json) VALUES (?, ?, ?, ?, ?)')

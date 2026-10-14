@@ -158,7 +158,10 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
     </fieldset>
     <label for="${why}" class="nb-progress__label">${narrow ? 'Why not the rest?' : `Why${one ? ' this one' : ' these'}?`} <span class="nb-decide__optional">optional${narrow ? ', kept as their reason' : ''}</span></label>
     <textarea id="${why}" name="decision" rows="2" class="form-field" placeholder="${narrow ? 'e.g. over budget, or too many miles' : 'In a line or two, so you remember later.'}"></textarea>
-    <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit${narrow ? html` disabled` : html``}>${narrow ? 'Keep these' : 'Decide and close'}</button>
+    <div class="nb-decide__submit">
+      <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit${narrow ? html` disabled` : html``}>${narrow ? 'Keep these' : 'Decide and close'}</button>
+      ${narrow ? html`` : html`<button type="submit" name="keep" value="1" class="btn btn--sm" title="Mark these as picked (bought, or going with them) and keep looking">Save picks, keep it open</button>`}
+    </div>
   </form>`;
 }
 
@@ -182,7 +185,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
       const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
       const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
-      const progress = step.kind === 'decide' && step.status !== 'done' ? `pick ${String(p.want)}`
+      const progress = step.kind === 'decide' && step.status !== 'done' ? (p.have ? `${String(p.have)} of ${String(p.want)} picked` : `pick ${String(p.want)}`)
         : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
@@ -197,6 +200,9 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
           ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
+            : html``}
+          ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
+            ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
             : html``}
         </span>
       </li>`;
@@ -389,7 +395,10 @@ export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'opti
   const i = nb.stages.findIndex((s) => s === e.stage);
   const next = nb.stages.length && !hidden ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
-    ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked in the decision ${formatAge(e.chosenAt)}">✓ Chosen</span>` : html``}
+    ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked ${formatAge(e.chosenAt)}">✓ Picked</span>` : html``}
+    <form method="POST" action="${base}/choose">${to}${e.chosenAt
+      ? html`<input type="hidden" name="on" value="0"><button type="submit" class="btn btn--sm btn--ghost" title="Take the pick back">Unpick</button>`
+      : html`<button type="submit" class="btn btn--sm${opts.back === 'option' ? ' btn--primary' : ''}" title="Bought it, or going with it. The notebook stays open.">Pick this one</button>`}</form>
     ${e.stage && !hidden ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
     ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">
@@ -669,14 +678,14 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
           : html``}
       ${nb.status === 'active' && narrowing && !running ? html`
-        <details class="nb-act nb-decide nb-narrow" data-nb-act>
+        <details class="nb-act nb-decide nb-narrow" data-nb-act data-nb-act-name="narrow">
           <summary class="btn btn--sm btn--primary" title="${narrowing.title}">Narrow…</summary>
           <div class="nb-act__panel nb-act__panel--decide">
             ${decideForm(nb, leads, 'narrow')}
           </div>
         </details>` : html``}
       ${nb.status === 'active' ? html`
-        <details class="nb-act nb-decide" data-nb-act>
+        <details class="nb-act nb-decide" data-nb-act data-nb-act-name="decide">
           <summary class="btn btn--sm${step || running || narrowing ? '' : ' btn--primary'}">Decide…</summary>
           <div class="nb-act__panel nb-act__panel--decide">
             ${decideForm(nb, leads)}
