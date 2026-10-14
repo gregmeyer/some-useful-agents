@@ -3242,7 +3242,11 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 /* Widgets in a conversation's replies (lib/reply-body.ts): buttons read as
    answer chips, and a widget already answered is quieter and can't be used again. */
 .inbox-msg .a2ui-host {
-  --a2ui-button-border-radius: 999px;
+  /* A pill on one line, a rounded box when a long answer wraps. */
+  --a2ui-button-border-radius: 16px;
   --a2ui-button-border: 1px solid var(--color-primary);
+  --a2ui-button-padding: var(--space-1) var(--space-3);
+  --a2ui-button-margin: 0;
+  --a2ui-row-gap: var(--space-2);
 }
 .reply-widget.is-answered { opacity: .6; pointer-events: none; }

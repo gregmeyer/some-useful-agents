@@ -27,6 +27,16 @@ setMarkdownRenderer((value) => esc(value)
   .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
   .replace(/\n/g, '<br>'));
 
+// A Row wraps instead of clipping what doesn't fit (answer buttons in a
+// narrow panel, metrics on a phone). The basic Row's styles are in its
+// shadow root, so they're extended here, before or after it's defined.
+{
+  const Row = basicCatalog.components.get('Row')?.element;
+  const wrap = css`:host, a2ui-basic-row { flex-wrap: wrap; }`;
+  if (Row?.elementStyles) Row.elementStyles.push(wrap);
+  else if (Row) Row.styles = [].concat(Row.styles ?? [], wrap);
+}
+
 const Common = CommonSchemas.ComponentCommon.omit({ id: true });
 const Str = CommonSchemas.DynamicString;
 const tones = new Set(['neutral', 'ok', 'warn', 'err']);

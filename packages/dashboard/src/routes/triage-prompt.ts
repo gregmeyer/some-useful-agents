@@ -19,7 +19,7 @@
  * loader returns '' so triage still runs (degraded, not broken).
  */
 import { readFileSync } from 'node:fs';
-import { resolveExamplePath } from '@some-useful-agents/core';
+import { replyWidgetComponents, resolveExamplePath } from '@some-useful-agents/core';
 
 /**
  * Fragment paths inside the examples tree. `resolveExamplePath` tries the
@@ -41,7 +41,8 @@ export function loadTriageKernel(): string {
   try {
     const path = resolveExamplePath(`${TRIAGE_PROMPT_DIR}/kernel.md`);
     if (path === null) return '';
-    return stripLeadingComment(readFileSync(path, 'utf-8')).trim();
+    // The widget components are the chat agents' list (core replyWidgetComponents): one list for every conversation.
+    return stripLeadingComment(readFileSync(path, 'utf-8')).trim().replace('@@REPLY_WIDGET_COMPONENTS@@', replyWidgetComponents());
   } catch {
     return '';
   }

@@ -214,6 +214,16 @@ export function parseTriageWidget(raw: unknown): string | undefined {
   return 'components' in w ? JSON.stringify({ components: w.components, data: w.data }) : undefined;
 }
 
+/**
+ * sua's reply as it's kept: the recommendation, then its widget (if any) as an
+ * inline <a2ui> block, the same format an agent's reply has (ADR-0047), so one
+ * renderer draws, answers and streams both. "</" is escaped in the JSON so no
+ * string in it can close the block.
+ */
+export function triageReplyBody(recommendation: string, widget?: string): string {
+  return widget ? `${recommendation}\n\n<a2ui>${widget.replace(/<\//g, '<\\/')}</a2ui>` : recommendation;
+}
+
 export function parseTriageLinks(
   raw: unknown,
   agentExists?: (id: string) => boolean,
