@@ -2430,6 +2430,29 @@ describe('a notebook remembers its conversation', () => {
   });
 });
 
+describe('a conversation that turns to a notebook', () => {
+  it('gives sua that notebook once its latest reply links just that one', async () => {
+    await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { notebookTalkedAbout } = await import('../lib/notebook-chat.js');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const car = nbs.create({ title: 'Car' });
+    const gadgets = nbs.create({ title: 'Gadgets' });
+    const t = inboxStore.add({ priority: 'medium', source: 'manual', title: 'which notebook next?', body: '(empty)' });
+    expect(notebookTalkedAbout(ctx, t.id)).toBeUndefined();
+    // A list of notebooks settles nothing.
+    inboxStore.addResponse(t.id, 'triage', `Try [Car](/notebooks/${car.id}) or [Gadgets](/notebooks/${gadgets.id}).`);
+    expect(notebookTalkedAbout(ctx, t.id)).toBeUndefined();
+    inboxStore.addResponse(t.id, 'user', "Let's work on the car");
+    inboxStore.addResponse(t.id, 'triage', 'Good choice. Narrow it down?', JSON.stringify({ links: JSON.stringify([{ label: 'Open it', href: `/notebooks/${car.id}` }]) }));
+    expect(notebookTalkedAbout(ctx, t.id)?.id).toBe(car.id);
+    // A later reply with no notebook link keeps the one it turned to.
+    inboxStore.addResponse(t.id, 'triage', 'Here are three I would keep.');
+    expect(notebookTalkedAbout(ctx, t.id)?.id).toBe(car.id);
+  });
+});
+
 describe("talking to sua about one option, from its page", () => {
   it('names the option, gives sua all of it in focus, and a correction shows on the card and in the summary', async () => {
     const app = await makeApp();

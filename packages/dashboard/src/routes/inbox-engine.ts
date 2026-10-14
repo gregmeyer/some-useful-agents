@@ -11,7 +11,7 @@ import cycle is created — the route handlers in inbox.ts call into the
 
 import { randomUUID } from 'node:crypto';
 import { forkForNotebook } from '../lib/agent-fork.js';
-import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
@@ -2328,8 +2328,9 @@ export async function runTriageAgent(
   // Asked from a board: its outline (with ids) so sua can propose arrange-board.
   const askedFromBoard = (() => { try { const p = (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; id?: string } }).page; return p?.kind === 'board' ? p.id : undefined; } catch { return undefined; } })();
   const boardOutline = askedFromBoard ? await boardOutlineFor(ctx, askedFromBoard).catch(() => '') : '';
-  // The notebook this conversation is about (started on its page, or linked to it).
-  const threadNotebook = (() => { try { return notebookForThread(ctx, messageId, message.contextJson); } catch { return undefined; } })();
+  // The notebook this conversation is about (started on its page, or linked to it),
+  // or else the one it has turned to (sua's latest reply links just that one).
+  const threadNotebook = (() => { try { return notebookForThread(ctx, messageId, message.contextJson) ?? notebookTalkedAbout(ctx, messageId); } catch { return undefined; } })();
   const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
   // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
   // it did. Run output alone can't answer that — a clean run with an empty
