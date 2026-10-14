@@ -177,7 +177,11 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
   const current = steps.find((x) => x.status !== 'done');
   const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
   const focus = topFor(nb, inRunning);
-  return html`<ol class="nb-steps" aria-label="Steps">
+  // All done (or decided): one quiet line per step, no bars.
+  const finished = !running && (nb.status === 'decided' || steps.every((x) => x.status === 'done'));
+  // The last run's note belongs to the step it ran (it starts with that step's title).
+  const lastRun = nb.lastRunAt && nb.lastRunNote ? `Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote}` : '';
+  return html`<ol class="nb-steps${finished ? ' nb-steps--done' : ''}" style="--n:${String(Math.min(steps.length, 6))}" aria-label="Steps">
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
       const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : isYourStep(step) ? 'you' : '');
@@ -189,15 +193,17 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
+      const state = step.movedOn ? 'moved on' : STEP_STATUS[step.status];
+      const stateKind = step.movedOn ? 'moved' : step.status;
+      const tip = [missing || step.note || '', lastRun && nb.lastRunNote!.startsWith(step.title) ? lastRun : ''].filter(Boolean).join('\n');
       // is-live: the step is really running now (a 'running' status left by a restart doesn't spin).
-      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${missing || step.note || ''}">
+      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${tip}">
         <span class="nb-step__n" aria-hidden="true">${step.status === 'done' ? '✓' : String(i + 1)}</span>
         <span class="nb-step__body">
-          <span class="nb-step__title">${step.title}</span>
-          <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
-          ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
+          <span class="nb-step__title" title="${step.title}">${step.title}</span>
+          <span class="nb-step__by">${by ? (step.agentId ? html`with <span class="nb-step__agent" title="${by}">${by}</span>` : html`with ${by}`) : html`<span class="nb-step__need">needs an agent</span>`}${only ? html` · <span class="nb-step__facts" title="${only}">${String(step.facts!.length)} ${step.facts!.length === 1 ? 'fact' : 'facts'}</span>` : html``}</span>
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
-          <span class="nb-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          <span class="nb-step__meta"><span class="nb-step__count">${progress}${step.top ? ` · top ${String(step.top)}` : ''}</span><span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
           ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
             : html``}
@@ -208,6 +214,35 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
       </li>`;
     }) as unknown as SafeHtml[]}
   </ol>`;
+}
+
+/**
+ * A decided notebook's decision. When it's the usual "Chose A, B and C. Why."
+ * (NotebookStore.decide), the picks read as a list, each linking to its page,
+ * with "Name: what it is" split so the name stands out; the why follows.
+ * Anything else shows as written.
+ */
+export function decidedBox(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const text = nb.decision ?? '';
+  const when = formatAge(nb.decidedAt ?? nb.updatedAt);
+  const chosen = entries.filter((e) => e.kind === 'option' && e.chosenAt && text.includes(e.title));
+  if (!text.startsWith('Chose ') || chosen.length < 2) return html`<div class="nb-decided"><strong>Decided ${when}:</strong> ${text}</div>`;
+  const order = chosen.map((e) => ({ e, at: text.indexOf(e.title) })).sort((a, b) => a.at - b.at);
+  const last = order[order.length - 1];
+  const why = text.slice(last.at + last.e.title.length).replace(/^\.\s*/, '').trim();
+  const id = encodeURIComponent(nb.id);
+  return html`<div class="nb-decided">
+    <strong>Decided ${when}</strong> <span class="nb-decided__count">· ${String(order.length)} chosen</span>
+    <ul class="nb-decided__list">
+      ${order.map(({ e }) => {
+        const k = e.title.indexOf(': ');
+        const name = k > 0 && k < 60 ? e.title.slice(0, k) : e.title;
+        const what = k > 0 && k < 60 ? e.title.slice(k + 2) : '';
+        return html`<li><a href="/notebooks/${id}/entries/${encodeURIComponent(e.id)}">${name}</a>${what ? html` <span class="nb-decided__what">${what}</span>` : html``}</li>`;
+      }) as unknown as SafeHtml[]}
+    </ul>
+    ${why ? html`<p class="nb-decided__why">${why}</p>` : html``}
+  </div>`;
 }
 
 /**
@@ -266,7 +301,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   const idle = human && nb.status === 'active' && nb.pipeline.length === 0 ? ' once it has a search (add one under Edit)' : '';
   const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
   return html`
-    <section class="nb-hero" aria-labelledby="nb-title">
+    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}" aria-labelledby="nb-title">
       <div class="nb-hero__main">
         <div class="nb-hero__titlerow">
           ${cover
@@ -274,6 +309,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
           <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
           ${statusChip(nb)}
+          ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running)}</div>` : html``}
         </div>
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
@@ -288,12 +324,12 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               : nb.status === 'active'
                 ? runButton(nb)
                 : html``}
-            ${nb.lastRunAt && !running ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
+            ${nb.lastRunAt && !running && !nb.steps?.length ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
           </div>` : busy.length ? html`<div class="nb-run">${workingLine(undefined, busy)}</div>` : html``}
-        ${nb.status === 'decided' && nb.decision ? html`<div class="nb-decided"><strong>Decided ${formatAge(nb.decidedAt ?? nb.updatedAt)}:</strong> ${nb.decision}</div>` : html``}
+        ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
       </div>
-      <aside class="nb-hero__side${widgets ? ' nb-hero__side--slim' : ''}" aria-label="Done when">
-        ${widgets ? html`` : html`<div class="nb-progress">
+      ${widgets ? html`` : html`<aside class="nb-hero__side" aria-label="Done when">
+        <div class="nb-progress">
           ${progressRing(met, total)}
           <div class="nb-progress__list">
             <span class="nb-progress__label">Done when</span>
@@ -305,9 +341,9 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
                 <span class="nb-crit__text ${c.met ? 'is-met' : ''}"${criterionHint(nb, c) ? html` title="${criterionHint(nb, c)}"` : html``}>${c.text}</span>
               </form>`) as unknown as SafeHtml[]}
           </div>
-        </div>`}
+        </div>
         ${heroActions(nb, entries, leads, running)}
-      </aside>
+      </aside>`}
     </section>`;
 }
 

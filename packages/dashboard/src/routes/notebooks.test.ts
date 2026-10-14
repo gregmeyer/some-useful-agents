@@ -230,6 +230,30 @@ describe('filing into a notebook of organizations', () => {
     ctx.notebookPictures.delete(nb.id);
   });
 
+  it("a decided notebook drawn as widgets: actions beside the title, its steps on one quiet row, its picks as a list", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setFields(nb.id, [{ key: 'employees', label: 'Employees', type: 'number' }]);
+    const a = store.upsertOption(nb.id, { title: 'Acme: planning suite', by: 'you', data: { employees: 300 } }).entry;
+    const b = store.upsertOption(nb.id, { title: 'Bolt', by: 'you', data: { employees: 90 } }).entry;
+    store.setSteps(nb.id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick 2', kind: 'decide', target: 2 }]);
+    for (const id of ['s1', 's2']) store.updateStep(nb.id, id, { status: 'done' });
+    store.decide(nb.id, 'Both fit.', 'you', [a.id, b.id]);
+    const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toContain('class="nb-hero nb-hero--wide"');
+    expect(page).toMatch(/nb-hero__titlerow">[\s\S]*?<div class="nb-hero__acts">[\s\S]*?Reopen/);
+    expect(page).not.toContain('nb-hero__side');
+    expect(page).toContain('class="nb-steps nb-steps--done" style="--n:2"');
+    expect(page).toContain('· 2 chosen');
+    expect(page).toContain(`<a href="/notebooks/${nb.id}/entries/${a.id}">Acme</a> <span class="nb-decided__what">planning suite</span>`);
+    expect(page).toContain('<p class="nb-decided__why">Both fit.</p>');
+    // A decision in its own words shows as written.
+    const { decidedBox } = await import('../views/notebooks.js');
+    expect(String(decidedBox({ ...store.get(nb.id)!, decision: 'Went with neither.' }, store.entries(nb.id, 100)))).toMatch(/<strong>Decided [^<]*:<\/strong> Went with neither\.<\/div>/);
+  });
+
   it('steps are set by hand and shown with how far each is toward its goal', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -248,10 +272,10 @@ describe('filing into a notebook of organizations', () => {
     expect(ok.body.steps.map((x: { id: string; status: string }) => `${x.id}:${x.status}`)).toEqual(['s1:todo', 's2:todo']);
 
     const page = await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
-    expect(page.text).toContain('class="nb-steps"');
+    expect(page.text).toContain('class="nb-steps" style="--n:2"');
     expect(page.text).toContain('nb-step nb-step--todo nb-step--current" title="Still needed: 2 more"');
-    expect(page.text).toContain('1 of 3 found · to do');
-    expect(page.text).toContain('with sched-agent');
+    expect(page.text).toContain('<span class="nb-step__count">1 of 3 found</span><span class="nb-step__state nb-step__state--todo">to do</span>');
+    expect(page.text).toContain('with <span class="nb-step__agent" title="sched-agent">sched-agent</span>');
     expect(page.text).toContain('1 of 1 facts');
     // The source step has no agent of its own yet.
     expect(page.text).toContain('needs an agent');
@@ -512,8 +536,8 @@ describe('notebook pipeline (G2–G3)', () => {
 
     // Only its facts count, one by one; the page names them.
     const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
-    expect(page).toContain('<span class="nb-step__by nb-step__facts" title="employees, founded">employees, founded</span>');
-    expect(page).toContain('3 of 4 facts · to do');
+    expect(page).toContain('<span class="nb-step__facts" title="employees, founded">2 facts</span>');
+    expect(page).toContain('<span class="nb-step__count">3 of 4 facts</span><span class="nb-step__state nb-step__state--todo">to do</span>');
     // Its job names only those facts.
     const { pipelineInputs } = await import('../lib/notebook-pipeline.js');
     const step = store.get(nb.id)!.steps![0];
@@ -648,7 +672,7 @@ describe('notebook pipeline (G2–G3)', () => {
     const moved = await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[0] as never);
     expect(moved).toMatchObject({ status: 'completed', summary: 'Moved on from **Find 5 companies**, keeping what it found. Next is yours: pick the final set with Decide.' });
     expect(store.get(nb.id)!.steps![1]).toMatchObject({ status: 'done', movedOn: true, note: '3 of 5 found, moved on' });
-    expect(await page()).toContain('3 of 5 found · moved on');
+    expect(await page()).toContain('<span class="nb-step__count">3 of 5 found</span><span class="nb-step__state nb-step__state--moved">moved on</span>');
     // Its Try again card is stale now too.
     expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[1] as never)).toMatchObject({ status: 'failed' });
     // Deciding is yours: Decide is the main button again, and there's no Next step.
@@ -863,7 +887,7 @@ describe('the funnel on the page and in the conversation', () => {
     expect(page).toContain('action="/notebooks/cars/narrow"');
     expect(page).toContain('data-nb-mode="narrow"');
     expect(page).toMatch(/<summary class="btn btn--sm">Decide…<\/summary>/); // not the main button now
-    expect(page).toContain('keep the best · to do');
+    expect(page).toContain('<span class="nb-step__count">keep the best</span><span class="nb-step__state nb-step__state--todo">to do</span>');
     const out = await post('/notebooks/cars/narrow', `chosen=${rav.id}&chosen=${crv.id}&decision=Too+pricey`);
     expect(decodeURIComponent(out.headers.location)).toContain('Kept 2, ruled out 1. Next: Pick one.');
     const nb = store.get('cars')!;

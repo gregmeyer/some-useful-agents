@@ -18,8 +18,12 @@
     radial-gradient(600px 240px at 100% 130%, var(--color-info-soft), transparent 70%),
     var(--color-surface);
 }
-.nb-hero__main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
-.nb-hero__titlerow { display: flex; align-items: center; gap: var(--space-3); }
+.nb-hero__main { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; container-type: inline-size; }
+/* A notebook drawn as widgets: "Done when" lives in the widgets, so the header is one column with its actions beside the title. */
+.nb-hero--wide { grid-template-columns: minmax(0, 1fr); }
+.nb-hero__titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.nb-hero__acts { margin-left: auto; }
+.nb-hero__acts .nb-acts { align-items: center; }
 .nb-hero__icon {
   flex: none;
   width: 36px;
@@ -53,6 +57,13 @@
   border-radius: var(--radius-sm);
   font-size: var(--font-size-sm);
 }
+.nb-decided__count { color: var(--color-text-muted); }
+/* The picks: name, then what it is, in columns that fill the box. */
+.nb-decided__list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--space-1) var(--space-4); }
+.nb-decided__list li { min-width: 0; line-height: 1.4; }
+.nb-decided__list a { font-weight: var(--weight-semibold); color: var(--color-text); }
+.nb-decided__what { color: var(--color-text-muted); }
+.nb-decided__why { margin: var(--space-2) 0 0; }
 
 .nb-status { padding: 1px var(--space-2); border: 1px solid currentColor; border-radius: 999px; font-size: var(--font-size-xs); font-weight: 400; font-family: var(--font-sans, inherit); }
 .nb-status--active { color: var(--color-primary); }
@@ -355,7 +366,6 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-setup__dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--color-primary); animation: nb-setup-pulse 1.2s ease-in-out infinite; }
 @keyframes nb-setup-pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { .nb-setup__dot { animation: none; } }
-.nb-hero__side--slim { align-self: center; }
 .nb-talk__send { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .nb-talk__keys { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-talk__keys kbd { font-family: var(--font-mono); font-size: var(--font-size-xs); padding: 0 4px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface-raised); }
@@ -614,8 +624,15 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-saved { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 
 /* Steps: the notebook's work in order (find, source, check, decide) */
-.nb-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-2); list-style: none; margin: var(--space-3) 0; padding: 0; counter-reset: none; }
-.nb-step { display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); min-width: 0; }
+/* One row, in order, with a short connector between steps; two columns, then one, as the header narrows. */
+.nb-steps { --gap: var(--space-4); display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); align-items: start; gap: var(--space-2) var(--gap); list-style: none; margin: var(--space-3) 0; padding: 0; counter-reset: none; }
+.nb-step { position: relative; display: flex; gap: var(--space-2); align-items: flex-start; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); min-width: 0; }
+.nb-step + .nb-step::before { content: ''; position: absolute; top: calc(var(--space-2) + 11px); left: calc(-1 * var(--gap) + 3px); width: calc(var(--gap) - 6px); border-top: 1px solid var(--color-border-strong); }
+@container (max-width: 720px) {
+  .nb-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nb-step + .nb-step::before { content: none; }
+}
+@container (max-width: 440px) { .nb-steps { grid-template-columns: minmax(0, 1fr); } }
 .nb-step--current { border-color: var(--color-primary); box-shadow: inset 3px 0 0 var(--color-primary); }
 .nb-step--done { opacity: 0.75; }
 .nb-step--stuck { border-color: var(--color-warn-border); background: var(--color-warn-soft); }
@@ -632,14 +649,32 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 @keyframes nb-step-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .nb-step--running.is-live .nb-step__n::after, .nb-step--running.is-live .nb-step__bar > span { animation: none; } }
 .nb-step__body { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.nb-step__title { font-weight: var(--weight-bold); font-size: var(--font-size-sm); color: var(--color-text); }
-.nb-step__by { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-step__title { font-weight: var(--weight-bold); font-size: var(--font-size-sm); line-height: 1.3; color: var(--color-text); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.nb-step__by { font-size: var(--font-size-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.nb-step__agent { font-family: var(--font-mono); }
+.nb-step__facts { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 .nb-step__need { color: var(--color-warn); }
 .nb-step__bar { display: block; height: 4px; margin-top: var(--space-1); border-radius: 2px; background: var(--color-border); overflow: hidden; }
 .nb-step__bar > span { display: block; height: 100%; background: var(--color-primary); }
 .nb-step--done .nb-step__bar > span, .nb-step--met .nb-step__bar > span { background: var(--color-ok); }
 .nb-step--stuck .nb-step__bar > span { background: var(--color-warn); }
-.nb-step__meta { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-step__meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-step__count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nb-step__state { padding: 0 6px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; line-height: 16px; white-space: nowrap; }
+.nb-step__state--done, .nb-step__state--met { color: var(--color-ok); }
+.nb-step__state--stuck { color: var(--color-warn); }
+.nb-step__state--running { color: var(--color-primary); }
+.nb-step__state--moved, .nb-step__state--todo { color: var(--color-text-subtle); }
+/* Every step done: one quiet line each, no bars. */
+.nb-steps--done .nb-step { padding: var(--space-1) var(--space-2); align-items: center; opacity: 1; background: transparent; }
+.nb-steps--done .nb-step__n { width: 18px; height: 18px; font-size: 10px; }
+.nb-steps--done .nb-step + .nb-step::before { top: 50%; }
+.nb-steps--done .nb-step__body { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
+.nb-steps--done .nb-step__title { -webkit-line-clamp: 1; }
+.nb-steps--done .nb-step__by, .nb-steps--done .nb-step__bar, .nb-steps--done .nb-step__state { display: none; }
+.nb-steps--done .nb-step__meta { display: inline; }
+/* A step left short (moved on) still says so. */
+.nb-steps--done .nb-step__state--moved { display: inline; margin-left: var(--space-1); }
 .nb-step__focus { margin: var(--space-1) 0 0; }
 .nb-step__focus-btn { padding: 0; border: 0; background: none; font: inherit; font-size: var(--font-size-xs); color: var(--color-primary); cursor: pointer; text-align: left; }
 .nb-step__focus-btn:hover, .nb-step__focus-btn:focus-visible { text-decoration: underline; }
