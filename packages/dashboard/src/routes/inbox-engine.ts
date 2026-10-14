@@ -92,7 +92,7 @@ import {
 } from './inbox-catalog.js';
 import {
   parseProposedActions,
-  parseTriageLinks, parseTriageWidget,
+  parseTriageLinks, parseTriageWidget, parseTriageOpen,
   triageReplyBody,
   hasRecoveryRefireSinceLastUser,
   postTriageFailureFallback,
@@ -2514,7 +2514,7 @@ export async function runTriageAgent(
       postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
       return;
     }
-    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown; widget?: unknown };
+    let parsed: { recommendation?: unknown; verifyHint?: unknown; actions?: unknown; commitmentSummary?: unknown; links?: unknown; widget?: unknown; open?: unknown };
     try {
       parsed = JSON.parse(planJson);
     } catch {
@@ -2549,6 +2549,9 @@ export async function runTriageAgent(
     if (verifyHint) triageMeta.verifyHint = verifyHint;
     if (commitmentSummary) triageMeta.commitmentSummary = commitmentSummary;
     if (links.length > 0) triageMeta.links = JSON.stringify(links);
+    // Asked to open a page: the panel moves the page behind it there (once, live).
+    const open = parseTriageOpen(parsed.open);
+    if (open) triageMeta.opened = open;
     // sua's widget (docs/a2ui-views.md, "In chat"): checked like any view (a part
     // that doesn't check out becomes a note, an unreadable one is dropped), then
     // kept inline in the reply, as an agent's reply keeps it (triageReplyBody).
@@ -2568,6 +2571,7 @@ export async function runTriageAgent(
       body: rec,
       verifyHint,
       commitmentSummary,
+      ...(open ? { open } : {}),
       createdAt: triageReply.createdAt,
     });
 

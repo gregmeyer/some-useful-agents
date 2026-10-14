@@ -246,6 +246,17 @@ export function parseTriageLinks(
   return out;
 }
 
+/**
+ * The page sua opens behind the conversation when asked ("open my
+ * notebook"): one dashboard path, never another site. Undefined otherwise.
+ */
+export function parseTriageOpen(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const path = raw.trim();
+  if (!/^\/(?!\/)[A-Za-z0-9/_\-.~%?=&#]*$/.test(path) || path.length > 300 || path.includes('\\')) return undefined;
+  return path;
+}
+
 export function findLatestTriageLinks(
   responses: readonly InboxResponse[],
 ): TriageLink[] {
