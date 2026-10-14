@@ -276,6 +276,31 @@ export const INBOX_MODAL_JS = `
   // follows the agent's session channel (lib/chat-turn.ts events): the reply
   // streams into a bubble and its widgets build up as they're written, then
   // the turn's end refreshes from source. A refresh mid-turn redraws the bubble.
+  // A click in a reply's widget (a button, a choice) is your next message, as
+  // on an agent's Chat tab: its context.message, else "▸ name (key: value)".
+  // It goes through the reply box, so it echoes, sends and locks the same way;
+  // nothing happens while a reply is being written (the box is disabled) or
+  // on a widget already answered.
+  if (content) content.addEventListener('a2ui-action', function (e) {
+    var d = e.detail || {};
+    if (!d.name || d.name === 'run-agent' || d.name === 'notebook-option') return;
+    var host = e.target && e.target.closest ? e.target : null;
+    if (!host || !host.closest('.inbox-msg') || host.closest('.is-answered')) return;
+    var box = content.querySelector('textarea[name="body"]');
+    var form = box && box.form;
+    if (!box || !form || box.disabled || form.getAttribute('data-inflight') === '1') return;
+    var c = d.context || {};
+    var text = typeof c.message === 'string' && c.message.trim() ? c.message.trim()
+      : '▸ ' + d.name + (function () {
+        var parts = Object.keys(c).filter(function (k) { return c[k] !== undefined && c[k] !== null && c[k] !== ''; })
+          .map(function (k) { return k + ': ' + (typeof c[k] === 'object' ? JSON.stringify(c[k]) : String(c[k])); });
+        return parts.length ? ' (' + parts.join(', ') + ')' : '';
+      })();
+    e.stopPropagation();
+    box.value = text.slice(0, 2000);
+    if (form.requestSubmit) form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+  });
+
   var agentWatch = null; // { id, off }
   var agentLive = null;  // { raw, widgets: {index: messages}, runId } while a turn streams
   function agentVisibleText(raw) {

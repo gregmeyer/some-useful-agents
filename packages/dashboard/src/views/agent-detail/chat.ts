@@ -125,14 +125,16 @@ export function renderAgentChat(args: AgentChatArgs): string {
 export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentChatArgs['chat']): SafeHtml {
   const runLink = (runId: string, label: string) =>
     html`<a href="/runs/${encodeURIComponent(runId)}" class="mono">${label} ${runId.slice(0, 8)}</a>`;
-  const agentBody = (t: SessionTurn): SafeHtml => {
+  const agentBody = (t: SessionTurn, i: number): SafeHtml => {
     if (t.failed) return html`<p style="color: var(--color-err); margin: 0;">The run didn't finish: ${t.text}</p>`;
     const view = t.runId ? chat.views?.[t.runId] : undefined;
     // A rendered widget is the reply; the raw text stays one click away.
     if (view && String(view).includes('data-a2ui-surface')) {
       return html`${view}<details class="agent-chat__raw"><summary class="dim">Show the raw reply</summary>${mdBody(t.text)}</details>`;
     }
-    return html`${renderReplyBody(t.text, `chat-${t.runId ?? 'reply'}`, agent.permissions?.imgSrc ?? [])}${view ?? html``}`;
+    // Its buttons are spent once you've said something after it.
+    const answered = chat.turns.slice(i + 1).find((x) => x.role === 'user')?.text;
+    return html`${renderReplyBody(t.text, `chat-${t.runId ?? 'reply'}`, agent.permissions?.imgSrc ?? [], answered !== undefined ? { answered } : {})}${view ?? html``}`;
   };
   const rows = chat.turns.map((t, i) => renderThreadMessage({
     role: t.role,
@@ -141,7 +143,7 @@ export function renderChatTranscript(agent: AgentChatArgs['agent'], chat: AgentC
     createdAt: t.createdAt,
     grouped: isGrouped(chat.turns, i, (x) => x.role),
     metaAfter: t.role === 'agent' && t.runId ? runLink(t.runId, 'run') : undefined,
-    body: t.role === 'agent' ? agentBody(t) : mdBody(t.text),
+    body: t.role === 'agent' ? agentBody(t, i) : mdBody(t.text),
   }));
 
   if (chat.pending) {
