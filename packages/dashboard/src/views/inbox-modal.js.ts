@@ -70,6 +70,24 @@ export const INBOX_MODAL_JS = `
     if (mode === 'page' || panelMode === 'page') return; // /inbox isn't carried to other pages
     try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed', list: listState })); } catch (_) {}
   }
+  // sua opens a page you asked for: go there with this conversation docked
+  // beside it. Only a reply that just finished (not one replayed on
+  // reconnect), once, while you're still on this thread.
+  var OPENED_KEY = 'sua-opened';
+  function openBehind(id, data) {
+    var to = String(data.open || '');
+    if (to.charAt(0) !== '/' || to.charAt(1) === '/' || to.charAt(1) === '\\\\') return;
+    if (id !== currentId || !data.responseId) return;
+    if (data.createdAt && Math.abs(Date.now() - Number(data.createdAt)) > 60000) return;
+    var done = [];
+    try { done = JSON.parse(sessionStorage.getItem(OPENED_KEY) || '[]'); } catch (_) {}
+    if (done.indexOf(data.responseId) >= 0) return;
+    try { sessionStorage.setItem(OPENED_KEY, JSON.stringify(done.concat([data.responseId]).slice(-20))); } catch (_) {}
+    if (to === location.pathname + location.search) return;
+    var mode = panelMode === 'wide' ? 'wide' : 'docked';
+    try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id, mode: mode, list: listState, keep: true })); } catch (_) {}
+    window.location.assign(to);
+  }
   // Home's full-width list also filters and sorts (not kept across pages).
   var pageFilters = { source: '', agent: '', tag: '', starred: '', sort: '' };
   function listQuery(extra) {
@@ -524,7 +542,7 @@ export const INBOX_MODAL_JS = `
     // the canonical fragment refresh (scheduled by onAnyEvent for
     // message:created → fired on triage's addResponse) will swap in
     // the persisted entry so we don't double-render.
-    es.addEventListener('triage:complete', function () {
+    es.addEventListener('triage:complete', function (ev) {
       sseAliveAt = Date.now();
       // Mark "settled" — drop the streaming caret so the bubble looks
       // like a normal finished message between now and the fragment
@@ -535,6 +553,11 @@ export const INBOX_MODAL_JS = `
         bubble.setAttribute('data-settled', '1');
       }
       scheduleSseRefresh();
+      // Asked to open a page ("open my notebook"): the page behind the
+      // conversation goes there and the conversation stays open beside it.
+      var data;
+      try { data = JSON.parse(ev.data); } catch (_) { data = null; }
+      if (data && data.open) openBehind(messageId, data);
     });
 
     [
@@ -1676,7 +1699,8 @@ export const INBOX_MODAL_JS = `
     // A page with its own conversation (a notebook) brings an open panel to it.
     var pageThread = document.querySelector('[data-page-thread]');
     var own = pageThread && pageThread.getAttribute('data-page-thread');
-    if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
+    // Unless sua just opened this page from another conversation: that one stays.
+    if (own && !(saved.keep && saved.id) && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
     if (saved.id) openFor(saved.id, { panel: saved.mode, restore: true });
     else if (saved.mode === 'min') { panelMode = 'min'; applyPanel(); }
     else { panelMode = saved.mode; openPanelHome({ restore: true }); }
