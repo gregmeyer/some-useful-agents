@@ -419,12 +419,13 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-card { display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-text); text-decoration: none; transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease; }
 .nbl-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .nbl-card--decided .nbl-card__cover, .nbl-card--stopped .nbl-card__cover { filter: saturate(0.55); }
-.nbl-card__cover { position: relative; display: block; aspect-ratio: 2 / 1; background: var(--color-surface-raised); overflow: hidden; }
+.nbl-card__cover { position: relative; display: block; aspect-ratio: 2 / 1; background: var(--color-surface-raised); overflow: hidden; isolation: isolate; }
+/* A photo shows whole (never cropped); a soft, blurred copy of it fills the rest of the frame instead of white bands. */
+.nbl-card__cover--photo::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--cover) center / cover no-repeat; filter: blur(32px) saturate(1.2); transform: scale(1.3); opacity: 0.4; }
 .nbl-card__cover img, .nbl-card__art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
 .nbl-card__art { object-fit: cover; }
 .nbl-card__cover img.is-drawn { object-fit: contain; padding: var(--space-3); box-sizing: border-box; background: var(--color-primary-soft); }
-.nbl-card__done { position: absolute; top: var(--space-2); left: var(--space-2); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); line-height: 1; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 88%, transparent); color: var(--color-text); }
-.nbl-card__kind { position: absolute; bottom: var(--space-2); left: var(--space-2); font-size: var(--font-size-xs); line-height: 1; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); }
+.nbl-card__kind { position: absolute; bottom: var(--space-2); right: var(--space-2); font-size: var(--font-size-xs); line-height: 1; padding: 3px 6px; border-radius: 4px; /* over the photo itself, so the same in either theme */ background: rgb(0 0 0 / 0.55); color: #fff; backdrop-filter: blur(4px); }
 .nbl-card__body { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-4); flex: 1; }
 .nbl-card__titlerow { display: flex; align-items: flex-start; gap: var(--space-2); }
 .nbl-card__title { flex: 1; font-weight: var(--weight-semibold); font-size: var(--font-size-md); line-height: 1.3; }
@@ -432,9 +433,17 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-card__lead { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .nbl-card__price { font-size: var(--font-size-md); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; color: var(--color-primary); white-space: nowrap; }
 .nbl-card__leadname { font-size: var(--font-size-sm); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nbl-card__facts { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.nbl-chip { font-size: var(--font-size-xs); line-height: 1.7; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-muted); }
-.nbl-card__meta { margin-top: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+/* One line of counts; a long one wraps between items, and the dot that would start a line is clipped away. */
+.nbl-card__facts { display: flex; flex-wrap: wrap; column-gap: 1.4em; overflow: hidden; font-family: var(--font-mono); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; color: var(--color-text-muted); line-height: 1.5; }
+.nbl-card__facts > span { position: relative; white-space: nowrap; }
+.nbl-card__facts > span + span::before { content: "·"; position: absolute; left: -0.95em; color: var(--color-text-subtle); }
+.nbl-card__meta { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbl-card__met { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.nbl-card__dots { display: inline-flex; gap: 3px; }
+.nbl-card__dots i { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--color-border-strong); box-sizing: border-box; }
+.nbl-card__dots i.is-met { background: var(--color-ok); border-color: var(--color-ok); }
+.nbl-card .nb-status { border: 0; padding: 1px var(--space-2); background: var(--color-surface-raised); }
+.nbl-card__titlerow .nb-status { flex: none; }
 @media (max-width: 640px) { .nbl-tools__sort { margin-left: 0; } .nbl-new__form { position: static; width: auto; margin-top: var(--space-2); } }
 
 /* With the sua panel open, the notebook's talk box steps aside: one place to talk. */
