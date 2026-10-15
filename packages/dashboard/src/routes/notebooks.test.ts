@@ -1981,6 +1981,86 @@ describe('a brief as a summary of findings', () => {
   });
 });
 
+describe('notebook templates', () => {
+  it('save a notebook’s setup from Edit, list it on New notebook, and remove it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const nb = store.create({ title: 'Find a controller job', statement: 'Austin or remote', params: ['Remote or Austin, TX'] });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price' }]);
+    store.setSteps(nb.id, [{ title: 'Find 5 roles', kind: 'find', target: 5 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    store.archive(nb.id);
+
+    // Edit has it (an archived notebook too).
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`action="/notebooks/${nb.id}/template"`);
+    const saved = await post(`/notebooks/${nb.id}/template`, 'name=Job+search');
+    expect(saved.status).toBe(303);
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved as the template “Job search” (1 field · 2 steps · 1 limit).');
+    expect(store.getTemplate('job-search')).toMatchObject({ name: 'Job search', fromNotebook: nb.id });
+
+    const page = (await get('/notebooks/new')).text;
+    expect(page).toContain('Or start from one of your templates');
+    expect(page).toContain('<span class="nbd-tpl__name">Job search</span>');
+    expect(page).toContain('value="Start a new notebook from my “Job search” template."');
+
+    const gone = await post('/notebooks/templates/job-search/delete', '');
+    expect(decodeURIComponent(gone.headers.location)).toContain('Template removed.');
+    expect(store.getTemplate('job-search')).toBeUndefined();
+    expect((await get('/notebooks/new')).text).not.toContain('nbd-tpl__name');
+  });
+
+  it('sua proposes a notebook from a template after asking: a card that previews it, and approving creates it empty with the setup', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase, executeNotebookCreate } = await import('./inbox-engine.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const seed = store.create({ title: 'Find a controller job', statement: 'Controller roles, Austin or remote', params: ['Remote or Austin, TX', '$180k minimum comp'], criteria: ['At least five open roles that fit', 'A decision recorded'] });
+    store.setFields(seed.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.setChecks(seed.id, ['Pays at least $180k']);
+    store.setStages(seed.id, ['Found', 'Applied']);
+    store.setSteps(seed.id, [{ title: 'Find 5 roles', kind: 'find', target: 5, status: 'done' }, { title: 'Source pay', kind: 'source', agentId: 'gone-agent' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    store.upsertOption(seed.id, { title: 'Controller, Acme', by: 'you', data: {} });
+    store.saveTemplate('Job search', seed.id);
+
+    const params = ['Remote or Denver, CO', '$180k minimum comp'];
+    const { accepted } = parseProposedActions([{ type: 'notebook-create', rationale: 'A Denver job search', inputs: { TEMPLATE: 'job-search', TITLE: 'Find a controller job in Denver', STATEMENT: 'Controller roles, Denver or remote', PARAMS: params, CHECKS: ['Pays at least $180k', 'Remote or based in Denver, CO'], TARGET: 8 } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-create', status: 'proposed', ctaLabel: 'Create notebook', inputs: { TEMPLATE: 'job-search', PARAMS: JSON.stringify(params), TARGET: '8' } });
+    expect(parseProposedActions([{ type: 'notebook-create', inputs: { TEMPLATE: 'job-search' } }], [], []).rejected[0].reason).toBe('notebook-create needs inputs.TEMPLATE and inputs.TITLE');
+
+    // The preview: the template, the title, the limits as they change, the done-whens and steps.
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.inputs.TEMPLATE_NAME).toBe('Job search');
+    expect(card.surfaceChanges).toEqual([
+      { what: 'template', before: '—', after: 'Job search (2 fields · 3 steps · 1 check · 2 limits)' },
+      { what: 'title', before: '—', after: 'Find a controller job in Denver' },
+      { what: "what it's for", before: 'Controller roles, Austin or remote', after: 'Controller roles, Denver or remote' },
+      { what: 'limits', before: 'Remote or Austin, TX; $180k minimum comp', after: 'Remote or Denver, CO; $180k minimum comp' },
+      { what: 'done when', before: '—', after: 'At least five open roles that fit; A decision recorded' },
+      { what: 'checks', before: 'Pays at least $180k', after: 'Pays at least $180k; Remote or based in Denver, CO' },
+      { what: 'steps', before: '—', after: '1. Find 5 roles; 2. Source pay; 3. Pick one' },
+    ]);
+
+    const done = executeNotebookCreate(ctx, card);
+    expect(done.status).toBe('completed');
+    const made = store.list().find((n) => n.title === 'Find a controller job in Denver')!;
+    expect(done.summary).toBe(`Created [Find a controller job in Denver](/notebooks/${made.id}) from your Job search template (2 fields · 3 steps · 1 check · 2 limits). It starts empty; its first step is **Find 5 roles**: press Next step on the notebook when you're ready.`);
+    expect(made).toMatchObject({ statement: 'Controller roles, Denver or remote', params, checks: ['Pays at least $180k', 'Remote or based in Denver, CO'], stages: ['Found', 'Applied'] });
+    expect(made.criteria.map((c) => `${c.text}:${String(c.met)}`)).toEqual(['At least five open roles that fit:false', 'A decision recorded:false']);
+    expect(made.fields.map((f) => f.key)).toEqual(['salary', 'posting_url']);
+    // Steps fresh; the find step wants 8; an agent that's gone is dropped (the step needs one again).
+    expect(made.steps!.map((x) => `${x.title}:${x.status}:${x.agentId ?? ''}:${String(x.target ?? '')}`)).toEqual(['Find 5 roles:todo::8', 'Source pay:todo::', 'Pick one:todo::1']);
+    expect(store.entries(made.id).filter((e) => e.kind === 'option')).toHaveLength(0);
+    expect(store.getTemplate('job-search')!.uses).toBe(1);
+
+    expect(executeNotebookCreate(ctx, { ...card, inputs: { ...card.inputs, TEMPLATE: 'nope' } })).toMatchObject({ status: 'failed', refusalReason: 'There\'s no template "nope". Save a notebook as a template from its Edit panel first.' });
+  });
+});
+
 describe('download the shortlist', () => {
   it('sends a CSV attachment best first, and the header links to it once there are options', async () => {
     const app = await makeApp();

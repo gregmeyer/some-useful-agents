@@ -285,6 +285,74 @@ function draftRecord(r: Record<string, unknown>): NotebookDraftRecord {
   };
 }
 
+/**
+ * A notebook's setup, kept to start new ones like it (a "job search"
+ * template): what it's for, its limits, its done-whens, the facts it notes,
+ * its checks and stages, its steps (with their agents), its schedule and
+ * pipeline. Never its options, notes, decision or history: every notebook
+ * made from it starts empty.
+ */
+export interface NotebookTemplateSetup {
+  statement: string;
+  params: string[];
+  /** The done-whens' texts (all start unmet). */
+  criteria: string[];
+  fields: NotebookField[];
+  checks: string[];
+  stages: string[];
+  /** Fresh: to do, no tries, no notes. */
+  steps: NotebookStep[];
+  cadence: string;
+  pipeline: string[];
+}
+
+export interface NotebookTemplate {
+  /** A slug of its name: saving the same name again replaces it. */
+  id: string;
+  name: string;
+  /** What it sets up, in a line ("8 fields · 4 steps · 5 checks"). */
+  description: string;
+  setup: NotebookTemplateSetup;
+  /** The notebook it was saved from. */
+  fromNotebook?: string;
+  uses: number;
+  createdAt: string;
+  updatedAt: string;
+  usedAt?: string;
+}
+
+/** A notebook's setup as a template keeps it (see NotebookTemplateSetup). */
+export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
+  return {
+    statement: nb.statement,
+    params: [...nb.params],
+    criteria: nb.criteria.map((c) => c.text),
+    fields: cleanFields(nb.fields),
+    checks: [...nb.checks],
+    stages: [...nb.stages],
+    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top }) => ({ id, title, kind, agentId, target, facts, top, status: 'todo', tries: 0 }))),
+    cadence: nb.cadence,
+    pipeline: [...nb.pipeline],
+  };
+}
+
+/** "8 fields · 4 steps · 5 checks": what a template sets up. */
+export function describeTemplateSetup(t: NotebookTemplateSetup): string {
+  const n = (k: number, one: string) => (k ? `${String(k)} ${one}${k === 1 ? '' : 's'}` : '');
+  return [n(t.fields.length, 'field'), n(t.steps.length, 'step'), n(t.checks.length, 'check'), n(t.params.length, 'limit')].filter(Boolean).join(' · ') || 'no setup yet';
+}
+
+function templateRecord(r: Record<string, unknown>): NotebookTemplate | undefined {
+  let setup: NotebookTemplateSetup;
+  try { setup = JSON.parse(String(r.setup_json)) as NotebookTemplateSetup; } catch { return undefined; }
+  return {
+    id: String(r.id), name: String(r.name), description: String(r.description ?? ''), setup,
+    ...(r.from_notebook ? { fromNotebook: String(r.from_notebook) } : {}),
+    uses: Number(r.uses ?? 0), createdAt: String(r.created_at), updatedAt: String(r.updated_at),
+    ...(r.used_at ? { usedAt: String(r.used_at) } : {}),
+  };
+}
+
 export class NotebookStore {
   private db: DatabaseSync;
 
@@ -376,6 +444,18 @@ export class NotebookStore {
         error TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+      -- A notebook's setup, kept to start new ones like it (NotebookTemplate).
+      CREATE TABLE IF NOT EXISTS notebook_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        setup_json TEXT NOT NULL,
+        from_notebook TEXT,
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        used_at TEXT
       );
     `);
     // G2 columns, added to tables created before them.
@@ -1145,6 +1225,42 @@ export class NotebookStore {
 
   deleteDraft(id: string): boolean {
     return Number(this.db.prepare('DELETE FROM notebook_drafts WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /**
+   * Keep a notebook's setup as a template named `name` (a slug of it is its
+   * id: the same name again replaces it). Its options and history aren't kept.
+   */
+  saveTemplate(name: string, notebookId: string, now = new Date().toISOString()): NotebookTemplate {
+    const nb = this.mustGet(notebookId);
+    const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!clean) throw new Error('A template needs a name.');
+    const id = notebookSlug(clean);
+    const setup = templateFromNotebook(nb);
+    this.db.prepare(`INSERT INTO notebook_templates (id, name, description, setup_json, from_notebook, uses, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = excluded.from_notebook, updated_at = excluded.updated_at`)
+      .run(id, clean, describeTemplateSetup(setup), JSON.stringify(setup), nb.id, now, now);
+    return this.getTemplate(id)!;
+  }
+
+  getTemplate(id: string): NotebookTemplate | undefined {
+    const r = this.db.prepare('SELECT * FROM notebook_templates WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? templateRecord(r) : undefined;
+  }
+
+  /** Your templates, the most used first, then the newest. */
+  listTemplates(limit = 50): NotebookTemplate[] {
+    return (this.db.prepare('SELECT * FROM notebook_templates ORDER BY uses DESC, updated_at DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>)
+      .map(templateRecord).filter((t): t is NotebookTemplate => !!t);
+  }
+
+  deleteTemplate(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM notebook_templates WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /** A notebook was started from it. */
+  markTemplateUsed(id: string, now = new Date().toISOString()): void {
+    this.db.prepare('UPDATE notebook_templates SET uses = uses + 1, used_at = ? WHERE id = ?').run(now, id);
   }
 
   /** Drop drafts untouched since `before` (ISO). */

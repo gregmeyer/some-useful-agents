@@ -11,6 +11,7 @@ import cycle is created — the route handlers in inbox.ts call into the
 
 import { randomUUID } from 'node:crypto';
 import { forkForNotebook } from '../lib/agent-fork.js';
+import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
@@ -18,6 +19,7 @@ import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
 import { readSettingsForm, applySettings, settingsBodyFromChanges, describeSettings } from '../lib/agent-settings.js';
 import {
+  type NotebookTemplate,
   executeAgentDag,
   extractPlanJson,
   extractTaggedJson,
@@ -194,7 +196,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -890,6 +892,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'notebook-steps') {
     return executeNotebookSteps(ctx, meta);
   }
+  if (meta.agentId === 'notebook-create') {
+    return executeNotebookCreate(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1174,6 +1179,70 @@ export async function executeNotebookSteps(
   }
 }
 
+/** A list input (a JSON list, or one per line); the fallback when it's empty or not given. */
+function listInput(raw: string | undefined, fallback: readonly string[]): string[] {
+  if (raw === undefined || !raw.trim()) return [...fallback];
+  let items: unknown[] = [];
+  try { const v = JSON.parse(raw) as unknown; items = Array.isArray(v) ? v : [raw]; } catch { items = raw.split('\n'); }
+  const out = items.filter((x): x is string => typeof x === 'string').map((x) => x.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 20);
+  return out.length ? out : [...fallback];
+}
+
+/**
+ * The notebook a `notebook-create` card would start: the template's setup
+ * with what's different this time (title, what it's for, limits, done-whens,
+ * how many to find). Steps whose agent isn't installed any more fall back to
+ * sua's own (finder, checker) or say they need one; its pipeline keeps only
+ * installed agents.
+ */
+export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): { template: NotebookTemplate; setup: NewNotebookSetup } | { error: string } {
+  const t = notebooksOf(ctx).getTemplate((meta.inputs.TEMPLATE ?? '').trim());
+  if (!t) return { error: `There's no template "${meta.inputs.TEMPLATE ?? ''}". Save a notebook as a template from its Edit panel first.` };
+  const installed = (id: string) => { const a = ctx.agentStore.getAgent(id); return !!a && a.status !== 'archived'; };
+  const target = Number(meta.inputs.TARGET);
+  const steps = t.setup.steps.map(({ agentId, ...s }) => ({
+    ...s,
+    ...(agentId && installed(agentId) ? { agentId } : {}),
+    ...(s.kind === 'find' && Number.isFinite(target) && target >= 1 ? { target: Math.min(100, Math.round(target)) } : {}),
+    status: 'todo' as const, tries: 0,
+  }));
+  return {
+    template: t,
+    setup: {
+      title: (meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || t.name,
+      statement: (meta.inputs.STATEMENT ?? '').trim() || t.setup.statement,
+      params: listInput(meta.inputs.PARAMS, t.setup.params),
+      criteria: listInput(meta.inputs.CRITERIA, t.setup.criteria),
+      pipeline: t.setup.pipeline.filter(installed),
+      cadence: t.setup.cadence,
+      fields: t.setup.fields,
+      stages: t.setup.stages,
+      checks: listInput(meta.inputs.CHECKS, t.setup.checks),
+      steps,
+    },
+  };
+}
+
+/** Start a notebook from a template (a card sua proposed after asking what's different). */
+export function executeNotebookCreate(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const made = notebookFromTemplate(ctx, meta);
+  if ('error' in made) return { status: 'failed', refusalReason: made.error };
+  try {
+    const nb = createNotebookFrom(ctx, made.setup);
+    notebooksOf(ctx).markTemplateUsed(made.template.id);
+    const first = nb.steps?.[0];
+    return {
+      status: 'completed',
+      summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) from your ${made.template.name} template (${made.template.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
+    };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * A notebook step's Continue / Try again card (lib/notebook-steps.ts): starts
  * the next step, or the same one again, if the notebook is still where the
@@ -1431,6 +1500,25 @@ export function maybeProposeFixForRepeatedFailures(ctx: ReturnType<typeof getCon
  * actions and for agents that don't exist yet (an install).
  */
 export function withEditorBase(ctx: ReturnType<typeof getContext>, action: InboxActionMeta, messageId?: string): InboxActionMeta {
+  if (action.agentId === 'notebook-create' && !action.surfaceChanges) {
+    const made = notebookFromTemplate(ctx, action);
+    if ('error' in made) return action;
+    const { template: t, setup } = made;
+    const changed = (a: readonly string[], b: readonly string[]) => a.join('\n') !== b.join('\n');
+    return {
+      ...action,
+      inputs: { ...action.inputs, TEMPLATE_NAME: t.name },
+      surfaceChanges: [
+        { what: 'template', before: '—', after: `${t.name} (${t.description})` },
+        { what: 'title', before: '—', after: setup.title },
+        ...(setup.statement !== t.setup.statement ? [{ what: "what it's for", before: t.setup.statement || '—', after: setup.statement }] : []),
+        { what: 'limits', before: changed(setup.params, t.setup.params) ? t.setup.params.join('; ') || '—' : '—', after: setup.params.join('; ') || '(none)' },
+        { what: 'done when', before: changed(setup.criteria, t.setup.criteria) ? t.setup.criteria.join('; ') || '—' : '—', after: setup.criteria.join('; ') || '(none)' },
+        ...(setup.checks?.length || t.setup.checks.length ? [{ what: 'checks', before: changed(setup.checks ?? [], t.setup.checks) ? t.setup.checks.join('; ') || '—' : '—', after: (setup.checks ?? []).join('; ') || '(none)' }] : []),
+        ...(setup.steps?.length ? [{ what: 'steps', before: '—', after: setup.steps.map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ') }] : []),
+      ],
+    };
+  }
   if (action.agentId === 'notebook-steps' && !action.surfaceChanges) {
     const nb = notebooksOf(ctx).get(action.inputs.NOTEBOOK ?? '');
     const { steps } = parseNotebookSteps(ctx, action.inputs.STEPS ?? '');
@@ -2397,6 +2485,15 @@ export async function runTriageAgent(
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
           NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
+          // Their templates: start a notebook like one they've done (NOTEBOOK TEMPLATES).
+          TEMPLATES: (() => {
+            try {
+              return JSON.stringify(notebooksOf(ctx).listTemplates(20).map((t) => ({
+                id: t.id, name: t.name, for: t.setup.statement, limits: t.setup.params, doneWhen: t.setup.criteria, checks: t.setup.checks,
+                fields: t.setup.fields.map((f) => f.label), steps: t.setup.steps.map((x) => x.title), uses: t.uses,
+              })));
+            } catch { return '[]'; }
+          })(),
           // Notebooks: goals kept over time ("where's my used car goal?").
           NOTEBOOKS: (() => {
             try {
@@ -2608,7 +2705,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

@@ -216,6 +216,20 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+### Templates
+
+A notebook you run again and again (a job search, a car search, a comp set) can be kept as a template, and new ones started from it by asking sua.
+
+- **Save one:** on the notebook, **Edit** → **Save as a template**, with a name ("Job search"). Archived notebooks can be saved too, so you can archive a finished one and keep its template. Saving the same name again replaces it.
+- **What it keeps:** the notebook's setup, not its content:
+  - **Kept:** what it's for, its limits, its done-whens (all unmet), the facts each option notes, its checks and stages, its steps (with their agents; status reset), its schedule and pipeline.
+  - **Not kept:** options, notes, decision, history and filter labels. Every notebook made from it starts empty.
+- **Start one with sua:** ask "start a notebook from my Job search template", or use **Start with sua →** next to it on **New notebook**. sua then:
+  - asks what's different this time, one or two questions per reply and at most 4 in all, each with button answers: the template's own value first ("Remote or Austin, TX"), then likely alternatives, or type your own. It asks about the limits that change between runs (place, level, pay floor, budget), how many to find and a deadline, and skips what you already said. **Use the template as is** skips the rest;
+  - offers a **Create notebook** card showing the template, the title, the limits, done-whens and checks (before → after when they change: a check that names a place, level or pay floor changes with it) and the steps.
+- **When you approve it:** the notebook is created empty with the template's setup and this time's changes. A step whose agent is no longer installed falls back to sua's finder or checker, or says it needs an agent. Nothing runs until you start its first step.
+- **Remove one:** on **New notebook**, the × next to it (it asks once). Notebooks made from it stay.
+
 ### A brief to share
 
 **Open the brief** (under **Download / share**) shows the notebook as a summary of what it found, on one page to send:

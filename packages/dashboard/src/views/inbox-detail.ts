@@ -195,7 +195,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'view-redesign', 'board-build',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'view-redesign', 'board-build',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -880,6 +880,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                         ? html`Set up the steps · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-step'
                         ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
+                      : meta.agentId === 'notebook-create'
+                        ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -891,10 +893,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${meta.agentId === 'agent-settings' && meta.settingsChanges?.length
       ? html`<ul class="act-card__changes">${meta.settingsChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span><del class="act-card__before">${c.before}</del> → <ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">Saved together; a change to what it does becomes a new version you can roll back from Versions.</p>` : html``}`
       : html``}
-    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-steps') && meta.surfaceChanges?.length
-      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
+    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-steps' || meta.agentId === 'notebook-create') && meta.surfaceChanges?.length
+      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-create' ? 'It starts empty, with the template\u2019s fields, checks, stages and steps. Nothing runs until you start its first step.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
-    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`

@@ -467,6 +467,19 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd { max-width: 920px; margin: 0 auto; display: grid; gap: var(--space-4); }
 .nbd__title { margin: 0; }
 .nbd-ask { display: grid; gap: var(--space-2); margin: 0; }
+/* Your templates (New notebook): one row each, start one with sua. */
+.nbd-tpl { margin-top: var(--space-4); }
+.nbd-tpl__h { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: var(--weight-semibold); color: var(--color-text-muted); }
+.nbd-tpl__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.nbd-tpl__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbd-tpl__name { font-weight: var(--weight-semibold); }
+.nbd-tpl__what { flex: 1; min-width: 0; font-size: var(--font-size-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
+.nbd-tpl__go { margin: 0; }
+.nbd-tpl__del > summary { list-style: none; cursor: pointer; }
+.nbd-tpl__del > summary::-webkit-details-marker { display: none; }
+.nbd-tpl__del form { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbd-tpl__del[open] { flex-basis: 100%; }
+.nb-template__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbd-ask__label { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbd-ask__row { display: flex; gap: var(--space-2); align-items: stretch; }
 .nbd-ask__text { flex: 1; font-size: var(--font-size-md); line-height: 1.5; padding: var(--space-3); resize: vertical; }

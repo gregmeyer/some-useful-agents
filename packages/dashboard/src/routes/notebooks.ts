@@ -13,13 +13,14 @@ import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, layOutNotebookSteps } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
@@ -28,7 +29,7 @@ import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
-import { notebookThread, greetNotebook, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
+import { notebookThread, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
 import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures.js';
 import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
@@ -113,6 +114,7 @@ notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
     flash: parseFlash(req) ?? (draftId && !d ? { kind: 'info', message: 'That draft is gone (started, discarded or expired).' } : undefined),
     ...(d ? { draft: { id: draftId, state: d, agents: searchAgents(ctx) } } : {}),
     others,
+    templates: store(req).listTemplates(),
   }));
 });
 
@@ -157,49 +159,30 @@ notebooksRouter.get('/notebooks/draft/:id', (req: Request, res: Response) => {
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   try {
     const statement = str(req.body?.statement);
-    const ctx0 = getContext(req.app.locals);
-    const known = new Set(searchAgents(ctx0).map((a) => a.id));
+    const ctx = getContext(req.app.locals);
+    const known = new Set(searchAgents(ctx).map((a) => a.id));
     let cadence = str(req.body?.cadence).trim();
     if (cadence) { try { validateScheduleInterval(cadence, {}); } catch { cadence = ''; } }
-    const nb = store(req).create({
+    // The steps sua will take, as you left them on the draft; and from a draft,
+    // what to note, the stages and the checks (so setup is skipped).
+    const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
+    const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
+    const nb = createNotebookFrom(ctx, {
       title: str(req.body?.title).trim() || titleFrom(statement),
       statement,
       params: many(req.body?.params),
       criteria: many(req.body?.criteria),
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
+      ...(steps ? { steps } : {}),
+      ...(fields.length ? {
+        fields,
+        stages: many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean),
+        checks: many(req.body?.checks),
+      } : {}),
     });
     // Started from a draft: it's done with.
-    if (str(req.body?.draft)) discardDraft(ctx0, str(req.body?.draft));
-    // The steps sua will take, as you left them on the draft.
-    const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
-    if (steps) store(req).setSteps(nb.id, steps);
-    // From a draft: what to note, the stages and the checks are set already, so setup is skipped.
-    const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
-    if (fields.length) {
-      const s0 = store(req);
-      s0.setFields(nb.id, fields);
-      const stages = many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean);
-      if (stages.length) s0.setStages(nb.id, stages);
-      const checks = many(req.body?.checks);
-      if (checks.length) s0.setChecks(nb.id, checks);
-      s0.markSetup(nb.id);
-    }
-    // sua sets up what options record and the stages they go through, from the
-    // goal, then says hello in the notebook's conversation with what it set up.
-    const ctx = getContext(req.app.locals);
-    const greet = () => {
-      const now = store(req).get(nb.id);
-      if (!now) return;
-      const threadId = greetNotebook(ctx, nb.id);
-      if (threadId) { publishInboxChanged(ctx, threadId, 'awaiting_user'); store(req).touch(nb.id); }
-    };
-    // No steps from the draft (or no draft): sua lays them out once it's set up, then says hello.
-    const stepsThenGreet = () => {
-      if (steps) { greet(); return; }
-      void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(greet);
-    };
-    if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
+    if (str(req.body?.draft)) discardDraft(ctx, str(req.body?.draft));
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
@@ -438,6 +421,23 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
 });
 
 // Archive (hide from lists, Home, Today and schedules; nothing deleted) or restore.
+/** Keep this notebook's setup as a template (its options aren't kept). */
+notebooksRouter.post('/notebooks/:id/template', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const t = store(req).saveTemplate(str(req.body?.name), id);
+    res.redirect(303, back(id, `Saved as the template “${t.name}” (${t.description}). To start a notebook from it, ask sua: start a notebook from my ${t.name} template.`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+/** Remove a template (the notebooks made from it stay). */
+notebooksRouter.post('/notebooks/templates/:tid/delete', (req: Request, res: Response) => {
+  const gone = store(req).deleteTemplate(String(req.params.tid));
+  res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(gone ? 'Template removed. Notebooks made from it stay.' : 'No such template.')}`);
+});
+
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {

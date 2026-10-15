@@ -656,6 +656,11 @@ function editNotebookForm(nb: Notebook): SafeHtml {
         <button type="submit" class="btn btn--sm">Save</button>
       </form>
       ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button></form>` : html``}
+      <form method="POST" action="/notebooks/${id}/template" class="nb-form nb-template">
+        <label class="nb-label">Save as a template<input type="text" name="name" value="${nb.title}" required maxlength="60" class="form-field" aria-describedby="nb-template-hint-${id}"></label>
+        <span class="nb-template__hint" id="nb-template-hint-${id}">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. Start a new one from it by asking sua.</span>
+        <button type="submit" class="btn btn--sm btn--ghost">Save template</button>
+      </form>
       <div class="nb-remove">
         ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
         <details class="nb-delete">
