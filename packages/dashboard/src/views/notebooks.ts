@@ -218,31 +218,39 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
 }
 
 /**
- * A decided notebook's decision. When it's the usual "Chose A, B and C. Why."
- * (NotebookStore.decide), the picks read as a list, each linking to its page,
- * with "Name: what it is" split so the name stands out; the why follows.
- * Anything else shows as written.
+ * A decision's picks, when it's the usual "Chose A, B and C. Why."
+ * (NotebookStore.decide): the chosen options in the order it names them,
+ * each "Name: what it is" split so the name stands out, and the why after.
+ * Undefined for anything else (it shows as written).
  */
-export function decidedBox(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+export function decisionPicks(nb: Notebook, entries: readonly NotebookEntry[]): { picks: Array<{ entry: NotebookEntry; name: string; what: string }>; why: string } | undefined {
   const text = nb.decision ?? '';
-  const when = formatAge(nb.decidedAt ?? nb.updatedAt);
   const chosen = entries.filter((e) => e.kind === 'option' && e.chosenAt && text.includes(e.title));
-  if (!text.startsWith('Chose ') || chosen.length < 2) return html`<div class="nb-decided"><strong>Decided ${when}:</strong> ${text}</div>`;
+  if (!text.startsWith('Chose ') || chosen.length < 2) return undefined;
   const order = chosen.map((e) => ({ e, at: text.indexOf(e.title) })).sort((a, b) => a.at - b.at);
   const last = order[order.length - 1];
   const why = text.slice(last.at + last.e.title.length).replace(/^\.\s*/, '').trim();
+  return {
+    picks: order.map(({ e }) => {
+      const k = e.title.indexOf(': ');
+      return { entry: e, name: k > 0 && k < 60 ? e.title.slice(0, k) : e.title, what: k > 0 && k < 60 ? e.title.slice(k + 2) : '' };
+    }),
+    why,
+  };
+}
+
+/** A decided notebook's decision: its picks as a list, each linking to its page, then the why; else as written. */
+export function decidedBox(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const when = formatAge(nb.decidedAt ?? nb.updatedAt);
+  const d = decisionPicks(nb, entries);
+  if (!d) return html`<div class="nb-decided"><strong>Decided ${when}:</strong> ${nb.decision ?? ''}</div>`;
   const id = encodeURIComponent(nb.id);
   return html`<div class="nb-decided">
-    <strong>Decided ${when}</strong> <span class="nb-decided__count">· ${String(order.length)} chosen</span>
+    <strong>Decided ${when}</strong> <span class="nb-decided__count">· ${String(d.picks.length)} chosen</span>
     <ul class="nb-decided__list">
-      ${order.map(({ e }) => {
-        const k = e.title.indexOf(': ');
-        const name = k > 0 && k < 60 ? e.title.slice(0, k) : e.title;
-        const what = k > 0 && k < 60 ? e.title.slice(k + 2) : '';
-        return html`<li><a href="/notebooks/${id}/entries/${encodeURIComponent(e.id)}">${name}</a>${what ? html` <span class="nb-decided__what">${what}</span>` : html``}</li>`;
-      }) as unknown as SafeHtml[]}
+      ${d.picks.map((p) => html`<li><a href="/notebooks/${id}/entries/${encodeURIComponent(p.entry.id)}">${p.name}</a>${p.what ? html` <span class="nb-decided__what">${p.what}</span>` : html``}</li>`) as unknown as SafeHtml[]}
     </ul>
-    ${why ? html`<p class="nb-decided__why">${why}</p>` : html``}
+    ${d.why ? html`<p class="nb-decided__why">${d.why}</p>` : html``}
   </div>`;
 }
 
@@ -691,6 +699,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       <span class="nb-progress__label nb-csv__brief-label">To share</span>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html" target="_blank" rel="noopener" title="A polished page of where it stands and the options, to send or hand to Claude">Open the brief ↗</a>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?download=1" download title="The brief as one HTML file">Download the brief</a>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?print=1" target="_blank" rel="noopener" title="Opens the brief and your browser's print dialog: choose Save as PDF">Save as PDF ↗</a>
     </div>
   </details>`;
 }

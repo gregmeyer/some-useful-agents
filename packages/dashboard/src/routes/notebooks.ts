@@ -654,7 +654,7 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const page = renderNotebookBrief({ nb, entries: s.entries(nb.id, 1000), history: widgetHistory(ctx, s) });
+  const page = renderNotebookBrief({ nb, entries: s.entries(nb.id, 1000), history: widgetHistory(ctx, s), ...(req.query.print === '1' && req.query.download !== '1' ? { print: true } : {}) });
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });

@@ -553,6 +553,9 @@ describe('shortName', () => {
     expect(shortName('Principal Engineer, Ramp')).toBe('Principal Engineer, Ramp');
     expect(shortName('Ibanez Talman TCY621 acoustic-electric - $279.99')).toBe('Ibanez Talman TCY621 acoustic-electric');
     expect(shortName('Plain title')).toBe('Plain title');
+    // One word says too little: the next part comes too.
+    expect(shortName('Director, Accounting Operations (FlexJobs listing), $192k–$300k, unconfirmed')).toBe('Director, Accounting Operations (FlexJobs listing)');
+    expect(shortName('Controller, $180k–$190k')).toBe('Controller');
   });
 });
 
