@@ -163,9 +163,10 @@ function table(nb: Notebook, options: readonly NotebookViewOption[]): SafeHtml {
   const cols = compareFields(nb)
     .filter((f) => !(f.role === 'org' && options.every((o) => orgInName(f, o))))
     .filter((f) => !(f.type === 'text' && f.role !== 'org' && inTitle(f) > stated(f) / 2))
-    .filter((f) => stated(f) >= Math.max(1, Math.ceil(options.length / 2)))
-    .slice(0, 4);
+    .filter((f) => stated(f) >= Math.max(1, Math.ceil(options.length / 2)));
   const anyChecks = nb.checks.length > 0 && options.some((o) => ticked(nb, o).length > 0);
+  // Room for the checks column: one fact fewer with it, so the table fits the page.
+  cols.splice(anyChecks ? 3 : 4);
   const cell = (f: NotebookField, o: NotebookViewOption) => {
     const v = o.fields[f.key];
     if (v === undefined || v === '') return html`<td class="dim">—</td>`;
@@ -176,7 +177,7 @@ function table(nb: Notebook, options: readonly NotebookViewOption[]): SafeHtml {
   };
   return html`<div class="tbl"><table>
     <thead><tr><th scope="col">#</th><th scope="col">Option</th>${cols.map((f) => html`<th scope="col">${f.label}</th>`) as unknown as SafeHtml[]}${anyChecks ? html`<th scope="col">Checks</th>` : html``}</tr></thead>
-    <tbody>${options.map((o, i) => html`<tr${o.chosen ? unsafeHtml(' class="is-chosen"') : unsafeHtml('')}><td class="n">${String(i + 1)}</td><th scope="row">${o.name}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}</th>${cols.map((f) => cell(f, o)) as unknown as SafeHtml[]}${anyChecks ? html`<td>${String(ticked(nb, o).length)}/${String(nb.checks.length)}</td>` : html``}</tr>`) as unknown as SafeHtml[]}</tbody>
+    <tbody>${options.map((o, i) => html`<tr${o.chosen ? unsafeHtml(' class="is-chosen"') : unsafeHtml('')}><td class="n">${String(i + 1)}</td><th scope="row">${ownPage(o) ? html`<a class="tbl__link" href="${ownPage(o)!}" target="_blank" rel="noopener noreferrer">${o.name}</a>` : o.name}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}</th>${cols.map((f) => cell(f, o)) as unknown as SafeHtml[]}${anyChecks ? html`<td>${String(ticked(nb, o).length)}/${String(nb.checks.length)}</td>` : html``}</tr>`) as unknown as SafeHtml[]}</tbody>
   </table></div>`;
 }
 
@@ -280,6 +281,9 @@ table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 thead th { font: 600 0.6875rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 tbody th { font-weight: 600; min-width: 12rem; }
+/* A name with its own page links to it (in the PDF too); the table stays compact, so no address after it. */
+.tbl__link { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+.tbl__link:hover, .tbl__link:focus-visible { color: var(--accent); }
 tbody td { font-family: var(--mono); font-variant-numeric: tabular-nums; max-width: 14rem; overflow-wrap: break-word; }
 tbody td.txt { font-family: var(--sans); color: var(--muted); min-width: 7rem; }
 tbody td.n, tbody td.num { white-space: nowrap; }

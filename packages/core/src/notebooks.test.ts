@@ -556,6 +556,7 @@ describe('shortName', () => {
     // One word says too little: the next part comes too.
     expect(shortName('Director, Accounting Operations (FlexJobs listing), $192k–$300k, unconfirmed')).toBe('Director, Accounting Operations (FlexJobs listing)');
     expect(shortName('Controller, $180k–$190k')).toBe('Controller');
+    expect(shortName('Director, Accounting (Remote, US), Everyday Electric (formerly Renew Home), $185k–$225k')).toBe('Director, Accounting (Remote, US)');
   });
 });
 
