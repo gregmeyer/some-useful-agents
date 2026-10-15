@@ -218,7 +218,27 @@ Money of a million and up reads short ("$18M–$22M"). Companies get a monogram 
 
 ### A brief to share
 
-**Open the brief** (under **Download / share**) shows the notebook as one polished page to send: the goal, where it stands, the decision or the shortlist (each option's key facts, its own page, its checks), the limits and the done-whens. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and **Download the brief** saves it as one HTML file. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it).
+**Open the brief** (under **Download / share**) shows the notebook as a summary of what it found, on one page to send:
+- **The goal**, then the decision or where it stands. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
+- **Key findings**, worked out from the notebook itself (nothing written by a model, nothing guessed):
+  - how many options were looked at, over how many searches, and how many are in the running, chosen and ruled out;
+  - the span of the price or salary in the running (a salary range counts by both ends), and how many don't list it;
+  - the fit span and how many score 80 or more; the main measure's span;
+  - how they split on a short fact like Remote or Location;
+  - why the rest were ruled out, grouped ("unfit (6); posting closed (4)", or the check they failed);
+  - what's still open, and where the last search looked.
+- **The shortlist as a table**: one row per option in the running, with the key facts that most of them state.
+- **In detail**: each option's facts (not the ones its title already says), why it's there (the first sentence of its notes), its checks once any are ticked, and its own page.
+- **Ruled out**: the latest 12 with their reasons.
+- **Notes along the way**: sua's latest notes.
+- **The limits and done-whens.**
+
+Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and prints cleanly:
+- the light palette, colours kept;
+- no option split across pages;
+- each link's address printed after it.
+
+**Save as PDF** opens it with your browser's print dialog (choose Save as PDF). **Download the brief** saves it as one HTML file. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
 
 ### Each option's own page
 

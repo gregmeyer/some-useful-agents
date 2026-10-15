@@ -1908,8 +1908,20 @@ describe('a brief to share', () => {
     expect(t).toContain('href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">Own page ↗</a>');
     expect(t).toContain('Found on a search page');
     expect(t).toContain('1/2 checks');
+    // An option with nothing checked doesn't say "0/2 checks".
+    expect(t).not.toContain('0/2 checks');
     expect(t).toContain('<span class="chip">under $6,000</span>');
+    // Key findings, computed: the pool and the price span.
+    expect(t).toContain('<h2 id="b-find">Key findings</h2>');
+    expect(t).toContain('<strong>2 options looked at</strong>: 2 in the running.');
+    expect(t).toContain('Price in the running: <span class="num">$4,700–$4,999</span>.');
+    // Side by side, then in detail; nothing folded away (a closed details is missing from a PDF).
+    expect(t).toContain('<div class="tbl"><table>');
+    expect(t).not.toContain('<details');
     expect(t).not.toMatch(/<script/);
+    // Save as PDF: the same page, with the print dialog opened for you.
+    expect((await get(`/notebooks/${nb.id}/brief.html?print=1`)).text).toContain('print()');
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html?print=1"`);
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
@@ -1920,6 +1932,49 @@ describe('a brief to share', () => {
     const frag = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id) , fragment: true });
     expect(frag.startsWith('<title>')).toBe(true);
     expect(frag).not.toContain('<html');
+  });
+});
+
+describe('a brief as a summary of findings', () => {
+  it('says what was found: pay span with ranges, what is missing, how they split, why the rest were ruled out; a decision once, as a list', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { renderNotebookBrief } = await import('../views/notebook-brief.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Director of accounting job', statement: 'Austin or remote', params: ['$180k minimum'] });
+    store.setFields(nb.id, [
+      { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'remote', label: 'Remote', type: 'text' },
+    ]);
+    const a = store.upsertOption(nb.id, { title: 'Controller, Acme: remote', by: 'x', fingerprint: 'a', data: { salary: { min: 180000, max: 220000 }, company: 'Acme', remote: 'Remote' }, body: 'Leads a team of 6 across tax and accounting. More detail here.' }).entry;
+    const b = store.upsertOption(nb.id, { title: 'Director of Accounting, Hooli', by: 'x', fingerprint: 'b', data: { salary: { min: 145000, max: 300000 }, company: 'Hooli', remote: 'Remote' } }).entry;
+    store.upsertOption(nb.id, { title: 'Controller, Initech', by: 'x', fingerprint: 'c', data: { company: 'Initech', remote: 'On-site' } });
+    for (const [i, why] of ['Unfit: pays $150k–$160k, under the floor', 'Unfit: not director level', 'Posting closed: page not found'].entries()) {
+      const e = store.upsertOption(nb.id, { title: `Old role ${String(i)}`, by: 'x', fingerprint: `o${String(i)}` }).entry;
+      store.ruleOut(nb.id, e.id, why, 'you');
+    }
+    store.addEntry(nb.id, { kind: 'note', title: 'Ashby pages need a browser to load', by: 'agent:x' });
+    store.addEntry(nb.id, { kind: 'note', title: 'Searched 4 places at once: Greenhouse (1), Lever (0).', by: 'agent:notebook-finder' });
+    let t = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id, 1000), fragment: true });
+    expect(t).toContain('<strong>6 options looked at</strong>: 3 in the running, 3 ruled out.');
+    expect(t).toContain('Salary in the running: <span class="num">$145,000–$300,000</span>; 1 doesn&#39;t list it.');
+    expect(t).toContain('Remote: 2 Remote, 1 On-site.');
+    expect(t).toContain('Most often ruled out for: unfit (2).');
+    expect(t).toContain('Leads a team of 6 across tax and accounting.');
+    expect(t).not.toContain('More detail here');
+    expect(t).toContain('Ashby pages need a browser to load');
+    expect(t).not.toContain('Searched 4 places at once');
+    expect(t).toContain('<strong>Old role 2</strong> <span class="why">· Posting closed: page not found</span>');
+
+    // Decided: the decision once, its picks as a list; no "Decided: N chosen" box besides.
+    store.decide(nb.id, 'Both lead a team.', 'you', [a.id, b.id]);
+    t = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id, 1000), fragment: true });
+    expect(t).toContain('<section class="decision" aria-label="Decision">');
+    expect(t).toContain('· 2 chosen of 3 in the running');
+    expect(t).toContain('<p>Both lead a team.</p>');
+    expect(t).not.toContain('class="stands"');
+    expect(t).toContain('The final set, and the rest in the running');
   });
 });
 

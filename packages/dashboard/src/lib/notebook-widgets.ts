@@ -11,7 +11,7 @@
  *   Before you decide (1/3)        | How we got here (timeline, 2/3)
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
-import { rankBy, rankOptions,
+import { rankBy, rankOptions, isRange,
   notebookViewData, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
@@ -102,7 +102,10 @@ function rankText(rank: ReturnType<typeof rankBy>, o: NotebookViewOption | undef
   if (!o) return '';
   const v = rank.by === 'score' ? o.score : o.price;
   if (v === undefined) return '';
-  return rank.by === 'score' ? `${(rank.field?.label ?? 'fit').toLowerCase()} ${v.toLocaleString('en-US')}` : money(rank.field, v);
+  if (rank.by === 'score') return `${(rank.field?.label ?? 'fit').toLowerCase()} ${v.toLocaleString('en-US')}`;
+  // A range (a salary) reads as its range, not its midpoint.
+  const raw = rank.field ? o.fields[rank.field.key] : undefined;
+  return isRange(raw) ? `${money(rank.field, raw.min)}–${money(rank.field, raw.max)}` : money(rank.field, v);
 }
 
 const fmtAge = (iso: string, now: number) => {
