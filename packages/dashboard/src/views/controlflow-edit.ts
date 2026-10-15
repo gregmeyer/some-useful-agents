@@ -112,6 +112,7 @@ function renderConfigFields(node: AgentNode): SafeHtml {
           <dt>Iterate over</dt><dd class="mono">${node.loopConfig.over}</dd>
           <dt>Sub-agent</dt><dd><a href="/agents/${node.loopConfig.agentId}" class="mono">${node.loopConfig.agentId}</a></dd>
           <dt>Max iterations</dt><dd>${String(node.loopConfig.maxIterations ?? 1000)}</dd>
+          <dt>At once</dt><dd>${(node.loopConfig.concurrency ?? 1) > 1 ? `${String(node.loopConfig.concurrency)} items` : 'one item at a time'}</dd>
         </dl>
       </div>
     `;

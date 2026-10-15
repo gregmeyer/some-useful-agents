@@ -14,6 +14,7 @@ import {
   type DagExecutorDeps,
 } from './dag-executor.js';
 import type { Agent, AgentNode, NodeErrorCategory } from './agent-v2-types.js';
+import { agentV2Schema } from './agent-v2-schema.js';
 
 // Keep PATH valid for shell nodes that test the real spawner; most tests
 // inject a mock spawner and don't go near a real process.
@@ -1435,6 +1436,69 @@ describe('executeAgentDag — loop (Flow PR D)', () => {
     const loopOutput = JSON.parse(loopExec.result!);
     expect(loopOutput.count).toBe(2);
     expect(loopOutput.items).toHaveLength(2);
+  });
+
+  describe('concurrency', () => {
+    // A sub-agent whose one node takes longer for earlier items (so they finish
+    // out of order), fails on "c", and counts how many run at once.
+    const setup = (items: string[], concurrency?: number) => {
+      agentStore.createAgent(
+        { id: 'par-handler', name: 'Par Handler', status: 'active', source: 'local', mcp: false, inputs: { ITEM: { type: 'string' } }, nodes: [{ id: 'handle', type: 'shell', command: 'echo x' }] },
+        'cli',
+        'seed',
+      );
+      const parentAgent = makeAgent({
+        nodes: [
+          { id: 'source', type: 'shell', command: 'echo source' },
+          { id: 'each', type: 'loop' as any, dependsOn: ['source'], loopConfig: { over: 'items', agentId: 'par-handler', ...(concurrency ? { concurrency } : {}) } },
+        ],
+      });
+      const seen = { active: 0, most: 0, started: [] as string[] };
+      const spawnNode: DagExecutorDeps['spawnNode'] = async (node, env) => {
+        if (node.id === 'source') return { exitCode: 0, result: JSON.stringify({ items }) };
+        const item = env.ITEM;
+        seen.started.push(item);
+        seen.active++;
+        seen.most = Math.max(seen.most, seen.active);
+        await new Promise((res) => setTimeout(res, 60 - items.indexOf(item) * 10));
+        seen.active--;
+        return item === 'c' ? { exitCode: 1, result: '', error: 'boom' } : { exitCode: 0, result: `handled-${item}` };
+      };
+      return { parentAgent, seen, deps: { runStore, agentStore, spawnNode } as DagExecutorDeps };
+    };
+    const loopItems = (runId: string) => JSON.parse(runStore.listNodeExecutions(runId).find((e) => e.nodeId === 'each')!.result!) as { items: unknown[]; count: number };
+
+    it('runs up to N items at once and keeps their order, a failed one as null', async () => {
+      const { parentAgent, seen, deps } = setup(['a', 'b', 'c', 'd', 'e'], 3);
+      const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+      expect(run.status).toBe('completed');
+      expect(seen.most).toBe(3);
+      expect(loopItems(run.id)).toEqual({ items: ['handled-a', 'handled-b', null, 'handled-d', 'handled-e'], count: 5 });
+    });
+
+    it('defaults to one at a time', async () => {
+      const { parentAgent, seen, deps } = setup(['a', 'b', 'c']);
+      const run = await executeAgentDag(parentAgent, { triggeredBy: 'cli' }, deps);
+      expect(seen.most).toBe(1);
+      expect(seen.started).toEqual(['a', 'b', 'c']);
+      expect(loopItems(run.id).items).toEqual(['handled-a', 'handled-b', null]);
+    });
+
+    it('a cancelled run starts no more items', async () => {
+      const { parentAgent, seen, deps } = setup(['a', 'b', 'd', 'e', 'f', 'g'], 2);
+      const abort = new AbortController();
+      const done = executeAgentDag(parentAgent, { triggeredBy: 'cli', signal: abort.signal }, deps);
+      await new Promise((res) => setTimeout(res, 20));
+      abort.abort();
+      await done;
+      expect(seen.started.length).toBeLessThan(6);
+    });
+
+    it('rejects a concurrency over 6', () => {
+      const agent = (concurrency: number) => ({ id: 'x', name: 'x', nodes: [{ id: 's', type: 'shell', command: 'echo' }, { id: 'l', type: 'loop', dependsOn: ['s'], loopConfig: { over: 'items', agentId: 'y', concurrency } }] });
+      expect(agentV2Schema.safeParse(agent(7)).success).toBe(false);
+      expect(agentV2Schema.safeParse(agent(3)).success).toBe(true);
+    });
   });
 
   it('fails cleanly when loop field is not an array', async () => {

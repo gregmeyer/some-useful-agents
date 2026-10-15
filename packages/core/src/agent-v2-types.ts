@@ -219,6 +219,12 @@ export interface LoopConfig {
    * When unset, the sub-agent receives `{ITEM, ITEM_INDEX}` as before.
    */
   inputMapping?: Record<string, string>;
+  /**
+   * How many items run at the same time (1–6; default 1, one after another).
+   * Results keep the items' order either way. For independent items, e.g. one
+   * search per site: five small searches take about as long as one.
+   */
+  concurrency?: number;
 }
 
 export interface AgentInvokeConfig {

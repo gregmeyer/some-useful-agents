@@ -111,11 +111,14 @@ Iterates a sub-agent over a list. The list comes from an upstream node's output 
     over: topics              # JSON key in upstream.source.result
     agentId: two-step-digest  # sub-agent id to invoke per iteration
     maxIterations: 10         # safety cap
+    concurrency: 3            # run up to 3 items at once (1–6, default 1)
     inputMapping:             # map each item to sub-agent inputs
       TOPIC: "$item.title"
 ```
 
 The sub-agent runs once per item; the loop's `result` is a JSON array of the sub-agent outputs. Downstream nodes get `{{upstream.research.result}}` with the array.
+
+**Items at once.** By default items run one after another. `concurrency: N` (up to 6) runs N at a time: for independent items, like one small search per site, five searches take about as long as one. The results keep the items' order whatever order they finish in, and a failed item is `null` in its place. Each item is its own sub-run with its own turn and time limits, so one that runs long or fails doesn't hold up or sink the others. Stopping the run starts no more items and stops the running ones.
 
 **How `over` resolves.** The loop looks for the array first in the upstream's structured outputs (populated when a shell node emits [framed output](tools.md) — a single-line JSON object as the last stdout line — or from a builtin/tool/agent-invoke node), and otherwise falls back to parsing the upstream's raw stdout as JSON. Both single-line and pretty-printed (multi-line) JSON therefore work — so a `source` node that does `jq -n '{topics: [...]}'` iterates the same whether or not `jq` compact-prints. If `over` resolves to something that isn't an array, the loop fails setup with `Loop field "<over>" … is not an array`.
 

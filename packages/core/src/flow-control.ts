@@ -296,6 +296,9 @@ function itemLabel(item: unknown): string {
   return s.length > 40 ? s.slice(0, 37) + '...' : s;
 }
 
+/** The most loop items that run at the same time. */
+export const MAX_LOOP_CONCURRENCY = 6;
+
 export async function executeLoopNode(
   node: AgentNode,
   outputs: Map<string, NodeOutput>,
@@ -362,11 +365,11 @@ export async function executeLoopNode(
   // raw string when it wasn't, null when the sub-run failed. This lets downstream
   // prompts read structured fields with `{{upstream.<id>.items.0.<field>}}` instead
   // of having to parse JSON-encoded strings out of an array of strings.
-  const results: (unknown | null)[] = [];
-
   const total = limited.length;
+  const results: (unknown | null)[] = new Array<unknown | null>(total).fill(null);
   const parentInputs = effectiveInputs(parentAgent, parentOptions.inputs ?? {});
-  for (let i = 0; i < total; i++) {
+
+  const runItem = async (i: number): Promise<void> => {
     const item = limited[i];
     const label = itemLabel(item);
     const subInputs: Record<string, string> = {
@@ -401,15 +404,13 @@ export async function executeLoopNode(
     );
 
     const ok = subRun.status === 'completed' && subRun.result != null;
-    if (!ok || subRun.result == null) {
-      results.push(null);
-    } else {
+    if (ok && subRun.result != null) {
       let parsed: unknown = subRun.result;
       try {
         const candidate = JSON.parse(subRun.result);
         if (typeof candidate === 'object' && candidate !== null) parsed = candidate;
       } catch { /* not JSON — keep raw string */ }
-      results.push(parsed);
+      results[i] = parsed;
     }
 
     onProgress?.({
@@ -421,7 +422,19 @@ export async function executeLoopNode(
         ? `iteration ${i + 1}/${total}: ${label} done`
         : `iteration ${i + 1}/${total}: ${label} failed${subRun.error ? ` — ${subRun.error.slice(0, 80)}` : ''}`,
     });
-  }
+  };
+
+  // Up to `concurrency` items at once, each worker taking the next item; a
+  // cancelled run starts no more (running ones stop through the signal).
+  const width = Math.min(Math.max(1, Math.floor(config.concurrency ?? 1)), MAX_LOOP_CONCURRENCY, Math.max(1, total));
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < total && !parentOptions.signal?.aborted) {
+      const i = next++;
+      await runItem(i);
+    }
+  };
+  await Promise.all(Array.from({ length: width }, () => worker()));
 
   return {
     ok: true,
