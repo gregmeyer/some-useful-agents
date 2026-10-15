@@ -67,6 +67,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   // (command not found): …` instead of a bare token. Falls back to the stored
   // run.error for legacy/non-DAG runs with no node executions.
   const failedExec = nodeExecutions?.find((e) => e.status === 'failed');
+  // A completed run can still have failed steps (optional ones it carried on without): a warning, not an error.
+  const partly = run.status === 'completed' ? (nodeExecutions ?? []).filter((e) => e.status === 'failed').length : 0;
   const bannerError = failedExec
     ? explainNodeFailure({
         nodeId: failedExec.nodeId,
@@ -247,8 +249,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ${run.status === 'waiting' ? renderWaitingBanner(run.id, question) : html``}
 
       <div data-poll-region="error">${bannerError ? html`
-        <h2>Error</h2>
-        <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
+        ${partly ? html`<h2>Completed, but ${partly === 1 ? 'a step' : `${String(partly)} steps`} didn't finish</h2>` : html`<h2>Error</h2>`}
+        <div class="flash ${partly ? 'flash--warn' : 'flash--error'}" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
           <span>${bannerError}</span>
           <span style="display: inline-flex; gap: var(--space-2); flex-shrink: 0; white-space: nowrap;">
             ${run.status === 'failed' ? html`
@@ -696,7 +698,7 @@ function renderNodeCards(
     const varsPanel = renderNodeVarsPanel(e);
     if (varsPanel) bodyBlocks.push(varsPanel);
 
-    if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
+    if (e.error) bodyBlocks.push(html`<div class="flash ${e.status === 'completed' ? 'flash--warn' : 'flash--error'}">${e.error}</div>`);
     if (e.errorCategory === 'budget_exhausted') bodyBlocks.push(renderExhaustedHint(e, nodeDef, agent, budget));
     const toolActivity = renderToolActivity(e, toolCalls?.get(e.nodeId));
     if (toolActivity) bodyBlocks.push(toolActivity);

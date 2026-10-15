@@ -513,7 +513,7 @@ const BUILTINS: BuiltinToolEntry[] = [
   def(
     'web-fetch',
     'Web fetch',
-    'Fetch a public web page and return clean, readable text. Give it a URL; the tool handles HTTP, strips navigation/scripts/boilerplate, and (only if needed) renders the page in a headless browser. Use this whenever you need to read the contents of a web page.',
+    'Fetch a public web page and return clean, readable text. Give it a URL; the tool handles HTTP, strips navigation/scripts/boilerplate, and (only if needed) renders the page in a headless browser. Use this whenever you need to read the contents of a web page. A public JSON API comes back as its JSON, which is often one call instead of many pages: e.g. a job board\'s postings with pay (https://boards-api.greenhouse.io/v1/boards/<company>/jobs?content=true, https://api.lever.co/v0/postings/<company>?mode=json, https://api.ashbyhq.com/posting-api/job-board/<company>?includeCompensation=true).',
     {
       url: { type: 'string', description: 'Absolute http(s) URL of the page to read.', required: true },
       max_chars: { type: 'number', description: 'Max characters of content to return.', default: 30000 },

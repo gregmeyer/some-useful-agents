@@ -113,6 +113,22 @@ describe('webFetch — failures (never throws)', () => {
     expect(r.error).toMatch(/unsupported content type/i);
   });
 
+  it('a JSON API answer is returned as content (a job board\'s postings, with pay)', async () => {
+    const body = { jobs: [{ title: 'Controller', location: 'Remote (US)', compensation: '$190,000 – $220,000' }] };
+    mockFetchOnce(() => new Response(JSON.stringify(body, null, 2), { status: 200, headers: { 'content-type': 'application/json; charset=utf-8' } }));
+    const r = await webFetch('https://api.ashbyhq.com/posting-api/job-board/acme?includeCompensation=true', { browser: 'never' });
+    expect(r.error).toBeNull();
+    expect(r.content).toBe(JSON.stringify(body));
+    expect(r.truncated).toBe(false);
+  });
+
+  it('a long JSON answer is cut at max_chars and says so', async () => {
+    mockFetchOnce(() => new Response(JSON.stringify({ jobs: Array.from({ length: 200 }, (_, i) => ({ id: i, title: `Role ${String(i)}` })) }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const r = await webFetch('https://boards-api.greenhouse.io/v1/boards/acme/jobs', { browser: 'never', maxChars: 500 });
+    expect(r.content).toHaveLength(500);
+    expect(r.truncated).toBe(true);
+  });
+
   it('timeout → timed out', async () => {
     // Reject only when the tool aborts via its timeout signal.
     globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {

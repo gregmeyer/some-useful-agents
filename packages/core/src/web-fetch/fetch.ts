@@ -83,7 +83,9 @@ function isTextual(contentType: string): boolean {
     ct.includes('application/xhtml') ||
     ct.includes('text/plain') ||
     ct.startsWith('text/') ||
-    ct.includes('xml')
+    ct.includes('xml') ||
+    // JSON APIs (a job board's postings, a store's product feed) are text too: returned as-is.
+    ct.includes('json')
   );
 }
 
@@ -145,7 +147,7 @@ export async function httpFetch(
         res = await fetch(current, {
           redirect: 'manual',
           signal: controller.signal,
-          headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml,*/*' },
+          headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8' },
         });
       } catch (err) {
         if (controller.signal.aborted) throw new WebFetchError('timeout', `Request timed out after ${timeoutMs / 1000}s.`);
@@ -168,7 +170,7 @@ export async function httpFetch(
       }
 
       const html = await readCapped(res, maxBytes);
-      return { finalUrl: current, status: res.status, html };
+      return { finalUrl: current, status: res.status, html, ...(contentType ? { contentType: contentType.split(';')[0].trim().toLowerCase() } : {}) };
     }
     throw new WebFetchError('too_many_redirects', `Exceeded ${maxRedirects} redirects.`);
   } finally {
