@@ -11,6 +11,7 @@ import {
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
+import { suaStepAgentName } from './notebook-step-agents.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -216,7 +217,7 @@ export function parseNotebookPipeline(ctx: Ctx, agentsRaw: string, cadence: stri
 /**
  * Steps sua proposed in a notebook's conversation (a JSON list of {title,
  * kind, agent, target}), checked: at most 6, known kinds, and every agent
- * named must be installed (a check step may name none: sua's checker).
+ * named must be installed (a check or find step may name none: sua's checker or finder).
  */
 export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookStep[]; error?: string } {
   let list: unknown;
@@ -231,7 +232,7 @@ export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookSte
 
 /** The steps card's preview: each step, its agent, and what it replaces. */
 export function describeStepsChange(nb: Notebook | undefined, steps: readonly NotebookStep[]): Array<{ what: string; before: string; after: string }> {
-  const by = (x: NotebookStep) => x.agentId ?? (x.kind === 'check' ? 'sua’s checker' : x.kind === 'decide' || x.kind === 'narrow' ? 'you' : 'needs an agent');
+  const by = (x: NotebookStep) => x.agentId ?? suaStepAgentName(x.kind) ?? (x.kind === 'decide' || x.kind === 'narrow' ? 'you' : 'needs an agent');
   const facts = (x: NotebookStep) => (x.facts?.length ? ` (${x.facts.map((k) => nb?.fields.find((f) => f.key === k || f.label.toLowerCase() === k.toLowerCase())?.label.toLowerCase() ?? k).join(', ')})` : '');
   const out = steps.map((x, i) => ({ what: `Step ${String(i + 1)}`, before: nb?.steps?.[i] ? nb.steps[i].title : '—', after: `${x.title} · ${by(x)}${facts(x)}` }));
   for (let i = steps.length; i < (nb?.steps?.length ?? 0); i++) out.push({ what: `Step ${String(i + 1)}`, before: nb!.steps![i].title, after: '(removed)' });

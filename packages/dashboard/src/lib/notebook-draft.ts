@@ -75,7 +75,7 @@ export function searchAgents(ctx: Ctx): Array<{ id: string; description: string;
 /**
  * Steps as the drafter or the form gives them ({title, kind, agent|agentId,
  * target}): cleaned, and an agent kept only when it's one of yours (else the
- * step needs one; a check step uses sua's checker).
+ * step needs one; a check or find step uses sua's checker or finder).
  */
 export function draftSteps(raw: unknown, agentIds: ReadonlySet<string>): { steps?: NotebookStep[] } {
   const list = (Array.isArray(raw) ? raw : []).map((x) => {

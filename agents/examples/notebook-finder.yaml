@@ -1,0 +1,251 @@
+# Notebook Finder — sua's own agent for a notebook's find step (one with no
+# agent of its own). A single search for "a director-level accounting job in
+# Austin or remote" ran out of turns trying to cover four job boards at once
+# and came back with nothing. This splits the search into a few narrow ones
+# (one per place to look) and runs them three at a time, each a small
+# `notebook-find-one` run with its own turn limit, so one that runs long
+# answers with what it found (or fails) without sinking the rest:
+#
+#   have ── plan ── search (loop, 3 at once) ── merge
+#
+# `merge` is code: it files what the searches found, as they found it, in
+# the notebook's own <notebook> block (docs/notebooks.md "Filing directly"),
+# one option per page, and says which searches came back empty.
+# Route-dispatched only, by a notebook's find step (dashboard
+# lib/notebook-steps.ts); never proposed in triage.
+
+id: notebook-finder
+name: Notebook Finder
+description: >
+  Finds options for a notebook by splitting the search into a few narrow
+  ones (one per site or source) and running them at the same time.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: What the notebook is for, its limits, and this step's job.
+  OPTIONS:
+    type: string
+    default: "[]"
+    description: JSON list of the options it already has (a notebook passes them).
+  FIELDS:
+    type: string
+    default: "[]"
+    description: The notebook's fields as JSON (key, label, type, role).
+
+nodes:
+  # 1. The options it already has, as short "name: link" lines, so each
+  #    search can skip them without carrying every option's notes.
+  - id: have
+    type: shell
+    timeout: 30
+    command: |
+      python3 << 'PYEOF'
+      import json, os
+      try:
+          opts = json.loads(os.environ.get("OPTIONS") or "[]")
+      except Exception:
+          opts = []
+      lines = []
+      for o in opts if isinstance(opts, list) else []:
+          if isinstance(o, dict) and o.get("name"):
+              link = next((s for s in (o.get("sources") or []) if isinstance(s, str)), "")
+              lines.append(f"- {o['name']}" + (f": {link}" if link else ""))
+      print("\n".join(lines[:60]) or "(none yet)")
+      PYEOF
+
+  # 2. Split the search. No tools: it says where and how to look, never what
+  #    it will find.
+  - id: plan
+    type: llm-prompt
+    dependsOn: [have]
+    maxTurns: 1
+    timeout: 120
+    prompt: |
+      You plan a search for a notebook: what someone is looking for, and
+      what it already has.
+
+      The notebook:
+      {{inputs.NOTEBOOK}}
+
+      Options it already has:
+      {{upstream.have.result}}
+
+      Split the search into 3 to 5 narrow searches that will run at the same
+      time, each small enough to do with a few searches and page opens, and
+      each covering ground the others don't. One per place to look, where
+      that fits:
+        - jobs: one per applicant tracking system (Greenhouse:
+          job-boards.greenhouse.io and boards.greenhouse.io; Lever:
+          jobs.lever.co; Ashby: jobs.ashbyhq.com; Workday:
+          myworkdayjobs.com), plus one search of the open web;
+        - cars and other listings: one per listings site or dealer group;
+        - products: one per store;
+        - companies or leads: one per kind of source or segment.
+      Write each query the way you'd type it into a search engine, scoped to
+      its site (site:…) when it's one site, and carrying the notebook's
+      limits (place, level, price) in its words.
+
+      Never name a specific option, company, price or address as a result:
+      say where and how to look, not what you'll find.
+
+      Reply with one short line saying how you split it. Then, on the LAST
+      line, ONLY this JSON on one line:
+      {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers"}]}
+
+  # 3. The searches, three at a time. A failed one is null; merge says so.
+  - id: search
+    type: loop
+    dependsOn: [plan]
+    loopConfig:
+      over: searches
+      agentId: notebook-find-one
+      maxIterations: 5
+      concurrency: 3
+      inputMapping:
+        WHERE: "$item.where"
+        QUERY: "$item.query"
+        WHY: "$item.why"
+        NOTEBOOK: "{{inputs.NOTEBOOK}}"
+        HAVE: "$upstream.have.result"
+        FIELDS: "{{inputs.FIELDS}}"
+
+  # 4. File what they found: one option per page, facts by the notebook's
+  #    field keys, nothing added. Says which searches found nothing.
+  - id: merge
+    type: shell
+    dependsOn: [plan, search]
+    timeout: 60
+    command: |
+      python3 << 'PYEOF'
+      import json, os, re
+
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def last_json(text):
+          """The last JSON object in a reply (a search out of turns may add words around it)."""
+          if isinstance(text, dict):
+              return text
+          if not isinstance(text, str):
+              return None
+          text = text.strip()
+          try:
+              v = json.loads(text)
+              return v if isinstance(v, dict) else None
+          except Exception:
+              pass
+          dec = json.JSONDecoder()
+          found = None
+          for m in re.finditer(r"\{", text):
+              try:
+                  v, _ = dec.raw_decode(text[m.start():])
+                  if isinstance(v, dict) and "candidates" in v:
+                      found = v
+              except Exception:
+                  continue
+          return found
+
+      def norm_url(u):
+          u = (u or "").strip().lower()
+          u = re.sub(r"^https?://(www\.)?", "", u).split("#")[0].rstrip("/")
+          return re.sub(r"[?&](utm_[^=&]+|gh_src|source|ref)=[^&]*", "", u)
+
+      def norm_name(s):
+          return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+      try:
+          fields = json.loads(os.environ.get("FIELDS") or "[]")
+          fields = [f for f in fields if isinstance(f, dict) and f.get("key")] if isinstance(fields, list) else []
+      except Exception:
+          fields = []
+      keys = {f["key"] for f in fields}
+      link_k = next((f["key"] for f in fields if f.get("role") == "link"), None)
+
+      # What it already has: skip those (by page, else by name).
+      try:
+          have = json.loads(os.environ.get("OPTIONS") or "[]")
+      except Exception:
+          have = []
+      have_urls, have_names = set(), set()
+      for o in have if isinstance(have, list) else []:
+          if isinstance(o, dict):
+              have_names.add(norm_name(o.get("name")))
+              for s in o.get("sources") or []:
+                  if isinstance(s, str):
+                      have_urls.add(norm_url(s))
+
+      try:
+          searches = json.loads(upstream("PLAN").strip().splitlines()[-1]).get("searches") or []
+      except Exception:
+          searches = []
+      try:
+          items = json.loads(upstream("SEARCH") or "{}").get("items") or []
+      except Exception:
+          items = []
+
+      entries, sources, seen, dupes, known = [], [], set(), 0, 0
+      for i, raw in enumerate(items):
+          where = (searches[i].get("where") if i < len(searches) and isinstance(searches[i], dict) else None) or f"Search {i + 1}"
+          got = last_json(raw)
+          if got is None:
+              sources.append({"name": where, "found": 0, "status": "blocked", "note": "The search didn't finish." if raw is None else "Its answer couldn't be read."})
+              continue
+          found = 0
+          for c in got.get("candidates") or []:
+              if not isinstance(c, dict) or not (c.get("title") or "").strip():
+                  continue
+              url = (c.get("url") or "").strip()
+              key = norm_url(url) if url else norm_name(c.get("title"))
+              if key in seen:
+                  dupes += 1
+                  continue
+              seen.add(key)
+              if (url and norm_url(url) in have_urls) or norm_name(c.get("title")) in have_names:
+                  known += 1
+                  continue
+              data = {k: v for k, v in (c.get("facts") or {}).items() if k in keys and v not in (None, "", [])} if isinstance(c.get("facts"), dict) else {}
+              if link_k and url.startswith("http") and link_k not in data:
+                  data[link_k] = url
+              body = " ".join(x for x in [
+                  (c.get("why") or "").strip().rstrip(".") + "." if (c.get("why") or "").strip() else "",
+                  f"\"{c['quote'].strip()}\"" if isinstance(c.get("quote"), str) and c["quote"].strip() else "",
+                  f"(found by the {where} search)",
+              ] if x)
+              title = c["title"].strip()
+              if len(title) > 120:
+                  # Cut at a word, not mid-word ("manages accountin").
+                  title = title[:118].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…"
+              entry = {"kind": "option", "title": title, "body": body[:1500], "data": data}
+              if url.startswith("http"):
+                  entry["fingerprint"] = url
+              entries.append(entry)
+              found += 1
+          note = (got.get("note") or "").strip()
+          sources.append({"name": where, "found": found, "status": "found" if found else "none", **({"note": note[:300]} if note else {})})
+
+      entries = entries[:30]
+      empty = [s["name"] for s in sources if s["status"] == "none"]
+      unfinished = [s["name"] for s in sources if s["status"] == "blocked"]
+      tail = []
+      if empty:
+          tail.append(f"Nothing new from {', '.join(empty)}.")
+      if unfinished:
+          tail.append(f"{', '.join(unfinished)} didn't finish.")
+      if known:
+          tail.append(f"{known} {'was' if known == 1 else 'were'} already in the notebook.")
+      bits = [f"Searched {len(sources)} places at once: " + ", ".join(f"{s['name']} ({s['found']})" for s in sources) + "."] + tail
+      entries.append({"kind": "note", "title": " ".join(bits)[:400]})
+      out = {"entries": entries, "sources": sources,
+             "summary": f"{len(entries) - 1} new option{'s' if len(entries) != 2 else ''} from {len(sources)} searches run at once."}
+      print(" ".join([out["summary"]] + tail))
+      print("<notebook>" + json.dumps(out) + "</notebook>")
+      PYEOF
