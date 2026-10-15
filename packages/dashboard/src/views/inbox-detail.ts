@@ -879,7 +879,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                       : meta.agentId === 'notebook-steps'
                         ? html`Set up the steps · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-step'
-                        ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
+                        ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : meta.inputs.WAS === 'todo' ? 'Start the first step' : 'Start the next step'}`
                       : meta.agentId === 'notebook-create'
                         ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`
               : meta.agentId === 'agent-schedule'

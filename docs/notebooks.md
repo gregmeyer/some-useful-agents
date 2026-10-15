@@ -61,6 +61,7 @@ Nothing is created until you start it. **Skip the draft** starts the notebook fr
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:
 - **First, the one most useful thing to tell it:** what the notebook is for, your limits, or any options you've already seen.
 - **Then how it'll keep the notebook:** what it notes for each option, the stages, and what "done" means.
+- **Then a Start button for its first step**, when sua can run it: a step its own agent, sua's finder or sua's checker works on, not one that's yours (Decide, Narrow) or a source step with no agent yet. "Press **Start** when you're ready and I'll begin with **Find 5 desks**." **Start** runs step 1, the same as the header's **Next step →**; **Not now** leaves it for later. Once the step has started or moved on, the button does nothing.
 
 The conversation waits on your reply, so it's on Today. On the notebook page, the message shows under **Talk to sua**, and the big start box points there instead of offering a second place to type.
 
