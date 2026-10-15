@@ -1917,6 +1917,9 @@ describe('a brief to share', () => {
     expect(t).toContain('Price in the running: <span class="num">$4,700–$4,999</span>.');
     // Side by side, then in detail; nothing folded away (a closed details is missing from a PDF).
     expect(t).toContain('<div class="tbl"><table>');
+    // A name with its own page links to it in the table; one found only on a search page doesn't.
+    expect(t).toContain('<th scope="row"><a class="tbl__link" href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">2010 Subaru Forester &lt;b&gt;</a>');
+    expect(t).toContain('<th scope="row">2009 Forester');
     expect(t).not.toContain('<details');
     expect(t).not.toMatch(/<script/);
     // Save as PDF: the same page, with the print dialog opened for you.

@@ -2025,13 +2025,14 @@ export function looksLikeOneListing(url: string): boolean {
  * Only when what follows is facts (numbers, a price): "Staff Engineer, Stripe" stays whole.
  */
 export function shortName(title: string): string {
-  const m = /^(.+?)(?:,|\s[—–-]\s)(.*)$/.exec(title);
+  // Commas inside brackets ("Director, Accounting (Remote, US)") don't end a part.
+  const m = /^((?:[^,(]|\([^)]*\))+?)(?:,|\s[—–-]\s)(.*)$/.exec(title);
   if (!m) return title;
   const head = m[1].trim();
   if (!(head.length >= 4 && /[\d$]/.test(m[2]))) return title;
   // One word ("Director, Accounting Operations, $192k–$300k") says too little: keep the next part too.
   if (!/\s/.test(head)) {
-    const next = /^\s*([^,]+?)(?:,|\s[—–-]\s|$)/.exec(m[2])?.[1]?.trim();
+    const next = /^\s*((?:[^,(]|\([^)]*\))+?)(?:,|\s[—–-]\s|$)/.exec(m[2])?.[1]?.trim();
     if (next && !/[\d$]/.test(next)) return `${head}, ${next}`;
   }
   return head;

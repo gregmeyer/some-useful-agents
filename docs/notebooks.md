@@ -227,7 +227,7 @@ Money of a million and up reads short ("$18M–$22M"). Companies get a monogram 
   - how they split on a short fact like Remote or Location;
   - why the rest were ruled out, grouped ("unfit (6); posting closed (4)", or the check they failed);
   - what's still open, and where the last search looked.
-- **The shortlist as a table**: one row per option in the running, with the key facts that most of them state.
+- **The shortlist as a table**: one row per option in the running, with the key facts that most of them state. Each name links to its own page, in the PDF too.
 - **In detail**: each option's facts (not the ones its title already says), why it's there (the first sentence of its notes), its checks once any are ticked, and its own page.
 - **Ruled out**: the latest 12 with their reasons.
 - **Notes along the way**: sua's latest notes.
