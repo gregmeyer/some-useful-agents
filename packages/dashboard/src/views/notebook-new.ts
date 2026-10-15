@@ -7,7 +7,7 @@
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
-import type { NotebookStep } from '@some-useful-agents/core';
+import type { NotebookStep, NotebookTemplate } from '@some-useful-agents/core';
 import type { NotebookDraft, DraftState } from '../lib/notebook-draft.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 
@@ -47,12 +47,42 @@ export function renderDraftsStrip(drafts: ReadonlyArray<{ id: string } & DraftSt
     </section>`;
 }
 
+/**
+ * Your templates: each starts a conversation with sua, which asks what's
+ * different this time, then creates the notebook. Removable.
+ */
+function renderTemplateList(templates: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>): SafeHtml {
+  if (!templates.length) return html``;
+  return html`<section class="nbd-tpl" aria-labelledby="nbd-tpl-h">
+    <h2 class="nbd-tpl__h" id="nbd-tpl-h">Or start from one of your templates</h2>
+    <ul class="nbd-tpl__list">
+      ${templates.map((t) => html`<li class="nbd-tpl__item">
+        <span class="nbd-tpl__name">${t.name}</span>
+        <span class="nbd-tpl__what">${t.description}${t.uses ? ` · used ${String(t.uses)}×` : ''}</span>
+        <form method="POST" action="/inbox/new" class="nbd-tpl__go">
+          <input type="hidden" name="body" value="${`Start a new notebook from my “${t.name}” template.`}">
+          <button type="submit" class="btn btn--sm btn--primary" title="sua asks what's different this time, then creates it">Start with sua →</button>
+        </form>
+        <details class="nbd-tpl__del">
+          <summary class="btn btn--sm btn--ghost" aria-label="Remove the template ${t.name}" title="Remove this template">×</summary>
+          <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete">
+            <span>Remove it? Notebooks made from it stay.</span>
+            <button type="submit" class="btn btn--sm">Remove</button>
+          </form>
+        </details>
+      </li>`) as unknown as SafeHtml[]}
+    </ul>
+  </section>`;
+}
+
 export function renderNotebookNew(opts: {
   text?: string; suggestions?: ReadonlyArray<{ label: string; text: string; from?: string }>; refreshing?: boolean; flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** Back to a draft you left: it shows as it was (still drafting, ready with your changes, or failed). */
   draft?: { id: string; state: DraftState; agents: ReadonlyArray<{ id: string; description: string }> };
   /** Other drafts not started yet. */
   others?: ReadonlyArray<{ id: string } & DraftState>;
+  /** Your templates: start one by asking sua. */
+  templates?: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>;
 } = {}): string {
   const d = opts.draft;
   const result = !d ? html``
@@ -74,6 +104,7 @@ export function renderNotebookNew(opts: {
         <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>
         <p class="nbd-ask__examples">For example: “a remote staff engineer job paying $180k+” · “a quiet 2-bed rental in Fremont under $2,600” · “noise-cancelling headphones under $300”</p>
       </form>
+      ${renderTemplateList(opts.templates ?? [])}
       <div class="nbd-result" data-nbd-result aria-live="polite">${result}</div>
       <form method="POST" action="/notebooks" class="nbd-skip" data-nbd-skip>
         <input type="hidden" name="statement" value="" data-nbd-skip-text>

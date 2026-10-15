@@ -513,6 +513,24 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `notebook-create` starts a notebook from one of their templates (TEMPLATES),
+    // with what's different this time; a card to approve, after sua has asked.
+    if (type === 'notebook-create') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (typeof v === 'number' && Number.isFinite(v)) inputs[k] = String(v);
+          else if ((k === 'PARAMS' || k === 'CRITERIA' || k === 'CHECKS') && Array.isArray(v)) inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.TEMPLATE || !inputs.TITLE) {
+        rejected.push({ agentId: type, reason: 'notebook-create needs inputs.TEMPLATE and inputs.TITLE' });
+        continue;
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Create notebook' });
+      continue;
+    }
     // `notebook-step` acts on the notebook's current step: MOVE "1" moves on
     // from it with what it found (when they say to stop, skip or move on), else
     // it runs it (Continue, Try again). A card to approve, like the step's own.

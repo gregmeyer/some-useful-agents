@@ -971,3 +971,52 @@ describe('one form for a VIN', () => {
   });
 });
 
+
+describe('notebook templates', () => {
+  it('keep a notebook’s setup, fresh: no options, no decision, steps to do, done-whens unmet', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Find a director-level accounting job', statement: 'Austin or remote', params: ['Remote or Austin, TX', '$180k minimum comp'], criteria: ['At least five open roles that fit', 'A decision recorded'], pipeline: [], cadence: '' });
+    s.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    s.setChecks(nb.id, ['Pays at least $200k', 'Posting is still open']);
+    s.setStages(nb.id, ['Found', 'Applied', 'Offer']);
+    s.setSteps(nb.id, [
+      { title: 'Find 5 roles', kind: 'find', target: 5, status: 'done', tries: 2, note: '8 found, goal 5', doneAt: '2026-10-15T00:00:00Z' },
+      { title: 'Source pay', kind: 'source', agentId: 'listing-page-facts', facts: ['salary'], status: 'done', tries: 1, movedOn: true, doneAt: '2026-10-15T00:00:00Z' },
+      { title: 'Check pay and scope', kind: 'check', status: 'stuck', tries: 3, stalled: true },
+      { title: 'Pick one', kind: 'decide', target: 1 },
+    ]);
+    s.upsertOption(nb.id, { title: 'Controller, Acme', by: 'x', data: { salary: 200000 } });
+    s.decide(nb.id, 'Took Acme.');
+
+    const t = s.saveTemplate('  Job   search ', nb.id, '2026-10-15T00:00:00Z');
+    expect(t).toMatchObject({ id: 'job-search', name: 'Job search', description: '2 fields · 4 steps · 2 checks · 2 limits', fromNotebook: nb.id, uses: 0 });
+    expect(t.setup).toMatchObject({
+      statement: 'Austin or remote',
+      params: ['Remote or Austin, TX', '$180k minimum comp'],
+      criteria: ['At least five open roles that fit', 'A decision recorded'],
+      checks: ['Pays at least $200k', 'Posting is still open'],
+      stages: ['Found', 'Applied', 'Offer'],
+    });
+    expect(t.setup.fields.map((f) => f.key)).toEqual(['salary', 'posting_url']);
+    expect(t.setup.steps).toEqual([
+      { id: 's1', title: 'Find 5 roles', kind: 'find', target: 5, status: 'todo', tries: 0 },
+      { id: 's2', title: 'Source pay', kind: 'source', agentId: 'listing-page-facts', facts: ['salary'], status: 'todo', tries: 0 },
+      { id: 's3', title: 'Check pay and scope', kind: 'check', status: 'todo', tries: 0 },
+      { id: 's4', title: 'Pick one', kind: 'decide', target: 1, status: 'todo', tries: 0 },
+    ]);
+    expect(JSON.stringify(t.setup)).not.toContain('Acme');
+
+    // The same name again replaces it; uses count; delete.
+    s.saveTemplate('Job search', nb.id);
+    expect(s.listTemplates()).toHaveLength(1);
+    s.saveTemplate('Car search', nb.id);
+    s.markTemplateUsed('car-search');
+    expect(s.listTemplates().map((x) => x.id)).toEqual(['car-search', 'job-search']);
+    expect(s.getTemplate('car-search')).toMatchObject({ uses: 1 });
+    expect(s.deleteTemplate('car-search')).toBe(true);
+    expect(s.getTemplate('car-search')).toBeUndefined();
+    expect(() => s.saveTemplate('  ', nb.id)).toThrow('A template needs a name.');
+  });
+});
