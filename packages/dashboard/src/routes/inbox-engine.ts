@@ -1198,6 +1198,7 @@ function listInput(raw: string | undefined, fallback: readonly string[]): string
 export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): { template: NotebookTemplate; setup: NewNotebookSetup } | { error: string } {
   const t = notebooksOf(ctx).getTemplate((meta.inputs.TEMPLATE ?? '').trim());
   if (!t) return { error: `There's no template "${meta.inputs.TEMPLATE ?? ''}". Save a notebook as a template from its Edit panel first.` };
+  if (t.archivedAt) return { error: `The template "${t.name}" is archived. Restore it from New notebook → Archived templates first.` };
   const installed = (id: string) => { const a = ctx.agentStore.getAgent(id); return !!a && a.status !== 'archived'; };
   const target = Number(meta.inputs.TARGET);
   const steps = t.setup.steps.map(({ agentId, ...s }) => ({
