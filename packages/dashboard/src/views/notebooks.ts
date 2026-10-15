@@ -776,6 +776,8 @@ export interface NotebookCard {
   furthest?: string;
   /** "1 of 3 done": its done-when criteria. */
   done?: string;
+  /** Its done-when criteria, each met or not (the list card's dots). */
+  checks?: Array<{ text: string; met: boolean }>;
   cover?: string;
   coverKind?: string;
 }
@@ -841,23 +843,23 @@ export function renderNotebooksList(args: {
         const facts = [
           c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
           c.options ? `${String(c.active)} in the running` : '',
-          c.furthest ? `furthest: ${c.furthest}` : '',
         ].filter(Boolean);
+        const photo = c.cover && c.coverKind !== 'illustration' ? c.cover : undefined;
+        const met = c.checks?.filter((x) => x.met).length ?? 0;
         return html`
           <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
-            <span class="nbl-card__cover">
+            <span class="nbl-card__cover${photo ? ' nbl-card__cover--photo' : ''}"${photo ? html` style="--cover:url('${photo}')"` : html``}>
               ${c.cover
                 ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">`
                 : coverArt(nb)}
-              ${c.done ? html`<span class="nbl-card__done">${c.done}</span>` : html``}
               ${c.cover && c.coverKind && c.coverKind !== 'listing' ? html`<span class="nbl-card__kind">${c.coverKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}
             </span>
             <span class="nbl-card__body">
-              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${statusChip(nb)}</span>
+              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</span>
               <span class="nbl-card__statement">${nb.decision ?? nb.statement}</span>
               ${c.best ? html`<span class="nbl-card__lead"><span class="nbl-card__price">${c.best}</span>${c.bestName ? html`<span class="nbl-card__leadname">${c.bestName}</span>` : html``}</span>` : html``}
-              <span class="nbl-card__facts">${facts.map((f) => html`<span class="nbl-chip">${f}</span>`) as unknown as SafeHtml[]}</span>
-              <span class="nbl-card__meta">updated ${formatAge(nb.updatedAt)}</span>
+              <span class="nbl-card__facts">${facts.map((f) => html`<span>${f}</span>`) as unknown as SafeHtml[]}${c.furthest ? html`<span title="Furthest along: ${c.furthest}">at ${c.furthest}</span>` : html``}</span>
+              <span class="nbl-card__meta">${c.checks?.length ? html`<span class="nbl-card__met" title="${`Done when: ${c.checks.map((x) => `${x.met ? '✓' : '○'} ${x.text}`).join('; ')}`}"><span class="nbl-card__dots" aria-hidden="true">${c.checks.map((x) => html`<i class="${x.met ? 'is-met' : ''}"></i>`) as unknown as SafeHtml[]}</span>${String(met)} of ${String(c.checks.length)} met</span>` : html``}<span>updated ${formatAge(nb.updatedAt)}</span></span>
             </span>
           </a>`;
       }) as unknown as SafeHtml[]}

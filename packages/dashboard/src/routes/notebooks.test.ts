@@ -1265,14 +1265,20 @@ describe('the notebooks list', () => {
     expect(first.text).toContain('1–12 of 15');
     expect(first.text).toContain('href="/notebooks?page=2"');
     expect((await get('/notebooks?page=2')).text).toContain('13–15 of 15');
-    expect((await get('/notebooks?status=decided')).text).toContain('Laptop');
+    const decided = (await get('/notebooks?status=decided')).text;
+    expect(decided).toContain('Laptop');
+    expect(decided).toContain('nb-status--decided');
     const search = await get('/notebooks?q=staff');
     expect(search.text).toContain('Notebook 07');
     expect(search.text).not.toContain('Notebook 08');
     const carCard = await get('/notebooks?q=used%20car');
     expect(carCard.text).toContain('<span class="nbl-card__price">$4,023</span><span class="nbl-card__leadname">2010 Toyota RAV4</span>');
-    expect(carCard.text).toContain('<span class="nbl-chip">1 option</span><span class="nbl-chip">1 in the running</span>');
-    expect(carCard.text).toContain('<span class="nbl-card__done">0 of 1 done</span>');
+    // One data line, its progress as dots in the footer, and no "active" chip (the tab says it).
+    expect(carCard.text).toContain('<span class="nbl-card__facts"><span>1 option</span><span>1 in the running</span></span>');
+    expect(carCard.text).toContain('<span class="nbl-card__met" title="Done when: ○ One fits"><span class="nbl-card__dots" aria-hidden="true"><i class=""></i></span>0 of 1 met</span>');
+    expect(carCard.text).not.toContain('nb-status--active');
+    // A photo fills its frame with a blurred copy of itself behind it.
+    expect(carCard.text).toContain(`class="nbl-card__cover nbl-card__cover--photo" style="--cover:url('/notebooks/buy-a-used-car/entries/${rav.id}/photo')"`);
     expect(carCard.text).toContain(`src="/notebooks/buy-a-used-car/entries/${rav.id}/photo"`);
     expect(carCard.text).toContain('example photo');
     // No picture yet: its own generated cover, with an icon for its kind.
