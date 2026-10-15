@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -394,6 +394,36 @@ describe('fields without roles, and facts that belong to another option', () => 
     expect(s.findOption(nb.id, '2006')!.data).toEqual({ price: 4995, miles: 162000, year: 2006 });
     // Rounded text still agrees: no change.
     s.setOptionFacts(nb.id, a.id, { price: 4995, miles: 161870, year: 2006 });
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+
+  it('a salary range in the text is a range: it agrees with the facts, and facts a past repair took away come back', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Jobs' }).id, [
+      { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' },
+    ]);
+    expect(readOptionText('Director of Tax, Boomi, $190k–$275k (tax only)', nb.fields)).toEqual({ salary: { min: 190000, max: 275000 } });
+    expect(readOptionText('Senior Director, Tax, $217,000 - $247,700 remote base', nb.fields)).toEqual({ salary: { min: 217000, max: 247700 } });
+    expect(readOptionText('Controller, base from $170k', nb.fields)).toEqual({ salary: 170000 });
+
+    // Filed with its range and facts: they agree with the title, so all are kept.
+    const full = { salary: { min: 150000, max: 160000 }, company: 'Going Concern', posting_url: 'https://example.com/job/1' };
+    const a = s.upsertOption(nb.id, { title: 'Remote Accounting & Tax Director, $150k–$160k', by: 'agent:x', data: full }).entry;
+    expect(s.findOption(nb.id, 'Remote Accounting')!.data).toEqual(full);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    // "from $170k" agrees with $170k–$200k and doesn't replace it.
+    const b = s.upsertOption(nb.id, { title: 'Controller, Boom, base from $170k', by: 'agent:x', data: { company: 'Boom' } }).entry;
+    s.setOptionFacts(nb.id, b.id, { salary: { min: 170000, max: 200000 } });
+    expect(s.findOption(nb.id, 'Boom')!.data).toMatchObject({ salary: { min: 170000, max: 200000 } });
+
+    // Stored by the old repair (the range read as its first number "contradicted" it): restored from its filing.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ salary: 150000 }), a.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, 'Remote Accounting')!.data).toEqual(full);
     expect(s.reconcileOptionFacts(nb.id)).toBe(0);
   });
 

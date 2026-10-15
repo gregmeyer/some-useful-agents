@@ -860,7 +860,9 @@ export class NotebookStore {
     const facts = splitFacts(data);
     const given = cleanData(facts.values, nb.fields);
     const stated = withoutTextLink(readOptionText(`${e.title}\n${e.body}`, nb.fields), nb.fields, { ...(e.data ?? {}), ...given });
-    const clean = contradicts(given, stated) ? stated : { ...given, ...stated };
+    // When they agree, the text's figure wins (rounded or not), except over a
+    // range it falls in: "from $170k" doesn't replace $170k–$200k.
+    const clean = contradicts(given, stated) ? stated : { ...given, ...Object.fromEntries(Object.entries(stated).filter(([k, v]) => !(isRange(given[k]) && !isRange(v)))) };
     const merged = { ...(e.data ?? {}), ...clean };
     // A fact the option's own text states needs no source; a given one keeps its own.
     const meta = cleanFactMeta(facts.meta, Object.fromEntries(Object.entries(clean).filter(([k]) => !(k in stated))));
@@ -915,7 +917,25 @@ export class NotebookStore {
       // A correction (you, or sua on your word) always counts.
       const later = this.sightings(e.id).filter((x, i) => i > 0 || x.correctedBy).reduce<Record<string, NotebookFieldValue>>((acc, x) => ({ ...acc, ...cleanData(x.data, nb.fields) }), {});
       const expected = { ...stated, ...later };
-      if (!contradicts(e.data, expected)) continue;
+      if (!contradicts(e.data, expected)) {
+        // Facts an earlier repair took away by mistake (a salary range read as its
+        // first number "contradicted" the range): the filing had them, and they
+        // agree with the text, so they come back.
+        // Only that case: what's left is just what the text states, with a
+        // range field cut to one number.
+        const data = e.data;
+        const cut = nb.fields.some((f) => f.range && typeof data[f.key] === 'number')
+          && Object.keys(data).every((k) => k in stated);
+        const filed = cut ? this.sightings(e.id)[0] : undefined;
+        const full = filed && !filed.correctedBy ? { ...cleanData(filed.data, nb.fields), ...later } : undefined;
+        if (full && Object.keys(full).length > Object.keys(data).length && !contradicts(full, expected)
+          && nb.fields.some((f) => f.range && isRange(full[f.key]) && typeof data[f.key] === 'number')
+          && Object.entries(data).every(([k, v]) => full[k] !== undefined && (agrees(full[k], v) || agrees(v, full[k])))) {
+          this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify(full), e.id);
+          n++;
+        }
+        continue;
+      }
       const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
       const keep = linkKey && expected[linkKey] === undefined && e.data[linkKey] !== undefined && typeof e.data[linkKey] === 'string' && `${e.title} ${e.body}`.includes(String(e.data[linkKey])) ? { [linkKey]: e.data[linkKey] } : {};
       this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ ...keep, ...expected }), e.id);
@@ -1930,6 +1950,11 @@ export function readOptionText(text: string, fields: readonly NotebookField[]): 
   const num = (s: string) => { const k = /k$/i.test(s); const v = Number(s.replace(/[k,]/gi, '')); return Number.isFinite(v) ? (k ? v * 1000 : v) : undefined; };
   for (const f of fields) {
     if (f.role === 'price' && f.type === 'money') {
+      // A span ("$150k–$160k", a salary) is a range, not its first number.
+      const r = f.range ? /\$\s?(\d[\d,]*(?:\.\d+)?k?)\s*(?:-|–|—|to)\s*\$?\s?(\d[\d,]*(?:\.\d+)?k?)/i.exec(text) : null;
+      const lo = r ? num(/k$/i.test(r[2]) && !/k$/i.test(r[1]) && Number(r[1].replace(/,/g, '')) < 1000 ? `${r[1]}k` : r[1]) : undefined;
+      const hi = r ? num(r[2]) : undefined;
+      if (lo !== undefined && hi !== undefined && hi >= lo) { out[f.key] = { min: lo, max: hi }; continue; }
       const m = /\$\s?(\d[\d,]*(?:\.\d+)?k?)/i.exec(text);
       const v = m ? num(m[1]) : undefined;
       if (v !== undefined) out[f.key] = v;
@@ -2006,16 +2031,28 @@ export function shortName(title: string): string {
   return head.length >= 4 && /[\d$]/.test(m[2]) ? head : title;
 }
 
+/**
+ * Do two values of a number agree? Rounded text ("157k mi") still agrees
+ * with 157,000 or 156,870; a number agrees with a range it falls in ("from
+ * $150k" with $150k–$160k), and two ranges when both ends do.
+ */
+function agrees(x: NotebookFieldValue, v: NotebookFieldValue): boolean {
+  const tol = (n: number) => Math.max(1, Math.abs(n) * 0.01);
+  const near = (p: number, q: number) => Math.abs(p - q) <= tol(q);
+  const within = (n: number, r: { min: number; max: number }) => n >= r.min - tol(r.min) && n <= r.max + tol(r.max);
+  if (isRange(x) && isRange(v)) return near(x.min, v.min) && near(x.max, v.max);
+  if (isRange(x) && typeof v === 'number') return within(v, x);
+  if (typeof x === 'number' && isRange(v)) return within(x, v);
+  const nx = fieldNumber(x); const nv = fieldNumber(v);
+  return nx === undefined || nv === undefined || near(nx, nv);
+}
+
 /** Do two sets of facts disagree on a number both state (year, price, the measure)? */
 function contradicts(a: Record<string, NotebookFieldValue>, b: Record<string, NotebookFieldValue>): boolean {
   for (const [k, v] of Object.entries(b)) {
     const x = a[k];
     if (x === undefined) continue;
-    const nx = fieldNumber(x); const nv = fieldNumber(v);
-    if (nx !== undefined && nv !== undefined) {
-      // Rounded text ("157k mi") still agrees with 157,000 or 156,870.
-      if (Math.abs(nx - nv) > Math.max(1, Math.abs(nv) * 0.01)) return true;
-    }
+    if (!agrees(x, v)) return true;
     // Text (a link especially) isn't evidence of a mix-up: an option's text
     // often cites another page, a source or the post it's quoted from.
   }
