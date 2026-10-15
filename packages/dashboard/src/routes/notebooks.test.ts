@@ -1963,6 +1963,24 @@ describe('a brief to share', () => {
     expect(t).toContain('<th scope="row">2009 Forester');
     expect(t).not.toContain('<details');
     expect(t).not.toMatch(/<script/);
+    // The extended brief (an option): the summary, then each option in full.
+    expect(t).not.toContain('Each option in full');
+    const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
+    expect(full).toContain('Extended notebook brief');
+    expect(full).toContain('<h2 id="b-full">Each option in full<span class="count">2</span></h2>');
+    expect(full).toMatch(/<dl class="full__facts"><div><dt>Price<\/dt><dd>\$4,999<\/dd><\/div>/);
+    expect(full).toContain('<li class="crit is-met"><i>✓</i><span>Clean title</span></li>');
+    expect(full).toContain('<li class="crit"><i>○</i><span>Accident history</span></li>');
+    expect(full).toContain('<h4>What happened</h4>');
+    // "In detail" would repeat them: the extended brief has the table, then each in full.
+    expect(full).not.toContain('id="b-opts"');
+    expect(full).toContain('<div class="tbl"><table>');
+    expect(full).not.toMatch(/<script/);
+    expect((await get(`/notebooks/${nb.id}/brief.html?full=1&download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief-extended.html`);
+    expect((await get(`/notebooks/${nb.id}/brief.html?full=1&print=1`)).text).toContain('print()');
+    const menu = (await get(`/notebooks/${nb.id}`)).text;
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1"`);
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1&amp;print=1"`);
     // Save as PDF: the same page, with the print dialog opened for you.
     expect((await get(`/notebooks/${nb.id}/brief.html?print=1`)).text).toContain('print()');
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html?print=1"`);

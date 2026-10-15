@@ -253,6 +253,8 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 - no option split across pages;
 - each link's address printed after it.
 
+**The extended brief** (an option under **Download / share**: **Open the extended brief ↗** or **Save extended as PDF ↗**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections). The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
+
 **Save as PDF** opens it with your browser's print dialog (choose Save as PDF). **Download the brief** saves it as one HTML file. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
 
 ### Each option's own page

@@ -67,7 +67,7 @@ const runLink = (runId?: string) => (runId ? { link: `/runs/${encodeURIComponent
 const who = (by: string) => (by === 'you' ? 'you' : by.replace(/^(agent|run):/, ''));
 
 /** The option's facts in the notebook's field order: the value (≈ when an estimate), its source, and the words that back it. */
-function optionFacts(fields: readonly NotebookField[], v: NotebookViewOption): NotebookOptionData['option']['facts'] {
+export function optionFacts(fields: readonly NotebookField[], v: NotebookViewOption): NotebookOptionData['option']['facts'] {
   const out: NotebookOptionData['option']['facts'] = [];
   for (const f of fields) {
     const value = v.fields[f.key];
@@ -88,7 +88,7 @@ function optionFacts(fields: readonly NotebookField[], v: NotebookViewOption): N
 }
 
 /** What happened to this option, newest first. */
-function optionTimeline(nb: Notebook, e: NotebookEntry, history?: NotebookOptionHistory): TimelineEvent[] {
+export function optionTimeline(nb: Notebook, e: NotebookEntry, history?: NotebookOptionHistory): TimelineEvent[] {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const price = (data: Record<string, NotebookFieldValue>) => (priceF && typeof data[priceF.key] === 'number' ? data[priceF.key] as number : undefined);
   const out: TimelineEvent[] = [];

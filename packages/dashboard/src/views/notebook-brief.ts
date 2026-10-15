@@ -12,7 +12,9 @@
 import { isListPage, isRange, rankOptions, readOptionText, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { decisionPicks, formatFieldValue } from './notebooks.js';
-import { notebookWidgetData, optionFacets, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
+import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
+import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
+import { bodyWithLinks } from './notebooks.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -210,6 +212,32 @@ function notes(entries: readonly NotebookEntry[]): NotebookEntry[] {
     .slice(0, 6);
 }
 
+/**
+ * The extended brief: each option in the running in full, as its own page
+ * shows it: every fact (with its source, quote or estimate), its notes, the
+ * checks (ticked or not), and what happened to it. Each starts a new page
+ * when printed.
+ */
+function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>): SafeHtml {
+  const e = entries.find((x) => x.id === o.id);
+  const facts = optionFacts(nb.fields, o);
+  const checks = checksFor(nb);
+  const own = ownPage(o);
+  const events = e && history?.sightings ? optionTimeline(nb, e, history as NotebookOptionHistory).slice(0, 12) : [];
+  return html`<article class="full" aria-labelledby="full-${o.id}">
+    <header class="full__head">
+      <span class="opt__n" aria-hidden="true">${String(n)}</span>
+      <h3 class="full__name" id="full-${o.id}">${o.title}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}</h3>
+      ${own ? html`<a class="opt__link" href="${own}" target="_blank" rel="noopener noreferrer">Own page ↗</a>` : html``}
+    </header>
+    ${o.stage ? html`<p class="full__stage">Stage: ${o.stage}</p>` : html``}
+    ${facts.length ? html`<dl class="full__facts">${facts.map((f) => html`<div><dt>${f.label}</dt><dd>${f.url ? html`<a href="${f.url}" target="_blank" rel="noopener noreferrer">${f.value}</a>` : f.value}${f.note ? html`<span class="full__note">${f.note}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>` : html``}
+    ${o.body.trim() ? html`<div class="full__body"><h4>Notes</h4>${o.body.trim().split(/\n{2,}/).map((para) => html`<p>${bodyWithLinks(para.replace(/\s*\n\s*/g, ' '))}</p>`) as unknown as SafeHtml[]}</div>` : html``}
+    ${checks.length ? html`<div class="full__checks"><h4>Checks</h4><ul>${checks.map((c) => { const done = o.checked.some((d) => d.toLowerCase() === c.toLowerCase()); return html`<li class="crit${done ? ' is-met' : ''}"><i>${done ? '✓' : '○'}</i><span>${c}</span></li>`; }) as unknown as SafeHtml[]}</ul></div>` : html``}
+    ${events.length ? html`<div class="full__history"><h4>What happened</h4><ul>${events.map((t) => html`<li><span class="full__when">${new Date(t.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span> ${t.title}${t.body ? html` <span class="why">· ${t.body}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
+  </article>`;
+}
+
 /** Text cut at a word, with an ellipsis. */
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).replace(/\s+\S*$/, '')}…` : s);
 
@@ -218,7 +246,7 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; fragment?: boolean; now?: Date; print?: boolean }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean }): string {
   const { nb } = args;
   const now = args.now ?? new Date();
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
@@ -326,6 +354,23 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 .crit i { font-style: normal; font-family: var(--mono); color: var(--subtle); }
 .crit.is-met i { color: var(--ok); }
 footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.fullset { display: grid; gap: 1.5rem; }
+.full { border-top: 2px solid var(--line-strong); padding-top: 1rem; display: grid; gap: 0.75rem; }
+.full__head { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 0.75rem; align-items: baseline; }
+.full__name { margin: 0; font-size: 1rem; font-weight: 650; overflow-wrap: anywhere; }
+.full__stage { margin: 0 0 0 2.75rem; font: 500 0.75rem var(--mono); color: var(--muted); }
+.full__facts { margin: 0 0 0 2.75rem; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.3rem 1rem; font-size: 0.875rem; }
+.full__facts div { display: contents; }
+.full__facts dt { color: var(--muted); }
+.full__facts dd { margin: 0; font-family: var(--mono); font-size: 0.8125rem; overflow-wrap: anywhere; }
+.full__facts dd a { color: var(--accent); }
+.full__note { display: block; font-family: var(--sans); font-size: 0.75rem; color: var(--subtle); }
+.full__body, .full__checks, .full__history { margin-left: 2.75rem; }
+.full h4 { margin: 0.25rem 0 0.35rem; font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.full__body p { margin: 0 0 0.5rem; font-size: 0.875rem; max-width: 70ch; }
+.full__body a { color: var(--accent); }
+.full__checks ul, .full__history ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; font-size: 0.875rem; }
+.full__when { font: 500 0.75rem var(--mono); color: var(--subtle); min-width: 3.5rem; display: inline-block; }
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
 @media print {
   :root, :root[data-theme="dark"] {
@@ -342,11 +387,14 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   .opt, tr, .decision, .stands, .findings li, .plain li, .cols > div { break-inside: avoid; }
   .opt__link::after { content: " " attr(href); font: 400 0.6875rem var(--mono); color: var(--subtle); word-break: break-all; }
   footer { break-before: avoid; }
+  .fullset > h2 { break-before: page; }
+  .full + .full { break-before: page; }
+  .full { border-top: 0; }
 }
 </style>
 <main class="brief">
   <header>
-    <div class="eyebrow">Notebook brief · ${fmtDate(undefined, now)}</div>
+    <div class="eyebrow">${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}</div>
     <h1>${nb.title}</h1>
     ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
   </header>
@@ -366,11 +414,15 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     <h2 id="b-table">${decided && chosen.length ? 'The final set, and the rest in the running' : 'The shortlist'}<span class="count">${decided && chosen.length ? `${String(chosen.length)} chosen of ${String(active.length)}` : `${String(active.length)} in the running`}</span></h2>
     ${table(nb, active)}
   </section>
-  <section aria-labelledby="b-opts">
+  ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
     <ol class="opts">${detailed.map((o, i) => optionRow(nb, o, i + 1)) as unknown as SafeHtml[]}</ol>
     ${brief.length ? html`<p class="more">Also in the running:</p><ul class="plain">${brief.map((o) => html`<li>${o.title}${keyF && o.fields[keyF.key] !== undefined ? html` <span class="why">· ${formatFieldValue(keyF, o.fields[keyF.key])}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
-  </section>` : html`<p class="more">Nothing in the running yet.</p>`}
+  </section>`}` : html`<p class="more">Nothing in the running yet.</p>`}
+  ${args.full && active.length ? html`<section class="fullset" aria-labelledby="b-full">
+    <h2 id="b-full">Each option in full<span class="count">${String(active.length)}</span></h2>
+    ${active.map((o, i) => optionInFull(nb, o, i + 1, args.entries, args.history)) as unknown as SafeHtml[]}
+  </section>` : html``}
   ${ruled.length ? html`<section aria-labelledby="b-out">
     <h2 id="b-out">Ruled out<span class="count">${String(ruled.length)}</span></h2>
     <ul class="plain">${ruled.slice(0, RULED_SHOWN).map((o) => html`<li><strong>${clip(o.title, 90)}</strong> <span class="why">· ${clip(o.ruledOut!.reason.replace(/\s*\(https?:\/\/[^)]*\)?/g, ''), 140)}</span></li>`) as unknown as SafeHtml[]}</ul>
