@@ -503,24 +503,30 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-draft__body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-6); padding: var(--space-4); }
 .nbd-draft__main, .nbd-draft__side { display: grid; gap: var(--space-4); align-content: start; min-width: 0; }
 .nbd-draft__side { border-left: 1px solid var(--color-border); padding-left: var(--space-6); }
-.nbd-field { display: grid; gap: var(--space-1); margin: 0; }
+.nbd-field { display: grid; gap: var(--space-1); margin: 0; min-width: 0; }
+/* Nothing in a column is wider than it: inputs, the description, selects. */
+.nbd-draft__body input, .nbd-draft__body textarea, .nbd-draft__body select { max-width: 100%; box-sizing: border-box; }
+.nbd-draft__body textarea.form-field { width: 100%; resize: vertical; }
 .nbd-field__label { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbd-field__hint { font-size: var(--font-size-xs); color: var(--color-text-subtle); margin: 0; }
-.nbd-draft__titleinput { font-family: var(--font-mono); font-size: var(--font-size-lg); font-weight: var(--weight-semibold); padding: var(--space-1) 0; border: 0; border-bottom: 1px dashed var(--color-border-strong); background: transparent; color: var(--color-text); }
+.nbd-draft__titleinput { width: 100%; font-family: var(--font-mono); font-size: var(--font-size-lg); font-weight: var(--weight-semibold); padding: var(--space-1) 0; border: 0; border-bottom: 1px dashed var(--color-border-strong); background: transparent; color: var(--color-text); }
 .nbd-draft__titleinput:focus { outline: none; border-bottom-color: var(--color-primary); }
 .nbd-chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .nbd-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px var(--space-2); border-radius: 999px; background: var(--color-primary-soft); color: var(--color-primary); font-size: var(--font-size-sm); }
-.nbd-chip { max-width: 100%; }
-.nbd-chip input { border: 0; background: transparent; color: inherit; font: inherit; padding: 2px 0; min-width: 3ch; max-width: 100%; text-overflow: ellipsis; }
+.nbd-chip { max-width: 100%; min-width: 0; }
+.nbd-chip input { border: 0; background: transparent; color: inherit; font: inherit; padding: 2px 0; min-width: 3ch; max-width: calc(100% - 1.5em); text-overflow: ellipsis; field-sizing: content; }
 .nbd-chip input:focus { outline: none; text-decoration: underline; }
 .nbd-chip--fact { background: var(--color-surface-raised); color: var(--color-text); border: 1px solid var(--color-border); }
 .nbd-chip--add { border: 1px dashed var(--color-border-strong); background: transparent; color: var(--color-text-muted); padding: 2px var(--space-2); cursor: pointer; font: inherit; font-size: var(--font-size-sm); }
 .nbd-chip__x { border: 0; background: transparent; color: inherit; opacity: 0.6; cursor: pointer; font: inherit; padding: 0 4px; line-height: 1; }
 .nbd-chip__x:hover, .nbd-chip__x:focus-visible { opacity: 1; }
 .nbd-list { display: grid; gap: var(--space-1); justify-items: start; }
-.nbd-row { display: flex; align-items: center; gap: var(--space-2); width: 100%; }
-.nbd-row input { flex: 1; min-width: 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--color-text); font: inherit; padding: 2px 0; }
-.nbd-row input:focus { outline: none; border-bottom-color: var(--color-primary); }
+.nbd-row { display: flex; align-items: flex-start; gap: var(--space-2); width: 100%; min-width: 0; }
+.nbd-row input, .nbd-row textarea { flex: 1; min-width: 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--color-text); font: inherit; line-height: 1.45; padding: 2px 0; }
+/* One line of text that wraps to fit (the script sizes it; field-sizing where supported). */
+.nbd-row textarea { resize: none; overflow: hidden; field-sizing: content; min-height: calc(1.45em + 4px); }
+.nbd-row input:focus, .nbd-row textarea:focus { outline: none; border-bottom-color: var(--color-primary); }
+.nbd-row__box, .nbd-row .nbd-chip__x { line-height: 1.45; padding-top: 2px; }
 .nbd-row__box { color: var(--color-text-muted); }
 .nbd-agents { display: grid; gap: var(--space-1); }
 .nbd-agent { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); font-family: var(--font-mono); }
@@ -709,17 +715,19 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step__focus-btn:hover, .nb-step__focus-btn:focus-visible { text-decoration: underline; }
 
 /* Draft review: the steps sua will take */
-.nbd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.nbd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+/* The agent picker takes a share of the row, not the width of its longest agent name. */
+.nbd-step .nbd-step__agent { flex: 0 0 36%; width: 36%; min-width: 0; text-overflow: ellipsis; }
 .nbd-step { gap: var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--color-border); }
 .nbd-step__kind { flex: none; min-width: 52px; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.nbd-step .nbd-step__title { flex: 1; }
-.nbd-step__agent { flex: none; max-width: 45%; font: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 2px var(--space-1); }
+.nbd-step .nbd-step__title { flex: 1 1 0; min-width: 0; }
+.nbd-step__agent { flex: 0 1 auto; min-width: 0; max-width: 45%; font: inherit; font-size: var(--font-size-sm); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 2px var(--space-1); }
 .nbd-step__by { flex: none; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbd-step { min-width: 0; }
 @media (max-width: 640px) {
   .nbd-step { flex-wrap: wrap; row-gap: var(--space-1); }
   .nbd-step .nbd-step__title { flex: 1 1 0; min-width: 0; }
-  .nbd-step__agent { order: 3; flex: 1 1 100%; max-width: none; margin-left: calc(52px + var(--space-2)); }
+  .nbd-step .nbd-step__agent { order: 3; flex: 1 1 100%; width: auto; max-width: none; margin-left: calc(52px + var(--space-2)); }
 }
 .nb-next__form { margin: 0; }
 

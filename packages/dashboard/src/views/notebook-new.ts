@@ -151,7 +151,7 @@ function chips(name: string, values: readonly string[], label: string): SafeHtml
 /** A list of editable lines (done-when, checks), each removable, plus "+ add". */
 function rows(name: string, values: readonly string[], label: string): SafeHtml {
   return html`<div class="nbd-list" data-nbd-chips="${name}">
-      ${values.map((c) => html`<span class="nbd-row"><span class="nbd-row__box" aria-hidden="true">☐</span><input name="${name}" value="${c}" aria-label="${label}"><button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${c}">×</button></span>`) as unknown as SafeHtml[]}
+      ${values.map((c) => html`<span class="nbd-row"><span class="nbd-row__box" aria-hidden="true">☐</span><textarea name="${name}" rows="1" aria-label="${label}" data-nbd-autosize>${c}</textarea><button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${c}">×</button></span>`) as unknown as SafeHtml[]}
       <button type="button" class="nbd-chip nbd-chip--add" data-nbd-add="${name}" data-nbd-add-label="${label}" data-nbd-add-row>+ add</button>
     </div>`;
 }
@@ -213,8 +213,7 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
             </div>
           </div>
           <div class="nbd-field"><span class="nbd-field__label">Before deciding, check</span>${rows('checks', draft.checks, 'Check')}</div>
-          <label class="nbd-field"><span class="nbd-field__label">Stages</span>
-            <input name="stages" value="${draft.stages.join(' → ')}" class="form-field" aria-describedby="nbd-stages-hint"><span class="nbd-field__hint" id="nbd-stages-hint">separated by →</span></label>
+          <div class="nbd-field"><span class="nbd-field__label">Stages, in order</span>${chips('stages', draft.stages, 'Stage')}</div>
           <div class="nbd-field"><span class="nbd-field__label">Searches</span>
             ${offered.length
               ? html`<div class="nbd-agents">${agents.filter((a) => offered.includes(a.id)).map((a) => html`

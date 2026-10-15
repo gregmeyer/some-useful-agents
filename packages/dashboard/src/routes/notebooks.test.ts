@@ -1761,7 +1761,8 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(back.text).toContain('>noise-cancelling headphones under $300</textarea>');
     expect(back.text).toContain('value="Quiet headphones for flights"');
     expect(back.text).toContain('name="params" value="over-ear"');
-    expect(back.text).toContain('value="Found → Bought"');
+    expect(back.text).toContain('name="stages" value="Found"');
+    expect(back.text).toContain('name="stages" value="Bought"');
     expect(back.text).toMatch(/value="sched-agent"><span>/);
     expect(back.text).toContain(`<input type="hidden" name="draft" value="${id}">`);
 
