@@ -162,3 +162,26 @@ describe('run detail — budgets and nested sub-runs', () => {
     expect(html).toContain('sub-worker');
   });
 });
+
+describe('renderRunDetail — a completed run with steps that didn\'t finish', () => {
+  it('warns (not errors) that its optional steps failed', () => {
+    const html = renderRunDetail({
+      run: baseRun,
+      agent,
+      nodeExecutions: [nodeExec({ nodeId: 'triage', status: 'failed', exitCode: 1, errorCategory: 'exit_nonzero', error: 'error_max_turns: Reached maximum number of turns (10)' })],
+    });
+    expect(html).toContain("<h2>Completed, but a step didn't finish</h2>");
+    expect(html).toContain('flash flash--warn');
+    expect(html).not.toContain('<h2>Error</h2>');
+  });
+
+  it('a failed run still shows an error', () => {
+    const html = renderRunDetail({
+      run: { ...baseRun, status: 'failed' },
+      agent,
+      nodeExecutions: [nodeExec({ status: 'failed', exitCode: 1, errorCategory: 'exit_nonzero', error: 'boom' })],
+    });
+    expect(html).toContain('<h2>Error</h2>');
+    expect(html).toContain('flash flash--error');
+  });
+});

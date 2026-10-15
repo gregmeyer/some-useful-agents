@@ -220,8 +220,11 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
       continue;
     }
     const out = await keep(ctx, store, nb, agent.id, run.id, run.result ?? '');
-    store.finishPass(passId, passNote(agent.id, out));
-    notes.push(passNote(agent.id, out));
+    // A run can complete with some of its own steps unfinished (optional ones) or cut short: say so.
+    const short = shortSteps(ctx.runStore.listNodeExecutions(run.id));
+    const note = `${passNote(agent.id, out)}${short ? ` (${short})` : ''}`;
+    store.finishPass(passId, note);
+    notes.push(note);
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
@@ -235,6 +238,20 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   }
   // You stopped it, or no run got it closer: Move on comes first.
   return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stopped || !gained);
+}
+
+/**
+ * What a completed run's own steps didn't do: "gather-main didn't finish (out
+ * of turns); gather-counter ran out of turns and answered from part of its
+ * research". Undefined when every step ran in full.
+ */
+export function shortSteps(execs: ReadonlyArray<{ nodeId: string; status: string; error?: string | null }>): string | undefined {
+  const why = (error?: string | null) => /max_turns|maximum number of turns/i.test(error ?? '') ? 'out of turns' : /timed? ?out/i.test(error ?? '') ? 'timed out' : 'failed';
+  const parts = [
+    ...execs.filter((e) => e.status === 'failed').map((e) => `${e.nodeId} didn't finish (${why(e.error)})`),
+    ...execs.filter((e) => e.status === 'completed' && /^Ran out of turns/.test(e.error ?? '')).map((e) => `${e.nodeId} ran out of turns and answered from part of its research`),
+  ];
+  return parts.length ? parts.join('; ') : undefined;
 }
 
 /** Mark the step met or stuck, note the run, and say so in the conversation with the next button. */

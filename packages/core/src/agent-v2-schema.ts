@@ -118,6 +118,8 @@ export const agentNodeSchema = z.object({
   prompt: z.string().optional(),
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
+  // Out of turns: answer from what it read (default) or fail.
+  onMaxTurns: z.enum(['answer', 'fail']).optional(),
   // If this node fails, the run carries on: it's recorded as failed, nodes
   // that depend on it get a note instead of its output, and the run can still
   // complete. For independent sources (one site of a multi-site search).

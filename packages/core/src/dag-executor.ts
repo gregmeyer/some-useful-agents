@@ -1552,6 +1552,9 @@ export async function executeAgentDag(
         completedAt,
         result: result.result,
         exitCode: 0,
+        // A completed node can carry a warning (it ran out of turns and answered
+        // from what it had read, a tool was refused, codex exited oddly): keep it.
+        ...(result.error ? { error: result.error } : {}),
         outputsJson,
         stateBytesAfter,
         usedLLMProvider: result.usedLLMProvider,
