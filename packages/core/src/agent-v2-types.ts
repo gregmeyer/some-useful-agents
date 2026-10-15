@@ -268,6 +268,13 @@ export interface AgentNode {
   model?: string;
   maxTurns?: number;
   /**
+   * When the model uses all its turns (claude's `error_max_turns`):
+   * `answer` (the default) resumes it once, without tools, to answer from
+   * what it has already read, and the node completes with a warning;
+   * `fail` fails the node as before.
+   */
+  onMaxTurns?: 'answer' | 'fail';
+  /**
    * If it fails, the run carries on: the failure is recorded, nodes that
    * depend on it get a short note instead of its output, and the run can
    * still complete. For independent sources, e.g. one site of a search.

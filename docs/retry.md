@@ -11,6 +11,8 @@ Replay is for "node 4 broke; reuse the work from nodes 1–3." Retry is for "the
 
 A replay starts with the original run's inputs. From the CLI you can change some of them: `sua workflow replay <runId> --from <nodeId> --input LIMIT=3`. Every run saves its inputs; for a run from before that, replay reads the agent's declared inputs back from the run's node logs (a redacted value stays unset).
 
+A node that runs out of turns isn't a failure to retry: it answers from what it had read (see [agents.md](agents.md#when-an-llm-prompt-node-runs-out-of-turns)).
+
 ## Manual retry (one click)
 
 On any failed run's detail page (`/runs/:id`), the error block shows a **Retry run** button:
