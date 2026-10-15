@@ -229,7 +229,7 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
   - asks what's different this time, one or two questions per reply and at most 4 in all, each with button answers: the template's own value first ("Remote or Austin, TX"), then likely alternatives, or type your own. It asks about the limits that change between runs (place, level, pay floor, budget), how many to find and a deadline, and skips what you already said. **Use the template as is** skips the rest;
   - offers a **Create notebook** card showing the template, the title, the limits, done-whens and checks (before → after when they change: a check that names a place, level or pay floor changes with it) and the steps.
 - **When you approve it:** the notebook is created empty with the template's setup and this time's changes. A step whose agent is no longer installed falls back to sua's finder or checker, or says it needs an agent. Nothing runs until you start its first step.
-- **Remove one:** on **New notebook**, the × next to it (it asks once). Notebooks made from it stay.
+- **Archive or delete one:** on **New notebook**, **Archive** keeps a template but stops it being offered there or by sua. Archived ones fold away under **Archived templates**, each with **Restore**. Saving a template with the same name restores it too. The **×** deletes a template (it asks once). Notebooks made from it stay either way.
 
 ### A brief to share
 
