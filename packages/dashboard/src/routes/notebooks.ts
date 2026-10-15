@@ -115,6 +115,7 @@ notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
     ...(d ? { draft: { id: draftId, state: d, agents: searchAgents(ctx) } } : {}),
     others,
     templates: store(req).listTemplates(),
+    archivedTemplates: store(req).listTemplates(50, { archived: 'only' }),
   }));
 });
 
@@ -430,6 +431,16 @@ notebooksRouter.post('/notebooks/:id/template', (req: Request, res: Response) =>
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
+});
+
+/** Archive a template (kept, not offered), or restore it with archived=0. */
+notebooksRouter.post('/notebooks/templates/:tid/archive', (req: Request, res: Response) => {
+  const s = store(req);
+  const t = s.getTemplate(String(req.params.tid));
+  const restore = req.body?.archived === '0';
+  const done = t ? s.archiveTemplate(t.id, !restore) : false;
+  const msg = !done ? 'No such template.' : restore ? `Restored the template “${t!.name}”.` : `Archived the template “${t!.name}”. sua won't offer it; restore it under Archived templates.`;
+  res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(msg)}`);
 });
 
 /** Remove a template (the notebooks made from it stay). */
