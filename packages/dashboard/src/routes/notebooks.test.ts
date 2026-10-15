@@ -1761,7 +1761,8 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(back.text).toContain('>noise-cancelling headphones under $300</textarea>');
     expect(back.text).toContain('value="Quiet headphones for flights"');
     expect(back.text).toContain('name="params" value="over-ear"');
-    expect(back.text).toContain('value="Found → Bought"');
+    expect(back.text).toContain('name="stages" value="Found"');
+    expect(back.text).toContain('name="stages" value="Bought"');
     expect(back.text).toMatch(/value="sched-agent"><span>/);
     expect(back.text).toContain(`<input type="hidden" name="draft" value="${id}">`);
 
@@ -2062,6 +2063,22 @@ describe('notebook templates', () => {
     expect(page).toContain('Or start from one of your templates');
     expect(page).toContain('<span class="nbd-tpl__name">Job search</span>');
     expect(page).toContain('value="Start a new notebook from my “Job search” template."');
+
+    // Archive: off the list and away from sua, in a folded Archived list; restore brings it back.
+    const archived = await post('/notebooks/templates/job-search/archive', 'archived=1');
+    expect(decodeURIComponent(archived.headers.location)).toContain('Archived the template “Job search”.');
+    let newPage = (await get('/notebooks/new')).text;
+    expect(newPage).not.toContain('Or start from one of your templates');
+    expect(newPage).toContain('Archived templates <span class="nbd-tpl__n">1</span>');
+    expect(newPage).not.toContain('value="Start a new notebook from my “Job search” template."');
+    const { getContext } = await import('../context.js');
+    const { executeNotebookCreate } = await import('./inbox-engine.js');
+    expect(executeNotebookCreate(getContext(app.locals), { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { TEMPLATE: 'job-search', TITLE: 'x' } }))
+      .toMatchObject({ status: 'failed', refusalReason: 'The template "Job search" is archived. Restore it from New notebook → Archived templates first.' });
+    await post('/notebooks/templates/job-search/archive', 'archived=0');
+    newPage = (await get('/notebooks/new')).text;
+    expect(newPage).toContain('Or start from one of your templates');
+    expect(newPage).not.toContain('Archived templates');
 
     const gone = await post('/notebooks/templates/job-search/delete', '');
     expect(decodeURIComponent(gone.headers.location)).toContain('Template removed.');

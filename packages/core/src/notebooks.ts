@@ -319,6 +319,8 @@ export interface NotebookTemplate {
   createdAt: string;
   updatedAt: string;
   usedAt?: string;
+  /** Archived: kept, but not offered (New notebook, sua). */
+  archivedAt?: string;
 }
 
 /** A notebook's setup as a template keeps it (see NotebookTemplateSetup). */
@@ -350,6 +352,7 @@ function templateRecord(r: Record<string, unknown>): NotebookTemplate | undefine
     ...(r.from_notebook ? { fromNotebook: String(r.from_notebook) } : {}),
     uses: Number(r.uses ?? 0), createdAt: String(r.created_at), updatedAt: String(r.updated_at),
     ...(r.used_at ? { usedAt: String(r.used_at) } : {}),
+    ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
   };
 }
 
@@ -469,6 +472,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
+      ['notebook_templates', 'archived_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -1238,7 +1242,7 @@ export class NotebookStore {
     const id = notebookSlug(clean);
     const setup = templateFromNotebook(nb);
     this.db.prepare(`INSERT INTO notebook_templates (id, name, description, setup_json, from_notebook, uses, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = excluded.from_notebook, updated_at = excluded.updated_at`)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = excluded.from_notebook, updated_at = excluded.updated_at, archived_at = NULL`)
       .run(id, clean, describeTemplateSetup(setup), JSON.stringify(setup), nb.id, now, now);
     return this.getTemplate(id)!;
   }
@@ -1248,10 +1252,19 @@ export class NotebookStore {
     return r ? templateRecord(r) : undefined;
   }
 
-  /** Your templates, the most used first, then the newest. */
-  listTemplates(limit = 50): NotebookTemplate[] {
-    return (this.db.prepare('SELECT * FROM notebook_templates ORDER BY uses DESC, updated_at DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>)
+  /**
+   * Your templates, the most used first, then the newest. Archived ones are
+   * left out unless asked for (`archived: 'only'` lists just them).
+   */
+  listTemplates(limit = 50, opts: { archived?: 'exclude' | 'include' | 'only' } = {}): NotebookTemplate[] {
+    const where = opts.archived === 'include' ? '' : opts.archived === 'only' ? 'WHERE archived_at IS NOT NULL' : 'WHERE archived_at IS NULL';
+    return (this.db.prepare(`SELECT * FROM notebook_templates ${where} ORDER BY uses DESC, updated_at DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>)
       .map(templateRecord).filter((t): t is NotebookTemplate => !!t);
+  }
+
+  /** Archive a template (kept, not offered) or, with `archived` false, restore it. */
+  archiveTemplate(id: string, archived = true, now = new Date().toISOString()): boolean {
+    return Number(this.db.prepare('UPDATE notebook_templates SET archived_at = ? WHERE id = ?').run(archived ? now : null, id).changes) > 0;
   }
 
   deleteTemplate(id: string): boolean {

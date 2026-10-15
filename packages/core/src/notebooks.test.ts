@@ -1015,6 +1015,17 @@ describe('notebook templates', () => {
     s.markTemplateUsed('car-search');
     expect(s.listTemplates().map((x) => x.id)).toEqual(['car-search', 'job-search']);
     expect(s.getTemplate('car-search')).toMatchObject({ uses: 1 });
+    // Archived: kept, not listed (unless asked), and saving the same name again restores it.
+    expect(s.archiveTemplate('job-search')).toBe(true);
+    expect(s.listTemplates().map((x) => x.id)).toEqual(['car-search']);
+    expect(s.listTemplates(50, { archived: 'only' }).map((x) => x.id)).toEqual(['job-search']);
+    expect(s.listTemplates(50, { archived: 'include' })).toHaveLength(2);
+    expect(s.getTemplate('job-search')!.archivedAt).toBeTruthy();
+    s.saveTemplate('Job search', nb.id);
+    expect(s.getTemplate('job-search')!.archivedAt).toBeUndefined();
+    s.archiveTemplate('job-search');
+    expect(s.archiveTemplate('job-search', false)).toBe(true);
+    expect(s.listTemplates()).toHaveLength(2);
     expect(s.deleteTemplate('car-search')).toBe(true);
     expect(s.getTemplate('car-search')).toBeUndefined();
     expect(() => s.saveTemplate('  ', nb.id)).toThrow('A template needs a name.');

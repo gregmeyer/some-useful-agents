@@ -47,14 +47,32 @@ export function renderDraftsStrip(drafts: ReadonlyArray<{ id: string } & DraftSt
     </section>`;
 }
 
+type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>;
+
+/** Remove a template, after asking once. */
+function deleteTemplateControl(t: TemplateRow): SafeHtml {
+  return html`<details class="nbd-tpl__del">
+    <summary class="btn btn--sm btn--ghost" aria-label="Delete the template ${t.name}" title="Delete this template">×</summary>
+    <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete">
+      <span>Delete it? Notebooks made from it stay.</span>
+      <button type="submit" class="btn btn--sm">Delete</button>
+    </form>
+  </details>`;
+}
+
 /**
  * Your templates: each starts a conversation with sua, which asks what's
- * different this time, then creates the notebook. Removable.
+ * different this time, then creates the notebook. Archive one to stop it
+ * being offered; archived ones fold away below, to restore or delete.
  */
-function renderTemplateList(templates: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>): SafeHtml {
-  if (!templates.length) return html``;
+function renderTemplateList(templates: readonly TemplateRow[], archived: readonly TemplateRow[] = []): SafeHtml {
+  if (!templates.length && !archived.length) return html``;
+  const archiveForm = (t: TemplateRow, restore: boolean) => html`<form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/archive" class="nbd-tpl__arch">
+    <input type="hidden" name="archived" value="${restore ? '0' : '1'}">
+    <button type="submit" class="btn btn--sm${restore ? '' : ' btn--ghost'}" title="${restore ? 'Offer it again on New notebook and to sua' : "Keep it, but don't offer it on New notebook or to sua"}">${restore ? 'Restore' : 'Archive'}</button>
+  </form>`;
   return html`<section class="nbd-tpl" aria-labelledby="nbd-tpl-h">
-    <h2 class="nbd-tpl__h" id="nbd-tpl-h">Or start from one of your templates</h2>
+    ${templates.length ? html`<h2 class="nbd-tpl__h" id="nbd-tpl-h">Or start from one of your templates</h2>
     <ul class="nbd-tpl__list">
       ${templates.map((t) => html`<li class="nbd-tpl__item">
         <span class="nbd-tpl__name">${t.name}</span>
@@ -63,15 +81,21 @@ function renderTemplateList(templates: ReadonlyArray<Pick<NotebookTemplate, 'id'
           <input type="hidden" name="body" value="${`Start a new notebook from my “${t.name}” template.`}">
           <button type="submit" class="btn btn--sm btn--primary" title="sua asks what's different this time, then creates it">Start with sua →</button>
         </form>
-        <details class="nbd-tpl__del">
-          <summary class="btn btn--sm btn--ghost" aria-label="Remove the template ${t.name}" title="Remove this template">×</summary>
-          <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete">
-            <span>Remove it? Notebooks made from it stay.</span>
-            <button type="submit" class="btn btn--sm">Remove</button>
-          </form>
-        </details>
+        ${archiveForm(t, false)}
+        ${deleteTemplateControl(t)}
       </li>`) as unknown as SafeHtml[]}
-    </ul>
+    </ul>` : html`<h2 class="nbd-tpl__h" id="nbd-tpl-h">Your templates</h2>`}
+    ${archived.length ? html`<details class="nbd-tpl__archived">
+      <summary>Archived templates <span class="nbd-tpl__n">${String(archived.length)}</span></summary>
+      <ul class="nbd-tpl__list">
+        ${archived.map((t) => html`<li class="nbd-tpl__item is-archived">
+          <span class="nbd-tpl__name">${t.name}</span>
+          <span class="nbd-tpl__what">${t.description}</span>
+          ${archiveForm(t, true)}
+          ${deleteTemplateControl(t)}
+        </li>`) as unknown as SafeHtml[]}
+      </ul>
+    </details>` : html``}
   </section>`;
 }
 
@@ -83,6 +107,8 @@ export function renderNotebookNew(opts: {
   others?: ReadonlyArray<{ id: string } & DraftState>;
   /** Your templates: start one by asking sua. */
   templates?: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>;
+  /** Archived templates: restore or delete. */
+  archivedTemplates?: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>;
 } = {}): string {
   const d = opts.draft;
   const result = !d ? html``
@@ -104,7 +130,7 @@ export function renderNotebookNew(opts: {
         <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>
         <p class="nbd-ask__examples">For example: “a remote staff engineer job paying $180k+” · “a quiet 2-bed rental in Fremont under $2,600” · “noise-cancelling headphones under $300”</p>
       </form>
-      ${renderTemplateList(opts.templates ?? [])}
+      ${renderTemplateList(opts.templates ?? [], opts.archivedTemplates ?? [])}
       <div class="nbd-result" data-nbd-result aria-live="polite">${result}</div>
       <form method="POST" action="/notebooks" class="nbd-skip" data-nbd-skip>
         <input type="hidden" name="statement" value="" data-nbd-skip-text>
@@ -125,7 +151,7 @@ function chips(name: string, values: readonly string[], label: string): SafeHtml
 /** A list of editable lines (done-when, checks), each removable, plus "+ add". */
 function rows(name: string, values: readonly string[], label: string): SafeHtml {
   return html`<div class="nbd-list" data-nbd-chips="${name}">
-      ${values.map((c) => html`<span class="nbd-row"><span class="nbd-row__box" aria-hidden="true">☐</span><input name="${name}" value="${c}" aria-label="${label}"><button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${c}">×</button></span>`) as unknown as SafeHtml[]}
+      ${values.map((c) => html`<span class="nbd-row"><span class="nbd-row__box" aria-hidden="true">☐</span><textarea name="${name}" rows="1" aria-label="${label}" data-nbd-autosize>${c}</textarea><button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${c}">×</button></span>`) as unknown as SafeHtml[]}
       <button type="button" class="nbd-chip nbd-chip--add" data-nbd-add="${name}" data-nbd-add-label="${label}" data-nbd-add-row>+ add</button>
     </div>`;
 }
@@ -187,8 +213,7 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
             </div>
           </div>
           <div class="nbd-field"><span class="nbd-field__label">Before deciding, check</span>${rows('checks', draft.checks, 'Check')}</div>
-          <label class="nbd-field"><span class="nbd-field__label">Stages</span>
-            <input name="stages" value="${draft.stages.join(' → ')}" class="form-field" aria-describedby="nbd-stages-hint"><span class="nbd-field__hint" id="nbd-stages-hint">separated by →</span></label>
+          <div class="nbd-field"><span class="nbd-field__label">Stages, in order</span>${chips('stages', draft.stages, 'Stage')}</div>
           <div class="nbd-field"><span class="nbd-field__label">Searches</span>
             ${offered.length
               ? html`<div class="nbd-agents">${agents.filter((a) => offered.includes(a.id)).map((a) => html`
