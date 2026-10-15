@@ -28,6 +28,7 @@ let runStore: RunStore;
 let suggesterSaw = '';
 let facetsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 let checkerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+let finderReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 /** The drafter's answer when sua lays out a new notebook's steps (unset: none). */
 let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
@@ -91,6 +92,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
     // Nor a real checker: tests set checkerReply.
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
+    // Nor a real finder: tests set finderReply.
+    notebookFinderRun: async (inputs) => finderReply?.(inputs),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     // Laying out a new notebook's steps: tests set stepsReply.
@@ -721,6 +724,43 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(asked[0].NOTEBOOK).toContain('This step: Check the peers.');
     expect(store.get(nb.id)!.lastRunNote).toContain('notebook-checker: 0 new, 1 check met, 1 ruled out on a check (filed directly)');
     checkerReply = undefined;
+  });
+
+  it("a find step without an agent uses sua's finder, which files what its searches found", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Director of accounting job', statement: 'A director-level accounting job, Austin or remote.' });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.upsertOption(nb.id, { title: 'Controller, Old Co', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/9' } });
+    store.setSteps(nb.id, [{ title: 'Find 2 roles', kind: 'find', target: 2 }]);
+
+    // The page says who does it.
+    const page = await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
+    expect(page.text).toContain('with sua’s finder');
+    expect(page.text).not.toContain('needs an agent');
+
+    const asked: Array<Record<string, string>> = [];
+    finderReply = (inputs) => {
+      asked.push(inputs);
+      return `Found 1 new.\n<notebook>${JSON.stringify({ entries: [
+        { kind: 'option', title: 'Controller, Acme: Remote US, $190k–$220k', body: 'Leads a team of 6.', data: { salary: { min: 190000, max: 220000 }, posting_url: 'https://job-boards.greenhouse.io/acme/jobs/1' }, fingerprint: 'https://job-boards.greenhouse.io/acme/jobs/1' },
+        { kind: 'note', title: 'Searched 3 places at once: Greenhouse (1), Lever (0), Ashby (0). Nothing new from Lever, Ashby.' },
+      ], sources: [{ name: 'Greenhouse', found: 1, status: 'found' }, { name: 'Lever', found: 0, status: 'none' }] })}</notebook>`;
+    };
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { getContext } = await import('../context.js');
+    expect(startNotebookStep(getContext(app.locals), nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'met', note: '2 of 2 found' });
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.title)).toContain('Controller, Acme: Remote US, $190k–$220k');
+    // It's given the notebook with this step's job, what it already has, and the fields to fill.
+    expect(asked[0].NOTEBOOK).toContain('This step: Find 2 roles.');
+    expect(JSON.parse(asked[0].OPTIONS)).toEqual([expect.objectContaining({ name: 'Controller, Old Co', sources: ['https://jobs.lever.co/oldco/9'] })]);
+    expect(JSON.parse(asked[0].FIELDS).map((f: { key: string }) => f.key)).toEqual(['salary', 'posting_url']);
+    expect(store.get(nb.id)!.lastRunNote).toContain('notebook-finder: 2 new (filed directly)');
+    finderReply = undefined;
   });
 
   it('Check the top N: a check step you moved on from works again on just the best options', async () => {

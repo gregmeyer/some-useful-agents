@@ -793,7 +793,9 @@ next, say it was the last one in the running.
   `{ "type": "notebook-steps", "rationale": "why these steps",
      "inputs": { "NOTEBOOK": "<id>", "STEPS": "[{\"title\": \"Find 10 companies\", \"kind\": \"find\", \"agent\": \"account-research\", \"target\": 10}, {\"title\": \"Source headcount and revenue\", \"kind\": \"source\", \"agent\": \"firmographic-research\", \"facts\": [\"employees\", \"revenue\", \"founded\"]}, {\"title\": \"Check value to customers\", \"kind\": \"check\"}, {\"title\": \"Pick the final comp set\", \"kind\": \"decide\", \"target\": 10}]",
                  "RUN": "1" (start step 1 now, optional) } }`
-  Kinds: find (options; target = how many), source (facts the options are
+  Kinds: find (options; target = how many; no agent = sua's finder, which
+  splits the search into a few narrow ones, one per site or source, and runs
+  them at once), source (facts the options are
   missing; "facts" = the notebook's fact keys its agent looks up, when it
   doesn't look up every fact the notebook tracks; the link field's key to
   find each option's own listing or posting page, when its links are search
@@ -805,7 +807,8 @@ next, say it was the last one in the running.
   Agents: only installed ones whose description fits that step's job, from
   AGENT_CATALOG (one agent may serve several steps). Steps never change an
   agent: each gets its step's job in its inputs. If no installed agent fits
-  a find or source step, leave its agent out and offer to build one; once
+  a source step, leave its agent out and offer to build one (a find step
+  with no fitting agent just uses sua's finder); once
   built, propose notebook-steps again with it. When a step is stuck because
   its agent can't get part of what the step needs ("its agent can't find
   founding years"), use the ladder in WHEN AN AGENT CAN'T DO PART OF THE

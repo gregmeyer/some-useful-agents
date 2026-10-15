@@ -17,15 +17,19 @@ import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, pipelineInputs } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
+import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
+
+export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
 
 type Ctx = ReturnType<typeof getContext>;
 
 /** Runs per press, toward one step's goal. */
 export const MAX_TRIES = 3;
-/** sua's checker: a check step without an agent of its own uses it. */
-export const NOTEBOOK_CHECKER_ID = 'notebook-checker';
 /** The checker's inputs, for a test's stand-in. */
 const CHECKER_INPUTS = { NOTEBOOK: {}, CHECKS: {}, OPTIONS: {} } as unknown as Agent['inputs'];
+/** The finder's inputs, for a test's stand-in. */
+const FINDER_INPUTS = { NOTEBOOK: {}, OPTIONS: {}, FIELDS: {} } as unknown as Agent['inputs'];
+
 
 /** The route-handled action behind a step's Continue / Try again card. */
 export const NOTEBOOK_STEP_ACTION = 'notebook-step';
@@ -153,14 +157,16 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
-  // A check step without an agent uses sua's checker.
-  const agentId = step.agentId ?? (step.kind === 'check' ? NOTEBOOK_CHECKER_ID : undefined);
-  const checker = agentId === NOTEBOOK_CHECKER_ID && !step.agentId;
-  if (checker && !ctx.notebookCheckerRun && !ensureSystemAgentCurrent(ctx, NOTEBOOK_CHECKER_ID, 'a notebook check step')) {
-    return { started: false, reason: 'sua’s checker isn’t available.', step };
+  // A check or find step without an agent uses sua's own (the checker, the finder).
+  const agentId = step.agentId ?? suaStepAgent(step.kind);
+  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
+    && (agentId !== NOTEBOOK_FINDER_ID || ensureSystemAgentCurrent(ctx, NOTEBOOK_FIND_ONE_ID, 'a notebook find step')))) {
+    return { started: false, reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.`, step };
   }
   const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
-  if (!agentId || ((!agent || agent.status === 'archived') && !(checker && ctx.notebookCheckerRun))) {
+  if (!agentId || ((!agent || agent.status === 'archived') && !(sua && fake))) {
     return { started: false, reason: agentId ? `Its agent, ${agentId}, isn't installed.` : 'This step needs an agent. Ask sua to pick or build one.', step };
   }
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
@@ -175,8 +181,9 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
 async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>, onRunId?: (runId: string) => void): Promise<{ id: string; status: string; result?: string; error?: string }> {
-  if (agentId === NOTEBOOK_CHECKER_ID && ctx.notebookCheckerRun) {
-    const result = await ctx.notebookCheckerRun(inputs({ inputs: CHECKER_INPUTS }));
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  if (fake) {
+    const result = await fake(inputs({ inputs: agentId === NOTEBOOK_CHECKER_ID ? CHECKER_INPUTS : FINDER_INPUTS }));
     return { id: randomUUID(), status: result ? 'completed' : 'failed', ...(result ? { result } : { error: 'no answer' }) };
   }
   const agent = ctx.agentStore.getAgent(agentId)!;

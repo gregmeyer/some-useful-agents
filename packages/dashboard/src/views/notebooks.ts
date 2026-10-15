@@ -12,6 +12,7 @@ import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
+import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 
@@ -184,7 +185,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
   return html`<ol class="nb-steps${finished ? ' nb-steps--done' : ''}" style="--n:${String(Math.min(steps.length, 6))}" aria-label="Steps">
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
-      const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : isYourStep(step) ? 'you' : '');
+      const by = step.agentId ?? suaStepAgentName(step.kind) ?? (isYourStep(step) ? 'you' : '');
       // A source step that looks up only some facts names them.
       const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
@@ -265,8 +266,8 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string; mov
       : { label: 'Next step', hint: `Step ${String(i + 1)} is done. Next: step ${String(i + 2)} ${of}, ${next.title}.` };
   }
   if (isYourStep(step)) return { note: `Next: ${step.title}, with ${yourStepButton(step)}.` };
-  // A check step without an agent uses sua's checker; find and source need one.
-  if (!step.agentId && step.kind !== 'check') return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
+  // A check or find step without an agent uses sua's checker or finder; source needs one.
+  if (!step.agentId && !suaStepAgentName(step.kind)) return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
   if (step.status !== 'stuck') return { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
   // Short of its goal: Try again, or Move on with what it found; Move on first when its agent got no further.
   const again = { label: 'Try again', hint: `Step ${String(i + 1)} ${of}, ${step.title}, stopped short. Run it again.` };

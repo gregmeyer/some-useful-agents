@@ -350,7 +350,7 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 | `decide` | you've confirmed the final set of `target` options | "pick 10" |
 
 - **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
-- **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
+- **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker, and a `find` step without one uses sua's finder (below); a `source` step without one says "needs an agent".
 - **Statuses:** to do, running, goal met, stuck or done.
 - **A source step can name its facts.** An agent that looks up revenue, employees and founding year can't fill "why people buy it", so a step that counted every fact would never reach its goal with it. Give the step `"facts": ["revenue", "employees", "founded"]` and only those count; its agent is asked only for those, and the step shows them beside its agent ("with firmographic-research · revenue, employees, founded"). Leave the other facts to another step. Names that aren't the notebook's facts are dropped.
 
@@ -359,7 +359,7 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 
   ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)
 
-  When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job; a find or source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
+  When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job. A find step keeps sua's finder unless one of your agents is made for that kind of search (a listings sweep for cars); a general research or brief agent isn't given a find step. A source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker, a find step sua's finder) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
 - **When a notebook starts without any:** if you used **Skip the draft**, or the draft came back with no steps, sua lays them out itself once it has set the notebook up. It works from the notebook's goal, what it notes for each option, and your agents, the same way a draft would, and changes nothing else. A source step names the facts it looks up. sua's first message in the conversation lists them ("The work, one step at a time: find 10 companies, then source firmographics, then …"). Steps you set before it finishes are kept. If nothing fits, the notebook has no steps and runs its pipeline as before.
 
   ![An example notebook started with Skip the draft: sua laid out four steps (find, source revenue and headcount, check, pick the final set)](images/notebook-steps-from-setup.png)
@@ -407,6 +407,16 @@ A check step with no agent of its own uses sua's checker (`notebook-checker`, a 
    - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
 
 The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").
+
+### sua's finder
+
+A find step with no agent of its own uses sua's finder (`notebook-finder`, a built-in agent). One search asked to cover everything (four job boards, each posting opened and checked) runs out of turns, so the finder splits it up:
+
+1. **It plans 3 to 5 narrow searches**, each covering ground the others don't: for jobs, one per job board (Greenhouse, Lever, Ashby, Workday) plus the open web; for cars, one per listings site; for products, one per store. The plan says where and how to look, never what it will find. It's given the options the notebook already has, as short "name: link" lines, so it doesn't look for them again.
+2. **The searches run 3 at a time** (a parallel `loop`, [flows.md](flows.md)). Each is its own small run (`notebook-find-one`, 8 turns) that searches, opens up to 4 candidates' own pages (or a job board's JSON API, one call for every opening with pay) and returns each with its facts by the notebook's fields, a quote from its page, and why it fits. One that runs out of turns answers with what it found; one that fails doesn't sink the others.
+3. **Code files what they found**, as they found it: one option per page (the same posting found twice is one option), facts only for the notebook's fields, nothing already in the notebook, long titles cut at a word. It adds a note saying where it looked and what each search found ("Searched 5 places at once: Greenhouse (2), Lever (1), Ashby (0), Workday (1), Open web (2). Nothing new from Ashby."), and the notebook's Where it looked shows each search.
+
+On the job notebook it found 6 new roles in about 3 minutes on the first try, where one search had come back empty.
 
 ## Coming next
 

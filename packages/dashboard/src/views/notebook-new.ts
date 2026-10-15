@@ -9,6 +9,7 @@ import { layout } from './layout.js';
 import { formatAge } from './components.js';
 import type { NotebookStep } from '@some-useful-agents/core';
 import type { NotebookDraft, DraftState } from '../lib/notebook-draft.js';
+import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 
 const CADENCES: Array<[string, string]> = [['', 'when I ask'], ['0 7 * * *', 'every morning'], ['0 7 * * 1,4', 'twice a week'], ['0 7 * * 1', 'every Monday']];
 
@@ -102,7 +103,7 @@ const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { find: 'find', sou
 
 /**
  * The work in steps: each with its title (editable), what kind of step it
- * is, and which of your agents does it (a check step can use sua's checker;
+ * is, and which of your agents does it (check and find steps can use sua's checker and finder;
  * narrow and decide are yours). Removable; sua takes them one at a time.
  */
 function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: string; description: string }>): SafeHtml {
@@ -116,7 +117,7 @@ function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: st
         ${st.kind === 'decide' || st.kind === 'narrow'
           ? html`<input type="hidden" name="step_agent" value=""><span class="nbd-step__by">you</span>`
           : html`<select name="step_agent" aria-label="Agent for ${st.title}" class="nbd-step__agent">
-              <option value="">${st.kind === 'check' ? 'sua’s checker' : 'needs an agent'}</option>
+              <option value="">${suaStepAgentName(st.kind) ?? 'needs an agent'}</option>
               ${agents.map((a) => html`<option value="${a.id}"${a.id === st.agentId ? unsafeHtml(' selected') : unsafeHtml('')}>${a.id}</option>`) as unknown as SafeHtml[]}
             </select>`}
         <button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove ${st.title}">×</button>
