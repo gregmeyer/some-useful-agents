@@ -1260,7 +1260,8 @@ export async function executeNotebookStep(
     const then = m.next?.started ? ` Working on **${m.next.step!.title}** now; I'll say here when it's done.` : m.next?.reason ? ` ${m.next.reason}` : ' Next is yours: pick the final set with Decide.';
     return { status: 'completed', summary: `Moved on from **${m.step!.title}**, keeping what it found.${then}` };
   }
-  const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' ? meta.inputs.WAS : undefined;
+  // todo: the greeting's Start, for a notebook's first step.
+  const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' || meta.inputs.WAS === 'todo' ? meta.inputs.WAS : undefined;
   const out = startNotebookStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP, expect: was });
   if (!out.started) return { status: 'failed', refusalReason: out.reason ?? 'It could not start.' };
   return { status: 'completed', summary: `Working on **${out.step!.title}**${out.step!.agentId ? ` with ${out.step!.agentId}` : ''}. I'll say here when it's done or stuck.` };

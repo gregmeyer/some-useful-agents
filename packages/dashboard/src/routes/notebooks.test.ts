@@ -1373,6 +1373,40 @@ describe('sua greets a new notebook', () => {
   });
 });
 
+describe("a new notebook's Start", () => {
+  it('is offered for a first step sua can run, not for yours or one that needs an agent', async () => {
+    await makeApp();
+    const { startableFirstStep } = await import('../lib/notebook-chat.js');
+    const step = (kind: string, extra: Record<string, unknown> = {}) => ({ steps: [{ id: 's1', title: 'Step', kind, status: 'todo', tries: 0, ...extra }] }) as never;
+    expect(startableFirstStep(step('find'))?.id).toBe('s1'); // sua's finder
+    expect(startableFirstStep(step('check'))?.id).toBe('s1'); // sua's checker
+    expect(startableFirstStep(step('source', { agentId: 'facts-agent' }))?.id).toBe('s1');
+    expect(startableFirstStep(step('source'))).toBeUndefined(); // needs an agent first
+    expect(startableFirstStep(step('decide'))).toBeUndefined(); // yours
+    expect(startableFirstStep(step('find', { status: 'done' }))).toBeUndefined();
+    expect(startableFirstStep({ steps: [] } as never)).toBeUndefined();
+  });
+
+  it("starts step 1 when you press it (the step card's WAS todo), and a stale one does nothing", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setSteps(nb.id, [{ title: 'Find 3', kind: 'find', target: 3 }]);
+    finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"A"},{"kind":"option","title":"B"},{"kind":"option","title":"C"}]}</notebook>';
+    const ctx = getContext(app.locals);
+    const card = { kind: 'action' as const, status: 'proposed' as const, agentId: 'notebook-step', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'todo' } };
+    expect(await executeNotebookStep(ctx, card)).toMatchObject({ status: 'completed', summary: "Working on **Find 3**. I'll say here when it's done or stuck." });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.get(nb.id)!.steps![0].status).toBe('met');
+    // Pressed again later: the step isn't to do any more.
+    expect(await executeNotebookStep(ctx, card)).toMatchObject({ status: 'failed' });
+    finderReply = undefined;
+  });
+});
+
 describe('a notebook started without steps', () => {
   afterEach(() => { stepsReply = undefined; });
   const make = async () => {
@@ -1412,8 +1446,12 @@ describe('a notebook started without steps', () => {
     expect(JSON.parse(asked!.CURRENT)).toMatchObject({ title: 'Find a staff role', steps: [] });
     expect(asked!.CURRENT).toContain('"salary"');
     const said = inbox.listResponses(nb.conversationId!);
-    expect(said).toHaveLength(1);
+    expect(said).toHaveLength(2);
     expect(said[0].body).toContain('**The work, one step at a time:** find 10 roles, then source pay, then check pay bands, then pick one.');
+    // Step 1 is a press away: the greeting says so, and a Start card follows it.
+    expect(said[0].body).toContain("Press **Start** when you're ready and I'll begin with **Find 10 roles**.");
+    expect(said[1]).toMatchObject({ role: 'action' });
+    expect(JSON.parse(said[1].metaJson!)).toMatchObject({ agentId: 'notebook-step', status: 'proposed', ctaLabel: 'Start', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'todo' }, rationale: 'Start step 1: Find 10 roles, with sched-agent.' });
   });
 
   it("keeps a draft's steps without asking again, and still greets when sua gives none", async () => {
@@ -1428,6 +1466,8 @@ describe('a notebook started without steps', () => {
     expect(store.get('rental')!.steps).toBeUndefined();
     expect(calls).toBe(1); // only the notebook without steps
     expect(inbox.listResponses(store.get('rental')!.conversationId!)[0].body).not.toContain('one step at a time');
+    // No steps: nothing to start, so no card.
+    expect(inbox.listResponses(store.get('rental')!.conversationId!)).toHaveLength(1);
   });
 });
 

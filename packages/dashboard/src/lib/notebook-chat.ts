@@ -6,12 +6,12 @@
  */
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
-  type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
+  type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
-import { suaStepAgentName } from './notebook-step-agents.js';
+import { suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -399,6 +399,17 @@ export function notebookGreeting(nb: Notebook, hasOptions = false): string {
   return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').filter((l) => l !== undefined).join('\n').replace(/\n\n+/g, '\n\n');
 }
 
+/**
+ * A new notebook's first step, when sua can start it with a press: still to
+ * do, not yours (Decide, Narrow), and with an agent (its own, or sua's finder
+ * or checker). A source step with no agent needs one first.
+ */
+export function startableFirstStep(nb: Pick<Notebook, 'steps'>): NotebookStep | undefined {
+  const first = nb.steps?.[0];
+  if (!first || first.status !== 'todo' || first.kind === 'decide' || first.kind === 'narrow') return undefined;
+  return first.agentId || suaStepAgent(first.kind) ? first : undefined;
+}
+
 /** Post the greeting into the notebook's conversation (once: only when it has none yet). */
 export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined {
   const store = notebooksOf(ctx);
@@ -407,7 +418,19 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   const threadId = notebookThread(ctx, nb);
   if (!threadId) return undefined;
   const now = store.get(notebookId) ?? nb;
-  ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option')));
+  const first = startableFirstStep(now);
+  ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option'))
+    + (first ? `\n\nPress **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
+  // Its first step, one press away (the same card as a step's Continue).
+  if (first) {
+    const action: InboxActionMeta = {
+      kind: 'action', status: 'proposed', agentId: 'notebook-step', effect: 'write',
+      inputs: { NOTEBOOK: now.id, STEP: first.id, WAS: 'todo' },
+      rationale: `Start step 1: ${first.title}${first.agentId ? `, with ${first.agentId}` : suaStepAgentName(first.kind) ? `, with ${suaStepAgentName(first.kind)!}` : ''}.`,
+      ctaLabel: 'Start',
+    };
+    ctx.inboxStore.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
+  }
   ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
   return threadId;
 }
