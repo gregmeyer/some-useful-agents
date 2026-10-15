@@ -705,6 +705,9 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html" target="_blank" rel="noopener" title="A polished page of where it stands and the options, to send or hand to Claude">Open the brief ↗</a>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?download=1" download title="The brief as one HTML file">Download the brief</a>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?print=1" target="_blank" rel="noopener" title="Opens the brief and your browser's print dialog: choose Save as PDF">Save as PDF ↗</a>
+      <span class="nb-progress__label nb-csv__brief-label">Extended: each option in full</span>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?full=1" target="_blank" rel="noopener" title="The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history">Open the extended brief ↗</a>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?full=1&amp;print=1" target="_blank" rel="noopener" title="The extended brief with your browser's print dialog; each option starts a new page">Save extended as PDF ↗</a>
     </div>
   </details>`;
 }
