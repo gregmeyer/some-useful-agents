@@ -95,6 +95,8 @@ const loopConfigSchema = z.object({
   agentId: z.string(),
   maxIterations: z.number().int().positive().optional(),
   inputMapping: z.record(z.string(), z.string()).optional(),
+  // How many items run at once (default 1: one after another).
+  concurrency: z.number().int().min(1).max(6).optional(),
 });
 
 const agentInvokeConfigSchema = z.object({

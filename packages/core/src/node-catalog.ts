@@ -294,6 +294,7 @@ export const NODE_CATALOG: Record<NodeType, NodeContract> = {
       { name: 'loopConfig.over', type: 'string', required: true, description: 'Field name in the upstream output (must resolve to an array).' },
       { name: 'loopConfig.agentId', type: 'string', required: true, description: 'Id of the sub-agent to invoke per item.' },
       { name: 'loopConfig.maxIterations', type: 'number', description: 'Safety cap. Default 10.' },
+      { name: 'loopConfig.concurrency', type: 'number', description: 'How many items run at once (1–6, default 1). Results keep the items\' order. For independent items, e.g. one search per site.' },
       { name: 'loopConfig.inputMapping', type: 'object', description: 'Map sub-agent inputs to per-iteration values. Use $item.<field> to reference fields on the current item.' },
       { name: 'dependsOn', type: 'string[]', required: true, description: 'Exactly one upstream — the source of the array.' },
     ],
