@@ -1,4 +1,4 @@
-import type { LlmSettingsSnapshot } from '@some-useful-agents/core';
+import { modelUnavailableRecorder, type LlmSettingsSnapshot } from '@some-useful-agents/core';
 import type { DashboardContext } from '../context.js';
 
 /**
@@ -34,6 +34,8 @@ export function buildLlmSettingsSnapshot(
     customProviders: current.customProviders ? [...current.customProviders] : undefined,
     pricing: current.pricing,
     spendLimits: current.spendLimits,
+    models: current.models,
+    onModelUnavailable: modelUnavailableRecorder(store),
     onFallback: (event) => {
       try {
         store.recordFallback({

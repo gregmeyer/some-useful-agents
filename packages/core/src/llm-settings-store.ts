@@ -109,8 +109,27 @@ export interface LlmSettings {
   pricing?: PriceTable;
   /** Default spend limits for agents that don't set their own (spend-limits.ts). */
   spendLimits?: SpendLimits;
+  /**
+   * The model a builtin CLI provider runs when a node doesn't pin one, keyed by
+   * provider id (e.g. `{ codex: 'gpt-6-sol' }`). Absent ⇒ the CLI's own default
+   * (for codex, `model` in ~/.codex/config.toml).
+   */
+  models?: Record<string, string>;
+  /**
+   * Models a provider refused as no longer offered, keyed `provider/model`.
+   * Written by the runtime when an attempt fails `model_unavailable`; read by
+   * the dashboard's model watch to tell sua once per model.
+   */
+  unavailableModels?: Record<string, UnavailableModel>;
   /** Set whenever the fallback most recently fired. */
   lastFallback?: LlmFallbackEvent;
+}
+
+/** A provider refused this model (see LlmSettings.unavailableModels). */
+export interface UnavailableModel {
+  at: number;
+  /** The provider's own words, trimmed. */
+  error?: string;
 }
 
 interface LlmSettingsFileV1 {
@@ -316,6 +335,34 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
+  /**
+   * Set (or with `null` / empty, clear) the model `provider` runs when a node
+   * doesn't pin one. Only builtin CLI providers take one here; a custom
+   * provider's model is part of its definition.
+   */
+  setProviderModel(provider: string, model: string | null): void {
+    if (!isProvider(provider)) throw new Error(`Invalid provider: ${provider}`);
+    const m = (model ?? '').trim();
+    if (m && !/^[\w.:/-]+$/.test(m)) throw new Error('A model id is letters, digits and . _ : / -');
+    const data = this.read();
+    const models = { ...(data.settings.models ?? {}) };
+    if (m) models[provider] = m; else delete models[provider];
+    data.settings.models = Object.keys(models).length > 0 ? models : undefined;
+    this.write(data);
+  }
+
+  /** Note that `provider` refused `model` as not offered (first sighting kept). */
+  recordUnavailableModel(provider: string, model: string, error?: string): void {
+    const key = `${provider}/${model}`;
+    const data = this.read();
+    if (data.settings.unavailableModels?.[key]) return;
+    data.settings.unavailableModels = {
+      ...(data.settings.unavailableModels ?? {}),
+      [key]: { at: Date.now(), ...(error ? { error: error.slice(0, 300) } : {}) },
+    };
+    this.write(data);
+  }
+
   /** Record a fallback event for the settings page's status line. */
   recordFallback(event: LlmFallbackEvent): void {
     const data = this.read();
@@ -373,7 +420,9 @@ export class LlmSettingsStore {
       if (disabledProviders.length === deduped.length) disabledProviders = disabledProviders.slice(1);
       const pricing = sanitizePricing((settings as LlmSettings).pricing);
       const spendLimits = sanitizeSpendLimits((settings as LlmSettings).spendLimits);
-      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), lastFallback: settings.lastFallback } };
+      const models = sanitizeModels((settings as LlmSettings).models);
+      const unavailableModels = sanitizeUnavailable((settings as LlmSettings).unavailableModels);
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), ...(models ? { models } : {}), ...(unavailableModels ? { unavailableModels } : {}), lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
@@ -383,6 +432,38 @@ export class LlmSettingsStore {
   private write(data: LlmSettingsFileV3): void {
     writeFileSync(this.path, JSON.stringify(data, null, 2) + '\n', 'utf-8');
   }
+}
+
+/**
+ * The runtime's `onModelUnavailable` for a settings file: notes the refused
+ * model so the dashboard's model watch can tell the operator. Never throws.
+ */
+export function modelUnavailableRecorder(store: LlmSettingsStore) {
+  return (event: { provider: string; model?: string; error?: string }): void => {
+    if (!event.model) return;
+    try { store.recordUnavailableModel(event.provider, event.model, event.error); } catch { /* best effort */ }
+  };
+}
+
+/** Keep only builtin-provider → model-id strings from a hand-edited file. */
+function sanitizeModels(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (isProvider(k) && typeof v === 'string' && v.trim()) out[k] = v.trim();
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sanitizeUnavailable(raw: unknown): Record<string, UnavailableModel> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, UnavailableModel> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const r = v as Record<string, unknown> | null;
+    if (!k.includes('/') || !r || typeof r.at !== 'number') continue;
+    out[k] = { at: r.at, ...(typeof r.error === 'string' ? { error: r.error } : {}) };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Keep only positive, finite limits from a hand-edited file. */

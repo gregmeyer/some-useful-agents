@@ -3,7 +3,7 @@
  * Extracted from agent-detail-v2.ts.
  */
 
-import type { Agent, OutputWidgetType, WidgetFieldType } from '@some-useful-agents/core';
+import { codexModels, type Agent, type OutputWidgetType, type WidgetFieldType } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { WIDGET_TYPES as WIDGET_TYPE_INFO, FIELD_TYPES as FIELD_TYPE_INFO, EXAMPLE_WIDGETS } from './output-widget-help.js';
 
@@ -1278,32 +1278,16 @@ const CLAUDE_MODELS: ModelEntry[] = [
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest. Best for simple tasks, classification, extraction' },
 ];
 
-const CODEX_MODELS: ModelEntry[] = [
-  { id: '', label: 'default', desc: 'Uses the Codex CLI default model' },
-  { id: 'o4-mini', label: 'o4-mini', desc: 'Fast reasoning model. Good for code analysis and generation' },
-  { id: 'o3', label: 'o3', desc: 'Most capable reasoning model. Deep multi-step analysis' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', desc: 'Latest GPT. Strong at code, instruction following' },
-  { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', desc: 'Compact GPT-4.1. Fast, lower cost' },
-  { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', desc: 'Smallest GPT-4.1. Very fast, simple tasks' },
-];
-
-/** Known models per provider, for the Settings page's model suggestions. */
-export const MODEL_SUGGESTIONS: Record<string, readonly ModelEntry[]> = {
-  claude: CLAUDE_MODELS.filter((m) => m.id),
-  codex: CODEX_MODELS.filter((m) => m.id),
-};
-
-export function renderModelOptions(provider?: string, currentModel?: string): SafeHtml {
-  const models = (provider === 'codex') ? CODEX_MODELS : CLAUDE_MODELS;
-  const effective = currentModel ?? '';
-  const options = models.map((m) => {
-    const sel = m.id === effective ? unsafeHtml(' selected') : unsafeHtml('');
-    return html`<option value="${m.id}" title="${m.desc}"${sel}>${m.label}</option>`;
-  });
-  if (effective && !models.some((m) => m.id === effective)) {
-    options.push(html`<option value="${effective}" selected>${effective}</option>`);
-  }
-  return html`${options as unknown as SafeHtml[]}`;
+/**
+ * Known models per provider, for the Settings page's model suggestions. Codex's
+ * come from the list the Codex CLI keeps for this account, so retired models
+ * drop out on their own.
+ */
+export function modelSuggestions(): Record<string, readonly ModelEntry[]> {
+  return {
+    claude: CLAUDE_MODELS.filter((m) => m.id),
+    codex: codexModels().models,
+  };
 }
 
 export function oneLine(text: string, max = 120): string {

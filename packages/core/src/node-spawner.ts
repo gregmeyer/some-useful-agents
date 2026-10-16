@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { codexConfigModel, refusedModelId } from './codex-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { SpendLimits } from './spend-limits.js';
@@ -147,6 +148,17 @@ export interface LlmSettingsSnapshot {
    * enabled provider instead of forcing the disabled one to run.
    */
   disabledProviders?: string[];
+  /**
+   * The model a builtin CLI provider runs when the node doesn't pin one, keyed
+   * by provider id (e.g. `{ codex: 'gpt-6-sol' }`). Absent ⇒ the CLI's default.
+   */
+  models?: Record<string, string>;
+  /**
+   * Fired when a provider refuses the model it was asked to run as not offered
+   * (`model_unavailable`), so the runtime can record it and tell the operator.
+   * `model` is the id that was refused, when it could be told.
+   */
+  onModelUnavailable?: (event: { provider: string; model?: string; error?: string; agentId: string; nodeId: string }) => void;
   /**
    * Fired once per hop in the waterfall (i.e. once per fallback
    * transition, not once per run). `from` is the provider that just
@@ -1208,7 +1220,10 @@ export async function spawnNodeReal(
       }
     }
     attemptedProviders.push(provider);
-    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
+    // The operator's model for this provider applies only when the node pins none.
+    const providerModel = node.model ? undefined : _opts.llmSettings?.models?.[provider];
+    const attemptNode = providerModel ? { ...node, model: providerModel } : node;
+    let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
@@ -1277,6 +1292,17 @@ export async function spawnNodeReal(
     // discarded once a later provider wins).
     const errSnippet = (result.error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined });
+    if (lastCategory === 'model_unavailable') {
+      try {
+        _opts.llmSettings?.onModelUnavailable?.({
+          provider,
+          model: attemptNode.model ?? refusedModelId(result.error) ?? (provider === 'codex' ? codexConfigModel() : undefined),
+          error: errSnippet || undefined,
+          agentId: _opts.agentId,
+          nodeId: node.id,
+        });
+      } catch { /* telemetry never breaks a run */ }
+    }
     process.stderr.write(
       `[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} failed (${lastCategory})` +
       `${errSnippet ? `: ${errSnippet}` : ''}\n`,
