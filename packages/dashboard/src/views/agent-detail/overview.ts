@@ -2,6 +2,7 @@ import { html, type SafeHtml } from '../html.js';
 import { formatDuration, formatAge, cronToHuman } from '../components.js';
 import { renderDagView, renderDagFallback } from '../dag-view.js';
 import { runWidget } from '../run-detail.js';
+import { factsOf } from '../../lib/result-shape.js';
 import { renderRunInputsForm } from '../agent-detail-helpers.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import type { AgentEdge } from '../../lib/agent-graph.js';
@@ -126,19 +127,44 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
   const hasInputs = Object.keys(agent.inputs ?? {}).length > 0;
   const canRunInline = hasInputs && agent.status !== 'archived' && !hasCommunityShellNode;
 
+  // An agent other agents or notebooks call (often one item a run): one result
+  // alone says little, so its last few are listed, input → answer. Open when
+  // the latest is a short JSON answer like {"status": "blocked"}.
+  const helper = (args.invokedBy?.length ?? 0) > 0 || (args.feedsNotebooks?.length ?? 0) > 0;
+  const recentDone = recentRuns.filter((r) => r.status === 'completed').slice(0, 6);
+  const recentResults = helper && recentDone.length > 1 ? html`
+      <details class="agent-recent"${last && /^\s*[{[]/.test(last.run.result ?? '') ? html` open` : html``}>
+        <summary>Its last ${String(recentDone.length)} results</summary>
+        <ol class="agent-recent__list">
+          ${recentDone.map((r) => html`<li class="agent-recent__row">
+            <a href="/runs/${r.id}" class="agent-recent__when">${formatAge(r.completedAt ?? r.startedAt)}</a>
+            <span class="agent-recent__in" title="${inputSummary(r)}">${inputSummary(r) || html`<span class="dim">no inputs</span>`}</span>
+            <span class="agent-recent__out">${resultSummary(r.result ?? '')}</span>
+          </li>`) as unknown as SafeHtml[]}
+        </ol>
+      </details>` : html``;
+
   const latestResult = html`
     <section class="agent-result" aria-labelledby="agent-result-title">
       <div class="agent-result__head">
-        <h2 class="section-label" id="agent-result-title">Latest result</h2>
+        <h2 class="section-label" id="agent-result-title">${newestFailed && last && !running ? 'Last good result' : 'Latest result'}</h2>
         ${last ? html`<span class="dim agent-result__meta">${formatAge(last.run.completedAt ?? last.run.startedAt)} · ${formatDuration(last.run.startedAt, last.run.completedAt)} · <a href="/runs/${last.run.id}">open the run →</a>${agent.status === 'archived' ? html`` : html` · <a href="/agents/${agent.id}/view?redesign=1#redesign" title="sua proposes a better look from this result; you compare and choose">✎ Change how this looks</a>`}</span>` : html``}
       </div>
       ${running ? html`<p class="agent-result__note"><span class="agent-result__dot" aria-hidden="true"></span>Running now, started ${formatAge(running.startedAt)}. <a href="/runs/${running.id}">Watch it →</a></p>` : html``}
-      ${newestFailed && !running ? html`<p class="agent-result__note agent-result__note--err">The newest run failed ${formatAge(newestFailed.startedAt)}${newestFailed.error ? html`: <span class="agent-result__err">${firstLine(newestFailed.error)}</span>` : html``}. <a href="/runs/${newestFailed.id}">Open it →</a>${last ? html` Below is the last one that finished.` : html``}</p>` : html``}
+      ${newestFailed && !running ? html`<div class="agent-result__failed" role="status">
+        <p class="agent-result__failed-what"><strong>The last run failed</strong> ${formatAge(newestFailed.startedAt)}${newestFailed.error ? html`: <span class="agent-result__err">${firstLine(newestFailed.error)}</span>` : html``}</p>
+        <p class="agent-result__failed-acts">
+          <a href="/runs/${newestFailed.id}">Open the run →</a>
+          ${agent.status === 'archived' ? html`` : html`<form method="POST" action="/agents/${agent.id}/ask-fix" data-ask-fix class="agent-result__fix"><button type="submit" class="btn btn--sm">Ask sua to fix it</button></form>`}
+          ${last ? html`<span class="dim">Below is what it made the last time it finished.</span>` : html``}
+        </p>
+      </div>` : html``}
       <div class="agent-result__body">
         ${last
           ? runWidget(agent, last.run, last.nodeExecutions, widgetControls, last.history, `latest-${agent.id}`)
-          : html`<p class="dim agent-result__empty">No result yet. ${agent.status === 'archived' ? 'Restore it to run it.' : 'Run it to see what it makes.'}</p>`}
+          : html`<p class="dim agent-result__empty">${newestFailed ? "It hasn't finished a run yet." : 'No result yet.'} ${agent.status === 'archived' ? 'Restore it to run it.' : newestFailed ? '' : 'Run it to see what it makes.'}</p>`}
       </div>
+      ${recentResults}
       ${canRunInline ? html`<details class="agent-result__inputs"${last ? html`` : html` open`}>
         <summary>Run with ${last ? 'different' : 'these'} inputs</summary>
         ${renderRunInputsForm(agent, args.from, previousInputs, { inline: true })}
@@ -319,6 +345,25 @@ export function liveStepText(execs: ReadonlyArray<{ nodeId: string; status: stri
 }
 
 /** The first line of an error, cut to fit one line. */
+/** A run's inputs in a line: a link first (the item it was about), then the longest value. */
+function inputSummary(r: { resumeContext?: { inputs?: Record<string, string> } } | object): string {
+  const inputs = (r as { resumeContext?: { inputs?: Record<string, unknown> } }).resumeContext?.inputs;
+  if (!inputs) return '';
+  const vals = Object.values(inputs).map((v) => (typeof v === 'string' ? v : JSON.stringify(v))).filter((v) => v && v.trim() && v !== '<redacted>');
+  const link = (v: string) => /^https?:\/\//.test(v.trim());
+  const line = vals.sort((a, b) => Number(link(b)) - Number(link(a)) || b.length - a.length).slice(0, 2).join(' · ').replace(/\s+/g, ' ');
+  return line.length > 90 ? `${line.slice(0, 89)}…` : line;
+}
+
+/** A result in a line: a JSON answer's first few facts ("status: blocked"), else its first line. */
+function resultSummary(text: string): string {
+  const facts = factsOf(text);
+  const line = facts
+    ? facts.filter((f) => f.value !== '(empty)').slice(0, 3).map((f) => `${f.label.toLowerCase()}: ${f.value}`).join(' · ') || 'nothing in it'
+    : (text.trim().split('\n').find((l) => l.trim()) ?? '').trim();
+  return line.length > 120 ? `${line.slice(0, 119)}…` : line || '(empty)';
+}
+
 function firstLine(text: string): string {
   const line = text.split('\n')[0].trim();
   return line.length > 140 ? `${line.slice(0, 137)}…` : line;
