@@ -34,7 +34,8 @@ export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
 /** Where a kept picture came from: the listing, a representative one found for it, or a drawing. */
-export type NotebookPhotoKind = 'listing' | 'representative' | 'illustration';
+/** A listing's own photo, an example photo of what it is, a company's logo, or a drawing. */
+export type NotebookPhotoKind = 'listing' | 'representative' | 'logo' | 'illustration';
 
 /** One site or source a search reached, and what it got there. */
 /** How a pass started: the notebook's pipeline, a run filed from its conversation, or Add to notebook. */
@@ -794,7 +795,7 @@ export class NotebookStore {
   coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind } | undefined {
     const r = this.db.prepare(`SELECT e.id AS id, p.kind AS kind FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
       WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL
-      ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
+      ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 WHEN 'logo' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
     return r ? { entryId: r.id, kind: (r.kind ?? 'listing') as NotebookPhotoKind } : undefined;
   }
 
@@ -813,6 +814,11 @@ export class NotebookStore {
         AND ((p.entry_id IS NULL AND e.picture_tried_at IS NULL) OR (p.kind = 'illustration' AND (e.picture_tried_at IS NULL OR e.picture_tried_at < ?)))
       ORDER BY e.created_at DESC LIMIT ?`).all(notebookId, dayAgo, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.toEntry(r));
+  }
+
+  /** Example photos that are a company's logo (the picture agent said so), kept as logos. Returns how many. */
+  relabelLogos(notebookId: string): number {
+    return Number(this.db.prepare("UPDATE notebook_photos SET kind = 'logo' WHERE notebook_id = ? AND kind = 'representative' AND bytes IS NOT NULL AND lower(coalesce(what, '')) LIKE '%logo%'").run(notebookId).changes);
   }
 
   /** Note that a representative picture was tried for these options. */

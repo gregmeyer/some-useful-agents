@@ -3,6 +3,8 @@
 # notebook (dashboard lib/notebook-pictures.ts); never proposed in triage.
 # Its <pictures> JSON is parsed with extractTaggedJson. Found images are
 # fetched with core's guarded fetchImage; SVG is rebuilt by sanitizeSvg.
+# For jobs and companies it names the company's site and the route takes the
+# logo from there (dashboard lib/notebook-logos.ts).
 
 id: notebook-picture
 name: Notebook Picture
@@ -50,7 +52,10 @@ nodes:
          - a car: that make, model and generation (Wikimedia Commons press
            or museum photos are ideal);
          - a product: that product (the maker's or a store's product image);
-         - a job: the company's logo (its site, or Wikimedia Commons);
+         - a job or a company: also give "site", the company's own
+           website ("toasttab.com", never a job board, recruiter or
+           LinkedIn page); sua takes the logo from it. Add a logo "url"
+           only if you happen to see one;
          - anything else: the thing itself.
          Use WebSearch and WebFetch. Never an .svg address, never a page
          instead of the image file, never a photo of a different model or
@@ -63,6 +68,7 @@ nodes:
       <pictures>
       {"items": [
         {"id": "<option id>", "url": "https://…/file.jpg", "what": "Wikimedia photo of a 2010 Toyota RAV4"},
+        {"id": "<option id>", "site": "toasttab.com", "what": "Toast's website"},
         {"id": "<option id>", "what": "nothing suitable found"}
       ]}
       </pictures>

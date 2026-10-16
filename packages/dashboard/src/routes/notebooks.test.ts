@@ -1997,6 +1997,43 @@ describe('a brief to share', () => {
   });
 });
 
+describe('a brief with pictures', () => {
+  it('shows each option’s picture by its name and atop it in full; a saved file carries them inside', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Find a controller job', statement: 'A controller role, remote' });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price' }, { key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    const logo = store.upsertOption(nb.id, { title: 'Controller, Acme Pay', by: 'x', fingerprint: 'a', data: { salary: 190000, company: 'Acme Pay' } }).entry;
+    const drawn = store.upsertOption(nb.id, { title: 'Controller, Birch Labs', by: 'x', fingerprint: 'b', data: { salary: 180000, company: 'Birch Labs' } }).entry;
+    const bare = store.upsertOption(nb.id, { title: 'Controller, Cedar Co', by: 'x', fingerprint: 'c', data: { salary: 170000, company: 'Cedar Co' } }).entry;
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 180, 0, 0, 0, 180]);
+    store.savePhoto(nb.id, logo.id, 'https://acmepay.example/apple-touch-icon.png', { contentType: 'image/png', bytes: PNG }, { kind: 'logo', what: 'acmepay.example logo' });
+    store.savePhoto(nb.id, drawn.id, 'illustration', { contentType: 'image/svg+xml', bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { kind: 'illustration' });
+    const photoPath = (id: string) => `/notebooks/${nb.id}/entries/${id}/photo`;
+    const t = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    // Opened on the dashboard: from its own addresses; a row with none keeps the names lined up.
+    expect(t).toContain(`<span class="pic pic--thumb is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
+    expect(t).toContain(`<span class="pic pic--thumb is-tile"><img src="${photoPath(drawn.id)}" alt=""></span>`);
+    expect(t).toContain('<span class="pic pic--thumb is-empty" aria-hidden="true"></span>');
+    expect(t).not.toContain(photoPath(bare.id));
+    const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
+    expect(full).toContain(`<span class="pic pic--hero is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
+    // A drawing says so; a logo needs no word.
+    expect(full).toContain(`<img src="${photoPath(drawn.id)}" alt=""><span class="pic__kind">illustration</span>`);
+    // Saved as a file: the pictures go inside it (the dashboard's addresses need you signed in).
+    const saved = (await get(`/notebooks/${nb.id}/brief.html?full=1&download=1`)).text;
+    expect(saved).not.toContain('/photo"');
+    expect(saved).toContain(`<img src="data:image/png;base64,${Buffer.from(PNG).toString('base64')}" alt="">`);
+    expect(saved).toMatch(/<img src="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+" alt="">/);
+    // Logos show whole on a tile on the option's own page too, with no "example photo" word.
+    const page = (await get(`/notebooks/${nb.id}/entries/${logo.id}`)).text;
+    expect(page).toContain(`<img src="${photoPath(logo.id)}" alt="" class="is-drawn is-logo">`);
+    expect(page).not.toContain('example photo');
+  });
+});
+
 describe('a brief as a summary of findings', () => {
   it('says what was found: pay span with ranges, what is missing, how they split, why the rest were ruled out; a decision once, as a list', async () => {
     await makeApp();

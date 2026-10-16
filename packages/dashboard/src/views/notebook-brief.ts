@@ -157,7 +157,20 @@ function findings(nb: Notebook, all: readonly NotebookViewOption[], active: read
 }
 
 /** The options side by side: a column per key fact. */
-function table(nb: Notebook, options: readonly NotebookViewOption[]): SafeHtml {
+/** Where an option's picture comes from: its address on the dashboard, or (in a saved file) the picture itself. */
+export type BriefPicture = (o: NotebookViewOption) => string | undefined;
+
+/** An option's picture, sized by where it sits; a logo or a drawing shows whole on a tile, a photo fills. */
+function picture(src: string | undefined, o: NotebookViewOption, size: 'thumb' | 'hero'): SafeHtml {
+  // A row with no picture keeps the names lined up.
+  if (!src) return size === 'thumb' ? html`<span class="pic pic--thumb is-empty" aria-hidden="true"></span>` : html``;
+  const kind = o.imageKind ?? 'listing';
+  const tile = kind === 'logo' || kind === 'illustration';
+  const label = kind === 'representative' ? 'example photo' : kind === 'illustration' ? 'illustration' : undefined;
+  return html`<span class="pic pic--${size}${tile ? ' is-tile' : ''}${kind === 'logo' ? ' is-logo' : ''}"><img src="${src}" alt="">${size === 'hero' && label ? html`<span class="pic__kind">${label}</span>` : html``}</span>`;
+}
+
+function table(nb: Notebook, options: readonly NotebookViewOption[], pic?: BriefPicture): SafeHtml {
   // Up to 4 key facts that at least half of them state (a column of dashes says nothing).
   const stated = (f: NotebookField) => options.filter((o) => o.fields[f.key] !== undefined && o.fields[f.key] !== '').length;
   // A text fact most names already say (a "Title" field) is a column of repeats.
@@ -177,9 +190,10 @@ function table(nb: Notebook, options: readonly NotebookViewOption[]): SafeHtml {
     const cls = f.type === 'money' || f.type === 'number' || f.type === 'date' ? 'num' : 'txt';
     return t.length > 40 ? html`<td class="${cls}" title="${t}">${t.slice(0, 38)}…</td>` : html`<td class="${cls}">${t}</td>`;
   };
+  const nameCell = (o: NotebookViewOption) => html`${ownPage(o) ? html`<a class="tbl__link" href="${ownPage(o)!}" target="_blank" rel="noopener noreferrer">${o.name}</a>` : o.name}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}`;
   return html`<div class="tbl"><table>
     <thead><tr><th scope="col">#</th><th scope="col">Option</th>${cols.map((f) => html`<th scope="col">${f.label}</th>`) as unknown as SafeHtml[]}${anyChecks ? html`<th scope="col">Checks</th>` : html``}</tr></thead>
-    <tbody>${options.map((o, i) => html`<tr${o.chosen ? unsafeHtml(' class="is-chosen"') : unsafeHtml('')}><td class="n">${String(i + 1)}</td><th scope="row">${ownPage(o) ? html`<a class="tbl__link" href="${ownPage(o)!}" target="_blank" rel="noopener noreferrer">${o.name}</a>` : o.name}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}</th>${cols.map((f) => cell(f, o)) as unknown as SafeHtml[]}${anyChecks ? html`<td>${String(ticked(nb, o).length)}/${String(nb.checks.length)}</td>` : html``}</tr>`) as unknown as SafeHtml[]}</tbody>
+    <tbody>${options.map((o, i) => html`<tr${o.chosen ? unsafeHtml(' class="is-chosen"') : unsafeHtml('')}><td class="n">${String(i + 1)}</td><th scope="row">${pic ? html`<span class="nm">${picture(pic(o), o, 'thumb')}<span>${nameCell(o)}</span></span>` : nameCell(o)}</th>${cols.map((f) => cell(f, o)) as unknown as SafeHtml[]}${anyChecks ? html`<td>${String(ticked(nb, o).length)}/${String(nb.checks.length)}</td>` : html``}</tr>`) as unknown as SafeHtml[]}</tbody>
   </table></div>`;
 }
 
@@ -218,7 +232,7 @@ function notes(entries: readonly NotebookEntry[]): NotebookEntry[] {
  * checks (ticked or not), and what happened to it. Each starts a new page
  * when printed.
  */
-function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>): SafeHtml {
+function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>, pic?: BriefPicture): SafeHtml {
   const e = entries.find((x) => x.id === o.id);
   const facts = optionFacts(nb.fields, o);
   const checks = checksFor(nb);
@@ -230,6 +244,7 @@ function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: r
       <h3 class="full__name" id="full-${o.id}">${o.title}${o.chosen ? html` <span class="tag tag--chosen">Chosen</span>` : html``}</h3>
       ${own ? html`<a class="opt__link" href="${own}" target="_blank" rel="noopener noreferrer">Own page ↗</a>` : html``}
     </header>
+    ${pic?.(o) ? picture(pic(o), o, 'hero') : html``}
     ${o.stage ? html`<p class="full__stage">Stage: ${o.stage}</p>` : html``}
     ${facts.length ? html`<dl class="full__facts">${facts.map((f) => html`<div><dt>${f.label}</dt><dd>${f.url ? html`<a href="${f.url}" target="_blank" rel="noopener noreferrer">${f.value}</a>` : f.value}${f.note ? html`<span class="full__note">${f.note}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>` : html``}
     ${o.body.trim() ? html`<div class="full__body"><h4>Notes</h4>${o.body.trim().split(/\n{2,}/).map((para) => html`<p>${bodyWithLinks(para.replace(/\s*\n\s*/g, ' '))}</p>`) as unknown as SafeHtml[]}</div>` : html``}
@@ -246,7 +261,7 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture }): string {
   const { nb } = args;
   const now = args.now ?? new Date();
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
@@ -261,6 +276,8 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const searches = args.history?.searches?.(nb.id, 50).length ?? 0;
   const picks = decided ? decisionPicks(nb, args.entries) : undefined;
   const keyF = compareFields(nb)[0];
+  // Pictures as the option's page shows them (its photo, an example photo, a logo or a drawing).
+  const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
   const body = html`<title>${nb.title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
@@ -310,6 +327,19 @@ th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var
 thead th { font: 600 0.6875rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 tbody th { font-weight: 600; min-width: 12rem; }
 /* A name with its own page links to it (in the PDF too); the table stays compact, so no address after it. */
+/* Pictures: a small one by each name, a bigger one atop each option in full. A logo or drawing sits whole on a white tile. */
+.nm { display: flex; gap: 0.6rem; align-items: center; }
+.nm > span:last-child { min-width: 0; }
+.pic { flex: none; display: block; position: relative; overflow: hidden; border-radius: 6px; background: var(--line); }
+.pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pic.is-tile { background: #fff; border: 1px solid var(--line); }
+.pic.is-tile img { object-fit: contain; padding: 3px; }
+.pic.is-empty { background: transparent; }
+.pic--thumb { width: 2.25rem; height: 2.25rem; }
+.pic--hero { margin-left: 2.75rem; width: calc(100% - 2.75rem); max-width: 22rem; aspect-ratio: 4 / 3; border-radius: 10px; }
+.pic--hero.is-tile { width: 8rem; height: 5.5rem; aspect-ratio: auto; }
+.pic--hero.is-tile img { padding: 0.5rem; }
+.pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 .tbl__link { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .tbl__link:hover, .tbl__link:focus-visible { color: var(--accent); }
 tbody td { font-family: var(--mono); font-variant-numeric: tabular-nums; max-width: 14rem; overflow-wrap: break-word; }
@@ -381,9 +411,10 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   @page { margin: 16mm 14mm; }
   body { font-size: 11pt; }
   .brief { max-width: none; padding: 0; gap: 1.25rem; }
-  .decision, .tag, tr.is-chosen td.n { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .decision, .tag, tr.is-chosen td.n, .pic { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .tbl { overflow: visible; border-color: var(--line-strong); }
   h2, h3 { break-after: avoid; }
+  .pic--hero { max-width: 16rem; }
   .opt, tr, .decision, .stands, .findings li, .plain li, .cols > div { break-inside: avoid; }
   .opt__link::after { content: " " attr(href); font: 400 0.6875rem var(--mono); color: var(--subtle); word-break: break-all; }
   footer { break-before: avoid; }
@@ -412,7 +443,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   </section>
   ${active.length ? html`<section aria-labelledby="b-table">
     <h2 id="b-table">${decided && chosen.length ? 'The final set, and the rest in the running' : 'The shortlist'}<span class="count">${decided && chosen.length ? `${String(chosen.length)} chosen of ${String(active.length)}` : `${String(active.length)} in the running`}</span></h2>
-    ${table(nb, active)}
+    ${table(nb, active, pic)}
   </section>
   ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
@@ -421,7 +452,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   </section>`}` : html`<p class="more">Nothing in the running yet.</p>`}
   ${args.full && active.length ? html`<section class="fullset" aria-labelledby="b-full">
     <h2 id="b-full">Each option in full<span class="count">${String(active.length)}</span></h2>
-    ${active.map((o, i) => optionInFull(nb, o, i + 1, args.entries, args.history)) as unknown as SafeHtml[]}
+    ${active.map((o, i) => optionInFull(nb, o, i + 1, args.entries, args.history, pic)) as unknown as SafeHtml[]}
   </section>` : html``}
   ${ruled.length ? html`<section aria-labelledby="b-out">
     <h2 id="b-out">Ruled out<span class="count">${String(ruled.length)}</span></h2>
