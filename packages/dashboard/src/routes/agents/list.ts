@@ -2,7 +2,9 @@ import { Router, type Request, type Response } from 'express';
 import { catalogRelevance, catalogTokens, NotebookStore, SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
 import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
-import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
+import { renderAgentsList, type AgentShelves, type HomeStats } from '../../views/agents-list.js';
+import { startAgentFind, readAgentFind } from '../../lib/agent-find.js';
+import { renderFindAnswer } from '../../views/agents-find.js';
 import { buildAgentGraph, orchestrators } from '../../lib/agent-graph.js';
 
 export const agentListRouter: Router = Router();
@@ -192,6 +194,24 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     v2Agents.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   }
 
+  // When each agent was last used, and how much this month.
+  const lastRunAt = ctx.runStore.latestRunAtByAgent();
+  const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const runCounts = ctx.runStore.runCountsByAgent(monthAgo);
+
+  // The User tab with nothing filtered: shelves (go-to, used lately, fill
+  // notebooks, on a schedule), then every agent in one line each, with the
+  // demos, tests and never-run drafts folded away.
+  const browsing = qTab === 'user' && !qRaw && !qStatus && !qSortRaw && !qComposed && !qFeeds
+    && offset === 0 && req.query.limit === undefined;
+  const shelves = browsing ? agentShelves(v2Agents, {
+    lastRunAt, runCounts, feeds: notebooksByAgent,
+    weekAgo: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+  }) : undefined;
+
+  // A question: sua's agent finder looks too (the page polls for its picks).
+  const find = qRaw && searchTokens.length > 0 ? startAgentFind(ctx, qRaw) : undefined;
+
   // Paginate v2 agents.
   const totalV2 = v2Agents.length;
   const paginatedV2 = v2Agents.slice(offset, offset + limit);
@@ -226,7 +246,11 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     // `q` raw so the box echoes what was typed; `sort` raw (possibly
     // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
     // only drives which dropdown option shows as selected.
-    filter: { status: qStatus, q: qRaw, sort: qSortRaw, sortEffective: qSort },
+    filter: { status: qStatus, q: qRaw, sort: qSortRaw, sortEffective: qSort, composed: qComposed, feeds: qFeeds },
+    lastRunAt,
+    runCounts,
+    ...(shelves ? { shelves } : {}),
+    ...(find ? { find: { id: find.id, status: find.status } } : {}),
     tab: qTab,
     tabCounts,
     limit,
@@ -236,3 +260,52 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     availableDashboards,
   }));
 });
+
+/**
+ * sua's agent finder, from the page: POST asks (or returns the answer already
+ * being found), GET polls. The answer comes back as the panel's HTML.
+ */
+agentListRouter.post('/agents/find', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const q = typeof req.body?.q === 'string' ? req.body.q.trim().slice(0, 300) : '';
+  if (!q) { res.status(400).json({ error: 'Say what you want to do.' }); return; }
+  const find = startAgentFind(ctx, q);
+  if (!find) { res.status(503).json({ error: "sua's agent finder isn't installed." }); return; }
+  res.json({ id: find.id, status: find.status });
+});
+
+agentListRouter.get('/agents/find/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const find = readAgentFind(ctx, String(req.params.id));
+  if (!find) { res.status(404).json({ status: 'gone' }); return; }
+  if (find.status === 'working') { res.json({ status: 'working' }); return; }
+  const agents = new Map(ctx.agentStore.listAgents().map((a) => [a.id, a]));
+  res.json({ status: find.status, html: renderFindAnswer(find, agents) });
+});
+
+/** Words in an id, name or tag that mark a demo or a test, not a tool you'd use. */
+const DEMO_RE = /(^|[-_\s])(smoke|demo|test|tests|probe|hello|stub|example)([-_\s]|$)/i;
+
+/** The shelves for the User tab (pure: the route passes what it already loaded). */
+export function agentShelves(agents: readonly Agent[], d: {
+  lastRunAt: ReadonlyMap<string, string>; runCounts: ReadonlyMap<string, number>;
+  feeds: ReadonlyMap<string, unknown>; weekAgo: string;
+}): AgentShelves {
+  const isDemo = (a: Agent) => !a.starred && (DEMO_RE.test(a.id) || DEMO_RE.test(a.name) || (a.tags ?? []).some((t) => /^(demo|test|smoke|example)s?$/i.test(t))
+    || (a.status === 'draft' && !d.lastRunAt.has(a.id)));
+  const folded = agents.filter(isDemo).sort((x, y) => x.name.localeCompare(y.name));
+  const kept = agents.filter((a) => !isDemo(a));
+  const shown = new Set<string>();
+  const take = (list: Agent[], n = 6) => { const out = list.filter((a) => !shown.has(a.id)).slice(0, n); for (const a of out) shown.add(a.id); return out; };
+  const runs = (a: Agent) => d.runCounts.get(a.id) ?? 0;
+  const goTo = take([
+    ...kept.filter((a) => a.starred).sort((x, y) => runs(y) - runs(x)),
+    ...kept.filter((a) => !a.starred && runs(a) >= 3).sort((x, y) => runs(y) - runs(x)),
+  ]);
+  const recent = take(kept.filter((a) => (d.lastRunAt.get(a.id) ?? '') >= d.weekAgo)
+    .sort((x, y) => (d.lastRunAt.get(y.id) ?? '').localeCompare(d.lastRunAt.get(x.id) ?? '')));
+  const feeds = take(kept.filter((a) => d.feeds.has(a.id)).sort((x, y) => runs(y) - runs(x)));
+  const scheduled = take(kept.filter((a) => !!a.schedule && a.status === 'active'));
+  const all = [...kept].sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id));
+  return { goTo, recent, feeds, scheduled, all, folded };
+}

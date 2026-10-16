@@ -269,6 +269,10 @@ export interface DashboardContext {
   notebookLogoDeps?: import('./lib/notebook-logos.js').LogoDeps;
   /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
   notebookFacets?: Set<string>;
+  /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */
+  agentFinds?: Map<string, import('./lib/agent-find.js').AgentFind>;
+  /** Tests only: answer for agent-catalog-search on /agents instead of running it. */
+  agentFindRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
