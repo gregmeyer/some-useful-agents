@@ -43,6 +43,7 @@ export * from './agent-v2-types.js';
 export * from './failure-explain.js';
 export * from './error-catalog.js';
 export { webFetch, WebFetchError, fetchImage, pagePreview, siteIcons } from './web-fetch/index.js';
+export { imageSize, imageShape, type ImageSize, type ImageShape } from './image-size.js';
 export type { FetchedImage } from './web-fetch/index.js';
 export type { WebFetchResult, WebFetchOptions, WebFetchMethod, BrowserMode } from './web-fetch/index.js';
 export { webScrape, extractStructured } from './web-fetch/scrape.js';

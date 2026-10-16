@@ -26,7 +26,7 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
     ...(nb.criteria.length ? { checks: nb.criteria.map((c) => ({ text: c.text, met: c.met })) } : {}),
     ...(nb.criteria.length ? { done: `${String(nb.criteria.filter((c) => c.met).length)} of ${String(nb.criteria.length)} done` } : {}),
     ...(furthest && furthest !== nb.stages[0] ? { furthest } : {}),
-    ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind } : {}),
+    ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind, ...(cover.shape ? { coverShape: cover.shape } : {}) } : {}),
   };
 }
 

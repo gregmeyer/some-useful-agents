@@ -498,7 +498,7 @@ function renderThreadNotebook(c: NotebookCard): SafeHtml {
   return html`<div class="ib-notebook-wrap">
     <a class="ib-notebook" href="/notebooks/${encodeURIComponent(nb.id)}" data-thread-notebook="${nb.id}">
       ${c.cover
-        ? html`<img class="${['ib-notebook__cover', pictureClass(c.coverKind)].filter(Boolean).join(' ')}" src="${c.cover}" alt="" loading="lazy">`
+        ? html`<img class="${['ib-notebook__cover', pictureClass(c.coverKind, c.coverShape)].filter(Boolean).join(' ')}" src="${c.cover}" alt="" loading="lazy">`
         : html`<span class="ib-notebook__cover ib-notebook__cover--none" aria-hidden="true"></span>`}
       <span class="ib-notebook__body">
         <span class="ib-notebook__kicker">Notebook</span>

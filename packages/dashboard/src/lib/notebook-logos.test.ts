@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunStore, NotebookStore, notebookViewData, type NotebookField } from '@some-useful-agents/core';
+import { RunStore, NotebookStore, notebookViewData, imageShape, type NotebookField } from '@some-useful-agents/core';
 import { companyHost, companySite, findLogo, imageSize, pictureClass, pictureLabel, wantsLogos, type LogoDeps } from './notebook-logos.js';
 import { applyPictures } from './notebook-pictures.js';
 
@@ -52,6 +52,10 @@ describe('company logos', () => {
     const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0, 64, 0, 120, 3, 1, 1, 1]);
     expect(imageSize(jpeg)).toEqual({ width: 120, height: 64 });
     expect(imageSize(new Uint8Array([1, 2, 3]))).toBeUndefined();
+    // A wordmark is wide, an app icon square.
+    expect(imageShape(png(500, 145))).toBe('wide');
+    expect(imageShape(png(180, 180))).toBe('square');
+    expect(imageShape(png(100, 200))).toBe('tall');
   });
 
   it('takes the site’s own icon first, skips a favicon too small to read, and falls back to a 128px favicon', async () => {
@@ -76,6 +80,8 @@ describe('company logos', () => {
 
   it('a logo shows whole on a tile and needs no "example photo" word', () => {
     expect(pictureClass('logo')).toBe('is-drawn is-logo');
+    expect(pictureClass('logo', 'wide')).toBe('is-drawn is-logo is-wide');
+    expect(pictureClass('listing', 'wide')).toBe('');
     expect(pictureClass('illustration')).toBe('is-drawn');
     expect(pictureClass('listing')).toBe('');
     expect(pictureLabel('logo')).toBeUndefined();
@@ -114,7 +120,11 @@ describe('company logos', () => {
     expect(s.photo(photo.id)).toMatchObject({ kind: 'logo', what: 'Cedar Co logo' });   // the agent's find, as a logo
     expect(s.photo(none.id)!.kind).toBe('illustration');
     const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options;
-    expect(v.find((o) => o.id === named.id)?.imageKind).toBe('logo');
+    expect(v.find((o) => o.id === named.id)).toMatchObject({ imageKind: 'logo', imageShape: 'square' });
+    // A wordmark logo says it's wide, on the option and as the notebook's cover.
+    s.savePhoto(nb.id, named.id, 'https://acmepay.example/wordmark.png', { contentType: 'image/png', bytes: png(500, 145) }, { kind: 'logo' });
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options.find((o) => o.id === named.id)?.imageShape).toBe('wide');
+    expect(s.photoShape(named.id)).toBe('wide');
     // Without the agent's answer, the options' own sites still give logos.
     const late = add('Controller, Elm Works', { company: 'Elm Works', posting_url: 'https://careers.birchlabs.example/jobs/9' });
     const again = await applyPictures(s, nb.id, [late.id], '', undefined, [0], { sites: { [late.id]: 'birchlabs.example' }, deps: logoDeps });

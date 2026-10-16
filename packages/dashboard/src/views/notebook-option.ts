@@ -113,7 +113,7 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
     <section class="nbo-hero${e.ruledOut ? ' nbo-hero--out' : ''}" aria-labelledby="nbo-title" data-nb-option="${e.id}" data-nb-option-notebook="${nb.id}">
       <div class="nbo-hero__pic">
         ${o.image
-          ? html`<img src="${o.image}" alt="" class="${pictureClass(o.imageKind)}">${pictureLabel(o.imageKind) ? html`<span class="nbo-hero__pickind">${pictureLabel(o.imageKind)}</span>` : html``}`
+          ? html`<img src="${o.image}" alt="" class="${pictureClass(o.imageKind, o.imageShape)}">${pictureLabel(o.imageKind) ? html`<span class="nbo-hero__pickind">${pictureLabel(o.imageKind)}</span>` : html``}`
           : html`<span class="nbo-hero__nopic">No photo yet</span>`}
       </div>
       <div class="nbo-hero__main">

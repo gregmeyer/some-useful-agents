@@ -167,7 +167,7 @@ function picture(src: string | undefined, o: NotebookViewOption, size: 'thumb' |
   const kind = o.imageKind ?? 'listing';
   const tile = kind === 'logo' || kind === 'illustration';
   const label = kind === 'representative' ? 'example photo' : kind === 'illustration' ? 'illustration' : undefined;
-  return html`<span class="pic pic--${size}${tile ? ' is-tile' : ''}${kind === 'logo' ? ' is-logo' : ''}"><img src="${src}" alt="">${size === 'hero' && label ? html`<span class="pic__kind">${label}</span>` : html``}</span>`;
+  return html`<span class="pic pic--${size}${tile ? ' is-tile' : ''}${kind === 'logo' ? ` is-logo${o.imageShape === 'wide' ? ' is-wide' : ''}` : ''}"><img src="${src}" alt="">${size === 'hero' && label ? html`<span class="pic__kind">${label}</span>` : html``}</span>`;
 }
 
 function table(nb: Notebook, options: readonly NotebookViewOption[], pic?: BriefPicture): SafeHtml {
@@ -334,11 +334,19 @@ tbody th { font-weight: 600; min-width: 12rem; }
 .pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .pic.is-tile { background: #fff; border: 1px solid var(--line); }
 .pic.is-tile img { object-fit: contain; padding: 3px; }
+/* A logo sized to read: an app icon keeps a margin, a wordmark fills the width. */
+.pic.is-logo img { padding: 4px; }
+.pic.is-logo.is-wide img { padding: 2px 3px; }
 .pic.is-empty { background: transparent; }
-.pic--thumb { width: 2.25rem; height: 2.25rem; }
+.pic--thumb { width: 4rem; height: 2.5rem; }
+/* A drawing's monogram sits mid-frame with room around it: zoom in on it so a thumbnail shows the letters. */
+.pic--thumb.is-tile:not(.is-logo) img { padding: 0; transform: scale(1.8); }
 .pic--hero { margin-left: 2.75rem; width: calc(100% - 2.75rem); max-width: 22rem; aspect-ratio: 4 / 3; border-radius: 10px; }
 .pic--hero.is-tile { width: 8rem; height: 5.5rem; aspect-ratio: auto; }
 .pic--hero.is-tile img { padding: 0.5rem; }
+.pic--hero.is-logo img { padding: 1rem; }
+.pic--hero.is-logo.is-wide { width: 11rem; height: 4.5rem; }
+.pic--hero.is-logo.is-wide img { padding: 0.6rem 0.8rem; }
 .pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 .tbl__link { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .tbl__link:hover, .tbl__link:focus-visible { color: var(--accent); }
