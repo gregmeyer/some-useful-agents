@@ -7,7 +7,7 @@
  */
 import { nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { renderDraftsStrip } from './notebook-new.js';
+import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -642,38 +642,62 @@ function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml
   `;
 }
 
-/** Edit this notebook (the header's Edit). */
-function editNotebookForm(nb: Notebook): SafeHtml {
+/** The rest of a notebook's own actions, under its Edit page: stop it, keep it as a template, archive or delete it. */
+function notebookMoreActions(nb: Notebook): SafeHtml {
   const id = encodeURIComponent(nb.id);
   return html`
-      <form method="POST" action="/notebooks/${id}/edit" class="nb-form">
-        <label class="nb-label">Title<input type="text" name="title" value="${nb.title}" required class="form-field"></label>
-        <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field">${nb.statement}</textarea></label>
-        <label class="nb-label">Parameters, one per line<textarea name="params" rows="3" class="form-field">${nb.params.join('\n')}</textarea></label>
-        <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field">${nb.criteria.map((c) => c.text).join('\n')}</textarea></label>
-        <label class="nb-label">Stages an option moves through, one per line<textarea name="stages" rows="3" class="form-field" placeholder="Found&#10;Applied&#10;Interview&#10;Offer">${nb.stages.join('\n')}</textarea></label>
-        <label class="nb-label">Pipeline: agent ids, one per line<textarea name="pipeline" rows="3" class="form-field mono">${nb.pipeline.join('\n')}</textarea></label>
-        <label class="nb-label">Runs (five-field schedule, or empty for when you ask)<input type="text" name="cadence" value="${nb.cadence}" class="form-field mono" placeholder="0 7 * * *"></label>
-        <button type="submit" class="btn btn--sm">Save</button>
-      </form>
-      ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button></form>` : html``}
-      <form method="POST" action="/notebooks/${id}/template" class="nb-form nb-template">
-        <label class="nb-label">Save as a template<input type="text" name="name" value="${nb.title}" required maxlength="60" class="form-field" aria-describedby="nb-template-hint-${id}"></label>
-        <span class="nb-template__hint" id="nb-template-hint-${id}">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. Start a new one from it by asking sua.</span>
-        <button type="submit" class="btn btn--sm btn--ghost">Save template</button>
-      </form>
-      <div class="nb-remove">
-        ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
-        <details class="nb-delete">
-          <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
-          <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
-            <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
-            <input type="hidden" name="confirm" value="${nb.id}">
-            <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
-          </form>
-        </details>
-      </div>
+      <section class="nbe-more" aria-labelledby="nbe-more-title">
+        <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
+        ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
+        <form method="POST" action="/notebooks/${id}/template" class="nb-form nb-template">
+          <label class="nb-label">Save as a template<input type="text" name="name" value="${nb.title}" required maxlength="60" class="form-field" aria-describedby="nb-template-hint-${id}"></label>
+          <span class="nb-template__hint" id="nb-template-hint-${id}">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. Start a new one from it by asking sua.</span>
+          <button type="submit" class="btn btn--sm btn--ghost">Save template</button>
+        </form>
+        <div class="nb-remove">
+          ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
+          <details class="nb-delete">
+            <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
+            <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
+              <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
+              <input type="hidden" name="confirm" value="${nb.id}">
+              <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
+            </form>
+          </details>
+        </div>
+      </section>
   `;
+}
+
+/**
+ * Edit this notebook (the header's Edit): its whole setup in the same editor
+ * a new notebook's draft uses (limits and stages as chips, done-whens and
+ * checks as rows, steps with their agents, searches by name, the schedule in
+ * words), then Save; its other actions below.
+ */
+export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+  const { nb } = args;
+  const id = encodeURIComponent(nb.id);
+  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'inbox', flash: args.flash }, html`
+    <div class="nbe">
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › Edit</p>
+      <h1 class="nbe__title">Edit this notebook</h1>
+      <form method="POST" action="/notebooks/${id}/edit" class="nbd-draft nbe-form">
+        <input type="hidden" name="setup" value="1">
+        ${notebookSetupEditor({
+          title: nb.title, statement: nb.statement, params: nb.params,
+          criteria: nb.criteria.map((c) => c.text), met: nb.criteria.map((c) => c.met),
+          ...(nb.steps?.length ? { steps: nb.steps } : {}),
+          fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+        }, args.agents, { editing: true, offered: args.agents.map((a) => a.id) })}
+        <div class="nbd-draft__foot">
+          <button type="submit" class="btn btn--primary">Save</button>
+          <a class="btn btn--ghost" href="/notebooks/${id}">Cancel</a>
+        </div>
+      </form>
+      ${notebookMoreActions(nb)}
+    </div>
+  `));
 }
 
 /** A step button in the header: Next step / Try again run the step; Move on keeps what it found and goes on. */
@@ -754,13 +778,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ${addEntryForm(nb, entries)}
         </div>
       </details>
-      <details class="nb-act nb-edit" data-nb-act>
-        <summary class="btn btn--sm btn--ghost">Edit</summary>
-        <div class="nb-act__panel nb-act__panel--wide">
-          <h2 class="nb-act__title">Edit this notebook</h2>
-          ${editNotebookForm(nb)}
-        </div>
-      </details>
+      <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
       ${entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
     </div>`;
 }

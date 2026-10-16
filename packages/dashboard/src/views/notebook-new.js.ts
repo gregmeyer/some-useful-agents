@@ -5,7 +5,8 @@
  * just your sentence. The draft is kept on the server: the address becomes
  * /notebooks/new?draft=<id> (so Back or a reload returns to it), and your
  * changes to it are saved as you make them. The sentence you're still
- * typing is kept in this browser.
+ * typing is kept in this browser. The setup editor's chips and rows (also
+ * on a notebook's Edit page) are the second part.
  */
 export const NOTEBOOK_NEW_JS = `
   (function () {
@@ -101,23 +102,6 @@ export const NOTEBOOK_NEW_JS = `
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ask.requestSubmit) ask.requestSubmit(); else ask.dispatchEvent(new Event('submit', { cancelable: true })); }
     });
     root.addEventListener('click', function (e) {
-      var x = e.target.closest && e.target.closest('[data-nbd-remove]');
-      if (x) { e.preventDefault(); var c = x.closest('.nbd-chip, .nbd-row'); if (c) c.remove(); saveSoon(); return; }
-      var add = e.target.closest && e.target.closest('[data-nbd-add]');
-      if (add) {
-        e.preventDefault();
-        var name = add.getAttribute('data-nbd-add');
-        var label = add.getAttribute('data-nbd-add-label') || '';
-        var wrap = document.createElement('span');
-        wrap.className = add.hasAttribute('data-nbd-add-row') ? 'nbd-row' : 'nbd-chip';
-        var row = add.hasAttribute('data-nbd-add-row');
-        wrap.innerHTML = (row ? '<span class="nbd-row__box" aria-hidden="true">\\u2610</span><textarea name="' + esc(name) + '" rows="1" aria-label="' + esc(label) + '" data-nbd-autosize></textarea>'
-          : '<input name="' + esc(name) + '" aria-label="' + esc(label) + '" size="8" data-nbd-grow>')
-          + '<button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove">\\u00d7</button>';
-        add.parentNode.insertBefore(wrap, add);
-        wrap.querySelector('input, textarea').focus();
-        return;
-      }
       var ch = e.target.closest && e.target.closest('[data-nbd-change]');
       if (ch) {
         e.preventDefault();
@@ -126,22 +110,6 @@ export const NOTEBOOK_NEW_JS = `
         if (!form || !what || !what.value.trim()) { if (what) what.focus(); return; }
         draft({ text: text.value, from: form.getAttribute('data-nbd-draft'), change: what.value }, 'sua is changing the draft\\u2026');
       }
-    });
-    // A row (a done-when, a check) wraps to fit its words instead of being cut off.
-    function fit(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
-    function fitAll() { var all = root.querySelectorAll('[data-nbd-autosize]'); for (var i = 0; i < all.length; i++) fit(all[i]); }
-    fitAll();
-    // The review arrives later (drafting): fit its rows when it lands.
-    new MutationObserver(fitAll).observe(root, { childList: true, subtree: true });
-    window.addEventListener('resize', fitAll);
-    root.addEventListener('input', function (e) {
-      var el = e.target;
-      if (el && el.hasAttribute && el.hasAttribute('data-nbd-grow')) el.size = Math.max(4, Math.min(40, el.value.length + 1));
-      if (el && el.hasAttribute && el.hasAttribute('data-nbd-autosize')) fit(el);
-    });
-    // A row is one line of text: Enter doesn't add a line break.
-    root.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-nbd-autosize')) e.preventDefault();
     });
     // Enter in the change box asks for the change rather than starting the notebook.
     root.addEventListener('keydown', function (e) {
@@ -174,6 +142,56 @@ export const NOTEBOOK_NEW_JS = `
     if (skip) skip.addEventListener('submit', function (e) {
       if (!text.value.trim()) { e.preventDefault(); text.focus(); return; }
       skip.querySelector('[data-nbd-skip-text]').value = text.value;
+    });
+  })();
+
+  // The setup editor (a new notebook's draft, and a notebook's Edit page):
+  // chips and rows you can change, remove or add; rows wrap to fit their words.
+  (function () {
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'; }); }
+    function inEditor(el) { return el && el.closest && el.closest('[data-nbd-editor]'); }
+    document.addEventListener('click', function (e) {
+      if (!inEditor(e.target)) return;
+      var x = e.target.closest('[data-nbd-remove]');
+      if (x) {
+        e.preventDefault();
+        var c = x.closest('.nbd-chip, .nbd-row');
+        var form = x.closest('form');
+        if (c) c.remove();
+        // Removing isn't an input: say it changed (a draft saves it).
+        if (form) form.dispatchEvent(new Event('change', { bubbles: true }));
+        return;
+      }
+      var add = e.target.closest('[data-nbd-add]');
+      if (!add) return;
+      e.preventDefault();
+      var name = add.getAttribute('data-nbd-add');
+      var label = add.getAttribute('data-nbd-add-label') || '';
+      var row = add.hasAttribute('data-nbd-add-row');
+      var wrap = document.createElement('span');
+      wrap.className = row ? 'nbd-row' : 'nbd-chip';
+      wrap.innerHTML = (row ? '<span class="nbd-row__box" aria-hidden="true">\\u2610</span><textarea name="' + esc(name) + '" rows="1" aria-label="' + esc(label) + '" data-nbd-autosize></textarea>'
+        : '<input name="' + esc(name) + '" aria-label="' + esc(label) + '" size="8" data-nbd-grow>')
+        + '<button type="button" class="nbd-chip__x" data-nbd-remove aria-label="Remove">\\u00d7</button>';
+      add.parentNode.insertBefore(wrap, add);
+      wrap.querySelector('input, textarea').focus();
+    });
+    function fit(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+    function fitAll() { var all = document.querySelectorAll('[data-nbd-editor] [data-nbd-autosize]'); for (var i = 0; i < all.length; i++) fit(all[i]); }
+    fitAll();
+    // A draft's review arrives later: fit its rows when it lands.
+    var result = document.querySelector('[data-nbd-result]');
+    if (result) new MutationObserver(fitAll).observe(result, { childList: true, subtree: true });
+    window.addEventListener('resize', fitAll);
+    document.addEventListener('input', function (e) {
+      var el = e.target;
+      if (!inEditor(el)) return;
+      if (el.hasAttribute('data-nbd-grow')) el.size = Math.max(4, Math.min(60, el.value.length + 1));
+      if (el.hasAttribute('data-nbd-autosize')) fit(el);
+    });
+    // A row is one line of text: Enter doesn't add a line break.
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && inEditor(e.target) && e.target.hasAttribute('data-nbd-autosize')) e.preventDefault();
     });
   })();
 `;
