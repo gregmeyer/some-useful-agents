@@ -10,6 +10,7 @@ import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
 import { renderRunView, renderLegacySurface, type RunViewOptions } from '../lib/a2ui-surface.js';
 import { legacyWidgetView } from '../lib/legacy-view.js';
+import { factsOf, recordColumns, recordsOf } from '../lib/result-shape.js';
 import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
 export interface RunDetailOptions {
@@ -782,6 +783,22 @@ function renderExhaustedHint(e: NodeExecutionRecord, node: AgentNode | undefined
 }
 
 /**
+ * Output with no widget, read as what it is: one JSON object of facts as
+ * labelled facts, a JSON list of records as a table; the raw text stays one
+ * click away. Undefined for anything else (it shows as text).
+ */
+export function shapedOutput(output: string, surfaceId: string): SafeHtml | undefined {
+  const facts = factsOf(output);
+  const rows = facts ? undefined : recordsOf(output);
+  if (!facts && !rows) return undefined;
+  const surface = renderLegacySurface(surfaceId, facts
+    ? { data: { items: facts }, components: [{ id: 'root', component: 'KeyValue', items: { path: '/data/items' } }] }
+    : { data: { rows }, components: [{ id: 'root', component: 'Table', rows: { path: '/data/rows' }, columns: recordColumns(rows ?? []) }] });
+  if (!surface) return undefined;
+  return html`${surface}<details class="output-raw"><summary>Raw output</summary>${outputFrame(output)}</details>`;
+}
+
+/**
  * The result area (the run page, and the agent Overview's Latest result):
  * the agent's A2UI view when it has one (docs/a2ui-views.md),
  * else its output widget, else the raw output. A generated view that wasn't
@@ -797,7 +814,7 @@ export function runWidget(
 ): SafeHtml {
   const fallback = () => (agent?.outputWidget
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
-    : outputFrame(run.result ?? ''));
+    : shapedOutput(run.result ?? '', surfaceId) ?? outputFrame(run.result ?? ''));
   if (!agent?.view && agent?.outputWidget && run.status === 'completed') {
     const legacy = legacyWidgetView(agent.outputWidget, run.result ?? '');
     // None of the widget's fields are in this output: the old renderer would

@@ -1,6 +1,7 @@
 import { sanitizeHtml, substitutePlaceholders, type AgentSignal, type OutputWidgetSchema, type ViewComponent } from '@some-useful-agents/core';
 import { normalizeSignal } from '../views/pulse-templates.js';
 import { extractField, parseJsonFromOutput } from '../views/output-widgets.js';
+import { isEmptyValue, recordColumns, recordsOf } from './result-shape.js';
 
 /**
  * Converts the pre-A2UI widgets (a `signal` template + mapping, an
@@ -200,7 +201,20 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
   }
   const data: Record<string, unknown> = { fields };
   const fieldPath = (name: string) => bind(`/data/fields/${name}`);
-  const shown = (widget.fields ?? []).filter((f) => f.type === 'table' || fields[f.name] !== undefined);
+  // A field with nothing in it ("", [], —) isn't shown: an empty heading reads as missing data.
+  const shown = (widget.fields ?? []).filter((f) => f.type === 'table' || (fields[f.name] !== undefined && !isEmptyValue(fields[f.name])));
+  // A list of records in a text or code field reads as a table, not JSON.
+  const records: Record<string, Array<Record<string, string>>> = {};
+  for (const f of shown) {
+    if (f.type !== 'code' && f.type !== 'text' && f.type !== undefined) continue;
+    const rows = recordsOf(fields[f.name] ?? '');
+    if (rows) records[f.name] = rows;
+  }
+  if (Object.keys(records).length) data.records = records;
+  const recordTable = (f: { name: string; label?: string }, cid: string): C[] => [
+    col(cid, [`${cid}_l`, `${cid}_t`]), text(`${cid}_l`, f.label ?? f.name, 'caption'),
+    { id: `${cid}_t`, component: 'Table', rows: bind(`/data/records/${f.name}`), columns: recordColumns(records[f.name] ?? []) },
+  ];
   if (shown.some((f) => f.type === 'action')) return { unsupported: 'action fields' };
   // A preview field (a file the run wrote) becomes a link to the dashboard's file viewer.
   const previews: Record<string, string> = {};
@@ -238,6 +252,8 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
         kids.push(id(f));
         if (f.type === 'preview') {
           comps.push(previewLink(f, id(f)));
+        } else if (records[f.name]) {
+          comps.push(...recordTable(f, id(f)));
         } else if (f.type === 'code') {
           comps.push(col(id(f), [id(f, '_l'), id(f, '_v')]), text(id(f, '_l'), f.label ?? f.name, 'caption'), { id: id(f, '_v'), component: 'Code', text: fieldPath(f.name) });
         } else if (f.type === 'badge') {
@@ -290,6 +306,7 @@ export function legacyWidgetView(widget: OutputWidgetSchema, output: string): Le
         }
         if (f.type === 'stat') { push({ id: cid, component: 'Metric', label, value: fieldPath(f.name) }); return { cid, slot: 'stats' }; }
         if (f.type === 'preview') { push(previewLink(f, cid)); return { cid, slot: 'rest' }; }
+        if (records[f.name]) { push(...recordTable(f, cid)); return { cid, slot: 'rest' }; }
         if (f.type === 'code') {
           push(col(cid, [`${cid}_l`, `${cid}_v`]), text(`${cid}_l`, label, 'caption'), { id: `${cid}_v`, component: 'Code', text: fieldPath(f.name) });
           return { cid, slot: 'rest' };

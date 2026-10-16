@@ -234,11 +234,40 @@ describe('the agent Overview leads with the latest result', () => {
     await runShop();
     ctx.runStore.createRun({ id: 'later-fail', agentName: 'shop', status: 'failed', startedAt: new Date(Date.now() + 1000).toISOString(), triggeredBy: 'cli', error: 'HTTP 503 from the store\nstack…' } as never);
     const page = (await get(app, '/agents/shop')).text;
-    expect(page).toContain('The newest run failed');
+    expect(page).toContain('<strong>The last run failed</strong>');
     expect(page).toContain('HTTP 503 from the store');
     expect(page).not.toContain('stack…');
-    expect(page).toContain('Below is the last one that finished.');
+    expect(page).toContain('<a href="/runs/later-fail">Open the run →</a>');
+    expect(page).toContain('action="/agents/shop/ask-fix" data-ask-fix');
+    expect(page).toContain('>Last good result</h2>');
+    expect(page).toContain('Below is what it made the last time it finished.');
     expect(page).toContain('run-dot run-dot--failed');
+  });
+
+  it('a JSON answer with no widget reads as facts, and an agent others call lists its last results', async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'page-facts', name: 'Page Facts', status: 'active', source: 'local', mcp: false,
+      inputs: { URL: { type: 'string' } },
+      nodes: [{ id: 'read', type: 'llm-prompt', prompt: 'x' }] } as never, 'cli');
+    ctx.agentStore.createAgent({ id: 'caller', name: 'Caller', status: 'active', source: 'local', mcp: false,
+      nodes: [{ id: 'call', type: 'agent-invoke', agentInvokeConfig: { agentId: 'page-facts', inputs: { URL: 'x' } } }] } as never, 'cli');
+    const agent = ctx.agentStore.getAgent('page-facts') as Agent;
+    const said = ['{"url": "https://shop.example/item/1", "status": "ok", "price": 40}', '{"url": "", "status": "blocked"}'];
+    for (const [i, out] of said.entries()) {
+      await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { URL: i === 0 ? 'https://shop.example/item/1' : '' } }, { runStore: ctx.runStore, spawnNode: async () => ({ result: out, exitCode: 0 }) });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const page = (await get(app, '/agents/page-facts')).text;
+    // Labelled facts (an empty one says so), with the raw text folded away.
+    expect(page).toContain('"label":"Status","value":"blocked"');
+    expect(page).toContain('"label":"Url","value":"(empty)"');
+    expect(page).toContain('<summary>Raw output</summary>');
+    // Its last results, input → answer, open because the latest is a short JSON answer.
+    expect(page).toContain('<details class="agent-recent" open>');
+    expect(page).toContain('<summary>Its last 2 results</summary>');
+    expect(page).toContain('https://shop.example/item/1</span>');
+    expect(page).toContain('url: https://shop.example/item/1 · status: ok · price: 40');
+    expect(page).toContain('<span class="agent-recent__out">status: blocked</span>');
   });
 
   it('shows what the run said when none of the widget\'s fields are in it', async () => {

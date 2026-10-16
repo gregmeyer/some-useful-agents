@@ -166,3 +166,33 @@ describe('widget controls', () => {
     expect(v.components.some((c) => c.component === 'Link' && (c.url as { path: string }).path === '/data/previews/chart')).toBe(true);
   });
 });
+
+describe('a widget reads its records as tables and leaves out empty fields', () => {
+  it('a code field holding a list of records is a table; an empty badge is left out', () => {
+    const widget: OutputWidgetSchema = { type: 'dashboard', fields: [
+      { name: 'headline', label: 'Summary', type: 'text' },
+      { name: 'omitted', label: 'Omitted Companies', type: 'badge' },
+      { name: 'companies', label: 'CSV Records', type: 'code' },
+    ] };
+    const out = JSON.stringify({ headline: 'Two companies.', omitted: [], companies: [
+      { company: 'Acme', website: 'https://acme.example', source_urls: ['https://a.example', 'https://b.example'] },
+      { company: 'Birch', website: 'https://birch.example' },
+    ] });
+    const v = legacyWidgetView(widget, out) as Extract<LegacyView, { components: unknown[] }>;
+    expect('components' in v).toBe(true);
+    expect(validateViewComponents(v.components).ok).toBe(true);
+    const ids = v.components.map((c) => c.id);
+    expect(ids.some((i) => i.includes('omitted'))).toBe(false);
+    const table = v.components.find((c) => c.component === 'Table') as unknown as { rows: { path: string }; columns: Array<{ key: string; label: string; format?: string }> };
+    expect(table.rows.path).toBe('/data/records/companies');
+    expect(table.columns).toEqual([
+      { key: 'company', label: 'Company' },
+      { key: 'website', label: 'Website', format: 'link' },
+      { key: 'source_urls', label: 'Source urls' },
+    ]);
+    expect((v.data.records as Record<string, Array<Record<string, string>>>).companies[0]).toEqual({ company: 'Acme', website: 'https://acme.example', source_urls: 'https://a.example, https://b.example' });
+    // A code field that isn't a list of records stays code.
+    const plain = legacyWidgetView({ type: 'raw', fields: [{ name: 'body', type: 'code' }] }, JSON.stringify({ body: 'line one\nline two' })) as Extract<LegacyView, { components: unknown[] }>;
+    expect(plain.components.some((c) => c.component === 'Code')).toBe(true);
+  });
+});
