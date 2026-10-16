@@ -2344,6 +2344,21 @@ function missingFacts(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookViewOption, 
   return stepFacts(nb, step).filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '' || (f.role === 'link' && !!o.linkIsList));
 }
 
+/**
+ * A source step's work, option by option: the options it covers (best first,
+ * the top N when it has one; not ruled out) that still lack some of its
+ * facts, each with its own page (none when its link is a search page) and
+ * the facts it lacks. For an agent that reads one item's page per run.
+ */
+export function sourceJobs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'facts' | 'top'>): Array<{ entryId: string; name: string; link?: string; missing: NotebookField[] }> {
+  const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options).filter((o) => !o.ruledOut);
+  const options = step.top ? ranked.slice(0, step.top) : ranked;
+  return options
+    .map((o) => ({ entryId: o.id, name: o.name, ...(o.linkIsList ? {} : { link: optionLink(nb.fields, o.fields) }), missing: missingFacts(nb, o, step).filter((f) => f.role !== 'link') }))
+    .map((j) => (j.link ? j : { entryId: j.entryId, name: j.name, missing: j.missing }))
+    .filter((j) => j.missing.length > 0);
+}
+
 /** The notebook's checks not yet ticked for an option. */
 function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'checked'>): string[] {
   return nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase()));
