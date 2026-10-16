@@ -17,12 +17,14 @@ import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
+import { drainInFlight } from '../test-drain.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3998;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
 let dir: string;
+let ctxForDrain: DashboardContext | undefined;
 let provider: LocalProvider;
 let runStore: RunStore;
 let suggesterSaw = '';
@@ -118,10 +120,14 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
       : undefined),
   };
 
+  ctxForDrain = ctx;
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
+  // Background passes a route started (pictures, facets…) finish before the stores close.
+  await drainInFlight(ctxForDrain);
+  ctxForDrain = undefined;
   if (provider) {
     const start = Date.now();
     while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
