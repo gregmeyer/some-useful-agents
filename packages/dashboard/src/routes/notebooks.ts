@@ -24,7 +24,7 @@ import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
-import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
+import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
@@ -521,22 +521,68 @@ notebooksRouter.post('/notebooks/:id/criteria/:index', (req: Request, res: Respo
   }
 });
 
+/** Edit this notebook: its whole setup, on its own page. */
+notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const nb = store(req).get(String(req.params.id));
+  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req) }));
+});
+
+/**
+ * Save the Edit page. Lists come as one value per item (the setup editor's
+ * chips and rows) or as one text, one per line. From the Edit page
+ * (`setup=1`), the fields, checks and steps are saved too: a step you kept
+ * keeps how far it got, and the one running can't be removed.
+ */
 notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const cadence = str(req.body?.cadence).trim();
+  const editPage = `/notebooks/${encodeURIComponent(id)}/edit`;
   try {
     if (cadence) validateScheduleInterval(cadence, {});
+    const ctx = getContext(req.app.locals);
     const s = store(req);
+    const nb = s.get(id);
+    if (!nb) throw new Error('No such notebook.');
+    const full = req.body?.setup === '1';
+    let steps: unknown[] | undefined;
+    if (full && nb.steps?.length) {
+      const known = new Set(searchAgents(ctx).map((a) => a.id));
+      const ids = many(req.body?.step_id);
+      const posted = stepsFromForm(req.body ?? {});
+      const running = nb.steps.find((x) => x.status === 'running');
+      if (running && !ids.includes(running.id)) throw new Error(`"${running.title}" is running. Stop it before removing it.`);
+      // A kept step starts from itself (its facts, how far it got); what you changed goes on top.
+      steps = posted.map((x, i) => {
+        const was = nb.steps!.find((w) => w.id === ids[i]);
+        const agentId = x.agentId && (known.has(x.agentId) || x.agentId === was?.agentId) ? x.agentId : undefined;
+        const target = x.target ? Number(x.target) : undefined;
+        const { agentId: _a, target: _t, ...rest } = was ?? { id: '', kind: x.kind };
+        return { ...rest, title: x.title, kind: x.kind, ...(agentId ? { agentId } : {}), ...(target !== undefined && Number.isFinite(target) ? { target } : {}) };
+      });
+    }
     s.update(id, {
       title: str(req.body?.title), statement: str(req.body?.statement),
-      params: lines(req.body?.params), pipeline: lines(req.body?.pipeline), cadence,
+      params: many(req.body?.params), pipeline: many(req.body?.pipeline), cadence,
     });
-    s.setCriteria(id, lines(req.body?.criteria));
-    if (typeof req.body?.stages === 'string') s.setStages(id, lines(req.body.stages));
+    s.setCriteria(id, many(req.body?.criteria));
+    if (req.body?.stages !== undefined || full) s.setStages(id, many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean));
+    if (full) {
+      s.setChecks(id, many(req.body?.checks));
+      // The fields you kept, in their order (each as it was: only removing is done here).
+      const kept = new Set(many(req.body?.field).map((f) => { try { return (JSON.parse(f) as { key?: unknown }).key; } catch { return undefined; } }));
+      s.setFields(id, nb.fields.filter((f) => kept.has(f.key)));
+      if (steps) {
+        s.setSteps(id, steps);
+        confirmDoneStepsAndSay(ctx, id);
+      }
+    }
     res.redirect(303, back(id, 'Saved.'));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, back(id, cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg));
+    const say = cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg;
+    res.redirect(303, req.body?.setup === '1' ? `${editPage}?flash=${encodeURIComponent(say)}` : back(id, say));
   }
 });
 

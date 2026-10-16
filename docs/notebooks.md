@@ -20,7 +20,7 @@ There's no top-nav item yet. Notebooks show up:
 
 ## Archiving and deleting
 
-Both are at the bottom of a notebook's **Edit** panel.
+Both are under **More** at the bottom of a notebook's **Edit** page.
 
 - **Archive** hides the notebook:
   - from your notebooks (**All** too), Home's shelf, Today, sua's notebook list and the agent catalog's "fills notebooks";
@@ -103,7 +103,13 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   - **Notes and decisions**, with decisions first;
   - **Evidence**.
 - **+ Add entry** (in the header, beside **Decide…**) adds a note, an option, evidence, or a decision.
-- **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule.
+- **Edit** (in the header) opens the notebook's Edit page, the same editor a new notebook's draft uses:
+  - **Main column:** the title and what it's for; limits as chips you can change, remove or add; done-whens as rows (a met one stays ticked); and the steps, each with its agent.
+  - **Side column:** what sua notes for each option, the checks, the stages, the searches by name and when they run (when I ask, every morning…).
+  - **What carries over:** a step you keep keeps how far it got, and the step that's running can't be removed.
+  - **Removing a field** hides it; what options already have is kept. To note something new, ask sua.
+  - **Searches:** the notebook's own and the agents that fill notebooks are listed first; the rest are under **Other agents**.
+  - **Save** keeps it; **More** below has Stop, Save as a template, Archive and Delete.
 - **The schedule runs the pipeline.** A notebook with a schedule ("every morning") runs its searches when it's due, the same as pressing Run. The header says when it runs next. Each due time runs once. After the dashboard has been off, it catches up with one run, not one per missed time. A new or changed schedule waits for its next time. A schedule needs at least one search to run; without one the header says so. Scheduled runs are marked **on schedule** in **How it was made**. Schedules run while the dashboard is running (always, under `sua daemon`). See [ADR-0050](adr/0050-notebook-schedules-run-in-the-dashboard.md). Editing the criteria keeps the ticks on the ones you didn't change.
 - **Decide…** lists the options still in the running, best first, with their fit, price or measure and how many checks they pass. Tick the ones you chose (one, with a radio button, when the decide step wants one), say why if you like, and **Choose these N and close**. The picks are marked chosen, the decision ("Chose Acme and Hooli. Closest in size") is kept as an entry, the decide step is done, and the notebook closes. **Pick the top N** ticks the best N for you. When sua has recommended some in your conversation, they carry a **sua** badge and **Tick sua's picks (N)** ticks exactly those (its latest recommendation replaces the one before). Each row shows the option's picture when it has one. Chosen options carry a **✓ chosen** ribbon on their shortlist card (a chip in the table view and on the option's page). Once you've decided (closed it), the shortlist shows just the chosen ones, first (untick **Only chosen** to see the rest; that's kept per notebook in your browser), **Where it stands** says what you decided, and the funnel's **Chosen** counts every pick. With nothing in the running, you just say what you decided. **Save picks, keep it open** marks the ticked ones chosen without closing: for a notebook you keep shopping from ("I bought this one"). You can also pick one at a time: **Pick this one** on an option's page and **Pick** on its shortlist card (click **✓ Picked** or **Unpick** to take it back). A decide step is done once it has as many picks as it wants, and open again if you take one back. A decide step's card has its own **Pick N… →** button, which opens Decide…. **Reopen** any time (your picks stay ticked); **Stop** pauses a notebook without deciding.
 
@@ -270,7 +276,7 @@ When two options are the same one (a car listed twice, a company under two names
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
 
-- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them with **Edit** in the header (one per line). New options start at the first stage. If you remove a stage, its options move to the first one.
+- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them on the **Edit** page. New options start at the first stage. If you remove a stage, its options move to the first one.
 - **Move an option along** with **Move to <next stage> →** on its card, or tell sua ("I applied to Stripe and Plaid", "we test-drove the RAV4").
 - **Rule an option out** with **Rule out…**: pick a quick reason (Not interested, Too expensive, No reply, Failed a check) or write your own. Or tell sua ("rule out the XT, too pricey", "no callback from Plaid").
   - A ruled-out option **stays in the notebook,** dimmed and at the end of its section, showing where it was ruled out and why: "Ruled out at Applied: no callback". **Bring back** undoes it, and so does moving it to a stage.
@@ -355,7 +361,7 @@ A run's results go into the notebook by themselves when it was started from the 
 
 ## The pipeline
 
-With **Edit** in the header, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
+On the **Edit** page, tick the agents that gather for the notebook under **Searches**. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
 
 - **Each agent gets the notebook's goal.** Any input it declares named `GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF` gets the statement, parameters and criteria. `TOPIC`, `QUERY`, `QUESTION` or `SEARCH` gets the statement. Other inputs keep their defaults.
 - **It also says what the notebook already has.** That same notebook input lists the options in the running (best first, up to 40) so the search doesn't bring them back, and for each one the facts the notebook tracks that it's still missing ("Motive: planning and forecasting — employees, revenue, founded"). The link, picture and fit score aren't asked for. So a search can fill gaps in what the notebook has, by each option's name, as well as find new options. Each agent in a run sees what the agents before it added.

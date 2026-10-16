@@ -2102,7 +2102,7 @@ describe('notebook templates', () => {
     store.archive(nb.id);
 
     // Edit has it (an archived notebook too).
-    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`action="/notebooks/${nb.id}/template"`);
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain(`action="/notebooks/${nb.id}/template"`);
     const saved = await post(`/notebooks/${nb.id}/template`, 'name=Job+search');
     expect(saved.status).toBe(303);
     expect(decodeURIComponent(saved.headers.location)).toContain('Saved as the template “Job search” (1 field · 2 steps · 1 limit).');
@@ -2412,7 +2412,7 @@ describe('archiving and deleting a notebook from its page', () => {
     const o = store.upsertOption(nb.id, { title: 'Example cabinet', by: 'you', data: { price: 90 } }).entry;
     store.create({ title: 'Another notebook' });
 
-    const page = await get(`/notebooks/${nb.id}`);
+    const page = await get(`/notebooks/${nb.id}/edit`);
     expect(page.text).toContain(`action="/notebooks/${nb.id}/archive"`);
     expect(page.text).toContain('Delete…');
 
@@ -2524,5 +2524,65 @@ describe('short filter labels for long facts', () => {
     await settle();
     expect(facetsAsked).toHaveLength(2);
     facetsReply = undefined;
+  });
+});
+
+describe('editing a notebook on its own page', () => {
+  it('shows the whole setup filled in, saves it from chips and rows, and keeps how far steps and done-whens got', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string | string[]>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Buy used speakers', statement: 'A set that works.', params: ['within 30 miles', 'shipped is fine'], criteria: ['Three listings', 'A decision'] });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'seller', label: 'Seller', type: 'text' }]);
+    s.setChecks(nb.id, ['Works and resets', 'Fair price']);
+    s.setStages(nb.id, ['Found', 'Shortlist', 'Bought']);
+    s.update(nb.id, { pipeline: ['sched-agent', 'gone-agent'] });
+    s.setSteps(nb.id, [{ id: 's1', title: 'Find 3 sets', kind: 'find', target: 3 }, { id: 's2', title: 'Check them', kind: 'check' }, { id: 's3', title: 'Pick one', kind: 'decide' }]);
+    s.updateStep(nb.id, 's1', { status: 'done' });
+    s.markCriterion(nb.id, 0, true);
+
+    // The header's Edit is a link to the page.
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit">Edit</a>`);
+    const page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('Edit this notebook');
+    expect(page).toContain('data-nbd-editor');
+    expect(page).toContain('<input name="params" value="within 30 miles"');
+    expect(page).toMatch(/is-met" aria-hidden="true">☑<\/span><textarea name="criteria"[^>]*>Three listings/);
+    expect(page).toContain('<input type="hidden" name="step_id" value="s1">');
+    expect(page).toContain('<span class="nbd-step__state">done</span>');
+    expect(page).toMatch(/name="pipeline" value="sched-agent" checked/);
+    expect(page).toContain('gone-agent</span> <span class="nbd-agent__note">not installed</span>');
+    expect(page).toContain('<option value="" selected>when I ask</option>');
+    expect(page).toContain('>Seller<button');
+    expect(page).toContain('Stop this notebook');
+
+    // Change a limit, drop a check and a field, retitle a step, drop the gone search, run every morning.
+    const saved = await post(`/notebooks/${nb.id}/edit`, {
+      setup: '1', title: 'Buy used speakers', statement: 'A set that works.',
+      params: ['within 50 miles', 'shipped is fine'], criteria: ['Three listings', 'A decision'],
+      field: [JSON.stringify({ key: 'price', label: 'Price' })], checks: ['Works and resets'], stages: ['Found', 'Shortlist', 'Bought'],
+      pipeline: ['sched-agent'], cadence: '0 7 * * *',
+      step_id: ['s1', 's2', 's3'], step_title: ['Find 3 sets', 'Check each', 'Pick one'], step_kind: ['find', 'check', 'decide'], step_agent: ['', '', ''], step_target: ['3', '', ''],
+    });
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved.');
+    const after = s.get(nb.id)!;
+    expect(after).toMatchObject({ params: ['within 50 miles', 'shipped is fine'], checks: ['Works and resets'], pipeline: ['sched-agent'], cadence: '0 7 * * *' });
+    expect(after.fields.map((f) => f.key)).toEqual(['price']);
+    expect(after.fields[0]).toMatchObject({ type: 'money', role: 'price' });
+    expect(after.criteria).toEqual([{ text: 'Three listings', met: true, held: true }, { text: 'A decision', met: false }]);
+    expect(after.steps?.map((x) => [x.id, x.title, x.status])).toEqual([['s1', 'Find 3 sets', 'done'], ['s2', 'Check each', 'todo'], ['s3', 'Pick one', 'todo']]);
+    expect(after.steps?.[0]?.target).toBe(3);
+
+    // The step that's running can't be removed.
+    s.updateStep(nb.id, 's2', { status: 'running' });
+    const refused = await post(`/notebooks/${nb.id}/edit`, {
+      setup: '1', title: 'Buy used speakers', step_id: ['s1'], step_title: ['Find 3 sets'], step_kind: ['find'], step_agent: [''], step_target: ['3'],
+    });
+    expect(refused.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/edit\\?flash=`));
+    expect(decodeURIComponent(refused.headers.location)).toContain('“Check each” is running'.replace(/[“”]/g, '"'));
+    expect(s.get(nb.id)!.steps).toHaveLength(3);
   });
 });
