@@ -510,11 +510,15 @@ describe('Dashboard v2 DAG agents', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    // Cards replaced the old table+header layout in v0.15 PR 1.5.
-    // Check that v2 agents render as agent cards with the right content.
-    expect(res.text).toContain('class="agent-card"');
-    expect(res.text).toContain('news-digest');
-    expect(res.text).toMatch(/<strong>2<\/strong>\s*nodes/);
+    // Browsing, every agent is one line under All agents (a never-run one isn't on a shelf).
+    expect(res.text).toContain('class="ag-row"');
+    expect(res.text).toContain('href="/agents/news-digest">News Digest</a>');
+    // Filtered or sorted, agents are slim cards.
+    const sorted = await request(app).get('/agents?sort=name')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(sorted.text).toContain('class="agent-card ag-card"');
+    expect(sorted.text).toContain('href="/agents/news-digest">News Digest</a></span>');
   });
 
   it('renders the DAG container + Cytoscape JSON on /agents/:id', async () => {

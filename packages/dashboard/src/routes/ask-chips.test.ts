@@ -166,7 +166,8 @@ describe('ask chips on the agents list', () => {
       id: 'digest', name: 'Digest',
       sampleQuestions: [long, 'A second question that should not appear on the card.'],
     })]);
-    const res = await get(app, '/agents');
+    // Cards show when the list is sorted or filtered (browsing shows a never-run agent as a row).
+    const res = await get(app, '/agents?sort=name');
     expect(res.status).toBe(200);
 
     const attrs = askAttrs(res.text);

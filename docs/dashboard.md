@@ -66,9 +66,28 @@ The list here also has **Filter and sort** (where a thread came from, its agent,
 
 **Tabs:** User / Examples / Community (with per-tab counts). Community hidden unless you have community agents imported.
 
-Each card shows: status badge, source, optional `mcp` badge, **"used by N"** if other agents invoke this one and **"calls N"** if it invokes others, DAG shape (dot string), description, node count, schedule (humanized), last run status + age, **Run** button. Star toggle on each card.
+**What do you want to do?** — the box at the top. Say it in your own words ("find startups hiring in fintech"):
+- **Keyword matches** show at once, from the same ranker sua uses to pick agents in a conversation.
+- **sua's picks.** sua's agent finder (`agent-catalog-search`, the one it runs in a conversation) looks at every agent. Its picks appear above the matches: its recommendation, then up to three agents, each with why it fits, a question you can ask it, and **Run**.
+- **When nothing fits,** **Ask sua to build one** puts the request in the sua band.
+- **Repeat questions** asked within the hour are answered from the same search. Without `agent-catalog-search` installed, only the keyword matches show.
 
-**Filters** — search (id/name/description), status (active/paused/draft/archived), sort (name / status / recently run / starred first). Pagination with 12/24/48/100 page sizes.
+**Browsing** (the User tab, nothing filtered) shows shelves:
+- **Your go-to:** starred agents, then the ones you've run most this month.
+- **Used lately:** the last week.
+- **Fill notebooks.**
+- **On a schedule.**
+- **All agents:** every agent as one line, by name.
+- **Folded away at the bottom:** demos, tests and drafts you've never run (names like `smoke`, `demo`, `test`, `probe`, `hello`; a starred one stays out).
+
+**Cards** are slim:
+- the name (with the id beneath when the name doesn't just restate it), a two-line description and one question you can ask it;
+- chips for anything worth knowing: not active, feeds N notebooks, calls N, used by N, its schedule, mcp;
+- when you last used it ("used 1d ago · 26 runs this month"), and **Run**.
+
+How an agent is built (its nodes and DAG) is on its own page.
+
+**Filters** — folded under **Filters** (open while one is on): status (active/paused/draft/archived) and sort (name / status / recently run / starred first). Any filter, a search, or the Examples tab shows a paged list of cards (12/24/48/100) instead of shelves. The **Calls other agents** and **Feeds notebooks** chips stay on as you page or switch tabs.
 
 **Fixing an agent that isn't working.** **Ask sua to fix this** on an agent's page opens a conversation in the panel where sua first asks what's going wrong. Tell it what you saw, or press **Look at its recent runs**; either way sua drafts a fix and shows it as a diff you **Apply** or skip. Nothing changes until you do. The same happens on its own when an agent's failure thread reaches three failures (once per thread; not while autonomy is Off or the thread is paused). An applied fix is a new version under the same id, so boards, schedules and history keep pointing at the agent and **Versions** can roll it back. A fix changes what the agent does, never whether or when it runs: its status always stays, and its schedule stays unless the fix sets one. If the agent changed after the fix was drafted, applying it is refused and you can ask sua to look again. If three fixes to one agent go by in a conversation without a successful run, sua stops fixing it on its own and asks you what to try next. Your answer lets it continue, and so does any successful run of the agent in that conversation; after that, further changes are new work, not another round of the same fix.
 
