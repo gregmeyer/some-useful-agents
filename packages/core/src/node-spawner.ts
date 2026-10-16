@@ -8,6 +8,7 @@
  */
 
 import { codexConfigModel, refusedModelId } from './codex-models.js';
+import { claudeConfigModel } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { SpendLimits } from './spend-limits.js';
@@ -1296,7 +1297,8 @@ export async function spawnNodeReal(
       try {
         _opts.llmSettings?.onModelUnavailable?.({
           provider,
-          model: attemptNode.model ?? refusedModelId(result.error) ?? (provider === 'codex' ? codexConfigModel() : undefined),
+          model: attemptNode.model ?? refusedModelId(`${result.error ?? ''} ${result.result ?? ''}`)
+            ?? (provider === 'codex' ? codexConfigModel() : provider === 'claude' ? claudeConfigModel() : undefined),
           error: errSnippet || undefined,
           agentId: _opts.agentId,
           nodeId: node.id,
@@ -1940,6 +1942,8 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   }
   if (haystack.includes('model is not supported')
     || haystack.includes('model_not_found')
+    // claude CLI: "There's an issue with the selected model (x). It may not exist…"
+    || haystack.includes('issue with the selected model')
     || haystack.includes('unsupported model')
     || /model [`'"]?[\w.:-]+[`'"]? (does not exist|is not supported|not found)/.test(haystack)) {
     return 'model_unavailable';

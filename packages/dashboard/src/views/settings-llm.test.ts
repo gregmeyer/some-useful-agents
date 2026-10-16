@@ -134,14 +134,18 @@ describe('local model server card', () => {
   });
 });
 
-describe('renderSettingsLlm — the Codex model', () => {
+describe('renderSettingsLlm — CLI provider models', () => {
   const codex = {
     list: { models: [{ id: 'gpt-6-sol', label: 'GPT-6-Sol', desc: 'Workhorse.' }], ids: ['gpt-6-sol'] },
     configModel: 'gpt-5.5',
   };
+  const claude = {
+    list: { models: [{ id: 'claude-opus-5-5', label: 'Opus 5.5', desc: 'For complex work' }, { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Older model, still offered' }], ids: ['claude-opus-5-5', 'claude-sonnet-4-6', 'opus'] },
+    configModel: 'opus[1m]',
+  };
 
   it("offers Codex's current models on the codex row, and warns when its default is retired", () => {
-    const out = render(renderSettingsLlm({ ...base, settings: { providers: ['codex', 'claude'] }, codex }));
+    const out = render(renderSettingsLlm({ ...base, settings: { providers: ['codex', 'claude'] }, cliModels: { codex } }));
     expect(out).toContain('action="/settings/llm/provider-model"');
     expect(out).toContain('value="gpt-6-sol"');
     expect(out).toContain("Codex&#39;s own default (gpt-5.5)");
@@ -149,10 +153,18 @@ describe('renderSettingsLlm — the Codex model', () => {
   });
 
   it('no warning once a current model is picked; a saved retired pick stays visible', () => {
-    const ok = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'gpt-6-sol' } }, codex }));
+    const ok = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'gpt-6-sol' } }, cliModels: { codex } }));
     expect(ok).not.toContain('no longer offers');
-    const gone = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'o4-mini' } }, codex }));
+    const gone = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'o4-mini' } }, cliModels: { codex } }));
     expect(gone).toContain('o4-mini (no longer offered)');
     expect(gone).toContain('Codex no longer offers <code>o4-mini</code>');
+  });
+
+  it("gives the claude row its own picker; an alias default isn't retired", () => {
+    const out = render(renderSettingsLlm({ ...base, settings: { providers: ['codex', 'claude'] }, cliModels: { codex, claude } }));
+    expect(out).toContain('id="llm-claude-model"');
+    expect(out).toContain("Claude&#39;s own default (opus[1m])");
+    expect(out).toContain('Offered to your Claude account now: Opus 5.5.');
+    expect(out).not.toContain('Claude no longer offers');
   });
 });

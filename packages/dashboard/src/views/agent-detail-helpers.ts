@@ -3,7 +3,7 @@
  * Extracted from agent-detail-v2.ts.
  */
 
-import { codexModels, type Agent, type OutputWidgetType, type WidgetFieldType } from '@some-useful-agents/core';
+import { claudeModels, codexModels, type Agent, type OutputWidgetType, type WidgetFieldType } from '@some-useful-agents/core';
 import { html, unsafeHtml, type SafeHtml } from './html.js';
 import { WIDGET_TYPES as WIDGET_TYPE_INFO, FIELD_TYPES as FIELD_TYPE_INFO, EXAMPLE_WIDGETS } from './output-widget-help.js';
 
@@ -1271,21 +1271,22 @@ export function providerOption(value: string, current?: string): SafeHtml {
 
 export interface ModelEntry { id: string; label: string; desc: string }
 
-const CLAUDE_MODELS: ModelEntry[] = [
-  { id: '', label: 'default', desc: 'Uses the Claude CLI default model' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6', desc: 'Most capable. Deep analysis, complex reasoning, long outputs' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', desc: 'Fast + capable. Good balance of speed and quality' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', desc: 'Fastest. Best for simple tasks, classification, extraction' },
+/** Claude's short names, always valid; used when its CLI hasn't shared a list. */
+const CLAUDE_ALIASES: ModelEntry[] = [
+  { id: 'opus', label: 'Opus (latest)', desc: 'The Claude CLI picks the current Opus' },
+  { id: 'sonnet', label: 'Sonnet (latest)', desc: 'The Claude CLI picks the current Sonnet' },
+  { id: 'haiku', label: 'Haiku (latest)', desc: 'The Claude CLI picks the current Haiku' },
 ];
 
 /**
- * Known models per provider, for the Settings page's model suggestions. Codex's
- * come from the list the Codex CLI keeps for this account, so retired models
- * drop out on their own.
+ * Known models per provider, for the Settings page's model suggestions. Both
+ * come from the lists the CLIs keep for this account (Claude's model catalog,
+ * Codex's models_cache.json), so retired models drop out on their own.
  */
 export function modelSuggestions(): Record<string, readonly ModelEntry[]> {
+  const claude = claudeModels().models;
   return {
-    claude: CLAUDE_MODELS.filter((m) => m.id),
+    claude: claude.length > 0 ? claude : CLAUDE_ALIASES,
     codex: codexModels().models,
   };
 }

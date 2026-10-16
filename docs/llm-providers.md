@@ -48,14 +48,18 @@ Two kinds of provider can sit in the waterfall:
 
 sua always runs codex with `exec -s read-only --skip-git-repo-check`: codex's own guard refuses to run outside a git repo it trusts, which would stop any sua project in a plain folder from using it, and the guard only matters when codex may edit files, which sua's runs can't.
 
-### The Codex model
+### The Codex and Claude models
 
-The **Model** line on the codex row in **Settings → LLM** picks the model codex runs when an agent or step doesn't name one. Its choices are the models Codex offers your account right now, read from the list the Codex CLI keeps fresh itself (`models_cache.json` in `$CODEX_HOME`, default `~/.codex`). Leave it on **Codex's own default** to use `model` from your `~/.codex/config.toml`. An agent's or step's own `model:` still wins.
+The **Model** line on the codex and claude rows in **Settings → LLM** picks the model each runs when an agent or step doesn't name one. Its choices are the models that provider offers your account right now, read from the list its CLI keeps fresh itself:
+- Codex: `models_cache.json` in `$CODEX_HOME` (default `~/.codex`);
+- Claude: `cache/model-catalog/*-cc.json` in `$CLAUDE_CONFIG_DIR` (default `~/.claude`). Current models are listed first, then older ones Claude still serves. Aliases (`opus`, `sonnet`, `haiku`, `fable`) and `[1m]` context tags are always fine.
 
-**When a model is retired.** A model Codex no longer offers fails every attempt with `model_unavailable`, and the waterfall moves on to the next provider. Runs still finish, so nothing failed, but nothing runs on Codex and each node pays for a failed attempt first. So sua watches for it:
-- the codex row warns when its model (picked, or Codex's own default) is no longer offered;
-- every 10 minutes, and when the dashboard starts, sua checks every place a Codex model is chosen (the setting, Codex's config default, agents and steps that pin `provider: codex` with a `model:`) against Codex's list, and against models a run was refused (the runtime records each refusal in the settings file as `unavailableModels`);
-- for each retired model it posts one **System health** thread to sua's inbox, naming where it's used and what Codex offers now. The thread resolves itself once nothing uses that model.
+Leave it on **its own default** to use the CLI's own setting (`model` in `~/.codex/config.toml`, or in `~/.claude/settings.json`). An agent's or step's own `model:` still wins. The agent Settings page suggests models from the same lists.
+
+**When a model is retired.** A model a provider no longer offers fails every attempt with `model_unavailable` (Codex: "The 'x' model is not supported…"; Claude: "There's an issue with the selected model (x)…"), and the waterfall moves on to the next provider. Runs still finish, so nothing failed, but nothing runs on that provider and each node pays for a failed attempt first. So sua watches for it:
+- the provider's row warns when its model (picked, or the CLI's own default) is no longer offered;
+- every 10 minutes, and when the dashboard starts, sua checks every place a Codex or Claude model is chosen (the setting, the CLI's default, agents and steps that pin `provider: codex` or `provider: claude` with a `model:`) against that provider's list, and against models a run was refused (the runtime records each refusal in the settings file as `unavailableModels`);
+- for each retired model it posts one **System health** thread to sua's inbox, naming where it's used and what the provider offers now. The thread resolves itself once nothing uses that model.
 
 **Custom OpenAI-compatible providers** — POST to a `/v1/chat/completions`
 endpoint. This is how you run a **local or self-hosted model** (llama.cpp,

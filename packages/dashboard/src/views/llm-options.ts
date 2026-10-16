@@ -54,7 +54,7 @@ export function renderLlmOptions(values: LlmOptionsValues = {}, toolsPicker?: Sa
 
     <div class="form-field">
       <strong>Model <span class="dim text-xs">(optional)</span></strong>
-      <input type="text" name="model" value="${model}" placeholder="e.g. claude-opus-4-7"
+      <input type="text" name="model" value="${model}" placeholder="e.g. claude-opus-5-5"
         class="form-field__input">
       <span class="form-field__hint">Override the default model for this node. Provider-specific.</span>
     </div>
