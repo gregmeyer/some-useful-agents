@@ -78,11 +78,14 @@ The list here also has **Filter and sort** (where a thread came from, its agent,
 - **Used lately:** the last week.
 - **Fill notebooks.**
 - **On a schedule.**
+- **By what they do:** a shelf per group sua sorted your agents into ("Jobs & companies", "News & digests", "Fun"…), biggest first, its three most-used agents as cards and **All N →** for the rest (`?group=`, one line each, most used first). Agents sua hasn't sorted yet wait under **Not sorted yet**.
 - **All agents:** every agent as one line, by name.
-- **Folded away at the bottom:** demos, tests and drafts you've never run (names like `smoke`, `demo`, `test`, `probe`, `hello`; a starred one stays out).
+- **Folded away at the bottom:** demos, tests and drafts you've never run (names like `smoke`, `demo`, `test`, `probe`, `hello`, or ones sua put in "Demos & tests"; a starred one stays out).
+
+**How sua sorts them.** The `agent-catalog-sorter` system agent (installed by the dashboard at startup) reads each agent's name, description, tags and sample questions, puts it in one group (reusing the groups already in use, at most 12) and writes one plain line on what to use it for ("Find open roles at a company on Ashby"). That line replaces the description on cards and rows (the description stays as the hover text), and the **What do you want to do?** box searches it too. Sorting runs in the background when the page opens and some agent is new or changed (its name, description, tags, questions or version), 40 agents per run; the page says "sua is sorting your agents…" and reloads once when it's done. An agent it couldn't place is tried again after 10 minutes. The groups live in the `agent_catalog` table; sorting never changes an agent's version.
 
 **Cards** are slim:
-- the name (with the id beneath when the name doesn't just restate it), a two-line description and one question you can ask it;
+- the name (with the id beneath when the name doesn't just restate it), a two-line "use it for" line (sua's, or the description until it's sorted) and one question you can ask it;
 - chips for anything worth knowing: not active, feeds N notebooks, calls N, used by N, its schedule, mcp;
 - when you last used it ("used 1d ago · 26 runs this month"), and **Run**.
 

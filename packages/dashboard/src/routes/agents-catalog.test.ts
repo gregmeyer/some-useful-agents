@@ -43,7 +43,10 @@ const mk = (over: Partial<Agent>): Agent => ({
   ...over,
 } as Agent);
 
-async function makeApp(agents: Agent[], finder?: (inputs: Record<string, string>) => Promise<string | undefined>) {
+type Fake = (inputs: Record<string, string>) => Promise<string | undefined>;
+let lastCtx: DashboardContext;
+
+async function makeApp(agents: Agent[], finder?: Fake, sorter?: Fake) {
   dir = mkdtempSync(join(tmpdir(), 'sua-agents-catalog-'));
   const dbPath = join(dir, 'runs.db');
   const agentsDir = join(dir, 'agents', 'local');
@@ -82,7 +85,9 @@ async function makeApp(agents: Agent[], finder?: (inputs: Record<string, string>
     dataDir: dir,
     dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
     ...(finder ? { agentFindRun: finder } : {}),
+    ...(sorter ? { agentCatalogSortRun: sorter } : {}),
   } as unknown as DashboardContext;
+  lastCtx = ctx;
 
   return buildDashboardApp(ctx);
 }
@@ -194,5 +199,89 @@ describe('the agent catalog', () => {
     const composed = (await get(app, '/agents?composed=1')).text;
     expect(composed).toContain('<details class="ag-filters" open>');
     expect(composed).toContain('href="/agents?tab=examples&amp;composed=1"');
+  });
+});
+
+describe('the agent catalog, by what they do', () => {
+  const agents = [
+    mk({ id: 'ashby-jobs', name: 'Ashby Jobs', description: 'Reads an Ashby board.' }),
+    mk({ id: 'lever-jobs', name: 'Lever Jobs', description: 'Reads a Lever board.' }),
+    mk({ id: 'news-digest', name: 'News Digest', description: 'Morning news.' }),
+    mk({ id: 'odd-one', name: 'Odd One', description: 'Plays a sound.' }),
+    mk({ id: 'quiet-check', name: 'Quiet Check', description: 'Pings a box.' }),
+  ];
+  const answer = (items: unknown[]) => `<groups>${JSON.stringify({ items })}</groups>`;
+  const waitSorted = async () => { for (let i = 0; i < 50 && lastCtx.agentCatalogSorting; i++) await new Promise((r) => setTimeout(r, 10)); };
+
+  it('sua sorts the agents into groups once; each group is a shelf, with a use-it-for line', async () => {
+    const asked: Array<Record<string, string>> = [];
+    const app = await makeApp(agents, undefined, async (inputs) => {
+      asked.push(inputs);
+      return answer([
+        { id: 'ashby-jobs', group: 'Jobs & companies', useFor: 'Find open roles at a company on Ashby.' },
+        { id: 'lever-jobs', group: 'Jobs & companies', useFor: 'Find open roles on Lever' },
+        { id: 'news-digest', group: 'News & digests', useFor: 'Get a morning news digest' },
+        { id: 'quiet-check', group: 'Demos & tests', useFor: 'Check a box answers' },
+        { id: 'not-asked', group: 'Fun' },
+      ]);
+    });
+    const first = (await get(app, '/agents')).text;
+    expect(first).toContain('data-catalog-sorting');
+    await waitSorted();
+    expect(asked).toHaveLength(1);
+    expect(JSON.parse(asked[0].AGENTS).map((a: { id: string }) => a.id).sort()).toEqual(['ashby-jobs', 'lever-jobs', 'news-digest', 'odd-one', 'quiet-check']);
+    expect((await get(app, '/agents/catalog/sorting')).body).toEqual({ sorting: false });
+
+    const page = (await get(app, '/agents')).text;
+    expect(page).toContain('By what they do');
+    const shelf = page.slice(page.indexOf('>Jobs &amp; companies <span'), page.indexOf('</section>', page.indexOf('>Jobs &amp; companies <span')));
+    expect(shelf).toContain('/agents/ashby-jobs');
+    expect(shelf).toContain('Find open roles at a company on Ashby</p>');
+    // An agent sua didn't place waits under "Not sorted yet"; demos stay folded.
+    expect(page.slice(page.indexOf('>Not sorted yet'))).toContain('/agents/odd-one');
+    expect(page).not.toContain('>Demos &amp; tests <span');
+    expect(page.slice(page.indexOf('ag-folded'))).toContain('/agents/quiet-check');
+
+    // Nothing changed, so a reload doesn't sort again (odd-one failed: it waits).
+    await get(app, '/agents');
+    await waitSorted();
+    expect(asked).toHaveLength(1);
+  });
+
+  it('a changed agent is sorted again', async () => {
+    const asked: string[][] = [];
+    const app = await makeApp(agents.slice(0, 1), undefined, async (inputs) => {
+      const ids = (JSON.parse(inputs.AGENTS) as Array<{ id: string }>).map((a) => a.id);
+      asked.push(ids);
+      return answer(ids.map((id) => ({ id, group: 'Jobs & companies' })));
+    });
+    await get(app, '/agents'); await waitSorted();
+    agentStore.upsertAgent({ ...agents[0], description: 'Reads any Ashby board, now with salaries.' } as Agent, 'dashboard', 'edit');
+    await get(app, '/agents'); await waitSorted();
+    expect(asked).toEqual([['ashby-jobs'], ['ashby-jobs']]);
+  });
+
+  it('?group= lists one group; the box finds agents by their use-it-for line', async () => {
+    const app = await makeApp(agents, undefined, async () => answer([
+      { id: 'ashby-jobs', group: 'Jobs & companies', useFor: 'Find open roles at a company' },
+      { id: 'lever-jobs', group: 'Jobs & companies', useFor: 'Find open roles on Lever' },
+      { id: 'news-digest', group: 'News & digests', useFor: 'Get headlines every morning' },
+    ]));
+    await get(app, '/agents'); await waitSorted();
+    const group = (await get(app, '/agents?group=' + encodeURIComponent('Jobs & companies'))).text;
+    expect(group).toContain('← All agents');
+    expect(group).toContain('/agents/ashby-jobs');
+    expect(group).toContain('/agents/lever-jobs');
+    expect(group).not.toContain('/agents/news-digest"');
+    // "headlines" is only in sua's line for news-digest, not in the agent itself.
+    const search = (await get(app, '/agents?q=headlines')).text;
+    expect(search).toContain('/agents/news-digest');
+  });
+
+  it('without the sorter installed, the page just shows the shelves', async () => {
+    const app = await makeApp(agents);
+    const page = (await get(app, '/agents')).text;
+    expect(page).not.toContain('data-catalog-sorting');
+    expect(page).not.toContain('By what they do');
   });
 });

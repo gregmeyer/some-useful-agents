@@ -271,6 +271,10 @@ export interface DashboardContext {
   notebookFacets?: Set<string>;
   /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */
   agentFinds?: Map<string, import('./lib/agent-find.js').AgentFind>;
+  /** True while sua sorts the catalog's agents into groups (lib/agent-catalog-sort.ts). */
+  agentCatalogSorting?: boolean;
+  /** Tests only: answer for agent-catalog-sorter instead of running it. */
+  agentCatalogSortRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for agent-catalog-search on /agents instead of running it. */
   agentFindRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */

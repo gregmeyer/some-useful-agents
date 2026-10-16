@@ -68,6 +68,18 @@
 .ag-folded { margin: 0 0 var(--space-6); }
 .ag-folded > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-2); }
 
+/* By what they do (sorted by sua) */
+.ag-sorting { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.ag-groups { margin: 0 0 var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.ag-groups__title { margin: 0 0 var(--space-4); font-size: var(--font-size-lg); font-weight: var(--weight-semibold); color: var(--color-text); }
+.ag-groups__title .ag-shelf__hint { font-size: var(--font-size-xs); }
+.ag-shelf--group { margin-bottom: var(--space-5, var(--space-6)); }
+.ag-shelf__all { margin-left: var(--space-2); text-transform: none; letter-spacing: 0; font-family: var(--font-sans, inherit); font-weight: normal; color: var(--color-primary); text-decoration: none; }
+.ag-shelf__all:hover { text-decoration: underline; }
+.ag-back { margin: 0 0 var(--space-3); font-size: var(--font-size-sm); }
+.ag-back a { color: var(--color-text-muted); text-decoration: none; }
+.ag-back a:hover { color: var(--color-primary); }
+
 @media (max-width: 760px) {
   .ag-ask__row { flex-direction: column; }
   .ag-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: var(--space-1); }
