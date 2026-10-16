@@ -243,7 +243,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),
     ...(unfiled.some((r) => r.adding) ? ['Adding a run'] : []),
   ];
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind, ...(coverPhoto.shape ? { shape: coverPhoto.shape } : {}) } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -314,10 +314,15 @@ notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: R
       return;
     }
   }
+  // A picture can change at the same address (a drawing becomes a logo, a better photo is found):
+  // the browser asks each time and gets a 304 while it hasn't.
+  const etag = `"${photo.kind}-${photo.fetchedAt}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'private, no-cache');
+  if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
   res.setHeader('Content-Type', photo.contentType);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-  res.setHeader('Cache-Control', 'private, max-age=86400');
   res.end(Buffer.from(photo.bytes));
 });
 

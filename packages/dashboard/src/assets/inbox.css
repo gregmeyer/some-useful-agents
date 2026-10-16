@@ -3252,4 +3252,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .reply-widget.is-answered { opacity: .6; pointer-events: none; }
 
 /* A company's logo: whole, on a white tile in either theme. */
-.ib-notebook__cover.is-logo, .nbs-card__cover img.is-logo { background: #fff; padding: 4px; box-sizing: border-box; }
+.ib-notebook__cover.is-logo, .nbs-card__cover img.is-logo { background: #fff; box-sizing: border-box; }
+.ib-notebook__cover.is-logo { padding: 14%; }
+.ib-notebook__cover.is-logo.is-wide { padding: 2px; }
+.nbs-card__cover img.is-logo { padding: 22%; }
+.nbs-card__cover img.is-logo.is-wide { padding: 8% 10%; }

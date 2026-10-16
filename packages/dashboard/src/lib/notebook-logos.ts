@@ -8,8 +8,8 @@
  * fetchers; a logo too small to read (a 16px favicon) isn't kept.
  */
 import {
-  fetchImage as coreFetchImage, siteIcons as coreSiteIcons,
-  type FetchedImage, type Notebook, type NotebookField,
+  fetchImage as coreFetchImage, siteIcons as coreSiteIcons, imageSize,
+  type FetchedImage, type ImageShape, type Notebook, type NotebookField,
 } from '@some-useful-agents/core';
 import { illustrationKind } from './notebook-illustrations.js';
 
@@ -52,30 +52,8 @@ export function companySite(fields: readonly NotebookField[], data: Record<strin
     ?? companyHost(fields.filter((f) => f.role === 'link' || f.type === 'url').map((f) => data[f.key]).find((v) => typeof v === 'string'));
 }
 
-/** Width and height of a PNG, GIF, JPEG or WebP, when its header says. */
-export function imageSize(b: Uint8Array): { width: number; height: number } | undefined {
-  const u16be = (i: number) => (b[i] << 8) | b[i + 1];
-  const u32be = (i: number) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
-  if (b.length >= 24 && b[0] === 0x89 && b[1] === 0x50) return { width: u32be(16), height: u32be(20) };
-  if (b.length >= 10 && b[0] === 0x47 && b[1] === 0x49) return { width: b[6] | (b[7] << 8), height: b[8] | (b[9] << 8) };
-  if (b.length >= 30 && b[0] === 0x52 && b[8] === 0x57) {
-    const chunk = String.fromCharCode(b[12], b[13], b[14], b[15]);
-    if (chunk === 'VP8X') return { width: 1 + (b[24] | (b[25] << 8) | (b[26] << 16)), height: 1 + (b[27] | (b[28] << 8) | (b[29] << 16)) };
-    if (chunk === 'VP8 ') return { width: (b[26] | (b[27] << 8)) & 0x3fff, height: (b[28] | (b[29] << 8)) & 0x3fff };
-    if (chunk === 'VP8L') return { width: 1 + (((b[22] & 0x3f) << 8) | b[21]), height: 1 + (((b[24] & 0xf) << 10) | (b[23] << 2) | ((b[22] & 0xc0) >> 6)) };
-    return undefined;
-  }
-  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
-    for (let i = 2; i + 9 < b.length;) {
-      if (b[i] !== 0xff) { i++; continue; }
-      const marker = b[i + 1];
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return { width: u16be(i + 7), height: u16be(i + 5) };
-      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
-      i += 2 + u16be(i + 2);
-    }
-  }
-  return undefined;
-}
+/** Width and height from an image's header (in core; kept here for the logo code and its tests). */
+export { imageSize };
 
 /**
  * The company's logo from its site: its own icons, best first, then a 128px
@@ -96,9 +74,13 @@ export async function findLogo(host: string, deps: LogoDeps = defaultLogoDeps): 
   return undefined;
 }
 
-/** The class a picture gets by kind: a drawing or a logo shows whole (a logo on a light tile), a photo fills. */
-export function pictureClass(kind: string | undefined): string {
-  return kind === 'illustration' ? 'is-drawn' : kind === 'logo' ? 'is-drawn is-logo' : '';
+/**
+ * The class a picture gets by kind: a drawing or a logo shows whole (a logo
+ * on a light tile), a photo fills. A wide logo (a wordmark) is marked so it
+ * fills its frame's width; a square one (an app icon) sits smaller.
+ */
+export function pictureClass(kind: string | undefined, shape?: ImageShape | string): string {
+  return kind === 'illustration' ? 'is-drawn' : kind === 'logo' ? `is-drawn is-logo${shape === 'wide' ? ' is-wide' : ''}` : '';
 }
 
 /** What to say a picture is, when it isn't the option's own photo (a logo needs no word). */

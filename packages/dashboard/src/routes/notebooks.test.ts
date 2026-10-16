@@ -2008,8 +2008,11 @@ describe('a brief with pictures', () => {
     const logo = store.upsertOption(nb.id, { title: 'Controller, Acme Pay', by: 'x', fingerprint: 'a', data: { salary: 190000, company: 'Acme Pay' } }).entry;
     const drawn = store.upsertOption(nb.id, { title: 'Controller, Birch Labs', by: 'x', fingerprint: 'b', data: { salary: 180000, company: 'Birch Labs' } }).entry;
     const bare = store.upsertOption(nb.id, { title: 'Controller, Cedar Co', by: 'x', fingerprint: 'c', data: { salary: 170000, company: 'Cedar Co' } }).entry;
+    const word = store.upsertOption(nb.id, { title: 'Controller, Dune Inc', by: 'x', fingerprint: 'd', data: { salary: 160000, company: 'Dune Inc' } }).entry;
+    const WIDE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 0xf4, 0, 0, 0, 0x91]);
     const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 180, 0, 0, 0, 180]);
     store.savePhoto(nb.id, logo.id, 'https://acmepay.example/apple-touch-icon.png', { contentType: 'image/png', bytes: PNG }, { kind: 'logo', what: 'acmepay.example logo' });
+    store.savePhoto(nb.id, word.id, 'https://dune.example/wordmark.png', { contentType: 'image/png', bytes: WIDE }, { kind: 'logo', what: 'dune.example logo' });
     store.savePhoto(nb.id, drawn.id, 'illustration', { contentType: 'image/svg+xml', bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { kind: 'illustration' });
     const photoPath = (id: string) => `/notebooks/${nb.id}/entries/${id}/photo`;
     const t = (await get(`/notebooks/${nb.id}/brief.html`)).text;
@@ -2017,6 +2020,14 @@ describe('a brief with pictures', () => {
     expect(t).toContain(`<span class="pic pic--thumb is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
     expect(t).toContain(`<span class="pic pic--thumb is-tile"><img src="${photoPath(drawn.id)}" alt=""></span>`);
     expect(t).toContain('<span class="pic pic--thumb is-empty" aria-hidden="true"></span>');
+    // A picture can change at the same address: the browser asks again and gets a 304 while it hasn't.
+    const first = await get(photoPath(logo.id));
+    expect(first.headers['cache-control']).toBe('private, no-cache');
+    expect((await get(photoPath(logo.id)).set('If-None-Match', first.headers.etag)).status).toBe(304);
+    store.savePhoto(nb.id, logo.id, 'https://acmepay.example/new.png', { contentType: 'image/png', bytes: PNG }, { kind: 'logo' });
+    expect((await get(photoPath(logo.id)).set('If-None-Match', first.headers.etag)).status).toBe(200);
+    // A wordmark (500×145) is marked wide, so it fills the thumbnail's width.
+    expect(t).toContain(`<span class="pic pic--thumb is-tile is-logo is-wide"><img src="${photoPath(word.id)}" alt=""></span>`);
     expect(t).not.toContain(photoPath(bare.id));
     const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
     expect(full).toContain(`<span class="pic pic--hero is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
@@ -2031,6 +2042,7 @@ describe('a brief with pictures', () => {
     const page = (await get(`/notebooks/${nb.id}/entries/${logo.id}`)).text;
     expect(page).toContain(`<img src="${photoPath(logo.id)}" alt="" class="is-drawn is-logo">`);
     expect(page).not.toContain('example photo');
+    expect((await get(`/notebooks/${nb.id}/entries/${word.id}`)).text).toContain(`<img src="${photoPath(word.id)}" alt="" class="is-drawn is-logo is-wide">`);
   });
 });
 

@@ -8,6 +8,7 @@
  * Its page is drawn from its own surface (`notebook:<id>`, see surfaces/),
  * from items projected out of its entries.
  */
+import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
@@ -782,9 +783,9 @@ export class NotebookStore {
   }
 
   /** An option's kept picture, if there is one: its own photo, a representative one, or an illustration. */
-  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string } | undefined {
+  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string; fetchedAt: string } | undefined {
     const r = this.db.prepare('SELECT * FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as Record<string, unknown> | undefined;
-    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}) } : undefined;
+    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}), fetchedAt: String(r.fetched_at) } : undefined;
   }
 
   /**
@@ -792,11 +793,20 @@ export class NotebookStore {
    * with a kept picture, its own photo before a representative one before a
    * drawing, newest first. Undefined when none has one.
    */
-  coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind } | undefined {
+  coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind; shape?: ImageShape } | undefined {
     const r = this.db.prepare(`SELECT e.id AS id, p.kind AS kind FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
       WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL
       ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 WHEN 'logo' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
-    return r ? { entryId: r.id, kind: (r.kind ?? 'listing') as NotebookPhotoKind } : undefined;
+    if (!r) return undefined;
+    const kind = (r.kind ?? 'listing') as NotebookPhotoKind;
+    const shape = kind === 'logo' ? this.photoShape(r.id) : undefined;
+    return { entryId: r.id, kind, ...(shape ? { shape } : {}) };
+  }
+
+  /** A kept picture's shape from its header (a wordmark logo is wide), when it says. */
+  photoShape(entryId: string): ImageShape | undefined {
+    const r = this.db.prepare('SELECT substr(bytes, 1, 65536) AS head FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as { head?: Uint8Array } | undefined;
+    return r?.head ? imageShape(r.head) : undefined;
   }
 
   /** What kind of picture an option has, if any. */
@@ -1836,6 +1846,8 @@ export interface NotebookViewOption {
   imageSource?: string;
   /** What the picture is: the listing's own photo, a representative one, or an illustration. */
   imageKind?: NotebookPhotoKind;
+  /** A logo's shape (a wordmark is wide, an app icon square), so it's sized to read. */
+  imageShape?: ImageShape;
   /** The price over time (oldest first), and how it moved since first seen. */
   priceHistory: Array<{ at: string; value: number }>;
   priceChange?: { from: number; to: number; since: string };
@@ -1907,6 +1919,7 @@ export interface NotebookViewHistory {
   missedSearches(notebookId: string, e: NotebookEntry): number;
   hasPhoto?(entryId: string): boolean;
   photoKind?(entryId: string): NotebookPhotoKind | undefined;
+  photoShape?(entryId: string): ImageShape | undefined;
 }
 
 /** Where the dashboard serves an option's kept photo. */
@@ -1934,12 +1947,13 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const imageSource = str(pick(data, 'image'));
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
     const imageKind = image ? history?.photoKind?.(e.id) : undefined;
+    const imageShape = imageKind === 'logo' ? history?.photoShape?.(e.id) : undefined;
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
       ...(e.factMeta && Object.keys(e.factMeta).length ? { factMeta: e.factMeta } : {}),
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}), ...(score !== undefined ? { score } : {}),
-      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageSource ? { imageSource } : {}),
+      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageShape ? { imageShape } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,

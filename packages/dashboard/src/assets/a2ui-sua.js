@@ -313,7 +313,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .gone-why { color: var(--color-text-muted); }
     .pic img.drawn { object-fit: contain; padding: 8px; box-sizing: border-box; }
     .pic:has(img:not(.drawn)) { background: var(--color-surface); }
-    .pic img.logo { background: #fff; padding: 12%; }
+    /* A logo: an app icon sits at about half the frame; a wordmark fills its width. */
+    .pic img.logo { background: #fff; padding: 22%; }
+    .pic img.logo.wide { padding: 8% 10%; }
     .pickind { position: absolute; bottom: 8px; left: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); border: 1px solid var(--color-border); }
     .menu .btn.gone { border-color: var(--color-text-muted); }
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
@@ -504,7 +506,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     }
     return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''} ${o.chosen && !o.ruledOut ? 'chosen' : ''}">
       <div class="pic">
-        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : o.imageKind === 'logo' ? 'drawn logo' : ''}">${o.imageKind && o.imageKind !== 'listing' && o.imageKind !== 'logo' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
+        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : o.imageKind === 'logo' ? (o.imageShape === 'wide' ? 'drawn logo wide' : 'drawn logo') : ''}">${o.imageKind && o.imageKind !== 'listing' && o.imageKind !== 'logo' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
           : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
         ${o.chosen && !o.ruledOut ? html`<span class="ribbon chosen" title="Picked${o === best ? `; also the ${scoreF ? 'best fit' : 'best price'}` : ''}">✓ chosen</span>`
