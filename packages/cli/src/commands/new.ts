@@ -121,7 +121,7 @@ async function runInteractive(rl: Rl): Promise<void> {
   } else {
     prompt = await askNonEmpty(rl, 'Prompt (single line; edit the YAML afterwards for multi-line): ');
     const modelRaw = (await rl.question(
-      'Model (optional, e.g. claude-sonnet-4-20250514 — press Enter for default): ',
+      'Model (optional, e.g. claude-sonnet-5-5 — press Enter for default): ',
     )).trim();
     model = modelRaw || undefined;
   }

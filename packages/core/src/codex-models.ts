@@ -66,7 +66,8 @@ export function codexConfigModel(home: string = codexHome()): string | undefined
  */
 export function refusedModelId(error: string | undefined): string | undefined {
   if (!error) return undefined;
-  const m = /[`'"]([\w.:/-]+)[`'"]\s+model\s+(?:is not supported|does not exist|not found)/i.exec(error)
+  const m = /issue with the selected model \(([\w.:/\[\]-]+)\)/i.exec(error)
+    ?? /[`'"]([\w.:/-]+)[`'"]\s+model\s+(?:is not supported|does not exist|not found)/i.exec(error)
     ?? /model\s+[`'"]([\w.:/-]+)[`'"]\s+(?:is not supported|does not exist|not found)/i.exec(error)
     ?? /model_not_found[^`'"]*[`'"]([\w.:/-]+)[`'"]/i.exec(error);
   return m?.[1];
@@ -77,5 +78,13 @@ export function refusedModelId(error: string | undefined): string | undefined {
  * known; an unknown list never calls a model obsolete.
  */
 export function codexModelRetired(model: string | undefined, list: CodexModelList): boolean {
-  return !!model && list.ids.length > 0 && !list.ids.includes(model);
+  if (!model || list.ids.length === 0) return false;
+  // `[1m]`-style context tags (Claude) aren't part of the id.
+  const bare = model.replace(/\[[^\]]*\]$/, '').trim();
+  return !list.ids.includes(bare);
 }
+
+/** Same check, by its provider-neutral name. */
+export const modelRetired = codexModelRetired;
+/** A provider's offered models (Codex's shape is the shared one). */
+export type ProviderModelList = CodexModelList;

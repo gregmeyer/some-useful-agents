@@ -525,6 +525,7 @@ export {
   type UnavailableModel,
 } from './llm-settings-store.js';
 export * from './codex-models.js';
+export * from './claude-models.js';
 export {
   planMigration,
   applyMigration,

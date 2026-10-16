@@ -12,13 +12,12 @@ import {
   type AppleSnapshot,
   LLM_PROVIDERS,
   isProvider,
-  codexModels,
-  codexConfigModel,
   type LlmProvider,
   getServiceStatus,
   spawnService,
   stopService,
 } from '@some-useful-agents/core';
+import { readProviderModels } from '../lib/model-watch.js';
 import { spawn } from 'node:child_process';
 import { formatAge } from '../views/components.js';
 import { html, type SafeHtml } from '../views/html.js';
@@ -1115,7 +1114,7 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     error,
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
     modelServer: await readModelServer(ctx),
-    codex: { list: codexModels(), configModel: codexConfigModel() },
+    cliModels: readProviderModels(),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });
