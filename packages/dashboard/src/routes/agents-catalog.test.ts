@@ -163,6 +163,10 @@ describe('the agent catalog', () => {
     expect(answer.html).toContain('data-ask="Who is hiring controllers?"');
     expect(answer.html).not.toContain('news-digest');   // scored too low
     expect(answer.html).not.toContain('made-up');       // not installed
+    // Talk it through with sua: a conversation that starts with the question and the picks.
+    expect(answer.html).toContain('<form method="POST" action="/inbox/new" class="ag-talk">');
+    expect(answer.html).toContain('value="I asked the agent catalog: “find jobs at fintech startups”. It suggested:\n- job-finder: Finds open roles at the companies you name.\nHelp me choose, or tell me if I should build a new agent for this."');
+    expect(answer.html).toContain('name="page" value="/agents"');
     // Asked again within the hour: the same answer, not another search.
     const again = (await get(app, '/agents?q=Find+jobs+at+fintech+startups')).text;
     expect(again).toContain(`data-agent-find="${id!}"`);
@@ -178,6 +182,7 @@ describe('the agent catalog', () => {
     const html = ((await get(app, `/agents/find/${id}`)).body as { html: string }).html;
     expect(html).toContain('No installed agent covers this.');
     expect(html).toContain('data-ask="Build an agent that can: book a table for dinner"');
+    expect(html).toContain('value="I asked the agent catalog: “book a table for dinner”. Nothing fit (No installed agent covers this.). Should we build an agent for this?"');
   });
 
   it('without the finder installed there is no panel, and the filter chips survive paging', async () => {
