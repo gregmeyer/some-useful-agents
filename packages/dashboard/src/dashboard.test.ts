@@ -1947,6 +1947,29 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
     expect(b.dependsOn).toEqual(['a']);
   });
 
+  it('a step something waits on can be set to keep going if it fails', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const auth = (r: request.Test) => r.set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    // "a" feeds "b": the box shows, naming b. "b" feeds nothing: no box.
+    const formA = (await auth(request(app).get('/agents/chain-edit/nodes/a/edit'))).text;
+    expect(formA).toContain('Keep going if this step fails');
+    expect(formA).toMatch(/name="optional" value="1"\s*>/);
+    expect(formA).toContain('<code>b</code> gets a short note');
+    expect((await auth(request(app).get('/agents/chain-edit/nodes/b/edit'))).text).not.toContain('Keep going if this step fails');
+
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form')
+      .send({ type: 'shell', command: 'echo a', optionalShown: '1', optional: '1' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBe(true);
+    expect((await auth(request(app).get('/agents/chain-edit/nodes/a/edit'))).text).toMatch(/name="optional" value="1" checked/);
+
+    // A save from a form without the box keeps it; unticking clears it.
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form').send({ type: 'shell', command: 'echo a2' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBe(true);
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form').send({ type: 'shell', command: 'echo a3', optionalShown: '1' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBeUndefined();
+  });
+
   it('POST edit refuses a cycle-producing dependsOn', async () => {
     const app = await makeApp();
     await seedChainAgent();
