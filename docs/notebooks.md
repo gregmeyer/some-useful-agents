@@ -399,6 +399,13 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 - **A source step can name its facts.** An agent that looks up revenue, employees and founding year can't fill "why people buy it", so a step that counted every fact would never reach its goal with it. Give the step `"facts": ["revenue", "employees", "founded"]` and only those count; its agent is asked only for those, and the step shows them beside its agent ("with firmographic-research · revenue, employees, founded"). Leave the other facts to another step. Names that aren't the notebook's facts are dropped.
 
   ![An example notebook's source step that looks up revenue, employees and founded: 18 of 36 facts](images/notebook-source-step-facts.png)
+- **A source step whose agent reads one page a run** (like `listing-page-facts`) works option by option. It recognises such an agent by its inputs: a page address (`PAGE_URL`, `URL`, `ITEM_URL`, `LISTING_URL` or `LINK`), optionally the facts to read (`WANT` or `FACTS`), and nothing about the notebook.
+  - **Each run:** the agent runs once for each option still missing the step's facts (best first, at most 8 a press), with that option's own page and the names of the facts it lacks.
+  - **What it reads** is filed on that option, each fact sourced to the page.
+  - **A page saying the item is sold, expired or removed** rules the option out as gone.
+  - **A blocked page** is named in the pass ("ebay.com blocked the reader").
+  - **An option without a page of its own is skipped**, so the agent never runs on an empty address. The step's note counts them.
+  - Pressing again does the next 8.
 - **From your sentence:**
 
   ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)

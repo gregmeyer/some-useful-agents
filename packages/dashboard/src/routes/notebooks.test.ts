@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InboxStore,
@@ -556,6 +556,59 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', tries: 1 });
     expect(runs()).toHaveLength(1);
     expect(store.passes(nb.id)[0].note).toBe('slow-source: stopped');
+  });
+
+  it('a source step whose agent reads one page a run reads each option\'s own page, never an empty one', async () => {
+    const app = await makeApp();
+    const wanted = join(dir, 'wanted');
+    agentStore.createAgent({ id: 'page-reader', name: 'Page reader', status: 'active', source: 'local', mcp: false,
+      inputs: { PAGE_URL: { type: 'string', default: '' }, WANT: { type: 'string', default: 'price' } },
+      nodes: [{ id: 'n', type: 'shell', command: `echo "$PAGE_URL|$WANT" >> ${wanted}; case "$PAGE_URL" in *blocked*) echo '{"url":"x","status":"blocked"}';; *sold*) echo '{"status":"gone"}';; *) echo '{"url":"x","status":"ok","price":40,"Seller":"Ann","odometer":0}';; esac` }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Example speakers' });
+    store.setFields(nb.id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' },
+      { key: 'seller', label: 'Seller', type: 'text' },
+      { key: 'odometer', label: 'Odometer', type: 'number' },
+      { key: 'listing', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    const add = (title: string, listing?: string) => store.upsertOption(nb.id, { title, by: 'you', data: listing ? { listing } : {} }).entry;
+    const a = add('Set A', 'https://shop.example/a');
+    add('Set B', 'https://blocked.example/b');
+    const c = add('Set C', 'https://shop.example/sold-c');
+    add('Set D');
+    store.setSteps(nb.id, [{ title: 'Read each listing', kind: 'source', agentId: 'page-reader', facts: ['price', 'seller'] }]);
+
+    await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    for (let i = 0; i < 400 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+
+    // One run per option with a page, each given its page and the facts it lacks; none empty.
+    const calls = readFileSync(wanted, 'utf-8').trim().split('\n').sort();
+    expect(calls).toEqual(['https://blocked.example/b|Price, Seller', 'https://shop.example/a|Price, Seller', 'https://shop.example/sold-c|Price, Seller']);
+    // What the page said is on the option, sourced to it (a 0 the page didn't give is left out).
+    const optA = store.entries(nb.id).find((e) => e.id === a.id)!;
+    expect(optA.data).toMatchObject({ price: 40, seller: 'Ann' });
+    expect(optA.data?.odometer).toBeUndefined();
+    expect(optA.factMeta?.price?.source).toBe('https://shop.example/a');
+    // A gone item is ruled out; a blocked page and an option without a page are said.
+    expect(store.entries(nb.id).find((e) => e.id === c.id)!.ruledOut).toBeTruthy();
+    const note = store.passes(nb.id)[0].note ?? '';
+    expect(note).toContain('page-reader: read 2 of 3 pages, 2 facts');
+    expect(note).toContain('blocked.example blocked the reader');
+    expect(note).toContain('1 gone, ruled out');
+    expect(note).toContain('1 without a page of their own');
+    // An agent that takes the notebook isn't a page reader, even with a URL input.
+    const { perItemInputs } = await import('../lib/notebook-pipeline.js');
+    expect(perItemInputs({ inputs: { NOTEBOOK: {}, URL: {} } } as never)).toBeUndefined();
+    expect(perItemInputs({ inputs: { URL: {}, FACTS: {} } } as never)).toEqual({ page: 'URL', want: 'FACTS' });
+    // As a check step it would run with no page: it's refused, saying what to do instead.
+    store.setChecks(nb.id, ['Works']);
+    store.setSteps(nb.id, [{ title: 'Check each set', kind: 'check', agentId: 'page-reader' }]);
+    const before = calls.length;
+    const refused = await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(decodeURIComponent(refused.headers.location)).toContain("page-reader reads one item's own page at a time, so it can't do a check step. Pick sua’s checker for it under Edit");
+    expect(readFileSync(wanted, 'utf-8').trim().split('\n')).toHaveLength(before);
   });
 
   it('a step still getting closer when it runs out of tries offers Try again first; Stop and Move on from the header', async () => {
