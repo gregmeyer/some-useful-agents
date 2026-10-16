@@ -514,6 +514,7 @@ export {
 export { stripSensitiveEnv } from './node-env.js';
 export {
   LlmSettingsStore,
+  modelUnavailableRecorder,
   LLM_PROVIDERS,
   isProvider,
   type LlmSettings,
@@ -521,7 +522,9 @@ export {
   type LlmFallbackEvent,
   type CustomLlmProvider,
   type ProviderRef,
+  type UnavailableModel,
 } from './llm-settings-store.js';
+export * from './codex-models.js';
 export {
   planMigration,
   applyMigration,

@@ -2,7 +2,7 @@ import { html, unsafeHtml, type SafeHtml } from '../html.js';
 import {
   renderVariablesEditor,
   renderNotifyEditor,
-  MODEL_SUGGESTIONS,
+  modelSuggestions,
 } from '../agent-detail-helpers.js';
 import { agentPageShell, type AgentDetailArgs } from './shell.js';
 import { formatAge } from '../components.js';
@@ -99,7 +99,7 @@ export async function renderAgentConfig(args: AgentDetailArgs): Promise<string> 
       </label>
     </div>
     <datalist id="settings-models"></datalist>
-    <script type="application/json" data-settings-model-suggestions>${unsafeHtml(JSON.stringify(MODEL_SUGGESTIONS).replace(/</g, '\\u003c'))}</script>
+    <script type="application/json" data-settings-model-suggestions>${unsafeHtml(JSON.stringify(modelSuggestions()).replace(/</g, '\\u003c'))}</script>
     <p class="settings-hint">A prompt step can still pick its own model in the YAML.</p>
   `);
 

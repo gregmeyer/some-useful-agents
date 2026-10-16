@@ -252,3 +252,34 @@ describe('LlmSettingsStore (enable/disable a provider)', () => {
     expect(s.disabledProviders).toEqual(['codex']); // claude stays enabled
   });
 });
+
+describe('LlmSettingsStore (provider models)', () => {
+  it('saves and clears the model a CLI provider runs', () => {
+    store.setProviderModel('codex', 'gpt-6-sol');
+    expect(store.get().models).toEqual({ codex: 'gpt-6-sol' });
+    store.setProviderModel('codex', null);
+    expect(store.get().models).toBeUndefined();
+  });
+
+  it('refuses a custom provider or an odd id', () => {
+    expect(() => store.setProviderModel('local-qwen', 'x')).toThrow(/Invalid provider/);
+    expect(() => store.setProviderModel('codex', 'gpt 6; rm')).toThrow(/model id/);
+  });
+
+  it('records a refused model once, keeping the first sighting', () => {
+    store.recordUnavailableModel('codex', 'gpt-5.5', 'not supported');
+    const first = store.get().unavailableModels?.['codex/gpt-5.5'];
+    store.recordUnavailableModel('codex', 'gpt-5.5', 'again');
+    expect(store.get().unavailableModels?.['codex/gpt-5.5']).toEqual(first);
+    expect(first?.error).toBe('not supported');
+  });
+
+  it('keeps both through other edits', () => {
+    store.setProviders(['codex', 'claude']);
+    store.setProviderModel('codex', 'gpt-6-sol');
+    store.recordUnavailableModel('codex', 'gpt-5.5');
+    store.setProviders(['claude', 'codex']);
+    expect(store.get().models).toEqual({ codex: 'gpt-6-sol' });
+    expect(Object.keys(store.get().unavailableModels ?? {})).toEqual(['codex/gpt-5.5']);
+  });
+});

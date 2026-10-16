@@ -15,6 +15,7 @@ import {
   IntegrationsStore,
   VariablesStore,
   LlmSettingsStore,
+  modelUnavailableRecorder,
   createAgentCallContext,
   MemoryStore,
   BoardsStore,
@@ -40,7 +41,8 @@ export function workerLlmSettings(
   providers: string[] | undefined,
   llmSettingsPath: string | undefined,
 ): LlmSettingsSnapshot | undefined {
-  const local = llmSettingsPath ? quiet(() => new LlmSettingsStore(llmSettingsPath).get()) : undefined;
+  const store = llmSettingsPath ? quiet(() => new LlmSettingsStore(llmSettingsPath)) : undefined;
+  const local = store ? quiet(() => store.get()) : undefined;
   if (!providers && !local) return undefined;
   const disabled = new Set(local?.disabledProviders ?? []);
   return {
@@ -50,6 +52,8 @@ export function workerLlmSettings(
     disabledProviders: local?.disabledProviders,
     pricing: local?.pricing,
     spendLimits: local?.spendLimits,
+    models: local?.models,
+    ...(store ? { onModelUnavailable: modelUnavailableRecorder(store) } : {}),
   };
 }
 

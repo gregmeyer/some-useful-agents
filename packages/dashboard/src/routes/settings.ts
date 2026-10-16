@@ -12,6 +12,8 @@ import {
   type AppleSnapshot,
   LLM_PROVIDERS,
   isProvider,
+  codexModels,
+  codexConfigModel,
   type LlmProvider,
   getServiceStatus,
   spawnService,
@@ -1113,8 +1115,27 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     error,
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
     modelServer: await readModelServer(ctx),
+    codex: { list: codexModels(), configModel: codexConfigModel() },
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
+});
+
+/** Which model a builtin CLI provider (codex) runs when a node pins none. */
+settingsRouter.post('/settings/llm/provider-model', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  try {
+    ctx.llmSettingsStore.setProviderModel(provider, model || null);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', model ? `${provider} now runs ${model}.` : `${provider} runs its own default model.`);
 });
 
 /**

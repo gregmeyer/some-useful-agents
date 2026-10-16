@@ -88,6 +88,7 @@ import { startQuestionSweeper } from './lib/ask-human.js';
 import { startDailyDigest } from './lib/daily-digest.js';
 import { startNotebookCadence } from './lib/notebook-cadence.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
+import { startModelWatch } from './lib/model-watch.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -773,6 +774,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       })
     : () => {};
 
+  // Providers retire models; a retired Codex model fails every attempt over to
+  // the next provider without failing the run. Tell sua once per model.
+  const stopModelWatch = ctx.inboxStore
+    ? startModelWatch(ctx.inboxStore, () => ({
+        settings: ctx.llmSettingsStore?.get(),
+        agents: ctx.agentStore.listAgents(),
+      }), {
+        onChanged: (m) => publishInboxChanged(ctx, m.id, m.status),
+      })
+    : () => {};
+
   const app = buildDashboardApp(ctx);
 
   // Pay the detectLlms() spawn cost (and any Apple-runner compile) off the
@@ -802,6 +814,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
       stopDailyDigest();
       stopNotebookCadence();
       stopSchedulerHealth();
+      stopModelWatch();
       // `server.close()` only stops accepting NEW connections; it resolves its
       // callback once EXISTING ones drain. The inbox SSE stream and the 2s poll
       // keep-alives never close on their own, so a naive close() hangs forever —

@@ -133,3 +133,26 @@ describe('local model server card', () => {
     expect(out.replace('/data/daemon/logs/model.log', '')).not.toMatch(/daemon|waterfall|fallback chain/i);
   });
 });
+
+describe('renderSettingsLlm — the Codex model', () => {
+  const codex = {
+    list: { models: [{ id: 'gpt-6-sol', label: 'GPT-6-Sol', desc: 'Workhorse.' }], ids: ['gpt-6-sol'] },
+    configModel: 'gpt-5.5',
+  };
+
+  it("offers Codex's current models on the codex row, and warns when its default is retired", () => {
+    const out = render(renderSettingsLlm({ ...base, settings: { providers: ['codex', 'claude'] }, codex }));
+    expect(out).toContain('action="/settings/llm/provider-model"');
+    expect(out).toContain('value="gpt-6-sol"');
+    expect(out).toContain("Codex&#39;s own default (gpt-5.5)");
+    expect(out).toContain('Codex no longer offers <code>gpt-5.5</code>');
+  });
+
+  it('no warning once a current model is picked; a saved retired pick stays visible', () => {
+    const ok = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'gpt-6-sol' } }, codex }));
+    expect(ok).not.toContain('no longer offers');
+    const gone = render(renderSettingsLlm({ ...base, settings: { providers: ['codex'], models: { codex: 'o4-mini' } }, codex }));
+    expect(gone).toContain('o4-mini (no longer offered)');
+    expect(gone).toContain('Codex no longer offers <code>o4-mini</code>');
+  });
+});

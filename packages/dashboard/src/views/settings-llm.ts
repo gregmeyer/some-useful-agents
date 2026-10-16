@@ -1,5 +1,5 @@
 import { html, type SafeHtml } from './html.js';
-import { localProviderNames, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
+import { codexModelRetired, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
 
 /** State of the local model server (the `model` daemon service). */
 export interface ModelServerView {
@@ -24,6 +24,8 @@ export interface SettingsLlmArgs {
   formatAge: (isoOrMs: number | string) => string;
   /** Local model server card. Omitted in tests / when not wired. */
   modelServer?: ModelServerView;
+  /** The models Codex offers now, and the model in Codex's own config.toml. */
+  codex?: { list: CodexModelList; configModel?: string };
 }
 
 const HEALTH_LABEL: Record<NonNullable<ModelServerView['health']>, { text: string; badge: string }> = {
@@ -99,7 +101,8 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     ? html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${args.error}</div>`
     : html``;
 
-  const chain = args.settings.providers;
+  const settings = args.settings;
+  const chain = settings.providers;
   const chainSet = new Set(chain);
   const customProviders = args.settings.customProviders ?? [];
   const customNames = customProviders.map((c) => c.name);
@@ -168,6 +171,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
             <button type="submit" class="btn btn--xs btn--ghost" ${isOnly ? 'disabled' : ''} title="${isOnly ? 'Cannot remove the last provider.' : ''}">Remove</button>
           </form>
         </div>
+        ${p === 'codex' && args.codex ? renderCodexModel(settings.models?.codex, args.codex, settings.unavailableModels) : html``}
       </li>
     `;
   });
@@ -370,5 +374,43 @@ function renderPricing(settings: LlmSettings): SafeHtml {
         </form>
       </details>
     </section>
+  `;
+}
+
+/**
+ * Which model Codex runs when a node doesn't pin one: a pick from the models
+ * Codex offers now, or Codex's own default. A model Codex no longer offers is
+ * flagged, so a retired default can't quietly fail every run over to the next
+ * provider.
+ */
+export function renderCodexModel(
+  current: string | undefined,
+  codex: NonNullable<SettingsLlmArgs['codex']>,
+  refused: LlmSettings['unavailableModels'],
+): SafeHtml {
+  const { list, configModel } = codex;
+  const effective = current ?? configModel;
+  const retired = !!effective && (codexModelRetired(effective, list) || !!refused?.[`codex/${effective}`]);
+  const defaultLabel = configModel ? `Codex's own default (${configModel})` : "Codex's own default";
+  // Keep a saved pick selectable even once it's gone, so the page shows what's set.
+  const options = [...list.models];
+  if (current && !options.some((m) => m.id === current)) options.push({ id: current, label: `${current} (no longer offered)`, desc: '' });
+  const offered = list.models.map((m) => m.label).join(', ');
+  return html`
+    <form method="POST" action="/settings/llm/provider-model" class="settings-llm__model">
+      <input type="hidden" name="provider" value="codex">
+      <label for="llm-codex-model">Model</label>
+      <select id="llm-codex-model" name="model" class="form-field">
+        <option value=""${current ? '' : ' selected'}>${defaultLabel}</option>
+        ${options.map((m) => html`<option value="${m.id}"${m.id === current ? ' selected' : ''} title="${m.desc}">${m.label}${m.desc ? ` · ${m.desc}` : ''}</option>`) as unknown as SafeHtml[]}
+      </select>
+      <button type="submit" class="btn btn--xs btn--ghost">Save</button>
+      ${retired
+        ? html`<p class="settings-llm__model-warn">Codex no longer offers <code>${effective}</code>, so every Codex attempt fails over to the next provider. Pick one it offers now.</p>`
+        : html``}
+      ${list.models.length > 0
+        ? html`<p class="settings-llm__model-hint">Offered to your Codex account now: ${offered}.</p>`
+        : html`<p class="settings-llm__model-hint">Codex hasn't shared its model list yet; run <code>codex</code> once to fetch it.</p>`}
+    </form>
   `;
 }
