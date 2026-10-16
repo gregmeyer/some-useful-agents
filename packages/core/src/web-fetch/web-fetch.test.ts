@@ -190,3 +190,18 @@ describe('fetchImage', () => {
     await expect(fetchImage('file:///etc/passwd')).rejects.toThrow(/scheme|Blocked/i);
   });
 });
+
+describe('siteIcons', () => {
+  it('lists a site’s own icons for a logo, apple-touch-icon first, skipping small, SVG and .ico ones', async () => {
+    const { siteIcons } = await import('./fetch.js');
+    mockFetchOnce(() => new Response(`<!doctype html><html><head>
+      <link rel="icon" href="/favicon.ico">
+      <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+      <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+      <link rel="icon" type="image/svg+xml" href="/icon.svg">
+      <link rel="apple-touch-icon" href="https://cdn.example.com/touch.png?v=2&amp;x=1">
+      <link rel="stylesheet" href="/site.css">
+    </head><body></body></html>`, { status: 200, headers: { 'content-type': 'text/html' } }));
+    expect(await siteIcons('https://example.com/')).toEqual(['https://cdn.example.com/touch.png?v=2&x=1', 'https://example.com/icon-192.png']);
+  });
+});

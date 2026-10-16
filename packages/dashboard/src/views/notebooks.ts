@@ -15,6 +15,7 @@ import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
+import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
 
@@ -150,7 +151,7 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
       ${candidates.map((o) => html`<div class="nb-decide__row">
         <label class="nb-decide__pick">
           <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen && !narrow ? html` checked` : html``}${o.suggested ? html` data-sua-pick` : html``}>
-          ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
+          ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}${o.imageKind === 'logo' ? ' is-logo' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
           <span class="nb-decide__name">${o.suggested ? html`<span class="nb-decide__sua" title="sua recommended this one">sua</span> ` : html``}${o.title}</span>
           ${decideFacts(nb, o)}
         </label>
@@ -314,7 +315,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
       <div class="nb-hero__main">
         <div class="nb-hero__titlerow">
           ${cover
-            ? html`<img class="nb-hero__cover${cover.kind === 'illustration' ? ' is-drawn' : ''}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : 'An example photo'}">`
+            ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
           <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
           ${statusChip(nb)}
@@ -862,15 +863,15 @@ export function renderNotebooksList(args: {
           c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
           c.options ? `${String(c.active)} in the running` : '',
         ].filter(Boolean);
-        const photo = c.cover && c.coverKind !== 'illustration' ? c.cover : undefined;
+        const photo = c.cover && c.coverKind !== 'illustration' && c.coverKind !== 'logo' ? c.cover : undefined;
         const met = c.checks?.filter((x) => x.met).length ?? 0;
         return html`
           <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
             <span class="nbl-card__cover${photo ? ' nbl-card__cover--photo' : ''}"${photo ? html` style="--cover:url('${photo}')"` : html``}>
               ${c.cover
-                ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">`
+                ? html`<img src="${c.cover}" alt="" loading="lazy" class="${pictureClass(c.coverKind)}">`
                 : coverArt(nb)}
-              ${c.cover && c.coverKind && c.coverKind !== 'listing' ? html`<span class="nbl-card__kind">${c.coverKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}
+              ${c.cover && pictureLabel(c.coverKind) ? html`<span class="nbl-card__kind">${pictureLabel(c.coverKind)}</span>` : html``}
             </span>
             <span class="nbl-card__body">
               <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</span>

@@ -5,6 +5,9 @@
  * SVG illustration. Found images go through core's guarded fetchImage; SVG is
  * rebuilt by sanitizeSvg; each is kept with its kind, so the card can say
  * "example photo" or "illustration" and never pass it off as the real thing.
+ * In a notebook of jobs or companies, the company's logo from its own site
+ * comes first (lib/notebook-logos.ts); the agent names the site when the
+ * option's facts don't.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -14,6 +17,7 @@ import {
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
+import { companyHost, companySite, findLogo, wantsLogos, type LogoDeps } from './notebook-logos.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -46,13 +50,17 @@ async function fetchWithRetry(fetchImage: PictureDeps['fetchImage'], url: string
   }
 }
 
+/** Logos for a notebook of jobs or companies: each option's site from its facts, and how to fetch. */
+export interface LogoPass { sites: Record<string, string | undefined>; deps?: LogoDeps }
+
 /**
- * Apply the agent's <pictures> block: a found image is fetched (patiently)
- * and kept as an example photo; every other asked option gets an
- * illustration drawn by sua (the route draws it; a model's SVG isn't used).
- * Returns how many photos and drawings were kept.
+ * Apply the agent's <pictures> block: with `logos`, the company's logo from
+ * its site (the agent's "site", else the option's facts) comes first; then a
+ * found image is fetched (patiently) and kept as an example photo; every
+ * other asked option gets an illustration drawn by sua (the route draws it;
+ * a model's SVG isn't used). Returns how many pictures and drawings were kept.
  */
-export async function applyPictures(store: NotebookStore, notebookId: string, askedIds: readonly string[], raw: string, deps: PictureDeps = { fetchImage: (u) => coreFetchImage(u) }, waits: readonly number[] = [1500, 4000]): Promise<{ kept: number; drawn: number; found: number }> {
+export async function applyPictures(store: NotebookStore, notebookId: string, askedIds: readonly string[], raw: string, deps: PictureDeps = { fetchImage: (u) => coreFetchImage(u) }, waits: readonly number[] = [1500, 4000], logos?: LogoPass): Promise<{ kept: number; drawn: number; found: number; logos?: number }> {
   const asked = new Set(askedIds);
   let found = 0;
   let drawn = 0;
@@ -60,6 +68,24 @@ export async function applyPictures(store: NotebookStore, notebookId: string, as
   let items: unknown[] = [];
   try { items = (JSON.parse(block ?? '{}') as { items?: unknown[] }).items ?? []; } catch { items = []; }
   const done = new Set<string>();
+  let logoCount = 0;
+  if (logos) {
+    const named = new Map<string, string>();
+    for (const it of items.slice(0, 20)) {
+      const x = it as { id?: unknown; site?: unknown };
+      const host = companyHost(x.site);
+      if (typeof x.id === 'string' && host) named.set(x.id, host);
+    }
+    for (const id of askedIds) {
+      const host = named.get(id) ?? logos.sites[id];
+      if (!host || store.photoKind(id) === 'listing' || store.photoKind(id) === 'representative' || store.photoKind(id) === 'logo') continue;
+      const logo = await findLogo(host, logos.deps);
+      if (!logo) continue;
+      store.savePhoto(notebookId, id, logo.url, { contentType: logo.contentType, bytes: logo.bytes }, { kind: 'logo', what: `${host} logo` });
+      done.add(id);
+      logoCount++;
+    }
+  }
   // One at a time: hosts rate-limit bursts.
   for (const it of items.slice(0, 20)) {
     const x = it as { id?: unknown; url?: unknown; what?: unknown };
@@ -69,7 +95,8 @@ export async function applyPictures(store: NotebookStore, notebookId: string, as
     if (typeof x.url === 'string' && /^https:\/\//i.test(x.url) && !/\.svg(\?|$)/i.test(x.url)) {
       try {
         const img = await fetchWithRetry(deps.fetchImage, smallerImageUrl(x.url), waits);
-        store.savePhoto(notebookId, id, x.url, { contentType: img.contentType, bytes: img.bytes }, { kind: 'representative', ...(what ? { what } : {}) });
+        // In a notebook of jobs or companies, what it finds is the company's logo.
+        store.savePhoto(notebookId, id, x.url, { contentType: img.contentType, bytes: img.bytes }, { kind: logos ? 'logo' : 'representative', ...(what ? { what } : {}) });
         found++;
         done.add(id);
       } catch { /* drawn below */ }
@@ -82,7 +109,7 @@ export async function applyPictures(store: NotebookStore, notebookId: string, as
     drawn++;
   }
   store.markPictureTried(askedIds);
-  return { kept: found + drawn, drawn, found };
+  return { kept: found + drawn + logoCount, drawn, found, ...(logos ? { logos: logoCount } : {}) };
 }
 
 /**
@@ -93,6 +120,8 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb) return false;
+  // Logos found before logos were their own kind were kept as example photos.
+  if (wantsLogos(nb)) store.relabelLogos(notebookId);
   const candidates = store.pictureCandidates(notebookId, 8);
   if (candidates.length === 0) return false;
   ctx.notebookPictures ??= new Set();
@@ -104,6 +133,10 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   ctx.notebookPictures.add(notebookId);
   const ids = candidates.map((e) => e.id);
   const options = candidates.map((e) => ({ id: e.id, name: e.title.split(',')[0].trim(), facts: e.data ?? {} }));
+  // Jobs and companies: a logo from the company's own site first.
+  const logos: LogoPass | undefined = wantsLogos(nb)
+    ? { sites: Object.fromEntries(candidates.map((e) => [e.id, companySite(nb.fields, e.data)])), ...(ctx.notebookLogoDeps ? { deps: ctx.notebookLogoDeps } : {}) }
+    : undefined;
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
@@ -122,7 +155,8 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
         const run = ctx.runStore.getRun(runId);
         result = run?.status === 'completed' ? run.result ?? undefined : undefined;
       }
-      if (result) await applyPictures(store, notebookId, ids, result);
+      // Without the agent's answer, logos from the options' own sites still apply.
+      if (result || logos) await applyPictures(store, notebookId, ids, result ?? '', undefined, undefined, logos);
       else store.markPictureTried(ids);
     } catch {
       store.markPictureTried(ids);

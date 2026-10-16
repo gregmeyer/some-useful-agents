@@ -3250,3 +3250,6 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
   --a2ui-row-gap: var(--space-2);
 }
 .reply-widget.is-answered { opacity: .6; pointer-events: none; }
+
+/* A company's logo: whole, on a white tile in either theme. */
+.ib-notebook__cover.is-logo, .nbs-card__cover img.is-logo { background: #fff; padding: 4px; box-sizing: border-box; }

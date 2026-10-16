@@ -265,6 +265,8 @@ export interface DashboardContext {
   notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the picture agent instead of running it. */
   notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: fetch company logos without the network (lib/notebook-logos.ts). */
+  notebookLogoDeps?: import('./lib/notebook-logos.js').LogoDeps;
   /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
   notebookFacets?: Set<string>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */

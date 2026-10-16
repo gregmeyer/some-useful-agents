@@ -17,6 +17,7 @@ import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, 
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
+  type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -24,7 +25,7 @@ import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
-import { renderNotebookBrief } from '../views/notebook-brief.js';
+import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -263,6 +264,37 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/remove', (req: Request, res:
 });
 
 // An option's kept photo. Served as an image only: never sniffed, never run.
+/** An option's illustration, drawn now (so earlier drawings improve too). */
+function drawOption(nb: Notebook, entry: NotebookEntry): string {
+  const name = shortName(entry.title);
+  // A company's tile shows its own name's initials (the org field), not the option's title.
+  const orgKey = nb.fields.find((f) => f.role === 'org')?.key;
+  const org = orgKey && typeof entry.data?.[orgKey] === 'string' ? (entry.data[orgKey] as string) : undefined;
+  const kind = illustrationKind(nb, name);
+  return optionIllustration({ kind, name: kind === 'job' && org ? org : name, seed: entry.id });
+}
+
+/** A saved brief's pictures, inside the file: each up to 600KB, 8MB in all; past that, none. */
+const BRIEF_PICTURE_MAX = 600 * 1024;
+const BRIEF_PICTURES_MAX = 8 * 1024 * 1024;
+function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly NotebookEntry[]): BriefPicture {
+  let total = 0;
+  const cache = new Map<string, string | undefined>();
+  return (o) => {
+    if (cache.has(o.id)) return cache.get(o.id);
+    let uri: string | undefined;
+    const photo = o.image ? s.photo(o.id) : undefined;
+    const entry = photo?.kind === 'illustration' ? entries.find((e) => e.id === o.id) : undefined;
+    const bytes = entry ? Buffer.from(drawOption(nb, entry)) : photo ? Buffer.from(photo.bytes) : undefined;
+    if (bytes && bytes.length <= BRIEF_PICTURE_MAX && total + bytes.length <= BRIEF_PICTURES_MAX) {
+      total += bytes.length;
+      uri = `data:${entry ? 'image/svg+xml' : photo!.contentType};base64,${bytes.toString('base64')}`;
+    }
+    cache.set(o.id, uri);
+    return uri;
+  };
+}
+
 notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: Response) => {
   const s = store(req);
   const photo = s.photo(String(req.params.entry));
@@ -272,12 +304,7 @@ notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: R
     const nb = s.get(String(req.params.id));
     const entry = nb ? s.entries(nb.id, 1000).find((e) => e.id === String(req.params.entry)) : undefined;
     if (nb && entry) {
-      const name = shortName(entry.title);
-      // A company's tile shows its own name's initials (the org field), not the option's title.
-      const orgKey = nb.fields.find((f) => f.role === 'org')?.key;
-      const org = orgKey && typeof entry.data?.[orgKey] === 'string' ? (entry.data[orgKey] as string) : undefined;
-      const kind = illustrationKind(nb, name);
-      const svg = optionIllustration({ kind, name: kind === 'job' && org ? org : name, seed: entry.id });
+      const svg = drawOption(nb, entry);
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
@@ -667,7 +694,10 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
   // ?full=1: the extended brief, each option in full after the summary.
   const full = req.query.full === '1';
-  const page = renderNotebookBrief({ nb, entries: s.entries(nb.id, 1000), history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && req.query.download !== '1' ? { print: true } : {}) });
+  const entries = s.entries(nb.id, 1000);
+  // Opened here, pictures load from the dashboard; a saved file carries its own.
+  const download = req.query.download === '1';
+  const page = renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
