@@ -70,6 +70,7 @@ The list here also has **Filter and sort** (where a thread came from, its agent,
 - **Keyword matches** show at once, from the same ranker sua uses to pick agents in a conversation.
 - **sua's picks.** sua's agent finder (`agent-catalog-search`, the one it runs in a conversation) looks at every agent. Its picks appear above the matches: its recommendation, then up to three agents, each with why it fits, a question you can ask it, and **Run**.
 - **When nothing fits,** **Ask sua to build one** puts the request in the sua band.
+- **Talk it through with sua →** is on every answer. It opens a conversation whose first message is your question and what the finder suggested (each pick with why). sua carries on from there: it can compare them, change one, or build a new one without searching again. The search itself never opens a conversation; it's a run of `agent-catalog-search` you'll see under Runs.
 - **Repeat questions** asked within the hour are answered from the same search. Without `agent-catalog-search` installed, only the keyword matches show.
 
 **Browsing** (the User tab, nothing filtered) shows shelves:
