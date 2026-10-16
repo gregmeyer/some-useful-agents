@@ -1,0 +1,66 @@
+# Agent Catalog Sorter — sorts the agents on /agents into groups by what they
+# do ("Jobs & companies", "News & digests"), and writes one plain line on what
+# to use each for. The page shows a shelf per group. Route-dispatched only, in
+# the background when the agents page has agents not sorted yet (dashboard
+# lib/agent-catalog-sort.ts); never proposed in triage.
+
+id: agent-catalog-sorter
+name: Agent Catalog Sorter
+description: >
+  Sorts the agents catalog into a few groups by what each agent does, with a
+  one-line "use it for" per agent.
+status: active
+source: examples
+
+inputs:
+  AGENTS:
+    type: string
+    required: true
+    description: >
+      JSON: [{"id", "name", "description", "tags", "questions"}] — the agents
+      to sort (at most 40).
+  GROUPS:
+    type: string
+    required: false
+    default: "[]"
+    description: JSON list of the group names already in use.
+
+nodes:
+  - id: sort
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<groups>[\s\S]*?</groups>'
+      description: a <groups> JSON block
+    prompt: |
+      You sort a person's agents (small tools that run on their computer)
+      into groups by what they DO, so the person can browse them.
+
+      Groups already in use (reuse them whenever an agent fits):
+      {{inputs.GROUPS}}
+
+      Prefer these groups when nothing above fits:
+        Jobs & companies, Shopping & listings, Research & lookups,
+        News & digests, Monitoring & alerts, Notebooks & planning,
+        Charts & pages, Building agents, Fun, Demos & tests
+
+      Agents to sort (JSON):
+      {{inputs.AGENTS}}
+
+      Rules:
+        - Every agent gets exactly one group, by its id.
+        - Add a new group only when none of the above fits, so there are
+          at most 12 groups overall. A group name is 1 to 3 words, at most
+          24 characters, title-ish ("Home & garden"), never an agent's name.
+        - Smoke tests, probes, demos, hello-worlds and stubs go in
+          "Demos & tests".
+        - useFor is one plain line, at most 80 characters, on what a person
+          would use it for, starting with a verb ("Find open roles at a
+          company on Ashby", "Get a morning digest of AI news"). Say what it
+          does for them, not how it works; no agent names, no jargon.
+
+      Reply with only this, as valid JSON:
+      <groups>
+      {"items": [{"id": "ashby-jobs", "group": "Jobs & companies", "useFor": "Find open roles at a company on Ashby"}]}
+      </groups>

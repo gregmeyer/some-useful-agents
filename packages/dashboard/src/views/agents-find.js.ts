@@ -1,6 +1,7 @@
 /**
  * /agents: while sua's agent finder looks for the question in the box
  * (views/agents-find.ts), poll for its picks and put them in the panel.
+ * And while sua sorts the agents into groups, wait, then reload once.
  */
 export const AGENTS_FIND_JS = `
   (function () {
@@ -21,5 +22,18 @@ export const AGENTS_FIND_JS = `
       }, n === 0 ? 300 : 1500);
     }
     poll(0);
+  })();
+  (function () {
+    var note = document.querySelector('[data-catalog-sorting]');
+    if (!note) return;
+    var tries = 0;
+    function check() {
+      if (++tries > 80) { note.hidden = true; return; }
+      fetch('/agents/catalog/sorting', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j.sorting) setTimeout(check, 3000); else location.reload(); })
+        .catch(function () { setTimeout(check, 3000); });
+    }
+    setTimeout(check, 3000);
   })();
 `;

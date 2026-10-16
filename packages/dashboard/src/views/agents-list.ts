@@ -1,4 +1,4 @@
-import type { Agent, AgentDefinition, Run } from '@some-useful-agents/core';
+import type { Agent, AgentCatalogEntry, AgentDefinition, Run } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
@@ -71,6 +71,12 @@ export interface AgentsListInput {
   shelves?: AgentShelves;
   /** sua's agent finder, asked the question in the box (polled by the page). */
   find?: { id: string; status: 'working' | 'ready' | 'failed' };
+  /** sua's sorting of the catalog: each agent's group and "use it for" line. */
+  catalog?: ReadonlyMap<string, AgentCatalogEntry>;
+  /** sua is sorting new or changed agents right now (the page reloads once when done). */
+  sorting?: boolean;
+  /** `?group=`: one group's agents, as the compact list. */
+  group?: { name: string; agents: Agent[] };
 }
 
 /** The User tab's shelves: the agents you use, then everything, then the demos and tests folded away. */
@@ -79,8 +85,20 @@ export interface AgentShelves {
   recent: Agent[];
   feeds: Agent[];
   scheduled: Agent[];
+  /** A shelf per group sua sorted the agents into, biggest first. */
+  groups: Array<{ name: string; agents: Agent[] }>;
+  /** Agents sua hasn't sorted yet. */
+  unsorted: Agent[];
   all: Agent[];
   folded: Agent[];
+}
+
+/** Cards a group's shelf shows before "All N →". */
+const GROUP_SHELF_CARDS = 3;
+
+/** What to use an agent for: sua's one line when it has one, else the author's description. */
+function useForText(a: Agent, input: AgentsListInput): string | undefined {
+  return input.catalog?.get(a.id)?.useFor ?? a.description;
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -141,7 +159,7 @@ export function renderAgentsList(input: AgentsListInput): string {
     ${emptySearch ? renderNoMatches(input) : html``}
     ${emptyTab ? renderEmptyTab(input) : html``}
 
-    ${input.shelves ? renderShelves(input, input.shelves) : html`
+    ${input.group ? renderGroupList(input, input.group) : input.shelves ? renderShelves(input, input.shelves) : html`
       ${hasV2 ? html`
         ${input.filter?.q ? html`<h2 class="ag-shelf__title">Keyword matches</h2>` : html``}
         <div class="agent-grid">
@@ -516,7 +534,7 @@ function renderV2Card(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml
         ${starForm(a)}
         ${agentNames(a, 'ag-card__names')}
       </div>
-      <p class="ag-card__desc">${a.description ?? 'No description.'}</p>
+      <p class="ag-card__desc" title="${a.description ?? ''}">${useForText(a, input) ?? 'No description.'}</p>
       ${firstQuestion ? html`<button type="button" class="ask-chip ask-chip--card" data-ask="${firstQuestion}" title="${firstQuestion}">${truncateQuestion(firstQuestion)}</button>` : html``}
       <div class="ag-card__chips">${agentChips(a, input)}</div>
       <div class="ag-card__foot">
@@ -533,7 +551,7 @@ function renderAgentRow(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHt
     <li class="ag-row">
       ${starForm(a)}
       ${agentNames(a, 'ag-row__names')}
-      <span class="ag-row__desc">${a.description ?? ''}</span>
+      <span class="ag-row__desc" title="${a.description ?? ''}">${useForText(a, input) ?? ''}</span>
       <span class="ag-row__chips">${agentChips(a, input)}</span>
       ${usedLine(a, input, lastRun)}
       <form method="POST" action="/agents/${a.id}/run" class="ag-run"><button type="submit" class="btn btn--sm btn--ghost">Run</button></form>
@@ -560,6 +578,22 @@ function renderShelves(input: AgentsListInput, sh: AgentShelves): SafeHtml {
     ${shelf('Used lately', 'in the last week', sh.recent)}
     ${shelf('Fill notebooks', 'search for a notebook, or have filed into one', sh.feeds)}
     ${shelf('On a schedule', 'run by themselves', sh.scheduled)}
+    ${input.sorting ? html`<p class="ag-sorting" data-catalog-sorting><span class="ag-suggest__dot" aria-hidden="true"></span> sua is sorting your agents by what they do…</p>` : html``}
+    ${sh.groups.length ? html`
+    <div class="ag-groups">
+      <h2 class="ag-groups__title">By what they do <span class="ag-shelf__hint">sorted by sua</span></h2>
+      ${sh.groups.map((g) => html`
+      <section class="ag-shelf ag-shelf--group">
+        <h3 class="ag-shelf__title">${g.name} <span class="ag-shelf__hint">${String(g.agents.length)}</span>${g.agents.length > GROUP_SHELF_CARDS
+          ? html` <a class="ag-shelf__all" href="/agents?group=${encodeURIComponent(g.name)}">All ${String(g.agents.length)} →</a>` : html``}</h3>
+        <div class="agent-grid ag-shelf__grid">${g.agents.slice(0, GROUP_SHELF_CARDS).map((a) => renderV2Card(a, input, last.get(a.id))) as unknown as SafeHtml[]}</div>
+      </section>`) as unknown as SafeHtml[]}
+      ${sh.unsorted.length ? html`
+      <section class="ag-shelf ag-shelf--group">
+        <h3 class="ag-shelf__title">Not sorted yet <span class="ag-shelf__hint">${String(sh.unsorted.length)}</span></h3>
+        <ul class="ag-rows">${sh.unsorted.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
+      </section>` : html``}
+    </div>` : html``}
     <section class="ag-shelf">
       <h2 class="ag-shelf__title">All agents <span class="ag-shelf__hint">${String(sh.all.length)}, by name</span></h2>
       <ul class="ag-rows">${sh.all.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
@@ -569,6 +603,21 @@ function renderShelves(input: AgentsListInput, sh: AgentShelves): SafeHtml {
       <summary>Demos, tests and drafts never run (${String(sh.folded.length)})</summary>
       <ul class="ag-rows">${sh.folded.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
     </details>` : html``}
+  `;
+}
+
+/** `?group=`: one group's agents, most used first, one line each. */
+function renderGroupList(input: AgentsListInput, g: { name: string; agents: Agent[] }): SafeHtml {
+  const last = new Map<string, Run>();
+  for (const r of input.recentRuns) if (!last.has(r.agentName)) last.set(r.agentName, r);
+  return html`
+    <section class="ag-shelf">
+      <p class="ag-back"><a href="/agents">← All agents</a></p>
+      <h2 class="ag-shelf__title">${g.name} <span class="ag-shelf__hint">${String(g.agents.length)}, most used first</span></h2>
+      ${g.agents.length
+        ? html`<ul class="ag-rows">${g.agents.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>`
+        : html`<p class="dim">No agents in this group now.</p>`}
+    </section>
   `;
 }
 

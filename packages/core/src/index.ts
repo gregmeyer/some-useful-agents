@@ -644,3 +644,4 @@ export * from './items/index.js';
 export * from './surfaces/index.js';
 export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';
 export { createLiveProgress, newLiveCursor, takeNewProgress, type LiveCursor } from './live-progress.js';
+export * from './agent-catalog-store.js';

@@ -54,6 +54,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'agent-analyzer': 'dispatched by "Suggest improvements", never routed to by a request',
   'agent-builder': 'goal-driven wizard, invoked by the build flow',
   'agent-catalog-search': 'the search backend itself; routing to it would be circular',
+  'agent-catalog-sorter': 'agents page only: sorts the catalog into groups, never proposed',
   'agent-drafter': 'invoked per-fragment by the build orchestrator',
   'agent-editor': 'apply-the-fix step dispatched by triage',
   'build-planner': 'stage 2 of the build orchestrator',

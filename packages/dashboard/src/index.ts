@@ -89,6 +89,7 @@ import { startDailyDigest } from './lib/daily-digest.js';
 import { startNotebookCadence } from './lib/notebook-cadence.js';
 import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { startModelWatch } from './lib/model-watch.js';
+import { installCatalogSorter } from './lib/agent-catalog-sort.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -784,6 +785,10 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
         onChanged: (m) => publishInboxChanged(ctx, m.id, m.status),
       })
     : () => {};
+
+  // The /agents page sorts agents into groups with this system agent; install
+  // (or refresh) it here so page loads never import agents themselves.
+  try { installCatalogSorter(ctx); } catch { /* the catalog just stays unsorted */ }
 
   const app = buildDashboardApp(ctx);
 
