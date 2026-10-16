@@ -264,6 +264,8 @@ See [Tools](tools.md) for the built-in list and [MCP servers](mcp.md) for import
 
 A cancellation or a budget limit still stops the run. Use it for independent sources (one site of a multi-site search). sua's builder marks each source node of a multi-source agent optional. The `starter-research` example does the same with its two research angles: if one fails, the brief is written from the other and says which side is missing.
 
+In the dashboard, set it on the step's **Edit** page: tick **Keep going if this step fails** under *If it fails*. The box shows only on a step that another step depends on, and never on a control-flow step.
+
 
 See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
 
