@@ -1,5 +1,6 @@
 /**
- * One notebook as a card: its cover picture and a line of what it holds.
+ * One notebook as a card: its picture (the lead option's, when it has a real
+ * one) and a line of what it holds.
  * Used by the Notebooks list and by a notebook's conversation thread.
  */
 import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type InboxMessage } from '@some-useful-agents/core';
@@ -14,7 +15,13 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
   // Best first by the score field (how well it fits) when there is one, else by price.
   const priced = rankOptions(nb, active).filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
   const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
-  const cover = s.coverPhoto(nb.id);
+  // The picture is the lead option's own, so it matches the name beside it;
+  // when the lead has only a drawing (or none), the notebook's cover.
+  const lead = priced[0];
+  const leadKind = lead ? s.photoKind(lead.id) : undefined;
+  const cover = lead && leadKind && leadKind !== 'illustration'
+    ? { entryId: lead.id, kind: leadKind, ...(leadKind === 'logo' ? { shape: s.photoShape(lead.id) } : {}) }
+    : s.coverPhoto(nb.id);
   return {
     nb,
     entries: entries.length,
