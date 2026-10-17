@@ -137,6 +137,14 @@ inputs:
     description: >
       The operator's notebooks (goals they keep over time) as JSON: id,
       title, what it's for, status, criteria met, entries, and its link.
+  TEMPLATES:
+    type: string
+    required: false
+    default: "[]"
+    description: >
+      The operator's notebook templates (a notebook's setup kept to start
+      new ones like it) as JSON: id, name, what it's for, limits,
+      done-whens, fields, steps, uses.
   HOME_SURFACE:
     type: string
     required: false
@@ -360,6 +368,9 @@ nodes:
 
       Their notebooks (see GOALS AND NOTEBOOKS):
       {{inputs.NOTEBOOKS}}
+
+      Their notebook templates (see NOTEBOOK TEMPLATES):
+      {{inputs.TEMPLATES}}
 
       The board they're on, when they asked from one (see WHERE THE OPERATOR IS):
       {{inputs.BOARD_OUTLINE}}

@@ -42,7 +42,8 @@ export * from './daemon-supervisor.js';
 export * from './agent-v2-types.js';
 export * from './failure-explain.js';
 export * from './error-catalog.js';
-export { webFetch, WebFetchError, fetchImage, pagePreview } from './web-fetch/index.js';
+export { webFetch, WebFetchError, fetchImage, pagePreview, siteIcons } from './web-fetch/index.js';
+export { imageSize, imageShape, type ImageSize, type ImageShape } from './image-size.js';
 export type { FetchedImage } from './web-fetch/index.js';
 export type { WebFetchResult, WebFetchOptions, WebFetchMethod, BrowserMode } from './web-fetch/index.js';
 export { webScrape, extractStructured } from './web-fetch/scrape.js';
@@ -513,6 +514,7 @@ export {
 export { stripSensitiveEnv } from './node-env.js';
 export {
   LlmSettingsStore,
+  modelUnavailableRecorder,
   LLM_PROVIDERS,
   isProvider,
   type LlmSettings,
@@ -520,7 +522,10 @@ export {
   type LlmFallbackEvent,
   type CustomLlmProvider,
   type ProviderRef,
+  type UnavailableModel,
 } from './llm-settings-store.js';
+export * from './codex-models.js';
+export * from './claude-models.js';
 export {
   planMigration,
   applyMigration,
@@ -562,7 +567,7 @@ export {
 } from './a2ui/view.js';
 export { starterView, humanizeName, type StarterViewArgs } from './a2ui/starter.js';
 export { viewAuthoringGuide, viewOutputNames } from './a2ui/guide.js';
-export { splitReply, stripInlineWidgets, parseInlineWidget, partialInlineWidget, chatWidgetGuide, type ReplyPart } from './a2ui/inline.js';
+export { splitReply, stripInlineWidgets, parseInlineWidget, partialInlineWidget, chatWidgetGuide, replyWidgetComponents, type ReplyPart } from './a2ui/inline.js';
 export {
   BOARD_COLUMNS,
   BOARD_ROW_PX,
@@ -638,3 +643,5 @@ export * from './items/index.js';
 // Surfaces: what a surface emphasizes (ADR-0049, S2).
 export * from './surfaces/index.js';
 export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';
+export { createLiveProgress, newLiveCursor, takeNewProgress, type LiveCursor } from './live-progress.js';
+export * from './agent-catalog-store.js';

@@ -12,10 +12,10 @@
 import { httpFetch, describeWebError } from './fetch.js';
 import { extractContent } from './extract.js';
 import { renderWithBrowser } from './browser.js';
-import type { WebFetchOptions, WebFetchResult } from './types.js';
+import type { RawPage, WebFetchOptions, WebFetchResult } from './types.js';
 
 export * from './types.js';
-export { WebFetchError, fetchImage, pagePreview, type FetchedImage } from './fetch.js';
+export { WebFetchError, fetchImage, pagePreview, siteIcons, type FetchedImage } from './fetch.js';
 
 /** Below this many chars of extracted text, `auto` escalates to the browser. */
 const MIN_USEFUL_CHARS = 200;
@@ -37,6 +37,8 @@ export async function webFetch(url: string, opts: WebFetchOptions = {}): Promise
   if (browser !== 'always') {
     try {
       const raw = await httpFetch(url, { timeoutSec });
+      // JSON (an API's answer) is the content itself: no page to extract from, no browser to try.
+      if (raw.contentType?.includes('json')) return jsonResult(raw, maxChars);
       const ex = extractContent(raw.html, { maxChars });
       const hasContent = ex.content.trim().length > 0;
       httpResult = {
@@ -80,4 +82,20 @@ export async function webFetch(url: string, opts: WebFetchOptions = {}): Promise
 
   if (httpResult) return httpResult;
   return { ...base(url), error: httpErr?.error ?? 'The page could not be retrieved.', status: httpErr?.status ?? null };
+}
+
+/** A JSON response as the fetch's content: compacted when it parses, cut at `maxChars`. */
+function jsonResult(raw: RawPage, maxChars: number): WebFetchResult {
+  let text = raw.html.trim();
+  try { text = JSON.stringify(JSON.parse(text)); } catch { /* cut off at the byte cap, or not quite JSON: as it came */ }
+  const truncated = text.length > maxChars;
+  return {
+    url: raw.finalUrl,
+    title: null,
+    content: text ? text.slice(0, maxChars) : null,
+    method: 'http',
+    status: raw.status,
+    truncated,
+    error: text ? null : 'The response was empty.',
+  };
 }

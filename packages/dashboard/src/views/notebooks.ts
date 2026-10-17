@@ -7,13 +7,15 @@
  */
 import { nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { renderDraftsStrip } from './notebook-new.js';
+import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
+import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
+import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
 
@@ -149,7 +151,7 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
       ${candidates.map((o) => html`<div class="nb-decide__row">
         <label class="nb-decide__pick">
           <input type="${one ? 'radio' : 'checkbox'}" name="chosen" value="${o.id}"${o.chosen && !narrow ? html` checked` : html``}${o.suggested ? html` data-sua-pick` : html``}>
-          ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
+          ${thumbs ? (o.image ? html`<img class="nb-decide__thumb${o.imageKind && o.imageKind !== 'listing' ? ' is-fit' : ''}${o.imageKind === 'logo' ? ` is-logo${o.imageShape === 'wide' ? ' is-wide' : ''}` : ''}" src="${o.image}" alt="" loading="lazy">` : html`<span class="nb-decide__thumb" aria-hidden="true"></span>`) : html``}
           <span class="nb-decide__name">${o.suggested ? html`<span class="nb-decide__sua" title="sua recommended this one">sua</span> ` : html``}${o.title}</span>
           ${decideFacts(nb, o)}
         </label>
@@ -158,7 +160,10 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
     </fieldset>
     <label for="${why}" class="nb-progress__label">${narrow ? 'Why not the rest?' : `Why${one ? ' this one' : ' these'}?`} <span class="nb-decide__optional">optional${narrow ? ', kept as their reason' : ''}</span></label>
     <textarea id="${why}" name="decision" rows="2" class="form-field" placeholder="${narrow ? 'e.g. over budget, or too many miles' : 'In a line or two, so you remember later.'}"></textarea>
-    <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit${narrow ? html` disabled` : html``}>${narrow ? 'Keep these' : 'Decide and close'}</button>
+    <div class="nb-decide__submit">
+      <button type="submit" class="btn btn--primary btn--sm" data-nb-decide-submit${narrow ? html` disabled` : html``}>${narrow ? 'Keep these' : 'Decide and close'}</button>
+      ${narrow ? html`` : html`<button type="submit" name="keep" value="1" class="btn btn--sm" title="Mark these as picked (bought, or going with them) and keep looking">Save picks, keep it open</button>`}
+    </div>
   </form>`;
 }
 
@@ -174,34 +179,80 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
   const current = steps.find((x) => x.status !== 'done');
   const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
   const focus = topFor(nb, inRunning);
-  return html`<ol class="nb-steps" aria-label="Steps">
+  // All done (or decided): one quiet line per step, no bars.
+  const finished = !running && (nb.status === 'decided' || steps.every((x) => x.status === 'done'));
+  // The last run's note belongs to the step it ran (it starts with that step's title).
+  const lastRun = nb.lastRunAt && nb.lastRunNote ? `Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote}` : '';
+  return html`<ol class="nb-steps${finished ? ' nb-steps--done' : ''}" style="--n:${String(Math.min(steps.length, 6))}" aria-label="Steps">
     ${steps.map((step, i) => {
       const p = stepProgress(nb, entries, step);
-      const by = step.agentId ?? (step.kind === 'check' ? 'sua’s checker' : isYourStep(step) ? 'you' : '');
+      const by = step.agentId ?? suaStepAgentName(step.kind) ?? (isYourStep(step) ? 'you' : '');
       // A source step that looks up only some facts names them.
       const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
       const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
-      const progress = step.kind === 'decide' && step.status !== 'done' ? `pick ${String(p.want)}`
+      const progress = step.kind === 'decide' && step.status !== 'done' ? (p.have ? `${String(p.have)} of ${String(p.want)} picked` : `pick ${String(p.want)}`)
         : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
+      const state = step.movedOn ? 'moved on' : STEP_STATUS[step.status];
+      const stateKind = step.movedOn ? 'moved' : step.status;
+      const tip = [missing || step.note || '', lastRun && nb.lastRunNote!.startsWith(step.title) ? lastRun : ''].filter(Boolean).join('\n');
       // is-live: the step is really running now (a 'running' status left by a restart doesn't spin).
-      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${missing || step.note || ''}">
+      return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${tip}">
         <span class="nb-step__n" aria-hidden="true">${step.status === 'done' ? '✓' : String(i + 1)}</span>
         <span class="nb-step__body">
-          <span class="nb-step__title">${step.title}</span>
-          <span class="nb-step__by">${by ? html`with ${by}` : html`<span class="nb-step__need">needs an agent</span>`}</span>
-          ${only ? html`<span class="nb-step__by nb-step__facts" title="${only}">${only}</span>` : ''}
+          <span class="nb-step__title" title="${step.title}">${step.title}</span>
+          <span class="nb-step__by">${by ? (step.agentId ? html`with <span class="nb-step__agent" title="${by}">${by}</span>` : html`with ${by}`) : html`<span class="nb-step__need">needs an agent</span>`}${only ? html` · <span class="nb-step__facts" title="${only}">${String(step.facts!.length)} ${step.facts!.length === 1 ? 'fact' : 'facts'}</span>` : html``}</span>
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
-          <span class="nb-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · ${step.movedOn ? 'moved on' : STEP_STATUS[step.status]}</span>
+          <span class="nb-step__meta"><span class="nb-step__count">${progress}${step.top ? ` · top ${String(step.top)}` : ''}</span><span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
           ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
+            : html``}
+          ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
+            ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
             : html``}
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
   </ol>`;
+}
+
+/**
+ * A decision's picks, when it's the usual "Chose A, B and C. Why."
+ * (NotebookStore.decide): the chosen options in the order it names them,
+ * each "Name: what it is" split so the name stands out, and the why after.
+ * Undefined for anything else (it shows as written).
+ */
+export function decisionPicks(nb: Notebook, entries: readonly NotebookEntry[]): { picks: Array<{ entry: NotebookEntry; name: string; what: string }>; why: string } | undefined {
+  const text = nb.decision ?? '';
+  const chosen = entries.filter((e) => e.kind === 'option' && e.chosenAt && text.includes(e.title));
+  if (!text.startsWith('Chose ') || chosen.length < 2) return undefined;
+  const order = chosen.map((e) => ({ e, at: text.indexOf(e.title) })).sort((a, b) => a.at - b.at);
+  const last = order[order.length - 1];
+  const why = text.slice(last.at + last.e.title.length).replace(/^\.\s*/, '').trim();
+  return {
+    picks: order.map(({ e }) => {
+      const k = e.title.indexOf(': ');
+      return { entry: e, name: k > 0 && k < 60 ? e.title.slice(0, k) : e.title, what: k > 0 && k < 60 ? e.title.slice(k + 2) : '' };
+    }),
+    why,
+  };
+}
+
+/** A decided notebook's decision: its picks as a list, each linking to its page, then the why; else as written. */
+export function decidedBox(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const when = formatAge(nb.decidedAt ?? nb.updatedAt);
+  const d = decisionPicks(nb, entries);
+  if (!d) return html`<div class="nb-decided"><strong>Decided ${when}:</strong> ${nb.decision ?? ''}</div>`;
+  const id = encodeURIComponent(nb.id);
+  return html`<div class="nb-decided">
+    <strong>Decided ${when}</strong> <span class="nb-decided__count">· ${String(d.picks.length)} chosen</span>
+    <ul class="nb-decided__list">
+      ${d.picks.map((p) => html`<li><a href="/notebooks/${id}/entries/${encodeURIComponent(p.entry.id)}">${p.name}</a>${p.what ? html` <span class="nb-decided__what">${p.what}</span>` : html``}</li>`) as unknown as SafeHtml[]}
+    </ul>
+    ${d.why ? html`<p class="nb-decided__why">${d.why}</p>` : html``}
+  </div>`;
 }
 
 /**
@@ -224,8 +275,8 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string; mov
       : { label: 'Next step', hint: `Step ${String(i + 1)} is done. Next: step ${String(i + 2)} ${of}, ${next.title}.` };
   }
   if (isYourStep(step)) return { note: `Next: ${step.title}, with ${yourStepButton(step)}.` };
-  // A check step without an agent uses sua's checker; find and source need one.
-  if (!step.agentId && step.kind !== 'check') return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
+  // A check or find step without an agent uses sua's checker or finder; source needs one.
+  if (!step.agentId && !suaStepAgentName(step.kind)) return { note: `${step.title} needs an agent. Ask sua to pick or build one.` };
   if (step.status !== 'stuck') return { label: 'Next step', hint: `Step ${String(i + 1)} ${of}: ${step.title}` };
   // Short of its goal: Try again, or Move on with what it found; Move on first when its agent got no further.
   const again = { label: 'Try again', hint: `Step ${String(i + 1)} ${of}, ${step.title}, stopped short. Run it again.` };
@@ -251,7 +302,7 @@ function workingLine(running: { step: number; of: number } | undefined, busy: re
   return html`<span class="nb-working" data-notebook-running role="status"><span class="nb-working__dot" aria-hidden="true"></span>${parts.join(' · ')}… <span class="nb-working__note">this page updates as it goes</span></span>`;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = []): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = []): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -260,14 +311,15 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   const idle = human && nb.status === 'active' && nb.pipeline.length === 0 ? ' once it has a search (add one under Edit)' : '';
   const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
   return html`
-    <section class="nb-hero" aria-labelledby="nb-title">
+    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}" aria-labelledby="nb-title">
       <div class="nb-hero__main">
         <div class="nb-hero__titlerow">
           ${cover
-            ? html`<img class="nb-hero__cover${cover.kind === 'illustration' ? ' is-drawn' : ''}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : 'An example photo'}">`
+            ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind, cover.shape)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
           <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
           ${statusChip(nb)}
+          ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running)}</div>` : html``}
         </div>
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
@@ -282,12 +334,12 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               : nb.status === 'active'
                 ? runButton(nb)
                 : html``}
-            ${nb.lastRunAt && !running ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
+            ${nb.lastRunAt && !running && !nb.steps?.length ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
           </div>` : busy.length ? html`<div class="nb-run">${workingLine(undefined, busy)}</div>` : html``}
-        ${nb.status === 'decided' && nb.decision ? html`<div class="nb-decided"><strong>Decided ${formatAge(nb.decidedAt ?? nb.updatedAt)}:</strong> ${nb.decision}</div>` : html``}
+        ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
       </div>
-      <aside class="nb-hero__side${widgets ? ' nb-hero__side--slim' : ''}" aria-label="Done when">
-        ${widgets ? html`` : html`<div class="nb-progress">
+      ${widgets ? html`` : html`<aside class="nb-hero__side" aria-label="Done when">
+        <div class="nb-progress">
           ${progressRing(met, total)}
           <div class="nb-progress__list">
             <span class="nb-progress__label">Done when</span>
@@ -299,9 +351,9 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
                 <span class="nb-crit__text ${c.met ? 'is-met' : ''}"${criterionHint(nb, c) ? html` title="${criterionHint(nb, c)}"` : html``}>${c.text}</span>
               </form>`) as unknown as SafeHtml[]}
           </div>
-        </div>`}
+        </div>
         ${heroActions(nb, entries, leads, running)}
-      </aside>
+      </aside>`}
     </section>`;
 }
 
@@ -389,7 +441,10 @@ export function optionStage(nb: Notebook, e: NotebookEntry, opts: { back?: 'opti
   const i = nb.stages.findIndex((s) => s === e.stage);
   const next = nb.stages.length && !hidden ? nb.stages[i + 1] : undefined;
   return html`<div class="nb-stage">
-    ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked in the decision ${formatAge(e.chosenAt)}">✓ Chosen</span>` : html``}
+    ${e.chosenAt ? html`<span class="nb-stage__chip nb-stage__chip--chosen" title="Picked ${formatAge(e.chosenAt)}">✓ Picked</span>` : html``}
+    <form method="POST" action="${base}/choose">${to}${e.chosenAt
+      ? html`<input type="hidden" name="on" value="0"><button type="submit" class="btn btn--sm btn--ghost" title="Take the pick back">Unpick</button>`
+      : html`<button type="submit" class="btn btn--sm${opts.back === 'option' ? ' btn--primary' : ''}" title="Bought it, or going with it. The notebook stays open.">Pick this one</button>`}</form>
     ${e.stage && !hidden ? html`<span class="nb-stage__chip" title="Stage ${String(i + 1)} of ${String(nb.stages.length)}">${e.stage}</span>` : html``}
     ${next ? html`<form method="POST" action="${base}/stage">${to}<input type="hidden" name="stage" value="${next}"><button type="submit" class="btn btn--sm">Move to ${next} →</button></form>` : html``}
     <details class="nb-ruleout">
@@ -587,33 +642,62 @@ function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml
   `;
 }
 
-/** Edit this notebook (the header's Edit). */
-function editNotebookForm(nb: Notebook): SafeHtml {
+/** The rest of a notebook's own actions, under its Edit page: stop it, keep it as a template, archive or delete it. */
+function notebookMoreActions(nb: Notebook): SafeHtml {
   const id = encodeURIComponent(nb.id);
   return html`
-      <form method="POST" action="/notebooks/${id}/edit" class="nb-form">
-        <label class="nb-label">Title<input type="text" name="title" value="${nb.title}" required class="form-field"></label>
-        <label class="nb-label">What it's for<textarea name="statement" rows="2" class="form-field">${nb.statement}</textarea></label>
-        <label class="nb-label">Parameters, one per line<textarea name="params" rows="3" class="form-field">${nb.params.join('\n')}</textarea></label>
-        <label class="nb-label">Done when, one per line<textarea name="criteria" rows="3" class="form-field">${nb.criteria.map((c) => c.text).join('\n')}</textarea></label>
-        <label class="nb-label">Stages an option moves through, one per line<textarea name="stages" rows="3" class="form-field" placeholder="Found&#10;Applied&#10;Interview&#10;Offer">${nb.stages.join('\n')}</textarea></label>
-        <label class="nb-label">Pipeline: agent ids, one per line<textarea name="pipeline" rows="3" class="form-field mono">${nb.pipeline.join('\n')}</textarea></label>
-        <label class="nb-label">Runs (five-field schedule, or empty for when you ask)<input type="text" name="cadence" value="${nb.cadence}" class="form-field mono" placeholder="0 7 * * *"></label>
-        <button type="submit" class="btn btn--sm">Save</button>
-      </form>
-      ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button></form>` : html``}
-      <div class="nb-remove">
-        ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
-        <details class="nb-delete">
-          <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
-          <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
-            <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
-            <input type="hidden" name="confirm" value="${nb.id}">
-            <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
-          </form>
-        </details>
-      </div>
+      <section class="nbe-more" aria-labelledby="nbe-more-title">
+        <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
+        ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
+        <form method="POST" action="/notebooks/${id}/template" class="nb-form nb-template">
+          <label class="nb-label">Save as a template<input type="text" name="name" value="${nb.title}" required maxlength="60" class="form-field" aria-describedby="nb-template-hint-${id}"></label>
+          <span class="nb-template__hint" id="nb-template-hint-${id}">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. Start a new one from it by asking sua.</span>
+          <button type="submit" class="btn btn--sm btn--ghost">Save template</button>
+        </form>
+        <div class="nb-remove">
+          ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
+          <details class="nb-delete">
+            <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
+            <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
+              <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
+              <input type="hidden" name="confirm" value="${nb.id}">
+              <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
+            </form>
+          </details>
+        </div>
+      </section>
   `;
+}
+
+/**
+ * Edit this notebook (the header's Edit): its whole setup in the same editor
+ * a new notebook's draft uses (limits and stages as chips, done-whens and
+ * checks as rows, steps with their agents, searches by name, the schedule in
+ * words), then Save; its other actions below.
+ */
+export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+  const { nb } = args;
+  const id = encodeURIComponent(nb.id);
+  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'inbox', flash: args.flash }, html`
+    <div class="nbe">
+      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › Edit</p>
+      <h1 class="nbe__title">Edit this notebook</h1>
+      <form method="POST" action="/notebooks/${id}/edit" class="nbd-draft nbe-form">
+        <input type="hidden" name="setup" value="1">
+        ${notebookSetupEditor({
+          title: nb.title, statement: nb.statement, params: nb.params,
+          criteria: nb.criteria.map((c) => c.text), met: nb.criteria.map((c) => c.met),
+          ...(nb.steps?.length ? { steps: nb.steps } : {}),
+          fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+        }, args.agents, { editing: true, offered: args.agents.map((a) => a.id) })}
+        <div class="nbd-draft__foot">
+          <button type="submit" class="btn btn--primary">Save</button>
+          <a class="btn btn--ghost" href="/notebooks/${id}">Cancel</a>
+        </div>
+      </form>
+      ${notebookMoreActions(nb)}
+    </div>
+  `));
 }
 
 /** A step button in the header: Next step / Try again run the step; Move on keeps what it found and goes on. */
@@ -645,6 +729,10 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       <span class="nb-progress__label nb-csv__brief-label">To share</span>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html" target="_blank" rel="noopener" title="A polished page of where it stands and the options, to send or hand to Claude">Open the brief ↗</a>
       <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?download=1" download title="The brief as one HTML file">Download the brief</a>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?print=1" target="_blank" rel="noopener" title="Opens the brief and your browser's print dialog: choose Save as PDF">Save as PDF ↗</a>
+      <span class="nb-progress__label nb-csv__brief-label">Extended: each option in full</span>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?full=1" target="_blank" rel="noopener" title="The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history">Open the extended brief ↗</a>
+      <a class="nb-csv__item" href="/notebooks/${encodeURIComponent(nb.id)}/brief.html?full=1&amp;print=1" target="_blank" rel="noopener" title="The extended brief with your browser's print dialog; each option starts a new page">Save extended as PDF ↗</a>
     </div>
   </details>`;
 }
@@ -669,14 +757,14 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
           : html``}
       ${nb.status === 'active' && narrowing && !running ? html`
-        <details class="nb-act nb-decide nb-narrow" data-nb-act>
+        <details class="nb-act nb-decide nb-narrow" data-nb-act data-nb-act-name="narrow">
           <summary class="btn btn--sm btn--primary" title="${narrowing.title}">Narrow…</summary>
           <div class="nb-act__panel nb-act__panel--decide">
             ${decideForm(nb, leads, 'narrow')}
           </div>
         </details>` : html``}
       ${nb.status === 'active' ? html`
-        <details class="nb-act nb-decide" data-nb-act>
+        <details class="nb-act nb-decide" data-nb-act data-nb-act-name="decide">
           <summary class="btn btn--sm${step || running || narrowing ? '' : ' btn--primary'}">Decide…</summary>
           <div class="nb-act__panel nb-act__panel--decide">
             ${decideForm(nb, leads)}
@@ -690,18 +778,12 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
           ${addEntryForm(nb, entries)}
         </div>
       </details>
-      <details class="nb-act nb-edit" data-nb-act>
-        <summary class="btn btn--sm btn--ghost">Edit</summary>
-        <div class="nb-act__panel nb-act__panel--wide">
-          <h2 class="nb-act__title">Edit this notebook</h2>
-          ${editNotebookForm(nb)}
-        </div>
-      </details>
+      <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
       ${entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
     </div>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
@@ -731,8 +813,12 @@ export interface NotebookCard {
   furthest?: string;
   /** "1 of 3 done": its done-when criteria. */
   done?: string;
+  /** Its done-when criteria, each met or not (the list card's dots). */
+  checks?: Array<{ text: string; met: boolean }>;
   cover?: string;
   coverKind?: string;
+  /** A logo cover's shape (a wordmark is wide), so it's sized to read. */
+  coverShape?: string;
 }
 
 export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
@@ -796,23 +882,23 @@ export function renderNotebooksList(args: {
         const facts = [
           c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
           c.options ? `${String(c.active)} in the running` : '',
-          c.furthest ? `furthest: ${c.furthest}` : '',
         ].filter(Boolean);
+        const photo = c.cover && c.coverKind !== 'illustration' && c.coverKind !== 'logo' ? c.cover : undefined;
+        const met = c.checks?.filter((x) => x.met).length ?? 0;
         return html`
           <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
-            <span class="nbl-card__cover">
+            <span class="nbl-card__cover${photo ? ' nbl-card__cover--photo' : ''}"${photo ? html` style="--cover:url('${photo}')"` : html``}>
               ${c.cover
-                ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">`
+                ? html`<img src="${c.cover}" alt="" loading="lazy" class="${pictureClass(c.coverKind, c.coverShape)}">`
                 : coverArt(nb)}
-              ${c.done ? html`<span class="nbl-card__done">${c.done}</span>` : html``}
-              ${c.cover && c.coverKind && c.coverKind !== 'listing' ? html`<span class="nbl-card__kind">${c.coverKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}
+              ${c.cover && pictureLabel(c.coverKind) ? html`<span class="nbl-card__kind">${pictureLabel(c.coverKind)}</span>` : html``}
             </span>
             <span class="nbl-card__body">
-              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${statusChip(nb)}</span>
+              <span class="nbl-card__titlerow"><span class="nbl-card__title">${nb.title}</span>${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</span>
               <span class="nbl-card__statement">${nb.decision ?? nb.statement}</span>
               ${c.best ? html`<span class="nbl-card__lead"><span class="nbl-card__price">${c.best}</span>${c.bestName ? html`<span class="nbl-card__leadname">${c.bestName}</span>` : html``}</span>` : html``}
-              <span class="nbl-card__facts">${facts.map((f) => html`<span class="nbl-chip">${f}</span>`) as unknown as SafeHtml[]}</span>
-              <span class="nbl-card__meta">updated ${formatAge(nb.updatedAt)}</span>
+              <span class="nbl-card__facts">${facts.map((f) => html`<span>${f}</span>`) as unknown as SafeHtml[]}${c.furthest ? html`<span title="Furthest along: ${c.furthest}">at ${c.furthest}</span>` : html``}</span>
+              <span class="nbl-card__meta">${c.checks?.length ? html`<span class="nbl-card__met" title="${`Done when: ${c.checks.map((x) => `${x.met ? '✓' : '○'} ${x.text}`).join('; ')}`}"><span class="nbl-card__dots" aria-hidden="true">${c.checks.map((x) => html`<i class="${x.met ? 'is-met' : ''}"></i>`) as unknown as SafeHtml[]}</span>${String(met)} of ${String(c.checks.length)} met</span>` : html``}<span>updated ${formatAge(nb.updatedAt)}</span></span>
             </span>
           </a>`;
       }) as unknown as SafeHtml[]}

@@ -7,6 +7,8 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { codexConfigModel, refusedModelId } from './codex-models.js';
+import { claudeConfigModel } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
 import { MEMORY_TOOL_IDS } from './memory-store.js';
 import type { SpendLimits } from './spend-limits.js';
@@ -147,6 +149,17 @@ export interface LlmSettingsSnapshot {
    * enabled provider instead of forcing the disabled one to run.
    */
   disabledProviders?: string[];
+  /**
+   * The model a builtin CLI provider runs when the node doesn't pin one, keyed
+   * by provider id (e.g. `{ codex: 'gpt-6-sol' }`). Absent ⇒ the CLI's default.
+   */
+  models?: Record<string, string>;
+  /**
+   * Fired when a provider refuses the model it was asked to run as not offered
+   * (`model_unavailable`), so the runtime can record it and tell the operator.
+   * `model` is the id that was refused, when it could be told.
+   */
+  onModelUnavailable?: (event: { provider: string; model?: string; error?: string; agentId: string; nodeId: string }) => void;
   /**
    * Fired once per hop in the waterfall (i.e. once per fallback
    * transition, not once per run). `from` is the provider that just
@@ -312,6 +325,12 @@ export interface LlmSpawnOptions {
   maxBudgetUsd?: number;
   /** Turn on the CLI's own live web search (see `nativeWebSearch`). */
   webSearch?: boolean;
+  /** Continue this CLI session instead of starting one (see `outOfTurns`). */
+  resume?: string;
+  /** No tools at all: built-in or MCP. */
+  noTools?: boolean;
+  /** The CLI's own tools to take away (claude `--disallowedTools`). */
+  disallowedTools?: string[];
 }
 
 /**
@@ -425,6 +444,12 @@ export interface LlmSpawner {
   stoppedAtBudget?: (rawStdout: string) => boolean;
   /** Tokens (and cost, if the CLI reports it) for the attempt, from its event stream. */
   extractUsage?: (rawStdout: string, opts: LlmSpawnOptions) => LlmUsage | undefined;
+  /**
+   * The session to resume when the CLI stopped because it used all its turns
+   * (raw stdout in); undefined otherwise. With it, a node out of turns gets
+   * one more go, without tools, to answer from what it already read.
+   */
+  outOfTurns?: (rawStdout: string) => string | undefined;
 }
 
 /**
@@ -566,10 +591,14 @@ export const claudeSpawner: LlmSpawner = {
     // --include-partial-messages: text deltas as the model writes, so live
     // chat can stream it (parseProgress → output_delta).
     const args = ['--print', '--output-format', 'stream-json', '--verbose', '--include-partial-messages'];
+    if (opts.resume) args.push('--resume', opts.resume);
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
+    // No tools: none built in, and no MCP servers at all (not even the operator's own).
+    if (opts.noTools) return [...args, '--tools', '', '--strict-mcp-config'];
     const allowed = claudeAllowedTools(opts);
     if (allowed.length) args.push('--allowedTools', allowed.join(','));
+    if (opts.disallowedTools?.length) args.push('--disallowedTools', opts.disallowedTools.join(','));
     // Only sua's endpoint: the operator's own claude MCP servers (Notion, …)
     // must not leak into an agent run.
     if (opts.mcpConfigPath) args.push('--mcp-config', opts.mcpConfigPath, '--strict-mcp-config');
@@ -693,7 +722,23 @@ export const claudeSpawner: LlmSpawner = {
   extractToolCalls: claudeToolCalls,
   extractUsage: (stdout) => claudeUsage(stdout),
   stoppedAtBudget: (stdout) => /"subtype"\s*:\s*"error_max_budget_usd"/.test(stdout),
+  outOfTurns: claudeOutOfTurns,
 };
+
+/** The session id of a claude run whose last `result` event is `error_max_turns`. */
+export function claudeOutOfTurns(stdout: string): string | undefined {
+  const lines = stdout.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line.startsWith('{')) continue;
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type !== 'result') continue;
+      return event.subtype === 'error_max_turns' && typeof event.session_id === 'string' && event.session_id ? event.session_id : undefined;
+    } catch { continue; }
+  }
+  return undefined;
+}
 
 /** claude's --allowedTools: the node's own, plus WebSearch when it asks for live search. */
 function claudeAllowedTools(opts: LlmSpawnOptions): string[] {
@@ -1176,7 +1221,10 @@ export async function spawnNodeReal(
       }
     }
     attemptedProviders.push(provider);
-    let result = await runLlmAttempt(provider, node, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
+    // The operator's model for this provider applies only when the node pins none.
+    const providerModel = node.model ? undefined : _opts.llmSettings?.models?.[provider];
+    const attemptNode = providerModel ? { ...node, model: providerModel } : node;
+    let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
@@ -1219,9 +1267,9 @@ export async function spawnNodeReal(
           usedLLMProvider: provider,
           attemptedProviders,
           providerFailures: providerFailures.length > 0 ? providerFailures : undefined,
-          error: attemptedProviders.length > 1
-            ? `Fallback ${provider} succeeded after ${attemptedProviders.slice(0, -1).join(', ')} failed (${lastCategory}).`
-            : result.error,
+          // The fallback trail is in attemptedProviders / providerFailures (the
+          // run page's "ran on" chip); `error` keeps the attempt's own warning.
+          error: result.error,
         };
       }
       // Contract failed: rewrite the 0-exit result into a failure so the
@@ -1245,6 +1293,18 @@ export async function spawnNodeReal(
     // discarded once a later provider wins).
     const errSnippet = (result.error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined });
+    if (lastCategory === 'model_unavailable') {
+      try {
+        _opts.llmSettings?.onModelUnavailable?.({
+          provider,
+          model: attemptNode.model ?? refusedModelId(`${result.error ?? ''} ${result.result ?? ''}`)
+            ?? (provider === 'codex' ? codexConfigModel() : provider === 'claude' ? claudeConfigModel() : undefined),
+          error: errSnippet || undefined,
+          agentId: _opts.agentId,
+          nodeId: node.id,
+        });
+      } catch { /* telemetry never breaks a run */ }
+    }
     process.stderr.write(
       `[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} failed (${lastCategory})` +
       `${errSnippet ? `: ${errSnippet}` : ''}\n`,
@@ -1517,8 +1577,12 @@ async function runLlmAttemptInner(
     allowedTools = [...new Set([...(node.allowedTools ?? []), `mcp__${TOOL_ENDPOINT_SERVER_NAME}`])];
   }
 
+  // A tool-using node is told its turn budget, so it leaves itself one to answer in.
+  const budgeted = node.maxTurns && spawner.outOfTurns && (declaredTools.length > 0 || nodeWantsWebSearch(node))
+    ? `${resolvedPrompt}\n\n${turnBudgetLine(node.maxTurns)}`
+    : resolvedPrompt;
   const spawnOpts: LlmSpawnOptions = {
-    prompt: resolvedPrompt,
+    prompt: budgeted,
     model: node.model,
     maxTurns: node.maxTurns,
     allowedTools,
@@ -1526,6 +1590,7 @@ async function runLlmAttemptInner(
     mcpEndpoint,
     maxBudgetUsd: toolCtx?.attemptBudgetUsd,
     ...(spawner.nativeWebSearch && nodeWantsWebSearch(node) ? { webSearch: true } : {}),
+    ...(spawner.outOfTurns ? { disallowedTools: wastedBuiltins(node, declaredTools) } : {}),
   };
   const args = spawner.buildArgs(spawnOpts, childEnv);
 
@@ -1557,7 +1622,7 @@ async function runLlmAttemptInner(
 
   // Providers that read the prompt from env (Apple FM) skip stdin so
   // the runner doesn't sit waiting for EOF.
-  const stdinInput = spawner.promptEnvVar ? undefined : resolvedPrompt;
+  const stdinInput = spawner.promptEnvVar ? undefined : budgeted;
 
   // Keep the raw stdout: inline-failure checks (classifyResult,
   // detectDeniedTools) read the provider's JSON, not the extracted prose.
@@ -1626,6 +1691,50 @@ async function runLlmAttemptInner(
     }
   }
 
+  // Out of turns: resume the session once, without tools, for an answer from
+  // what it already read. Ten turns of searching shouldn't come back empty.
+  const session = result.exitCode !== 0 && node.onMaxTurns !== 'fail' ? spawner.outOfTurns?.(rawStdout) : undefined;
+  if (session) {
+    let wrapStdout = '';
+    const wrapOpts: LlmSpawnOptions = { prompt: WRAP_UP_PROMPT, model: node.model, maxTurns: 2, resume: session, noTools: true };
+    const wrap = await spawnProcess(binaryPath, spawner.buildArgs(wrapOpts, childEnv), {
+      cwd: node.workingDirectory,
+      env: mergedEnv,
+      stdinInput: WRAP_UP_PROMPT,
+      timeoutSec: Math.min(node.timeout ?? 300, 180),
+      // Its text streams as usual; its turn isn't one of the node's (no "3 of 2 turns").
+      onProgress: onProgress ? (line) => {
+        const event = spawner.parseProgress(line);
+        if (event && event.type !== 'turn_start' && event.type !== 'turn_complete') onProgress(event);
+      } : undefined,
+      extractResult: (stdout) => {
+        wrapStdout = stdout;
+        return spawner.extractResult(stdout);
+      },
+      signal,
+      onSpawn,
+      onChildExit,
+    });
+    const wrapUsage = spawner.extractUsage?.(wrapStdout, wrapOpts);
+    const usage = addAttemptUsage(result.attemptUsage, wrapUsage);
+    if (wrap.exitCode === 0 && wrap.result.trim()) {
+      const { category: _failed, ...rest } = result;
+      result = {
+        ...rest,
+        result: wrap.result,
+        exitCode: 0,
+        error: `Ran out of turns${node.maxTurns ? ` (${String(node.maxTurns)})` : ''}, so ${provider} answered from what it had already read; it may not have covered everything.`,
+        ...(usage ? { attemptUsage: usage } : {}),
+      };
+    } else {
+      result = {
+        ...result,
+        error: `${result.error ?? 'Out of turns.'}\nAsked to answer from what it had read, it couldn't: ${wrap.error?.trim() || 'no answer'}.`,
+        ...(usage ? { attemptUsage: usage } : {}),
+      };
+    }
+  }
+
   if (spawner.classifyResult && result.exitCode === 0) {
     const overrideCategory = spawner.classifyResult(result, rawStdout);
     if (overrideCategory === 'binary_missing' || overrideCategory === 'other') {
@@ -1661,6 +1770,47 @@ async function runLlmAttemptInner(
   }
 
   return result;
+}
+
+/**
+ * claude's own tools a node didn't ask for that only spend its turns: a
+ * subagent (Agent/Task) runs outside the node's turn and spend limits;
+ * claude's WebFetch and Bash are refused in a run anyway (a refused call
+ * still costs a turn), and sua's web-fetch is there when the node declares it.
+ */
+export function wastedBuiltins(node: Pick<AgentNode, 'allowedTools'>, declaredTools: readonly string[]): string[] {
+  const own = node.allowedTools ?? [];
+  const asked = (name: string) => own.some((t) => t === name || t.startsWith(`${name}(`));
+  return [
+    ...(['Agent', 'Task'].filter((t) => !asked(t))),
+    ...(declaredTools.includes('web-fetch') && !asked('WebFetch') ? ['WebFetch'] : []),
+    ...(!asked('Bash') ? ['Bash'] : []),
+  ];
+}
+
+/** What a node out of turns is asked, resumed without tools. */
+export const WRAP_UP_PROMPT =
+  "You've used all your turns, so you can't search or open anything else. Answer now, from what you've already read, " +
+  'in exactly the format the task asked for (keep any JSON or blocks it asked for). Say briefly what you couldn\'t cover. ' +
+  "Don't make up anything you didn't read.";
+
+/** The line a tool-using node gets about its turn budget. */
+export function turnBudgetLine(maxTurns: number): string {
+  return `You have ${String(maxTurns)} turns in all (each round of searches, page opens or tool calls uses one). ` +
+    'Spend them on the most useful searches and pages, then answer in your last turn from what you found: a partial answer beats none.';
+}
+
+/** Two attempts' usage as one (the wrap-up after running out of turns belongs to the same attempt). */
+function addAttemptUsage(a: LlmUsage | undefined, b: LlmUsage | undefined): LlmUsage | undefined {
+  if (!a || !b) return a ?? b;
+  return {
+    ...a,
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+    ...(a.costUsd !== undefined || b.costUsd !== undefined ? { costUsd: (a.costUsd ?? 0) + (b.costUsd ?? 0) } : {}),
+  };
 }
 
 /**
@@ -1792,6 +1942,8 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   }
   if (haystack.includes('model is not supported')
     || haystack.includes('model_not_found')
+    // claude CLI: "There's an issue with the selected model (x). It may not exist…"
+    || haystack.includes('issue with the selected model')
     || haystack.includes('unsupported model')
     || /model [`'"]?[\w.:-]+[`'"]? (does not exist|is not supported|not found)/.test(haystack)) {
     return 'model_unavailable';

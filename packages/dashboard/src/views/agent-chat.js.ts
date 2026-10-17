@@ -51,7 +51,13 @@ export const AGENT_CHAT_JS = `
     if (input) input.disabled = busy;
     if (button) { button.disabled = busy; button.textContent = busy ? 'Waiting…' : 'Send ↵'; }
   }
-  function scrollEnd() { var t = host && host.querySelector('.agent-chat__transcript'); if (t && t.lastElementChild) t.lastElementChild.scrollIntoView({ block: 'end' }); }
+  // A streaming reply stays in view until you scroll up to read (thread.js.ts); the page is what scrolls.
+  var tail = window.suaThread && window.suaThread.follow ? window.suaThread.follow(null) : null;
+  function scrollEnd() {
+    if (tail && !tail.following()) return;
+    var t = host && host.querySelector('.agent-chat__transcript');
+    if (t && t.lastElementChild) t.lastElementChild.scrollIntoView({ block: 'end' });
+  }
   function liveSlots() {
     return { text: host.querySelector('[data-chat-live-text]'), tools: host.querySelector('[data-chat-live-tools]') };
   }
@@ -123,6 +129,7 @@ export const AGENT_CHAT_JS = `
       role: 'agent', sigil: 'agent', label: 'Agent', writing: 'Working…',
       html: '<ul class="agent-chat__live-tools" data-chat-live-tools></ul><div class="agent-chat__live-text" data-chat-live-text></div><div class="agent-chat__live-widgets" data-chat-live-widgets></div>',
     }));
+    if (tail) tail.reset();
     scrollEnd();
     // The server subscribes this connection to the conversation before the
     // turn starts; adopt() claims those events (incl. ones that beat the reply).

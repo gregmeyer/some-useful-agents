@@ -60,3 +60,35 @@ protocol) into the dashboard: 87 KB gzip, CSP-safe.
   converting) made it the default (`a2uiWidgets` unset = on); `false` selects the previous
   renderer, kept one release, then removed. capture-image widgets stay on the previous renderer
   (html2canvas can't rasterise shadow DOM); copy reads text through shadow roots.
+
+## Amendment (2026-10-14): one reply format for every conversation
+
+- Status: accepted
+- Deciders: Greg Meyer
+
+**Context.** The decision above made widget actions the next chat turn, and chat agents' replies carry
+widgets inline (`<a2ui>` blocks, core `a2ui/inline.ts`). When sua's own replies got widgets (#896),
+they took a different path: a plan `widget` field kept in the reply's meta and drawn under the text,
+with "no buttons" in sua's prompt. That rule was a workaround, not a decision. Nothing in the sua
+panel or on Home listened for widget clicks, so a button would have drawn and done nothing. It was
+never recorded, and it made sua a second-class speaker in the same conversation view. It surfaced
+when sua asked "which weekend?" and gave nothing to click.
+
+**Decision.** Every conversation has one reply format and one behavior, whoever answers (sua or
+an agent):
+- A reply may carry widgets inline as `<a2ui>` blocks. sua still writes its widget in the plan's
+  `widget` field (no JSON-in-a-JSON-string escaping), and the server keeps it in the reply as an
+  inline block (`triageReplyBody`). One renderer (`renderReplyBody`) draws both.
+- Widget actions are the next turn everywhere a conversation is shown: the Chat tab, the sua
+  panel, Home, notebook and option talk boxes. A click goes through the reply box, so it echoes,
+  sends and locks like typing.
+- Once the person replies, an earlier reply's buttons are spent: drawn quieter, not clickable,
+  with the picked one ticked.
+- sua and chat agents are told about widgets from one component list (`replyWidgetComponents`),
+  Buttons included. Buttons answer a question; links navigate; proposed actions run things.
+- Widgets draw while they're written, for sua (`triage:widget` events) as for agents.
+
+**Consequences.** sua can offer answers as buttons. The plan `widget` field in a reply's meta stays
+readable for replies saved before this; nothing new writes it. Plain-text views of a conversation
+(the history sua sees, list previews, thread summaries) drop widget blocks. The CLI and MCP still
+get text only. A new speaker in a conversation must use this format rather than add its own.

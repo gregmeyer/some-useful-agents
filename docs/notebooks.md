@@ -16,11 +16,11 @@ There's no top-nav item yet. Notebooks show up:
 - **at `/notebooks`:** the list, with a ring showing criteria met, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 
-- **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. what it's for (or what you decided), the best price with its lead option, chips for options and how many are in the running, and how many done-whens are met. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts, plus **Archived** when you've archived any; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
+- **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. Under the cover: the title (with a **decided**, **stopped** or **archived** chip; active ones have none, since the tab says so), what it's for (or what you decided), the best price with its lead option, one line of counts ("61 options · 3 in the running · at Facts sourced", the last being the furthest stage any option has reached), and at the bottom its done-whens as dots ("●○○ 1 of 3 met"; hover for which) beside when it was last updated. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts, plus **Archived** when you've archived any; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
 
 ## Archiving and deleting
 
-Both are at the bottom of a notebook's **Edit** panel.
+Both are under **More** at the bottom of a notebook's **Edit** page.
 
 - **Archive** hides the notebook:
   - from your notebooks (**All** too), Home's shelf, Today, sua's notebook list and the agent catalog's "fills notebooks";
@@ -61,6 +61,7 @@ Nothing is created until you start it. **Skip the draft** starts the notebook fr
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:
 - **First, the one most useful thing to tell it:** what the notebook is for, your limits, or any options you've already seen.
 - **Then how it'll keep the notebook:** what it notes for each option, the stages, and what "done" means.
+- **Then a Start button for its first step**, when sua can run it: a step its own agent, sua's finder or sua's checker works on, not one that's yours (Decide, Narrow) or a source step with no agent yet. "Press **Start** when you're ready and I'll begin with **Find 5 desks**." **Start** runs step 1, the same as the header's **Next step →**; **Not now** leaves it for later. Once the step has started or moved on, the button does nothing.
 
 The conversation waits on your reply, so it's on Today. On the notebook page, the message shows under **Talk to sua**, and the big start box points there instead of offering a second place to type.
 
@@ -82,6 +83,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **Corrections change the option itself.** Say "the price is actually $136.64" or "it's 30 inches, not 24", and sua updates that option's facts, so its card, its page, the chart and the stats change too. It isn't filed as a separate note. The option's history shows **Corrected**, with what it replaced ("Price $4,023 → $136.64"). The old source and estimate mark for that fact go. A correction stands over the option's own title and earlier searches. A corrected price starts the price history over, so fixing a wrong price doesn't read as a price drop.
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, use **+ Add entry** in the notebook's header.
 
+- **A conversation that turns to a notebook** sees it too. Ask "which notebook should I work on next?" anywhere, pick one, and once sua's reply links just that notebook, sua has its options, steps and fields for the rest of the conversation, as if you'd asked on its page. sua sees every option still in the running, however long the notebook's history, so its count matches the page's. Results of searches you run there still go into the notebook only from its own conversation.
 - **With the sua panel open,** the page's **Talk to sua** box is hidden, so there's one place to type, and the notebook widens into the space it leaves. Closing the panel on the notebook's conversation refreshes the talk box and the notebook, so sua's latest reply shows.
 - **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
 
@@ -101,9 +103,15 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   - **Notes and decisions**, with decisions first;
   - **Evidence**.
 - **+ Add entry** (in the header, beside **Decide…**) adds a note, an option, evidence, or a decision.
-- **Edit** (also in the header) changes the title, what it's for, parameters, criteria, pipeline (agent ids) and schedule.
+- **Edit** (in the header) opens the notebook's Edit page, the same editor a new notebook's draft uses:
+  - **Main column:** the title and what it's for; limits as chips you can change, remove or add; done-whens as rows (a met one stays ticked); and the steps, each with its agent.
+  - **Side column:** what sua notes for each option, the checks, the stages, the searches by name and when they run (when I ask, every morning…).
+  - **What carries over:** a step you keep keeps how far it got, and the step that's running can't be removed.
+  - **Removing a field** hides it; what options already have is kept. To note something new, ask sua.
+  - **Searches:** the notebook's own and the agents that fill notebooks are listed first; the rest are under **Other agents**.
+  - **Save** keeps it; **More** below has Stop, Save as a template, Archive and Delete.
 - **The schedule runs the pipeline.** A notebook with a schedule ("every morning") runs its searches when it's due, the same as pressing Run. The header says when it runs next. Each due time runs once. After the dashboard has been off, it catches up with one run, not one per missed time. A new or changed schedule waits for its next time. A schedule needs at least one search to run; without one the header says so. Scheduled runs are marked **on schedule** in **How it was made**. Schedules run while the dashboard is running (always, under `sua daemon`). See [ADR-0050](adr/0050-notebook-schedules-run-in-the-dashboard.md). Editing the criteria keeps the ticks on the ones you didn't change.
-- **Decide…** lists the options still in the running, best first, with their fit, price or measure and how many checks they pass. Tick the ones you chose (one, with a radio button, when the decide step wants one), say why if you like, and **Choose these N and close**. The picks are marked chosen, the decision ("Chose Acme and Hooli. Closest in size") is kept as an entry, the decide step is done, and the notebook closes. **Pick the top N** ticks the best N for you. When sua has recommended some in your conversation, they carry a **sua** badge and **Tick sua's picks (N)** ticks exactly those (its latest recommendation replaces the one before). Each row shows the option's picture when it has one. Chosen options carry a **✓ chosen** ribbon on their shortlist card (a chip in the table view and on the option's page). Once you've decided, the shortlist shows just the chosen ones, first (untick **Only chosen** to see the rest; that's kept per notebook in your browser), **Where it stands** says what you decided, and the funnel's **Chosen** counts every pick. With nothing in the running, you just say what you decided. **Reopen** any time (your picks stay ticked); **Stop** pauses a notebook without deciding.
+- **Decide…** lists the options still in the running, best first, with their fit, price or measure and how many checks they pass. Tick the ones you chose (one, with a radio button, when the decide step wants one), say why if you like, and **Choose these N and close**. The picks are marked chosen, the decision ("Chose Acme and Hooli. Closest in size") is kept as an entry, the decide step is done, and the notebook closes. **Pick the top N** ticks the best N for you. When sua has recommended some in your conversation, they carry a **sua** badge and **Tick sua's picks (N)** ticks exactly those (its latest recommendation replaces the one before). Each row shows the option's picture when it has one. Chosen options carry a **✓ chosen** ribbon on their shortlist card (a chip in the table view and on the option's page). Once you've decided (closed it), the shortlist shows just the chosen ones, first (untick **Only chosen** to see the rest; that's kept per notebook in your browser), **Where it stands** says what you decided, and the funnel's **Chosen** counts every pick. With nothing in the running, you just say what you decided. **Save picks, keep it open** marks the ticked ones chosen without closing: for a notebook you keep shopping from ("I bought this one"). You can also pick one at a time: **Pick this one** on an option's page and **Pick** on its shortlist card (click **✓ Picked** or **Unpick** to take it back). A decide step is done once it has as many picks as it wants, and open again if you take one back. A decide step's card has its own **Pick N… →** button, which opens Decide…. **Reopen** any time (your picks stay ticked); **Stop** pauses a notebook without deciding.
 
 ## Option facts
 
@@ -132,9 +140,10 @@ Options record their facts as data, not only as text, so they can be compared, s
   - the option's image field (role `image`), when the search gave a photo address;
   - otherwise its listing page's own preview photo. The listing is the option's link field, or when the notebook has none, the first of its facts holding a web address (an "Availability" field with a product page counts; it also gives the option its **Listing ↗** button). The photo is used only when the address is one listing (it carries an id, not a page of results) and the page's title names the option (its year and model). A results page shows a generic picture, which would be the wrong car.
 
-  Every photo is fetched with the same guards as web pages (no private or local addresses, every redirect checked) and must be a real JPEG, PNG, GIF or WebP of at most 3 MB; never SVG. The copy is kept in sua's database and served from your dashboard, so the page never loads from the seller's site. An address that didn't give a photo isn't tried again, and an option keeps its example photo or illustration when it doesn't. Images are requested as WebP, PNG, JPEG or GIF, so image servers that would otherwise send AVIF (which isn't kept) send one of those. Some sites block automated requests (AutoTrader serves a "page unavailable" page), and results-page links give no photo, so the most reliable source is a search agent that returns each listing's own link and photo address.
+  Every photo is fetched with the same guards as web pages (no private or local addresses, every redirect checked) and must be a real JPEG, PNG, GIF or WebP of at most 3 MB; never SVG. The copy is kept in sua's database and served from your dashboard, so the page never loads from the seller's site. The browser checks back each time it shows one (a quick "not modified" when it hasn't changed), so a picture that changes, a drawing replaced by a logo or a better photo, shows at once. An address that didn't give a photo isn't tried again, and an option keeps its example photo or illustration when it doesn't. Images are requested as WebP, PNG, JPEG or GIF, so image servers that would otherwise send AVIF (which isn't kept) send one of those. Some sites block automated requests (AutoTrader serves a "page unavailable" page), and results-page links give no photo, so the most reliable source is a search agent that returns each listing's own link and photo address.
 - **Representative pictures:** an option still without a photo (the listing gave none, or blocked the request) gets a **representative** one: sua's `notebook-picture` agent searches for a picture of what it is (a Wikimedia photo of that model and generation, the product's image, the company's logo), fetched with the same guards as listing photos (one at a time, retrying a busy host; large Wikimedia originals as 500px thumbnails). When none can be found or fetched, sua shows its own **illustration** of what the option is (a car, a bike, a guitar, a laptop, a home, a company's monogram for a job), tinted per option and labelled with its name, and tries for a real photo again a day later. Cards label them **example photo** or **illustration**, so they're never mistaken for the real one. This runs after each search, from **Get photos**, and when you open a notebook or the Notebooks page; ruled-out options are skipped.
-- **Pictures show whole.** Everywhere a picture appears (shortlist cards and table, the option's page, the notebook's header, the Notebooks page, Home's shelf, the conversation's card), it's scaled to fit its frame, never cropped. A tall photo (a guitar) sits in the middle of a wide frame, and every card in a row keeps the same frame size however tall its photo is. A frame holding a photo is the card's own surface, so a product shot on white blends in; illustrations keep their tinted frame. The same goes for pictures in messages, run output and Pulse tiles: they scale down to fit their column.
+- **Company logos:** in a notebook of jobs or companies (one with a company field, about jobs, roles, accounts, vendors or leads), an option's picture is its company's **logo**, taken from the company's own website: its app icon (`apple-touch-icon`), else an icon it lists at 96px or larger, else a 128px favicon from Google's favicon service. One smaller than 48px (a plain favicon) isn't kept. The website comes from the option's facts (a website field, or its link when that's the company's own site, a careers subdomain included), never from a job board, applicant tracking system, recruiter or LinkedIn page; otherwise `notebook-picture` names it. A logo the agent finds itself counts as one too, and example photos it had described as a logo become logos. A logo shows whole on a white tile, in both themes, with no label, sized by its shape so it reads: a wordmark (1.6 times as wide as it is tall, or more) fills the frame's width, and the notebook's header gives it a wider tile; a square app icon sits at about half a large frame's height, with a margin in a small one. Options that don't name their company keep their monogram illustration.
+- **Pictures show whole.** Everywhere a picture appears (shortlist cards and table, the option's page, the notebook's header, the Notebooks page, Home's shelf, the conversation's card), it's scaled to fit its frame, never cropped. A tall photo (a guitar) sits in the middle of a wide frame, and every card in a row keeps the same frame size however tall its photo is. A frame holding a photo is the card's own surface, so a product shot on white blends in; illustrations keep their tinted frame. On the Notebooks page, a soft, blurred copy of the cover photo fills the rest of its frame, so a wide frame has no white bands beside a photo. The same goes for pictures in messages, run output and Pulse tiles: they scale down to fit their column.
 - **Not seen lately:** each search is recorded, along with how many options it found. When the last 2 searches by the agent that found an option found other options but not this one, its card says "not in the last 2 searches". It may be sold, filled or taken down. A search that found nothing doesn't count, since web search results vary from run to run. Being found again clears it.
 - **For widgets:** `GET /notebooks/<id>/data.json` returns the notebook as data, the same shape for every notebook:
   - `limits`, `criteria`, `progress` and `fields`;
@@ -163,7 +172,7 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 **No longer available** is not a ruling: the option leaves the running and reads "No longer available", not your reason. Tell sua too ("the RAV4 sold", "they filled the Stripe role").
 
-**Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. That text describes the option when it was filed, though: when a later search finds the same option again (by its link) and sees a newer price or measure, the newer facts win over the text. Facts stored before this check are repaired when you open the notebook. Only numbers count: a link in the text (a source, the post a quote came from) never counts as a mix-up and never replaces the option's own link; it fills in only when the option has none. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
+**Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. That text describes the option when it was filed, though: when a later search finds the same option again (by its link) and sees a newer price or measure, the newer facts win over the text. Facts stored before this check are repaired when you open the notebook. A span in the text ("$150k–$160k") is a range for a range field (a salary), and a single figure agrees with a range it falls in ("from $170k" with $170k–$200k, which keeps the range). Options whose facts an earlier version cut down to a salary's first number, wrongly read as a contradiction, get their facts back from when they were filed the next time you open the notebook. Only numbers count: a link in the text (a source, the post a quote came from) never counts as a mix-up and never replaces the option's own link; it fills in only when the option has none. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
 
 **Deciding** (**Decide…** in the header) lists every option still in the running to pick from: with steps, the ones that got through the most steps first, then the best fit (or price); without, the furthest stage first. Each row opens its option's page (↗). The count ("3 of 10 picked") follows the decide step's target. Recording the decision closes the notebook.
 
@@ -215,9 +224,45 @@ sua's drafter adds a fit score to account-style notebooks ("companies with $10�
 
 Money of a million and up reads short ("$18M–$22M"). Companies get a monogram tile from their company name when there's no picture.
 
+### Templates
+
+A notebook you run again and again (a job search, a car search, a comp set) can be kept as a template, and new ones started from it by asking sua.
+
+- **Save one:** on the notebook, **Edit** → **Save as a template**, with a name ("Job search"). Archived notebooks can be saved too, so you can archive a finished one and keep its template. Saving the same name again replaces it.
+- **What it keeps:** the notebook's setup, not its content:
+  - **Kept:** what it's for, its limits, its done-whens (all unmet), the facts each option notes, its checks and stages, its steps (with their agents; status reset), its schedule and pipeline.
+  - **Not kept:** options, notes, decision, history and filter labels. Every notebook made from it starts empty.
+- **Start one with sua:** ask "start a notebook from my Job search template", or use **Start with sua →** next to it on **New notebook**. sua then:
+  - asks what's different this time, one or two questions per reply and at most 4 in all, each with button answers: the template's own value first ("Remote or Austin, TX"), then likely alternatives, or type your own. It asks about the limits that change between runs (place, level, pay floor, budget), how many to find and a deadline, and skips what you already said. **Use the template as is** skips the rest;
+  - offers a **Create notebook** card showing the template, the title, the limits, done-whens and checks (before → after when they change: a check that names a place, level or pay floor changes with it) and the steps.
+- **When you approve it:** the notebook is created empty with the template's setup and this time's changes. A step whose agent is no longer installed falls back to sua's finder or checker, or says it needs an agent. Nothing runs until you start its first step.
+- **Archive or delete one:** on **New notebook**, **Archive** keeps a template but stops it being offered there or by sua. Archived ones fold away under **Archived templates**, each with **Restore**. Saving a template with the same name restores it too. The **×** deletes a template (it asks once). Notebooks made from it stay either way.
+
 ### A brief to share
 
-**Open the brief** (under **Download / share**) shows the notebook as one polished page to send: the goal, where it stands, the decision or the shortlist (each option's key facts, its own page, its checks), the limits and the done-whens. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and **Download the brief** saves it as one HTML file. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it).
+**Open the brief** (under **Download / share**) shows the notebook as a summary of what it found, on one page to send:
+- **The goal**, then the decision or where it stands. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
+- **Key findings**, worked out from the notebook itself (nothing written by a model, nothing guessed):
+  - how many options were looked at, over how many searches, and how many are in the running, chosen and ruled out;
+  - the span of the price or salary in the running (a salary range counts by both ends), and how many don't list it;
+  - the fit span and how many score 80 or more; the main measure's span;
+  - how they split on a short fact like Remote or Location;
+  - why the rest were ruled out, grouped ("unfit (6); posting closed (4)", or the check they failed);
+  - what's still open, and where the last search looked.
+- **The shortlist as a table**: one row per option in the running, with the key facts that most of them state. Each name links to its own page, in the PDF too, and has the option's picture beside it (its photo, an example photo, its company's logo or its illustration), as on its page.
+- **In detail**: each option's facts (not the ones its title already says), why it's there (the first sentence of its notes), its checks once any are ticked, and its own page.
+- **Ruled out**: the latest 12 with their reasons.
+- **Notes along the way**: sua's latest notes.
+- **The limits and done-whens.**
+
+Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and prints cleanly:
+- the light palette, colours kept;
+- no option split across pages;
+- each link's address printed after it.
+
+**The extended brief** (an option under **Download / share**: **Open the extended brief ↗** or **Save extended as PDF ↗**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections), under its picture. The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
+
+**Save as PDF** opens it with your browser's print dialog (choose Save as PDF). **Download the brief** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
 
 ### Each option's own page
 
@@ -231,7 +276,7 @@ When two options are the same one (a car listed twice, a company under two names
 
 Options move through the notebook's **stages** toward a decision, and you can rule any of them out.
 
-- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them with **Edit** in the header (one per line). New options start at the first stage. If you remove a stage, its options move to the first one.
+- **Each notebook has stages,** e.g. Found → Checked → Test drive → Offer → Bought for a car, or Found → Applied → Screen → Interview → Offer for a job. The keeper proposes them along with the fields; you can change them on the **Edit** page. New options start at the first stage. If you remove a stage, its options move to the first one.
 - **Move an option along** with **Move to <next stage> →** on its card, or tell sua ("I applied to Stripe and Plaid", "we test-drove the RAV4").
 - **Rule an option out** with **Rule out…**: pick a quick reason (Not interested, Too expensive, No reply, Failed a check) or write your own. Or tell sua ("rule out the XT, too pricey", "no callback from Plaid").
   - A ruled-out option **stays in the notebook,** dimmed and at the end of its section, showing where it was ruled out and why: "Ruled out at Applied: no callback". **Bring back** undoes it, and so does moving it to a stage.
@@ -316,7 +361,7 @@ A run's results go into the notebook by themselves when it was started from the 
 
 ## The pipeline
 
-With **Edit** in the header, list the agents that gather for the notebook, one id per line, in order. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
+On the **Edit** page, tick the agents that gather for the notebook under **Searches**. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
 
 - **Each agent gets the notebook's goal.** Any input it declares named `GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF` gets the statement, parameters and criteria. `TOPIC`, `QUERY`, `QUESTION` or `SEARCH` gets the statement. Other inputs keep their defaults.
 - **It also says what the notebook already has.** That same notebook input lists the options in the running (best first, up to 40) so the search doesn't bring them back, and for each one the facts the notebook tracks that it's still missing ("Motive: planning and forecasting — employees, revenue, founded"). The link, picture and fit score aren't asked for. So a search can fill gaps in what the notebook has, by each option's name, as well as find new options. Each agent in a run sees what the agents before it added.
@@ -349,16 +394,23 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 | `decide` | you've confirmed the final set of `target` options | "pick 10" |
 
 - **On the page:** the steps replace the pipeline diagram. Each shows its agent and a progress bar, and the step being worked on is outlined. Hover a step to see what it still needs ("Brightline: founded").
-- **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker; a `find` or `source` step without one says "needs an agent".
+- **Agents:** a step names the agent that works on it. A step is only ever given its job through the agent's inputs; the agent itself is never edited for it, so agents other notebooks use keep doing what they did. A `check` step without an agent uses sua's checker, and a `find` step without one uses sua's finder (below); a `source` step without one says "needs an agent".
 - **Statuses:** to do, running, goal met, stuck or done.
 - **A source step can name its facts.** An agent that looks up revenue, employees and founding year can't fill "why people buy it", so a step that counted every fact would never reach its goal with it. Give the step `"facts": ["revenue", "employees", "founded"]` and only those count; its agent is asked only for those, and the step shows them beside its agent ("with firmographic-research · revenue, employees, founded"). Leave the other facts to another step. Names that aren't the notebook's facts are dropped.
 
   ![An example notebook's source step that looks up revenue, employees and founded: 18 of 36 facts](images/notebook-source-step-facts.png)
+- **A source step whose agent reads one page a run** (like `listing-page-facts`) works option by option. It recognises such an agent by its inputs: a page address (`PAGE_URL`, `URL`, `ITEM_URL`, `LISTING_URL` or `LINK`), optionally the facts to read (`WANT` or `FACTS`), and nothing about the notebook.
+  - **Each run:** the agent runs once for each option still missing the step's facts (best first, at most 8 a press), with that option's own page and the names of the facts it lacks.
+  - **What it reads** is filed on that option, each fact sourced to the page.
+  - **A page saying the item is sold, expired or removed** rules the option out as gone.
+  - **A blocked page** is named in the pass ("ebay.com blocked the reader").
+  - **An option without a page of its own is skipped**, so the agent never runs on an empty address. The step's note counts them.
+  - Pressing again does the next 8.
 - **From your sentence:**
 
   ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)
 
-  When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job; a find or source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
+  When you start a notebook, sua's draft lays out its steps too (find first, decide last, source and check only when they're needed). Each step gets the one of your agents whose description fits that job. A find step keeps sua's finder unless one of your agents is made for that kind of search (a listings sweep for cars); a general research or brief agent isn't given a find step. A source step with none says "needs an agent". On the draft you can rename a step, pick its agent (a check step can use sua's checker, a find step sua's finder) or remove it. Your changes are kept with the draft, and **Start** saves them with the notebook.
 - **When a notebook starts without any:** if you used **Skip the draft**, or the draft came back with no steps, sua lays them out itself once it has set the notebook up. It works from the notebook's goal, what it notes for each option, and your agents, the same way a draft would, and changes nothing else. A source step names the facts it looks up. sua's first message in the conversation lists them ("The work, one step at a time: find 10 companies, then source firmographics, then …"). Steps you set before it finishes are kept. If nothing fits, the notebook has no steps and runs its pipeline as before.
 
   ![An example notebook started with Skip the draft: sua laid out four steps (find, source revenue and headcount, check, pick the final set)](images/notebook-steps-from-setup.png)
@@ -372,6 +424,8 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
 ### Running steps
 
 ![An example notebook with four steps: the first has met its goal, and the header's main button reads Next step](images/notebook-steps.png)
+
+**How the header shows them.** The steps sit in one row, in order, under what the notebook is for. That's two columns on a narrow screen and one on a phone. Each step shows its agent (with only some facts to look up, how many, with the list on hover), a bar toward its goal, the count ("6 of 6 facts") and a status chip: done, moved on, stuck, running or to do. The step being worked on is outlined. Hover a step for what it still needs and its last run. When every step is done, or the notebook is decided, the row turns into one quiet line per step, and a step that moved on short still says so. On a notebook drawn as widgets, the header's buttons (**Next step →**, **Decide…**, **+ Add entry**, **Edit**, **Download / share**) sit beside the title. A decided notebook lists its picks under **Decided**, each linking to its page, with the reason you gave after them.
 
 While a notebook has steps left, the main button in its header is **Next step →**. Hover it to see the step it starts ("Step 2 of 4: Source firmographics"). For a step that stopped short it reads **Move on** or **Try again**, with the other beside it; **Finish** after the last one; and "Working on step N…" while a step runs, with **Stop** beside it. **Decide…** steps aside until the next move is yours. The pipeline's **Run the pipeline now** button comes back once every step is done.
 
@@ -388,7 +442,7 @@ While a notebook has steps left, the main button in its header is **Next step �
    - **Stopped:** **Stop** in the header (or the run's own Stop button) stops the step's run, and the step stops too, as stuck with **Move on** first, instead of starting another try. What earlier runs found is kept.
 - **Narrow:** a narrow step is yours too, for cutting the list down without deciding ("Decide which cars stay in the running"). While it's the current step, **Narrow…** is the header's main button: the same list as Decide, with pictures and facts. Tick the ones to keep and **Keep 6, rule out 15**. The rest are ruled out, with your reason if you give one (else "Not kept at …"), the step is done ("kept 6 of 21"), and the notebook stays open for the next step. Bring any back from its card. In the funnel it's **Kept**.
 - **Check (or source) the top N:** a check or source step you moved on from short, or one that got stuck, shows **Check the top 5 →** (or **Source the top 10 →**) under it. It works on that step again for just the best options in the running: its goal becomes those, and its agent (or sua's checker) is given only them. N is your decide or narrow step's target, else 5. The step then reads "2 of 5 checked · top 5". A done-when like "… sourced for each" still means all of them.
-- **Decide:** a decide step is yours. The button points you to **Decide**, and nothing runs. Picking there marks the step done ("2 chosen").
+- **Decide:** a decide step is yours. Its card's **Pick N… →** opens **Decide…**, and nothing runs. Picking there, or with **Pick** on options, marks the step done ("2 chosen").
 - **A closed conversation comes back:** when a step finishes or stops short and the notebook's conversation was dismissed or resolved (by you, or cleared from Today), sua reopens it as waiting on you, so the step's message and its cards show under **need your reply**. A conversation that's still open keeps its status.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 
@@ -404,6 +458,16 @@ A check step with no agent of its own uses sua's checker (`notebook-checker`, a 
    - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
 
 The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").
+
+### sua's finder
+
+A find step with no agent of its own uses sua's finder (`notebook-finder`, a built-in agent). One search asked to cover everything (four job boards, each posting opened and checked) runs out of turns, so the finder splits it up:
+
+1. **It plans 3 to 5 narrow searches**, each covering ground the others don't: for jobs, one per job board (Greenhouse, Lever, Ashby, Workday) plus the open web; for cars, one per listings site; for products, one per store. The plan says where and how to look, never what it will find. It's given the options the notebook already has, as short "name: link" lines, so it doesn't look for them again.
+2. **The searches run 3 at a time** (a parallel `loop`, [flows.md](flows.md)). Each is its own small run (`notebook-find-one`, 8 turns) that searches, opens up to 4 candidates' own pages (or a job board's JSON API, one call for every opening with pay) and returns each with its facts by the notebook's fields, a quote from its page, and why it fits. One that runs out of turns answers with what it found; one that fails doesn't sink the others.
+3. **Code files what they found**, as they found it: one option per page (the same posting found twice is one option), facts only for the notebook's fields, nothing already in the notebook, long titles cut at a word. It adds a note saying where it looked and what each search found ("Searched 5 places at once: Greenhouse (2), Lever (1), Ashby (0), Workday (1), Open web (2). Nothing new from Ashby."), and the notebook's Where it looked shows each search.
+
+On the job notebook it found 6 new roles in about 3 minutes on the first try, where one search had come back empty.
 
 ## Coming next
 

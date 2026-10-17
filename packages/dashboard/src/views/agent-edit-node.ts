@@ -19,6 +19,8 @@ export interface EditNodeFormValues {
   maxTurns?: number | string;
   allowedTools?: string[] | string;
   tools?: string[] | string;
+  /** Keep going if this step fails (the node's `optional`). */
+  optional?: boolean;
   /** Goal node fields, when re-rendering a submitted goal form. */
   goal?: GoalFieldValues;
 }
@@ -53,6 +55,22 @@ export function renderAgentEditNode(args: {
       <code>${n.id}</code>
     </label>
   `);
+
+  // Only a step something waits on can be skipped past; control flow decides
+  // the path, so it never is.
+  const dependents = agent.nodes.filter((n) => n.dependsOn?.includes(node.id)).map((n) => n.id);
+  const optional = submitted?.optional ?? node.optional === true;
+  const optionalBlock = dependents.length > 0 && !isControlFlowNode(node) ? html`
+      <fieldset class="fieldset">
+        <legend class="fieldset__legend">If it fails</legend>
+        <input type="hidden" name="optionalShown" value="1">
+        <label class="dep-toggle">
+          <input type="checkbox" name="optional" value="1" ${optional ? 'checked' : ''}>
+          Keep going if this step fails
+        </label>
+        <p class="form-field__hint">The run carries on without it, and ${dependents.map((id, i) => html`${i > 0 ? ', ' : ''}<code>${id}</code>`) as unknown as SafeHtml[]} get${dependents.length === 1 ? 's' : ''} a short note in place of its output. Use it for one of several sources, like one site of a search, so one that's down doesn't stop the rest.</p>
+      </fieldset>
+    ` : html``;
 
   const errorBlock = error ? html`<div class="flash flash--error">${error}</div>` : html``;
 
@@ -93,6 +111,8 @@ export function renderAgentEditNode(args: {
           ? html`<span class="dim text-xs">No eligible upstream nodes.</span>`
           : html`<div>${depToggles as unknown as SafeHtml[]}</div>`}
       </fieldset>
+
+      ${optionalBlock}
 
       ${renderAvailableVars(agent, node, variablesStore)}
 

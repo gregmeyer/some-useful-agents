@@ -265,6 +265,7 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
     maxTurns: typeof body.maxTurns === 'string' ? body.maxTurns : undefined,
     allowedTools: typeof body.allowedTools === 'string' ? body.allowedTools : undefined,
     tools: typeof body.tools === 'string' ? body.tools : undefined,
+    ...(body.optionalShown ? { optional: body.optional === '1' } : {}),
   };
 
   // Every declared dependency must be a node that's not the current
@@ -355,7 +356,9 @@ agentNodesRouter.post('/agents/:name/nodes/:nodeId/edit', (req: Request, res: Re
         ...(dependsOn.length > 0 ? { dependsOn } : { dependsOn: undefined }),
       };
 
-  const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? updatedNode : n);
+  // Keep going if it fails: set from the form when it showed the box, otherwise kept as it was.
+  const saved = values.optional === undefined ? updatedNode : { ...updatedNode, optional: values.optional || undefined };
+  const updatedNodes = agent.nodes.map((n) => n.id === nodeId ? saved : n);
 
   try {
     ctx.agentStore.createNewVersion(

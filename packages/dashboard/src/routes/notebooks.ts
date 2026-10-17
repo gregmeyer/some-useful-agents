@@ -13,22 +13,24 @@ import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, layOutNotebookSteps } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
   type Notebook,
+  type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
-import { renderNotebookPage, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
-import { renderNotebookBrief } from '../views/notebook-brief.js';
+import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
+import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { notebookCard } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
-import { notebookThread, greetNotebook, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
+import { notebookThread, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
 import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures.js';
 import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
@@ -113,6 +115,8 @@ notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
     flash: parseFlash(req) ?? (draftId && !d ? { kind: 'info', message: 'That draft is gone (started, discarded or expired).' } : undefined),
     ...(d ? { draft: { id: draftId, state: d, agents: searchAgents(ctx) } } : {}),
     others,
+    templates: store(req).listTemplates(),
+    archivedTemplates: store(req).listTemplates(50, { archived: 'only' }),
   }));
 });
 
@@ -157,49 +161,30 @@ notebooksRouter.get('/notebooks/draft/:id', (req: Request, res: Response) => {
 notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
   try {
     const statement = str(req.body?.statement);
-    const ctx0 = getContext(req.app.locals);
-    const known = new Set(searchAgents(ctx0).map((a) => a.id));
+    const ctx = getContext(req.app.locals);
+    const known = new Set(searchAgents(ctx).map((a) => a.id));
     let cadence = str(req.body?.cadence).trim();
     if (cadence) { try { validateScheduleInterval(cadence, {}); } catch { cadence = ''; } }
-    const nb = store(req).create({
+    // The steps sua will take, as you left them on the draft; and from a draft,
+    // what to note, the stages and the checks (so setup is skipped).
+    const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
+    const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
+    const nb = createNotebookFrom(ctx, {
       title: str(req.body?.title).trim() || titleFrom(statement),
       statement,
       params: many(req.body?.params),
       criteria: many(req.body?.criteria),
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
+      ...(steps ? { steps } : {}),
+      ...(fields.length ? {
+        fields,
+        stages: many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean),
+        checks: many(req.body?.checks),
+      } : {}),
     });
     // Started from a draft: it's done with.
-    if (str(req.body?.draft)) discardDraft(ctx0, str(req.body?.draft));
-    // The steps sua will take, as you left them on the draft.
-    const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
-    if (steps) store(req).setSteps(nb.id, steps);
-    // From a draft: what to note, the stages and the checks are set already, so setup is skipped.
-    const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
-    if (fields.length) {
-      const s0 = store(req);
-      s0.setFields(nb.id, fields);
-      const stages = many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean);
-      if (stages.length) s0.setStages(nb.id, stages);
-      const checks = many(req.body?.checks);
-      if (checks.length) s0.setChecks(nb.id, checks);
-      s0.markSetup(nb.id);
-    }
-    // sua sets up what options record and the stages they go through, from the
-    // goal, then says hello in the notebook's conversation with what it set up.
-    const ctx = getContext(req.app.locals);
-    const greet = () => {
-      const now = store(req).get(nb.id);
-      if (!now) return;
-      const threadId = greetNotebook(ctx, nb.id);
-      if (threadId) { publishInboxChanged(ctx, threadId, 'awaiting_user'); store(req).touch(nb.id); }
-    };
-    // No steps from the draft (or no draft): sua lays them out once it's set up, then says hello.
-    const stepsThenGreet = () => {
-      if (steps) { greet(); return; }
-      void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(greet);
-    };
-    if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
+    if (str(req.body?.draft)) discardDraft(ctx, str(req.body?.draft));
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
@@ -258,7 +243,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),
     ...(unfiled.some((r) => r.adding) ? ['Adding a run'] : []),
   ];
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind, ...(coverPhoto.shape ? { shape: coverPhoto.shape } : {}) } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -279,6 +264,37 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/remove', (req: Request, res:
 });
 
 // An option's kept photo. Served as an image only: never sniffed, never run.
+/** An option's illustration, drawn now (so earlier drawings improve too). */
+function drawOption(nb: Notebook, entry: NotebookEntry): string {
+  const name = shortName(entry.title);
+  // A company's tile shows its own name's initials (the org field), not the option's title.
+  const orgKey = nb.fields.find((f) => f.role === 'org')?.key;
+  const org = orgKey && typeof entry.data?.[orgKey] === 'string' ? (entry.data[orgKey] as string) : undefined;
+  const kind = illustrationKind(nb, name);
+  return optionIllustration({ kind, name: kind === 'job' && org ? org : name, seed: entry.id });
+}
+
+/** A saved brief's pictures, inside the file: each up to 600KB, 8MB in all; past that, none. */
+const BRIEF_PICTURE_MAX = 600 * 1024;
+const BRIEF_PICTURES_MAX = 8 * 1024 * 1024;
+function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly NotebookEntry[]): BriefPicture {
+  let total = 0;
+  const cache = new Map<string, string | undefined>();
+  return (o) => {
+    if (cache.has(o.id)) return cache.get(o.id);
+    let uri: string | undefined;
+    const photo = o.image ? s.photo(o.id) : undefined;
+    const entry = photo?.kind === 'illustration' ? entries.find((e) => e.id === o.id) : undefined;
+    const bytes = entry ? Buffer.from(drawOption(nb, entry)) : photo ? Buffer.from(photo.bytes) : undefined;
+    if (bytes && bytes.length <= BRIEF_PICTURE_MAX && total + bytes.length <= BRIEF_PICTURES_MAX) {
+      total += bytes.length;
+      uri = `data:${entry ? 'image/svg+xml' : photo!.contentType};base64,${bytes.toString('base64')}`;
+    }
+    cache.set(o.id, uri);
+    return uri;
+  };
+}
+
 notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: Response) => {
   const s = store(req);
   const photo = s.photo(String(req.params.entry));
@@ -288,12 +304,7 @@ notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: R
     const nb = s.get(String(req.params.id));
     const entry = nb ? s.entries(nb.id, 1000).find((e) => e.id === String(req.params.entry)) : undefined;
     if (nb && entry) {
-      const name = shortName(entry.title);
-      // A company's tile shows its own name's initials (the org field), not the option's title.
-      const orgKey = nb.fields.find((f) => f.role === 'org')?.key;
-      const org = orgKey && typeof entry.data?.[orgKey] === 'string' ? (entry.data[orgKey] as string) : undefined;
-      const kind = illustrationKind(nb, name);
-      const svg = optionIllustration({ kind, name: kind === 'job' && org ? org : name, seed: entry.id });
+      const svg = drawOption(nb, entry);
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
@@ -303,10 +314,15 @@ notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: R
       return;
     }
   }
+  // A picture can change at the same address (a drawing becomes a logo, a better photo is found):
+  // the browser asks each time and gets a 304 while it hasn't.
+  const etag = `"${photo.kind}-${photo.fetchedAt}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'private, no-cache');
+  if (req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
   res.setHeader('Content-Type', photo.contentType);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-  res.setHeader('Cache-Control', 'private, max-age=86400');
   res.end(Buffer.from(photo.bytes));
 });
 
@@ -373,6 +389,18 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/rule-out', (req: Request, re
   }
 });
 
+/** Pick an option (`on=0` takes the pick back); the notebook stays open. */
+notebooksRouter.post('/notebooks/:id/entries/:entry/choose', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const on = req.body?.on !== '0';
+    const e = store(req).choose(id, String(req.params.entry), on);
+    res.redirect(303, backFrom(req, id, e.id, on ? `Picked ${e.title}.` : `Took back the pick: ${e.title}.`));
+  } catch (err) {
+    res.redirect(303, backFrom(req, id, String(req.params.entry), err instanceof Error ? err.message : String(err)));
+  }
+});
+
 // Tick (or untick) one of the notebook's checks for an option.
 /**
  * Set the notebook's steps: `steps` is a JSON list of {title, kind, agentId?,
@@ -426,6 +454,33 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
 });
 
 // Archive (hide from lists, Home, Today and schedules; nothing deleted) or restore.
+/** Keep this notebook's setup as a template (its options aren't kept). */
+notebooksRouter.post('/notebooks/:id/template', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const t = store(req).saveTemplate(str(req.body?.name), id);
+    res.redirect(303, back(id, `Saved as the template “${t.name}” (${t.description}). To start a notebook from it, ask sua: start a notebook from my ${t.name} template.`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+/** Archive a template (kept, not offered), or restore it with archived=0. */
+notebooksRouter.post('/notebooks/templates/:tid/archive', (req: Request, res: Response) => {
+  const s = store(req);
+  const t = s.getTemplate(String(req.params.tid));
+  const restore = req.body?.archived === '0';
+  const done = t ? s.archiveTemplate(t.id, !restore) : false;
+  const msg = !done ? 'No such template.' : restore ? `Restored the template “${t!.name}”.` : `Archived the template “${t!.name}”. sua won't offer it; restore it under Archived templates.`;
+  res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(msg)}`);
+});
+
+/** Remove a template (the notebooks made from it stay). */
+notebooksRouter.post('/notebooks/templates/:tid/delete', (req: Request, res: Response) => {
+  const gone = store(req).deleteTemplate(String(req.params.tid));
+  res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(gone ? 'Template removed. Notebooks made from it stay.' : 'No such template.')}`);
+});
+
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
@@ -466,22 +521,68 @@ notebooksRouter.post('/notebooks/:id/criteria/:index', (req: Request, res: Respo
   }
 });
 
+/** Edit this notebook: its whole setup, on its own page. */
+notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const nb = store(req).get(String(req.params.id));
+  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req) }));
+});
+
+/**
+ * Save the Edit page. Lists come as one value per item (the setup editor's
+ * chips and rows) or as one text, one per line. From the Edit page
+ * (`setup=1`), the fields, checks and steps are saved too: a step you kept
+ * keeps how far it got, and the one running can't be removed.
+ */
 notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const cadence = str(req.body?.cadence).trim();
+  const editPage = `/notebooks/${encodeURIComponent(id)}/edit`;
   try {
     if (cadence) validateScheduleInterval(cadence, {});
+    const ctx = getContext(req.app.locals);
     const s = store(req);
+    const nb = s.get(id);
+    if (!nb) throw new Error('No such notebook.');
+    const full = req.body?.setup === '1';
+    let steps: unknown[] | undefined;
+    if (full && nb.steps?.length) {
+      const known = new Set(searchAgents(ctx).map((a) => a.id));
+      const ids = many(req.body?.step_id);
+      const posted = stepsFromForm(req.body ?? {});
+      const running = nb.steps.find((x) => x.status === 'running');
+      if (running && !ids.includes(running.id)) throw new Error(`"${running.title}" is running. Stop it before removing it.`);
+      // A kept step starts from itself (its facts, how far it got); what you changed goes on top.
+      steps = posted.map((x, i) => {
+        const was = nb.steps!.find((w) => w.id === ids[i]);
+        const agentId = x.agentId && (known.has(x.agentId) || x.agentId === was?.agentId) ? x.agentId : undefined;
+        const target = x.target ? Number(x.target) : undefined;
+        const { agentId: _a, target: _t, ...rest } = was ?? { id: '', kind: x.kind };
+        return { ...rest, title: x.title, kind: x.kind, ...(agentId ? { agentId } : {}), ...(target !== undefined && Number.isFinite(target) ? { target } : {}) };
+      });
+    }
     s.update(id, {
       title: str(req.body?.title), statement: str(req.body?.statement),
-      params: lines(req.body?.params), pipeline: lines(req.body?.pipeline), cadence,
+      params: many(req.body?.params), pipeline: many(req.body?.pipeline), cadence,
     });
-    s.setCriteria(id, lines(req.body?.criteria));
-    if (typeof req.body?.stages === 'string') s.setStages(id, lines(req.body.stages));
+    s.setCriteria(id, many(req.body?.criteria));
+    if (req.body?.stages !== undefined || full) s.setStages(id, many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean));
+    if (full) {
+      s.setChecks(id, many(req.body?.checks));
+      // The fields you kept, in their order (each as it was: only removing is done here).
+      const kept = new Set(many(req.body?.field).map((f) => { try { return (JSON.parse(f) as { key?: unknown }).key; } catch { return undefined; } }));
+      s.setFields(id, nb.fields.filter((f) => kept.has(f.key)));
+      if (steps) {
+        s.setSteps(id, steps);
+        confirmDoneStepsAndSay(ctx, id);
+      }
+    }
     res.redirect(303, back(id, 'Saved.'));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.redirect(303, back(id, cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg));
+    const say = cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg;
+    res.redirect(303, req.body?.setup === '1' ? `${editPage}?flash=${encodeURIComponent(say)}` : back(id, say));
   }
 });
 
@@ -491,6 +592,15 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
     // The picks: one or several `chosen` option ids (none: the text says it).
     const raw: unknown = req.body?.chosen;
     const chosen = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean);
+    // Save picks, keep it open: these are the picks now, and the notebook stays active.
+    if (req.body?.keep === '1') {
+      const s = store(req);
+      const running = s.entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut);
+      for (const o of running) if (!!o.chosenAt !== chosen.includes(o.id)) s.choose(id, o.id, chosen.includes(o.id));
+      const n = running.filter((o) => chosen.includes(o.id)).length;
+      res.redirect(303, back(id, n ? `Picked ${String(n)}. The notebook stays open.` : 'No picks now.'));
+      return;
+    }
     store(req).decide(id, str(req.body?.decision), 'you', chosen);
     res.redirect(303, back(id, 'Decided. The notebook is closed; reopen it any time.'));
   } catch (err) {
@@ -633,8 +743,13 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const page = renderNotebookBrief({ nb, entries: s.entries(nb.id, 1000), history: widgetHistory(ctx, s) });
-  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief.html`;
+  // ?full=1: the extended brief, each option in full after the summary.
+  const full = req.query.full === '1';
+  const entries = s.entries(nb.id, 1000);
+  // Opened here, pictures load from the dashboard; a saved file carries its own.
+  const download = req.query.download === '1';
+  const page = renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
 

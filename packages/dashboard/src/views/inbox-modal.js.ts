@@ -19,6 +19,8 @@ export const INBOX_MODAL_JS = `
 (function () {
   var modal = document.getElementById('inbox-modal');
   var content = modal && document.getElementById('inbox-modal-content');
+  // A reply that's streaming stays in view, until you scroll up to read (thread.js.ts).
+  var tail = content && window.suaThread ? window.suaThread.follow(content) : { stick: function () { if (content) content.scrollTop = content.scrollHeight; }, reset: function () {}, following: function () { return true; } };
   if (!content) return;
 
   // Per-open state.
@@ -69,6 +71,24 @@ export const INBOX_MODAL_JS = `
   function savePanel(id, mode) {
     if (mode === 'page' || panelMode === 'page') return; // /inbox isn't carried to other pages
     try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id || null, mode: mode || 'closed', list: listState })); } catch (_) {}
+  }
+  // sua opens a page you asked for: go there with this conversation docked
+  // beside it. Only a reply that just finished (not one replayed on
+  // reconnect), once, while you're still on this thread.
+  var OPENED_KEY = 'sua-opened';
+  function openBehind(id, data) {
+    var to = String(data.open || '');
+    if (to.charAt(0) !== '/' || to.charAt(1) === '/' || to.charAt(1) === '\\\\') return;
+    if (id !== currentId || !data.responseId) return;
+    if (data.createdAt && Math.abs(Date.now() - Number(data.createdAt)) > 60000) return;
+    var done = [];
+    try { done = JSON.parse(sessionStorage.getItem(OPENED_KEY) || '[]'); } catch (_) {}
+    if (done.indexOf(data.responseId) >= 0) return;
+    try { sessionStorage.setItem(OPENED_KEY, JSON.stringify(done.concat([data.responseId]).slice(-20))); } catch (_) {}
+    if (to === location.pathname + location.search) return;
+    var mode = panelMode === 'wide' ? 'wide' : 'docked';
+    try { sessionStorage.setItem(PANEL_KEY, JSON.stringify({ id: id, mode: mode, list: listState, keep: true })); } catch (_) {}
+    window.location.assign(to);
   }
   // Home's full-width list also filters and sorts (not kept across pages).
   var pageFilters = { source: '', agent: '', tag: '', starred: '', sort: '' };
@@ -276,6 +296,31 @@ export const INBOX_MODAL_JS = `
   // follows the agent's session channel (lib/chat-turn.ts events): the reply
   // streams into a bubble and its widgets build up as they're written, then
   // the turn's end refreshes from source. A refresh mid-turn redraws the bubble.
+  // A click in a reply's widget (a button, a choice) is your next message, as
+  // on an agent's Chat tab: its context.message, else "▸ name (key: value)".
+  // It goes through the reply box, so it echoes, sends and locks the same way;
+  // nothing happens while a reply is being written (the box is disabled) or
+  // on a widget already answered.
+  if (content) content.addEventListener('a2ui-action', function (e) {
+    var d = e.detail || {};
+    if (!d.name || d.name === 'run-agent' || d.name === 'notebook-option') return;
+    var host = e.target && e.target.closest ? e.target : null;
+    if (!host || !host.closest('.inbox-msg') || host.closest('.is-answered')) return;
+    var box = content.querySelector('textarea[name="body"]');
+    var form = box && box.form;
+    if (!box || !form || box.disabled || form.getAttribute('data-inflight') === '1') return;
+    var c = d.context || {};
+    var text = typeof c.message === 'string' && c.message.trim() ? c.message.trim()
+      : '▸ ' + d.name + (function () {
+        var parts = Object.keys(c).filter(function (k) { return c[k] !== undefined && c[k] !== null && c[k] !== ''; })
+          .map(function (k) { return k + ': ' + (typeof c[k] === 'object' ? JSON.stringify(c[k]) : String(c[k])); });
+        return parts.length ? ' (' + parts.join(', ') + ')' : '';
+      })();
+    e.stopPropagation();
+    box.value = text.slice(0, 2000);
+    if (form.requestSubmit) form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+  });
+
   var agentWatch = null; // { id, off }
   var agentLive = null;  // { raw, widgets: {index: messages}, runId } while a turn streams
   function agentVisibleText(raw) {
@@ -309,23 +354,26 @@ export const INBOX_MODAL_JS = `
     var slot = li.querySelector('[data-agent-live-widgets]');
     if (!slot) return;
     Object.keys(agentLive.widgets).forEach(function (index) {
-      var json = JSON.stringify(agentLive.widgets[index]);
-      var old = slot.querySelector('[data-live-widget="' + index + '"]');
-      if (old && old.getAttribute('data-json-len') === String(json.length)) return; // unchanged
-      var el = document.createElement('div');
-      el.className = 'a2ui-host';
-      el.setAttribute('data-a2ui-surface', '');
-      el.setAttribute('data-surface-id', 'panel-live-' + agentLive.runId + '-' + index);
-      el.setAttribute('data-live-widget', index);
-      el.setAttribute('data-json-len', String(json.length));
-      var script = document.createElement('script');
-      script.type = 'application/json';
-      script.textContent = json;
-      el.appendChild(script);
-      if (old) old.replaceWith(el); else slot.appendChild(el);
+      drawLiveWidget(slot, index, agentLive.widgets[index], 'panel-live-' + agentLive.runId + '-' + index);
     });
-    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 120;
-    if (nearBottom) content.scrollTop = content.scrollHeight;
+    tail.stick();
+  }
+  /** A reply's widget while it's being written (sua's or an agent's), redrawn as components arrive. */
+  function drawLiveWidget(slot, index, messages, surfaceId) {
+    var json = JSON.stringify(messages);
+    var old = slot.querySelector('[data-live-widget="' + index + '"]');
+    if (old && old.getAttribute('data-json-len') === String(json.length)) return; // unchanged
+    var el = document.createElement('div');
+    el.className = 'a2ui-host';
+    el.setAttribute('data-a2ui-surface', '');
+    el.setAttribute('data-surface-id', surfaceId);
+    el.setAttribute('data-live-widget', index);
+    el.setAttribute('data-json-len', String(json.length));
+    var script = document.createElement('script');
+    script.type = 'application/json';
+    script.textContent = json;
+    el.appendChild(script);
+    if (old) old.replaceWith(el); else slot.appendChild(el);
   }
   function onAgentEvent(type, data) {
     if (type === 'turn-start') {
@@ -473,11 +521,28 @@ export const INBOX_MODAL_JS = `
       if (!chunk) return;
       appendStreamingText(bubble, String(chunk));
     });
+    // triage:widget — sua's widget as it's written, under the streaming text.
+    es.addEventListener('triage:widget', function (ev) {
+      sseAliveAt = Date.now();
+      var text = ensureStreamingBubble();
+      if (!text) return;
+      var data;
+      try { data = JSON.parse(ev.data); } catch (_) { return; }
+      if (!data || !data.messages) return;
+      var slot = text.parentNode.querySelector('[data-triage-live-widgets]');
+      if (!slot) {
+        slot = document.createElement('div');
+        slot.setAttribute('data-triage-live-widgets', '');
+        text.parentNode.insertBefore(slot, text.nextSibling);
+      }
+      drawLiveWidget(slot, '0', data.messages, 'triage-live-' + (currentId || '') + '-0');
+      tail.stick();
+    });
     // triage:complete — keep the bubble in place; the watchdog or
     // the canonical fragment refresh (scheduled by onAnyEvent for
     // message:created → fired on triage's addResponse) will swap in
     // the persisted entry so we don't double-render.
-    es.addEventListener('triage:complete', function () {
+    es.addEventListener('triage:complete', function (ev) {
       sseAliveAt = Date.now();
       // Mark "settled" — drop the streaming caret so the bubble looks
       // like a normal finished message between now and the fragment
@@ -488,6 +553,11 @@ export const INBOX_MODAL_JS = `
         bubble.setAttribute('data-settled', '1');
       }
       scheduleSseRefresh();
+      // Asked to open a page ("open my notebook"): the page behind the
+      // conversation goes there and the conversation stays open beside it.
+      var data;
+      try { data = JSON.parse(ev.data); } catch (_) { data = null; }
+      if (data && data.open) openBehind(messageId, data);
     });
 
     [
@@ -557,10 +627,7 @@ export const INBOX_MODAL_JS = `
     // Only follow the new streaming bubble down if the operator was already at
     // the bottom. If they've scrolled up to read a tall widget, a triage reply
     // starting to stream must not yank them to the bottom.
-    var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
-    requestAnimationFrame(function () {
-      if (nearBottom) content.scrollTop = content.scrollHeight;
-    });
+    requestAnimationFrame(function () { tail.stick(); });
     return text;
   }
 
@@ -588,12 +655,12 @@ export const INBOX_MODAL_JS = `
       if (!el) return;
       var display = extractRecommendationFromStream(streamFullBuffer);
       if (display === null) display = streamFullBuffer;
+      display = agentVisibleText(display); // a widget block in the text draws when it's saved
       // Re-render the visible text from scratch on each tick — the
       // buffer is small (1 reply at a time) and rebuilding once per
       // frame is cheaper than chasing diffs through escape handling.
       el.textContent = display;
-      var nearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
-      if (nearBottom) content.scrollTop = content.scrollHeight;
+      tail.stick();
     });
   }
 
@@ -774,7 +841,7 @@ export const INBOX_MODAL_JS = `
         // a tall inline widget whose top is above the fold — keep their
         // position instead of yanking them back down on every poll refresh.
         var prevScrollTop = content.scrollTop;
-        var wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 80;
+        var wasNearBottom = tail.following();
         // Keep what the operator expanded (Details, a diff, the summary) expanded.
         var openKeys = {};
         var wasOpen = content.querySelectorAll('details[open]');
@@ -871,6 +938,8 @@ export const INBOX_MODAL_JS = `
   function openFor(id, opts) {
     if (!modal) return;
     opts = opts || {};
+    // A thread you open starts at its latest reply, following it.
+    if (id !== currentId) tail.reset();
     // Where it shows: an explicit panel mode, else wherever the thread
     // view already is (a thread opened from the panel stays in the panel;
     // from the minimized panel, it comes back docked).
@@ -1203,10 +1272,8 @@ export const INBOX_MODAL_JS = `
     });
     ul.appendChild(li);
     // Scroll the optimistic message into view so the operator sees
-    // it land.
-    requestAnimationFrame(function () {
-      content.scrollTop = content.scrollHeight;
-    });
+    // it land, and follow the reply to it.
+    requestAnimationFrame(function () { tail.reset(); tail.stick(); });
     return li;
   }
 
@@ -1628,7 +1695,8 @@ export const INBOX_MODAL_JS = `
     // A page with its own conversation (a notebook) brings an open panel to it.
     var pageThread = document.querySelector('[data-page-thread]');
     var own = pageThread && pageThread.getAttribute('data-page-thread');
-    if (own && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
+    // Unless sua just opened this page from another conversation: that one stays.
+    if (own && !(saved.keep && saved.id) && (saved.mode === 'docked' || saved.mode === 'wide')) { openFor(own, { panel: saved.mode, restore: true }); return; }
     if (saved.id) openFor(saved.id, { panel: saved.mode, restore: true });
     else if (saved.mode === 'min') { panelMode = 'min'; applyPanel(); }
     else { panelMode = saved.mode; openPanelHome({ restore: true }); }

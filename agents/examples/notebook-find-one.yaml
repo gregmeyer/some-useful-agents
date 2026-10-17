@@ -1,0 +1,84 @@
+# Notebook Find One — helper for notebook-finder: one narrow search (one
+# site or source) for a notebook, as one of several running at once. Small
+# on purpose: a few searches and page opens, up to four candidates, each
+# from its own page. Out of turns, it answers with what it found (#915).
+# Run only by notebook-finder's loop; never proposed in triage.
+
+id: notebook-find-one
+name: Notebook Find One
+description: >
+  Helper for notebook-finder: runs one narrow search for a notebook and
+  returns up to four candidates, each with facts from its own page.
+status: active
+source: examples
+
+inputs:
+  WHERE:
+    type: string
+    required: true
+    description: Where this search looks ("Greenhouse").
+  QUERY:
+    type: string
+    required: true
+    description: The search to run.
+  WHY:
+    type: string
+    default: ""
+    description: What this search covers that the others don't.
+  NOTEBOOK:
+    type: string
+    required: true
+    description: What the notebook is for, its limits, and this step's job.
+  HAVE:
+    type: string
+    default: "(none yet)"
+    description: The options it already has, one per line.
+  FIELDS:
+    type: string
+    default: "[]"
+    description: The notebook's fields as JSON (key, label, type, role).
+
+nodes:
+  - id: find
+    type: llm-prompt
+    tools: [web-search, web-fetch, web-scrape]
+    maxTurns: 8
+    timeout: 300
+    prompt: |
+      You run ONE search for a notebook. It's one of several running at the
+      same time, each looking somewhere else, so stay on yours.
+
+      What the notebook is for:
+      {{inputs.NOTEBOOK}}
+
+      Your search: {{inputs.WHERE}}: {{inputs.QUERY}}
+      Why this one: {{inputs.WHY}}
+
+      Already in the notebook (skip these):
+      {{inputs.HAVE}}
+
+      The facts to note for each candidate (the notebook's fields):
+      {{inputs.FIELDS}}
+
+      How:
+      - Search (web-search), then open the most promising candidates' OWN
+        pages (the posting, listing or product page itself, never a page of
+        search results) with web-fetch. Up to 4 candidates.
+      - A public JSON API is one call for many postings: when the search
+        turns up a company on a job board, its board's API lists every
+        opening with pay: https://boards-api.greenhouse.io/v1/boards/<company>/jobs?content=true,
+        https://api.lever.co/v0/postings/<company>?mode=json,
+        https://api.ashbyhq.com/posting-api/job-board/<company>?includeCompensation=true.
+      - Keep candidates that fit the notebook's limits as far as their page
+        says. Skip ones that clearly break them (wrong place, level or
+        price), ones that are closed or gone, and ones already in the
+        notebook.
+      - Every fact comes from a page you opened. Leave out what the page
+        doesn't say; never guess.
+
+      Reply with only this JSON, on one line, and nothing else:
+      {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"note":"what you searched and opened, and what you couldn't cover"}
+      In "facts", use the field keys above: numbers as plain numbers (no $
+      or commas), a span as {"min": 180000, "max": 220000}, links as full
+      https addresses. An empty "candidates" list is a fine answer when
+      nothing fits.

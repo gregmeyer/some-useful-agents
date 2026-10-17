@@ -619,6 +619,19 @@ export class RunStore {
   }
 
   /**
+   * How many runs each agent has had since `sinceIso` (any status), keyed by
+   * `agentName`. One GROUP BY, for the agent catalog's "Your go-to" shelf.
+   */
+  runCountsByAgent(sinceIso: string): Map<string, number> {
+    const rows = this.db.prepare(
+      'SELECT agentName, COUNT(*) AS n FROM runs WHERE startedAt >= ? GROUP BY agentName',
+    ).all(sinceIso) as Array<{ agentName: string; n: number }>;
+    const out = new Map<string, number>();
+    for (const r of rows) out.set(r.agentName, Number(r.n));
+    return out;
+  }
+
+  /**
    * Richer query for the dashboard. Supports filter composition (AND across
    * fields, OR within `statuses`), pagination, and returns a total count
    * alongside the rows so callers can render "Showing N–M of T" without a

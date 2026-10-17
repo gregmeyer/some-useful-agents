@@ -6,11 +6,12 @@
  */
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
-  type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
+  type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
+import { suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -216,7 +217,7 @@ export function parseNotebookPipeline(ctx: Ctx, agentsRaw: string, cadence: stri
 /**
  * Steps sua proposed in a notebook's conversation (a JSON list of {title,
  * kind, agent, target}), checked: at most 6, known kinds, and every agent
- * named must be installed (a check step may name none: sua's checker).
+ * named must be installed (a check or find step may name none: sua's checker or finder).
  */
 export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookStep[]; error?: string } {
   let list: unknown;
@@ -231,7 +232,7 @@ export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookSte
 
 /** The steps card's preview: each step, its agent, and what it replaces. */
 export function describeStepsChange(nb: Notebook | undefined, steps: readonly NotebookStep[]): Array<{ what: string; before: string; after: string }> {
-  const by = (x: NotebookStep) => x.agentId ?? (x.kind === 'check' ? 'sua’s checker' : x.kind === 'decide' || x.kind === 'narrow' ? 'you' : 'needs an agent');
+  const by = (x: NotebookStep) => x.agentId ?? suaStepAgentName(x.kind) ?? (x.kind === 'decide' || x.kind === 'narrow' ? 'you' : 'needs an agent');
   const facts = (x: NotebookStep) => (x.facts?.length ? ` (${x.facts.map((k) => nb?.fields.find((f) => f.key === k || f.label.toLowerCase() === k.toLowerCase())?.label.toLowerCase() ?? k).join(', ')})` : '');
   const out = steps.map((x, i) => ({ what: `Step ${String(i + 1)}`, before: nb?.steps?.[i] ? nb.steps[i].title : '—', after: `${x.title} · ${by(x)}${facts(x)}` }));
   for (let i = steps.length; i < (nb?.steps?.length ?? 0); i++) out.push({ what: `Step ${String(i + 1)}`, before: nb!.steps![i].title, after: '(removed)' });
@@ -255,6 +256,27 @@ export function notebookForThread(ctx: Ctx, threadId: string, contextJson?: stri
   return store.list({ archived: 'include' }).find((n) => n.conversationId === threadId);
 }
 
+/**
+ * The notebook a conversation has turned to: sua's latest reply that links a
+ * notebook links just this one ("which notebook next?" → "the car for
+ * Nadia"). A reply linking several (a list of notebooks) settles nothing.
+ * Only for what sua sees: results still file into a notebook only by
+ * `notebookForThread`.
+ */
+export function notebookTalkedAbout(ctx: Ctx, threadId: string): Notebook | undefined {
+  const replies = (ctx.inboxStore?.listResponses(threadId) ?? []).filter((r) => r.role === 'triage');
+  const store = notebooksOf(ctx);
+  for (let i = replies.length - 1; i >= 0; i--) {
+    const text = `${replies[i].body}\n${replies[i].metaJson ?? ''}`;
+    const ids = new Set([...text.matchAll(/\/notebooks\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]));
+    if (ids.size === 0) continue;
+    if (ids.size > 1) return undefined;
+    const nb = store.get([...ids][0]);
+    return nb && !nb.archivedAt ? nb : undefined;
+  }
+  return undefined;
+}
+
 /** The options before and after one in the running, as sua links them. */
 function neighboursFor(nb: Notebook, entries: Parameters<typeof notebookViewData>[1], store: NotebookStore, id: string): { rank?: number; previous?: { title: string; page: string }; next?: { title: string; page: string } } {
   const order = rankOptions(nb, notebookViewData(nb, entries, store).notebook.options);
@@ -268,7 +290,12 @@ function neighboursFor(nb: Notebook, entries: Parameters<typeof notebookViewData
 export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?: string): string {
   const store = notebooksOf(ctx);
   const all = store.entries(nb.id, 1000);
-  const entries = all.slice(0, 60).map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  // Every option still in the running (an older one is no less in it), then
+  // the newest of the rest, so sua's count matches the notebook's.
+  const running = all.filter((e) => e.kind === 'option' && !e.ruledOut);
+  const rest = all.filter((e) => !(e.kind === 'option' && !e.ruledOut)).slice(0, Math.max(20, 60 - running.length));
+  const entries = [...running.slice(0, 200), ...rest].map((e) => `${e.kind}: ${e.title}${e.ruledOut ? ` — RULED OUT at ${e.ruledOut.stage ?? 'start'}: ${e.ruledOut.reason}` : e.stage ? ` [${e.stage}]` : ''}`);
+  const ruledOut = all.filter((e) => e.kind === 'option' && e.ruledOut).length;
   // The option they last asked about from its own page: all of it, so sua can answer about it.
   const o = focusOptionId ? all.find((e) => e.id === focusOptionId && e.kind === 'option') : undefined;
   const focus = o ? {
@@ -288,7 +315,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
-    entries, link: `/notebooks/${encodeURIComponent(nb.id)}`,
+    inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
+    link: `/notebooks/${encodeURIComponent(nb.id)}`,
     // Options whose link is a search page, not their own (a source step on the link field finds them).
     ...((): { linkIsList?: string } => {
       const live = notebookViewData(nb, all).notebook.options.filter((x) => !x.ruledOut);
@@ -371,6 +399,17 @@ export function notebookGreeting(nb: Notebook, hasOptions = false): string {
   return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').filter((l) => l !== undefined).join('\n').replace(/\n\n+/g, '\n\n');
 }
 
+/**
+ * A new notebook's first step, when sua can start it with a press: still to
+ * do, not yours (Decide, Narrow), and with an agent (its own, or sua's finder
+ * or checker). A source step with no agent needs one first.
+ */
+export function startableFirstStep(nb: Pick<Notebook, 'steps'>): NotebookStep | undefined {
+  const first = nb.steps?.[0];
+  if (!first || first.status !== 'todo' || first.kind === 'decide' || first.kind === 'narrow') return undefined;
+  return first.agentId || suaStepAgent(first.kind) ? first : undefined;
+}
+
 /** Post the greeting into the notebook's conversation (once: only when it has none yet). */
 export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined {
   const store = notebooksOf(ctx);
@@ -379,7 +418,19 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   const threadId = notebookThread(ctx, nb);
   if (!threadId) return undefined;
   const now = store.get(notebookId) ?? nb;
-  ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option')));
+  const first = startableFirstStep(now);
+  ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option'))
+    + (first ? `\n\nPress **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
+  // Its first step, one press away (the same card as a step's Continue).
+  if (first) {
+    const action: InboxActionMeta = {
+      kind: 'action', status: 'proposed', agentId: 'notebook-step', effect: 'write',
+      inputs: { NOTEBOOK: now.id, STEP: first.id, WAS: 'todo' },
+      rationale: `Start step 1: ${first.title}${first.agentId ? `, with ${first.agentId}` : suaStepAgentName(first.kind) ? `, with ${suaStepAgentName(first.kind)!}` : ''}.`,
+      ctaLabel: 'Start',
+    };
+    ctx.inboxStore.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
+  }
   ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
   return threadId;
 }

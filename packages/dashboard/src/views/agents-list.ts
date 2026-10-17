@@ -1,9 +1,8 @@
-import type { Agent, AgentDefinition, Run } from '@some-useful-agents/core';
+import type { Agent, AgentCatalogEntry, AgentDefinition, Run } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { sectionTabs } from './section-tabs.js';
-import { miniDag, describeDag } from './mini-dag.js';
 import { typeBadge, sourceBadge, formatAge, cronToHuman } from './components.js';
 import { buildFromGoalButton, buildFromGoalModal } from './build-from-goal-modal.js';
 
@@ -47,6 +46,9 @@ export interface AgentsListInput {
     /** What the list is actually sorted by, including the implicit
      *  `relevance` used while searching. Drives the dropdown only. */
     sortEffective?: string;
+    /** The Calls-other-agents and Feeds-notebooks chips, kept across pages and tabs. */
+    composed?: boolean;
+    feeds?: boolean;
   };
   /** Active tab — filters the list by source. */
   tab?: 'user' | 'examples' | 'community';
@@ -61,6 +63,42 @@ export interface AgentsListInput {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** User-owned dashboards offered as targets in the Build-from-goal wizard. */
   availableDashboards?: Array<{ id: string; name: string }>;
+  /** When each agent last ran (any status), for "used 2h ago". */
+  lastRunAt?: Map<string, string>;
+  /** Runs per agent in the last 30 days, for "14 runs". */
+  runCounts?: Map<string, number>;
+  /** The User tab with nothing filtered: shelves instead of one long grid. */
+  shelves?: AgentShelves;
+  /** sua's agent finder, asked the question in the box (polled by the page). */
+  find?: { id: string; status: 'working' | 'ready' | 'failed' };
+  /** sua's sorting of the catalog: each agent's group and "use it for" line. */
+  catalog?: ReadonlyMap<string, AgentCatalogEntry>;
+  /** sua is sorting new or changed agents right now (the page reloads once when done). */
+  sorting?: boolean;
+  /** `?group=`: one group's agents, as the compact list. */
+  group?: { name: string; agents: Agent[] };
+}
+
+/** The User tab's shelves: the agents you use, then everything, then the demos and tests folded away. */
+export interface AgentShelves {
+  goTo: Agent[];
+  recent: Agent[];
+  feeds: Agent[];
+  scheduled: Agent[];
+  /** A shelf per group sua sorted the agents into, biggest first. */
+  groups: Array<{ name: string; agents: Agent[] }>;
+  /** Agents sua hasn't sorted yet. */
+  unsorted: Agent[];
+  all: Agent[];
+  folded: Agent[];
+}
+
+/** Cards a group's shelf shows before "All N →". */
+const GROUP_SHELF_CARDS = 3;
+
+/** What to use an agent for: sua's one line when it has one, else the author's description. */
+function useForText(a: Agent, input: AgentsListInput): string | undefined {
+  return input.catalog?.get(a.id)?.useFor ?? a.description;
 }
 
 export function renderAgentsList(input: AgentsListInput): string {
@@ -109,31 +147,34 @@ export function renderAgentsList(input: AgentsListInput): string {
     ${sectionTabs('agents')}
 
     ${installEmpty ? renderEmptyState() : html``}
-    ${!empty ? renderStatStrip(input.stats) : html``}
 
     ${/* Keep the tabs and the filter box on screen unless the install is
           genuinely empty. Hiding them on an empty SEARCH stranded you with no
           way to edit the query; hiding them on an empty TAB was worse — it
           removed the only route to the agents you actually have. */ html``}
+    ${!installEmpty ? renderAskBox(input) : html``}
     ${!installEmpty ? renderTabStrip(input) : html``}
     ${!installEmpty ? renderFilterBar(input) : html``}
+    ${input.filter?.q && input.find ? renderFindPanel(input.filter.q, input.find) : html``}
     ${emptySearch ? renderNoMatches(input) : html``}
     ${emptyTab ? renderEmptyTab(input) : html``}
 
-    ${hasV2 ? html`
-      <div class="agent-grid">
-        ${input.v2.map((a) => renderV2Card(a, lastRunByAgent.get(a.id), input.invokerCounts?.get(a.id) ?? 0, input.calleeCounts?.get(a.id) ?? 0, input.feedCounts?.get(a.id) ?? 0)) as unknown as SafeHtml[]}
-      </div>
-    ` : html``}
+    ${input.group ? renderGroupList(input, input.group) : input.shelves ? renderShelves(input, input.shelves) : html`
+      ${hasV2 ? html`
+        ${input.filter?.q ? html`<h2 class="ag-shelf__title">Keyword matches</h2>` : html``}
+        <div class="agent-grid">
+          ${input.v2.map((a) => renderV2Card(a, input, lastRunByAgent.get(a.id))) as unknown as SafeHtml[]}
+        </div>
+      ` : html``}
+      ${total > 0 ? renderAgentPager(input) : html``}
+    `}
 
     ${renderV1Block(input.v1, hasV2)}
-
-    ${total > 0 ? renderAgentPager(input) : html``}
 
     ${empty ? html`` : html`
       <footer style="margin-top: var(--space-8); text-align: center;">
         <p class="dim">
-          ${String(total)} agent${total === 1 ? '' : 's'} total \u00b7
+          ${String(input.shelves ? input.shelves.all.length + input.shelves.folded.length : total)} agent${total === 1 ? '' : 's'} total \u00b7
           <a href="/help">CLI reference</a> \u00b7
           <a href="/help/tutorial">Tutorial</a>
         </p>
@@ -168,23 +209,60 @@ function renderTabStrip(input: AgentsListInput): SafeHtml {
   `;
 }
 
+/**
+ * The question box: "What do you want to do?". Submitting shows the agents
+ * whose words match at once, and asks sua's agent finder (the page polls for
+ * its picks). The same box searches every tab.
+ */
+function renderAskBox(input: AgentsListInput): SafeHtml {
+  const f = input.filter ?? {};
+  const tab = input.tab ?? 'user';
+  return html`
+    <form method="GET" action="/agents" class="ag-ask" role="search">
+      ${tab !== 'user' ? html`<input type="hidden" name="tab" value="${tab}">` : html``}
+      <label class="ag-ask__label" for="ag-ask-q">What do you want to do?<span class="sr-only"> Search agents</span></label>
+      <div class="ag-ask__row">
+        <input id="ag-ask-q" type="search" name="q" value="${f.q ?? ''}" autocomplete="off" class="ag-ask__q"
+          placeholder="e.g. find startups hiring in fintech, watch a page for changes, a morning news digest">
+        <button type="submit" class="btn btn--primary">Find an agent</button>
+      </div>
+    </form>
+  `;
+}
+
+/** sua's picks for the question: filled in by the page script when the finder answers. */
+function renderFindPanel(q: string, find: NonNullable<AgentsListInput['find']>): SafeHtml {
+  return html`
+    <section class="ag-suggest" data-agent-find="${find.id}" data-agent-find-q="${q}" aria-live="polite">
+      <div class="ag-suggest__head"><span class="ag-suggest__who" aria-hidden="true">sua</span><span>Asking sua which agents do “${q}”…</span><span class="ag-suggest__dot" aria-hidden="true"></span></div>
+    </section>
+  `;
+}
+
+/**
+ * Filters (status, sort, Calls other agents, Feeds notebooks, Archived),
+ * folded away: most visits are for finding an agent, which the box above
+ * does. It opens by itself while a filter is on.
+ */
 function renderFilterBar(input: AgentsListInput): SafeHtml {
   const f = input.filter ?? {};
   const tab = input.tab ?? 'user';
   const selIf = (val: string, current?: string) => val === current ? ' selected' : '';
+  const on = Boolean(f.status || f.sort || input.composedOnly || input.feedsOnly);
   return html`
-    <form method="GET" action="/agents" class="filters" style="display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-4);">
+    <details class="ag-filters"${on ? ' open' : ''}>
+      <summary class="ag-filters__open">Filters${on ? ' (on)' : ''}</summary>
+    <form method="GET" action="/agents" class="filters ag-filters__form">
       <input type="hidden" name="tab" value="${tab}">
-      <input type="text" name="q" value="${f.q ?? ''}" placeholder="Search agents..."
-        style="padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm); font-family: var(--font-mono); width: 16rem;">
-      <select name="status" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+      ${f.q ? html`<input type="hidden" name="q" value="${f.q}">` : html``}
+      <select name="status" aria-label="Status">
         ${html`<option value="">All statuses</option>
         <option value="active"${selIf('active', f.status)}>active</option>
         <option value="paused"${selIf('paused', f.status)}>paused</option>
         <option value="draft"${selIf('draft', f.status)}>draft</option>
         <option value="archived"${selIf('archived', f.status)}>archived</option>`}
       </select>
-      <select name="sort" style="padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); font-size: var(--font-size-sm);">
+      <select name="sort" aria-label="Sort">
         ${html`${f.sortEffective === 'relevance'
           ? html`<option value="relevance" selected>Sort: best match</option>`
           : html``}
@@ -199,8 +277,9 @@ function renderFilterBar(input: AgentsListInput): SafeHtml {
       ${(input.archivedCount ?? 0) > 0
         ? html`<a href="${agentBuildUrl({ ...(input.filter ?? {}), status: 'archived' }, input.limit ?? 12, 0, input.tab ?? 'user')}" class="badge badge--muted" style="text-decoration: none;" title="Archived agents are hidden here; open one to restore it">Archived (${String(input.archivedCount)})</a>`
         : html``}
-      ${(f.q || f.status || f.sort || input.composedOnly) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
+      ${(f.q || f.status || f.sort || input.composedOnly || input.feedsOnly) ? html`<a href="${agentBuildUrl({}, 12, 0, tab)}" class="dim" style="font-size: var(--font-size-xs);">Reset</a>` : html``}
     </form>
+    </details>
   `;
 }
 
@@ -216,7 +295,7 @@ function renderFilterBar(input: AgentsListInput): SafeHtml {
 function feedsChip(input: AgentsListInput): SafeHtml {
   const n = input.feedsCount ?? 0;
   if (n === 0) return html``;
-  const base = agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, input.tab ?? 'user');
+  const base = agentBuildUrl({ ...(input.filter ?? {}), feeds: false }, input.limit ?? 12, 0, input.tab ?? 'user');
   const on = input.feedsOnly === true;
   const href = on ? base : `${base}${base.includes('?') ? '&' : '?'}feeds=1`;
   return html`
@@ -232,9 +311,8 @@ function composedChip(input: AgentsListInput): SafeHtml {
   if (n === 0) return html``;
   const tab = input.tab ?? 'user';
   const on = input.composedOnly === true;
-  const href = on
-    ? agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab)
-    : `${agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab)}${agentBuildUrl(input.filter ?? {}, input.limit ?? 12, 0, tab).includes('?') ? '&' : '?'}composed=1`;
+  const base = agentBuildUrl({ ...(input.filter ?? {}), composed: false }, input.limit ?? 12, 0, tab);
+  const href = on ? base : `${base}${base.includes('?') ? '&' : '?'}composed=1`;
   return html`
     <a href="${href}" class="badge ${on ? 'badge--info' : 'badge--muted'}"
        style="text-decoration: none;"
@@ -285,43 +363,13 @@ function agentBuildUrl(
   if (f?.status) params.set('status', f.status);
   if (f?.q) params.set('q', f.q);
   if (f?.sort && f.sort !== 'name') params.set('sort', f.sort);
+  // The two filter chips: paging or switching tabs keeps them on.
+  if (f?.composed) params.set('composed', '1');
+  if (f?.feeds) params.set('feeds', '1');
   if (limit !== 12) params.set('limit', String(limit));
   if (offset !== 0) params.set('offset', String(offset));
   const qs = params.toString();
   return qs ? `/agents?${qs}` : '/agents';
-}
-
-function renderStatStrip(s: HomeStats): SafeHtml {
-  const latestHint = s.latestRunAt
-    ? `Most recent ${formatAge(s.latestRunAt)}`
-    : 'No runs yet';
-  const runningHint = s.runningRuns === 0 ? 'Nothing in flight' : 'Active now';
-
-  return html`
-    <section class="stat-strip">
-      <div class="stat-tile">
-        <span class="stat-tile__label">Agents</span>
-        <span class="stat-tile__value">${String(s.agents)}</span>
-        <span class="stat-tile__hint">${s.activeAgents === s.agents ? 'all active' : `${String(s.activeAgents)} active`}</span>
-      </div>
-      <div class="stat-tile stat-tile--info">
-        <span class="stat-tile__label">Total runs</span>
-        <span class="stat-tile__value">${String(s.totalRuns)}</span>
-        <span class="stat-tile__hint">${latestHint}</span>
-      </div>
-      <div class="stat-tile ${s.runningRuns > 0 ? 'stat-tile--ok' : 'stat-tile--muted'}">
-        <span class="stat-tile__label">In flight</span>
-        <span class="stat-tile__value">${String(s.runningRuns)}</span>
-        <span class="stat-tile__hint">${runningHint}</span>
-      </div>
-      <a class="stat-tile stat-tile--warn" href="/help/tutorial"
-         style="text-decoration: none; color: inherit;">
-        <span class="stat-tile__label">Getting started</span>
-        <span class="stat-tile__value" style="font-size: var(--font-size-md); font-weight: var(--weight-semibold);">Open the tutorial \u2192</span>
-        <span class="stat-tile__hint">Progress tracked against your project state</span>
-      </a>
-    </section>
-  `;
 }
 
 /**
@@ -434,199 +482,143 @@ function truncateQuestion(q: string): string {
   return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).replace(/[),.;:!?-]+$/, '')}\u2026`;
 }
 
-function renderV2Card(a: Agent, lastRun?: Run, invokerCount = 0, calleeCount = 0, feedCount = 0): SafeHtml {
-  const shape = dagShapeSvg(a);
-  const runInfo = lastRun
-    ? html`<span class="agent-card__last-run">
-        Last run <span class="mono">${lastRun.status}</span> \u00b7 ${formatAge(lastRun.startedAt)}
-      </span>`
-    : html`<span class="agent-card__last-run dim">Never run</span>`;
+/** When an agent was last used, and how much lately: "used 2h ago · 14 runs this month", or "not run yet". */
+function usedLine(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml {
+  const at = input.lastRunAt?.get(a.id) ?? lastRun?.startedAt;
+  if (!at) return html`<span class="ag-used dim">not run yet</span>`;
+  const n = input.runCounts?.get(a.id) ?? 0;
+  const failed = lastRun && lastRun.startedAt === at && lastRun.status === 'failed';
+  return html`<span class="ag-used${failed ? ' is-failed' : ''}" title="${at}">${failed ? 'last run failed' : 'used'} ${formatAge(at)}${n > 1 ? ` · ${String(n)} runs this month` : ''}</span>`;
+}
 
-  /**
-   * ONE sample question, not all of them.
-   *
-   * `sampleQuestions` is already loaded by `listAgents`, so this costs no
-   * extra query. But 3-5 chips across 12 cards is a wall of text that buries
-   * the card's own content — the card's job is to say what the agent IS, and a
-   * single chip is enough to teach that questions are clickable. The detail
-   * page shows the full set.
-   */
-  const firstQuestion = (a.sampleQuestions ?? []).find((q) => q.trim().length > 0);
-  const askChip = firstQuestion
-    ? html`<button type="button" class="ask-chip ask-chip--card" data-ask="${firstQuestion}"
-             title="${firstQuestion}" onclick="event.stopPropagation();">
-        ${truncateQuestion(firstQuestion)}
-      </button>`
-    : html``;
+/** The agent's name, with its id beneath when the name doesn't just restate it ("Job Finder" for job-finder). */
+function agentNames(a: Agent, cls: string): SafeHtml {
+  const name = a.name.trim() || a.id;
+  const same = name.toLowerCase().replace(/[\s_]+/g, '-') === a.id.toLowerCase();
+  return html`<span class="${cls}"><a class="ag-name" href="/agents/${a.id}">${name}</a>${same ? html`` : html`<code class="ag-id">${a.id}</code>`}</span>`;
+}
 
-  const mcpBadge = a.mcp ? html`<span class="badge badge--info">mcp</span>` : html``;
-  // "calls N" is the outbound half of the pair. Only "used by" existed, so
-  // an orchestrator looked like any other agent from the list.
-  const callsBadge = calleeCount > 0
-    ? html`<span class="badge badge--info" title="Runs ${String(calleeCount)} other agent${calleeCount === 1 ? '' : 's'}">calls ${String(calleeCount)}</span>`
-    : html``;
-  const usedByBadge = invokerCount > 0
-    ? html`<span class="badge badge--info">used by ${String(invokerCount)}</span>`
-    : html``;
-  const feedsBadge = feedCount > 0
-    ? html`<span class="badge badge--info" title="Searches for, or has filed into, ${String(feedCount)} notebook${feedCount === 1 ? '' : 's'}">feeds ${String(feedCount)} notebook${feedCount === 1 ? '' : 's'}</span>`
-    : html``;
-
-  // Multi-node agents get an inline <details> that reveals the DAG as
-  // mini-cards indented by topological depth. Downstream nodes sit
-  // visually under their upstreams so the reveal mirrors the actual DAG
-  // rather than a flat list that ignores the edges.
-  const nodesDisclosure = a.nodes.length > 1
-    ? html`
-      <details class="agent-card__nodes">
-        <summary>Show ${String(a.nodes.length)} nodes</summary>
-        <div class="agent-card__dag">
-          ${renderDagMiniCards(a) as unknown as SafeHtml}
-        </div>
-      </details>
-    `
-    : html``;
-
-  return html`
-    <article class="agent-card">
-      <div class="agent-card__header">
-        <form method="POST" action="/agents/${a.id}/star" style="display:inline;margin:0;"
-              onclick="event.stopPropagation();">
+function starForm(a: Agent): SafeHtml {
+  return html`<form method="POST" action="/agents/${a.id}/star" class="ag-star">
           <button type="submit" class="btn-star${a.starred ? ' is-starred' : ''}"
                   title="${a.starred ? 'Unstar' : 'Star'}"
-                  aria-label="${a.starred ? 'Unstar' : 'Star'}">
+                  aria-label="${a.starred ? 'Unstar' : 'Star'} ${a.id}">
             ${a.starred ? '\u2605' : '\u2606'}
           </button>
-        </form>
-        <h3 class="agent-card__title"><a href="/agents/${a.id}">${a.id}</a></h3>
-        ${statusBadge(a.status)}
-        ${sourceBadge(a.source)}
-        ${mcpBadge}
-        ${usedByBadge}
-        ${callsBadge}
-        ${feedsBadge}
+        </form>`;
+}
+
+/** What else is worth knowing at a glance: calls / used by / feeds / schedule / mcp / not active. */
+function agentChips(a: Agent, input: AgentsListInput): SafeHtml {
+  const calls = input.calleeCounts?.get(a.id) ?? 0;
+  const usedBy = input.invokerCounts?.get(a.id) ?? 0;
+  const feeds = input.feedCounts?.get(a.id) ?? 0;
+  return html`${a.status !== 'active' ? html`<span class="ag-chip ag-chip--status">${a.status}</span>` : html``}${feeds > 0
+      ? html`<span class="ag-chip" title="Searches for, or has filed into, ${String(feeds)} notebook${feeds === 1 ? '' : 's'}">feeds ${String(feeds)} notebook${feeds === 1 ? '' : 's'}</span>` : html``}${calls > 0
+      ? html`<span class="ag-chip" title="Runs ${String(calls)} other agent${calls === 1 ? '' : 's'}">calls ${String(calls)}</span>` : html``}${usedBy > 0
+      ? html`<span class="ag-chip">used by ${String(usedBy)}</span>` : html``}${a.schedule
+      ? html`<span class="ag-chip" title="${a.schedule}">${cronToHuman(a.schedule)}</span>` : html``}${a.mcp ? html`<span class="ag-chip">mcp</span>` : html``}`;
+}
+
+/**
+ * A slim card: what the agent is for (its name, what it does, one question
+ * you can ask it), when you last used it, and Run. How it's built (nodes,
+ * the DAG) is on its own page.
+ */
+function renderV2Card(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml {
+  // ONE sample question: enough to show questions are clickable; the agent's page has the rest.
+  const firstQuestion = (a.sampleQuestions ?? []).find((q) => q.trim().length > 0);
+  return html`
+    <article class="agent-card ag-card">
+      <div class="ag-card__top">
+        ${starForm(a)}
+        ${agentNames(a, 'ag-card__names')}
       </div>
-      <p class="agent-card__desc">${a.description ?? 'No description.'}</p>
-      ${askChip}
-      <div class="agent-card__meta">
-        <span><strong>${String(a.nodes.length)}</strong> node${a.nodes.length === 1 ? '' : 's'}</span>
-        ${a.schedule ? html`<span title="${a.schedule}">${cronToHuman(a.schedule)}</span>` : html``}
-      </div>
-      ${nodesDisclosure}
-      <div class="agent-card__footer">
-        <span class="agent-card__dag-shape">${shape}</span>
-        ${runInfo}
-        <form method="POST" action="/agents/${a.id}/run" style="margin: 0;"
-              onclick="event.stopPropagation();">
-          <button type="submit" class="btn btn--primary btn--sm">Run</button>
-        </form>
+      <p class="ag-card__desc" title="${a.description ?? ''}">${useForText(a, input) ?? 'No description.'}</p>
+      ${firstQuestion ? html`<button type="button" class="ask-chip ask-chip--card" data-ask="${firstQuestion}" title="${firstQuestion}">${truncateQuestion(firstQuestion)}</button>` : html``}
+      <div class="ag-card__chips">${agentChips(a, input)}</div>
+      <div class="ag-card__foot">
+        ${usedLine(a, input, lastRun)}
+        <form method="POST" action="/agents/${a.id}/run" class="ag-run"><button type="submit" class="btn btn--sm">Run</button></form>
       </div>
     </article>
   `;
 }
 
-/**
- * Render each node of a multi-node agent as a mini-card, indented by
- * its topological depth so the expansion visually reflects the DAG
- * shape — upstream nodes at depth 0 (flush left), their downstream
- * neighbours at depth 1, etc. Siblings at the same depth stack
- * vertically in id order.
- *
- * A small connector rail on the left hints at the parent/child
- * relationship without turning the card into a full graph widget.
- */
-function renderDagMiniCards(a: Agent): SafeHtml {
-  const depthById = computeNodeDepths(a);
-  const sorted = [...a.nodes].sort((n1, n2) => {
-    const d1 = depthById.get(n1.id) ?? 0;
-    const d2 = depthById.get(n2.id) ?? 0;
-    if (d1 !== d2) return d1 - d2;
-    return n1.id.localeCompare(n2.id);
-  });
-
-  const cards = sorted.map((n) => {
-    const depth = depthById.get(n.id) ?? 0;
-    const body = n.type === 'shell' ? oneLine(n.command ?? '') : oneLine(n.prompt ?? '');
-    const typeClass = n.type === 'shell' ? 'badge--ok' : 'badge--info';
-    const deps = n.dependsOn?.length
-      ? html`<span class="agent-card__node-dep">\u2190 ${n.dependsOn.join(', ')}</span>`
-      : html``;
-    // Inline --depth so each card can use it for padding + the left rail.
-    return html`
-      <div class="agent-card__node" style="--depth: ${String(depth)};" data-depth="${String(depth)}">
-        <div class="agent-card__node-rail" aria-hidden="true"></div>
-        <div class="agent-card__node-body-wrap">
-          <div class="agent-card__node-head">
-            <code class="agent-card__node-id">${n.id}</code>
-            <span class="badge ${typeClass}">${n.type}</span>
-            ${deps}
-          </div>
-          <div class="mono dim agent-card__node-body">${body}</div>
-        </div>
-      </div>
-    `;
-  });
-  return cards as unknown as SafeHtml;
+/** One line per agent, for the full list: name, what it does, when used, Run. */
+function renderAgentRow(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml {
+  return html`
+    <li class="ag-row">
+      ${starForm(a)}
+      ${agentNames(a, 'ag-row__names')}
+      <span class="ag-row__desc" title="${a.description ?? ''}">${useForText(a, input) ?? ''}</span>
+      <span class="ag-row__chips">${agentChips(a, input)}</span>
+      ${usedLine(a, input, lastRun)}
+      <form method="POST" action="/agents/${a.id}/run" class="ag-run"><button type="submit" class="btn btn--sm btn--ghost">Run</button></form>
+    </li>
+  `;
 }
 
 /**
- * Longest-path depth per node (roots = 0, their immediate children = 1,
- * etc.). Iterative memoisation with cycle guard — cycles aren't legal in
- * a v2 DAG but defensive handling keeps a broken agent from crashing the
- * render.
+ * The User tab, nothing filtered: the agents you reach for (starred and most
+ * run), the ones you used lately, the ones that fill notebooks, the ones on a
+ * schedule; then every agent as one line each; demos, tests and drafts you
+ * never ran are folded away at the bottom.
  */
-function computeNodeDepths(a: Agent): Map<string, number> {
-  const byId = new Map(a.nodes.map((n) => [n.id, n]));
-  const memo = new Map<string, number>();
-  const seen = new Set<string>();
-
-  function depth(id: string): number {
-    if (memo.has(id)) return memo.get(id)!;
-    if (seen.has(id)) return 0;
-    seen.add(id);
-    const node = byId.get(id);
-    if (!node || !node.dependsOn || node.dependsOn.length === 0) {
-      memo.set(id, 0);
-      return 0;
-    }
-    let max = 0;
-    for (const dep of node.dependsOn) {
-      const d = depth(dep);
-      if (d + 1 > max) max = d + 1;
-    }
-    memo.set(id, max);
-    return max;
-  }
-
-  for (const n of a.nodes) depth(n.id);
-  return memo;
+function renderShelves(input: AgentsListInput, sh: AgentShelves): SafeHtml {
+  const last = new Map<string, Run>();
+  for (const r of input.recentRuns) if (!last.has(r.agentName)) last.set(r.agentName, r);
+  const shelf = (title: string, hint: string, agents: Agent[]) => agents.length ? html`
+    <section class="ag-shelf">
+      <h2 class="ag-shelf__title">${title} <span class="ag-shelf__hint">${hint}</span></h2>
+      <div class="agent-grid ag-shelf__grid">${agents.map((a) => renderV2Card(a, input, last.get(a.id))) as unknown as SafeHtml[]}</div>
+    </section>` : html``;
+  return html`
+    ${shelf('Your go-to', 'starred, and the ones you run most', sh.goTo)}
+    ${shelf('Used lately', 'in the last week', sh.recent)}
+    ${shelf('Fill notebooks', 'search for a notebook, or have filed into one', sh.feeds)}
+    ${shelf('On a schedule', 'run by themselves', sh.scheduled)}
+    ${input.sorting ? html`<p class="ag-sorting" data-catalog-sorting><span class="ag-suggest__dot" aria-hidden="true"></span> sua is sorting your agents by what they do…</p>` : html``}
+    ${sh.groups.length ? html`
+    <div class="ag-groups">
+      <h2 class="ag-groups__title">By what they do <span class="ag-shelf__hint">sorted by sua</span></h2>
+      ${sh.groups.map((g) => html`
+      <section class="ag-shelf ag-shelf--group">
+        <h3 class="ag-shelf__title">${g.name} <span class="ag-shelf__hint">${String(g.agents.length)}</span>${g.agents.length > GROUP_SHELF_CARDS
+          ? html` <a class="ag-shelf__all" href="/agents?group=${encodeURIComponent(g.name)}">All ${String(g.agents.length)} →</a>` : html``}</h3>
+        <div class="agent-grid ag-shelf__grid">${g.agents.slice(0, GROUP_SHELF_CARDS).map((a) => renderV2Card(a, input, last.get(a.id))) as unknown as SafeHtml[]}</div>
+      </section>`) as unknown as SafeHtml[]}
+      ${sh.unsorted.length ? html`
+      <section class="ag-shelf ag-shelf--group">
+        <h3 class="ag-shelf__title">Not sorted yet <span class="ag-shelf__hint">${String(sh.unsorted.length)}</span></h3>
+        <ul class="ag-rows">${sh.unsorted.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
+      </section>` : html``}
+    </div>` : html``}
+    <section class="ag-shelf">
+      <h2 class="ag-shelf__title">All agents <span class="ag-shelf__hint">${String(sh.all.length)}, by name</span></h2>
+      <ul class="ag-rows">${sh.all.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
+    </section>
+    ${sh.folded.length ? html`
+    <details class="ag-folded">
+      <summary>Demos, tests and drafts never run (${String(sh.folded.length)})</summary>
+      <ul class="ag-rows">${sh.folded.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>
+    </details>` : html``}
+  `;
 }
 
-function oneLine(text: string, max = 80): string {
-  const collapsed = text.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= max) return collapsed;
-  return collapsed.slice(0, max - 1) + '\u2026';
-}
-
-/**
- * A compact mono-string visual for the DAG: one dot per node, arrows
- * for edges in topological order. Caps at 6 nodes to avoid overflow.
- */
-function dagShapeSvg(a: Agent): SafeHtml {
-  const nodes = a.nodes.map((n) => ({
-    id: n.id,
-    dependsOn: n.dependsOn,
-    conditional: Boolean(n.onlyIf),
-    type: n.type,
-    tools: n.tools,
-    condition: n.onlyIf
-      ? `${n.onlyIf.upstream}.${n.onlyIf.field} = ${String(n.onlyIf.equals ?? n.onlyIf.notEquals ?? '')}`
-      : undefined,
-  }));
-  if (nodes.length < 2) {
-    return html`<span class="agent-card__dag-glyph" aria-label="1 step">\u25cf</span>`;
-  }
-  return miniDag(nodes, { title: describeDag(nodes) });
+/** `?group=`: one group's agents, most used first, one line each. */
+function renderGroupList(input: AgentsListInput, g: { name: string; agents: Agent[] }): SafeHtml {
+  const last = new Map<string, Run>();
+  for (const r of input.recentRuns) if (!last.has(r.agentName)) last.set(r.agentName, r);
+  return html`
+    <section class="ag-shelf">
+      <p class="ag-back"><a href="/agents">← All agents</a></p>
+      <h2 class="ag-shelf__title">${g.name} <span class="ag-shelf__hint">${String(g.agents.length)}, most used first</span></h2>
+      ${g.agents.length
+        ? html`<ul class="ag-rows">${g.agents.map((a) => renderAgentRow(a, input, last.get(a.id))) as unknown as SafeHtml[]}</ul>`
+        : html`<p class="dim">No agents in this group now.</p>`}
+    </section>
+  `;
 }
 
 function renderV1Block(v1: AgentDefinition[], hasV2: boolean): SafeHtml {
@@ -673,13 +665,4 @@ function renderV1Block(v1: AgentDefinition[], hasV2: boolean): SafeHtml {
       ${table}
     </details>
   `;
-}
-
-function statusBadge(status: string): SafeHtml {
-  const kind = status === 'active' ? 'badge--ok'
-    : status === 'paused' ? 'badge--warn'
-    : status === 'archived' ? 'badge--muted'
-    : status === 'draft' ? 'badge--info'
-    : 'badge--muted';
-  return html`<span class="badge ${kind}">${status}</span>`;
 }

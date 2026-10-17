@@ -10,22 +10,26 @@
  * button as a card. The agent is never edited for a step.
  */
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
-import { keep, passNote, pipelineInputs } from './notebook-pipeline.js';
+import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
+import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
+
+export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
 
 type Ctx = ReturnType<typeof getContext>;
 
 /** Runs per press, toward one step's goal. */
 export const MAX_TRIES = 3;
-/** sua's checker: a check step without an agent of its own uses it. */
-export const NOTEBOOK_CHECKER_ID = 'notebook-checker';
 /** The checker's inputs, for a test's stand-in. */
 const CHECKER_INPUTS = { NOTEBOOK: {}, CHECKS: {}, OPTIONS: {} } as unknown as Agent['inputs'];
+/** The finder's inputs, for a test's stand-in. */
+const FINDER_INPUTS = { NOTEBOOK: {}, OPTIONS: {}, FIELDS: {} } as unknown as Agent['inputs'];
+
 
 /** The route-handled action behind a step's Continue / Try again card. */
 export const NOTEBOOK_STEP_ACTION = 'notebook-step';
@@ -153,15 +157,22 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
-  // A check step without an agent uses sua's checker.
-  const agentId = step.agentId ?? (step.kind === 'check' ? NOTEBOOK_CHECKER_ID : undefined);
-  const checker = agentId === NOTEBOOK_CHECKER_ID && !step.agentId;
-  if (checker && !ctx.notebookCheckerRun && !ensureSystemAgentCurrent(ctx, NOTEBOOK_CHECKER_ID, 'a notebook check step')) {
-    return { started: false, reason: 'sua’s checker isn’t available.', step };
+  // A check or find step without an agent uses sua's own (the checker, the finder).
+  const agentId = step.agentId ?? suaStepAgent(step.kind);
+  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
+    && (agentId !== NOTEBOOK_FINDER_ID || ensureSystemAgentCurrent(ctx, NOTEBOOK_FIND_ONE_ID, 'a notebook find step')))) {
+    return { started: false, reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.`, step };
   }
   const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
-  if (!agentId || ((!agent || agent.status === 'archived') && !(checker && ctx.notebookCheckerRun))) {
+  if (!agentId || ((!agent || agent.status === 'archived') && !(sua && fake))) {
     return { started: false, reason: agentId ? `Its agent, ${agentId}, isn't installed.` : 'This step needs an agent. Ask sua to pick or build one.', step };
+  }
+  // An agent that reads one item's page a run can only source facts: as a
+  // find or check step it would run with no page and say nothing.
+  if (agent && step.kind !== 'source' && perItemInputs(agent)) {
+    return { started: false, reason: `${agentId} reads one item's own page at a time, so it can't do a ${step.kind} step. ${step.kind === 'check' ? 'Pick sua’s checker for it under Edit' : step.kind === 'find' ? 'Pick sua’s finder for it under Edit' : 'Pick another agent under Edit'}, or use ${agentId} in a source step.`, step };
   }
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
@@ -175,8 +186,9 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
 async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>, onRunId?: (runId: string) => void): Promise<{ id: string; status: string; result?: string; error?: string }> {
-  if (agentId === NOTEBOOK_CHECKER_ID && ctx.notebookCheckerRun) {
-    const result = await ctx.notebookCheckerRun(inputs({ inputs: CHECKER_INPUTS }));
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  if (fake) {
+    const result = await fake(inputs({ inputs: agentId === NOTEBOOK_CHECKER_ID ? CHECKER_INPUTS : FINDER_INPUTS }));
     return { id: randomUUID(), status: result ? 'completed' : 'failed', ...(result ? { result } : { error: 'no answer' }) };
   }
   const agent = ctx.agentStore.getAgent(agentId)!;
@@ -191,6 +203,10 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   let before = stepProgress(nb, store.entries(nb.id, 1000), step);
   // Already there (a search earlier found enough): no run needed.
   if (before.met) return finish(ctx, store, notebookId, step, before, ['its goal was already met']);
+  // A source step whose agent reads one item's page a run: once per option.
+  const installed = ctx.agentStore.getAgent(agentId);
+  const perItem = step.kind === 'source' && installed ? perItemInputs(installed) : undefined;
+  if (perItem) return runPerItem(ctx, store, notebookId, step, agentId, perItem, before);
   let tries = step.tries;
   // Whether any run this press got it closer: none did (they found nothing
   // new, failed, or you stopped one) means its agent may not be able to.
@@ -220,8 +236,11 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
       continue;
     }
     const out = await keep(ctx, store, nb, agent.id, run.id, run.result ?? '');
-    store.finishPass(passId, passNote(agent.id, out));
-    notes.push(passNote(agent.id, out));
+    // A run can complete with some of its own steps unfinished (optional ones) or cut short: say so.
+    const short = shortSteps(ctx.runStore.listNodeExecutions(run.id));
+    const note = `${passNote(agent.id, out)}${short ? ` (${short})` : ''}`;
+    store.finishPass(passId, note);
+    notes.push(note);
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
@@ -235,6 +254,92 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   }
   // You stopped it, or no run got it closer: Move on comes first.
   return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stopped || !gained);
+}
+
+/** At most this many pages a press: the step can be pressed again for the rest. */
+const PER_ITEM_MAX = 8;
+
+/**
+ * A source step with an agent that reads one item's own page a run
+ * (listing-page-facts): run it once per option still missing facts, with
+ * that option's page and the facts it lacks, and file what each page said
+ * on that option (sourced to the page). A page that says the item is gone
+ * rules the option out; one that blocks the reader is said so. Options
+ * without a page of their own are skipped, so the agent never runs on an
+ * empty address.
+ */
+async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, io: { page: string; want?: string }, before: NotebookStepProgress): Promise<void> {
+  let nb = store.get(notebookId)!;
+  const jobs = sourceJobs(nb, store.entries(nb.id, 1000), step);
+  const withPage = jobs.filter((j) => j.link).slice(0, PER_ITEM_MAX);
+  const noPage = jobs.filter((j) => !j.link).length;
+  const tries = step.tries + 1;
+  if (!withPage.length) {
+    return finish(ctx, store, notebookId, { ...step, tries }, before, [`${agentId} reads an option's own page, and none of the options missing facts has one`], true);
+  }
+  const passId = store.startPass(nb.id, 'pipeline');
+  const running = ctx.notebookPipelines?.get(notebookId);
+  let factsSet = 0;
+  let read = 0;
+  let stopped = false;
+  const blocked = new Set<string>();
+  const gone: string[] = [];
+  const failed: string[] = [];
+  for (const job of withPage) {
+    if (running?.stopped) { stopped = true; break; }
+    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; });
+    store.addRunToPass(passId, run.id);
+    if (run.status === 'cancelled' || running?.stopped) { stopped = true; break; }
+    if (run.status !== 'completed') { failed.push(job.name); continue; }
+    nb = store.get(notebookId)!;
+    const answer = readItemAnswer(run.result ?? '', nb.fields);
+    if (answer.status === 'blocked') { blocked.add(hostOf(job.link!)); continue; }
+    read++;
+    if (answer.status === 'gone') {
+      store.ruleOut(nb.id, job.entryId, 'Its page says it is gone (sold, expired or removed).', `agent:${agentId}`, { gone: true });
+      gone.push(job.name);
+      continue;
+    }
+    const facts = Object.fromEntries(Object.entries(answer.facts).map(([k, v]) => [k, { value: v, source: job.link }]));
+    if (Object.keys(facts).length) {
+      store.setOptionFacts(nb.id, job.entryId, facts);
+      factsSet += Object.keys(facts).length;
+    }
+  }
+  const words = [
+    `${agentId}: read ${String(read)} of ${String(withPage.length)} page${withPage.length === 1 ? '' : 's'}, ${String(factsSet)} fact${factsSet === 1 ? '' : 's'}`,
+    ...(blocked.size ? [`${[...blocked].join(', ')} blocked the reader`] : []),
+    ...(gone.length ? [`${String(gone.length)} gone, ruled out`] : []),
+    ...(failed.length ? [`${String(failed.length)} run${failed.length === 1 ? '' : 's'} failed`] : []),
+    ...(noPage ? [`${String(noPage)} without a page of their own`] : []),
+    ...(stopped ? ['you stopped it'] : []),
+  ].join('; ');
+  store.finishPass(passId, words);
+  nb = store.get(notebookId)!;
+  const now = stepProgress(nb, store.entries(nb.id, 1000), step);
+  store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
+  if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, [words]);
+  // Nothing got closer (every page blocked, or nothing new on them): Move on comes first.
+  const closer = now.have > before.have || gone.length > 0;
+  return finish(ctx, store, notebookId, { ...step, tries }, now, [words], stopped || !closer);
+}
+
+function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+/**
+ * What a completed run's own steps didn't do: "gather-main didn't finish (out
+ * of turns); gather-counter ran out of turns and answered from part of its
+ * research". Undefined when every step ran in full.
+ */
+export function shortSteps(execs: ReadonlyArray<{ nodeId: string; status: string; error?: string | null }>): string | undefined {
+  const why = (error?: string | null) => /max_turns|maximum number of turns/i.test(error ?? '') ? 'out of turns' : /timed? ?out/i.test(error ?? '') ? 'timed out' : 'failed';
+  const parts = [
+    ...execs.filter((e) => e.status === 'failed').map((e) => `${e.nodeId} didn't finish (${why(e.error)})`),
+    ...execs.filter((e) => e.status === 'completed' && /^Ran out of turns/.test(e.error ?? '')).map((e) => `${e.nodeId} ran out of turns and answered from part of its research`),
+  ];
+  return parts.length ? parts.join('; ') : undefined;
 }
 
 /** Mark the step met or stuck, note the run, and say so in the conversation with the next button. */

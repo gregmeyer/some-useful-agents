@@ -21,6 +21,16 @@ export const NOTEBOOK_PAGE_JS = `
         if (first) setTimeout(function () { first.focus(); }, 0);
       });
     }
+    // A step's Pick… / Narrow…: open that header panel.
+    document.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-nb-open-act]') : null;
+      if (!b) return;
+      var d = document.querySelector('[data-nb-act-name="' + b.getAttribute('data-nb-open-act') + '"]');
+      if (!d) return;
+      e.stopPropagation();
+      d.open = true;
+      d.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, true);
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       for (var j = 0; j < acts.length; j++) if (acts[j].open) { acts[j].open = false; acts[j].querySelector('summary').focus(); }
@@ -122,11 +132,12 @@ export const NOTEBOOK_PAGE_JS = `
       var d = e.detail || {};
       if (d.name !== 'notebook-option' || !d.context || !d.context.id) return;
       var c = d.context;
-      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' || c.op === 'gone' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : c.op === 'check' ? 'check' : '';
+      var path = c.op === 'move' ? 'stage' : c.op === 'ruleOut' || c.op === 'gone' ? 'rule-out' : c.op === 'reinstate' ? 'reinstate' : c.op === 'check' ? 'check' : c.op === 'choose' || c.op === 'unchoose' ? 'choose' : '';
       if (!path) return;
       var body = new URLSearchParams();
       if (c.op === 'check') { body.set('item', c.item || ''); body.set('done', c.done ? '1' : '0'); }
       if (c.op === 'gone') body.set('gone', '1');
+      if (c.op === 'unchoose') body.set('on', '0');
       if (c.stage) body.set('stage', c.stage);
       if (c.reason) body.set('reason', c.reason);
       fetch(base + encodeURIComponent(c.id) + '/' + path, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })

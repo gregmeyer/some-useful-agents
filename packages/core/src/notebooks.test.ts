@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -397,6 +397,36 @@ describe('fields without roles, and facts that belong to another option', () => 
     expect(s.reconcileOptionFacts(nb.id)).toBe(0);
   });
 
+  it('a salary range in the text is a range: it agrees with the facts, and facts a past repair took away come back', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Jobs' }).id, [
+      { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' },
+    ]);
+    expect(readOptionText('Director of Tax, Boomi, $190k–$275k (tax only)', nb.fields)).toEqual({ salary: { min: 190000, max: 275000 } });
+    expect(readOptionText('Senior Director, Tax, $217,000 - $247,700 remote base', nb.fields)).toEqual({ salary: { min: 217000, max: 247700 } });
+    expect(readOptionText('Controller, base from $170k', nb.fields)).toEqual({ salary: 170000 });
+
+    // Filed with its range and facts: they agree with the title, so all are kept.
+    const full = { salary: { min: 150000, max: 160000 }, company: 'Going Concern', posting_url: 'https://example.com/job/1' };
+    const a = s.upsertOption(nb.id, { title: 'Remote Accounting & Tax Director, $150k–$160k', by: 'agent:x', data: full }).entry;
+    expect(s.findOption(nb.id, 'Remote Accounting')!.data).toEqual(full);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+    // "from $170k" agrees with $170k–$200k and doesn't replace it.
+    const b = s.upsertOption(nb.id, { title: 'Controller, Boom, base from $170k', by: 'agent:x', data: { company: 'Boom' } }).entry;
+    s.setOptionFacts(nb.id, b.id, { salary: { min: 170000, max: 200000 } });
+    expect(s.findOption(nb.id, 'Boom')!.data).toMatchObject({ salary: { min: 170000, max: 200000 } });
+
+    // Stored by the old repair (the range read as its first number "contradicted" it): restored from its filing.
+    runs.databaseHandle().prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ salary: 150000 }), a.id);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(1);
+    expect(s.findOption(nb.id, 'Remote Accounting')!.data).toEqual(full);
+    expect(s.reconcileOptionFacts(nb.id)).toBe(0);
+  });
+
   it('corrects an option\'s facts on someone\'s word: the option changes, its history says so, and its title can\'t undo it', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));
@@ -523,6 +553,10 @@ describe('shortName', () => {
     expect(shortName('Principal Engineer, Ramp')).toBe('Principal Engineer, Ramp');
     expect(shortName('Ibanez Talman TCY621 acoustic-electric - $279.99')).toBe('Ibanez Talman TCY621 acoustic-electric');
     expect(shortName('Plain title')).toBe('Plain title');
+    // One word says too little: the next part comes too.
+    expect(shortName('Director, Accounting Operations (FlexJobs listing), $192k–$300k, unconfirmed')).toBe('Director, Accounting Operations (FlexJobs listing)');
+    expect(shortName('Controller, $180k–$190k')).toBe('Controller');
+    expect(shortName('Director, Accounting (Remote, US), Everyday Electric (formerly Renew Home), $185k–$225k')).toBe('Director, Accounting (Remote, US)');
   });
 });
 
@@ -937,3 +971,63 @@ describe('one form for a VIN', () => {
   });
 });
 
+
+describe('notebook templates', () => {
+  it('keep a notebook’s setup, fresh: no options, no decision, steps to do, done-whens unmet', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Find a director-level accounting job', statement: 'Austin or remote', params: ['Remote or Austin, TX', '$180k minimum comp'], criteria: ['At least five open roles that fit', 'A decision recorded'], pipeline: [], cadence: '' });
+    s.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    s.setChecks(nb.id, ['Pays at least $200k', 'Posting is still open']);
+    s.setStages(nb.id, ['Found', 'Applied', 'Offer']);
+    s.setSteps(nb.id, [
+      { title: 'Find 5 roles', kind: 'find', target: 5, status: 'done', tries: 2, note: '8 found, goal 5', doneAt: '2026-10-15T00:00:00Z' },
+      { title: 'Source pay', kind: 'source', agentId: 'listing-page-facts', facts: ['salary'], status: 'done', tries: 1, movedOn: true, doneAt: '2026-10-15T00:00:00Z' },
+      { title: 'Check pay and scope', kind: 'check', status: 'stuck', tries: 3, stalled: true },
+      { title: 'Pick one', kind: 'decide', target: 1 },
+    ]);
+    s.upsertOption(nb.id, { title: 'Controller, Acme', by: 'x', data: { salary: 200000 } });
+    s.decide(nb.id, 'Took Acme.');
+
+    const t = s.saveTemplate('  Job   search ', nb.id, '2026-10-15T00:00:00Z');
+    expect(t).toMatchObject({ id: 'job-search', name: 'Job search', description: '2 fields · 4 steps · 2 checks · 2 limits', fromNotebook: nb.id, uses: 0 });
+    expect(t.setup).toMatchObject({
+      statement: 'Austin or remote',
+      params: ['Remote or Austin, TX', '$180k minimum comp'],
+      criteria: ['At least five open roles that fit', 'A decision recorded'],
+      checks: ['Pays at least $200k', 'Posting is still open'],
+      stages: ['Found', 'Applied', 'Offer'],
+    });
+    expect(t.setup.fields.map((f) => f.key)).toEqual(['salary', 'posting_url']);
+    expect(t.setup.steps).toEqual([
+      { id: 's1', title: 'Find 5 roles', kind: 'find', target: 5, status: 'todo', tries: 0 },
+      { id: 's2', title: 'Source pay', kind: 'source', agentId: 'listing-page-facts', facts: ['salary'], status: 'todo', tries: 0 },
+      { id: 's3', title: 'Check pay and scope', kind: 'check', status: 'todo', tries: 0 },
+      { id: 's4', title: 'Pick one', kind: 'decide', target: 1, status: 'todo', tries: 0 },
+    ]);
+    expect(JSON.stringify(t.setup)).not.toContain('Acme');
+
+    // The same name again replaces it; uses count; delete.
+    s.saveTemplate('Job search', nb.id);
+    expect(s.listTemplates()).toHaveLength(1);
+    s.saveTemplate('Car search', nb.id);
+    s.markTemplateUsed('car-search');
+    expect(s.listTemplates().map((x) => x.id)).toEqual(['car-search', 'job-search']);
+    expect(s.getTemplate('car-search')).toMatchObject({ uses: 1 });
+    // Archived: kept, not listed (unless asked), and saving the same name again restores it.
+    expect(s.archiveTemplate('job-search')).toBe(true);
+    expect(s.listTemplates().map((x) => x.id)).toEqual(['car-search']);
+    expect(s.listTemplates(50, { archived: 'only' }).map((x) => x.id)).toEqual(['job-search']);
+    expect(s.listTemplates(50, { archived: 'include' })).toHaveLength(2);
+    expect(s.getTemplate('job-search')!.archivedAt).toBeTruthy();
+    s.saveTemplate('Job search', nb.id);
+    expect(s.getTemplate('job-search')!.archivedAt).toBeUndefined();
+    s.archiveTemplate('job-search');
+    expect(s.archiveTemplate('job-search', false)).toBe(true);
+    expect(s.listTemplates()).toHaveLength(2);
+    expect(s.deleteTemplate('car-search')).toBe(true);
+    expect(s.getTemplate('car-search')).toBeUndefined();
+    expect(() => s.saveTemplate('  ', nb.id)).toThrow('A template needs a name.');
+  });
+});

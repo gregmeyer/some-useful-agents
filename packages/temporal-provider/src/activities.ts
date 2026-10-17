@@ -1,5 +1,6 @@
 import type { AgentDefinition, AgentNode, Agent, SpawnResult, SpawnProgress, Run, DagExecutorDeps, LlmSettingsSnapshot, AgentCallInfo, AgentCallContext } from '@some-useful-agents/core';
 import {
+  createLiveProgress,
   buildAgentEnv,
   getTrustLevel,
   executeAgent,
@@ -14,6 +15,7 @@ import {
   IntegrationsStore,
   VariablesStore,
   LlmSettingsStore,
+  modelUnavailableRecorder,
   createAgentCallContext,
   MemoryStore,
   BoardsStore,
@@ -39,7 +41,8 @@ export function workerLlmSettings(
   providers: string[] | undefined,
   llmSettingsPath: string | undefined,
 ): LlmSettingsSnapshot | undefined {
-  const local = llmSettingsPath ? quiet(() => new LlmSettingsStore(llmSettingsPath).get()) : undefined;
+  const store = llmSettingsPath ? quiet(() => new LlmSettingsStore(llmSettingsPath)) : undefined;
+  const local = store ? quiet(() => store.get()) : undefined;
   if (!providers && !local) return undefined;
   const disabled = new Set(local?.disabledProviders ?? []);
   return {
@@ -49,6 +52,8 @@ export function workerLlmSettings(
     disabledProviders: local?.disabledProviders,
     pricing: local?.pricing,
     spendLimits: local?.spendLimits,
+    models: local?.models,
+    ...(store ? { onModelUnavailable: modelUnavailableRecorder(store) } : {}),
   };
 }
 
@@ -289,15 +294,15 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
     }
   }
 
-  // Heartbeat the FULL accumulated progress trail (not just the latest event)
-  // as a single { progress } detail. A single `describe()` read on the
-  // dashboard side then sees every event so far, so the poll-rebroadcast can
-  // diff by index and re-emit any it hasn't surfaced yet — even if it missed
-  // intermediate heartbeats. The heartbeat also keeps the activity cancellable.
-  const progressTrail: SpawnProgress[] = [];
+  // Heartbeat everything so far as one { live } detail (live-progress.ts):
+  // text deltas folded into the node's text, other events in order. A single
+  // `describe()` read on the dashboard side then sees all of it, so the poll
+  // passes on whatever it hasn't yet, even if it missed heartbeats in between.
+  // The heartbeat also keeps the activity cancellable.
+  const live = createLiveProgress();
   const onProgress = (event: SpawnProgress): void => {
-    progressTrail.push(event);
-    try { ctx?.heartbeat({ progress: progressTrail }); } catch { /* outside activity ctx — ignore */ }
+    live.add(input.node.id, event);
+    try { ctx?.heartbeat({ live: live.snapshot() }); } catch { /* outside activity ctx — ignore */ }
   };
 
   // Keepalive heartbeat: a node that produces no progress event for longer than
@@ -309,7 +314,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
   const keepalive = ctx
     ? setInterval(() => {
         try {
-          ctx?.heartbeat(progressTrail.length ? { progress: progressTrail } : undefined);
+          ctx?.heartbeat({ live: live.snapshot() });
         } catch { /* ignore */ }
       }, 10_000)
     : undefined;
@@ -434,6 +439,7 @@ export async function runDagActivity(input: RunDagActivityInput): Promise<RunDag
   try { ctx = Context.current(); } catch { ctx = undefined; }
 
   const runStore = new RunStore(input.dbPath);
+  const live = createLiveProgress();
   const deps: DagExecutorDeps = {
     runStore,
     secretsStore: new EncryptedFileStore(input.secretsPath),
@@ -446,12 +452,18 @@ export async function runDagActivity(input: RunDagActivityInput): Promise<RunDag
     llmSettings: workerLlmSettings(input.llmProviders, input.llmSettingsPath),
     dataRoot: input.dataRoot,
     // spawnNode omitted → spawnNodeReal (local execution on this worker).
+    // Live progress (text as it's written, tool calls) goes out in the
+    // heartbeat, for the dashboard to relay (provider liveRunProgress).
+    inboxOnProgress: ({ nodeId, progress }) => {
+      live.add(nodeId, progress);
+      try { ctx?.heartbeat({ live: live.snapshot() }); } catch { /* ignore */ }
+    },
   };
 
   // Keep the long activity alive + cancellable: heartbeat on an interval while
-  // the DAG runs. The executor also heartbeats via node progress, but a DAG can
-  // sit between nodes; this is the floor.
-  const hb = ctx ? setInterval(() => { try { ctx?.heartbeat(); } catch { /* ignore */ } }, 10_000) : undefined;
+  // the DAG runs. Node progress heartbeats too, but a DAG can sit between
+  // nodes; this is the floor.
+  const hb = ctx ? setInterval(() => { try { ctx?.heartbeat({ live: live.snapshot() }); } catch { /* ignore */ } }, 10_000) : undefined;
   try {
     const run = await executeAgentDag(
       input.agent,

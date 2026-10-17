@@ -308,6 +308,7 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     question: questionForMessage(ctx, message),
     triagePending,
     agentTurn: agentTurnInProgress(ctx, message, responses),
+    imgHosts: message.source === 'conversation' && message.agentId ? ctx.agentStore.getAgent(message.agentId)?.permissions?.imgSrc ?? [] : [],
     currentTargetYaml,
     inlineActionWidgets,
     runBehaviors,

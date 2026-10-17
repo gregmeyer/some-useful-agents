@@ -10,6 +10,7 @@ import { renderOutcomeRecord } from './outcome-record.js';
 import { renderOutcomeHistory } from './outcome-history.js';
 import { renderRunView, renderLegacySurface, type RunViewOptions } from '../lib/a2ui-surface.js';
 import { legacyWidgetView } from '../lib/legacy-view.js';
+import { factsOf, recordColumns, recordsOf } from '../lib/result-shape.js';
 import { summarizeNodeBudget, formatNodeBudget, exhaustedLimit, type NodeBudgetView } from '../lib/node-budget.js';
 
 export interface RunDetailOptions {
@@ -67,6 +68,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   // (command not found): …` instead of a bare token. Falls back to the stored
   // run.error for legacy/non-DAG runs with no node executions.
   const failedExec = nodeExecutions?.find((e) => e.status === 'failed');
+  // A completed run can still have failed steps (optional ones it carried on without): a warning, not an error.
+  const partly = run.status === 'completed' ? (nodeExecutions ?? []).filter((e) => e.status === 'failed').length : 0;
   const bannerError = failedExec
     ? explainNodeFailure({
         nodeId: failedExec.nodeId,
@@ -247,8 +250,8 @@ export function renderRunDetail(opts: RunDetailOptions): string {
       ${run.status === 'waiting' ? renderWaitingBanner(run.id, question) : html``}
 
       <div data-poll-region="error">${bannerError ? html`
-        <h2>Error</h2>
-        <div class="flash flash--error" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
+        ${partly ? html`<h2>Completed, but ${partly === 1 ? 'a step' : `${String(partly)} steps`} didn't finish</h2>` : html`<h2>Error</h2>`}
+        <div class="flash ${partly ? 'flash--warn' : 'flash--error'}" style="display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3);">
           <span>${bannerError}</span>
           <span style="display: inline-flex; gap: var(--space-2); flex-shrink: 0; white-space: nowrap;">
             ${run.status === 'failed' ? html`
@@ -696,7 +699,7 @@ function renderNodeCards(
     const varsPanel = renderNodeVarsPanel(e);
     if (varsPanel) bodyBlocks.push(varsPanel);
 
-    if (e.error) bodyBlocks.push(html`<div class="flash flash--error">${e.error}</div>`);
+    if (e.error) bodyBlocks.push(html`<div class="flash ${e.status === 'completed' ? 'flash--warn' : 'flash--error'}">${e.error}</div>`);
     if (e.errorCategory === 'budget_exhausted') bodyBlocks.push(renderExhaustedHint(e, nodeDef, agent, budget));
     const toolActivity = renderToolActivity(e, toolCalls?.get(e.nodeId));
     if (toolActivity) bodyBlocks.push(toolActivity);
@@ -780,6 +783,22 @@ function renderExhaustedHint(e: NodeExecutionRecord, node: AgentNode | undefined
 }
 
 /**
+ * Output with no widget, read as what it is: one JSON object of facts as
+ * labelled facts, a JSON list of records as a table; the raw text stays one
+ * click away. Undefined for anything else (it shows as text).
+ */
+export function shapedOutput(output: string, surfaceId: string): SafeHtml | undefined {
+  const facts = factsOf(output);
+  const rows = facts ? undefined : recordsOf(output);
+  if (!facts && !rows) return undefined;
+  const surface = renderLegacySurface(surfaceId, facts
+    ? { data: { items: facts }, components: [{ id: 'root', component: 'KeyValue', items: { path: '/data/items' } }] }
+    : { data: { rows }, components: [{ id: 'root', component: 'Table', rows: { path: '/data/rows' }, columns: recordColumns(rows ?? []) }] });
+  if (!surface) return undefined;
+  return html`${surface}<details class="output-raw"><summary>Raw output</summary>${outputFrame(output)}</details>`;
+}
+
+/**
  * The result area (the run page, and the agent Overview's Latest result):
  * the agent's A2UI view when it has one (docs/a2ui-views.md),
  * else its output widget, else the raw output. A generated view that wasn't
@@ -795,7 +814,7 @@ export function runWidget(
 ): SafeHtml {
   const fallback = () => (agent?.outputWidget
     ? renderOutputWidget(agent.outputWidget, run.result ?? '', agent.id, widgetControls, agent.inputs) ?? outputFrame(run.result ?? '')
-    : outputFrame(run.result ?? ''));
+    : shapedOutput(run.result ?? '', surfaceId) ?? outputFrame(run.result ?? ''));
   if (!agent?.view && agent?.outputWidget && run.status === 'completed') {
     const legacy = legacyWidgetView(agent.outputWidget, run.result ?? '');
     // None of the widget's fields are in this output: the old renderer would

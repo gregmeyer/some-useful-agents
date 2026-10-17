@@ -265,12 +265,24 @@ export interface DashboardContext {
   notebookKeeperRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the picture agent instead of running it. */
   notebookPictureRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: fetch company logos without the network (lib/notebook-logos.ts). */
+  notebookLogoDeps?: import('./lib/notebook-logos.js').LogoDeps;
   /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
   notebookFacets?: Set<string>;
+  /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */
+  agentFinds?: Map<string, import('./lib/agent-find.js').AgentFind>;
+  /** True while sua sorts the catalog's agents into groups (lib/agent-catalog-sort.ts). */
+  agentCatalogSorting?: boolean;
+  /** Tests only: answer for agent-catalog-sorter instead of running it. */
+  agentCatalogSortRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for agent-catalog-search on /agents instead of running it. */
+  agentFindRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
   notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the notebook-finder agent (a find step without its own agent) instead of running it. */
+  notebookFinderRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Notebooks whose pictures are being found or drawn right now. */
   notebookPictures?: Set<string>;
   /** Notebooks trying their options' listing photos right now. */

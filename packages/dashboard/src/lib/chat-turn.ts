@@ -8,6 +8,8 @@ import {
   executeAgentDag,
   isAppleIntegrationEnabled,
   prepareAgentTurn,
+  newLiveCursor,
+  takeNewProgress,
   type Agent,
   type Session,
   type SessionStore,
@@ -35,9 +37,9 @@ export function chatBus(ctx: DashboardContext): InboxEventBus {
 
 /**
  * Chat events, as the browser sees them:
- * - `turn-start` {runId, streaming}: a reply is being worked on (`streaming:
- *   false` on the durable backend, where progress isn't relayed; the client
- *   falls back to polling).
+ * - `turn-start` {runId, streaming}: a reply is being worked on (on the
+ *   durable backend its progress arrives about once a second; `streaming:
+ *   false` when the provider can't report it, and the client polls).
  * - `token` {text, nodeId}: text the model produced, appended in order
  *   (claude streams small deltas; codex and OpenAI-compatible endpoints send
  *   whole messages).
@@ -122,7 +124,11 @@ export async function startChatTurn(
   try { args.onSession?.(session, runId); } catch { /* a subscriber problem never blocks the turn */ }
 
   if (resolveRunBackend(ctx.provider, agent) === 'temporal' && ctx.provider.submitDagRun) {
-    publish(ctx, session.id, 'turn-start', { runId, streaming: false });
+    // The run is on the worker: its progress comes back in its heartbeat (about
+    // once a second) when the provider can read it, and the turn is watched
+    // until it ends (watchDurableTurn). Without that, the client polls.
+    const live = typeof ctx.provider.liveRunProgress === 'function';
+    publish(ctx, session.id, 'turn-start', { runId, streaming: live });
     try {
       await ctx.provider.submitDagRun(agent, {
         runId,
@@ -135,6 +141,7 @@ export async function startChatTurn(
         experimentalApple: isAppleIntegrationEnabled(),
         conversationPreamble: conversationPreamble || undefined,
       });
+      watchDurableTurn(ctx, sessions, session.id, runId, agent.permissions?.imgSrc ?? []);
     } catch (err) {
       // No run row → record the failure as the reply so the turn isn't stuck.
       completeAgentTurn(sessions, session.id, {
@@ -188,6 +195,43 @@ export async function startChatTurn(
     })
     .finally(() => { ctx.activeRuns.delete(runId); });
   return { session, runId };
+}
+
+const DURABLE_POLL_MS = 1000;
+const DURABLE_WATCH_MAX_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * A chat turn running on the worker: relay what it writes (text, tool calls,
+ * widgets) as the in-process path does, from its heartbeat about once a
+ * second, then record the reply and say the turn ended. The run's status is
+ * read from the shared store, where the worker writes it.
+ */
+function watchDurableTurn(ctx: DashboardContext, sessions: SessionStore, sessionId: string, runId: string, imgHosts: string[]): void {
+  const cursor = newLiveCursor();
+  const streamedNodes = new Set<string>();
+  const widgetTrack: WidgetTrack = new Map();
+  const started = Date.now();
+  let busy = false;
+  const timer = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    void (async () => {
+      try {
+        const report = await ctx.provider.liveRunProgress?.(runId);
+        for (const { nodeId, event } of takeNewProgress(report, cursor)) {
+          relayProgress(ctx, sessionId, runId, nodeId, event, streamedNodes, widgetTrack, imgHosts);
+        }
+        const run = ctx.runStore.getRun(runId);
+        const done = !!run && (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled');
+        if (done || Date.now() - started > DURABLE_WATCH_MAX_MS) {
+          clearInterval(timer);
+          if (run && done) completeAgentTurn(sessions, sessionId, run);
+          publish(ctx, sessionId, 'turn-end', { runId, status: run?.status ?? 'running' });
+        }
+      } catch { /* a missed poll is caught up on the next */ } finally { busy = false; }
+    })();
+  }, DURABLE_POLL_MS);
+  timer.unref?.();
 }
 
 /** A widget action (A2UI `action` event) as the user message it stands for. */

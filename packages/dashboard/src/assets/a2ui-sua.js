@@ -27,6 +27,16 @@ setMarkdownRenderer((value) => esc(value)
   .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
   .replace(/\n/g, '<br>'));
 
+// A Row wraps instead of clipping what doesn't fit (answer buttons in a
+// narrow panel, metrics on a phone). The basic Row's styles are in its
+// shadow root, so they're extended here, before or after it's defined.
+{
+  const Row = basicCatalog.components.get('Row')?.element;
+  const wrap = css`:host, a2ui-basic-row { flex-wrap: wrap; }`;
+  if (Row?.elementStyles) Row.elementStyles.push(wrap);
+  else if (Row) Row.styles = [].concat(Row.styles ?? [], wrap);
+}
+
 const Common = CommonSchemas.ComponentCommon.omit({ id: true });
 const Str = CommonSchemas.DynamicString;
 const tones = new Set(['neutral', 'ok', 'warn', 'err']);
@@ -120,7 +130,8 @@ const Table = define('Table', 'sua-a2ui-table',
     pageSize: z.number().int().min(1).max(200).optional(),
   }).strict(),
   css`
-    :host { overflow-x: auto; }
+    /* A block, so a table wider than its place (a narrow panel) scrolls sideways instead of being cut off. */
+    :host { display: block; max-width: 100%; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
@@ -277,6 +288,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     layout: z.enum(['grid', 'table']).optional(), sort: z.string().max(80).optional(), ruledOut: z.enum(['show', 'hide']).optional(),
     actions: z.boolean().optional(), maxItems: z.number().int().min(1).max(100).optional(),
     csvHref: z.string().max(300).regex(/^\/[^\s"'<>?#]*$/).optional(),
+    onlyChosen: z.boolean().optional(),
     stageChips: z.boolean().optional(),
     filters: z.array(z.union([z.string().max(64), z.object({ key: z.string().max(64), label: z.string().max(60).optional() }).strict()])).max(8).optional(),
   }).strict(),
@@ -301,6 +313,9 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .gone-why { color: var(--color-text-muted); }
     .pic img.drawn { object-fit: contain; padding: 8px; box-sizing: border-box; }
     .pic:has(img:not(.drawn)) { background: var(--color-surface); }
+    /* A logo: an app icon sits at about half the frame; a wordmark fills its width. */
+    .pic img.logo { background: #fff; padding: 22%; }
+    .pic img.logo.wide { padding: 8% 10%; }
     .pickind { position: absolute; bottom: 8px; left: 8px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; padding: 3px 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-surface) 85%, transparent); color: var(--color-text-muted); border: 1px solid var(--color-border); }
     .menu .btn.gone { border-color: var(--color-text-muted); }
     .rank { position: absolute; top: 8px; left: 8px; min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border-strong, var(--color-border)); }
@@ -336,6 +351,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .btn { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
     .btn:hover, .btn:focus-visible { border-color: var(--color-primary); }
     .btn.ghost { border-color: transparent; color: var(--color-text-muted); }
+    .btn.pick[aria-pressed="true"] { background: var(--color-primary); color: var(--color-bg); border-color: var(--color-primary); font-weight: 600; }
     a.btn { color: var(--color-primary); }
     .menu { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; margin-top: 4px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-surface-raised); }
     .menu input { flex: 1 1 140px; min-width: 0; font: inherit; font-size: var(--font-size-xs); padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface); color: var(--color-text); }
@@ -378,7 +394,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     // them until you untick it; kept per page in this browser).
     const chosenCount = all.filter((o) => o.chosen && !o.ruledOut).length;
     const chosenKey = `sua-option-only-chosen:${location.pathname}`;
-    let onlyChosen; try { onlyChosen = localStorage.getItem(chosenKey) !== '0'; } catch { onlyChosen = true; }
+    let onlyChosen; try { const kept = localStorage.getItem(chosenKey); onlyChosen = kept === null ? !!p.onlyChosen : kept === '1'; } catch { onlyChosen = !!p.onlyChosen; }
     if (this._onlyChosen !== undefined) onlyChosen = this._onlyChosen;
     onlyChosen = onlyChosen && chosenCount > 0;
     if (onlyChosen) opts = opts.filter((o) => o.chosen && !o.ruledOut);
@@ -451,6 +467,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
       ${safeUrl(o.link) ? (o.linkIsList
         ? html`<a class="btn ghost" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer" title="Where it was found: a search page that lists many, not this one's own">Search page ↗</a>`
         : html`<a class="btn" href=${safeUrl(o.link)} target="_blank" rel="noopener noreferrer">${byRole('link')?.label ?? 'Listing'} ↗</a>`) : nothing}
+      ${p.actions && !o.ruledOut ? html`<button type="button" class="btn pick" aria-pressed=${o.chosen ? 'true' : 'false'} title=${o.chosen ? 'Picked. Click to take the pick back.' : 'Pick this one (bought it, or going with it). The notebook stays open.'} @click=${() => act({ op: o.chosen ? 'unchoose' : 'choose', id: o.id })}>${o.chosen ? '✓ Picked' : 'Pick'}</button>` : nothing}
       ${p.actions && !o.ruledOut && next(o) ? html`<button type="button" class="btn" @click=${() => act({ op: 'move', id: o.id, stage: next(o) })}>${next(o)} →</button>` : nothing}
       ${p.actions && !o.ruledOut ? html`<button type="button" class="btn ghost" aria-expanded=${this._menu === o.id ? 'true' : 'false'} @click=${() => set('_menu', this._menu === o.id ? '' : o.id)}>Rule out…</button>` : nothing}
       ${p.actions && o.ruledOut ? html`<button type="button" class="btn ghost" @click=${() => act({ op: 'reinstate', id: o.id })}>Bring back</button>` : nothing}
@@ -489,10 +506,10 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     }
     return html`${toggle}<div class="grid">${opts.map((o) => html`<article class="card ${o.ruledOut ? 'out' : ''} ${o === best ? 'best' : ''} ${o.chosen && !o.ruledOut ? 'chosen' : ''}">
       <div class="pic">
-        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : ''}">${o.imageKind && o.imageKind !== 'listing' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
+        ${safeUrl(o.image) ? html`<img src=${safeUrl(o.image)} alt="" loading="lazy" class="${o.imageKind === 'illustration' ? 'drawn' : o.imageKind === 'logo' ? (o.imageShape === 'wide' ? 'drawn logo wide' : 'drawn logo') : ''}">${o.imageKind && o.imageKind !== 'listing' && o.imageKind !== 'logo' ? html`<span class="pickind" title="${o.imageKind === 'illustration' ? 'A drawing, not this exact one' : 'A representative photo, not this exact one'}">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : nothing}`
           : html`<div class="nophoto"><svg aria-hidden="true" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M21 16l-5-5-8 8"></path></svg><span>No photo yet</span></div>`}
         <span class="rank">${o.ruledOut ? '·' : active.indexOf(o) + 1}</span>
-        ${o.chosen && !o.ruledOut ? html`<span class="ribbon chosen" title="Picked in the decision${o === best ? `; also the ${scoreF ? 'best fit' : 'best price'}` : ''}">✓ chosen</span>`
+        ${o.chosen && !o.ruledOut ? html`<span class="ribbon chosen" title="Picked${o === best ? `; also the ${scoreF ? 'best fit' : 'best price'}` : ''}">✓ chosen</span>`
           : o === best ? html`<span class="ribbon">${scoreF ? 'best fit' : `best ${priceBetter === 'higher' ? 'pay' : 'price'}`}</span>` : nothing}
       </div>
       <div class="body">

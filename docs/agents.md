@@ -214,6 +214,14 @@ Every agent has at least one node. Each node declares:
 
 Full flow control reference: [flows.md](flows.md).
 
+### When an `llm-prompt` node runs out of turns
+
+`maxTurns` caps how many turns a node gets (each round of searches, page opens or tool calls is one).
+- **It's told its budget.** A node with tools gets one line saying how many turns it has, and to answer in its last one from what it found.
+- **Out of turns, it still answers** (claude). When claude stops with `error_max_turns`, sua resumes the same session once, with no tools, and asks for the answer from what it already read, in the format the prompt asked for, saying what it couldn't cover. The node completes with an amber note: "Ran out of turns (10), so claude answered from what it had already read". Set `onMaxTurns: fail` on the node to fail it instead (goal nodes always do: out of turns is out of budget for them).
+- **No turns on tools it can't use.** A node doesn't get claude's own subagent tool (`Agent`/`Task`, which ran outside the node's turn and spend limits), claude's own `WebFetch` when the node has sua's `web-fetch`, or `Bash`, unless the node lists them in `allowedTools`. Those calls were refused in a run anyway, and each refusal cost a turn.
+- **A completed node keeps its warnings** (ran out of turns, a refused tool, codex exiting oddly after answering), shown in amber on its run page. A run that completed without some of its `optional` steps says so: "Completed, but 2 steps didn't finish", and a notebook step's note names them.
+
 > **Alias:** `type: claude-code` is the legacy spelling of `type: llm-prompt`. Both load identically and dispatch through the same code path; the CLI binary is chosen by the `provider:` field (`claude` or `codex`). New agents should use `llm-prompt`; existing agents continue to work unchanged.
 
 ### `shell` and `llm-prompt` with tools
@@ -255,6 +263,8 @@ See [Tools](tools.md) for the built-in list and [MCP servers](mcp.md) for import
 - **The run** completes unless a required node fails.
 
 A cancellation or a budget limit still stops the run. Use it for independent sources (one site of a multi-site search). sua's builder marks each source node of a multi-source agent optional. The `starter-research` example does the same with its two research angles: if one fails, the brief is written from the other and says which side is missing.
+
+In the dashboard, set it on the step's **Edit** page: tick **Keep going if this step fails** under *If it fails*. The box shows only on a step that another step depends on, and never on a control-flow step.
 
 
 See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.

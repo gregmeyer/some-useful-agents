@@ -214,6 +214,16 @@ export function parseTriageWidget(raw: unknown): string | undefined {
   return 'components' in w ? JSON.stringify({ components: w.components, data: w.data }) : undefined;
 }
 
+/**
+ * sua's reply as it's kept: the recommendation, then its widget (if any) as an
+ * inline <a2ui> block, the same format an agent's reply has (ADR-0047), so one
+ * renderer draws, answers and streams both. "</" is escaped in the JSON so no
+ * string in it can close the block.
+ */
+export function triageReplyBody(recommendation: string, widget?: string): string {
+  return widget ? `${recommendation}\n\n<a2ui>${widget.replace(/<\//g, '<\\/')}</a2ui>` : recommendation;
+}
+
 export function parseTriageLinks(
   raw: unknown,
   agentExists?: (id: string) => boolean,
@@ -234,6 +244,17 @@ export function parseTriageLinks(
     if (out.length >= MAX_TRIAGE_LINKS) break;
   }
   return out;
+}
+
+/**
+ * The page sua opens behind the conversation when asked ("open my
+ * notebook"): one dashboard path, never another site. Undefined otherwise.
+ */
+export function parseTriageOpen(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const path = raw.trim();
+  if (!/^\/(?!\/)[A-Za-z0-9/_\-.~%?=&#]*$/.test(path) || path.length > 300 || path.includes('\\')) return undefined;
+  return path;
 }
 
 export function findLatestTriageLinks(
@@ -490,6 +511,24 @@ export function parseProposedActions(
         effect: 'write',
         ctaLabel: type === 'notebook-add' ? 'Add' : type === 'notebook-steps' ? (inputs.RUN === '1' ? 'Set them up and start' : 'Set them up') : 'Set it up',
       });
+      continue;
+    }
+    // `notebook-create` starts a notebook from one of their templates (TEMPLATES),
+    // with what's different this time; a card to approve, after sua has asked.
+    if (type === 'notebook-create') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (typeof v === 'number' && Number.isFinite(v)) inputs[k] = String(v);
+          else if ((k === 'PARAMS' || k === 'CRITERIA' || k === 'CHECKS') && Array.isArray(v)) inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.TEMPLATE || !inputs.TITLE) {
+        rejected.push({ agentId: type, reason: 'notebook-create needs inputs.TEMPLATE and inputs.TITLE' });
+        continue;
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Create notebook' });
       continue;
     }
     // `notebook-step` acts on the notebook's current step: MOVE "1" moves on

@@ -26,6 +26,7 @@ import {
   VariablesStore,
   ToolStore,
   LlmSettingsStore,
+  modelUnavailableRecorder,
   OutcomeStore,
   executeAgentWithRetry,
   outcomeDetectionHook,
@@ -89,6 +90,8 @@ export function loadLlmSettingsSnapshot(config: ReturnType<typeof loadConfig>) {
       customProviders: current.customProviders ? [...current.customProviders] : undefined,
       pricing: current.pricing,
       spendLimits: current.spendLimits,
+      models: current.models,
+      onModelUnavailable: modelUnavailableRecorder(store),
     };
   } catch {
     return undefined;

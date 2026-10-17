@@ -29,7 +29,7 @@ Use `web-fetch` when an agent needs to **read the contents of a public web page*
 
 ## Retrieval strategy (progressive escalation)
 
-1. **HTTP** — native `fetch` with a browser-like User-Agent, manual redirects (each hop re-validated for SSRF), content-type gating (text/HTML/XML only), and a 2 MB byte cap.
+1. **HTTP** — native `fetch` with a browser-like User-Agent, manual redirects (each hop re-validated for SSRF), content-type gating (text, HTML, XML and JSON), and a 2 MB byte cap. A JSON response (a public API, e.g. a job board's postings with pay: `boards-api.greenhouse.io/v1/boards/<company>/jobs?content=true`, `api.lever.co/v0/postings/<company>?mode=json`, `api.ashbyhq.com/posting-api/job-board/<company>?includeCompensation=true`) comes back as its JSON, compacted and cut at `max_chars`, with no extraction or browser step: often one call instead of opening many pages.
 2. **Extraction** — [Readability](https://github.com/mozilla/readability) isolates the main article (dropping nav, scripts, styles, cookie banners, menus, boilerplate); [Turndown](https://github.com/mixmark-io/turndown) converts it to Markdown (headings, lists, links, table cell text). Falls back to collapsed plaintext when there's no clear article.
 3. **Browser (optional)** — only when HTTP yields too little (`browser: auto`) or when forced (`browser: always`). Renders the page with headless Chromium via **Playwright**, then runs the rendered HTML back through the same extraction.
 

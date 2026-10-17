@@ -754,6 +754,7 @@
 }
 .settings-llm__chain-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -782,6 +783,34 @@
   display: flex;
   gap: 4px;
 }
+/* The model a CLI provider runs (codex row) — its own line under the row. */
+.settings-llm__model {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: calc(16px + var(--space-2));
+  min-width: 0;
+}
+.settings-llm__model label {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+.settings-llm__model select { flex: 1; min-width: 0; max-width: 100%; }
+.settings-llm__model-warn,
+.settings-llm__model-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.settings-llm__model-warn { color: var(--color-warn); }
 .settings-llm__add {
   display: flex;
   align-items: end;
@@ -3238,3 +3267,22 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
   .nbs-new { min-height: 0; }
   .nbs-new--alone { flex: 1 1 auto; }
 }
+
+/* Widgets in a conversation's replies (lib/reply-body.ts): buttons read as
+   answer chips, and a widget already answered is quieter and can't be used again. */
+.inbox-msg .a2ui-host {
+  /* A pill on one line, a rounded box when a long answer wraps. */
+  --a2ui-button-border-radius: 16px;
+  --a2ui-button-border: 1px solid var(--color-primary);
+  --a2ui-button-padding: var(--space-1) var(--space-3);
+  --a2ui-button-margin: 0;
+  --a2ui-row-gap: var(--space-2);
+}
+.reply-widget.is-answered { opacity: .6; pointer-events: none; }
+
+/* A company's logo: whole, on a white tile in either theme. */
+.ib-notebook__cover.is-logo, .nbs-card__cover img.is-logo { background: #fff; box-sizing: border-box; }
+.ib-notebook__cover.is-logo { padding: 14%; }
+.ib-notebook__cover.is-logo.is-wide { padding: 2px; }
+.nbs-card__cover img.is-logo { padding: 22%; }
+.nbs-card__cover img.is-logo.is-wide { padding: 8% 10%; }

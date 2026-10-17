@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { InboxStore,
@@ -17,17 +17,20 @@ import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
+import { drainInFlight } from '../test-drain.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3998;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
 let dir: string;
+let ctxForDrain: DashboardContext | undefined;
 let provider: LocalProvider;
 let runStore: RunStore;
 let suggesterSaw = '';
 let facetsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 let checkerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+let finderReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 /** The drafter's answer when sua lays out a new notebook's steps (unset: none). */
 let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
@@ -91,6 +94,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
     // Nor a real checker: tests set checkerReply.
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
+    // Nor a real finder: tests set finderReply.
+    notebookFinderRun: async (inputs) => finderReply?.(inputs),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     // Laying out a new notebook's steps: tests set stepsReply.
@@ -115,10 +120,14 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
       : undefined),
   };
 
+  ctxForDrain = ctx;
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
+  // Background passes a route started (pictures, facets…) finish before the stores close.
+  await drainInFlight(ctxForDrain);
+  ctxForDrain = undefined;
   if (provider) {
     const start = Date.now();
     while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
@@ -230,6 +239,30 @@ describe('filing into a notebook of organizations', () => {
     ctx.notebookPictures.delete(nb.id);
   });
 
+  it("a decided notebook drawn as widgets: actions beside the title, its steps on one quiet row, its picks as a list", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setFields(nb.id, [{ key: 'employees', label: 'Employees', type: 'number' }]);
+    const a = store.upsertOption(nb.id, { title: 'Acme: planning suite', by: 'you', data: { employees: 300 } }).entry;
+    const b = store.upsertOption(nb.id, { title: 'Bolt', by: 'you', data: { employees: 90 } }).entry;
+    store.setSteps(nb.id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick 2', kind: 'decide', target: 2 }]);
+    for (const id of ['s1', 's2']) store.updateStep(nb.id, id, { status: 'done' });
+    store.decide(nb.id, 'Both fit.', 'you', [a.id, b.id]);
+    const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toContain('class="nb-hero nb-hero--wide"');
+    expect(page).toMatch(/nb-hero__titlerow">[\s\S]*?<div class="nb-hero__acts">[\s\S]*?Reopen/);
+    expect(page).not.toContain('nb-hero__side');
+    expect(page).toContain('class="nb-steps nb-steps--done" style="--n:2"');
+    expect(page).toContain('· 2 chosen');
+    expect(page).toContain(`<a href="/notebooks/${nb.id}/entries/${a.id}">Acme</a> <span class="nb-decided__what">planning suite</span>`);
+    expect(page).toContain('<p class="nb-decided__why">Both fit.</p>');
+    // A decision in its own words shows as written.
+    const { decidedBox } = await import('../views/notebooks.js');
+    expect(String(decidedBox({ ...store.get(nb.id)!, decision: 'Went with neither.' }, store.entries(nb.id, 100)))).toMatch(/<strong>Decided [^<]*:<\/strong> Went with neither\.<\/div>/);
+  });
+
   it('steps are set by hand and shown with how far each is toward its goal', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -248,10 +281,10 @@ describe('filing into a notebook of organizations', () => {
     expect(ok.body.steps.map((x: { id: string; status: string }) => `${x.id}:${x.status}`)).toEqual(['s1:todo', 's2:todo']);
 
     const page = await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
-    expect(page.text).toContain('class="nb-steps"');
+    expect(page.text).toContain('class="nb-steps" style="--n:2"');
     expect(page.text).toContain('nb-step nb-step--todo nb-step--current" title="Still needed: 2 more"');
-    expect(page.text).toContain('1 of 3 found · to do');
-    expect(page.text).toContain('with sched-agent');
+    expect(page.text).toContain('<span class="nb-step__count">1 of 3 found</span><span class="nb-step__state nb-step__state--todo">to do</span>');
+    expect(page.text).toContain('with <span class="nb-step__agent" title="sched-agent">sched-agent</span>');
     expect(page.text).toContain('1 of 1 facts');
     // The source step has no agent of its own yet.
     expect(page.text).toContain('needs an agent');
@@ -512,8 +545,8 @@ describe('notebook pipeline (G2–G3)', () => {
 
     // Only its facts count, one by one; the page names them.
     const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
-    expect(page).toContain('<span class="nb-step__by nb-step__facts" title="employees, founded">employees, founded</span>');
-    expect(page).toContain('3 of 4 facts · to do');
+    expect(page).toContain('<span class="nb-step__facts" title="employees, founded">2 facts</span>');
+    expect(page).toContain('<span class="nb-step__count">3 of 4 facts</span><span class="nb-step__state nb-step__state--todo">to do</span>');
     // Its job names only those facts.
     const { pipelineInputs } = await import('../lib/notebook-pipeline.js');
     const step = store.get(nb.id)!.steps![0];
@@ -529,6 +562,59 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', tries: 1 });
     expect(runs()).toHaveLength(1);
     expect(store.passes(nb.id)[0].note).toBe('slow-source: stopped');
+  });
+
+  it('a source step whose agent reads one page a run reads each option\'s own page, never an empty one', async () => {
+    const app = await makeApp();
+    const wanted = join(dir, 'wanted');
+    agentStore.createAgent({ id: 'page-reader', name: 'Page reader', status: 'active', source: 'local', mcp: false,
+      inputs: { PAGE_URL: { type: 'string', default: '' }, WANT: { type: 'string', default: 'price' } },
+      nodes: [{ id: 'n', type: 'shell', command: `echo "$PAGE_URL|$WANT" >> ${wanted}; case "$PAGE_URL" in *blocked*) echo '{"url":"x","status":"blocked"}';; *sold*) echo '{"status":"gone"}';; *) echo '{"url":"x","status":"ok","price":40,"Seller":"Ann","odometer":0}';; esac` }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Example speakers' });
+    store.setFields(nb.id, [
+      { key: 'price', label: 'Price', type: 'money', role: 'price' },
+      { key: 'seller', label: 'Seller', type: 'text' },
+      { key: 'odometer', label: 'Odometer', type: 'number' },
+      { key: 'listing', label: 'Listing', type: 'url', role: 'link' },
+    ]);
+    const add = (title: string, listing?: string) => store.upsertOption(nb.id, { title, by: 'you', data: listing ? { listing } : {} }).entry;
+    const a = add('Set A', 'https://shop.example/a');
+    add('Set B', 'https://blocked.example/b');
+    const c = add('Set C', 'https://shop.example/sold-c');
+    add('Set D');
+    store.setSteps(nb.id, [{ title: 'Read each listing', kind: 'source', agentId: 'page-reader', facts: ['price', 'seller'] }]);
+
+    await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    for (let i = 0; i < 400 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+
+    // One run per option with a page, each given its page and the facts it lacks; none empty.
+    const calls = readFileSync(wanted, 'utf-8').trim().split('\n').sort();
+    expect(calls).toEqual(['https://blocked.example/b|Price, Seller', 'https://shop.example/a|Price, Seller', 'https://shop.example/sold-c|Price, Seller']);
+    // What the page said is on the option, sourced to it (a 0 the page didn't give is left out).
+    const optA = store.entries(nb.id).find((e) => e.id === a.id)!;
+    expect(optA.data).toMatchObject({ price: 40, seller: 'Ann' });
+    expect(optA.data?.odometer).toBeUndefined();
+    expect(optA.factMeta?.price?.source).toBe('https://shop.example/a');
+    // A gone item is ruled out; a blocked page and an option without a page are said.
+    expect(store.entries(nb.id).find((e) => e.id === c.id)!.ruledOut).toBeTruthy();
+    const note = store.passes(nb.id)[0].note ?? '';
+    expect(note).toContain('page-reader: read 2 of 3 pages, 2 facts');
+    expect(note).toContain('blocked.example blocked the reader');
+    expect(note).toContain('1 gone, ruled out');
+    expect(note).toContain('1 without a page of their own');
+    // An agent that takes the notebook isn't a page reader, even with a URL input.
+    const { perItemInputs } = await import('../lib/notebook-pipeline.js');
+    expect(perItemInputs({ inputs: { NOTEBOOK: {}, URL: {} } } as never)).toBeUndefined();
+    expect(perItemInputs({ inputs: { URL: {}, FACTS: {} } } as never)).toEqual({ page: 'URL', want: 'FACTS' });
+    // As a check step it would run with no page: it's refused, saying what to do instead.
+    store.setChecks(nb.id, ['Works']);
+    store.setSteps(nb.id, [{ title: 'Check each set', kind: 'check', agentId: 'page-reader' }]);
+    const before = calls.length;
+    const refused = await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(decodeURIComponent(refused.headers.location)).toContain("page-reader reads one item's own page at a time, so it can't do a check step. Pick sua’s checker for it under Edit");
+    expect(readFileSync(wanted, 'utf-8').trim().split('\n')).toHaveLength(before);
   });
 
   it('a step still getting closer when it runs out of tries offers Try again first; Stop and Move on from the header', async () => {
@@ -648,7 +734,7 @@ describe('notebook pipeline (G2–G3)', () => {
     const moved = await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[0] as never);
     expect(moved).toMatchObject({ status: 'completed', summary: 'Moved on from **Find 5 companies**, keeping what it found. Next is yours: pick the final set with Decide.' });
     expect(store.get(nb.id)!.steps![1]).toMatchObject({ status: 'done', movedOn: true, note: '3 of 5 found, moved on' });
-    expect(await page()).toContain('3 of 5 found · moved on');
+    expect(await page()).toContain('<span class="nb-step__count">3 of 5 found</span><span class="nb-step__state nb-step__state--moved">moved on</span>');
     // Its Try again card is stale now too.
     expect(await executeNotebookStep((await import('../context.js')).getContext(ctx), cards[1] as never)).toMatchObject({ status: 'failed' });
     // Deciding is yours: Decide is the main button again, and there's no Next step.
@@ -697,6 +783,43 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(asked[0].NOTEBOOK).toContain('This step: Check the peers.');
     expect(store.get(nb.id)!.lastRunNote).toContain('notebook-checker: 0 new, 1 check met, 1 ruled out on a check (filed directly)');
     checkerReply = undefined;
+  });
+
+  it("a find step without an agent uses sua's finder, which files what its searches found", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Director of accounting job', statement: 'A director-level accounting job, Austin or remote.' });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.upsertOption(nb.id, { title: 'Controller, Old Co', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/9' } });
+    store.setSteps(nb.id, [{ title: 'Find 2 roles', kind: 'find', target: 2 }]);
+
+    // The page says who does it.
+    const page = await request(app).get(`/notebooks/${nb.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
+    expect(page.text).toContain('with sua’s finder');
+    expect(page.text).not.toContain('needs an agent');
+
+    const asked: Array<Record<string, string>> = [];
+    finderReply = (inputs) => {
+      asked.push(inputs);
+      return `Found 1 new.\n<notebook>${JSON.stringify({ entries: [
+        { kind: 'option', title: 'Controller, Acme: Remote US, $190k–$220k', body: 'Leads a team of 6.', data: { salary: { min: 190000, max: 220000 }, posting_url: 'https://job-boards.greenhouse.io/acme/jobs/1' }, fingerprint: 'https://job-boards.greenhouse.io/acme/jobs/1' },
+        { kind: 'note', title: 'Searched 3 places at once: Greenhouse (1), Lever (0), Ashby (0). Nothing new from Lever, Ashby.' },
+      ], sources: [{ name: 'Greenhouse', found: 1, status: 'found' }, { name: 'Lever', found: 0, status: 'none' }] })}</notebook>`;
+    };
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { getContext } = await import('../context.js');
+    expect(startNotebookStep(getContext(app.locals), nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'met', note: '2 of 2 found' });
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.title)).toContain('Controller, Acme: Remote US, $190k–$220k');
+    // It's given the notebook with this step's job, what it already has, and the fields to fill.
+    expect(asked[0].NOTEBOOK).toContain('This step: Find 2 roles.');
+    expect(JSON.parse(asked[0].OPTIONS)).toEqual([expect.objectContaining({ name: 'Controller, Old Co', sources: ['https://jobs.lever.co/oldco/9'] })]);
+    expect(JSON.parse(asked[0].FIELDS).map((f: { key: string }) => f.key)).toEqual(['salary', 'posting_url']);
+    expect(store.get(nb.id)!.lastRunNote).toContain('notebook-finder: 2 new (filed directly)');
+    finderReply = undefined;
   });
 
   it('Check the top N: a check step you moved on from works again on just the best options', async () => {
@@ -863,7 +986,7 @@ describe('the funnel on the page and in the conversation', () => {
     expect(page).toContain('action="/notebooks/cars/narrow"');
     expect(page).toContain('data-nb-mode="narrow"');
     expect(page).toMatch(/<summary class="btn btn--sm">Decide…<\/summary>/); // not the main button now
-    expect(page).toContain('keep the best · to do');
+    expect(page).toContain('<span class="nb-step__count">keep the best</span><span class="nb-step__state nb-step__state--todo">to do</span>');
     const out = await post('/notebooks/cars/narrow', `chosen=${rav.id}&chosen=${crv.id}&decision=Too+pricey`);
     expect(decodeURIComponent(out.headers.location)).toContain('Kept 2, ruled out 1. Next: Pick one.');
     const nb = store.get('cars')!;
@@ -967,6 +1090,57 @@ describe('the funnel on the page and in the conversation', () => {
     store.setSteps('peers', [{ title: 'Find 3', kind: 'find', target: 3 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
     const again = await get('/notebooks/peers');
     expect(again.text).toMatch(/type="radio" name="chosen" value="[^"]+" checked>/); // the earlier pick, ready to keep
+  });
+
+  it('Pick: one option at a time, or Save picks from Decide…, without closing the notebook', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> | string = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await post('/notebooks', { title: 'Gadgets' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    store.setSteps('gadgets', [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick which to buy', kind: 'decide', target: 1 }]);
+    store.updateStep('gadgets', store.get('gadgets')!.steps![0].id, { status: 'done' });
+    const radio = store.upsertOption('gadgets', { title: 'Radio', by: 'you' }).entry;
+    const lamp = store.upsertOption('gadgets', { title: 'Lamp', by: 'you' }).entry;
+
+    // The step card opens Decide…, which can save picks without closing.
+    const page = (await get('/notebooks/gadgets')).text;
+    expect(page).toContain('data-nb-open-act="decide"');
+    expect(page).toContain('data-nb-act-name="decide"');
+    expect(page).toContain('Save picks, keep it open');
+    // The option page has Pick this one.
+    expect((await get(`/notebooks/gadgets/entries/${radio.id}`)).text).toContain('>Pick this one</button>');
+
+    const picked = await post(`/notebooks/gadgets/entries/${radio.id}/choose`, { back: 'option' });
+    expect(decodeURIComponent(picked.headers.location)).toContain(`/entries/${radio.id}?flash=Picked Radio.`);
+    let nb = store.get('gadgets')!;
+    expect(nb.status).toBe('active');
+    expect(nb.steps![1]).toMatchObject({ status: 'done', note: '1 chosen' });
+    const opt = (await get(`/notebooks/gadgets/entries/${radio.id}`)).text;
+    expect(opt).toContain('✓ Picked');
+    expect(opt).toContain('>Unpick</button>');
+
+    // Taking it back opens the step again.
+    await post(`/notebooks/gadgets/entries/${radio.id}/choose`, { on: '0' });
+    nb = store.get('gadgets')!;
+    expect(store.entries('gadgets').some((e) => e.chosenAt)).toBe(false);
+    expect(nb.steps![1].status).toBe('todo');
+
+    // Save picks from Decide…: these are the picks, and it stays open.
+    const saved = await post('/notebooks/gadgets/decide', `chosen=${lamp.id}&keep=1`);
+    expect(decodeURIComponent(saved.headers.location)).toContain('Picked 1. The notebook stays open.');
+    nb = store.get('gadgets')!;
+    expect(nb.status).toBe('active');
+    expect(nb.decision).toBeUndefined();
+    expect(store.entries('gadgets').filter((e) => e.chosenAt).map((e) => e.title)).toEqual(['Lamp']);
+    expect(nb.steps![1].status).toBe('done');
+
+    // A ruled-out option can't be picked.
+    store.ruleOut('gadgets', radio.id, 'meh');
+    const no = await post(`/notebooks/gadgets/entries/${radio.id}/choose`);
+    expect(decodeURIComponent(no.headers.location)).toContain('was ruled out');
   });
 
   it("sua's picks: marked from its notebook-add, replaced by the next ones, ticked from Decide…", async () => {
@@ -1190,14 +1364,20 @@ describe('the notebooks list', () => {
     expect(first.text).toContain('1–12 of 15');
     expect(first.text).toContain('href="/notebooks?page=2"');
     expect((await get('/notebooks?page=2')).text).toContain('13–15 of 15');
-    expect((await get('/notebooks?status=decided')).text).toContain('Laptop');
+    const decided = (await get('/notebooks?status=decided')).text;
+    expect(decided).toContain('Laptop');
+    expect(decided).toContain('nb-status--decided');
     const search = await get('/notebooks?q=staff');
     expect(search.text).toContain('Notebook 07');
     expect(search.text).not.toContain('Notebook 08');
     const carCard = await get('/notebooks?q=used%20car');
     expect(carCard.text).toContain('<span class="nbl-card__price">$4,023</span><span class="nbl-card__leadname">2010 Toyota RAV4</span>');
-    expect(carCard.text).toContain('<span class="nbl-chip">1 option</span><span class="nbl-chip">1 in the running</span>');
-    expect(carCard.text).toContain('<span class="nbl-card__done">0 of 1 done</span>');
+    // One data line, its progress as dots in the footer, and no "active" chip (the tab says it).
+    expect(carCard.text).toContain('<span class="nbl-card__facts"><span>1 option</span><span>1 in the running</span></span>');
+    expect(carCard.text).toContain('<span class="nbl-card__met" title="Done when: ○ One fits"><span class="nbl-card__dots" aria-hidden="true"><i class=""></i></span>0 of 1 met</span>');
+    expect(carCard.text).not.toContain('nb-status--active');
+    // A photo fills its frame with a blurred copy of itself behind it.
+    expect(carCard.text).toContain(`class="nbl-card__cover nbl-card__cover--photo" style="--cover:url('/notebooks/buy-a-used-car/entries/${rav.id}/photo')"`);
     expect(carCard.text).toContain(`src="/notebooks/buy-a-used-car/entries/${rav.id}/photo"`);
     expect(carCard.text).toContain('example photo');
     // No picture yet: its own generated cover, with an icon for its kind.
@@ -1252,6 +1432,40 @@ describe('sua greets a new notebook', () => {
   });
 });
 
+describe("a new notebook's Start", () => {
+  it('is offered for a first step sua can run, not for yours or one that needs an agent', async () => {
+    await makeApp();
+    const { startableFirstStep } = await import('../lib/notebook-chat.js');
+    const step = (kind: string, extra: Record<string, unknown> = {}) => ({ steps: [{ id: 's1', title: 'Step', kind, status: 'todo', tries: 0, ...extra }] }) as never;
+    expect(startableFirstStep(step('find'))?.id).toBe('s1'); // sua's finder
+    expect(startableFirstStep(step('check'))?.id).toBe('s1'); // sua's checker
+    expect(startableFirstStep(step('source', { agentId: 'facts-agent' }))?.id).toBe('s1');
+    expect(startableFirstStep(step('source'))).toBeUndefined(); // needs an agent first
+    expect(startableFirstStep(step('decide'))).toBeUndefined(); // yours
+    expect(startableFirstStep(step('find', { status: 'done' }))).toBeUndefined();
+    expect(startableFirstStep({ steps: [] } as never)).toBeUndefined();
+  });
+
+  it("starts step 1 when you press it (the step card's WAS todo), and a stale one does nothing", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setSteps(nb.id, [{ title: 'Find 3', kind: 'find', target: 3 }]);
+    finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"A"},{"kind":"option","title":"B"},{"kind":"option","title":"C"}]}</notebook>';
+    const ctx = getContext(app.locals);
+    const card = { kind: 'action' as const, status: 'proposed' as const, agentId: 'notebook-step', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'todo' } };
+    expect(await executeNotebookStep(ctx, card)).toMatchObject({ status: 'completed', summary: "Working on **Find 3**. I'll say here when it's done or stuck." });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(store.get(nb.id)!.steps![0].status).toBe('met');
+    // Pressed again later: the step isn't to do any more.
+    expect(await executeNotebookStep(ctx, card)).toMatchObject({ status: 'failed' });
+    finderReply = undefined;
+  });
+});
+
 describe('a notebook started without steps', () => {
   afterEach(() => { stepsReply = undefined; });
   const make = async () => {
@@ -1291,8 +1505,12 @@ describe('a notebook started without steps', () => {
     expect(JSON.parse(asked!.CURRENT)).toMatchObject({ title: 'Find a staff role', steps: [] });
     expect(asked!.CURRENT).toContain('"salary"');
     const said = inbox.listResponses(nb.conversationId!);
-    expect(said).toHaveLength(1);
+    expect(said).toHaveLength(2);
     expect(said[0].body).toContain('**The work, one step at a time:** find 10 roles, then source pay, then check pay bands, then pick one.');
+    // Step 1 is a press away: the greeting says so, and a Start card follows it.
+    expect(said[0].body).toContain("Press **Start** when you're ready and I'll begin with **Find 10 roles**.");
+    expect(said[1]).toMatchObject({ role: 'action' });
+    expect(JSON.parse(said[1].metaJson!)).toMatchObject({ agentId: 'notebook-step', status: 'proposed', ctaLabel: 'Start', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'todo' }, rationale: 'Start step 1: Find 10 roles, with sched-agent.' });
   });
 
   it("keeps a draft's steps without asking again, and still greets when sua gives none", async () => {
@@ -1307,6 +1525,8 @@ describe('a notebook started without steps', () => {
     expect(store.get('rental')!.steps).toBeUndefined();
     expect(calls).toBe(1); // only the notebook without steps
     expect(inbox.listResponses(store.get('rental')!.conversationId!)[0].body).not.toContain('one step at a time');
+    // No steps: nothing to start, so no card.
+    expect(inbox.listResponses(store.get('rental')!.conversationId!)).toHaveLength(1);
   });
 });
 
@@ -1600,7 +1820,8 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
     expect(back.text).toContain('>noise-cancelling headphones under $300</textarea>');
     expect(back.text).toContain('value="Quiet headphones for flights"');
     expect(back.text).toContain('name="params" value="over-ear"');
-    expect(back.text).toContain('value="Found → Bought"');
+    expect(back.text).toContain('name="stages" value="Found"');
+    expect(back.text).toContain('name="stages" value="Bought"');
     expect(back.text).toMatch(/value="sched-agent"><span>/);
     expect(back.text).toContain(`<input type="hidden" name="draft" value="${id}">`);
 
@@ -1787,8 +2008,41 @@ describe('a brief to share', () => {
     expect(t).toContain('href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">Own page ↗</a>');
     expect(t).toContain('Found on a search page');
     expect(t).toContain('1/2 checks');
+    // An option with nothing checked doesn't say "0/2 checks".
+    expect(t).not.toContain('0/2 checks');
     expect(t).toContain('<span class="chip">under $6,000</span>');
+    // Key findings, computed: the pool and the price span.
+    expect(t).toContain('<h2 id="b-find">Key findings</h2>');
+    expect(t).toContain('<strong>2 options looked at</strong>: 2 in the running.');
+    expect(t).toContain('Price in the running: <span class="num">$4,700–$4,999</span>.');
+    // Side by side, then in detail; nothing folded away (a closed details is missing from a PDF).
+    expect(t).toContain('<div class="tbl"><table>');
+    // A name with its own page links to it in the table; one found only on a search page doesn't.
+    expect(t).toContain('<th scope="row"><a class="tbl__link" href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">2010 Subaru Forester &lt;b&gt;</a>');
+    expect(t).toContain('<th scope="row">2009 Forester');
+    expect(t).not.toContain('<details');
     expect(t).not.toMatch(/<script/);
+    // The extended brief (an option): the summary, then each option in full.
+    expect(t).not.toContain('Each option in full');
+    const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
+    expect(full).toContain('Extended notebook brief');
+    expect(full).toContain('<h2 id="b-full">Each option in full<span class="count">2</span></h2>');
+    expect(full).toMatch(/<dl class="full__facts"><div><dt>Price<\/dt><dd>\$4,999<\/dd><\/div>/);
+    expect(full).toContain('<li class="crit is-met"><i>✓</i><span>Clean title</span></li>');
+    expect(full).toContain('<li class="crit"><i>○</i><span>Accident history</span></li>');
+    expect(full).toContain('<h4>What happened</h4>');
+    // "In detail" would repeat them: the extended brief has the table, then each in full.
+    expect(full).not.toContain('id="b-opts"');
+    expect(full).toContain('<div class="tbl"><table>');
+    expect(full).not.toMatch(/<script/);
+    expect((await get(`/notebooks/${nb.id}/brief.html?full=1&download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief-extended.html`);
+    expect((await get(`/notebooks/${nb.id}/brief.html?full=1&print=1`)).text).toContain('print()');
+    const menu = (await get(`/notebooks/${nb.id}`)).text;
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1"`);
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1&amp;print=1"`);
+    // Save as PDF: the same page, with the print dialog opened for you.
+    expect((await get(`/notebooks/${nb.id}/brief.html?print=1`)).text).toContain('print()');
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html?print=1"`);
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
@@ -1799,6 +2053,194 @@ describe('a brief to share', () => {
     const frag = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id) , fragment: true });
     expect(frag.startsWith('<title>')).toBe(true);
     expect(frag).not.toContain('<html');
+  });
+});
+
+describe('a brief with pictures', () => {
+  it('shows each option’s picture by its name and atop it in full; a saved file carries them inside', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Find a controller job', statement: 'A controller role, remote' });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price' }, { key: 'company', label: 'Company', type: 'text', role: 'org' }]);
+    const logo = store.upsertOption(nb.id, { title: 'Controller, Acme Pay', by: 'x', fingerprint: 'a', data: { salary: 190000, company: 'Acme Pay' } }).entry;
+    const drawn = store.upsertOption(nb.id, { title: 'Controller, Birch Labs', by: 'x', fingerprint: 'b', data: { salary: 180000, company: 'Birch Labs' } }).entry;
+    const bare = store.upsertOption(nb.id, { title: 'Controller, Cedar Co', by: 'x', fingerprint: 'c', data: { salary: 170000, company: 'Cedar Co' } }).entry;
+    const word = store.upsertOption(nb.id, { title: 'Controller, Dune Inc', by: 'x', fingerprint: 'd', data: { salary: 160000, company: 'Dune Inc' } }).entry;
+    const WIDE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 1, 0xf4, 0, 0, 0, 0x91]);
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 180, 0, 0, 0, 180]);
+    store.savePhoto(nb.id, logo.id, 'https://acmepay.example/apple-touch-icon.png', { contentType: 'image/png', bytes: PNG }, { kind: 'logo', what: 'acmepay.example logo' });
+    store.savePhoto(nb.id, word.id, 'https://dune.example/wordmark.png', { contentType: 'image/png', bytes: WIDE }, { kind: 'logo', what: 'dune.example logo' });
+    store.savePhoto(nb.id, drawn.id, 'illustration', { contentType: 'image/svg+xml', bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { kind: 'illustration' });
+    const photoPath = (id: string) => `/notebooks/${nb.id}/entries/${id}/photo`;
+    const t = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    // Opened on the dashboard: from its own addresses; a row with none keeps the names lined up.
+    expect(t).toContain(`<span class="pic pic--thumb is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
+    expect(t).toContain(`<span class="pic pic--thumb is-tile"><img src="${photoPath(drawn.id)}" alt=""></span>`);
+    expect(t).toContain('<span class="pic pic--thumb is-empty" aria-hidden="true"></span>');
+    // A picture can change at the same address: the browser asks again and gets a 304 while it hasn't.
+    const first = await get(photoPath(logo.id));
+    expect(first.headers['cache-control']).toBe('private, no-cache');
+    expect((await get(photoPath(logo.id)).set('If-None-Match', first.headers.etag)).status).toBe(304);
+    store.savePhoto(nb.id, logo.id, 'https://acmepay.example/new.png', { contentType: 'image/png', bytes: PNG }, { kind: 'logo' });
+    expect((await get(photoPath(logo.id)).set('If-None-Match', first.headers.etag)).status).toBe(200);
+    // A wordmark (500×145) is marked wide, so it fills the thumbnail's width.
+    expect(t).toContain(`<span class="pic pic--thumb is-tile is-logo is-wide"><img src="${photoPath(word.id)}" alt=""></span>`);
+    expect(t).not.toContain(photoPath(bare.id));
+    const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
+    expect(full).toContain(`<span class="pic pic--hero is-tile is-logo"><img src="${photoPath(logo.id)}" alt=""></span>`);
+    // A drawing says so; a logo needs no word.
+    expect(full).toContain(`<img src="${photoPath(drawn.id)}" alt=""><span class="pic__kind">illustration</span>`);
+    // Saved as a file: the pictures go inside it (the dashboard's addresses need you signed in).
+    const saved = (await get(`/notebooks/${nb.id}/brief.html?full=1&download=1`)).text;
+    expect(saved).not.toContain('/photo"');
+    expect(saved).toContain(`<img src="data:image/png;base64,${Buffer.from(PNG).toString('base64')}" alt="">`);
+    expect(saved).toMatch(/<img src="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+" alt="">/);
+    // Logos show whole on a tile on the option's own page too, with no "example photo" word.
+    const page = (await get(`/notebooks/${nb.id}/entries/${logo.id}`)).text;
+    expect(page).toContain(`<img src="${photoPath(logo.id)}" alt="" class="is-drawn is-logo">`);
+    expect(page).not.toContain('example photo');
+    expect((await get(`/notebooks/${nb.id}/entries/${word.id}`)).text).toContain(`<img src="${photoPath(word.id)}" alt="" class="is-drawn is-logo is-wide">`);
+  });
+});
+
+describe('a brief as a summary of findings', () => {
+  it('says what was found: pay span with ranges, what is missing, how they split, why the rest were ruled out; a decision once, as a list', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { renderNotebookBrief } = await import('../views/notebook-brief.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Director of accounting job', statement: 'Austin or remote', params: ['$180k minimum'] });
+    store.setFields(nb.id, [
+      { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },
+      { key: 'company', label: 'Company', type: 'text', role: 'org' },
+      { key: 'remote', label: 'Remote', type: 'text' },
+    ]);
+    const a = store.upsertOption(nb.id, { title: 'Controller, Acme: remote', by: 'x', fingerprint: 'a', data: { salary: { min: 180000, max: 220000 }, company: 'Acme', remote: 'Remote' }, body: 'Leads a team of 6 across tax and accounting. More detail here.' }).entry;
+    const b = store.upsertOption(nb.id, { title: 'Director of Accounting, Hooli', by: 'x', fingerprint: 'b', data: { salary: { min: 145000, max: 300000 }, company: 'Hooli', remote: 'Remote' } }).entry;
+    store.upsertOption(nb.id, { title: 'Controller, Initech', by: 'x', fingerprint: 'c', data: { company: 'Initech', remote: 'On-site' } });
+    for (const [i, why] of ['Unfit: pays $150k–$160k, under the floor', 'Unfit: not director level', 'Posting closed: page not found'].entries()) {
+      const e = store.upsertOption(nb.id, { title: `Old role ${String(i)}`, by: 'x', fingerprint: `o${String(i)}` }).entry;
+      store.ruleOut(nb.id, e.id, why, 'you');
+    }
+    store.addEntry(nb.id, { kind: 'note', title: 'Ashby pages need a browser to load', by: 'agent:x' });
+    store.addEntry(nb.id, { kind: 'note', title: 'Searched 4 places at once: Greenhouse (1), Lever (0).', by: 'agent:notebook-finder' });
+    let t = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id, 1000), fragment: true });
+    expect(t).toContain('<strong>6 options looked at</strong>: 3 in the running, 3 ruled out.');
+    expect(t).toContain('Salary in the running: <span class="num">$145,000–$300,000</span>; 1 doesn&#39;t list it.');
+    expect(t).toContain('Remote: 2 Remote, 1 On-site.');
+    expect(t).toContain('Most often ruled out for: unfit (2).');
+    expect(t).toContain('Leads a team of 6 across tax and accounting.');
+    expect(t).not.toContain('More detail here');
+    expect(t).toContain('Ashby pages need a browser to load');
+    expect(t).not.toContain('Searched 4 places at once');
+    expect(t).toContain('<strong>Old role 2</strong> <span class="why">· Posting closed: page not found</span>');
+
+    // Decided: the decision once, its picks as a list; no "Decided: N chosen" box besides.
+    store.decide(nb.id, 'Both lead a team.', 'you', [a.id, b.id]);
+    t = renderNotebookBrief({ nb: store.get(nb.id)!, entries: store.entries(nb.id, 1000), fragment: true });
+    expect(t).toContain('<section class="decision" aria-label="Decision">');
+    expect(t).toContain('· 2 chosen of 3 in the running');
+    expect(t).toContain('<p>Both lead a team.</p>');
+    expect(t).not.toContain('class="stands"');
+    expect(t).toContain('The final set, and the rest in the running');
+  });
+});
+
+describe('notebook templates', () => {
+  it('save a notebook’s setup from Edit, list it on New notebook, and remove it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const nb = store.create({ title: 'Find a controller job', statement: 'Austin or remote', params: ['Remote or Austin, TX'] });
+    store.setFields(nb.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price' }]);
+    store.setSteps(nb.id, [{ title: 'Find 5 roles', kind: 'find', target: 5 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    store.archive(nb.id);
+
+    // Edit has it (an archived notebook too).
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain(`action="/notebooks/${nb.id}/template"`);
+    const saved = await post(`/notebooks/${nb.id}/template`, 'name=Job+search');
+    expect(saved.status).toBe(303);
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved as the template “Job search” (1 field · 2 steps · 1 limit).');
+    expect(store.getTemplate('job-search')).toMatchObject({ name: 'Job search', fromNotebook: nb.id });
+
+    const page = (await get('/notebooks/new')).text;
+    expect(page).toContain('Or start from one of your templates');
+    expect(page).toContain('<span class="nbd-tpl__name">Job search</span>');
+    expect(page).toContain('value="Start a new notebook from my “Job search” template."');
+
+    // Archive: off the list and away from sua, in a folded Archived list; restore brings it back.
+    const archived = await post('/notebooks/templates/job-search/archive', 'archived=1');
+    expect(decodeURIComponent(archived.headers.location)).toContain('Archived the template “Job search”.');
+    let newPage = (await get('/notebooks/new')).text;
+    expect(newPage).not.toContain('Or start from one of your templates');
+    expect(newPage).toContain('Archived templates <span class="nbd-tpl__n">1</span>');
+    expect(newPage).not.toContain('value="Start a new notebook from my “Job search” template."');
+    const { getContext } = await import('../context.js');
+    const { executeNotebookCreate } = await import('./inbox-engine.js');
+    expect(executeNotebookCreate(getContext(app.locals), { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { TEMPLATE: 'job-search', TITLE: 'x' } }))
+      .toMatchObject({ status: 'failed', refusalReason: 'The template "Job search" is archived. Restore it from New notebook → Archived templates first.' });
+    await post('/notebooks/templates/job-search/archive', 'archived=0');
+    newPage = (await get('/notebooks/new')).text;
+    expect(newPage).toContain('Or start from one of your templates');
+    expect(newPage).not.toContain('Archived templates');
+
+    const gone = await post('/notebooks/templates/job-search/delete', '');
+    expect(decodeURIComponent(gone.headers.location)).toContain('Template removed.');
+    expect(store.getTemplate('job-search')).toBeUndefined();
+    expect((await get('/notebooks/new')).text).not.toContain('nbd-tpl__name');
+  });
+
+  it('sua proposes a notebook from a template after asking: a card that previews it, and approving creates it empty with the setup', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase, executeNotebookCreate } = await import('./inbox-engine.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const seed = store.create({ title: 'Find a controller job', statement: 'Controller roles, Austin or remote', params: ['Remote or Austin, TX', '$180k minimum comp'], criteria: ['At least five open roles that fit', 'A decision recorded'] });
+    store.setFields(seed.id, [{ key: 'salary', label: 'Salary', type: 'money', role: 'price', range: true }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.setChecks(seed.id, ['Pays at least $180k']);
+    store.setStages(seed.id, ['Found', 'Applied']);
+    store.setSteps(seed.id, [{ title: 'Find 5 roles', kind: 'find', target: 5, status: 'done' }, { title: 'Source pay', kind: 'source', agentId: 'gone-agent' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    store.upsertOption(seed.id, { title: 'Controller, Acme', by: 'you', data: {} });
+    store.saveTemplate('Job search', seed.id);
+
+    const params = ['Remote or Denver, CO', '$180k minimum comp'];
+    const { accepted } = parseProposedActions([{ type: 'notebook-create', rationale: 'A Denver job search', inputs: { TEMPLATE: 'job-search', TITLE: 'Find a controller job in Denver', STATEMENT: 'Controller roles, Denver or remote', PARAMS: params, CHECKS: ['Pays at least $180k', 'Remote or based in Denver, CO'], TARGET: 8 } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-create', status: 'proposed', ctaLabel: 'Create notebook', inputs: { TEMPLATE: 'job-search', PARAMS: JSON.stringify(params), TARGET: '8' } });
+    expect(parseProposedActions([{ type: 'notebook-create', inputs: { TEMPLATE: 'job-search' } }], [], []).rejected[0].reason).toBe('notebook-create needs inputs.TEMPLATE and inputs.TITLE');
+
+    // The preview: the template, the title, the limits as they change, the done-whens and steps.
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.inputs.TEMPLATE_NAME).toBe('Job search');
+    expect(card.surfaceChanges).toEqual([
+      { what: 'template', before: '—', after: 'Job search (2 fields · 3 steps · 1 check · 2 limits)' },
+      { what: 'title', before: '—', after: 'Find a controller job in Denver' },
+      { what: "what it's for", before: 'Controller roles, Austin or remote', after: 'Controller roles, Denver or remote' },
+      { what: 'limits', before: 'Remote or Austin, TX; $180k minimum comp', after: 'Remote or Denver, CO; $180k minimum comp' },
+      { what: 'done when', before: '—', after: 'At least five open roles that fit; A decision recorded' },
+      { what: 'checks', before: 'Pays at least $180k', after: 'Pays at least $180k; Remote or based in Denver, CO' },
+      { what: 'steps', before: '—', after: '1. Find 5 roles; 2. Source pay; 3. Pick one' },
+    ]);
+
+    const done = executeNotebookCreate(ctx, card);
+    expect(done.status).toBe('completed');
+    const made = store.list().find((n) => n.title === 'Find a controller job in Denver')!;
+    expect(done.summary).toBe(`Created [Find a controller job in Denver](/notebooks/${made.id}) from your Job search template (2 fields · 3 steps · 1 check · 2 limits). It starts empty; its first step is **Find 5 roles**: press Next step on the notebook when you're ready.`);
+    expect(made).toMatchObject({ statement: 'Controller roles, Denver or remote', params, checks: ['Pays at least $180k', 'Remote or based in Denver, CO'], stages: ['Found', 'Applied'] });
+    expect(made.criteria.map((c) => `${c.text}:${String(c.met)}`)).toEqual(['At least five open roles that fit:false', 'A decision recorded:false']);
+    expect(made.fields.map((f) => f.key)).toEqual(['salary', 'posting_url']);
+    // Steps fresh; the find step wants 8; an agent that's gone is dropped (the step needs one again).
+    expect(made.steps!.map((x) => `${x.title}:${x.status}:${x.agentId ?? ''}:${String(x.target ?? '')}`)).toEqual(['Find 5 roles:todo::8', 'Source pay:todo::', 'Pick one:todo::1']);
+    expect(store.entries(made.id).filter((e) => e.kind === 'option')).toHaveLength(0);
+    expect(store.getTemplate('job-search')!.uses).toBe(1);
+
+    expect(executeNotebookCreate(ctx, { ...card, inputs: { ...card.inputs, TEMPLATE: 'nope' } })).toMatchObject({ status: 'failed', refusalReason: 'There\'s no template "nope". Save a notebook as a template from its Edit panel first.' });
   });
 });
 
@@ -2029,7 +2471,7 @@ describe('archiving and deleting a notebook from its page', () => {
     const o = store.upsertOption(nb.id, { title: 'Example cabinet', by: 'you', data: { price: 90 } }).entry;
     store.create({ title: 'Another notebook' });
 
-    const page = await get(`/notebooks/${nb.id}`);
+    const page = await get(`/notebooks/${nb.id}/edit`);
     expect(page.text).toContain(`action="/notebooks/${nb.id}/archive"`);
     expect(page.text).toContain('Delete…');
 
@@ -2141,5 +2583,65 @@ describe('short filter labels for long facts', () => {
     await settle();
     expect(facetsAsked).toHaveLength(2);
     facetsReply = undefined;
+  });
+});
+
+describe('editing a notebook on its own page', () => {
+  it('shows the whole setup filled in, saves it from chips and rows, and keeps how far steps and done-whens got', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string | string[]>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Buy used speakers', statement: 'A set that works.', params: ['within 30 miles', 'shipped is fine'], criteria: ['Three listings', 'A decision'] });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'seller', label: 'Seller', type: 'text' }]);
+    s.setChecks(nb.id, ['Works and resets', 'Fair price']);
+    s.setStages(nb.id, ['Found', 'Shortlist', 'Bought']);
+    s.update(nb.id, { pipeline: ['sched-agent', 'gone-agent'] });
+    s.setSteps(nb.id, [{ id: 's1', title: 'Find 3 sets', kind: 'find', target: 3 }, { id: 's2', title: 'Check them', kind: 'check' }, { id: 's3', title: 'Pick one', kind: 'decide' }]);
+    s.updateStep(nb.id, 's1', { status: 'done' });
+    s.markCriterion(nb.id, 0, true);
+
+    // The header's Edit is a link to the page.
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit">Edit</a>`);
+    const page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('Edit this notebook');
+    expect(page).toContain('data-nbd-editor');
+    expect(page).toContain('<input name="params" value="within 30 miles"');
+    expect(page).toMatch(/is-met" aria-hidden="true">☑<\/span><textarea name="criteria"[^>]*>Three listings/);
+    expect(page).toContain('<input type="hidden" name="step_id" value="s1">');
+    expect(page).toContain('<span class="nbd-step__state">done</span>');
+    expect(page).toMatch(/name="pipeline" value="sched-agent" checked/);
+    expect(page).toContain('gone-agent</span> <span class="nbd-agent__note">not installed</span>');
+    expect(page).toContain('<option value="" selected>when I ask</option>');
+    expect(page).toContain('>Seller<button');
+    expect(page).toContain('Stop this notebook');
+
+    // Change a limit, drop a check and a field, retitle a step, drop the gone search, run every morning.
+    const saved = await post(`/notebooks/${nb.id}/edit`, {
+      setup: '1', title: 'Buy used speakers', statement: 'A set that works.',
+      params: ['within 50 miles', 'shipped is fine'], criteria: ['Three listings', 'A decision'],
+      field: [JSON.stringify({ key: 'price', label: 'Price' })], checks: ['Works and resets'], stages: ['Found', 'Shortlist', 'Bought'],
+      pipeline: ['sched-agent'], cadence: '0 7 * * *',
+      step_id: ['s1', 's2', 's3'], step_title: ['Find 3 sets', 'Check each', 'Pick one'], step_kind: ['find', 'check', 'decide'], step_agent: ['', '', ''], step_target: ['3', '', ''],
+    });
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved.');
+    const after = s.get(nb.id)!;
+    expect(after).toMatchObject({ params: ['within 50 miles', 'shipped is fine'], checks: ['Works and resets'], pipeline: ['sched-agent'], cadence: '0 7 * * *' });
+    expect(after.fields.map((f) => f.key)).toEqual(['price']);
+    expect(after.fields[0]).toMatchObject({ type: 'money', role: 'price' });
+    expect(after.criteria).toEqual([{ text: 'Three listings', met: true, held: true }, { text: 'A decision', met: false }]);
+    expect(after.steps?.map((x) => [x.id, x.title, x.status])).toEqual([['s1', 'Find 3 sets', 'done'], ['s2', 'Check each', 'todo'], ['s3', 'Pick one', 'todo']]);
+    expect(after.steps?.[0]?.target).toBe(3);
+
+    // The step that's running can't be removed.
+    s.updateStep(nb.id, 's2', { status: 'running' });
+    const refused = await post(`/notebooks/${nb.id}/edit`, {
+      setup: '1', title: 'Buy used speakers', step_id: ['s1'], step_title: ['Find 3 sets'], step_kind: ['find'], step_agent: [''], step_target: ['3'],
+    });
+    expect(refused.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/edit\\?flash=`));
+    expect(decodeURIComponent(refused.headers.location)).toContain('“Check each” is running'.replace(/[“”]/g, '"'));
+    expect(s.get(nb.id)!.steps).toHaveLength(3);
   });
 });

@@ -83,7 +83,9 @@ function isTextual(contentType: string): boolean {
     ct.includes('application/xhtml') ||
     ct.includes('text/plain') ||
     ct.startsWith('text/') ||
-    ct.includes('xml')
+    ct.includes('xml') ||
+    // JSON APIs (a job board's postings, a store's product feed) are text too: returned as-is.
+    ct.includes('json')
   );
 }
 
@@ -145,7 +147,7 @@ export async function httpFetch(
         res = await fetch(current, {
           redirect: 'manual',
           signal: controller.signal,
-          headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml,*/*' },
+          headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8' },
         });
       } catch (err) {
         if (controller.signal.aborted) throw new WebFetchError('timeout', `Request timed out after ${timeoutMs / 1000}s.`);
@@ -168,7 +170,7 @@ export async function httpFetch(
       }
 
       const html = await readCapped(res, maxBytes);
-      return { finalUrl: current, status: res.status, html };
+      return { finalUrl: current, status: res.status, html, ...(contentType ? { contentType: contentType.split(';')[0].trim().toLowerCase() } : {}) };
     }
     throw new WebFetchError('too_many_redirects', `Exceeded ${maxRedirects} redirects.`);
   } finally {
@@ -268,4 +270,29 @@ export async function pagePreview(url: string): Promise<{ image?: string; title?
   try { image = raw ? new URL(raw.replace(/&amp;/g, '&'), page.finalUrl).toString() : undefined; } catch { image = undefined; }
   const title = meta('og:title') ?? /<title[^>]*>([^<]{1,300})<\/title>/i.exec(page.html)?.[1];
   return { ...(image && /^https?:/i.test(image) ? { image } : {}), ...(title ? { title: title.replace(/&amp;/g, '&').trim() } : {}) };
+}
+
+/**
+ * A site's own icons, best first, for a logo: its apple-touch-icon (usually a
+ * square 180px mark), then any icon it says is 96px or larger. SVG and .ico
+ * are skipped (not kept). Read from the first part of its home page.
+ */
+export async function siteIcons(url: string): Promise<string[]> {
+  const page = await httpFetch(url, { timeoutSec: 15, maxBytes: 512 * 1024 });
+  const found: Array<{ href: string; size: number }> = [];
+  for (const tag of page.html.match(/<link\b[^>]*>/gi) ?? []) {
+    const rel = /\brel=["']([^"']+)["']/i.exec(tag)?.[1]?.toLowerCase() ?? '';
+    const href = /\bhref=["']([^"']+)["']/i.exec(tag)?.[1];
+    if (!href || !/(^|\s)(apple-touch-icon(-precomposed)?|icon)(\s|$)/.test(rel)) continue;
+    if (/\.(svg|ico)(\?|#|$)/i.test(href) || /image\/(svg|x-icon|vnd\.microsoft)/i.test(tag)) continue;
+    const sizes = /\bsizes=["'](\d+)x\d+["']/i.exec(tag)?.[1];
+    const apple = rel.includes('apple-touch-icon');
+    const size = sizes ? Number(sizes) : apple ? 180 : 0;
+    if (!apple && size < 96) continue;
+    try {
+      const abs = new URL(href.replace(/&amp;/g, '&'), page.finalUrl).toString();
+      if (/^https?:/i.test(abs)) found.push({ href: abs, size: apple ? size + 1000 : size });
+    } catch { /* a bad address */ }
+  }
+  return [...new Set(found.sort((a, b) => b.size - a.size).map((f) => f.href))].slice(0, 4);
 }

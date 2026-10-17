@@ -95,6 +95,8 @@ const loopConfigSchema = z.object({
   agentId: z.string(),
   maxIterations: z.number().int().positive().optional(),
   inputMapping: z.record(z.string(), z.string()).optional(),
+  // How many items run at once (default 1: one after another).
+  concurrency: z.number().int().min(1).max(6).optional(),
 });
 
 const agentInvokeConfigSchema = z.object({
@@ -118,6 +120,8 @@ export const agentNodeSchema = z.object({
   prompt: z.string().optional(),
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
+  // Out of turns: answer from what it read (default) or fail.
+  onMaxTurns: z.enum(['answer', 'fail']).optional(),
   // If this node fails, the run carries on: it's recorded as failed, nodes
   // that depend on it get a note instead of its output, and the run can still
   // complete. For independent sources (one site of a multi-site search).

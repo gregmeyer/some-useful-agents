@@ -510,11 +510,15 @@ describe('Dashboard v2 DAG agents', () => {
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
-    // Cards replaced the old table+header layout in v0.15 PR 1.5.
-    // Check that v2 agents render as agent cards with the right content.
-    expect(res.text).toContain('class="agent-card"');
-    expect(res.text).toContain('news-digest');
-    expect(res.text).toMatch(/<strong>2<\/strong>\s*nodes/);
+    // Browsing, every agent is one line under All agents (a never-run one isn't on a shelf).
+    expect(res.text).toContain('class="ag-row"');
+    expect(res.text).toContain('href="/agents/news-digest">News Digest</a>');
+    // Filtered or sorted, agents are slim cards.
+    const sorted = await request(app).get('/agents?sort=name')
+      .set('Host', `127.0.0.1:${PORT}`)
+      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    expect(sorted.text).toContain('class="agent-card ag-card"');
+    expect(sorted.text).toContain('href="/agents/news-digest">News Digest</a></span>');
   });
 
   it('renders the DAG container + Cytoscape JSON on /agents/:id', async () => {
@@ -1941,6 +1945,29 @@ describe('Dashboard node edit + delete (PR 3a)', () => {
     const b = updated.nodes.find((n) => n.id === 'b')!;
     expect(b.command).toBe('echo b');
     expect(b.dependsOn).toEqual(['a']);
+  });
+
+  it('a step something waits on can be set to keep going if it fails', async () => {
+    const app = await makeApp();
+    await seedChainAgent();
+    const auth = (r: request.Test) => r.set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+    // "a" feeds "b": the box shows, naming b. "b" feeds nothing: no box.
+    const formA = (await auth(request(app).get('/agents/chain-edit/nodes/a/edit'))).text;
+    expect(formA).toContain('Keep going if this step fails');
+    expect(formA).toMatch(/name="optional" value="1"\s*>/);
+    expect(formA).toContain('<code>b</code> gets a short note');
+    expect((await auth(request(app).get('/agents/chain-edit/nodes/b/edit'))).text).not.toContain('Keep going if this step fails');
+
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form')
+      .send({ type: 'shell', command: 'echo a', optionalShown: '1', optional: '1' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBe(true);
+    expect((await auth(request(app).get('/agents/chain-edit/nodes/a/edit'))).text).toMatch(/name="optional" value="1" checked/);
+
+    // A save from a form without the box keeps it; unticking clears it.
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form').send({ type: 'shell', command: 'echo a2' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBe(true);
+    await auth(request(app).post('/agents/chain-edit/nodes/a/edit').type('form').send({ type: 'shell', command: 'echo a3', optionalShown: '1' }));
+    expect(agentStore.getAgent('chain-edit')!.nodes.find((n) => n.id === 'a')!.optional).toBeUndefined();
   });
 
   it('POST edit refuses a cycle-producing dependsOn', async () => {

@@ -1,8 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { catalogRelevance, catalogTokens, NotebookStore, SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
-import type { Agent, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
+import type { Agent, AgentCatalogEntry, AgentDefinition, Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
-import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
+import { renderAgentsList, type AgentShelves, type HomeStats } from '../../views/agents-list.js';
+import { startAgentFind, readAgentFind } from '../../lib/agent-find.js';
+import { catalogStore, startCatalogSort } from '../../lib/agent-catalog-sort.js';
+import { renderFindAnswer } from '../../views/agents-find.js';
 import { buildAgentGraph, orchestrators } from '../../lib/agent-graph.js';
 
 export const agentListRouter: Router = Router();
@@ -56,6 +59,21 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     .filter((a) => storeFilter.status !== undefined || a.status !== 'archived');
   const archivedCount = storeFilter.status !== undefined ? 0
     : ctx.agentStore.listAgents({ status: 'archived' }).filter((a) => a.dashboardVisible !== false).length;
+  // sua's sorting of the catalog: each agent's group and "use it for" line
+  // (lib/agent-catalog-sort.ts). Searched too, as a second scorer after
+  // catalogRelevance — whose weights are tuned for triage and stay as they are.
+  const catalog = catalogStore(ctx).all();
+  const catalogScore = (a: Agent): number => {
+    const c = catalog.get(a.id);
+    if (!c || searchTokens.length === 0) return 0;
+    const useFor = (c.useFor ?? '').toLowerCase();
+    const group = c.group.toLowerCase();
+    let score = 0;
+    for (const t of searchTokens) score += useFor.includes(t) ? 2 : group.includes(t) ? 1 : 0;
+    return score;
+  };
+  const qGroup = typeof req.query.group === 'string' && req.query.group.trim() ? req.query.group.trim() : undefined;
+
   // Relevance WIDENS and reorders; it never removes. Everything the old
   // substring match found still matches — the ranker only adds agents whose
   // tags / entryConditions / sampleQuestions hit, which is how
@@ -67,7 +85,9 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
       (a.description ?? '').toLowerCase().includes(qSearch) ||
       a.name.toLowerCase().includes(qSearch)
     ) return true;
-    return catalogRelevance(a, searchTokens) > 0;
+    if (catalogRelevance(a, searchTokens) > 0) return true;
+    const c = catalog.get(a.id);
+    return !!c && (`${c.group} ${c.useFor ?? ''}`.toLowerCase().includes(qSearch) || catalogScore(a) > 0);
   };
   const tabCounts = {
     user: allAgentsForCounts.filter((a) => a.source === 'local' && matchesSearch(a)).length,
@@ -173,7 +193,7 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     // Score once per agent rather than inside the comparator — catalogRelevance
     // builds a concatenated string each call, so scoring in the sort would run
     // it O(n log n) times.
-    const scores = new Map(v2Agents.map((a) => [a.id, catalogRelevance(a, searchTokens)]));
+    const scores = new Map(v2Agents.map((a) => [a.id, catalogRelevance(a, searchTokens) + catalogScore(a)]));
     v2Agents.sort((a, b) =>
       (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0) || a.id.localeCompare(b.id));
   } else if (qSort === 'status') {
@@ -191,6 +211,35 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     // "Weather Forecast" (id: forecast-weather) landed under F.
     v2Agents.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   }
+
+  // When each agent was last used, and how much this month.
+  const lastRunAt = ctx.runStore.latestRunAtByAgent();
+  const monthAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const runCounts = ctx.runStore.runCountsByAgent(monthAgo);
+
+  // The User tab with nothing filtered: shelves (go-to, used lately, fill
+  // notebooks, on a schedule), then every agent in one line each, with the
+  // demos, tests and never-run drafts folded away.
+  const browsing = qTab === 'user' && !qRaw && !qStatus && !qSortRaw && !qComposed && !qFeeds && !qGroup
+    && offset === 0 && req.query.limit === undefined;
+  const shelves = browsing ? agentShelves(v2Agents, {
+    lastRunAt, runCounts, feeds: notebooksByAgent,
+    weekAgo: new Date(Date.now() - 7 * 86_400_000).toISOString(),
+    catalog,
+  }) : undefined;
+  // New or changed agents get sorted into groups in the background; the page
+  // says so and reloads once (agents-find.js polls /agents/catalog/sorting).
+  if (shelves) startCatalogSort(ctx, shelves.all);
+  const sorting = !!shelves && !!ctx.agentCatalogSorting;
+
+  // `?group=`: one group's agents as the compact list.
+  const groupList = qGroup && qTab === 'user'
+    ? v2Agents.filter((a) => catalog.get(a.id)?.group === qGroup).sort((x, y) =>
+      (runCounts.get(y.id) ?? 0) - (runCounts.get(x.id) ?? 0) || x.name.localeCompare(y.name))
+    : undefined;
+
+  // A question: sua's agent finder looks too (the page polls for its picks).
+  const find = qRaw && searchTokens.length > 0 ? startAgentFind(ctx, qRaw) : undefined;
 
   // Paginate v2 agents.
   const totalV2 = v2Agents.length;
@@ -226,7 +275,14 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     // `q` raw so the box echoes what was typed; `sort` raw (possibly
     // undefined) so agentBuildUrl keeps tab/pager URLs clean; `sortEffective`
     // only drives which dropdown option shows as selected.
-    filter: { status: qStatus, q: qRaw, sort: qSortRaw, sortEffective: qSort },
+    filter: { status: qStatus, q: qRaw, sort: qSortRaw, sortEffective: qSort, composed: qComposed, feeds: qFeeds },
+    lastRunAt,
+    runCounts,
+    ...(shelves ? { shelves } : {}),
+    ...(sorting ? { sorting } : {}),
+    ...(groupList ? { group: { name: qGroup!, agents: groupList } } : {}),
+    catalog,
+    ...(find ? { find: { id: find.id, status: find.status } } : {}),
     tab: qTab,
     tabCounts,
     limit,
@@ -236,3 +292,75 @@ agentListRouter.get('/agents', (req: Request, res: Response) => {
     availableDashboards,
   }));
 });
+
+/**
+ * sua's agent finder, from the page: POST asks (or returns the answer already
+ * being found), GET polls. The answer comes back as the panel's HTML.
+ */
+agentListRouter.post('/agents/find', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const q = typeof req.body?.q === 'string' ? req.body.q.trim().slice(0, 300) : '';
+  if (!q) { res.status(400).json({ error: 'Say what you want to do.' }); return; }
+  const find = startAgentFind(ctx, q);
+  if (!find) { res.status(503).json({ error: "sua's agent finder isn't installed." }); return; }
+  res.json({ id: find.id, status: find.status });
+});
+
+agentListRouter.get('/agents/find/:id', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const find = readAgentFind(ctx, String(req.params.id));
+  if (!find) { res.status(404).json({ status: 'gone' }); return; }
+  if (find.status === 'working') { res.json({ status: 'working' }); return; }
+  const agents = new Map(ctx.agentStore.listAgents().map((a) => [a.id, a]));
+  res.json({ status: find.status, html: renderFindAnswer(find, agents) });
+});
+
+/** Is sua still sorting the catalog? The page polls this, then reloads once. */
+agentListRouter.get('/agents/catalog/sorting', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  res.json({ sorting: !!ctx.agentCatalogSorting });
+});
+
+/** The group sua files demos and tests under; kept folded like the ones the name gives away. */
+export const DEMO_GROUP = 'Demos & tests';
+
+/** Words in an id, name or tag that mark a demo or a test, not a tool you'd use. */
+const DEMO_RE = /(^|[-_\s])(smoke|demo|test|tests|probe|hello|stub|example)([-_\s]|$)/i;
+
+/** The shelves for the User tab (pure: the route passes what it already loaded). */
+export function agentShelves(agents: readonly Agent[], d: {
+  lastRunAt: ReadonlyMap<string, string>; runCounts: ReadonlyMap<string, number>;
+  feeds: ReadonlyMap<string, unknown>; weekAgo: string;
+  catalog?: ReadonlyMap<string, AgentCatalogEntry>;
+}): AgentShelves {
+  const isDemo = (a: Agent) => !a.starred && (DEMO_RE.test(a.id) || DEMO_RE.test(a.name) || (a.tags ?? []).some((t) => /^(demo|test|smoke|example)s?$/i.test(t))
+    || (a.status === 'draft' && !d.lastRunAt.has(a.id))
+    || d.catalog?.get(a.id)?.group === DEMO_GROUP);
+  const folded = agents.filter(isDemo).sort((x, y) => x.name.localeCompare(y.name));
+  const kept = agents.filter((a) => !isDemo(a));
+  const shown = new Set<string>();
+  const take = (list: Agent[], n = 6) => { const out = list.filter((a) => !shown.has(a.id)).slice(0, n); for (const a of out) shown.add(a.id); return out; };
+  const runs = (a: Agent) => d.runCounts.get(a.id) ?? 0;
+  const goTo = take([
+    ...kept.filter((a) => a.starred).sort((x, y) => runs(y) - runs(x)),
+    ...kept.filter((a) => !a.starred && runs(a) >= 3).sort((x, y) => runs(y) - runs(x)),
+  ]);
+  const recent = take(kept.filter((a) => (d.lastRunAt.get(a.id) ?? '') >= d.weekAgo)
+    .sort((x, y) => (d.lastRunAt.get(y.id) ?? '').localeCompare(d.lastRunAt.get(x.id) ?? '')));
+  const feeds = take(kept.filter((a) => d.feeds.has(a.id)).sort((x, y) => runs(y) - runs(x)));
+  const scheduled = take(kept.filter((a) => !!a.schedule && a.status === 'active'));
+  const all = [...kept].sort((x, y) => x.name.localeCompare(y.name) || x.id.localeCompare(y.id));
+  // A shelf per group sua sorted them into (agents may also sit on a shelf
+  // above: groups are what they do, the shelves above are how you use them).
+  const byGroup = new Map<string, Agent[]>();
+  const unsorted: Agent[] = [];
+  for (const a of kept) {
+    const g = d.catalog?.get(a.id)?.group;
+    if (!g) { unsorted.push(a); continue; }
+    byGroup.set(g, [...(byGroup.get(g) ?? []), a]);
+  }
+  const byUse = (x: Agent, y: Agent) => runs(y) - runs(x) || x.name.localeCompare(y.name);
+  const groups = [...byGroup].map(([name, list]) => ({ name, agents: list.sort(byUse) }))
+    .sort((x, y) => y.agents.length - x.agents.length || x.name.localeCompare(y.name));
+  return { goTo, recent, feeds, scheduled, groups, unsorted: unsorted.sort(byUse), all, folded };
+}

@@ -6,8 +6,9 @@
 import { html, type SafeHtml } from './html.js';
 import { coverArt } from './notebooks.js';
 import type { ShelfCard } from '../lib/notebook-card.js';
+import { pictureClass } from '../lib/notebook-logos.js';
 
-const COVER_KIND: Record<string, string> = { listing: 'listing photo', representative: 'example photo', illustration: 'illustration' };
+const COVER_KIND: Record<string, string> = { listing: 'listing photo', representative: 'example photo', logo: 'logo', illustration: 'illustration' };
 
 function card(c: ShelfCard): SafeHtml {
   const { nb } = c;
@@ -20,7 +21,7 @@ function card(c: ShelfCard): SafeHtml {
     <a class="nbs-card" href="/notebooks/${encodeURIComponent(nb.id)}">
       <span class="nbs-card__cover">
         ${c.cover
-          ? html`<img src="${c.cover}" alt="" loading="lazy" class="${c.coverKind === 'illustration' ? 'is-drawn' : ''}">`
+          ? html`<img src="${c.cover}" alt="" loading="lazy" class="${pictureClass(c.coverKind, c.coverShape)}">`
           : coverArt(nb)}
         ${c.waiting ? html`<span class="nbs-card__waiting">sua asked you</span>` : html``}
         ${c.cover && c.coverKind ? html`<span class="nbs-card__kind">${COVER_KIND[c.coverKind] ?? ''}</span>` : html``}

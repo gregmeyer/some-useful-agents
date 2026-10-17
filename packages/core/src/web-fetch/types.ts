@@ -39,6 +39,8 @@ export interface RawPage {
   finalUrl: string;
   status: number;
   html: string;
+  /** The response's content type (e.g. "application/json"), when it said. */
+  contentType?: string;
 }
 
 export interface WebScrapeOptions {

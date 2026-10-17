@@ -538,4 +538,16 @@ describe('RunStore retry chain', () => {
       expect(store.latestRunAtByAgent().size).toBe(0);
     });
   });
+
+  describe('runCountsByAgent', () => {
+    it('counts runs per agent since a time (any status)', () => {
+      store.createRun(makeRun({ id: 'a1', agentName: 'alpha', status: 'completed', startedAt: '2026-06-01T00:00:00.000Z' }));
+      store.createRun(makeRun({ id: 'a2', agentName: 'alpha', status: 'failed', startedAt: '2026-06-20T00:00:00.000Z' }));
+      store.createRun(makeRun({ id: 'a3', agentName: 'alpha', status: 'completed', startedAt: '2026-06-21T00:00:00.000Z' }));
+      store.createRun(makeRun({ id: 'b1', agentName: 'beta', status: 'running', startedAt: '2026-05-10T00:00:00.000Z' }));
+      const m = store.runCountsByAgent('2026-06-15T00:00:00.000Z');
+      expect(m.get('alpha')).toBe(2);
+      expect(m.has('beta')).toBe(false);
+    });
+  });
 });

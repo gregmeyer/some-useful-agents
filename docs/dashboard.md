@@ -66,9 +66,32 @@ The list here also has **Filter and sort** (where a thread came from, its agent,
 
 **Tabs:** User / Examples / Community (with per-tab counts). Community hidden unless you have community agents imported.
 
-Each card shows: status badge, source, optional `mcp` badge, **"used by N"** if other agents invoke this one and **"calls N"** if it invokes others, DAG shape (dot string), description, node count, schedule (humanized), last run status + age, **Run** button. Star toggle on each card.
+**What do you want to do?** — the box at the top. Say it in your own words ("find startups hiring in fintech"):
+- **Keyword matches** show at once, from the same ranker sua uses to pick agents in a conversation.
+- **sua's picks.** sua's agent finder (`agent-catalog-search`, the one it runs in a conversation) looks at every agent. Its picks appear above the matches: its recommendation, then up to three agents, each with why it fits, a question you can ask it, and **Run**.
+- **When nothing fits,** **Ask sua to build one** puts the request in the sua band.
+- **Talk it through with sua →** is on every answer. It opens a conversation whose first message is your question and what the finder suggested (each pick with why). sua carries on from there: it can compare them, change one, or build a new one without searching again. The search itself never opens a conversation; it's a run of `agent-catalog-search` you'll see under Runs.
+- **Repeat questions** asked within the hour are answered from the same search. Without `agent-catalog-search` installed, only the keyword matches show.
 
-**Filters** — search (id/name/description), status (active/paused/draft/archived), sort (name / status / recently run / starred first). Pagination with 12/24/48/100 page sizes.
+**Browsing** (the User tab, nothing filtered) shows shelves:
+- **Your go-to:** starred agents, then the ones you've run most this month.
+- **Used lately:** the last week.
+- **Fill notebooks.**
+- **On a schedule.**
+- **By what they do:** a shelf per group sua sorted your agents into ("Jobs & companies", "News & digests", "Fun"…), biggest first, its three most-used agents as cards and **All N →** for the rest (`?group=`, one line each, most used first). Agents sua hasn't sorted yet wait under **Not sorted yet**.
+- **All agents:** every agent as one line, by name.
+- **Folded away at the bottom:** demos, tests and drafts you've never run (names like `smoke`, `demo`, `test`, `probe`, `hello`, or ones sua put in "Demos & tests"; a starred one stays out).
+
+**How sua sorts them.** The `agent-catalog-sorter` system agent (installed by the dashboard at startup) reads each agent's name, description, tags and sample questions, puts it in one group (reusing the groups already in use, at most 12) and writes one plain line on what to use it for ("Find open roles at a company on Ashby"). That line replaces the description on cards and rows (the description stays as the hover text), and the **What do you want to do?** box searches it too. Sorting runs in the background when the page opens and some agent is new or changed (its name, description, tags, questions or version), 40 agents per run; the page says "sua is sorting your agents…" and reloads once when it's done. An agent it couldn't place is tried again after 10 minutes. The groups live in the `agent_catalog` table; sorting never changes an agent's version.
+
+**Cards** are slim:
+- the name (with the id beneath when the name doesn't just restate it), a two-line "use it for" line (sua's, or the description until it's sorted) and one question you can ask it;
+- chips for anything worth knowing: not active, feeds N notebooks, calls N, used by N, its schedule, mcp;
+- when you last used it ("used 1d ago · 26 runs this month"), and **Run**.
+
+How an agent is built (its nodes and DAG) is on its own page.
+
+**Filters** — folded under **Filters** (open while one is on): status (active/paused/draft/archived) and sort (name / status / recently run / starred first). Any filter, a search, or the Examples tab shows a paged list of cards (12/24/48/100) instead of shelves. The **Calls other agents** and **Feeds notebooks** chips stay on as you page or switch tabs.
 
 **Fixing an agent that isn't working.** **Ask sua to fix this** on an agent's page opens a conversation in the panel where sua first asks what's going wrong. Tell it what you saw, or press **Look at its recent runs**; either way sua drafts a fix and shows it as a diff you **Apply** or skip. Nothing changes until you do. The same happens on its own when an agent's failure thread reaches three failures (once per thread; not while autonomy is Off or the thread is paused). An applied fix is a new version under the same id, so boards, schedules and history keep pointing at the agent and **Versions** can roll it back. A fix changes what the agent does, never whether or when it runs: its status always stays, and its schedule stays unless the fix sets one. If the agent changed after the fix was drafted, applying it is refused and you can ask sua to look again. If three fixes to one agent go by in a conversation without a successful run, sua stops fixing it on its own and asks you what to try next. Your answer lets it continue, and so does any successful run of the agent in that conversation; after that, further changes are new work, not another round of the same fix.
 
@@ -115,7 +138,11 @@ Six tabs:
 ### Overview
 The page leads with what the agent makes. The header has **Ask sua** (say what's wrong or what to change; sua drafts a fix you approve), a **⋯** menu (Suggest improvements, Redesign how results look, Edit the view, Versions, YAML) and **Run now**; a long description shows two lines with **more**.
 
-- **Latest result** — the last finished run, drawn the way the run page draws it (the agent's view, else its output widget, else the text; when none of a widget's fields are in the output, the text), with when it finished, how long it took, a link to the run and **✎ Change how this looks** (straight to Redesign on the View page). A run in progress says so; when the newest run failed, its first error line shows above the last one that finished. **Run with different inputs** opens the inputs form right there (open already when it has never run).
+- **Latest result** — the last finished run, drawn the way the run page draws it (the agent's view, else its output widget, else the text; when none of a widget's fields are in the output, the text), with when it finished, how long it took, a link to the run and **✎ Change how this looks** (straight to Redesign on the View page). A run in progress says so.
+  - **When the newest run failed,** a red card says so with its first error line, **Open the run →** and **Ask sua to fix it**. The section is then titled **Last good result**, showing what the agent made the last time it finished.
+  - **Output with no widget or view** that is one JSON object shows as labelled facts (an empty one says "(empty)"), and a JSON list of records shows as a table. The raw text stays under **Raw output**.
+  - **An agent other agents or notebooks call** (often one item per run) also lists **Its last N results**: when, the run's input (a link first) and the answer in a line, such as "status: blocked". The list is open when the latest result is a short JSON answer, since one result alone says little.
+  - **Run with different inputs** opens the inputs form right there (open already when it has never run).
 - **At a glance** (beside it; below it on a phone) — the last runs as dots, oldest to newest, each linked, with how many finished; version, model, when it runs, how results look (with **edit**), whether AI apps can call it, spend over 7 days and limits, behaviors it's held to, its tools; then **Called by** (with a reminder that a change here changes what they get), **Calls** (the node that calls, "once per item" for a loop, "as a tool when the model decides to"; a target chosen at run time says so, a missing one is badged) and **Fills notebooks** (each with how it was made). Agents are tagged `draft` / `paused` when they won't run on their own and `helper` when built as one.
 - **How it works** — the steps in order, each linked to its editor, and **Show the diagram** (also open on the **Nodes** tab): the Cytoscape canvas (wheel-zoom, drag-pan, **+ ⧇ −**; click a node for Edit, Replay from here, Jump to details; a step that calls another agent names it on a second line). **Edit wiring** turns it into a wiring editor: drag one node onto another to make the second depend on the first (or click source then target), click an edge to remove it, and **Save wiring** writes every change as one new version. Cycles are refused, and so is cutting an edge whose downstream still reads `{{upstream.x.result}}` or `$UPSTREAM_X_RESULT`; cutting one an `onlyIf` still names saves with a warning. While a run is in progress, the diagram opens on its own, the running step pulses (as on the run page) and steps that haven't started are grey with a dashed edge, the heading says which step is working, and the page reloads when the run ends so Latest result shows it. A single-goal agent shows its goal, tools and budget here instead.
 - **Memory** — for agents with `memory:` on.

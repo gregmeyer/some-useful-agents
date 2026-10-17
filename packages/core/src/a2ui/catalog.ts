@@ -133,6 +133,8 @@ const SUA_COMPONENTS = [
       maxItems: z.number().int().min(1).max(100).optional(),
       /** A CSV link for exactly the options shown (`?rows=all&ids=…` is added): a same-site path. */
       csvHref: z.string().max(300).regex(/^\/[^\s"'<>?#]*$/).optional(),
+      // Show only the chosen ones at first (once decided); the person's own toggle wins.
+      onlyChosen: z.boolean().optional(),
       /** false: no stage chips, stage column, stage filter or Move buttons (a notebook whose steps say how far each got). */
       stageChips: z.boolean().optional(),
       /**

@@ -1,4 +1,4 @@
-import { markdownToText } from '@some-useful-agents/core';
+import { markdownToText, stripInlineWidgets } from '@some-useful-agents/core';
 /**
  * Inbox view-data + in-thread widget boundary.
  *
@@ -53,7 +53,7 @@ export function listForkableAgents(ctx: ReturnType<typeof getContext>): { id: st
 
 /** One line of plain text for the summary: Markdown stripped first, so shortening never leaves a half-open `**`. */
 function plainSummary(text: string | undefined, max: number): string | undefined {
-  return summarizeInline(text ? markdownToText(text) : text, max);
+  return summarizeInline(text ? markdownToText(stripInlineWidgets(text, ' ')) : text, max);
 }
 
 /**

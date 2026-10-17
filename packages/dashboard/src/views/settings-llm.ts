@@ -1,5 +1,5 @@
-import { html, type SafeHtml } from './html.js';
-import { localProviderNames, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
+import { html, unsafeHtml, type SafeHtml } from './html.js';
+import { codexModelRetired, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
 
 /** State of the local model server (the `model` daemon service). */
 export interface ModelServerView {
@@ -24,6 +24,11 @@ export interface SettingsLlmArgs {
   formatAge: (isoOrMs: number | string) => string;
   /** Local model server card. Omitted in tests / when not wired. */
   modelServer?: ModelServerView;
+  /**
+   * Per CLI provider (codex, claude): the models it offers now, and the model
+   * its own CLI config defaults to. A provider listed here gets a Model line.
+   */
+  cliModels?: Partial<Record<string, { list: CodexModelList; configModel?: string }>>;
 }
 
 const HEALTH_LABEL: Record<NonNullable<ModelServerView['health']>, { text: string; badge: string }> = {
@@ -99,7 +104,8 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
     ? html`<div class="flash flash--error" style="margin-bottom: var(--space-3);">${args.error}</div>`
     : html``;
 
-  const chain = args.settings.providers;
+  const settings = args.settings;
+  const chain = settings.providers;
   const chainSet = new Set(chain);
   const customProviders = args.settings.customProviders ?? [];
   const customNames = customProviders.map((c) => c.name);
@@ -168,6 +174,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
             <button type="submit" class="btn btn--xs btn--ghost" ${isOnly ? 'disabled' : ''} title="${isOnly ? 'Cannot remove the last provider.' : ''}">Remove</button>
           </form>
         </div>
+        ${args.cliModels?.[p] ? renderProviderModel(p, settings.models?.[p], args.cliModels[p]!, settings.unavailableModels) : html``}
       </li>
     `;
   });
@@ -370,5 +377,54 @@ function renderPricing(settings: LlmSettings): SafeHtml {
         </form>
       </details>
     </section>
+  `;
+}
+
+const CLI_NAME: Record<string, string> = { codex: 'Codex', claude: 'Claude' };
+const CLI_FETCH_HINT: Record<string, string> = {
+  codex: "Codex hasn't shared its model list yet; run <code>codex</code> once to fetch it.",
+  claude: "Claude hasn't shared its model list yet; run <code>claude</code> once to fetch it.",
+};
+
+/**
+ * Which model a CLI provider (codex, claude) runs when a node doesn't pin one:
+ * a pick from the models it offers now, or the CLI's own default. A model it no
+ * longer offers is flagged, so a retired default can't quietly fail every run
+ * over to the next provider.
+ */
+export function renderProviderModel(
+  provider: string,
+  current: string | undefined,
+  cli: NonNullable<NonNullable<SettingsLlmArgs['cliModels']>[string]>,
+  refused: LlmSettings['unavailableModels'],
+): SafeHtml {
+  const { list, configModel } = cli;
+  const name = CLI_NAME[provider] ?? provider;
+  const effective = current ?? configModel;
+  const retired = !!effective && (codexModelRetired(effective, list) || !!refused?.[`${provider}/${effective}`]);
+  const defaultLabel = configModel ? `${name}'s own default (${configModel})` : `${name}'s own default`;
+  // Keep a saved pick selectable even once it's gone, so the page shows what's set.
+  const options = [...list.models];
+  if (current && !options.some((m) => m.id === current)) {
+    options.push({ id: current, label: retired ? `${current} (no longer offered)` : current, desc: '' });
+  }
+  const offered = list.models.filter((m) => !/^Older/.test(m.desc)).map((m) => m.label).join(', ');
+  const id = `llm-${provider}-model`;
+  return html`
+    <form method="POST" action="/settings/llm/provider-model" class="settings-llm__model">
+      <input type="hidden" name="provider" value="${provider}">
+      <label for="${id}">Model</label>
+      <select id="${id}" name="model" class="form-field">
+        <option value=""${current ? '' : ' selected'}>${defaultLabel}</option>
+        ${options.map((m) => html`<option value="${m.id}"${m.id === current ? ' selected' : ''} title="${m.desc}">${m.label}${m.desc ? ` · ${m.desc}` : ''}</option>`) as unknown as SafeHtml[]}
+      </select>
+      <button type="submit" class="btn btn--xs btn--ghost">Save</button>
+      ${retired
+        ? html`<p class="settings-llm__model-warn">${name} no longer offers <code>${effective}</code>, so every ${name} attempt fails over to the next provider. Pick one it offers now.</p>`
+        : html``}
+      ${list.models.length > 0
+        ? html`<p class="settings-llm__model-hint">Offered to your ${name} account now: ${offered}.</p>`
+        : html`<p class="settings-llm__model-hint">${unsafeHtml(CLI_FETCH_HINT[provider] ?? `${name} hasn't shared its model list yet.`)}</p>`}
+    </form>
   `;
 }

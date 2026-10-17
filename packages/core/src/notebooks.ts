@@ -8,6 +8,7 @@
  * Its page is drawn from its own surface (`notebook:<id>`, see surfaces/),
  * from items projected out of its entries.
  */
+import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
@@ -34,7 +35,8 @@ export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
 /** Where a kept picture came from: the listing, a representative one found for it, or a drawing. */
-export type NotebookPhotoKind = 'listing' | 'representative' | 'illustration';
+/** A listing's own photo, an example photo of what it is, a company's logo, or a drawing. */
+export type NotebookPhotoKind = 'listing' | 'representative' | 'logo' | 'illustration';
 
 /** One site or source a search reached, and what it got there. */
 /** How a pass started: the notebook's pipeline, a run filed from its conversation, or Add to notebook. */
@@ -285,6 +287,77 @@ function draftRecord(r: Record<string, unknown>): NotebookDraftRecord {
   };
 }
 
+/**
+ * A notebook's setup, kept to start new ones like it (a "job search"
+ * template): what it's for, its limits, its done-whens, the facts it notes,
+ * its checks and stages, its steps (with their agents), its schedule and
+ * pipeline. Never its options, notes, decision or history: every notebook
+ * made from it starts empty.
+ */
+export interface NotebookTemplateSetup {
+  statement: string;
+  params: string[];
+  /** The done-whens' texts (all start unmet). */
+  criteria: string[];
+  fields: NotebookField[];
+  checks: string[];
+  stages: string[];
+  /** Fresh: to do, no tries, no notes. */
+  steps: NotebookStep[];
+  cadence: string;
+  pipeline: string[];
+}
+
+export interface NotebookTemplate {
+  /** A slug of its name: saving the same name again replaces it. */
+  id: string;
+  name: string;
+  /** What it sets up, in a line ("8 fields · 4 steps · 5 checks"). */
+  description: string;
+  setup: NotebookTemplateSetup;
+  /** The notebook it was saved from. */
+  fromNotebook?: string;
+  uses: number;
+  createdAt: string;
+  updatedAt: string;
+  usedAt?: string;
+  /** Archived: kept, but not offered (New notebook, sua). */
+  archivedAt?: string;
+}
+
+/** A notebook's setup as a template keeps it (see NotebookTemplateSetup). */
+export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
+  return {
+    statement: nb.statement,
+    params: [...nb.params],
+    criteria: nb.criteria.map((c) => c.text),
+    fields: cleanFields(nb.fields),
+    checks: [...nb.checks],
+    stages: [...nb.stages],
+    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top }) => ({ id, title, kind, agentId, target, facts, top, status: 'todo', tries: 0 }))),
+    cadence: nb.cadence,
+    pipeline: [...nb.pipeline],
+  };
+}
+
+/** "8 fields · 4 steps · 5 checks": what a template sets up. */
+export function describeTemplateSetup(t: NotebookTemplateSetup): string {
+  const n = (k: number, one: string) => (k ? `${String(k)} ${one}${k === 1 ? '' : 's'}` : '');
+  return [n(t.fields.length, 'field'), n(t.steps.length, 'step'), n(t.checks.length, 'check'), n(t.params.length, 'limit')].filter(Boolean).join(' · ') || 'no setup yet';
+}
+
+function templateRecord(r: Record<string, unknown>): NotebookTemplate | undefined {
+  let setup: NotebookTemplateSetup;
+  try { setup = JSON.parse(String(r.setup_json)) as NotebookTemplateSetup; } catch { return undefined; }
+  return {
+    id: String(r.id), name: String(r.name), description: String(r.description ?? ''), setup,
+    ...(r.from_notebook ? { fromNotebook: String(r.from_notebook) } : {}),
+    uses: Number(r.uses ?? 0), createdAt: String(r.created_at), updatedAt: String(r.updated_at),
+    ...(r.used_at ? { usedAt: String(r.used_at) } : {}),
+    ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
+  };
+}
+
 export class NotebookStore {
   private db: DatabaseSync;
 
@@ -377,6 +450,18 @@ export class NotebookStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      -- A notebook's setup, kept to start new ones like it (NotebookTemplate).
+      CREATE TABLE IF NOT EXISTS notebook_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        setup_json TEXT NOT NULL,
+        from_notebook TEXT,
+        uses INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        used_at TEXT
+      );
     `);
     // G2 columns, added to tables created before them.
     for (const [table, col] of [
@@ -389,6 +474,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
+      ['notebook_templates', 'archived_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -697,9 +783,9 @@ export class NotebookStore {
   }
 
   /** An option's kept picture, if there is one: its own photo, a representative one, or an illustration. */
-  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string } | undefined {
+  photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string; fetchedAt: string } | undefined {
     const r = this.db.prepare('SELECT * FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as Record<string, unknown> | undefined;
-    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}) } : undefined;
+    return r ? { contentType: String(r.content_type), bytes: r.bytes as Uint8Array, sourceUrl: String(r.source_url), kind: (String(r.kind ?? 'listing') as NotebookPhotoKind), ...(r.what ? { what: String(r.what) } : {}), fetchedAt: String(r.fetched_at) } : undefined;
   }
 
   /**
@@ -707,11 +793,20 @@ export class NotebookStore {
    * with a kept picture, its own photo before a representative one before a
    * drawing, newest first. Undefined when none has one.
    */
-  coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind } | undefined {
+  coverPhoto(notebookId: string): { entryId: string; kind: NotebookPhotoKind; shape?: ImageShape } | undefined {
     const r = this.db.prepare(`SELECT e.id AS id, p.kind AS kind FROM notebook_entries e JOIN notebook_photos p ON p.entry_id = e.id AND p.bytes IS NOT NULL
       WHERE e.notebook_id = ? AND e.kind = 'option' AND e.ruled_out_at IS NULL
-      ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
-    return r ? { entryId: r.id, kind: (r.kind ?? 'listing') as NotebookPhotoKind } : undefined;
+      ORDER BY CASE p.kind WHEN 'listing' THEN 0 WHEN 'representative' THEN 1 WHEN 'logo' THEN 1 ELSE 2 END, e.created_at DESC LIMIT 1`).get(notebookId) as { id: string; kind: string } | undefined;
+    if (!r) return undefined;
+    const kind = (r.kind ?? 'listing') as NotebookPhotoKind;
+    const shape = kind === 'logo' ? this.photoShape(r.id) : undefined;
+    return { entryId: r.id, kind, ...(shape ? { shape } : {}) };
+  }
+
+  /** A kept picture's shape from its header (a wordmark logo is wide), when it says. */
+  photoShape(entryId: string): ImageShape | undefined {
+    const r = this.db.prepare('SELECT substr(bytes, 1, 65536) AS head FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as { head?: Uint8Array } | undefined;
+    return r?.head ? imageShape(r.head) : undefined;
   }
 
   /** What kind of picture an option has, if any. */
@@ -729,6 +824,11 @@ export class NotebookStore {
         AND ((p.entry_id IS NULL AND e.picture_tried_at IS NULL) OR (p.kind = 'illustration' AND (e.picture_tried_at IS NULL OR e.picture_tried_at < ?)))
       ORDER BY e.created_at DESC LIMIT ?`).all(notebookId, dayAgo, limit) as Array<Record<string, unknown>>;
     return rows.map((r) => this.toEntry(r));
+  }
+
+  /** Example photos that are a company's logo (the picture agent said so), kept as logos. Returns how many. */
+  relabelLogos(notebookId: string): number {
+    return Number(this.db.prepare("UPDATE notebook_photos SET kind = 'logo' WHERE notebook_id = ? AND kind = 'representative' AND bytes IS NOT NULL AND lower(coalesce(what, '')) LIKE '%logo%'").run(notebookId).changes);
   }
 
   /** Note that a representative picture was tried for these options. */
@@ -792,6 +892,30 @@ export class NotebookStore {
     return this.mustGetOption(notebookId, entryId);
   }
 
+  /**
+   * Pick one option (or take the pick back) without closing the notebook:
+   * "I bought this one", while you keep looking. The open decide step is
+   * done once there are as many picks as it wants, and open again when a
+   * pick taken back leaves it short.
+   */
+  choose(notebookId: string, entryId: string, on = true): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    if (on && e.ruledOut) throw new Error(`${e.title} was ruled out. Bring it back first.`);
+    const now = new Date().toISOString();
+    this.db.prepare('UPDATE notebook_entries SET chosen_at = ? WHERE id = ?').run(on ? (e.chosenAt ?? now) : null, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    const nb = this.mustGet(notebookId);
+    const options = this.entries(notebookId, 1000).filter((x) => x.kind === 'option' && !x.ruledOut);
+    const picks = options.filter((x) => x.chosenAt).length;
+    const step = nb.status === 'active' ? nb.steps?.find((s) => s.kind === 'decide') : undefined;
+    if (step) {
+      const want = step.target ?? Math.min(options.length, 5);
+      if (step.status !== 'done' && picks >= Math.max(1, want)) this.updateStep(notebookId, step.id, { status: 'done', note: `${String(picks)} chosen` }, now);
+      else if (step.status === 'done' && picks < Math.max(1, want)) this.updateStep(notebookId, step.id, { status: 'todo', note: picks ? `${String(picks)} chosen` : undefined }, now);
+    }
+    return this.mustGetOption(notebookId, entryId);
+  }
+
   private addSighting(entryId: string, notebookId: string, runId: string | undefined, at: string, data: Record<string, NotebookFieldValue>): void {
     if (Object.keys(data).length === 0) return;
     this.db.prepare('INSERT INTO notebook_sightings (entry_id, notebook_id, run_id, at, data_json) VALUES (?, ?, ?, ?, ?)')
@@ -836,7 +960,9 @@ export class NotebookStore {
     const facts = splitFacts(data);
     const given = cleanData(facts.values, nb.fields);
     const stated = withoutTextLink(readOptionText(`${e.title}\n${e.body}`, nb.fields), nb.fields, { ...(e.data ?? {}), ...given });
-    const clean = contradicts(given, stated) ? stated : { ...given, ...stated };
+    // When they agree, the text's figure wins (rounded or not), except over a
+    // range it falls in: "from $170k" doesn't replace $170k–$200k.
+    const clean = contradicts(given, stated) ? stated : { ...given, ...Object.fromEntries(Object.entries(stated).filter(([k, v]) => !(isRange(given[k]) && !isRange(v)))) };
     const merged = { ...(e.data ?? {}), ...clean };
     // A fact the option's own text states needs no source; a given one keeps its own.
     const meta = cleanFactMeta(facts.meta, Object.fromEntries(Object.entries(clean).filter(([k]) => !(k in stated))));
@@ -891,7 +1017,25 @@ export class NotebookStore {
       // A correction (you, or sua on your word) always counts.
       const later = this.sightings(e.id).filter((x, i) => i > 0 || x.correctedBy).reduce<Record<string, NotebookFieldValue>>((acc, x) => ({ ...acc, ...cleanData(x.data, nb.fields) }), {});
       const expected = { ...stated, ...later };
-      if (!contradicts(e.data, expected)) continue;
+      if (!contradicts(e.data, expected)) {
+        // Facts an earlier repair took away by mistake (a salary range read as its
+        // first number "contradicted" the range): the filing had them, and they
+        // agree with the text, so they come back.
+        // Only that case: what's left is just what the text states, with a
+        // range field cut to one number.
+        const data = e.data;
+        const cut = nb.fields.some((f) => f.range && typeof data[f.key] === 'number')
+          && Object.keys(data).every((k) => k in stated);
+        const filed = cut ? this.sightings(e.id)[0] : undefined;
+        const full = filed && !filed.correctedBy ? { ...cleanData(filed.data, nb.fields), ...later } : undefined;
+        if (full && Object.keys(full).length > Object.keys(data).length && !contradicts(full, expected)
+          && nb.fields.some((f) => f.range && isRange(full[f.key]) && typeof data[f.key] === 'number')
+          && Object.entries(data).every(([k, v]) => full[k] !== undefined && (agrees(full[k], v) || agrees(v, full[k])))) {
+          this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify(full), e.id);
+          n++;
+        }
+        continue;
+      }
       const linkKey = nb.fields.find((f) => f.role === 'link')?.key;
       const keep = linkKey && expected[linkKey] === undefined && e.data[linkKey] !== undefined && typeof e.data[linkKey] === 'string' && `${e.title} ${e.body}`.includes(String(e.data[linkKey])) ? { [linkKey]: e.data[linkKey] } : {};
       this.db.prepare('UPDATE notebook_entries SET data_json = ? WHERE id = ?').run(JSON.stringify({ ...keep, ...expected }), e.id);
@@ -1101,6 +1245,51 @@ export class NotebookStore {
 
   deleteDraft(id: string): boolean {
     return Number(this.db.prepare('DELETE FROM notebook_drafts WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /**
+   * Keep a notebook's setup as a template named `name` (a slug of it is its
+   * id: the same name again replaces it). Its options and history aren't kept.
+   */
+  saveTemplate(name: string, notebookId: string, now = new Date().toISOString()): NotebookTemplate {
+    const nb = this.mustGet(notebookId);
+    const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (!clean) throw new Error('A template needs a name.');
+    const id = notebookSlug(clean);
+    const setup = templateFromNotebook(nb);
+    this.db.prepare(`INSERT INTO notebook_templates (id, name, description, setup_json, from_notebook, uses, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = excluded.from_notebook, updated_at = excluded.updated_at, archived_at = NULL`)
+      .run(id, clean, describeTemplateSetup(setup), JSON.stringify(setup), nb.id, now, now);
+    return this.getTemplate(id)!;
+  }
+
+  getTemplate(id: string): NotebookTemplate | undefined {
+    const r = this.db.prepare('SELECT * FROM notebook_templates WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? templateRecord(r) : undefined;
+  }
+
+  /**
+   * Your templates, the most used first, then the newest. Archived ones are
+   * left out unless asked for (`archived: 'only'` lists just them).
+   */
+  listTemplates(limit = 50, opts: { archived?: 'exclude' | 'include' | 'only' } = {}): NotebookTemplate[] {
+    const where = opts.archived === 'include' ? '' : opts.archived === 'only' ? 'WHERE archived_at IS NOT NULL' : 'WHERE archived_at IS NULL';
+    return (this.db.prepare(`SELECT * FROM notebook_templates ${where} ORDER BY uses DESC, updated_at DESC LIMIT ?`).all(limit) as Array<Record<string, unknown>>)
+      .map(templateRecord).filter((t): t is NotebookTemplate => !!t);
+  }
+
+  /** Archive a template (kept, not offered) or, with `archived` false, restore it. */
+  archiveTemplate(id: string, archived = true, now = new Date().toISOString()): boolean {
+    return Number(this.db.prepare('UPDATE notebook_templates SET archived_at = ? WHERE id = ?').run(archived ? now : null, id).changes) > 0;
+  }
+
+  deleteTemplate(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM notebook_templates WHERE id = ?').run(id).changes) > 0;
+  }
+
+  /** A notebook was started from it. */
+  markTemplateUsed(id: string, now = new Date().toISOString()): void {
+    this.db.prepare('UPDATE notebook_templates SET uses = uses + 1, used_at = ? WHERE id = ?').run(now, id);
   }
 
   /** Drop drafts untouched since `before` (ISO). */
@@ -1657,6 +1846,8 @@ export interface NotebookViewOption {
   imageSource?: string;
   /** What the picture is: the listing's own photo, a representative one, or an illustration. */
   imageKind?: NotebookPhotoKind;
+  /** A logo's shape (a wordmark is wide, an app icon square), so it's sized to read. */
+  imageShape?: ImageShape;
   /** The price over time (oldest first), and how it moved since first seen. */
   priceHistory: Array<{ at: string; value: number }>;
   priceChange?: { from: number; to: number; since: string };
@@ -1728,6 +1919,7 @@ export interface NotebookViewHistory {
   missedSearches(notebookId: string, e: NotebookEntry): number;
   hasPhoto?(entryId: string): boolean;
   photoKind?(entryId: string): NotebookPhotoKind | undefined;
+  photoShape?(entryId: string): ImageShape | undefined;
 }
 
 /** Where the dashboard serves an option's kept photo. */
@@ -1755,12 +1947,13 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const imageSource = str(pick(data, 'image'));
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
     const imageKind = image ? history?.photoKind?.(e.id) : undefined;
+    const imageShape = imageKind === 'logo' ? history?.photoShape?.(e.id) : undefined;
     const when = pick(data, 'when');
     return {
       id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
       ...(e.factMeta && Object.keys(e.factMeta).length ? { factMeta: e.factMeta } : {}),
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}), ...(score !== undefined ? { score } : {}),
-      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageSource ? { imageSource } : {}),
+      ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageShape ? { imageShape } : {}), ...(imageSource ? { imageSource } : {}),
       ...(when !== undefined ? { when: String(when) } : {}),
       by: e.by, ...(e.runId ? { runId: e.runId } : {}),
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
@@ -1906,6 +2099,11 @@ export function readOptionText(text: string, fields: readonly NotebookField[]): 
   const num = (s: string) => { const k = /k$/i.test(s); const v = Number(s.replace(/[k,]/gi, '')); return Number.isFinite(v) ? (k ? v * 1000 : v) : undefined; };
   for (const f of fields) {
     if (f.role === 'price' && f.type === 'money') {
+      // A span ("$150k–$160k", a salary) is a range, not its first number.
+      const r = f.range ? /\$\s?(\d[\d,]*(?:\.\d+)?k?)\s*(?:-|–|—|to)\s*\$?\s?(\d[\d,]*(?:\.\d+)?k?)/i.exec(text) : null;
+      const lo = r ? num(/k$/i.test(r[2]) && !/k$/i.test(r[1]) && Number(r[1].replace(/,/g, '')) < 1000 ? `${r[1]}k` : r[1]) : undefined;
+      const hi = r ? num(r[2]) : undefined;
+      if (lo !== undefined && hi !== undefined && hi >= lo) { out[f.key] = { min: lo, max: hi }; continue; }
       const m = /\$\s?(\d[\d,]*(?:\.\d+)?k?)/i.exec(text);
       const v = m ? num(m[1]) : undefined;
       if (v !== undefined) out[f.key] = v;
@@ -1976,10 +2174,33 @@ export function looksLikeOneListing(url: string): boolean {
  * Only when what follows is facts (numbers, a price): "Staff Engineer, Stripe" stays whole.
  */
 export function shortName(title: string): string {
-  const m = /^(.+?)(?:,|\s[—–-]\s)(.*)$/.exec(title);
+  // Commas inside brackets ("Director, Accounting (Remote, US)") don't end a part.
+  const m = /^((?:[^,(]|\([^)]*\))+?)(?:,|\s[—–-]\s)(.*)$/.exec(title);
   if (!m) return title;
   const head = m[1].trim();
-  return head.length >= 4 && /[\d$]/.test(m[2]) ? head : title;
+  if (!(head.length >= 4 && /[\d$]/.test(m[2]))) return title;
+  // One word ("Director, Accounting Operations, $192k–$300k") says too little: keep the next part too.
+  if (!/\s/.test(head)) {
+    const next = /^\s*((?:[^,(]|\([^)]*\))+?)(?:,|\s[—–-]\s|$)/.exec(m[2])?.[1]?.trim();
+    if (next && !/[\d$]/.test(next)) return `${head}, ${next}`;
+  }
+  return head;
+}
+
+/**
+ * Do two values of a number agree? Rounded text ("157k mi") still agrees
+ * with 157,000 or 156,870; a number agrees with a range it falls in ("from
+ * $150k" with $150k–$160k), and two ranges when both ends do.
+ */
+function agrees(x: NotebookFieldValue, v: NotebookFieldValue): boolean {
+  const tol = (n: number) => Math.max(1, Math.abs(n) * 0.01);
+  const near = (p: number, q: number) => Math.abs(p - q) <= tol(q);
+  const within = (n: number, r: { min: number; max: number }) => n >= r.min - tol(r.min) && n <= r.max + tol(r.max);
+  if (isRange(x) && isRange(v)) return near(x.min, v.min) && near(x.max, v.max);
+  if (isRange(x) && typeof v === 'number') return within(v, x);
+  if (typeof x === 'number' && isRange(v)) return within(x, v);
+  const nx = fieldNumber(x); const nv = fieldNumber(v);
+  return nx === undefined || nv === undefined || near(nx, nv);
 }
 
 /** Do two sets of facts disagree on a number both state (year, price, the measure)? */
@@ -1987,11 +2208,7 @@ function contradicts(a: Record<string, NotebookFieldValue>, b: Record<string, No
   for (const [k, v] of Object.entries(b)) {
     const x = a[k];
     if (x === undefined) continue;
-    const nx = fieldNumber(x); const nv = fieldNumber(v);
-    if (nx !== undefined && nv !== undefined) {
-      // Rounded text ("157k mi") still agrees with 157,000 or 156,870.
-      if (Math.abs(nx - nv) > Math.max(1, Math.abs(nv) * 0.01)) return true;
-    }
+    if (!agrees(x, v)) return true;
     // Text (a link especially) isn't evidence of a mix-up: an option's text
     // often cites another page, a source or the post it's quoted from.
   }
@@ -2125,6 +2342,21 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
 function missingFacts(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookViewOption, 'fields' | 'linkIsList'>, step: Pick<NotebookStep, 'facts'>): NotebookField[] {
   // A link to a search page isn't the option's own page yet.
   return stepFacts(nb, step).filter((f) => o.fields[f.key] === undefined || o.fields[f.key] === '' || (f.role === 'link' && !!o.linkIsList));
+}
+
+/**
+ * A source step's work, option by option: the options it covers (best first,
+ * the top N when it has one; not ruled out) that still lack some of its
+ * facts, each with its own page (none when its link is a search page) and
+ * the facts it lacks. For an agent that reads one item's page per run.
+ */
+export function sourceJobs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'facts' | 'top'>): Array<{ entryId: string; name: string; link?: string; missing: NotebookField[] }> {
+  const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options).filter((o) => !o.ruledOut);
+  const options = step.top ? ranked.slice(0, step.top) : ranked;
+  return options
+    .map((o) => ({ entryId: o.id, name: o.name, ...(o.linkIsList ? {} : { link: optionLink(nb.fields, o.fields) }), missing: missingFacts(nb, o, step).filter((f) => f.role !== 'link') }))
+    .map((j) => (j.link ? j : { entryId: j.entryId, name: j.name, missing: j.missing }))
+    .filter((j) => j.missing.length > 0);
 }
 
 /** The notebook's checks not yet ticked for an option. */

@@ -69,6 +69,8 @@ export function toGoalPromptNode(node: AgentNode, agent: Pick<Agent, 'outputs'>)
     type: 'llm-prompt',
     prompt: goalPrompt(node, agent),
     maxTurns,
+    // A goal out of turns is out of budget (budget_exhausted), not a node to wrap up.
+    onMaxTurns: 'fail',
     timeout: timeoutSec,
   };
 }

@@ -134,10 +134,12 @@ See the [AI template workflow](#ai-template-workflow) below for the full loop.
 
 ## Field types
 
+A field with nothing in it (empty, `[]`, `{}`, `—`) isn't shown. A `text` or `code` field whose value is a JSON list of records is drawn as a table: one column per key, a column of links as links, and lists joined with commas.
+
 | Type | Renders as | Valid in |
 |---|---|---|
 | `text` | Plain paragraph (wraps, respects whitespace) | all |
-| `code` | Monospaced preformatted block | raw, diff-apply, dashboard |
+| `code` | Monospaced preformatted block (a JSON list of records shows as a table instead) | raw, diff-apply, dashboard |
 | `badge` | Inline pill (color by value or tag-name heuristic) | all |
 | `action` | POST button wired to widget `actions[]` | diff-apply only |
 | `metric` | Hero number + label (rendered large) | dashboard only |

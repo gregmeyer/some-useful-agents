@@ -121,7 +121,11 @@ nodes:
         customers", "Pick the final comp set"). "agent": an id from their
         agents above whose description fits that step's job (one agent may
         serve several steps), else "" (a check step with "" uses sua's
-        checker). Never invent ids. A simple goal (one product) can be
+        checker; a find step with "" uses sua's finder, which runs a few
+        narrow searches at once, one per site or source: leave a find step's
+        agent "" unless one of theirs is made for this kind of search, e.g.
+        a listings sweep for cars, and never give a find step a general
+        research or brief agent). Never invent ids. A simple goal (one product) can be
         just find + decide.
       - "cadence": a five-field cron schedule ONLY if they asked for a
         rhythm ("every morning" → "0 7 * * *"); else "".

@@ -141,21 +141,29 @@ export function partialInlineWidget(text: string, imgHosts: string[] = []): { in
   return checked.ok ? { index, components: checked.components, count: real.length } : undefined;
 }
 
-/** What a chat agent is told about widgets (dashboard chat only: other places can't draw them). */
-export function chatWidgetGuide(): string {
-  // One example per component, so the model sees each one's real properties.
+/**
+ * The components a reply's widget can use, one example each (so the model
+ * sees each one's real properties), bound under /data. Shared by the chat
+ * agents' guide and sua's (inbox-triage kernel): one list for every conversation.
+ */
+export function replyWidgetComponents(): string {
   const examples = suaComponentDocs()
     .filter((d) => !['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'SanitizedHtml', 'Scatter', 'Funnel', 'Code'].includes(d.name))
     // Catalog examples bind notebook or run paths; in a reply everything is under /data.
     .map((d) => `  ${JSON.stringify(d.example).replace(/"\/(notebook|outputs|series|inputs)\//g, '"/data/')}`)
     .join('\n');
+  return `- Components: Text (text, variant: h3 / body / caption), Row and Column (children: [ids]), Card (child), Divider, Button (child: a Text id; action {"event":{"name":"pick","context":{"message":"what clicking says"}}}), and these, used exactly as shown (bind with {"path":"/data/..."}):
+${examples}
+- A Button's click is sent as the person's next message (its context.message). Buttons are good answers to a question you ask: a few likely answers (which weekend, which of these), each a Button whose message is that answer. Once the person replies, the buttons are spent.`;
+}
+
+/** What a chat agent is told about widgets (dashboard chat only: other places can't draw them). */
+export function chatWidgetGuide(): string {
   return `WIDGETS IN YOUR REPLY (this chat can draw them):
-When it helps the person read your answer (several numbers, a comparison, a list of items with the same fields, choices to pick from), add a widget to the reply you write for them:
+When it helps the person read your answer (several numbers, a comparison, a list of items with the same fields) or answer you (choices to pick from), add a widget to the reply you write for them:
 <a2ui>{"components":[{"id":"root","component":"Column","children":["t"]},{"id":"t","component":"Table","rows":{"path":"/data/rows"},"columns":[{"key":"name","label":"Name"},{"key":"price","label":"Price"}]}],"data":{"rows":[{"name":"A","price":"$10"}]}}</a2ui>
 - Put the values in "data" and bind to them with {"path":"/data/..."}. Valid JSON, ids unique, "root" first.
-- Components: Text (text, variant: h3 / body / caption), Row and Column (children: [ids]), Card (child), Divider, Button (child: a Text id; action {"event":{"name":"pick","context":{"message":"what clicking says"}}}), and these, used exactly as shown (bind with {"path":"/data/..."}):
-${examples}
-- A Button's click is sent as the person's next message (its context.message).
+${replyWidgetComponents()}
 - Keep the words: one short sentence before the widget. Plain text is better for a short answer, an explanation or a single number.
 - Only in the reply the person reads, never in data you pass to another step.`;
 }

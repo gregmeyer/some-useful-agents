@@ -219,6 +219,12 @@ export interface LoopConfig {
    * When unset, the sub-agent receives `{ITEM, ITEM_INDEX}` as before.
    */
   inputMapping?: Record<string, string>;
+  /**
+   * How many items run at the same time (1–6; default 1, one after another).
+   * Results keep the items' order either way. For independent items, e.g. one
+   * search per site: five small searches take about as long as one.
+   */
+  concurrency?: number;
 }
 
 export interface AgentInvokeConfig {
@@ -267,6 +273,13 @@ export interface AgentNode {
   prompt?: string;
   model?: string;
   maxTurns?: number;
+  /**
+   * When the model uses all its turns (claude's `error_max_turns`):
+   * `answer` (the default) resumes it once, without tools, to answer from
+   * what it has already read, and the node completes with a warning;
+   * `fail` fails the node as before.
+   */
+  onMaxTurns?: 'answer' | 'fail';
   /**
    * If it fails, the run carries on: the failure is recorded, nodes that
    * depend on it get a short note instead of its output, and the run can

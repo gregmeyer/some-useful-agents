@@ -32,6 +32,7 @@ import { boardApprovalButtons } from './board-approval.js';
 import { pageHeader } from './page-header.js';
 import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 import { describeAgentChange } from '../lib/agent-change.js';
+import { pictureClass } from '../lib/notebook-logos.js';
 
 export interface InboxDetailOptions {
   message: InboxMessage;
@@ -50,6 +51,8 @@ export interface InboxDetailOptions {
   triagePending?: boolean;
   /** An agent's conversation whose reply is being written: the panel shows it working and follows it live. */
   agentTurn?: { runId: string };
+  /** Image hosts the conversation's agent may show in its widgets (its permissions.imgSrc), as on its Chat tab. */
+  imgHosts?: string[];
   /**
    * Current YAML of the agent referenced by `message.agentId`, used
    * to render the unified diff inside `agent-editor`-targeting action
@@ -193,7 +196,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'view-redesign', 'board-build',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'view-redesign', 'board-build',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -396,9 +399,12 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // tool calls, not speech).
   // An agent's conversation: its replies are labelled with the agent, and you reply to it, not sua.
   const agentConversation = message.source === 'conversation' && message.agentId ? message.agentId : undefined;
+  // A reply's widget buttons are spent once the person has said something after it.
+  const answeredBy = (i: number) => responses.slice(i + 1).find((x) => x.role === 'user')?.body;
   const timeline = responses.map((r, i) =>
     renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
-      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation));
+      isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation,
+      { answered: answeredBy(i), imgHosts: opts.imgHosts ?? [] }));
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by
@@ -492,7 +498,7 @@ function renderThreadNotebook(c: NotebookCard): SafeHtml {
   return html`<div class="ib-notebook-wrap">
     <a class="ib-notebook" href="/notebooks/${encodeURIComponent(nb.id)}" data-thread-notebook="${nb.id}">
       ${c.cover
-        ? html`<img class="ib-notebook__cover${c.coverKind === 'illustration' ? ' is-drawn' : ''}" src="${c.cover}" alt="" loading="lazy">`
+        ? html`<img class="${['ib-notebook__cover', pictureClass(c.coverKind, c.coverShape)].filter(Boolean).join(' ')}" src="${c.cover}" alt="" loading="lazy">`
         : html`<span class="ib-notebook__cover ib-notebook__cover--none" aria-hidden="true"></span>`}
       <span class="ib-notebook__body">
         <span class="ib-notebook__kicker">Notebook</span>
@@ -612,7 +618,7 @@ export function mdBody(text: string): SafeHtml {
  * (parseTriageLinks); we re-escape on render. Links open in a new tab so
  * following a CTA keeps the inbox open.
  */
-/** The widget sua put under its reply (checked when it was saved), drawn as an A2UI surface. */
+/** The widget sua put under a reply saved before widgets were kept inline (its meta), drawn as an A2UI surface. */
 function renderTriageWidget(responseId: string, metaJson?: string): SafeHtml {
   if (!metaJson) return html``;
   let widget: { components?: ViewComponent[]; data?: unknown } | undefined;
@@ -651,6 +657,7 @@ function renderConversationEntry(
   grouped = false,
   runBehaviors?: Record<string, string[]>,
   agentLabel?: string,
+  reply: { answered?: string; imgHosts?: string[] } = {},
 ): SafeHtml {
   if (r.role === 'action') return renderActionEntry(r, currentTargetYaml, inlineActionWidgets?.[r.id], agentTrust, runBehaviors);
   const role = r.role === 'agent' && agentLabel ? agentLabel : (ROLE_LABEL[r.role] ?? r.role);
@@ -676,7 +683,10 @@ function renderConversationEntry(
     classes: verifyKind ? ['inbox-msg--verify', `inbox-msg--${verifyKind}`] : [],
     metaBefore: verifyBadge,
     // An agent's reply in a conversation may carry widgets (drawn as on its Chat tab).
-    body: r.role === 'agent' ? renderReplyBody(r.body, `reply-${r.id}`) : mdBody(r.body),
+    // A reply, sua's or an agent's, may carry widgets inline (ADR-0047): drawn in place, answered once you reply.
+    body: r.role === 'agent' || r.role === 'triage'
+      ? renderReplyBody(r.body, `reply-${r.id}`, r.role === 'agent' ? reply.imgHosts ?? [] : [], reply.answered !== undefined ? { answered: reply.answered } : {})
+      : mdBody(r.body),
     after: r.role === 'triage' ? html`${renderTriageWidget(r.id, r.metaJson)}${renderTriageLinks(r.metaJson)}` : undefined,
   });
 }
@@ -870,7 +880,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                       : meta.agentId === 'notebook-steps'
                         ? html`Set up the steps · <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-step'
-                        ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : 'Start the next step'}`
+                        ? html`${meta.inputs.MOVE === '1' ? 'Move on from this step' : meta.inputs.WAS === 'stuck' ? 'Try the step again' : meta.inputs.WAS === 'todo' ? 'Start the first step' : 'Start the next step'}`
+                      : meta.agentId === 'notebook-create'
+                        ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
@@ -882,10 +894,10 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
     ${meta.agentId === 'agent-settings' && meta.settingsChanges?.length
       ? html`<ul class="act-card__changes">${meta.settingsChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span><del class="act-card__before">${c.before}</del> → <ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">Saved together; a change to what it does becomes a new version you can roll back from Versions.</p>` : html``}`
       : html``}
-    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-steps') && meta.surfaceChanges?.length
-      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
+    ${(meta.agentId === 'adjust-surface' || meta.agentId === 'arrange-board' || meta.agentId === 'notebook-add' || meta.agentId === 'notebook-pipeline' || meta.agentId === 'notebook-steps' || meta.agentId === 'notebook-create') && meta.surfaceChanges?.length
+      ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-create' ? 'It starts empty, with the template\u2019s fields, checks, stages and steps. Nothing runs until you start its first step.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
-    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`

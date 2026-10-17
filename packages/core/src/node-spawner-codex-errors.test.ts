@@ -88,6 +88,52 @@ describe('codex failure through the waterfall', () => {
     expect(codexFailure.error).toContain("'gpt-5.4' model is not supported");
     expect(codexFailure.error).not.toContain('rmcp');
   });
+
+  it('names the refused model to onModelUnavailable', async () => {
+    const seen: Array<{ provider: string; model?: string }> = [];
+    await spawnNodeReal(
+      { id: 'judge', type: 'llm-prompt', prompt: 'hi' },
+      { PATH: `${binDir}:${process.env.PATH ?? ''}` },
+      { agentId: 'starter-watch', agentSource: 'examples', llmSettings: { providers: ['codex', 'claude'], onModelUnavailable: (e) => seen.push(e) } },
+    );
+    expect(seen).toEqual([expect.objectContaining({ provider: 'codex', model: 'gpt-5.4', nodeId: 'judge' })]);
+  });
+});
+
+describe('the operator\'s model for a provider', () => {
+  let binDir: string;
+  beforeAll(() => {
+    binDir = mkdtempSync(join(tmpdir(), 'sua-fake-codex-model-'));
+    // Echo the args back as the answer, so the test sees what codex was asked for.
+    writeFileSync(join(binDir, 'codex'), [
+      '#!/bin/sh',
+      'cat >/dev/null',
+      'msg=$(printf "%s " "$@")',
+      `printf '%s\n' '${JSON.stringify({ type: 'thread.started', thread_id: 't' })}'`,
+      'printf \'{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n\' "$msg"',
+      `printf '%s\n' '${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })}'`,
+    ].join('\n'));
+    chmodSync(join(binDir, 'codex'), 0o755);
+  });
+  afterAll(() => rmSync(binDir, { recursive: true, force: true }));
+
+  const run = (model?: string) => spawnNodeReal(
+    { id: 'judge', type: 'llm-prompt', prompt: 'hi', ...(model ? { model } : {}) },
+    { PATH: `${binDir}:${process.env.PATH ?? ''}` },
+    { agentId: 'a', agentSource: 'local', llmSettings: { providers: ['codex'], models: { codex: 'gpt-6-sol' } } },
+  );
+
+  it('runs codex on the chosen model when the node pins none', async () => {
+    const res = await run();
+    expect(res.exitCode).toBe(0);
+    expect(res.result).toContain('-m gpt-6-sol');
+  });
+
+  it("leaves a node's own model alone", async () => {
+    const res = await run('gpt-6-luna');
+    expect(res.result).toContain('-m gpt-6-luna');
+    expect(res.result).not.toContain('gpt-6-sol');
+  });
 });
 
 describe('auth_required — claude CLI wording', () => {

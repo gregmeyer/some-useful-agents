@@ -8,9 +8,10 @@
 import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
-  type Agent, type Notebook, type NotebookEntry, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
+  type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
+import { parseJsonFromOutput } from '../views/output-widgets.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -120,6 +121,49 @@ export function pipelineInputs(agent: Pick<Agent, 'inputs'>, nb: Notebook, entri
     else if (n === 'FIELDS' || n === 'NOTEBOOK_FIELDS') out[name] = JSON.stringify(nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}), ...(f.unit ? { unit: f.unit } : {}) })));
   }
   return out;
+}
+
+/** Inputs that give an agent the whole notebook (it works on many options at once). */
+const NOTEBOOK_LEVEL = /^(NOTEBOOK|NOTEBOOK_CONTEXT|GOAL|BRIEF|OPTIONS|FIELDS|NOTEBOOK_FIELDS|TOPIC|QUERY|QUESTION|SEARCH|STEP|CHECKS)$/i;
+
+/**
+ * An agent that reads one item's own page a run (listing-page-facts): it
+ * takes a page address (PAGE_URL, URL, ITEM_URL, LISTING_URL or LINK) and
+ * nothing about the notebook. Its page input, and the one that says which
+ * facts to read (WANT or FACTS) when it has one. Undefined for any other agent.
+ */
+export function perItemInputs(agent: Pick<Agent, 'inputs'>): { page: string; want?: string } | undefined {
+  const names = Object.keys(agent.inputs ?? {});
+  if (names.some((n) => NOTEBOOK_LEVEL.test(n))) return undefined;
+  const page = names.find((n) => /^(PAGE_URL|URL|ITEM_URL|LISTING_URL|LINK)$/i.test(n));
+  if (!page) return undefined;
+  const want = names.find((n) => /^(WANT|FACTS)$/i.test(n));
+  return { page, ...(want ? { want } : {}) };
+}
+
+/**
+ * A page reader's answer for one option: what the page said (ok, blocked or
+ * gone) and the facts it gave, as the notebook's own field keys (matched by
+ * key or label; empty values and 0 for a number left out, since the reader
+ * leaves out what the page doesn't show). Pure.
+ */
+export function readItemAnswer(raw: string, fields: readonly NotebookField[]): { status: 'ok' | 'blocked' | 'gone'; facts: Record<string, string | number | boolean> } {
+  const v = parseJsonFromOutput(raw);
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { status: 'blocked', facts: {} };
+  const o = v as Record<string, unknown>;
+  const st = String(o.status ?? 'ok').toLowerCase();
+  const status = st === 'gone' ? 'gone' : st === 'blocked' ? 'blocked' : 'ok';
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const byName = new Map<string, NotebookField>();
+  for (const f of fields) { byName.set(norm(f.key), f); byName.set(norm(f.label), f); }
+  const facts: Record<string, string | number | boolean> = {};
+  for (const [k, x] of Object.entries(o)) {
+    const f = byName.get(norm(k));
+    if (!f || f.role === 'link' || f.role === 'image' || f.type === 'image' || k === 'status' || k === 'url') continue;
+    if (x === null || x === undefined || x === '' || (typeof x === 'number' && x === 0 && (f.type === 'money' || f.type === 'number'))) continue;
+    if (typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean') facts[f.key] = typeof x === 'string' ? x.trim() : x;
+  }
+  return { status, facts };
 }
 
 export interface KeeperOutcome {

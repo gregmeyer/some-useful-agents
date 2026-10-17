@@ -11,6 +11,7 @@ import { formatAge } from './components.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookOptionMessages, type NotebookOptionData } from '../lib/notebook-option.js';
 import { optionStage, priceChangeChip, bodyWithLinks } from './notebooks.js';
+import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
 
 /**
  * Talk to sua about this item: the notebook's talk box, aimed at one option.
@@ -112,7 +113,7 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
     <section class="nbo-hero${e.ruledOut ? ' nbo-hero--out' : ''}" aria-labelledby="nbo-title" data-nb-option="${e.id}" data-nb-option-notebook="${nb.id}">
       <div class="nbo-hero__pic">
         ${o.image
-          ? html`<img src="${o.image}" alt="" class="${o.imageKind === 'illustration' ? 'is-drawn' : ''}">${o.imageKind && o.imageKind !== 'listing' ? html`<span class="nbo-hero__pickind">${o.imageKind === 'illustration' ? 'illustration' : 'example photo'}</span>` : html``}`
+          ? html`<img src="${o.image}" alt="" class="${pictureClass(o.imageKind, o.imageShape)}">${pictureLabel(o.imageKind) ? html`<span class="nbo-hero__pickind">${pictureLabel(o.imageKind)}</span>` : html``}`
           : html`<span class="nbo-hero__nopic">No photo yet</span>`}
       </div>
       <div class="nbo-hero__main">
