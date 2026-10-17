@@ -45,7 +45,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
       {
         cmd: 'sua agent webhook <id> --on',
         desc: 'Let another service start the agent with POST /hooks/<id> (creates its secret).',
-        inDashboard: { label: 'Webhook card on agent Config', href: '/agents' },
+        inDashboard: { label: 'Webhook on agent Settings', href: '/agents' },
       },
       {
         cmd: 'sua workflow show <id>',
@@ -61,8 +61,8 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
         inDashboard: { label: 'Run detail', href: '/runs' },
       },
       {
-        cmd: 'sua workflow replay <runId> --from <nodeId>',
-        desc: 'Re-run a past run from one node onward, reusing the outputs above it.',
+        cmd: 'sua workflow replay <runId> --from <nodeId> [--input K=V]',
+        desc: 'Re-run a past run from one node onward, reusing the outputs above it and the run\u2019s inputs (--input changes one).',
         inDashboard: { label: 'Replay on run detail', href: '/runs' },
       },
     ],
@@ -103,7 +103,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
     title: 'MCP & dashboard',
     commands: [
       { cmd: 'sua mcp start', desc: 'Start the MCP server on 127.0.0.1:3003.' },
-      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token.', inDashboard: { label: 'Settings → Claude Desktop', href: '/settings/mcp' } },
+      { cmd: 'sua mcp rotate-token', desc: 'Generate a new MCP bearer token.', inDashboard: { label: 'Settings → General', href: '/settings/general' } },
       { cmd: 'sua dashboard start', desc: 'Start this web UI.' },
       { cmd: 'sua dashboard signin-url', desc: 'Print the sign-in link again (when the session has expired).' },
       { cmd: 'sua daemon start', desc: 'Run the dashboard, scheduler, MCP server (and a local model server or Temporal worker, if configured) in the background.' },
@@ -165,10 +165,11 @@ export function renderHelp(): string {
     </section>
 
     <section class="card" style="margin-bottom: var(--space-6);">
-      <p class="card__title">From idea to dashboard \u2014 the 10-step tour</p>
+      <p class="card__title">From idea to dashboard \u2014 the 11-step tour</p>
       <ol style="margin: 0; padding-left: var(--space-6); line-height: 1.9;">
         <li>
-          <strong>Start with a goal.</strong> On <a href="/agents">Agents</a>, click <em>Build from goal</em>
+          <strong>Start with a goal.</strong> On <a href="/agents">Agents</a>, ask <em>What do you want to do?</em>:
+          sua points you to agents you already have, or offers to build one. Or click <em>Build from goal</em>
           and describe what you want. Each draft shows its shape (a goal node that works it out, or a fixed
           flow) and why; switch it, or <em>Try it</em> before keeping it. Or use <em>New agent</em>.
         </li>
@@ -185,16 +186,18 @@ export function renderHelp(): string {
         </li>
         <li>
           <strong>Shape the output.</strong> Give it an <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md" target="_blank" rel="noreferrer">A2UI <code>view:</code></a>
-          (metrics, tables, buttons bound to its outputs) or an output widget on the <em>Config</em> tab.
-          Either draws on the run page, Pulse, the inbox and in chat.
+          (metrics, tables, buttons bound to its outputs) from its <em>Settings</em> tab (\u201cWhere it shows\u201d \u2192 <em>View</em>, with a live preview),
+          or ask sua to <em>Redesign</em> how its results look. It draws on the run page, Pulse, the inbox and in chat.
         </li>
         <li>
-          <strong>Run it.</strong> <em>Run now</em>, then watch <a href="/runs">the run</a>: each node's output,
+          <strong>Run it.</strong> <em>Run now</em>: the agent's Overview draws the run on its diagram as it goes and leads with the
+          latest result. Open <a href="/runs">the run</a> for each node's output,
           the tools it called, its cost, and a goal node's budget used. A failed run offers
           <em>Suggest improvements</em>.
         </li>
         <li>
-          <strong>Talk to it.</strong> The agent's <em>Chat</em> tab holds a conversation; replies stream in.
+          <strong>Talk to it.</strong> The agent's <em>Chat</em> tab holds a conversation; replies stream in, and
+          can include a widget (a table, stats, answer buttons) drawn as it streams, there, in the sua panel (\u2318K) and on Home.
           Turn on <code>memory: true</code> and it remembers notes between runs.
         </li>
         <li>
@@ -206,7 +209,7 @@ export function renderHelp(): string {
         <li>
           <strong>Trigger it.</strong> Set a cron schedule (run <code>sua schedule start</code> or <code>sua daemon start</code>),
           or let another service start it with a webhook (<code>POST /hooks/&lt;id&gt;</code>). When it needs
-          you, it asks in the <a href="/">inbox</a>.
+          you, it asks in the <a href="/inbox">inbox</a>.
         </li>
         <li>
           <strong>Put it on a board.</strong> An agent with a <code>signal:</code> or a <code>view:</code> gets a
@@ -214,6 +217,12 @@ export function renderHelp(): string {
           tabs, grids); <a href="/boards/new">New board</a> builds one from a description, using your agents and
           drafting any that are missing for your approval. Style everything in
           <a href="/settings/appearance#brand">Settings \u2192 Appearance \u2192 Brand</a>.
+        </li>
+        <li>
+          <strong>Keep a goal in a notebook.</strong> <a href="/notebooks/new">Start a notebook</a> with a sentence
+          (a car to buy, a job to find): sua drafts its steps (find, source, check, decide), runs them one at a time,
+          files options with their facts, and keeps a shortlist to a decision. Share its brief (it prints as a PDF);
+          save its setup as a template from <em>Edit</em> and start the next one by asking sua.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:
@@ -242,8 +251,8 @@ export function renderHelp(): string {
       </p>
       <p class="dim" style="margin: var(--space-3) 0 0; line-height: 1.6;">
         The <strong>node reference</strong> lists every kind of node an agent can be built from,
-        with what each takes in and gives back. It moved here from its own nav tab — it is
-        something to look up while building, not something you manage.
+        with what each takes in and gives back. It is something to look up while
+        building, not something you manage.
       </p>
     </section>
 
@@ -256,6 +265,8 @@ export function renderHelp(): string {
       </p>
       <ul style="line-height: 1.8;">
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/quickstart.md" target="_blank" rel="noreferrer">Quickstart</a> \u2014 30-minute first-touch guide, from install to chained agents.</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/notebooks.md" target="_blank" rel="noreferrer">Notebooks</a> \u2014 goals sua keeps for you: steps, options, templates, a brief (<a href="/notebooks">Notebooks</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/boards.md" target="_blank" rel="noreferrer">Boards</a> \u2014 Pulse and dashboards as canvases; build one from a request (<a href="/pulse">Pulse</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/agents.md" target="_blank" rel="noreferrer">Agent YAML reference</a> \u2014 every field: inputs, nodes, schedule, signal, output widget.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/flows.md" target="_blank" rel="noreferrer">Flow control</a> \u2014 conditional, switch, loop, agent-invoke, branch, end, break.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/goal-agents.md" target="_blank" rel="noreferrer">Goal agents</a> \u2014 a model with a goal, tools and a budget.</li>
@@ -267,12 +278,12 @@ export function renderHelp(): string {
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/cost.md" target="_blank" rel="noreferrer">Cost</a> \u2014 what runs cost, and spend limits (<a href="/settings/usage">Settings \u2192 Usage</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tool-policies.md" target="_blank" rel="noreferrer">Tool policies</a> \u2014 which tools agents may call (<a href="/settings/policies">Settings \u2192 Policies</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/a2ui-views.md" target="_blank" rel="noreferrer">A2UI views</a> \u2014 how an agent's results look, everywhere.</li>
-        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/llm-providers.md" target="_blank" rel="noreferrer">LLM providers</a> \u2014 Claude, Codex, local and OpenAI-compatible models (<a href="/settings/llm">Settings \u2192 LLM</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/llm-providers.md" target="_blank" rel="noreferrer">LLM providers</a> \u2014 Claude, Codex, local and OpenAI-compatible models; pick the Claude and Codex model from what each offers now (<a href="/settings/llm">Settings \u2192 LLM</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/build-from-goal.md" target="_blank" rel="noreferrer">Build from goal</a> \u2014 drafting agents from a description.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/behaviors.md" target="_blank" rel="noreferrer">Behaviors</a> \u2014 Agent Behavior specs (<a href="/behaviors">Behaviors</a>).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tools.md" target="_blank" rel="noreferrer">Tools</a> \u2014 built-in + MCP + user-authored; one page per tool.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/mcp.md" target="_blank" rel="noreferrer">MCP servers</a> \u2014 paste-config import, enable/disable, cascade delete (<a href="/tools/mcp/import">/tools/mcp/import</a>).</li>
-        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/output-widgets.md" target="_blank" rel="noreferrer">Output widgets</a> \u2014 widget types + AI-generated HTML templates (<a href="/agents">agent config</a>).</li>
+        <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/output-widgets.md" target="_blank" rel="noreferrer">Output widgets</a> \u2014 widget types + AI-generated HTML templates (an agent's <em>Settings</em> tab).</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/templating.md" target="_blank" rel="noreferrer">Templating</a> \u2014 <code>{{inputs.X}}</code>, <code>{{upstream.X.result}}</code>, <code>{{vars.X}}</code>, <code>{{outputs.X}}</code>.</li>
         <li><a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/dashboard.md" target="_blank" rel="noreferrer">Dashboard tour</a> \u2014 every page: what it's for + when to use it.</li>
       </ul>

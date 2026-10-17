@@ -8,4 +8,4 @@
 
 "Change how this looks" on an agent's latest result, and a tighter ⋯ menu.
 
-The Overview's Latest result line links straight to Redesign (it used to be only in the ⋯ menu), Ask sua's hint says it can change how results look as well as what the agent does, and the ⋯ menu's items are a compact list instead of widely spaced.
+The Overview's Latest result line links straight to Redesign, as well as the ⋯ menu, Ask sua's hint says it can change how results look as well as what the agent does, and the ⋯ menu's items are a compact list instead of widely spaced.

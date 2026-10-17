@@ -153,7 +153,7 @@ Types outside a widget's "Valid in" column are allowed but have no visual effect
 
 ## AI template workflow
 
-When a user picks the `ai-template` card at `/agents/:id/config`:
+When a user picks the `ai-template` card at `/agents/:id/output-widget`:
 
 1. **Write a prompt** — describe the visual shape ("card with hero metric, status pill, sparkline"). Mention field names if you have them; the editor also tries to infer from the agent's declared fields.
 2. **Click Generate** — dashboard POSTs to `/agents/:id/output-widget/generate`. The server spawns `claude --print` with a strict system prompt (HTML body only, allowlisted tags, `{{outputs.NAME}}` placeholders). A modal with a spinner + elapsed-seconds counter shows progress; Cancel aborts the subprocess.
@@ -265,7 +265,7 @@ signal:
   size: 2x1
 ```
 
-The tile on the home board (`/`) then renders the same HTML the agent detail page shows for the most recent completed run. No slot mapping required.
+The tile on Pulse (`/pulse`) then renders the same HTML the agent detail page shows for the most recent completed run. No slot mapping required.
 
 ## Related
 

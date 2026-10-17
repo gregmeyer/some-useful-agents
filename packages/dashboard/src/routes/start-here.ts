@@ -5,7 +5,7 @@
  * four minutes into the product: the zero-agent onboarding in views/home.ts is
  * effectively dead code because `agentCount` is never 0. Rather than install
  * fewer agents (they're all useful eventually), this curates the *view*: the
- * `playground-starters` pack names the three a newcomer should meet, and
+ * `playground-starters` pack names the four a newcomer should meet, and
  * everything else stays one click away under Agents → Examples.
  *
  * The pack is the source of truth for WHICH three, so re-curating is a YAML

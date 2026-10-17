@@ -1,6 +1,6 @@
 /**
- * Settings > Appearance: the brand theme (docs/brand.md), the widget renderer,
- * and boards.
+ * Settings > Appearance: the brand theme (docs/brand.md), your saved brands,
+ * and Update my brand.
  */
 
 import { html, unsafeHtml, type SafeHtml } from './html.js';

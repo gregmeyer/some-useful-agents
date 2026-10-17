@@ -12,4 +12,4 @@ The two Settings → Appearance switches kept for one release (the previous widg
 
 - **Stop a run after** (minutes) in an agent's Settings → When it runs sets its whole-run time limit (`timeoutSec`); sua can change it too (`timeoutMinutes`).
 - **Clear** on each `/scheduled` row removes the schedule after an in-page confirm; the agent stays and runs when asked.
-- `GET /health`: `runs_last_hour` counts only the last hour (it was every run), and a new `reaper` block reports what the boot reaper and the stuck-run watchdog cleaned up since start (counts only).
+- `GET /health`: `runs_last_hour` counts only the last hour (it was every run), and a new `reaper` block counts the stuck or orphaned runs cleaned up since start.

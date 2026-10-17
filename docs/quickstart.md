@@ -29,7 +29,7 @@ This scaffolds:
   it also holds the 40+ example agent YAMLs themselves; on an npm install those
   ship inside the `@some-useful-agents/core` package instead. Either way all of
   them are auto-installed into the DB by `sua init`. Start with the curated
-  three at **/start** rather than the full list.
+  four at **/start** rather than the full list.
 - `data/runs.db` — SQLite DB for runs, agents, tools, MCP servers
 - `.sua/` — local config (variables, MCP token)
 
@@ -60,7 +60,7 @@ Output:
 Re-run it a few times, then look at the history:
 
 ```bash
-sua agent list              # each agent with its last run
+sua agent status            # recent runs, newest first
 sua workflow logs <runId>   # one run's node-by-node output
 ```
 
@@ -81,11 +81,12 @@ Click it — the dashboard stores the cookie and bookmarks `http://127.0.0.1:300
 From here you can:
 
 - Start on `/start` — four starter agents, one per pattern
-- Browse agents on `/agents` (tabs: User / Examples / Community) and run one from its card
+- Ask **What do you want to do?** on `/agents`: sua points you to the agents that do it (or offers to build one); below that, the agents you use and every agent grouped by what it does
+- Start a notebook at `/notebooks/new` for a goal you'll keep at over time — a car to buy, a job to find ([Notebooks](notebooks.md))
 - Watch a run live at `/runs/:id`: each node's output, tool calls, cost and budget
 - Talk to an agent on its **Chat** tab; replies stream in as they're written
 - See every agent's latest result on **Pulse** (`/pulse`), run any tile in place, and arrange it with **✎ Arrange**; or describe a whole board with **＋ New board** and sua builds it from your agents ([Boards](boards.md))
-- Answer agents' questions and review failures in your inbox at `/`
+- Answer agents' questions and review failures in your inbox at `/inbox` (Home, at `/`, shows what needs you today)
 
 ## Create your own agent
 
@@ -188,6 +189,7 @@ sua agent run graphics-creator-mcp \
 
 ## Where to next
 
+- [Notebooks](notebooks.md) — goals sua keeps for you: steps, options, a brief to share
 - [Agent YAML reference](agents.md) — every field, what it does
 - [Goal agents](goal-agents.md) — a model with a goal, tools and a budget
 - [Conversations](conversations.md) — chat with an agent and follow up
