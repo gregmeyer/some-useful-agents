@@ -1,5 +1,246 @@
 # @some-useful-agents/mcp-server
 
+## 0.31.0
+
+### Minor Changes
+
+- bc663b5: The agent catalog: ask what you want to do, browse the agents you use.
+  
+  /agents opens with "What do you want to do?":
+  - **Keyword matches** show at once.
+  - **sua's agent finder** (the one it uses in a conversation) picks up to three agents, each with why it fits, a question to ask it, and Run. When nothing fits, it offers to build one.
+  
+  Browsing the User tab shows shelves: your go-to agents (starred and most run), the ones used lately, the ones that fill notebooks, and the ones on a schedule; then your agents grouped by what they do; then every agent as one line, with demos, tests and never-run drafts folded away.
+  
+  Cards are slim: what the agent is for, one question, when you last used it, and Run. Filters are folded, and the Calls-other-agents and Feeds-notebooks chips now stay on while paging.
+- 6b845ba: The agents catalog groups agents by what they do, sorted by sua.
+  
+  sua puts each agent in a group ("Jobs & companies", "News & digests", "Fun"…) and writes one plain line on what to use it for. /agents shows a shelf per group (three cards and "All N →" for the whole group), cards and rows show the "use it for" line, and the ask box searches it. New or changed agents are sorted in the background; sorting never changes an agent itself.
+- 7b94985: An agent's Overview leads with its latest result.
+  
+  The agent page now opens on what the agent makes: its last finished run, drawn like the run page (view, widget or text), and **Run with different inputs** right there. Beside it, **At a glance**: the last runs as dots, version, model, when it runs, how results look, spend, tools, and who it calls and is called by. **How it works** lists the steps; the diagram is behind **Show the diagram**, opens by itself while a run is going, and is on the Nodes tab too. The header is **Ask sua**, a **⋯** menu (Suggest improvements, Redesign how results look, Edit the view, Versions, YAML) and **Run now**, and a long description folds to two lines. Fixed along the way: the diagram's Save wiring and Cancel showed before you started editing, the widget card could run off the page, and a widget whose fields aren't in the output showed an empty box (it now shows what the run said, here and on the run page).
+- af426e2: New agents get a view, and "make this tile better" in a conversation starts a redesign.
+  
+  The agents sua builds now come with an A2UI view of their results (bound to the outputs they declare), checked before you see them. In a conversation, ask for an agent to look better or different and sua proposes a redesign, with a link to compare; nothing changes until you use it.
+- bb13f3d: Boards and A2UI are the only way Pulse, dashboards and widgets are drawn; plus a time limit in Settings, Clear on /scheduled, and reaper counts on /health.
+  
+  The two Settings → Appearance switches kept for one release (the previous widget renderer, the previous Pulse and dashboard layout) are gone, along with the old layout's pages and scripts. Widgets the A2UI converter can't draw yet (a `capture-image` control, video embeds) still draw with the previous renderer, so nothing disappears. `/boards/<id>/canvas` now leads to the board's page. In-page confirm dialogs (Hide all, Decline drafted agents) work on every page again.
+  
+  - **Stop a run after** (minutes) in an agent's Settings → When it runs sets its whole-run time limit (`timeoutSec`); sua can change it too (`timeoutMinutes`).
+  - **Clear** on each `/scheduled` row removes the schedule after an in-page confirm; the agent stays and runs when asked.
+  - `GET /health`: `runs_last_hour` counts only the last hour (it was every run), and a new `reaper` block counts the stuck or orphaned runs cleaned up since start.
+- d8900b2: Any agent's chat reply can include a widget, drawn as it streams.
+  
+  On the Chat tab, agents may add a widget to a reply when it helps (a comparison table, key numbers, choices to click), written as an `<a2ui>` block between their words. The widget builds up while the reply streams, each component appearing once it's complete, and the saved reply draws it in place. One component that doesn't check out shows as a short note instead of losing the whole widget. Widget blocks are left out of the history the agent sees next turn. Also: widgets in chat no longer show blank bands from the message's pre-wrap text style.
+- 2f6d342: Pick the Claude model from what Claude offers now, and hear from sua when one is retired.
+  
+  Settings → LLM's claude row gets the same Model picker as codex, filled from the model catalog the Claude CLI keeps for your account, and agent settings suggest current Claude models instead of Opus 4.6 / Sonnet 4.6 / Haiku 4.5. Claude's "There's an issue with the selected model" now counts as a retired model, so it falls through the waterfall and sua gets one System health thread naming where the model is used.
+- 45c116b: Pick the Codex model from what Codex offers now, and hear from sua when a model is retired.
+  
+  Settings → LLM's codex row has a Model picker filled from the list the Codex CLI keeps for your account (`~/.codex/models_cache.json`), so retired models like `gpt-5.5` and the old o4-mini/GPT-4.1 suggestions drop out on their own. The pick applies to every codex attempt whose agent or step doesn't name a model. When a Codex model in use is no longer offered (or a run is refused it), the row warns and sua gets one System health thread naming where it's used and what to pick instead; it resolves itself once nothing uses it.
+- 7a0e9c2: A loop can run its items at the same time.
+  
+  `loopConfig.concurrency: N` (1–6, default 1) runs up to N items at once. The results keep the items' order and a failed item is `null`, as before. Stopping the run starts no more items. This lets a big search become several small ones (one per site, each within its own turn limit) that take about as long as one.
+- dbf537a: A find step with no agent of its own uses sua's finder.
+  
+  sua's finder (`notebook-finder`, built in) splits a find into 3 to 5 narrow searches, one per site or source (for jobs, one per job board plus the open web), and runs them 3 at a time. Each is its own small run with its own turn limit. Code then files what they found: one option per page, facts by the notebook's fields, nothing it already has, plus a note on where it looked and what each search found. The notebook drafter and sua leave a find step's agent empty unless one of yours is made for that kind of search, and no longer give find steps to a general research agent. On the job notebook, where one big search came back empty, it found 6 new roles in about 3 minutes.
+- 8c90229: Job and company notebooks show company logos, and the brief shows each option's picture.
+  
+  In a notebook of jobs or companies, an option's picture is now its company's logo, taken from the company's own website (its app icon, a large icon, or a 128px favicon). The website comes from the option's facts, or the picture agent names it; job boards and recruiters never count. Logos show whole on a white tile, with no "example photo" label, and earlier example photos the agent described as logos are relabelled. The brief's table shows a small picture beside each name, the extended brief shows it at the top of each option, and a downloaded brief carries its pictures inside the file.
+- 376616e: Notebook templates: save a notebook's setup and start new ones by asking sua.
+  
+  **Save one:** on a notebook, Edit → More → Save as a template. It keeps the setup (what it's for, limits, done-whens, fields, checks, stages, steps and their agents, schedule), never the options, so each new notebook starts empty.
+  
+  **Start one:** ask sua ("start a notebook from my Job search template", or Start with sua → on New notebook). sua asks what's different this time (one or two button questions at a time, at most 4), then offers a Create notebook card that shows the setup and the changes. Approving it creates the notebook.
+- fbf4401: A node that runs out of turns answers from what it read, instead of coming back empty.
+  
+  When claude stops at a node's `maxTurns`, sua resumes it once without tools and asks for its answer from what it already searched and read. The node completes with a note saying it ran out (set `onMaxTurns: fail` to fail instead). Tool-using nodes are told their turn budget. They no longer waste turns on tools a run refuses anyway. web-fetch now returns JSON API responses (a job board's postings with pay, in one call). Warnings on completed nodes are kept and shown. A run that completed without some optional steps says so, and so does the notebook step that ran it.
+- 244d9f1: Redesign this widget: sua proposes a better view for an agent, shown beside the current one.
+  
+  In the View editor (or from ✎ on a board tile), say what should change, or nothing, and sua's new `view-designer` agent proposes a view from the current one, a sample of the agent's real data, the component catalog and your brand. The proposal is checked, then shown next to the current view, both drawn with the same run: use it as a new version, edit it first, discard it, or ask for something different. Tables in views no longer break short headers and numbers mid-word.
+- dba5316: Set "keep going if this step fails" from the dashboard.
+  
+  A step's Edit page now has a **Keep going if this step fails** box (the node's `optional` flag) on any step another step depends on. Ticked, a failed step no longer stops the run: the steps after it get a short note in place of its output. Before, this could only be set in the agent's YAML or by sua's builder.
+- 895682a: sua's replies can include widgets, the same ones chat agents use, answer buttons included.
+  
+  When an answer has several numbers, compares a few things or lists items that share fields, sua can include a widget (a table, stats, facts), drawn in place as the reply streams, in Home, the sua panel and inbox threads. When it asks a question with a few likely answers, like which weekend you mean, it offers them as buttons: click one to answer. Once you've answered, the buttons are spent and your pick is ticked.
+- 0adbc91: sua opens the page you ask for, and counts every option in the running.
+  
+  Ask sua "open my notebook" and the page behind the panel goes there, with the same conversation still open beside it. Before, sua said it couldn't switch your page.
+  
+  sua also sees every option still in a notebook's running, not just the newest 60 entries. In a long notebook it used to miss older cars and report fewer left than the page showed ("down to 3" when 7 were still in the running).
+- 4a296f6: A View editor with a live preview, starting from what the agent actually outputs.
+  
+  Settings → Where it shows → **View** opens `/agents/<id>/view`: the agent's A2UI view as YAML, checked and drawn with its last run as you type, saved as a new version (or removed, back to the output widget). An agent without a view gets a starter built from its last run's outputs: metrics with a trend line, labelled facts, tables with linked addresses, chips, paragraphs. The page lists every path the view can bind to with its value, and the sua components with examples. A step that printed JSON as its `result` now exposes that JSON's fields as outputs too (`/outputs/articles`), so views bind fields instead of text.
+- 4717294: Agent views can chart earlier runs, and a Run button in a view runs its agent.
+  
+  A view's `/history` was always empty: no page passed earlier runs in. Now the run page, board tiles, the inbox and chat all do, and every numeric output is also a ready-made series at `/series/<name>` (oldest first, ending with this run, up to 30 points), so a `Sparkline` can bind `values: { path: /series/stars }`. Earlier runs are only read when a view uses them. `/agent/id` and `/agent/name` name the view's agent. A `Button` with a `run-agent` action runs the view's own agent (in place on a tile, otherwise it opens the run); the target is always the view's agent, so a view can't start a different one.
+
+### Patch Changes
+
+- f14c937: "Change how this looks" on an agent's latest result, and a tighter ⋯ menu.
+  
+  The Overview's Latest result line links straight to Redesign, as well as the ⋯ menu, Ask sua's hint says it can change how results look as well as what the agent does, and the ⋯ menu's items are a compact list instead of widely spaced.
+- 4581cf3: The agent catalog's answers can become a conversation.
+  
+  "Talk it through with sua →" is on every answer to "What do you want to do?". It opens a conversation that starts with your question and what sua's agent finder suggested (each pick with why). sua carries on from there, comparing the picks, changing one or building one, without searching again.
+- 9cc9a0e: An agent's Latest result reads clearly when it has no widget, or its last run failed.
+  
+  - **A failed newest run** gets a red card with its error, Open the run, and Ask sua to fix it. The result below is titled "Last good result".
+  - **Output with no widget** that is one JSON object shows as labelled facts, and a JSON list of records as a table. The raw text is under Raw output.
+  - **Widgets** draw a list of records in a text or code field as a table, and leave out fields with nothing in them.
+  - **Agents other agents or notebooks call** list their last few results, each as the input and the answer in a line.
+- d1a20cb: Notebook templates can be archived.
+  
+  On New notebook, **Archive** keeps a template but stops it being offered there or by sua. Archived templates fold away under **Archived templates**, where you can restore or delete them. Saving a template under the same name restores it. The delete control no longer shows a stray "▸" in some browsers.
+- 60a2a67: The brief's shortlist table links each name to its own page, in the PDF too.
+  
+  Names found only on a search page stay plain text. With a Checks column, the table shows one fact fewer so it fits the page. A short name no longer cuts inside brackets: it's "Director, Accounting (Remote, US)", not "Director, Accounting (Remote".
+- bd3d4e0: Buttons in a reply's widget work wherever the conversation is shown.
+  
+  Clicking a button in an agent's reply in the sua panel or on Home now sends it as your next message, as it already did on the agent's Chat tab. Buttons look like answer chips. Once you've replied, an earlier widget's buttons are spent: the widget is drawn quieter, and the one you picked reads "✓ …". Images in those widgets follow the agent's allowed image hosts, as on its Chat tab.
+- 4c2d5f3: Conversations show plainly when a reply is still being written.
+  
+  "Working…" and "Writing…" now pulse. An agent's conversation opened mid-reply in the sua panel or on Home shows the reply so far and keeps streaming (it used to look finished), with the reply box saying "<agent> is replying…". Conversation list rows being answered show a pulsing dot and "sua is working…" / "<agent> is replying…". The Chats tab now includes conversations with agents. Also: a Table column may have an empty heading (a comparison's row-heading column), which used to stop the table from drawing.
+- 4fe0418: In a run's diagram, steps that haven't started are grey with a dashed edge.
+  
+  They used to take their type's colour, so a shell step waiting its turn looked the same green as a finished one. This applies on the run page and on the Overview's live diagram; an agent's own diagram (no run) keeps its type colours.
+- 4180b29: A notebook draft's review page is tidier.
+  
+  The title, what it's for, limits and steps stay inside their column; before, they ran across into the right-hand column, and remove buttons floated over it. Done-whens and checks wrap to show their whole text instead of being cut off. Stages are chips in order, not one text box with arrows. Limit chips fit their words, and each step's agent picker takes a set share of the row.
+- b7a5d96: An extended brief: the summary, then each option in full.
+  
+  Under **Download / share**, **Open the extended brief** and **Save extended as PDF** add **Each option in full** after the brief's summary. Each option in the running shows what its own page does: every fact with its source, quote or estimate, its notes, each check ticked or not, and what happened to it. Printed, each option starts a new page. The short brief is unchanged.
+- c2992e9: A new notebook's greeting has a Start button for its first step.
+  
+  After sua says hello in a new notebook's conversation, it now offers a **Start** card for step 1 when it can run it: the step has its own agent, or uses sua's finder or checker, and it isn't one of yours. Before, sua waited for you to say "start". The button runs step 1, the same as the header's Next step. It does nothing once the step has started.
+- 2bd7e8c: The Help page covers notebooks, the agents ask box and the model picker.
+  
+  The tour has a notebook step, starts from "What do you want to do?" on Agents, and points to an agent's Settings tab (not Config) for its view, webhook and output widget; the MCP token rotates under Settings → General; replay's `--input` is listed; and the guides list adds Notebooks and Boards.
+- 19c6c80: Company logos are sized by their shape, so they read.
+  
+  A wordmark logo (wide) fills its frame's width and gets a wider tile in the notebook's header; a square app icon sits smaller, with room around it. The brief's thumbnails are wider, and a drawing's thumbnail zooms in on its initials. A notebook picture that changes at the same address now shows the new one at once.
+- 4045843: The Nodes tab shows the agent's canvas above its steps.
+  
+  The diagram (click a node for its actions, Edit wiring to rearrange) is now on the Nodes tab, open, as well as behind Show the diagram on the Overview. Saving the wiring from the Nodes tab brings you back to it.
+- 94c52e1: A notebook's brief is a summary of findings, and it prints properly as a PDF.
+  
+  **New in the brief:**
+  - **Key findings,** worked out from the notebook itself: how many options were looked at and ruled out, the price or salary span in the running, and how many don't list it. Also the fit and measure spans, how the options split on a short fact like Remote, the most common reasons options were ruled out, what's still open, and where the last search looked.
+  - **The shortlist as a table,** then each option in detail with why it's there.
+  - **What was ruled out,** with reasons, and sua's notes.
+  - **One decision block** instead of a run-on sentence and a repeat.
+  - **Nothing folded away,** so the PDF has every option. "0/5 checks" and facts that repeat the title are gone.
+  
+  **When printed:** colours are kept, no row splits across pages, link addresses are printed, and there's no trailing blank page. **Save as PDF** under **Download / share** opens the print dialog.
+  
+  **Also fixed:** "Where it stands" shows a salary as its range ("$192,000–$300,000") rather than its midpoint, and a one-word name ("Director") keeps its next part.
+- 3da6cc4: A notebook's Edit is now its own page, with the same editor as a new notebook's draft.
+  
+  The old Edit dropdown cut off its text, asked for lists one per line, agent ids and cron, and couldn't change fields, checks or steps. The page shows the whole setup:
+  - limits and stages as chips, and done-whens and checks as rows; a met done-when stays ticked;
+  - steps with their agents; a step you keep keeps how far it got;
+  - the fields sua notes for each option;
+  - searches by name, and the schedule in words.
+  
+  Stop, Save as a template, Archive and Delete are under More. Chips no longer cut their words short, and a long one fits its column on a phone.
+- 2003a26: A notebook's header is compact: its steps on one row, its buttons beside the title.
+  
+  The steps used to wrap into a grid with one left over, cut off agent names, and split their status across lines. The header's buttons floated in a mostly empty right column. Now:
+  - The steps sit in one row, in order, each with its count and a status chip (done, moved on, stuck, running, to do).
+  - On a notebook drawn as widgets, the buttons sit beside the title.
+  - A finished notebook's steps shrink to one line each.
+  - A decided notebook lists its picks, each linking to its page, instead of one long sentence.
+- e58c9ec: Notebook cards on the Notebooks page are calmer.
+  
+  A cover photo fills its frame (a soft blur of itself behind it, still never cropped) instead of sitting between white bands, with "example photo" in its corner. The counts are one line ("61 options · 3 in the running · at Facts sourced") instead of three chips, the done-whens are dots in the footer ("●○○ 1 of 3 met") instead of a badge on the photo, and only decided, stopped and archived notebooks carry a status chip.
+- 4d4dc7e: A notebook shows plainly when it's working.
+  
+  The header has a pulsing "Running step 2 of 4…" line that also names background work (finding photos, labelling facts for filters, getting listing photos, adding a run), the running step's number turns and its card is highlighted, and the page keeps refreshing until everything is done. Background work used to be invisible, and a running step looked like any other.
+- 437f33c: An agent's Overview shows a run in progress on its diagram.
+  
+  While a run is going, the Overview opens the diagram, the running step pulses (as it does on the run page), and the heading says which step is working ("Running: fetch"). It follows the run every two seconds and reloads when it ends, so Latest result shows what it made.
+- 2d957d1: An agent's conversation in the sua panel goes to the agent, and streams live.
+  
+  Replying in an agent's conversation from the sua panel (⌘K) or Home used to start sua instead of the agent. Now the reply goes to the agent, its answer streams into the panel with any widgets building up as they're written, the box says "Reply to <agent>…", replies are labelled with the agent, and the panel no longer shows "sua is replying".
+- 39ad544: An agent's chat widgets show in the sua panel and on Home too.
+  
+  Agent conversations open in the sua panel (⌘K) and Home's conversation view drew agent replies as text, so a reply's widget showed as its raw block. They now draw the widget, the same as the agent's Chat tab.
+- 2b05801: Pick what you bought in a notebook without closing it.
+  
+  An option's page has **Pick this one** and each shortlist card has **Pick**. Decide… has **Save picks, keep it open**. A decide step's card has a **Pick N… →** button that opens Decide…. A decide step is done once it has its picks. The shortlist only switches to "Only chosen" once the notebook is decided.
+- ae5b391: A job's salary range no longer wipes its other facts.
+  
+  An option's facts are checked against its own text. A salary range in the title ("$150k–$160k") was read as its first number and compared with the range's midpoint, which looked like a contradiction, so the option was cut down to `{salary: 150000}` and lost its company, location, level and posting link. That happened both when a job was filed and every time the notebook was opened. A span in the text is now read as a range, and a figure agrees with a range it falls in. Options cut down this way get their facts back from their filing the next time the notebook opens.
+- 6a18398: A notebook's source step reads each option's own page when its agent reads one page a run.
+  
+  A source step used to run its agent once for the whole notebook. An agent that reads one page per run (like listing-page-facts) ran with no page, answered "blocked", and no option was read. Now such an agent runs once per option still missing facts (at most 8 a press), with that option's page and the facts it lacks.
+  - What each page says is filed on that option, sourced to the page.
+  - A gone item is ruled out.
+  - A page that blocks the reader is named in the step's note.
+  - An option with no page of its own is skipped, never run with an empty address.
+- 8499de4: You can scroll up while a reply streams.
+  
+  While sua (or an agent) was writing, scrolling up to read what was already said kept pulling you back down. Now a streaming reply follows the end only until you scroll up. It stays put while you read, and picks up again once you scroll back to the bottom or send a message. The same goes for an agent's Chat tab.
+- c86ed93: sua sees the notebook a conversation turns to.
+  
+  Ask "which notebook should I work on next?" from any page, pick one, and sua now has that notebook's options for the rest of the conversation. Before, it said it couldn't see the cars and sent you to the notebook's talk box.
+- 86425b6: Table links show a name instead of the raw address.
+  
+  A link column in a view or widget shows the row field its `linkText` names (e.g. the agent's name), or a cell's own `{label, url}`. Without either, a dashboard path shows its last part (`ashby-jobs-multi`, `run ab12cd34`) and a web address shows without `https://` or `www.`, shortened when long, with the full address on hover. Starter views and sua's guides use `linkText`, and link text wraps like words instead of mid-word.
+- 63dae0a: Replies stream on the Temporal backend too, and wide tables in a conversation scroll instead of being cut off.
+  
+  With the Temporal provider, sua's replies and chat agents' replies used to arrive in one piece; now their text, tool calls and widgets stream as they're written, about once a second. A table wider than the sua panel now scrolls sideways.
+- Updated dependencies [bc663b5]
+- Updated dependencies [6b845ba]
+- Updated dependencies [f14c937]
+- Updated dependencies [4581cf3]
+- Updated dependencies [9cc9a0e]
+- Updated dependencies [7b94985]
+- Updated dependencies [d1a20cb]
+- Updated dependencies [60a2a67]
+- Updated dependencies [af426e2]
+- Updated dependencies [bb13f3d]
+- Updated dependencies [d8900b2]
+- Updated dependencies [2f6d342]
+- Updated dependencies [45c116b]
+- Updated dependencies [bd3d4e0]
+- Updated dependencies [4c2d5f3]
+- Updated dependencies [4fe0418]
+- Updated dependencies [4180b29]
+- Updated dependencies [b7a5d96]
+- Updated dependencies [c2992e9]
+- Updated dependencies [2bd7e8c]
+- Updated dependencies [19c6c80]
+- Updated dependencies [7a0e9c2]
+- Updated dependencies [4045843]
+- Updated dependencies [94c52e1]
+- Updated dependencies [3da6cc4]
+- Updated dependencies [dbf537a]
+- Updated dependencies [2003a26]
+- Updated dependencies [e58c9ec]
+- Updated dependencies [8c90229]
+- Updated dependencies [376616e]
+- Updated dependencies [4d4dc7e]
+- Updated dependencies [fbf4401]
+- Updated dependencies [437f33c]
+- Updated dependencies [2d957d1]
+- Updated dependencies [39ad544]
+- Updated dependencies [2b05801]
+- Updated dependencies [244d9f1]
+- Updated dependencies [ae5b391]
+- Updated dependencies [6a18398]
+- Updated dependencies [dba5316]
+- Updated dependencies [8499de4]
+- Updated dependencies [c86ed93]
+- Updated dependencies [895682a]
+- Updated dependencies [0adbc91]
+- Updated dependencies [86425b6]
+- Updated dependencies [63dae0a]
+- Updated dependencies [4a296f6]
+- Updated dependencies [4717294]
+  - @some-useful-agents/core@0.31.0
+
 ## 0.30.0
 
 ### Minor Changes
