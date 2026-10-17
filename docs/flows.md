@@ -233,7 +233,7 @@ Either `big` or `small` runs (never both). `done` runs after whichever-one-fired
 
 ## Visualization
 
-The dashboard renders every DAG as a Cytoscape graph at `/agents/<id>` → Overview tab. Flow-control nodes get distinct badges (branch, loop, agent-invoke, etc.). Skipped nodes render dimmed; failed nodes red.
+The dashboard renders every DAG as a Cytoscape graph: on an agent's Overview behind **Show the diagram** (it opens by itself while a run is going) and at the top of its **Nodes** tab. Flow-control nodes get distinct badges (branch, loop, agent-invoke, etc.). In a run, steps that haven't started are grey and dashed; skipped nodes render dimmed; failed nodes red.
 
 ## Related
 

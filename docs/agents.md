@@ -203,7 +203,7 @@ Every agent has at least one node. Each node declares:
 | Type | Purpose | Key fields |
 |---|---|---|
 | `shell` | Run a shell command | `command`, `tool`, `toolInputs` |
-| `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `allowedTools`, `provider` |
+| `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `onMaxTurns`, `allowedTools`, `provider` |
 | `goal` | Let the model work toward a goal with tools, looping until it can answer ([goal-agents.md](goal-agents.md)) | `goal`, `tools`, `budget` |
 | `ask` | Stop and ask a person; the run waits for their answer in the inbox ([ask-a-person.md](ask-a-person.md)) | `question`, `choices`, `timeoutHours` |
 | `conditional` | Branch based on a predicate | `conditionalConfig` |
@@ -271,7 +271,7 @@ See [flows.md → onlyIf](flows.md#onlyif-edges) for the full predicate grammar.
 
 ## `signal`
 
-Optional Pulse tile config. When set, the agent's most recent run renders on the home board (`/`).
+Optional Pulse tile config. When set, the agent's most recent run renders on Pulse (`/pulse`).
 
 ```yaml
 signal:
@@ -344,7 +344,7 @@ Recommended sizing: pick something like 2–3× the agent's expected runtime. Th
 
 ## `pulseVisible`
 
-Whether this agent's `signal` tile appears on the home board (`/`) (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
+Whether this agent's `signal` tile appears on Pulse (`/pulse`) (default: `true` for agents that declare a `signal`). The `×` button on a Pulse tile toggles this flag; "Hide all" / "Show all" bulk-toggle it. Named dashboards (`/dashboards/:id`) curate their own tile lists independently of `pulseVisible`.
 
 ## Routing metadata — `tags`, `entryConditions`, `nonEntryConditions`, `sampleQuestions`
 
@@ -355,7 +355,7 @@ Optional lists of short natural-language strings that describe *when* an agent s
 - **`nonEntryConditions`** — look-alike situations it is explicitly *not* for. Used to disambiguate from sibling agents.
 - **`sampleQuestions`** — representative questions a user would ask that this agent answers.
 
-They are read by four routers: the **`/agents` search box** (relevance ranking), the **inbox triage** ranker + LLM, the **build-from-goal surveyor** (to reuse an existing agent instead of drafting a duplicate), and the **MCP `list-agents`** payload (so external clients like Claude Desktop route on them). The build-from-goal drafter populates these for new agents; edit them any time on the agent's YAML tab. All are versioned with the rest of the agent definition.
+They are read by four routers: the **`/agents` ask box** (*What do you want to do?*: keyword ranking, also over the "use it for" line sua writes, then sua's picks), the **inbox triage** ranker + LLM, the **build-from-goal surveyor** (to reuse an existing agent instead of drafting a duplicate), and the **MCP `list-agents`** payload (so external clients like Claude Desktop route on them). The build-from-goal drafter populates these for new agents; edit them any time on the agent's YAML tab. All are versioned with the rest of the agent definition.
 
 ### How they are scored
 

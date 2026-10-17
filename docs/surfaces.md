@@ -4,7 +4,7 @@ sua's Home and each [notebook](notebooks.md) (and later boards and canvases in a
 
 1. **Items**: what is true. Typed objects read from what sua already stores. *(Shipped: the item index, below.)*
 2. **Surfaces**: what is emphasized now. A versioned document per surface holds a goal, rules and your pins, and every change records who made it and why. *(Shipped: the surface model, below.)*
-3. **Presentation**: a renderer turns a surface plus its items into the page. *(Shipped for Home: its **Today** tab, below.)*
+3. **Presentation**: a renderer turns a surface plus its items into the page. *(Shipped for Home: its **Today** section, below.)*
 
 ## Items
 
@@ -86,7 +86,7 @@ The actor is `user` (you, directly), `user-conversation` (you, by applying sua's
 
 ## Home's Today tab
 
-Home's first tab, **Today**, in Home itself and in the sua drawer, is Home's surface drawn. Under the description, a goal line says what Home is arranged for, and whether by the defaults or by your rules (with the version).
+Home's **Today** section, in Home itself and in the sua drawer, is Home's surface drawn. Under the description, a goal line says what Home is arranged for, and whether by the defaults or by your rules (with the version).
 
 - **Needs you** and **Happening now** show their items as rows, in the compiled order.
   - A conversation opens as a conversation.

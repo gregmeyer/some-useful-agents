@@ -36,7 +36,7 @@ The top bar: `sua · Agents · Pulse · Settings · Help`. The `sua` brand is Ho
 
 Asking sua opens the answer in a panel beside the page, not over it, so you can keep looking at the tile or run you're asking about. **Ask sua** in the top bar, or **Cmd/Ctrl+K**, opens the panel (your last thread, or a box to start a new one) and closes it again. The panel stays open as you move between pages, per browser tab.
 
-- With no thread open, the panel is your inbox. One field searches as you type and asks sua when you press Enter. Below it, **Needs you · Open · Chats · Done** (with counts) and your threads, 25 at a time: on Needs you grouped into **Waiting on you** and **Keeps failing**, elsewhere into Today / This week / Earlier. Each row has a dot and a one-word tag for what it needs (**Approve**, **Answer**, **Failing**). It opens on Needs you when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
+- With no thread open, the panel is your inbox. One field searches as you type and asks sua when you press Enter. Below it, **Today · Open · Chats · Done** (with counts) and your threads, 25 at a time: on Today grouped into **Waiting on you** and **Keeps failing**, elsewhere into Today / This week / Earlier. Each row has a dot and a one-word tag for what it needs (**Approve**, **Answer**, **Failing**). It opens on Today when something is waiting. Pick a thread to read and reply in the panel; **← Inbox** goes back to the list where you left it. The list updates as threads change.
 - **+** starts a new conversation: a box to ask sua and a few starting points.
 - A conversation shows its title on one line, then its state (Your turn, sua replied, Resolved…), who it's with and how old it is. **⋯** holds Star, Tags, **Ask sua to look again**, Summarize, Resolve / Dismiss / Reopen and **Open full page**. Messages show who said them (You, sua, the agent); status notes are quieter. Proposed actions are cards that say what they'll do and whether they only read or change something, with the inputs under **Details** and **Run it** / **Not now** (or **Apply fix**, with the changes to the agent folded under "+N −M"). **↻** beside the search reloads the list, which otherwise updates by itself.
 - **↗** opens the thread in the inbox; **⤢** widens the panel and **⤡** puts it back; **–** minimizes it to a pill in the corner, which lights up when a reply lands.
@@ -105,7 +105,7 @@ How an agent is built (its nodes and DAG) is on its own page.
 
 ## `/scheduled` — Scheduled agents
 
-Sibling tab in the Agents strip (Agents · Tools · Nodes · Runs · Packs · **Scheduled**). Lists every agent with a `schedule:` field — regardless of status — so paused-but-scheduled and draft-with-cron agents are visible alongside active ones. Sorted by next-fire (earliest first), with id as the tiebreaker.
+Sibling tab in the Agents strip (Start here · Agents · Behaviors · Tools · Runs · Packs · **Scheduled**). Lists every agent with a `schedule:` field — regardless of status — so paused-but-scheduled and draft-with-cron agents are visible alongside active ones. Sorted by next-fire (earliest first), with id as the tiebreaker.
 
 **Columns:** Agent (id + truncated description) · Status (badge) · Schedule (humanized cron, raw on hover) · Last fire · Next fire · Actions.
 
@@ -129,7 +129,6 @@ Every row also has **Clear**, which removes the schedule (the agent stays and ru
 
 **`never` in Last fire** has a tooltip clarifying that the column counts only `triggeredBy='schedule'` runs — manual runs via dashboard / CLI / MCP don't count here. An agent run manually but never by the scheduler shows `never` by design.
 
-**The home Scheduled widget** mirrors this surface: includes paused agents (badged), shows Pause/Resume inline, and has a "View all →" link to this page.
 
 ## `/agents/:id` — Agent detail
 
@@ -179,7 +178,7 @@ Editor for the raw YAML. Zod validation on save. Versioned — each save creates
 
 ## Output widget editor
 
-At `/agents/<id>/config` under **Output Widget**. The core loop:
+At `/agents/<id>/output-widget` (linked from the agent's **Settings** tab, under *Where it shows*). The core loop:
 
 1. **Pick a card** — 5 widget types (raw / key-value / diff-apply / dashboard / ai-template). Each card shows an ASCII layout hint and a one-line description.
 2. **Read the helper** — a paragraph under the picker explains which field types work for the selected widget and how field names are matched against the run output.
@@ -293,7 +292,7 @@ Named views over installed agents — pack-owned (e.g. `starter:media`) or user-
 
 ## `/boards/:id` — Boards
 
-Redirects to the board's page (`/pulse` or `/dashboards/<id>`). With boards switched off in Settings → Appearance, `/boards/<id>/canvas` shows the board's canvas. `/boards/<id>.json` returns the board's layout. See [Boards](boards.md).
+Redirects to the board's page (`/pulse` or `/dashboards/<id>`). `/boards/<id>/canvas` redirects the same way. `/boards/<id>.json` returns the board's layout. See [Boards](boards.md).
 
 ## `/settings`
 
@@ -311,7 +310,7 @@ Global plain-text values. CRUD with values visible. Referenced as `$NAME` / `{{v
 sua as an MCP server for Claude Desktop and other clients: the config to paste, and token rotation. See [MCP](mcp.md).
 
 ### LLM
-The provider waterfall: reorder, add OpenAI-compatible endpoints, enable/disable. See [LLM providers](llm-providers.md).
+The provider waterfall: reorder and enable/disable providers (add an OpenAI-compatible endpoint with **Connect a model**). Codex and Claude each have a **Model** line listing what that CLI offers your account now; a retired model in use gets a System health thread. See [LLM providers](llm-providers.md#the-codex-and-claude-models).
 
 ### LLM → Pricing
 Prices (USD per million tokens) for providers that report tokens but not cost (codex, OpenAI-compatible endpoints), per provider or per `provider/model`. See [cost.md](cost.md).

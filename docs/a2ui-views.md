@@ -1,6 +1,6 @@
 # A2UI views
 
-> **Where views show:** the run page (Result), the agent's **Pulse** tile and named dashboards, inbox threads (under an action that ran the agent), and **agent chat** (each reply; clicks continue the conversation). A view takes the place of the agent's `signal` template and `outputWidget` wherever both exist. An agent with only a `view:` (no `signal:`) still gets a Pulse tile, titled with its name.
+> **Where views show:** the run page (Result), the agent's Overview (**Latest result**), its **Pulse** tile and named dashboards, inbox threads (under an action that ran the agent), and **agent chat** (each reply; clicks continue the conversation). A view takes the place of the agent's `signal` template and `outputWidget` wherever both exist. An agent with only a `view:` (no `signal:`) still gets a Pulse tile, titled with its name.
 
 An agent can describe how its results look as an [A2UI](https://a2ui.org) view: a list of UI components (text, cards, rows, metrics, tables, buttons…) bound to the data each run produces. A2UI is an open, declarative format: no code, only components from a known catalog, so it's safe to render even when a model wrote it.
 
@@ -132,7 +132,7 @@ On the agent's **Chat** tab, each reply whose run produced a valid view shows th
 
 **Widgets in sua's replies.** sua writes widgets the way chat agents do, from the same component list (core `replyWidgetComponents`), so a conversation looks and works the same whoever answers ([ADR-0047](adr/0047-a2ui-views.md#amendment-2026-10-14-one-reply-format-for-every-conversation)). In a conversation with sua (Home, the sua panel, a notebook's or an option's talk box, an inbox thread), sua adds an optional `widget` ({components, data}) next to `recommendation` in its plan when the answer has several numbers, compares a few things or lists items that share fields, or when it asks a question with a few likely answers: a Row of Buttons, one per answer, whose `context.message` is that answer ("This weekend, Oct 17–18"). The widget is checked the same way (a part that doesn't check out becomes a note; an unreadable one is dropped) and kept in the reply as an inline `<a2ui>` block, exactly as an agent's reply keeps it. It's drawn while sua writes it, then in place in the saved reply. Clicking a Button sends its message as your reply, and once you've replied its buttons are spent (the one you picked reads "✓ …"). Buttons answer; `links` take you somewhere; proposed actions run something. Replies saved before this (their widget in the reply's meta) still draw under the text.
 
-Outside chat (Pulse tiles, dashboards, the run page, inbox threads), a Button whose action is named `run-agent` runs an agent instead: its context is `{ agent: <id>, in_<INPUT>: <value>, … }` (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
+Outside chat (Pulse tiles, dashboards, the run page, inbox threads), a Button whose action is named `run-agent` runs an agent instead: its context is `{ in_<INPUT>: <value>, … }` and it always runs the view's own agent (usually bound to TextFields / ChoicePickers), and a tile refreshes in place when the run finishes.
 
 The click travels over the chat WebSocket like a typed message (see [conversations.md](conversations.md)), so the reply streams the same way.
 

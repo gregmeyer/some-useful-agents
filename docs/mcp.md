@@ -142,7 +142,7 @@ sua workflow run graphics-creator-mcp \
   -i AUDIENCE="investors"
 ```
 
-On the home board (`/`) the run's output widget will render (assuming the agent has one declared).
+On Pulse (`/pulse`) the run's output widget will render (assuming the agent has one declared).
 
 ## Operational notes
 

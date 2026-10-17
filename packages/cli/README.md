@@ -21,7 +21,7 @@ sua dashboard start              # open the web dashboard
 ## Commands
 
 - `sua agent` — list, new, run, chat, webhook, status, logs, cancel, audit, edit, disable/enable, install, reimport
-- `sua workflow` — lower-level agent tools: list, run, replay, import, export, status, logs
+- `sua workflow` — lower-level agent tools: list, run, replay (`--input K=V` overrides one input; the rest are the run's own), import, export, status, logs
 - `sua memory` — list, search, pin, forget (what an agent remembers)
 - `sua usage` — what runs cost, by agent and provider
 - `sua policy` — show, check, validate (the tool policy)
@@ -31,26 +31,26 @@ sua dashboard start              # open the web dashboard
 - `sua secrets` — set, get, list, delete, migrate, check
 - `sua vars` — list, get, set, delete (global variables)
 - `sua mcp` — start, rotate-token, token
-- `sua schedule` — list, validate, start
+- `sua schedule` — list, validate, status, start
 - `sua dashboard` — start, signin-url
-- `sua daemon` — start, stop, restart, status (dashboard, scheduler, MCP, worker, local model server)
-- `sua worker` — the Temporal worker
+- `sua daemon` — start, stop, restart, status, logs (dashboard, scheduler, MCP, worker, local model server)
+- `sua worker` — the Temporal worker: start, install-launchagent, launchagent-status, uninstall-launchagent
+- `sua state` — list, du, export, prune (agents' saved state)
+- `sua outcome` — list, show (what runs achieved)
+- `sua apple` — authorize, connect (Apple Foundation Models on macOS)
+- `sua planner smoke` — check the layout planner end to end
 - `sua init`, `sua doctor`, `sua tutorial`
 
-## What's new in 0.28
+## What's new in 0.31
 
-- **Goal agents** — a `goal` node gives a model a goal, tools and a budget; it works until it can answer. Build from goal drafts one for open-ended asks.
-- **Agents as tools** — `agent:<id>` in a node's `tools:` lets the model call other agents.
-- **Conversations** — `sua agent chat <id>`, the dashboard Chat tab (streams live), or MCP `run-agent` with a `sessionId`.
-- **Memory** — `memory: true`; manage with `sua memory`.
-- **Ask a person** — `ask` nodes and the `ask-human` tool pause a run for your answer in the inbox.
-- **Webhooks** — `sua agent webhook <id> --on`, then `POST /hooks/<id>`.
-- **Cost and spend limits** — `sua usage`, Settings → Usage, `spendLimit:`.
-- **Tool policies** — enforced on every tool call; edit and test in Settings → Policies or with `sua policy`.
-- **A2UI views** — describe an agent's widget as declarative UI; every widget is drawn with A2UI.
-- **Codex and Claude call sua tools** over a local MCP endpoint; Codex works outside git repos.
+- **Notebooks work in steps** — find → source → check → decide, pausing after each; a find step with no agent of its own uses sua's finder (several narrow searches at once). Save a notebook as a **template**, share a **brief** that prints as a PDF, and change its setup on its own **Edit** page.
+- **The agents catalog asks what you want to do** — `/agents` answers with keyword matches and sua's picks, shelves the agents you use, and groups the rest by what they do.
+- **Pick the Codex and Claude model** from what each CLI offers your account now (Settings → LLM); sua tells you in the inbox when a model in use is retired.
+- **Widgets in chat** — any agent's reply, and sua's, can include a widget, drawn as it streams, with working buttons.
+- **Long searches finish** — a step out of turns answers from what it read; a loop can run items at the same time (`loopConfig.concurrency`); a step can keep going if it fails (box on its Edit page).
+- **Replay with a changed input** — `sua workflow replay <runId> --from <node> --input K=V` reuses the run's other inputs.
 
-See the [changelog](https://github.com/gregmeyer/some-useful-agents/blob/main/CHANGELOG.md) for everything, and earlier highlights: integrations (`/tools?tab=integrations`), the Improve layout wizard, MCP servers (`/tools?tab=servers`), flow control, and 40+ bundled example agents.
+See the [changelog](https://github.com/gregmeyer/some-useful-agents/blob/main/CHANGELOG.md) for everything, and earlier highlights: goal agents, conversations, memory, ask a person, webhooks, cost limits, tool policies, A2UI views, integrations (`/tools?tab=integrations`), Suggest a layout, MCP servers (`/tools?tab=servers`), flow control, and 40+ bundled example agents.
 
 See the [main repo README](https://github.com/gregmeyer/some-useful-agents) and [docs/](https://github.com/gregmeyer/some-useful-agents/tree/main/docs) for full documentation.
 

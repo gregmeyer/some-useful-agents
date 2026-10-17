@@ -94,7 +94,7 @@ Only agents managed in the database (not legacy v1 YAML agents) can hold a conve
 
 Conversations live in the inbox store in the run database: each one is an inbox thread with source `conversation`, and each turn is a reply on it (yours as `user`, the agent's as `agent`). Temporal workers and the dashboard share them. Each agent reply links to its run. Deleting a conversation keeps its runs; deleting the agent deletes its conversations.
 
-They aren't listed in the inbox yet; the inbox split view will show them alongside triage threads.
+They're listed under **Chats** in the inbox and the sua panel, alongside conversations with sua.
 
 Upgrading from 0.29 or earlier copies existing conversations over the first time sua opens the database, keeping their ids (so `--session <id>` still works). The old tables stay as `sessions_legacy` and `session_turns_legacy`.
 

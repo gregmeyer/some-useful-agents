@@ -13,7 +13,7 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
 
 There's no top-nav item yet. Notebooks show up:
 - **on Home:** the **Your notebooks** shelf, a card per active notebook with its picture, best option and price, criteria as dots, and **sua asked you** when sua is waiting on you; plus **+ New notebook**. On Today each active notebook is one row: in **Needs you** while sua waits on your reply, otherwise in **Happening now** with its progress;
-- **at `/notebooks`:** the list, with a ring showing criteria met, plus **New notebook**;
+- **at `/notebooks`:** the list, with dots showing progress, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 
 - **The Notebooks page** lists them as cards (**+ New notebook** is at the top right). Each has a cover: the best kept picture among options still in the running (a listing photo first, then an example photo, then an illustration), or until there is one, a cover drawn for it in its own colour with an icon for what it's about (a car, a job, an instrument, a bike, a laptop, a home…) and its stages. Opening the page also starts finding pictures for options that have none. Under the cover: the title (with a **decided**, **stopped** or **archived** chip; active ones have none, since the tab says so), what it's for (or what you decided), the best price with its lead option, one line of counts ("61 options · 3 in the running · at Facts sourced", the last being the furthest stage any option has reached), and at the bottom its done-whens as dots ("●○○ 1 of 3 met"; hover for which) beside when it was last updated. Tabs show **Active** (the default), **Decided**, **Stopped** or **All** with counts, plus **Archived** when you've archived any; search matches titles, goals, decisions and limits; sort by recently updated, newest or A–Z; 12 to a page.
@@ -97,7 +97,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
 **The sua panel follows you to a notebook.** Open a notebook with the panel open (docked or wide) and the panel switches to that notebook's conversation. A closed or minimised panel stays as it was.
 
-- **The cover** shows the title, status, what it's for, the parameters, and the cadence. The pipeline is drawn as connected agents, each with its last run (ran, failed, not run yet, not installed). A ring shows how many criteria are met; click a criterion to tick it.
+- **The cover** shows the title, status, what it's for, the parameters, and the cadence. The pipeline is drawn as connected agents, each with its last run (ran, failed, not run yet, not installed). Without widgets, a ring shows how many criteria are met (click a criterion to tick it); with widgets the header is compact (see [Steps](#steps-the-work-in-order)).
 - **Its sections** are drawn from the notebook's own surface (`notebook:<id>`; see [surfaces](surfaces.md)):
   - **Options**;
   - **Notes and decisions**, with decisions first;
@@ -109,7 +109,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   - **What carries over:** a step you keep keeps how far it got, and the step that's running can't be removed.
   - **Removing a field** hides it; what options already have is kept. To note something new, ask sua.
   - **Searches:** the notebook's own and the agents that fill notebooks are listed first; the rest are under **Other agents**.
-  - **Save** keeps it; **More** below has Stop, Save as a template, Archive and Delete.
+  - **Save** keeps it; **More** below has Save as a template and Delete, plus Stop while it's active and Archive while it isn't archived.
 - **The schedule runs the pipeline.** A notebook with a schedule ("every morning") runs its searches when it's due, the same as pressing Run. The header says when it runs next. Each due time runs once. After the dashboard has been off, it catches up with one run, not one per missed time. A new or changed schedule waits for its next time. A schedule needs at least one search to run; without one the header says so. Scheduled runs are marked **on schedule** in **How it was made**. Schedules run while the dashboard is running (always, under `sua daemon`). See [ADR-0050](adr/0050-notebook-schedules-run-in-the-dashboard.md). Editing the criteria keeps the ticks on the ones you didn't change.
 - **Decide…** lists the options still in the running, best first, with their fit, price or measure and how many checks they pass. Tick the ones you chose (one, with a radio button, when the decide step wants one), say why if you like, and **Choose these N and close**. The picks are marked chosen, the decision ("Chose Acme and Hooli. Closest in size") is kept as an entry, the decide step is done, and the notebook closes. **Pick the top N** ticks the best N for you. When sua has recommended some in your conversation, they carry a **sua** badge and **Tick sua's picks (N)** ticks exactly those (its latest recommendation replaces the one before). Each row shows the option's picture when it has one. Chosen options carry a **✓ chosen** ribbon on their shortlist card (a chip in the table view and on the option's page). Once you've decided (closed it), the shortlist shows just the chosen ones, first (untick **Only chosen** to see the rest; that's kept per notebook in your browser), **Where it stands** says what you decided, and the funnel's **Chosen** counts every pick. With nothing in the running, you just say what you decided. **Save picks, keep it open** marks the ticked ones chosen without closing: for a notebook you keep shopping from ("I bought this one"). You can also pick one at a time: **Pick this one** on an option's page and **Pick** on its shortlist card (click **✓ Picked** or **Unpick** to take it back). A decide step is done once it has as many picks as it wants, and open again if you take one back. A decide step's card has its own **Pick N… →** button, which opens Decide…. **Reopen** any time (your picks stay ticked); **Stop** pauses a notebook without deciding.
 
@@ -446,6 +446,9 @@ While a notebook has steps left, the main button in its header is **Next step �
 - **A closed conversation comes back:** when a step finishes or stops short and the notebook's conversation was dismissed or resolved (by you, or cleared from Today), sua reopens it as waiting on you, so the step's message and its cards show under **need your reply**. A conversation that's still open keeps its status.
 - **Old cards:** a Continue or Try again card from earlier does nothing once the notebook has moved on.
 
+**When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. A step whose status says running but isn't (left by a restart) doesn't spin.
+
+
 ### sua's checker
 
 A check step with no agent of its own uses sua's checker (`notebook-checker`, a built-in agent). It needs the notebook to have checks ("Sells enterprise software", "Why people buy is quoted from a customer case study").
@@ -473,5 +476,3 @@ On the job notebook it found 6 new roles in about 3 minutes on the first try, wh
 
 - **G4:** one schedule for the notebook (runs now; see above). Still to come: each run shows what's new or changed, and progress against the criteria.
 - **G5:** "start a notebook to research X" from sua drafts the notebook, its pipeline and schedule behind one approval.
-
-**When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. A step whose status says running but isn't (left by a restart) doesn't spin.
