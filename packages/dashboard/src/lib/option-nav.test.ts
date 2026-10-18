@@ -8,7 +8,7 @@ import { optionNavIntent } from './notebook-chat.js';
 
 // A browser module (assets/option-nav.js); a computed path keeps tsc from typing it.
 const here = dirname(fileURLToPath(import.meta.url));
-type Item = { id: string; stage?: string; notSeenLately: boolean; fields: Record<string, string> };
+type Item = { id: string; out?: boolean; stage?: string; notSeenLately: boolean; fields: Record<string, string> };
 const { stepThrough } = await import(join(here, '..', 'assets', 'option-nav.js')) as {
   stepThrough: (order: Item[], id: string, filters: string[], sel: Record<string, string>) => { prev?: Item; next?: Item; pos?: number; count: number; filtered: boolean };
 };
@@ -42,6 +42,11 @@ describe('Previous / Next after the grid filters', () => {
     const s = stepThrough(order, 'd', ['seen'], { seen: 'Current' });
     expect(s).toMatchObject({ prev: { id: 'c' }, next: { id: 'e' }, count: 3 });
     expect(s.pos).toBeUndefined();
+  });
+  it('a ruled-out one steps on from where it ranked, and isn\'t counted', () => {
+    const withOut = [order[0], { ...order[2], id: 'x', out: true } as Item, order[2], order[4]];
+    expect(stepThrough(withOut, 'x', ['seen'], {})).toMatchObject({ prev: { id: 'a' }, next: { id: 'c' }, count: 3 });
+    expect(stepThrough(withOut, 'x', ['seen'], {}).pos).toBeUndefined();
   });
   it('ignores a choice that no longer exists', () => {
     expect(stepThrough(order, 'a', ['seen'], { seen: 'Gone' })).toMatchObject({ next: { id: 'b' }, filtered: false });

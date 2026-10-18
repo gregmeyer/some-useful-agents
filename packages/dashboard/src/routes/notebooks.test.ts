@@ -2520,6 +2520,11 @@ describe("an option's own page", () => {
     expect(outPage.text).toContain('Ruled out at Checked: No reply');
     expect(outPage.text).toContain('Moved to Checked');
     expect(outPage.text).not.toContain('best price');
+    // Ruled out, it still steps on to the next one (→ too), from where it ranked.
+    expect(outPage.text).toMatch(/data-nbo-next[^>]*>[^<]*<span class="nbo-nav__name" data-nbo-name>#1 2012 Example Hatch/);
+    expect(outPage.text).toContain('ruled out · 1 in the running');
+    const nextAsked = await post(`/notebooks/${nb.id}/ask`, { text: 'next', option: wagon.id });
+    expect(nextAsked.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/entries/(?!${wagon.id})`));
     expect((await post(`/notebooks/${nb.id}/entries/${wagon.id}/reinstate`)).headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}\\?flash=.*#entry-${wagon.id}$`));
 
     // A note has no page: it goes to its place in the notebook. Nothing there is a 404.

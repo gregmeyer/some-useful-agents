@@ -48,13 +48,14 @@ function optionNav(e: NotebookEntry, nav: NotebookOptionData['nav']): SafeHtml {
   if (!nav || nav.order.length < 2) return html``;
   const link = (which: 'prev' | 'next', o?: NonNullable<typeof nav>['next']) => html`
     <a class="btn btn--sm btn--ghost nbo-nav__step" rel="${which}" data-nbo-${which} href="${o?.page ?? '#'}" ${o ? html`title="${which === 'prev' ? 'Previous' : 'Next'}: ${o.name}"` : html`hidden`}>${which === 'prev' ? '← ' : ''}<span class="nbo-nav__name" data-nbo-name>${o ? `#${String(o.rank)} ${o.name}` : ''}</span>${which === 'next' ? ' →' : ''}</a>`;
+  const inRunning = nav.order.filter((o) => !o.out).length;
   const rank = nav.order.findIndex((o) => o.id === e.id) + 1;
   // JSON inside <script>: "<" can't close it.
   const json = JSON.stringify({ id: e.id, order: nav.order, filters: nav.filters, filterKey: nav.filterKey }).replace(/</g, '\\u003c');
   return html`
     <nav class="nbo-nav" data-nbo-nav aria-label="Other options">
       ${link('prev', nav.prev)}
-      <span class="nbo-nav__pos" data-nbo-pos>${String(rank)} of ${String(nav.order.length)}</span>
+      <span class="nbo-nav__pos" data-nbo-pos>${e.ruledOut ? `ruled out · ${String(inRunning)} in the running` : `${String(rank)} of ${String(inRunning)}`}</span>
       ${link('next', nav.next)}
       <script type="application/json" data-nbo-order>${unsafeHtml(json)}</script>
     </nav>

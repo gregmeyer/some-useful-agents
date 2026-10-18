@@ -8,14 +8,14 @@ import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
-import { notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
+import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
 import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
-  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText, rankOptions,
+  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntry,
   type NotebookEntryKind,
@@ -710,8 +710,8 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   if (step) {
     const entries = s.entries(nb.id, 1000);
     const sent = str(req.body?.[step]);
-    const order = rankOptions(nb, notebookWidgetData(nb, entries, widgetHistory(ctx, s)).notebook.options);
-    const to = sent && order.some((o) => o.id === sent) ? sent : optionNeighbours(order, fromOption)[step]?.id;
+    const order = navOrder(nb, notebookWidgetData(nb, entries, widgetHistory(ctx, s)).notebook.options, fromOption);
+    const to = sent && order.some((o) => o.id === sent && !o.out) ? sent : optionNeighbours(order, fromOption)[step]?.id;
     if (to) {
       const page = optionPage(nb.id, to);
       if (isAjax(req)) { res.setHeader('X-Navigate', page); res.status(204).end(); return; }
