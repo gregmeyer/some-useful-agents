@@ -72,6 +72,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-checker': 'notebook only: checks options against the notebook\'s checks in a check step, never proposed',
   'notebook-finder': 'notebook only: a find step without its own agent, several narrow searches at once, never proposed',
   'notebook-find-one': 'notebook-finder only: one of its searches, never proposed',
+  'web-search-links': 'the shared web search other agents call (agent-invoke); returns links, never an answer',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
   'board-builder': 'invoked by New board from a request (/boards/new)',
@@ -192,5 +193,36 @@ describe('shipped agent routing-metadata coverage', () => {
       .filter(([, ids]) => ids.length > MAX_AGENTS_PER_TAG)
       .map(([t, ids]) => `"${t}" on ${ids.length} agents (${ids.join(', ')})`);
     expect(generic, `over-broad tags:\n  ${generic.join('\n  ')}`).toEqual([]);
+  });
+});
+
+/**
+ * Web search lives in one place: `web-search-links` (the CLI's own live
+ * search). A shell node that scrapes a search engine gets blocked and finds
+ * nothing (DuckDuckGo did, in about half the discover runs), so no shipped
+ * agent does it, and the job-board discover agents go through the shared one.
+ */
+describe('web search goes through web-search-links', () => {
+  const agents = readdirSync(EXAMPLES_DIR)
+    .filter((f) => extname(f) === '.yaml')
+    .map((f) => parseAgent(readFileSync(join(EXAMPLES_DIR, f), 'utf8')));
+
+  it('no shipped agent scrapes a search engine from a shell node', () => {
+    expect(agents.length).toBeGreaterThan(0);
+    const scraping = agents.flatMap((a) => a.nodes
+      .filter((n) => n.type === 'shell' && /duckduckgo\.com|google\.com\/search|bing\.com\/search/i.test(n.command ?? ''))
+      .map((n) => `${a.id}/${n.id}`));
+    expect(scraping).toEqual([]);
+  });
+
+  it('the job-board discover agents search with it, and lever-job-agent finds boards with lever-discover', () => {
+    for (const id of ['ashby-discover', 'greenhouse-discover', 'lever-discover']) {
+      const a = agents.find((x) => x.id === id)!;
+      expect(a.nodes.find((n) => n.type === 'agent-invoke')?.agentInvokeConfig?.agentId, id).toBe('web-search-links');
+    }
+    const lever = agents.find((x) => x.id === 'lever-job-agent')!;
+    const discover = lever.nodes.find((n) => n.id === 'discover')!;
+    expect(discover).toMatchObject({ type: 'agent-invoke', optional: true, onlyIf: { upstream: 'boards', field: 'discover', equals: true } });
+    expect(discover.agentInvokeConfig?.agentId).toBe('lever-discover');
   });
 });

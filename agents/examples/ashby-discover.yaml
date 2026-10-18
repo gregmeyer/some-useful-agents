@@ -1,9 +1,9 @@
 # Ashby Discover — find companies that use Ashby HQ for hiring.
 #
-# Searches DuckDuckGo for jobs.ashbyhq.com URLs (optionally filtered by
-# topic), extracts the company slugs, then verifies each candidate via
-# the public posting API to drop dead boards. Emits a structured array
-# of {slug, job_count} suitable for a downstream loop+invoke.
+# Searches the web (through web-search-links) for jobs.ashbyhq.com pages,
+# optionally on a topic, takes each company's board slug from the links,
+# and keeps the ones the public posting API answers for. Emits a
+# `companies[]` array of {slug, job_count} for a downstream loop+invoke.
 #
 # Run:
 #   sua workflow run ashby-discover
@@ -51,66 +51,82 @@ outputs:
   companies:
     type: array
     description: Array of {slug, job_count} for verified Ashby boards
+  searched:
+    type: number
+    description: How many links the search returned
+  note:
+    type: string
 nodes:
-  - id: search-and-verify
+  # The search itself is web-search-links, shared by every agent that needs search results.
+  - id: search
+    type: agent-invoke
+    agentInvokeConfig:
+      agentId: web-search-links
+      inputMapping:
+        QUERY: "site:jobs.ashbyhq.com {{inputs.TOPIC}} jobs"
+        SITE: "ashbyhq.com"
+        MAX_RESULTS: "30"
+  - id: verify
     type: shell
+    dependsOn: [search]
+    timeout: 120
     command: |
-      set -e
-      python3 << 'PYEOF'
-      import json, os, re, urllib.request, urllib.error, urllib.parse
+      python3 - <<'PY'
+      import json, os, re, urllib.request
+      from concurrent.futures import ThreadPoolExecutor
+      from urllib.parse import urlparse
 
       topic = os.environ.get("TOPIC", "").strip()
       try:
-          cap = int(os.environ.get("MAX_RESULTS", "15"))
+          cap = max(1, min(30, int(float(os.environ.get("MAX_RESULTS", "15")))))
       except ValueError:
           cap = 15
-
-      query = f"site:jobs.ashbyhq.com {topic}".strip()
-      ddg_url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query)
-      ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-
-      req = urllib.request.Request(ddg_url, headers={"User-Agent": ua, "Accept": "text/html"})
       try:
-          with urllib.request.urlopen(req, timeout=20) as resp:
-              html = resp.read().decode("utf-8", errors="replace")
-      except Exception as e:
-          print(json.dumps({"headline": "Search failed", "count": 0, "companies": [], "error": str(e)[:120]}))
-          raise SystemExit(0)
+          found = json.loads(os.environ.get("UPSTREAM_SEARCH_RESULT") or "{}")
+      except ValueError:
+          found = {}
+      links = found.get("results") if isinstance(found, dict) and isinstance(found.get("results"), list) else []
 
-      # Pull the first path segment after jobs.ashbyhq.com/
+      # The board's slug is the first part of the link's path.
+      hosts = ["jobs.ashbyhq.com"]
+      skip = ["about", "api", "blog", "careers", "jobs", "www"]
       slugs = []
-      seen = set()
-      for m in re.finditer(r"jobs\.ashbyhq\.com/([A-Za-z0-9_-]+)", html):
-          s = m.group(1).lower()
-          # Skip Ashby's own marketing paths.
-          if s in {"www", "blog", "about", "careers", "jobs"}:
+      for link in links:
+          url = link.get("url", "") if isinstance(link, dict) else ""
+          parsed = urlparse(url)
+          if (parsed.hostname or "").lower() not in hosts:
               continue
-          if s not in seen:
-              seen.add(s)
-              slugs.append(s)
-          if len(slugs) >= cap:
-              break
+          part = parsed.path.strip("/").split("/")[0].lower()
+          if re.fullmatch(r"[a-z0-9][a-z0-9._-]*", part) and part not in skip and part not in slugs:
+              slugs.append(part)
+      slugs = slugs[:cap]
 
-      verified = []
-      for slug in slugs:
-          api = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
-          r = urllib.request.Request(api, headers={"User-Agent": ua, "Accept": "application/json"})
+      def check(slug):
+          request = urllib.request.Request(f"https://api.ashbyhq.com/posting-api/job-board/{slug}", headers={"User-Agent": "sua-agent/ashby-discover", "Accept": "application/json"})
           try:
-              with urllib.request.urlopen(r, timeout=8) as resp:
-                  data = json.loads(resp.read().decode("utf-8", errors="replace"))
-              jobs = data.get("jobs") or data.get("jobPostings") or []
-              verified.append({"slug": slug, "job_count": len(jobs)})
+              with urllib.request.urlopen(request, timeout=8) as response:
+                  data = json.loads(response.read().decode("utf-8", errors="replace"))
           except Exception:
-              continue
+              return None
+          return {"slug": slug, "job_count": len(data.get("jobs") or data.get("jobPostings") or [])}
 
-      topic_label = topic if topic else "all"
+      with ThreadPoolExecutor(max_workers=6) as pool:
+          verified = [c for c in pool.map(check, slugs) if c]
+
+      label = topic or "all"
+      search_note = found.get("note", "") if isinstance(found, dict) else ""
+      note = "" if verified else (
+          f"The search found {len(links)} links but none to a Ashby board that answers." if links
+          else f"The search found no Ashby boards. {search_note}".strip()
+      )
       print(json.dumps({
-          "headline": f"{len(verified)} Ashby boards ({topic_label})",
+          "headline": f"{len(verified)} Ashby board{'' if len(verified) == 1 else 's'} ({label})",
           "count": len(verified),
           "companies": verified,
+          "searched": len(links),
+          "note": note,
       }))
-      PYEOF
-    timeout: 180
+      PY
 signal:
   title: Ashby Discover
   icon: 🔎
@@ -125,6 +141,9 @@ outputWidget:
   fields:
     - name: headline
       label: Summary
+      type: text
+    - name: note
+      label: Note
       type: text
     - name: companies
       label: Verified Ashby boards

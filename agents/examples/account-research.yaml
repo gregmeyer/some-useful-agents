@@ -1,7 +1,7 @@
 # Account Research — finds companies that fit an ideal customer profile
 # from what they say in their own public job posts, scores each 0–100 on a
 # fixed rubric, and backs every score with a word-for-word quote from the
-# post. Free: DuckDuckGo plus the public Ashby, Greenhouse and Lever job
+# post. Free: the CLI's web search plus the public Ashby, Greenhouse and Lever job
 # board APIs, no keys.
 #
 # Ideas from github.com/NatesVibeCode/account-fleet: break the profile into

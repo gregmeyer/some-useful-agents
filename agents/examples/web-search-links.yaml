@@ -1,0 +1,153 @@
+# Web Search Links — the one place agents get web search results from.
+#
+# Runs a live web search (the CLI's own search: tools: [web-search]) and
+# returns the result links as JSON. Agents that need search results (which
+# companies have a Lever board, which pages mention a product) call this
+# with agent-invoke instead of scraping a search engine in a shell node,
+# which search engines block. A clean-up step keeps only real links (on
+# SITE, when given), drops repeats and caps the list.
+#
+# Run:
+#   sua workflow run web-search-links --input QUERY="site:jobs.lever.co fintech"
+#   sua workflow run web-search-links --input QUERY="fintech product jobs" --input SITE=jobs.lever.co
+
+id: web-search-links
+name: Web Search Links
+description: >
+  Helper for other agents: runs a web search and returns the result links
+  (url, title, snippet) as JSON, optionally only those on one site.
+status: active
+source: examples
+tags:
+  - search
+  - helper
+nonEntryConditions:
+  - the operator wants an answer or a summary, not a list of links (use starter-research)
+mcp: false
+
+inputs:
+  QUERY:
+    type: string
+    required: true
+    description: What to search for. "site:example.com …" narrows it to one site.
+  SITE:
+    type: string
+    default: ""
+    description: Keep only links on this host or its subdomains (e.g. "jobs.lever.co"). Blank keeps every link.
+  MAX_RESULTS:
+    type: number
+    default: 15
+    description: The most links to return, from 1 to 40.
+
+outputs:
+  query:
+    type: string
+  count:
+    type: number
+  results:
+    type: array
+    description: Array of {url, title, snippet}
+  note:
+    type: string
+
+nodes:
+  - id: search
+    type: llm-prompt
+    tools: [web-search]
+    maxTurns: 4
+    timeout: 180
+    prompt: |
+      Run a web search and list the result links. Don't open the pages and
+      don't answer the question: just search and report what came back.
+
+      Search for: {{inputs.QUERY}}
+      Only links on: {{inputs.SITE}} (blank means any site)
+      Up to {{inputs.MAX_RESULTS}} links.
+
+      Search once with the query as given. When it returns fewer links than
+      wanted, search again with a close variation (other words for the same
+      thing), up to three searches in all. Never make up a link: every url
+      must be one a search returned.
+
+      Reply with only this JSON, on one line, and nothing else:
+      {"results":[{"url":"https://…","title":"the result's title","snippet":"its snippet, under 200 characters"}],"note":"the searches you ran"}
+      An empty "results" list is a fine answer when nothing came back.
+
+  - id: clean
+    type: shell
+    dependsOn: [search]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+      from urllib.parse import urlparse
+
+      query = os.environ.get("QUERY", "").strip()
+      site = os.environ.get("SITE", "").strip().lower()
+      site = re.sub(r"^https?://", "", site).split("/")[0].removeprefix("www.")
+      try:
+          cap = max(1, min(40, int(float(os.environ.get("MAX_RESULTS", "15")))))
+      except ValueError:
+          cap = 15
+
+      raw = os.environ.get("UPSTREAM_SEARCH_RESULT", "")
+      data = None
+      # The answer is one JSON object, maybe in a fence or after a line of text.
+      for m in re.finditer(r"\{", raw):
+          try:
+              data, _ = json.JSONDecoder().raw_decode(raw[m.start():])
+              if isinstance(data, dict) and "results" in data:
+                  break
+          except ValueError:
+              continue
+          data = None
+      note = ""
+      items = []
+      if isinstance(data, dict):
+          items = data.get("results") if isinstance(data.get("results"), list) else []
+          note = str(data.get("note") or "")[:300]
+      else:
+          note = "The search answered with no list of links."
+
+      results, seen = [], set()
+      for item in items:
+          if not isinstance(item, dict):
+              continue
+          url = str(item.get("url") or "").strip()
+          try:
+              host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+          except ValueError:
+              continue
+          if not url.startswith(("http://", "https://")) or not host:
+              continue
+          if site and host != site and not host.endswith("." + site):
+              continue
+          key = url.split("#")[0].rstrip("/")
+          if key in seen:
+              continue
+          seen.add(key)
+          results.append({
+              "url": url,
+              "title": str(item.get("title") or "").strip()[:200],
+              "snippet": str(item.get("snippet") or "").strip()[:300],
+          })
+          if len(results) >= cap:
+              break
+
+      print(json.dumps({"query": query, "count": len(results), "results": results, "note": note}))
+      PY
+
+outputWidget:
+  type: dashboard
+  fields:
+    - name: count
+      label: Links
+      type: metric
+    - name: results
+      label: Results
+      type: table
+      columns:
+        - name: title
+          label: Title
+        - name: url
+          label: Link
