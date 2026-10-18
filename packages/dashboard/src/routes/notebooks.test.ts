@@ -1766,6 +1766,9 @@ describe("Home's notebooks shelf", () => {
     c = card(await home());
     expect(c).toContain(`/entries/${cheap.entry.id}/photo`);
     expect(c).not.toContain(`/entries/${dear.entry.id}/photo`);
+    // The notebook's own header shows the same picture as its card.
+    const page = (await request(app).get(`/notebooks/${car.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).toContain(`<img class="nb-hero__cover" src="/notebooks/${car.id}/entries/${cheap.entry.id}/photo"`);
   });
 });
 

@@ -3,8 +3,34 @@
  * one) and a line of what it holds.
  * Used by the Notebooks list and by a notebook's conversation thread.
  */
-import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type InboxMessage } from '@some-useful-agents/core';
+import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type NotebookViewOption, type InboxMessage } from '@some-useful-agents/core';
 import { formatFieldValue, type NotebookCard } from '../views/notebooks.js';
+
+/** Best first by the score field (how well it fits) when there is one, else by price; only those it can rank. */
+function ranked(nb: Notebook, active: NotebookViewOption[]): NotebookViewOption[] {
+  const rank = rankBy(nb);
+  return rankOptions(nb, active).filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
+}
+
+/**
+ * The picture that stands for a notebook (its card and its page header): the
+ * lead option's own, so it matches the name beside it; when the lead has only
+ * a drawing (or none), the notebook's cover.
+ */
+export function notebookCover(s: NotebookStore, nb: Notebook, lead?: { id: string }): ReturnType<NotebookStore['coverPhoto']> {
+  const leadKind = lead ? s.photoKind(lead.id) : undefined;
+  if (lead && leadKind && leadKind !== 'illustration') {
+    const shape = leadKind === 'logo' ? s.photoShape(lead.id) : undefined;
+    return { entryId: lead.id, kind: leadKind, ...(shape ? { shape } : {}) };
+  }
+  return s.coverPhoto(nb.id);
+}
+
+/** The lead option of a notebook's entries, as its card and header rank it. */
+export function notebookLead(nb: Notebook, entries: Parameters<typeof notebookViewData>[1]): { id: string } | undefined {
+  const active = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
+  return ranked(nb, active)[0];
+}
 
 export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
   const entries = s.entries(nb.id, 1000);
@@ -12,16 +38,9 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const rank = rankBy(nb);
   const active = v.options.filter((o) => !o.ruledOut);
-  // Best first by the score field (how well it fits) when there is one, else by price.
-  const priced = rankOptions(nb, active).filter((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
+  const priced = ranked(nb, active);
   const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
-  // The picture is the lead option's own, so it matches the name beside it;
-  // when the lead has only a drawing (or none), the notebook's cover.
-  const lead = priced[0];
-  const leadKind = lead ? s.photoKind(lead.id) : undefined;
-  const cover = lead && leadKind && leadKind !== 'illustration'
-    ? { entryId: lead.id, kind: leadKind, ...(leadKind === 'logo' ? { shape: s.photoShape(lead.id) } : {}) }
-    : s.coverPhoto(nb.id);
+  const cover = notebookCover(s, nb, priced[0]);
   return {
     nb,
     entries: entries.length,
