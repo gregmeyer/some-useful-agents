@@ -7,6 +7,9 @@
 # which search engines block. A clean-up step keeps only real links (on
 # SITE, when given), drops repeats and caps the list.
 #
+# codex's search returns nothing for "site:" queries, so the prompt says to
+# search again with the site's name as a word; SITE still keeps only its links.
+#
 # Run:
 #   sua workflow run web-search-links --input QUERY="site:jobs.lever.co fintech"
 #   sua workflow run web-search-links --input QUERY="fintech product jobs" --input SITE=jobs.lever.co
@@ -66,7 +69,10 @@ nodes:
 
       Search once with the query as given. When it returns fewer links than
       wanted, search again with a close variation (other words for the same
-      thing), up to three searches in all. Never make up a link: every url
+      thing), up to three searches in all. If a search with "site:" finds
+      nothing, your search may not support it: search again without
+      "site:", putting the site's name in the words instead (e.g. "jobs.lever.co
+      AI platform"), and keep only links on that site. Never make up a link: every url
       must be one a search returned.
 
       Reply with only this JSON, on one line, and nothing else:
