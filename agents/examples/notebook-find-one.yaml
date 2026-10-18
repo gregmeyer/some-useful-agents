@@ -2,6 +2,8 @@
 # site or source) for a notebook, as one of several running at once. Small
 # on purpose: a few searches and page opens, up to four candidates, each
 # from its own page. Out of turns, it answers with what it found (#915).
+# Near misses (the right thing, just outside one limit) come back under
+# "near"; notebook-finder files them ruled out, with the limit they miss.
 # Run only by notebook-finder's loop; never proposed in triage.
 
 id: notebook-find-one
@@ -70,15 +72,20 @@ nodes:
         https://api.lever.co/v0/postings/<company>?mode=json,
         https://api.ashbyhq.com/posting-api/job-board/<company>?includeCompensation=true.
       - Keep candidates that fit the notebook's limits as far as their page
-        says. Skip ones that clearly break them (wrong place, level or
-        price), ones that are closed or gone, and ones already in the
-        notebook.
+        says. Skip ones that are closed, sold or gone, ones that are the
+        wrong thing altogether, and ones already in the notebook.
+      - A NEAR MISS is the right thing that misses ONE limit by a little: a
+        bit too far away, a bit over the price or the miles, a year just
+        outside the range. Don't drop those: list up to 3 under "near",
+        each with "misses" saying which limit and by how much ("62 miles
+        away; the limit is 50"). Something that misses by a lot, or misses
+        two limits, is not a near miss.
       - Every fact comes from a page you opened. Leave out what the page
         doesn't say; never guess.
 
       Reply with only this JSON, on one line, and nothing else:
-      {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"note":"what you searched and opened, and what you couldn't cover"}
+      {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"near":[{"title":"…","url":"its own page","facts":{},"misses":"which limit and by how much"}],"note":"what you searched and opened, and what you couldn't cover"}
       In "facts", use the field keys above: numbers as plain numbers (no $
       or commas), a span as {"min": 180000, "max": 220000}, links as full
-      https addresses. An empty "candidates" list is a fine answer when
-      nothing fits.
+      https addresses. Empty "candidates" and "near" lists are a fine
+      answer when nothing fits.

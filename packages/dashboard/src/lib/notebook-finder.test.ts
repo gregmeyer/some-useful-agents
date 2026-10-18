@@ -74,6 +74,25 @@ describe('notebook-finder', () => {
     expect(line).toBe("2 new options from 4 searches run at once. Nothing new from Lever, Workday. Ashby didn't finish. 1 was already in the notebook.");
   });
 
+  it('files a near miss ruled out, saying which limit it misses', () => {
+    const items = [
+      { where: 'OfferUp', candidates: [], near: [
+        { title: '2008 Outback Sport, Everett', url: 'https://offerup.example/item/1', facts: { salary: 4500 }, misses: '62 miles away; the limit is 50' },
+        { title: 'No reason given', url: 'https://offerup.example/item/2' },
+      ], note: 'opened 3' },
+      { where: 'Cars.com', candidates: [{ title: '2005 WRX wagon', url: 'https://cars.example/1' }] },
+    ];
+    const plan = JSON.stringify({ searches: [{ where: 'OfferUp' }, { where: 'Cars.com' }] });
+    const { line, block } = merge({ UPSTREAM_PLAN_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS, OPTIONS: '[]' });
+    const options = block.entries.filter((e) => e.kind === 'option');
+    // The one that fits comes first; a "near" one with no limit named is dropped.
+    expect(options.map((e) => e.title)).toEqual(['2005 WRX wagon', '2008 Outback Sport, Everett']);
+    expect(options[0].ruleOut).toBeUndefined();
+    expect(options[1]).toMatchObject({ ruleOut: 'Just outside the limits: 62 miles away; the limit is 50', data: { salary: 4500 } });
+    expect(block.sources[0]).toMatchObject({ name: 'OfferUp', found: 0, near: 1 });
+    expect(line).toBe('1 new option from 2 searches run at once. 1 just outside the limits is filed ruled out, with the limit it misses.');
+  });
+
   it('cuts a long title at a word', () => {
     const long = 'Controller at Attivo Partners (remote fractional CFO and accounting firm), $170k–$200k plus 10% bonus, manages accounting staff';
     const { block } = merge({ UPSTREAM_PLAN_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [{ candidates: [{ title: long, url: 'https://x.example/1' }] }] }), FIELDS: '[]', OPTIONS: '[]' });
