@@ -456,9 +456,9 @@ A check step with no agent of its own uses sua's checker (`notebook-checker`, a 
 
 1. **It takes 8 options per run**, best first: the ones still missing a check, each with its facts, sources and notes, and the checks it still needs.
 2. **A model judges each check** as met, not met or unknown. It uses the option's own facts and notes first, then searches the web and opens up to 2 pages per option. For met and not met it must give a quote of 15+ characters copied word for word, and where it's from.
-3. **Code confirms each quote** in the page it cites, or in the option's own notes. Only a confirmed quote counts:
+3. **Code confirms each quote** in the page it cites, or in the option's own notes and facts (as the model saw them, `"Employees":777`, or as `Employees: 777`). Only a confirmed quote counts:
    - **met:** the check is ticked on the option;
-   - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`);
+   - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`). An option you've chosen isn't ruled out: the failed check is a note on the notebook, and the decision stays yours;
    - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
 
 The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").

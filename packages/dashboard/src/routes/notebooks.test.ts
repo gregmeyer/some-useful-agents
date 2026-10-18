@@ -930,6 +930,24 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(applyKeeperResult(store, store.get(nb0.id)!, 'notebook-checker', 'r2', block, { trusted: true })).toMatchObject({ checksMet: 1, checksFailed: 1 });
   });
 
+  it('a failed check on an option you chose leaves a note (once), not a ruling', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Peers' });
+    store.setChecks(nb0.id, ['Founded in 2016 or later']);
+    const a = store.upsertOption(nb0.id, { title: 'Prophix', by: 'you' }).entry;
+    store.choose(nb0.id, a.id);
+    const block = `<notebook>${JSON.stringify({ facts: [{ id: a.id, ruleOut: 'Fails "Founded in 2016 or later": "Founded: 1987"' }] })}</notebook>`;
+    expect(applyKeeperResult(store, store.get(nb0.id)!, 'notebook-checker', 'r1', block, { trusted: true }).checksFailed).toBeUndefined();
+    applyKeeperResult(store, store.get(nb0.id)!, 'notebook-checker', 'r2', block, { trusted: true });
+    const opt = store.entries(nb0.id).find((e) => e.id === a.id)!;
+    expect(opt.ruledOut).toBeUndefined();
+    expect(opt.chosenAt).toBeTruthy();
+    expect(store.entries(nb0.id).filter((e) => e.kind === 'note').map((e) => e.title)).toEqual(['Prophix: Fails "Founded in 2016 or later": "Founded: 1987"']);
+  });
+
   it('runs from the page: refuses without agents, runs once at a time, and records what happened', async () => {
     const app = await makeApp();
     const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
