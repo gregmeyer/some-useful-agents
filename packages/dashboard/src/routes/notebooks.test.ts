@@ -1731,6 +1731,34 @@ describe("Home's notebooks shelf", () => {
     expect(page.match(/sua asked you/g)).toHaveLength(1);
     expect(page).toContain('class="nbs-new" href="/notebooks/new"');
   });
+
+  it("a card's picture is its lead option's, not just the newest picture", async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const home = async () => (await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const png = { contentType: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) };
+    const car = store.setFields(store.create({ title: 'Car' }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    const cheap = store.upsertOption(car.id, { title: '2010 RAV4', by: 'agent:x', data: { price: 4023 } });
+    await new Promise((r) => setTimeout(r, 15));
+    const dear = store.upsertOption(car.id, { title: '2014 CR-V', by: 'agent:x', data: { price: 9900 } });
+    store.savePhoto(car.id, dear.entry.id, 'https://example.test/crv.jpg', png, { kind: 'listing' });
+    const card = (page: string) => page.slice(page.indexOf(`/notebooks/${car.id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${car.id}"`)));
+
+    // The lead (cheapest) has no picture yet: the notebook's cover, the newest picture.
+    let c = card(await home());
+    expect(c).toContain('<span class="nbs-card__leadname">2010 RAV4</span>');
+    expect(c).toContain(`/entries/${dear.entry.id}/photo`);
+    // A drawing of the lead doesn't win over a real photo of another option.
+    store.savePhoto(car.id, cheap.entry.id, 'illustration', { contentType: 'image/svg+xml', bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { kind: 'illustration' });
+    expect(card(await home())).toContain(`/entries/${dear.entry.id}/photo`);
+    // Once the lead has a photo of its own, the card shows it.
+    store.savePhoto(car.id, cheap.entry.id, 'https://example.test/rav4.jpg', png, { kind: 'listing' });
+    c = card(await home());
+    expect(c).toContain(`/entries/${cheap.entry.id}/photo`);
+    expect(c).not.toContain(`/entries/${dear.entry.id}/photo`);
+  });
 });
 
 describe('new notebook: say it, sua drafts it, you check it', () => {
