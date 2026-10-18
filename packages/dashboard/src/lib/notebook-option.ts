@@ -38,6 +38,8 @@ export interface NotebookOptionData {
 /** One option in the running, for Previous / Next: what the grid's filters read (stage, still listed, its facts as shown). */
 export interface OptionNavItem {
   id: string; name: string; rank: number; page: string;
+  /** The option whose page this is, ruled out: it sits where it ranked, so Previous / Next go on from there. */
+  out?: boolean;
   stage?: string; notSeenLately: boolean; fields: Record<string, string | boolean>;
   /** Short labels for its long facts, which the grid's chips use. */
   facets?: Record<string, string>;
@@ -61,6 +63,17 @@ export function optionNeighbours<T extends { id: string }>(order: readonly T[], 
   const i = order.findIndex((o) => o.id === id);
   if (i < 0) return {};
   return { ...(i > 0 ? { prev: order[i - 1] } : {}), ...(i < order.length - 1 ? { next: order[i + 1] } : {}) };
+}
+
+/**
+ * Those in the running, best first. A ruled-out option goes back in where it
+ * would rank, so its page still steps to the ones either side of it.
+ */
+export function navOrder<T extends Pick<NotebookViewOption, 'id' | 'price' | 'score' | 'ruledOut'>>(nb: Pick<Notebook, 'fields'>, options: readonly T[], id: string): Array<T & { out?: boolean }> {
+  const self = options.find((o) => o.id === id);
+  if (!self?.ruledOut) return rankOptions(nb, options);
+  const { ruledOut: _out, ...back } = self;
+  return rankOptions(nb, [...options.filter((o) => o.id !== id), back as T]).map((o) => (o.id === id ? { ...self, out: true } : o));
 }
 
 const runLink = (runId?: string) => (runId ? { link: `/runs/${encodeURIComponent(runId)}`, linkText: `run ${runId.slice(0, 8)}` } : {});
@@ -145,12 +158,14 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
   if (!view) return undefined;
   const active = rankOptions(nb, all.options);
   const i = active.findIndex((o) => o.id === e.id);
+  const ranked = navOrder(nb, all.options, e.id);
   const priceF = nb.fields.find((f) => f.role === 'price');
   // The notebook's checks (the same list the top two get), ticked for this one.
   const checkList = checksFor(nb);
   const filters = defaultFilters(nb);
-  const order: OptionNavItem[] = active.map((o, n) => ({
-    id: o.id, name: o.name, rank: n + 1, page: optionPage(nb.id, o.id),
+  let n = 0;
+  const order: OptionNavItem[] = ranked.map((o) => ({
+    id: o.id, name: o.name, rank: o.out ? 0 : ++n, page: optionPage(nb.id, o.id), ...(o.out ? { out: true } : {}),
     ...(o.stage ? { stage: o.stage } : {}), notSeenLately: !!o.notSeenLately,
     ...(optionFacets(nb, o) ? { facets: optionFacets(nb, o) } : {}),
     // Facts as the grid shows them, so its filter values match these.
@@ -173,7 +188,7 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
       checks: checkList.length ? [{ id: e.id, title: '', items: checkList.map((c) => ({ text: c, done: view.checked.includes(c) })) }] : [],
       timeline: optionTimeline(nb, e, history),
     },
-    ...(i >= 0 ? { nav: { order, filters, filterKey: `/notebooks/${encodeURIComponent(nb.id)}`, ...optionNeighbours(order, e.id) } } : {}),
+    ...(order.some((o) => o.id === e.id) ? { nav: { order, filters, filterKey: `/notebooks/${encodeURIComponent(nb.id)}`, ...optionNeighbours(order, e.id) } } : {}),
   };
 }
 

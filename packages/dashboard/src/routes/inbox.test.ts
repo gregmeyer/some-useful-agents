@@ -2551,9 +2551,11 @@ describe('Previous / Next on an option page, and "next" in its talk box', () => 
     expect(html).toContain('2 of 3');
     expect(html).not.toContain(out.id + '","name"');
     expect(html).toContain('src="/assets/option-nav.js"');
-    // The last has no Next; a ruled-out option has no stepping at all.
+    // The last has no Next; a ruled-out option steps on from where it ranked.
     expect((await get(page(last.id))).text).toMatch(/rel="next" data-nbo-next href="#"\s+hidden/);
-    expect((await get(page(out.id))).text).not.toContain('data-nbo-nav');
+    const outHtml = (await get(page(out.id))).text;
+    expect(outHtml).toContain('data-nbo-nav');
+    expect(outHtml).toContain('ruled out · 3 in the running');
 
     // "Open the next item" goes to the next page: no message, no sua run.
     const went = await post(`/notebooks/${nb.id}/ask`, { text: "I'm done with this one, open the next item in the list", option: mid.id });
