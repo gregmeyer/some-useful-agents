@@ -19,7 +19,8 @@ export function stepThrough(order, id, filters, selected) {
   let prev; let next;
   for (let j = i - 1; i >= 0 && j >= 0; j--) if (kept.has(order[j].id)) { prev = order[j]; break; }
   for (let j = i + 1; i >= 0 && j < order.length; j++) if (kept.has(order[j].id)) { next = order[j]; break; }
-  const shown = order.filter((o) => kept.has(o.id));
+  // A ruled-out option (`out`) sits where it ranked but isn't counted.
+  const shown = order.filter((o) => kept.has(o.id) && !o.out);
   const pos = shown.findIndex((o) => o.id === id);
   return { prev, next, filtered: Object.keys(sel).length > 0, count: shown.length, ...(pos >= 0 ? { pos: pos + 1 } : {}) };
 }
@@ -45,7 +46,8 @@ function init() {
   set('prev', s.prev);
   set('next', s.next);
   const pos = nav.querySelector('[data-nbo-pos]');
-  if (pos && s.filtered) pos.textContent = s.pos ? `${s.pos} of ${s.count} filtered` : `filtered out · ${s.count} shown`;
+  const out = (d.order ?? []).some((o) => o.id === d.id && o.out);
+  if (pos && s.filtered) pos.textContent = s.pos ? `${s.pos} of ${s.count} filtered` : `${out ? 'ruled out' : 'filtered out'} · ${s.count} shown`;
   // "Open the next one" in the talk box goes where these buttons go.
   for (const [k, o] of [['next', s.next], ['prev', s.prev]]) {
     const input = document.querySelector(`[data-nbo-talk-${k}]`);

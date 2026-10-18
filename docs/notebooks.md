@@ -182,7 +182,7 @@ Each option has its own page at `/notebooks/<notebook>/entries/<option>`, with e
 
 - **Previous / Next** (top right, beside the breadcrumbs): the options either side of this one in the running, best first: **← #2 …**, **3 of 22**, **#4 … →**. The **←** and **→** keys do the same (not while you're typing).
   - They follow the filters you picked on the notebook's **Shortlist**: with **Listing: Current** on, Next skips listings not seen lately, and the count reads **2 of 5 filtered**.
-  - A ruled-out option has no Previous / Next.
+  - A ruled-out option keeps its place: Previous / Next go to the ones either side of where it ranked (the count reads **ruled out · 21 in the running**), so after **Rule out** you can press **→** to go on.
 - **The header:**
   - its picture;
   - its short name and full title;
