@@ -1,0 +1,151 @@
+# Research One — helper for research-fanout: researches ONE thing (a
+# company, an angle, a question) with a few searches and page opens, and
+# says where each answer came from. Small on purpose, so it finishes well
+# inside its time limit; research-fanout runs several at once. One long
+# node over ten companies timed out (firmographic-research, starter-research);
+# ten of these, three at a time, don't.
+#
+# Run only by research-fanout's loop; never proposed in triage.
+#
+#   sua workflow run research-one --input SUBJECT="Ramp (ramp.com)" \
+#     --input ASK='[{"key":"employees","label":"Employees"},{"key":"hq","label":"Headquarters"}]'
+
+id: research-one
+name: Research One
+description: >
+  Helper for research-fanout: researches one company, angle or question and
+  returns each answer with its source and a quote, or "not found".
+status: active
+source: examples
+mcp: false
+
+inputs:
+  SUBJECT:
+    type: string
+    required: true
+    description: The one thing to research ("Ramp (ramp.com)", "the case against remote work").
+  ASK:
+    type: string
+    default: "[]"
+    description: What to find, as JSON [{key, label, hint}] or plain questions, one per line. Empty = the main facts about it.
+  CONTEXT:
+    type: string
+    default: ""
+    description: The goal, the limits, and how to tell it apart from others with the same name.
+  DEPTH:
+    type: enum
+    values: [quick, thorough]
+    default: quick
+    description: quick opens up to 3 pages; thorough up to 6.
+
+outputs:
+  subject:
+    type: string
+  found:
+    type: object
+    description: "{key: {value, source, quote}}"
+  not_found:
+    type: array
+  summary:
+    type: string
+  note:
+    type: string
+
+nodes:
+  - id: research
+    type: llm-prompt
+    tools: [web-search, web-fetch]
+    maxTurns: 6
+    timeout: 180
+    prompt: |
+      You research ONE thing. Others like you are researching other things
+      at the same time, so stay on yours and be quick.
+
+      What to research: {{inputs.SUBJECT}}
+      Why, and the limits: {{inputs.CONTEXT}}
+      What to find (keys and what each means, or questions):
+      {{inputs.ASK}}
+      Depth: {{inputs.DEPTH}} (quick: open up to 3 pages; thorough: up to 6)
+
+      How:
+      - Search (web-search), then open the pages that answer best (the
+        company's own site, a filing, a profile, a news story) with
+        web-fetch. Never answer from a page of search results alone.
+      - Be sure it's the right one: when the name is shared (another company,
+        a product), use the context and its web address. If you can't tell
+        which one a page is about, don't use it.
+      - Every answer comes from a page you opened: give its address and a
+        short quote from it. Numbers as plain numbers (no $ or commas), a
+        range as {"min": 50, "max": 200}. When nothing you opened says, put
+        the key under "not_found"; never guess.
+
+      Reply with only this JSON, on one line, and nothing else:
+      {"subject":"{{inputs.SUBJECT}}","found":{"<key>":{"value":"…","source":"https://…","quote":"the words on that page"}},"not_found":["<key>"],"summary":"two or three sentences on what you found, for a reader","note":"what you searched and opened, and what you couldn't cover"}
+      With plain questions instead of keys, use a short key for each
+      question ("q1", "q2", …).
+
+  - id: clean
+    type: shell
+    dependsOn: [research]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def last_json(text):
+          """The last JSON object with a "found" or "summary" in a reply (words may come around it)."""
+          dec = json.JSONDecoder()
+          found = None
+          for m in re.finditer(r"\{", text or ""):
+              try:
+                  v, _ = dec.raw_decode(text[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and ("found" in v or "summary" in v):
+                  found = v
+          return found
+
+      subject = os.environ.get("SUBJECT", "").strip()
+      # The asked keys, when ASK is a JSON list of {key}; plain questions allow any key.
+      try:
+          ask = json.loads(os.environ.get("ASK") or "[]")
+      except ValueError:
+          ask = []
+      keys = {a["key"] for a in ask if isinstance(a, dict) and isinstance(a.get("key"), str)} if isinstance(ask, list) else set()
+
+      got = last_json(upstream("RESEARCH")) or {}
+      found = {}
+      for k, v in (got.get("found") or {}).items() if isinstance(got.get("found"), dict) else []:
+          if keys and k not in keys:
+              continue
+          if not isinstance(v, dict):
+              v = {"value": v}
+          value = v.get("value")
+          if value in (None, "", [], {}):
+              continue
+          source = str(v.get("source") or "").strip()
+          item = {"value": value}
+          if source.startswith(("http://", "https://")):
+              item["source"] = source[:500]
+          if isinstance(v.get("quote"), str) and v["quote"].strip():
+              item["quote"] = v["quote"].strip()[:300]
+          found[k] = item
+      not_found = [k for k in (got.get("not_found") or []) if isinstance(k, str) and k not in found] if isinstance(got.get("not_found"), list) else []
+      if keys:
+          not_found = sorted(set(not_found) | (keys - set(found)))
+      print(json.dumps({
+          "subject": subject,
+          "found": found,
+          "not_found": not_found,
+          "summary": str(got.get("summary") or "")[:1200],
+          "note": str(got.get("note") or ("" if got else "The research answered with nothing readable."))[:400],
+      }))
+      PY
