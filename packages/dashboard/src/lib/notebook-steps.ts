@@ -157,23 +157,9 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
-  // A check or find step without an agent uses sua's own (the checker, the finder).
-  const agentId = step.agentId ?? suaStepAgent(step.kind);
-  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
-  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
-  if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
-    && (agentId !== NOTEBOOK_FINDER_ID || ensureSystemAgentCurrent(ctx, NOTEBOOK_FIND_ONE_ID, 'a notebook find step')))) {
-    return { started: false, reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.`, step };
-  }
-  const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
-  if (!agentId || ((!agent || agent.status === 'archived') && !(sua && fake))) {
-    return { started: false, reason: agentId ? `Its agent, ${agentId}, isn't installed.` : 'This step needs an agent. Ask sua to pick or build one.', step };
-  }
-  // An agent that reads one item's page a run can only source facts: as a
-  // find or check step it would run with no page and say nothing.
-  if (agent && step.kind !== 'source' && perItemInputs(agent)) {
-    return { started: false, reason: `${agentId} reads one item's own page at a time, so it can't do a ${step.kind} step. ${step.kind === 'check' ? 'Pick sua’s checker for it under Edit' : step.kind === 'find' ? 'Pick sua’s finder for it under Edit' : 'Pick another agent under Edit'}, or use ${agentId} in a source step.`, step };
-  }
+  const resolved = stepAgent(ctx, step);
+  if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
+  const agentId = resolved.agentId;
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
   store.updateStep(nb.id, step.id, { status: 'running' });
@@ -182,6 +168,104 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     try { store.updateStep(notebookId, s.id, { status: 'stuck', note: err instanceof Error ? err.message.slice(0, 160) : 'It failed.' }); } catch { /* the notebook is gone */ }
   }).finally(() => ctx.notebookPipelines?.delete(notebookId));
   return { started: true, step };
+}
+
+/**
+ * The agent a step runs: its own, or for a check or find step without one,
+ * sua's (the checker, the finder; installed or updated now). A reason when
+ * there's none it can run.
+ */
+function stepAgent(ctx: Ctx, step: NotebookStep): { agentId?: string; reason?: string } {
+  const agentId = step.agentId ?? suaStepAgent(step.kind);
+  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
+    && (agentId !== NOTEBOOK_FINDER_ID || ensureSystemAgentCurrent(ctx, NOTEBOOK_FIND_ONE_ID, 'a notebook find step')))) {
+    return { reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.` };
+  }
+  const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
+  if (!agentId || ((!agent || agent.status === 'archived') && !(sua && fake))) {
+    return { reason: agentId ? `Its agent, ${agentId}, isn't installed.` : 'This step needs an agent. Ask sua to pick or build one.' };
+  }
+  // An agent that reads one item's page a run can only source facts: as a
+  // find or check step it would run with no page and say nothing.
+  if (agent && step.kind !== 'source' && perItemInputs(agent)) {
+    return { reason: `${agentId} reads one item's own page at a time, so it can't do a ${step.kind} step. ${step.kind === 'check' ? 'Pick sua’s checker for it under Edit' : step.kind === 'find' ? 'Pick sua’s finder for it under Edit' : 'Pick another agent under Edit'}, or use ${agentId} in a source step.` };
+  }
+  return { agentId };
+}
+
+/**
+ * Search again: a find step that's already met or done runs its agent once
+ * more for new options ("re-run the search", "any new ones?"), as many again
+ * as its goal. What it finds is filed like any run; the steps stay where
+ * they are (a later step isn't undone), and sua says in the conversation
+ * how many are new. A find step that isn't met yet just runs (Try again).
+ * `stepId` is the step's id or title; without it, the first find step.
+ */
+export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: string } = {}): { started: boolean; reason?: string; step?: NotebookStep } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to search again.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
+  const want = opts.stepId?.trim().toLowerCase();
+  const step = want
+    ? nb.steps?.find((s) => s.id === opts.stepId || s.title.toLowerCase() === want)
+    : nb.steps?.find((s) => s.kind === 'find');
+  if (!step) return { started: false, reason: want ? 'The notebook has no such step.' : 'The notebook has no find step to run again.' };
+  if (step.kind !== 'find') return { started: false, reason: `${step.title} isn't a find step, so there's nothing to search again.`, step };
+  // Not there yet: that's the step's own run.
+  if (step === currentStep(nb) && step.status !== 'met') return startNotebookStep(ctx, nb.id, { stepId: step.id });
+  const resolved = stepAgent(ctx, step);
+  if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
+  const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
+  ctx.notebookPipelines ??= new Map();
+  ctx.notebookPipelines.set(notebookId, { agentId: resolved.agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
+  const agentId = resolved.agentId;
+  void runAgain(ctx, store, nb.id, step, agentId).catch((err: unknown) => {
+    try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
+  }).finally(() => ctx.notebookPipelines?.delete(notebookId));
+  return { started: true, step };
+}
+
+/** One more run of a met or done find step's agent, for as many new ones as its goal; then say what's new. */
+async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string): Promise<void> {
+  let nb = store.get(notebookId)!;
+  const had = new Set(store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
+  const p = stepProgress(nb, store.entries(nb.id, 1000), step);
+  const passId = store.startPass(nb.id, 'pipeline');
+  const running = ctx.notebookPipelines?.get(notebookId);
+  const entries = store.entries(nb.id, 1000);
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: p.have + p.want, have: p.have, missing: [] }), (runId) => { if (running) running.runId = runId; });
+  store.addRunToPass(passId, run.id);
+  let words: string;
+  if (run.status === 'cancelled' || running?.stopped) {
+    store.finishPass(passId, `${agentId}: stopped`);
+    words = `You stopped the new search for **${step.title}**.`;
+  } else if (run.status !== 'completed') {
+    const why = `${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
+    store.finishPass(passId, why);
+    words = `The new search for **${step.title}** didn't finish (${why}). Nothing in the notebook changed.`;
+  } else {
+    const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
+    const short = shortSteps(ctx.runStore.listNodeExecutions(run.id));
+    store.finishPass(passId, `${passNote(agentId, out)}${short ? ` (${short})` : ''}`);
+    nb = store.get(notebookId)!;
+    const fresh = store.entries(nb.id, 1000).filter((e) => e.kind === 'option' && !had.has(e.id));
+    const names = fresh.slice(0, 6).map((e) => `- ${e.title}`).join('\n');
+    words = fresh.length
+      ? `Searched again (**${step.title}**, with ${agentId}): ${String(fresh.length)} new ${fresh.length === 1 ? 'option' : 'options'} in the notebook:\n${names}${fresh.length > 6 ? `\n- and ${String(fresh.length - 6)} more` : ''}`
+      : `Searched again (**${step.title}**, with ${agentId}): nothing new${out.refreshed ? `; ${String(out.refreshed)} it already has turned up again` : ''}.`;
+    if (short) words += ` Part of the search didn't finish: ${short}.`;
+  }
+  store.noteRun(notebookId, `${step.title}, again: ${words.split('\n')[0].replace(/\*\*/g, '')}`);
+  const threadId = ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  if (threadId) {
+    const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
+    publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+    reopenForStepNews(ctx, threadId);
+  }
 }
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
@@ -401,7 +485,7 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
 export function stopNotebookStep(ctx: Ctx, notebookId: string): { stopped: boolean; reason?: string } {
   const running = ctx.notebookPipelines?.get(notebookId);
   const nb = stores(ctx).get(notebookId);
-  if (!running || !nb || !nb.steps?.some((s) => s.status === 'running')) return { stopped: false, reason: 'No step is running.' };
+  if (!running || !nb || !(running.again || nb.steps?.some((s) => s.status === 'running'))) return { stopped: false, reason: 'No step is running.' };
   running.stopped = true;
   if (running.runId) {
     ctx.activeRuns.get(running.runId)?.abort();

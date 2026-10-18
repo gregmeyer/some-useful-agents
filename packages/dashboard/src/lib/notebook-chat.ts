@@ -313,7 +313,7 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
-    ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
+    ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
     link: `/notebooks/${encodeURIComponent(nb.id)}`,

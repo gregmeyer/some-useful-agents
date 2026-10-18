@@ -22,7 +22,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, searchAgain, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
@@ -681,6 +681,13 @@ notebooksRouter.post('/notebooks/:id/steps/:step/top', (req: Request, res: Respo
   const top = Number(req.body?.top);
   const out = focusStepOnTop(getContext(req.app.locals), id, String(req.params.step), top);
   res.redirect(303, back(id, out.started ? `Working on ${out.step!.title}, for the top ${String(Math.round(top))}.` : out.reason ?? 'It could not start.'));
+});
+
+/** Search again: a find step that's done runs once more for new options (sua says how many are new). */
+notebooksRouter.post('/notebooks/:id/steps/:step/again', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = searchAgain(getContext(req.app.locals), id, { stepId: String(req.params.step) });
+  res.redirect(303, back(id, out.started ? `Searching again: ${out.step!.title}. sua says in the conversation how many are new.` : out.reason ?? 'It could not start.'));
 });
 
 /**

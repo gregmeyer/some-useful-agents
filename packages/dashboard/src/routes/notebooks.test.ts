@@ -822,6 +822,65 @@ describe('notebook pipeline (G2–G3)', () => {
     finderReply = undefined;
   });
 
+  it('search again: a done find step runs once more for new ones, as one card, and the steps stay put', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Staff PM roles', statement: 'Staff+ PM roles owning an AI platform.' });
+    store.setFields(nb.id, [{ key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.upsertOption(nb.id, { title: 'Staff PM, Old Co', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/1' }, fingerprint: 'https://jobs.lever.co/oldco/1' });
+    store.setSteps(nb.id, [{ title: 'Find 1 role', kind: 'find', target: 1 }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
+    store.updateStep(nb.id, 's1', { status: 'done', note: '1 of 1 found' });
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const settle = async () => { for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 20)); };
+
+    // The finished find step offers it on the page; the decide step doesn't.
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`action="/notebooks/${nb.id}/steps/s1/again"`);
+    const asked: Array<Record<string, string>> = [];
+    finderReply = (inputs) => {
+      asked.push(inputs);
+      return `<notebook>${JSON.stringify({ entries: [
+        { kind: 'option', title: 'Principal PM, New Co', data: { posting_url: 'https://jobs.ashbyhq.com/newco/2' }, fingerprint: 'https://jobs.ashbyhq.com/newco/2' },
+        { kind: 'option', title: 'Staff PM, Old Co', data: { posting_url: 'https://jobs.lever.co/oldco/1' }, fingerprint: 'https://jobs.lever.co/oldco/1' },
+      ] })}</notebook>`;
+    };
+    const out = await post(`/notebooks/${nb.id}/steps/s1/again`);
+    expect(decodeURIComponent(out.headers.location)).toContain('Searching again: Find 1 role.');
+    await settle();
+    // Asked for as many again as its goal, knowing what it has.
+    expect(asked[0].NOTEBOOK).toContain('Find 1 more options that fit (the notebook wants 2 in the running and has 1)');
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option').map((e) => e.title).sort()).toEqual(['Principal PM, New Co', 'Staff PM, Old Co']);
+    // The steps stay where they were.
+    expect(store.get(nb.id)!.steps!.map((x) => x.status)).toEqual(['done', 'todo']);
+    // sua says what's new, in the notebook's conversation.
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!).map((r) => r.body);
+    expect(said.at(-1)).toBe('Searched again (**Find 1 role**, with notebook-finder): 1 new option in the notebook:\n- Principal PM, New Co');
+
+    // Nothing new the second time: it says so.
+    finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"Staff PM, Old Co","fingerprint":"https://jobs.lever.co/oldco/1"}]}</notebook>';
+    await post(`/notebooks/${nb.id}/steps/s1/again`);
+    await settle();
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!).at(-1)!.body).toMatch(/^Searched again \(\*\*Find 1 role\*\*, with notebook-finder\): nothing new/);
+
+    // sua proposes it as one card, and the card runs it.
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { accepted } = parseProposedActions([{ type: 'notebook-step', rationale: 'You asked to search again', inputs: { NOTEBOOK: nb.id, STEP: 's1', AGAIN: '1' } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-step', ctaLabel: 'Search again', inputs: { NOTEBOOK: nb.id, STEP: 's1', AGAIN: '1' } });
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    expect(await executeNotebookStep(ctx, accepted[0] as never)).toMatchObject({ status: 'completed', summary: "Searching again: **Find 1 role**. I'll say here how many are new." });
+    await settle();
+    // Not a find step: refused, with why.
+    expect(await executeNotebookStep(ctx, { ...accepted[0], inputs: { NOTEBOOK: nb.id, STEP: 's2', AGAIN: '1' } } as never)).toMatchObject({ status: 'failed', refusalReason: "Pick 1 isn't a find step, so there's nothing to search again." });
+    // sua sees each step's id, to name it in the card.
+    const { describeNotebookForTriage } = await import('../lib/notebook-chat.js');
+    expect(JSON.parse(describeNotebookForTriage(ctx, store.get(nb.id)!)).steps[0]).toMatchObject({ id: 's1', title: 'Find 1 role', kind: 'find' });
+    finderReply = undefined;
+  });
+
   it('Check the top N: a check step you moved on from works again on just the best options', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
