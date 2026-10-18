@@ -1247,13 +1247,20 @@ export function executeNotebookCreate(
 /**
  * A notebook step's Continue / Try again card (lib/notebook-steps.ts): starts
  * the next step, or the same one again, if the notebook is still where the
- * card left it; a stale card does nothing.
+ * card left it; a stale card does nothing. AGAIN "1" searches again with a
+ * find step that's already done (one card for "re-run the search").
  */
 export async function executeNotebookStep(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
 ): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
-  const { startNotebookStep, moveOnFromStep } = await import('../lib/notebook-steps.js');
+  const { startNotebookStep, moveOnFromStep, searchAgain } = await import('../lib/notebook-steps.js');
+  // Search again: a find step that's done runs once more for new options.
+  if (meta.inputs.AGAIN === '1') {
+    const a = searchAgain(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
+    if (!a.started) return { status: 'failed', refusalReason: a.reason ?? 'It could not start.' };
+    return { status: 'completed', summary: `Searching again: **${a.step!.title}**. I'll say here how many are new.` };
+  }
   // Move on: keep what the step found, mark it done, and start the next.
   if (meta.inputs.MOVE === '1') {
     const m = moveOnFromStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });

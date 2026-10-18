@@ -861,6 +861,16 @@ next, say it was the last one in the running.
   `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "STEP": "<step id>", "MOVE": "1" } }`:
   Move on keeps what the step found, marks it done and starts the next. Say
   what it leaves missing. Without MOVE it runs the current step (Try again).
+- Searching again: when the notebook has a find step and they ask to search
+  again ("re-run the search", "any new ones?", "find more", "look again"),
+  propose ONE card that runs that step again, even when it's done:
+  `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "STEP": "<the find step's id from NOTEBOOK_FOCUS.steps>", "AGAIN": "1" } }`
+  It runs the step's agent (or sua's finder, which searches several sites at
+  once) for as many new ones as the step's goal, skips the ones the notebook
+  has, files what's new, and says here how many are new; later steps stay
+  where they are. Don't run job boards, searches or research agents one by
+  one for this: that's a card each and none of them knows what's new. Run a
+  particular agent only when they name it ("try Lever too").
 - One write per turn: prefer notebook-add; propose the pipeline or steps on
   a turn with nothing new to file.
 
