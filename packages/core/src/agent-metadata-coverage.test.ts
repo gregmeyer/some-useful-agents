@@ -72,6 +72,8 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-checker': 'notebook only: checks options against the notebook\'s checks in a check step, never proposed',
   'notebook-finder': 'notebook only: a find step without its own agent, several narrow searches at once, never proposed',
   'notebook-find-one': 'notebook-finder only: one of its searches, never proposed',
+  'research-one': 'research-fanout only: researches one item of its list, never proposed',
+  'research-fanout': 'the shared research-many-things agent others call (agent-invoke); per-item findings, never an answer',
   'web-search-links': 'the shared web search other agents call (agent-invoke); returns links, never an answer',
   'inbox-triage': 'the router itself',
   'layout-planner': 'invoked by the improve-layout wizard',
@@ -224,5 +226,32 @@ describe('web search goes through web-search-links', () => {
     const discover = lever.nodes.find((n) => n.id === 'discover')!;
     expect(discover).toMatchObject({ type: 'agent-invoke', optional: true, onlyIf: { upstream: 'boards', field: 'discover', equals: true } });
     expect(discover.agentInvokeConfig?.agentId).toBe('lever-discover');
+  });
+});
+
+/**
+ * Research over a list lives in one place: `research-fanout`, which runs each
+ * item as its own small `research-one` run, three at a time. One llm node over
+ * ten companies timed out and returned nothing; copies of one gather node run
+ * one after another.
+ */
+describe('research over a list goes through research-fanout', () => {
+  const agents = readdirSync(EXAMPLES_DIR)
+    .filter((f) => extname(f) === '.yaml')
+    .map((f) => parseAgent(readFileSync(join(EXAMPLES_DIR, f), 'utf8')));
+  const byId = (id: string) => agents.find((x) => x.id === id)!;
+
+  it('fans out to research-one, three at a time, and research-one stays small', () => {
+    const loop = byId('research-fanout').nodes.find((n) => n.type === 'loop')!;
+    expect(loop.loopConfig).toMatchObject({ agentId: 'research-one', concurrency: 3, over: 'items' });
+    const one = byId('research-one').nodes.find((n) => n.type === 'llm-prompt')!;
+    expect(one.tools).toEqual(['web-search', 'web-fetch']);
+    expect(one.maxTurns).toBeLessThanOrEqual(6);
+    expect(one.timeout).toBeLessThanOrEqual(180);
+  });
+
+  it('no shipped agent repeats one gather node as gather-1, gather-2, …', () => {
+    const copies = agents.filter((a) => a.nodes.filter((n) => /^[a-z-]+-\d+$/.test(n.id) && n.type === 'llm-prompt').length >= 3).map((a) => a.id);
+    expect(copies).toEqual([]);
   });
 });

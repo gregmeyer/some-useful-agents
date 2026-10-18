@@ -1,0 +1,279 @@
+# Research Fanout — research many things (companies, angles, questions)
+# without one long step timing out. Each thing is its own small
+# `research-one` run, three at a time, with its own time and turn limits;
+# one that runs long or fails is marked "didn't finish" and the rest still
+# come back. Agents call this (agent-invoke) instead of one llm node over a
+# whole list, or copies of the same gather node (sibling nodes run one after
+# another; this runs three at once):
+#
+#   items ── plan (only with no ITEMS) ── pick ── research (loop, 3 at once) ── merge
+#
+# Run:
+#   sua workflow run research-fanout --input ITEMS="Ramp (ramp.com), Brex, Mercury" \
+#     --input ASK='[{"key":"employees","label":"Employees"},{"key":"hq","label":"Headquarters"}]'
+#   sua workflow run research-fanout --input GOAL="Is a four-day week good for small agencies?"
+
+id: research-fanout
+name: Research Fanout
+description: >
+  Researches a list of things (or the angles of one question) three at a
+  time, each as its own small run with sources, and says which didn't
+  finish, so a long piece of research doesn't time out as one step.
+status: active
+source: examples
+mcp: false
+nonEntryConditions:
+  - the operator wants a written answer or recommendation, not per-item findings (use starter-research)
+
+inputs:
+  GOAL:
+    type: string
+    default: ""
+    description: What the research is for. With no ITEMS, it's split into 3–5 angles.
+  ITEMS:
+    type: string
+    default: ""
+    description: The things to research, one per line or comma-separated, or JSON [{subject, hint}]. A hint tells same-named ones apart ("the planning software at runway.com").
+  ASK:
+    type: string
+    default: "[]"
+    description: What to find for each, as JSON [{key, label, hint}] or plain questions, one per line.
+  CONTEXT:
+    type: string
+    default: ""
+    description: Limits and background every item gets.
+  DEPTH:
+    type: enum
+    values: [quick, thorough]
+    default: quick
+    description: quick opens up to 3 pages per item; thorough up to 6.
+  MAX_ITEMS:
+    type: number
+    default: 12
+    description: The most items to research in one run (1–20); the rest are listed as skipped.
+
+outputs:
+  headline:
+    type: string
+  results:
+    type: array
+    description: One per item, in order — {subject, status, found, not_found, summary, note}
+  unfinished:
+    type: array
+    description: Items that didn't finish; give them back as ITEMS to try again.
+  skipped:
+    type: array
+    description: Items past MAX_ITEMS.
+
+nodes:
+  # 1. The list as given: deduped and capped.
+  - id: items
+    type: shell
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      raw = (os.environ.get("ITEMS") or "").strip()
+      try:
+          cap = max(1, min(20, int(float(os.environ.get("MAX_ITEMS") or "12"))))
+      except ValueError:
+          cap = 12
+      items = []
+      parsed = None
+      if raw.startswith("["):
+          try:
+              parsed = json.loads(raw)
+          except ValueError:
+              parsed = None
+      if isinstance(parsed, list):
+          for x in parsed:
+              if isinstance(x, dict) and str(x.get("subject") or x.get("name") or "").strip():
+                  items.append({"subject": str(x.get("subject") or x.get("name")).strip(), "hint": str(x.get("hint") or "").strip()})
+              elif isinstance(x, str) and x.strip():
+                  items.append({"subject": x.strip(), "hint": ""})
+      elif raw:
+          # One per line; a single line splits on commas outside parentheses.
+          parts = [l for l in raw.splitlines() if l.strip()]
+          if len(parts) == 1:
+              parts = [p for p in re.split(r",(?![^()]*\))", parts[0]) if p.strip()]
+          items = [{"subject": re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", p).strip(), "hint": ""} for p in parts]
+      seen, unique = set(), []
+      for it in items:
+          k = re.sub(r"[^a-z0-9]+", " ", it["subject"].lower()).strip()
+          if k and k not in seen:
+              seen.add(k)
+              unique.append({"subject": it["subject"][:200], "hint": it["hint"][:300]})
+      print(json.dumps({
+          "ok": True,
+          "need_plan": not unique,
+          "items": unique[:cap],
+          "skipped": [it["subject"] for it in unique[cap:]],
+      }))
+      PY
+
+  # 2. No list: split the goal into angles. No tools: it says what to look
+  #    into, never what it will find.
+  - id: plan
+    type: llm-prompt
+    dependsOn: [items]
+    onlyIf: { upstream: items, field: need_plan, equals: true }
+    maxTurns: 1
+    timeout: 120
+    prompt: |
+      Split this research into 3 to 5 angles that can be researched at the
+      same time, each small enough for a few searches and page opens, and
+      each covering ground the others don't (include one that looks for the
+      case against, or the risks).
+
+      The research: {{inputs.GOAL}}
+      Limits and background: {{inputs.CONTEXT}}
+
+      Never state an answer: say what to look into, not what you'll find.
+      Reply with one short line saying how you split it. Then, on the LAST
+      line, ONLY this JSON on one line:
+      {"items":[{"subject":"the angle, as a short research question","hint":"what it should cover"}]}
+
+  # 3. What to research: the list given, else the plan's angles. Each item
+  #    carries its own context (the shared one plus its hint).
+  - id: pick
+    type: shell
+    dependsOn: [items, plan]
+    onlyIf: { upstream: items, field: ok, equals: true }
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os
+
+      given = json.loads(os.environ.get("UPSTREAM_ITEMS_RESULT") or "{}")
+      items = given.get("items") or []
+      if not items:
+          for line in reversed((os.environ.get("UPSTREAM_PLAN_RESULT") or "").strip().splitlines()):
+              try:
+                  v = json.loads(line.strip())
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and isinstance(v.get("items"), list):
+                  items = [{"subject": str(x.get("subject") or "").strip()[:200], "hint": str(x.get("hint") or "").strip()[:300]}
+                           for x in v["items"][:5] if isinstance(x, dict) and str(x.get("subject") or "").strip()]
+                  break
+      shared = (os.environ.get("CONTEXT") or "").strip()
+      goal = (os.environ.get("GOAL") or "").strip()
+      for it in items:
+          it["context"] = " ".join(x for x in [
+              f"Part of: {goal}." if goal else "",
+              shared,
+              f"About this one: {it['hint']}" if it.get("hint") else "",
+          ] if x) or "(none)"
+      print(json.dumps({"items": items, "skipped": given.get("skipped") or []}))
+      PY
+
+  # 4. Each item its own small run, three at a time. A failed one is null.
+  - id: research
+    type: loop
+    dependsOn: [pick]
+    loopConfig:
+      over: items
+      agentId: research-one
+      maxIterations: 20
+      concurrency: 3
+      inputMapping:
+        SUBJECT: "$item.subject"
+        CONTEXT: "$item.context"
+        ASK: "{{inputs.ASK}}"
+        DEPTH: "{{inputs.DEPTH}}"
+
+  # 5. One record per item, in order; says which didn't finish.
+  - id: merge
+    type: shell
+    dependsOn: [pick, research]
+    timeout: 60
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def as_obj(v):
+          """A sub-run's answer: an object, or JSON text (the last object in it)."""
+          if isinstance(v, dict):
+              return v
+          if not isinstance(v, str):
+              return None
+          dec = json.JSONDecoder()
+          found = None
+          for m in re.finditer(r"\{", v):
+              try:
+                  o, _ = dec.raw_decode(v[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(o, dict) and "subject" in o:
+                  found = o
+          return found
+
+      try:
+          picked = json.loads(upstream("PICK") or "{}")
+      except ValueError:
+          picked = {}
+      items = picked.get("items") or []
+      try:
+          got = json.loads(upstream("RESEARCH") or "[]")
+      except ValueError:
+          got = []
+      if isinstance(got, dict):
+          got = got.get("items") or got.get("results") or []
+
+      results, unfinished = [], []
+      for i, it in enumerate(items):
+          o = as_obj(got[i]) if i < len(got) else None
+          subject = it.get("subject", f"Item {i + 1}")
+          if not o or (not o.get("found") and not o.get("summary")):
+              unfinished.append(subject)
+              results.append({"subject": subject, "status": "didn't finish", "found": {}, "not_found": [], "summary": "",
+                              "note": (o or {}).get("note") or "Its research didn't finish (it ran out of time or failed)."})
+              continue
+          results.append({"subject": subject, "status": "done", "found": o.get("found") or {}, "not_found": o.get("not_found") or [],
+                          "summary": o.get("summary") or "", "note": o.get("note") or ""})
+
+      done = len(results) - len(unfinished)
+      skipped = picked.get("skipped") or []
+      bits = [f"{done} of {len(results)} researched" if results else "Nothing to research"]
+      if unfinished:
+          bits.append(f"{', '.join(unfinished[:4])}{' and more' if len(unfinished) > 4 else ''} didn't finish")
+      if skipped:
+          bits.append(f"{len(skipped)} skipped (over the limit)")
+      print(json.dumps({
+          "headline": "; ".join(bits) + ".",
+          "count": len(results),
+          "done": done,
+          "results": results,
+          "unfinished": unfinished,
+          "skipped": skipped,
+          "table": [{"subject": r["subject"], "status": r["status"], "found": len(r["found"]), "summary": r["summary"][:200]} for r in results],
+      }))
+      PY
+
+outputWidget:
+  type: dashboard
+  fields:
+    - name: headline
+      label: Summary
+      type: text
+    - name: table
+      label: Results
+      type: table
+      columns:
+        - name: subject
+          label: Item
+        - name: status
+          label: Status
+        - name: found
+          label: Facts found
+        - name: summary
+          label: Summary

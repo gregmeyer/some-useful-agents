@@ -222,6 +222,16 @@ Full flow control reference: [flows.md](flows.md).
 - **No turns on tools it can't use.** A node doesn't get claude's own subagent tool (`Agent`/`Task`, which ran outside the node's turn and spend limits), claude's own `WebFetch` when the node has sua's `web-fetch`, or `Bash`, unless the node lists them in `allowedTools`. Those calls were refused in a run anyway, and each refusal cost a turn.
 - **A completed node keeps its warnings** (ran out of turns, a refused tool, codex exiting oddly after answering), shown in amber on its run page. A run that completed without some of its `optional` steps says so: "Completed, but 2 steps didn't finish", and a notebook step's note names them.
 
+### Research that takes a while: `research-fanout`
+
+One `llm-prompt` node asked to research a whole list (ten companies, every option, several angles of a question) runs into its time limit, and a node that times out returns nothing. So research over a list goes through one shared agent, the way web search goes through `web-search-links`:
+
+- **`research-fanout`** takes `ITEMS` (one per line, comma-separated, or JSON `[{subject, hint}]`, where a hint tells same-named ones apart), `ASK` (what to find for each, as JSON `[{key, label, hint}]` or plain questions), `CONTEXT` (the goal and limits), and `DEPTH`. With no `ITEMS`, it splits `GOAL` into 3–5 angles, one of them the case against.
+- **Each item is its own small run** (`research-one`: a few searches and page opens, 6 turns, 3 minutes), **three at a time** (a `loop` with `concurrency: 3`, [flows.md](flows.md#loop)). Ten items take about as long as four, and one that runs long or fails doesn't sink the rest.
+- **It returns** `results` (one per item, in order: `{subject, status, found: {key: {value, source, quote}}, not_found, summary}`), `unfinished` (give them back as `ITEMS` to try again), `skipped` (past `MAX_ITEMS`, default 12) and a `headline` ("9 of 10 researched; Acme didn't finish.").
+
+Call it with `agent-invoke` and keep your agent's own checking and summing-up nodes after it, reading its `results`. Don't split the list into copies of one node (`gather-1`, `gather-2`, …): sibling nodes run one after another, so that's no faster. sua's agent builder and the analyzer's fixes follow the same rule. A notebook's find step works the same way (`notebook-finder`, one `notebook-find-one` search per site).
+
 > **Alias:** `type: claude-code` is the legacy spelling of `type: llm-prompt`. Both load identically and dispatch through the same code path; the CLI binary is chosen by the `provider:` field (`claude` or `codex`). New agents should use `llm-prompt`; existing agents continue to work unchanged.
 
 ### `shell` and `llm-prompt` with tools
