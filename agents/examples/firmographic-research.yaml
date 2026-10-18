@@ -1,0 +1,441 @@
+# Firmographic research — sourced, CSV-ready firmographics for a list of
+# named companies (website, what they offer, why they'd buy, revenue,
+# employees, founded, fit), with "not found" rather than a guess.
+#
+# Each company is researched as its own small run through research-fanout,
+# three at a time. Version 10 did ten companies in one step and timed out;
+# version 11 split them into five gather steps that still ran one after
+# another. Code builds each record from what the research found and its
+# sources; the one model step after it only scores fit and writes the
+# summary, so it can't change a fact.
+#
+#   plan ── list ── research (research-fanout) ── records ── synthesize ── validate-output
+#
+# Run:
+#   sua workflow run firmographic-research --input TOPIC="Anaplan peers" \
+#     --input FINAL_CHOSEN_COMPANIES="Pigment (pigment.com), Runway (runway.com, the planning software)"
+
+id: firmographic-research
+name: Firmographic research
+description: Finds sourced CSV-ready firmographic and buying-context fields for a bounded batch of named companies, with sourced values or "not found" for every requested cell.
+status: active
+source: examples
+mcp: false
+view:
+  components:
+    - id: root
+      component: Column
+      children:
+        - summary
+        - records
+        - findings
+        - gaps
+        - omitted
+    - id: summary
+      component: StatStrip
+      items:
+        path: /outputs/summary_stats
+    - id: records
+      component: Table
+      rows:
+        path: /outputs/companies
+      columns:
+        - key: website
+          label: Company
+          format: link
+          linkText: company
+        - key: revenue
+          label: Revenue USD
+        - key: employees
+          label: Employees
+        - key: fit
+          label: Fit
+        - key: confidence
+          label: Confidence
+      maxRows: 10
+    - id: findings
+      component: Table
+      rows:
+        path: /outputs/bullets
+      columns:
+        - key: point
+          label: Finding
+        - key: source_url
+          label: Source
+          format: link
+          linkText: source_title
+      maxRows: 5
+    - id: gaps
+      component: Text
+      text:
+        path: /outputs/tension
+      variant: body
+    - id: omitted
+      component: Text
+      text:
+        path: /outputs/omitted_companies
+      variant: caption
+permissions:
+  inboxRunnable: true
+inputs:
+  TOPIC:
+    type: string
+    default: ""
+    required: true
+    description: Research goal and notebook limits used to score fit.
+  FINAL_CHOSEN_COMPANIES:
+    type: string
+    default: ""
+    required: false
+    description: Preferred comma- or newline-separated company list. Entries may include a domain or description hint.
+  COMPANIES:
+    type: string
+    default: ""
+    required: false
+    description: Fallback company list when FINAL_CHOSEN_COMPANIES is empty.
+  DEPTH:
+    type: enum
+    values:
+      - quick
+      - thorough
+    default: quick
+    description: Research depth within the per-company source cap.
+  MAX_COMPANIES_PER_RUN:
+    type: number
+    default: 10
+    description: Maximum companies to process (up to 20); remaining names are reported as omitted.
+  MAX_SOURCES_PER_COMPANY:
+    type: number
+    default: 5
+    description: Kept for older callers; each company's research opens up to 3 pages (quick) or 6 (thorough).
+  SOURCE_PRIORITY:
+    type: string
+    default: official company pages and press releases; LinkedIn or Crunchbase for employee range and founding; filings or company disclosures for revenue; credible private-company estimates when official revenue is unavailable; customer case studies, product pages, and reviews for buyer context
+    description: Ordered source policy.
+  REQUIRE_SOURCE_URLS:
+    type: boolean
+    default: true
+    description: Require source URLs for populated research records.
+outputs:
+  headline:
+    type: string
+  company_count:
+    type: number
+  companies:
+    type: array
+  bullets:
+    type: array
+  tension:
+    type: string
+  source_count:
+    type: number
+  omitted_companies:
+    type: string
+  summary_stats:
+    type: array
+  unfinished:
+    type: array
+    description: Companies whose research didn't finish; run again with just these.
+nodes:
+  # 1. Which companies, in order, with any domain or description given.
+  - id: plan
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 60
+    prompt: |
+      Topic: {{inputs.TOPIC}}
+      Preferred company list: {{inputs.FINAL_CHOSEN_COMPANIES}}
+      Fallback company list: {{inputs.COMPANIES}}
+
+      Return one JSON object and no other text. Select companies from the preferred list if present, otherwise the fallback list, otherwise only names explicitly present in TOPIC. Preserve their order. Do not invent companies.
+
+      For each entry, separate the bare company name, a supplied domain or URL as website_hint, and supplied descriptive words as description_hint. TOPIC may supply hints for a named company. Never invent a hint. In particular, preserve any distinction between a planning company named Runway and the AI video company.
+
+      Required shape:
+      {"companies":[{"company":"Company A","website_hint":"","description_hint":""}]}
+
+  # 2. Check the plan, cap it, and hand research-fanout its list.
+  - id: list
+    type: shell
+    dependsOn: [plan]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re, sys
+
+      raw = os.environ.get("UPSTREAM_PLAN_RESULT", "")
+      plan = None
+      for m in re.finditer(r"\{", raw):
+          try:
+              v, _ = json.JSONDecoder().raw_decode(raw[m.start():])
+          except ValueError:
+              continue
+          if isinstance(v, dict) and isinstance(v.get("companies"), list):
+              plan = v
+              break
+      if plan is None:
+          print("Invalid company plan: no companies list", file=sys.stderr)
+          sys.exit(1)
+      try:
+          cap = max(1, min(20, int(float(os.environ.get("MAX_COMPANIES_PER_RUN") or "10"))))
+      except ValueError:
+          cap = 10
+      entries, seen = [], set()
+      for e in plan["companies"]:
+          if not isinstance(e, dict) or not str(e.get("company") or "").strip():
+              continue
+          name = str(e["company"]).strip()
+          if name.lower() in seen:
+              continue
+          seen.add(name.lower())
+          entries.append({"company": name, "website_hint": str(e.get("website_hint") or "").strip(), "description_hint": str(e.get("description_hint") or "").strip()})
+      if not entries:
+          print("Invalid company plan: no companies to research", file=sys.stderr)
+          sys.exit(1)
+      chosen, omitted = entries[:cap], entries[cap:]
+      items = [{
+          "subject": e["company"] + (f" ({e['website_hint']})" if e["website_hint"] else ""),
+          "hint": " ".join(x for x in [e["description_hint"], f"Its website is {e['website_hint']}." if e["website_hint"] else ""] if x),
+      } for e in chosen]
+      print(json.dumps({
+          "selected_companies": [e["company"] for e in chosen],
+          "entries": chosen,
+          "items_json": json.dumps(items),
+          "omitted_companies": ", ".join(e["company"] for e in omitted),
+      }))
+      PY
+
+  # 3. Each company its own small run, three at a time (research-fanout).
+  - id: research
+    type: agent-invoke
+    dependsOn: [list]
+    agentInvokeConfig:
+      agentId: research-fanout
+      inputMapping:
+        ITEMS: "$upstream.list.items_json"
+        GOAL: "Firmographics for: {{inputs.TOPIC}}"
+        CONTEXT: "Source priority: {{inputs.SOURCE_PRIORITY}}. Match the company's website and description before using a page; if same-named companies remain ambiguous, put every key under not_found and say which candidates in the note. Never substitute a different company."
+        DEPTH: "{{inputs.DEPTH}}"
+        MAX_ITEMS: "20"
+        ASK: '[{"key":"website","label":"Website","hint":"its own site, a full https address"},{"key":"value_offered","label":"Value offered","hint":"what it sells and to whom, one sentence"},{"key":"why_buy","label":"Why buy","hint":"why its customers buy it, one sentence"},{"key":"revenue","label":"Revenue (USD)","hint":"annual revenue as a plain number; a range as {min, max}; say the year and basis in the quote"},{"key":"employees","label":"Employees","hint":"headcount as a plain number; a range as {min, max}; a \"1,000+\" figure as its number"},{"key":"founded","label":"Founded","hint":"the year"}]'
+
+  # 4. Records from what the research found: code, so every value is one it
+  #    sourced. Ranges become midpoints and "+" figures their number; the
+  #    original goes in conflicts.
+  - id: records
+    type: shell
+    dependsOn: [list, research]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      def upstream(name):
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def last_obj(text, key):
+          found = None
+          for m in re.finditer(r"\{", text or ""):
+              try:
+                  v, _ = json.JSONDecoder().raw_decode(text[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and key in v:
+                  found = v
+          return found
+
+      def number(value):
+          """A plain number from a sourced value; a range's midpoint; "not found" otherwise."""
+          if isinstance(value, bool) or value is None:
+              return "not found"
+          if isinstance(value, dict):
+              lo, hi = value.get("min"), value.get("max")
+              nums = [x for x in (lo, hi) if isinstance(x, (int, float)) and not isinstance(x, bool)]
+              return int(sum(nums) / len(nums)) if nums else "not found"
+          if isinstance(value, (int, float)):
+              return int(value) if value >= 0 else "not found"
+          text = str(value).replace(",", "")
+          matches = re.findall(r"(\d+(?:\.\d+)?)\s*([kmb](?![a-z]))?", text, re.I)
+          if not matches:
+              return "not found"
+          scale = {"": 1, "k": 1000, "m": 1000000, "b": 1000000000}
+          values = [float(n) * scale[(s or "").lower()] for n, s in matches]
+          if len(values) >= 2 and re.search(r"\d\s*[-–]\s*\$?\d", text):
+              return int((values[0] + values[1]) / 2)
+          return int(values[0])
+
+      plan = json.loads(upstream("LIST"))
+      fan = last_obj(upstream("RESEARCH"), "results") or {}
+      results = fan.get("results") or []
+      rows, sources = [], set()
+      for i, name in enumerate(plan["selected_companies"]):
+          r = results[i] if i < len(results) and isinstance(results[i], dict) else {}
+          found = r.get("found") or {}
+          urls, notes = [], []
+          def text(key):
+              v = (found.get(key) or {}).get("value")
+              return str(v).strip() if v not in (None, "") else "not found"
+          for k, v in found.items():
+              s = v.get("source") if isinstance(v, dict) else None
+              if s and s not in urls:
+                  urls.append(s)
+          row = {"company": name, "website": text("website"), "value_offered": text("value_offered"), "why_buy": text("why_buy"),
+                 "founded": text("founded")[:4] if re.match(r"^\d{4}", text("founded")) else text("founded")}
+          for key in ("revenue", "employees"):
+              orig = (found.get(key) or {}).get("value")
+              row[key] = number(orig)
+              if orig is not None and row[key] != "not found" and not isinstance(orig, (int, float)):
+                  notes.append(f"{key} {json.dumps(orig)} taken as {row[key]}")
+              q = (found.get(key) or {}).get("quote")
+              if q:
+                  notes.append(f"{key}: \"{q}\"")
+          if r.get("status") != "done":
+              notes.append("Its research didn't finish; run again with just this company.")
+          if r.get("not_found"):
+              notes.append("Not found: " + ", ".join(r["not_found"]) + ".")
+          if r.get("note"):
+              notes.append(str(r["note"])[:300])
+          row["source_urls"] = urls
+          row["conflicts"] = " ".join(notes)[:1500]
+          row["summary"] = str(r.get("summary") or "")[:600]
+          row["status"] = r.get("status") or "didn't finish"
+          sources.update(urls)
+          rows.append(row)
+      print(json.dumps({"companies": rows, "source_count": len(sources), "unfinished": fan.get("unfinished") or [],
+                        "omitted_companies": plan.get("omitted_companies", "")}, ensure_ascii=False))
+      PY
+
+  # 5. Fit and the summary, from the records. No tools, and it can't change
+  #    a record: validate-output keeps only its fit and confidence.
+  - id: synthesize
+    type: llm-prompt
+    dependsOn: [records]
+    maxTurns: 1
+    timeout: 120
+    prompt: |
+      Topic and fit limits: {{inputs.TOPIC}}
+      The company records, researched with sources:
+      {{upstream.records.result}}
+
+      Score each company's fit to the topic and its limits, from its record alone: an integer 0–100, and confidence low, medium or high (low when key facts are not found or estimates are weak; 0 fit when its identity is unresolved). Then write a short headline, three to five cross-company bullets each citing a source_url already in the records, and a tension summary covering ambiguity, weak estimates and missing fields. Never add facts or URLs.
+
+      Return one JSON object and no other text:
+      {"scores":[{"company":"…","fit":85,"confidence":"medium","why":"a few words"}],"headline":"…","bullets":[{"point":"…","source_title":"…","source_url":"https://…"}],"tension":"…"}
+
+  # 6. The records with the model's fit and confidence; everything else from code.
+  - id: validate-output
+    type: shell
+    dependsOn: [records, synthesize]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re, sys
+
+      def upstream(name):
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      rec = json.loads(upstream("RECORDS"))
+      syn = None
+      raw = upstream("SYNTHESIZE")
+      for m in re.finditer(r"\{", raw):
+          try:
+              v, _ = json.JSONDecoder().raw_decode(raw[m.start():])
+          except ValueError:
+              continue
+          if isinstance(v, dict) and "scores" in v:
+              syn = v
+              break
+      syn = syn or {}
+      scores = {str(s.get("company", "")).strip().lower(): s for s in syn.get("scores") or [] if isinstance(s, dict)}
+      urls = {u for r in rec["companies"] for u in r["source_urls"]}
+      rows = []
+      for r in rec["companies"]:
+          s = scores.get(r["company"].lower(), {})
+          fit = s.get("fit")
+          fit = max(0, min(100, int(fit))) if isinstance(fit, (int, float)) and not isinstance(fit, bool) else 0
+          if r["status"] != "done":
+              fit = 0
+          conf = s.get("confidence") if s.get("confidence") in ("low", "medium", "high") else "low"
+          row = {k: r[k] for k in ("company", "website", "value_offered", "why_buy", "revenue", "employees", "founded")}
+          row.update({"fit": fit, "confidence": conf, "source_urls": r["source_urls"],
+                      "conflicts": " ".join(x for x in [r["conflicts"], f"Fit: {str(s['why']).strip().rstrip('.')}." if s.get("why") else ""] if x)})
+          rows.append(row)
+      # A bullet keeps only a source the research found.
+      bullets = [b for b in syn.get("bullets") or [] if isinstance(b, dict) and b.get("source_url") in urls and str(b.get("point") or "").strip()]
+      done = sum(1 for r in rec["companies"] if r["status"] == "done")
+      headline = str(syn.get("headline") or "").strip() or f"{done} of {len(rows)} companies researched"
+      if rec["unfinished"]:
+          headline += f" ({', '.join(rec['unfinished'][:3])} didn't finish)"
+      print(json.dumps({
+          "headline": headline,
+          "company_count": len(rows),
+          "companies": rows,
+          "bullets": bullets[:5],
+          "tension": str(syn.get("tension") or ""),
+          "source_count": rec["source_count"],
+          "omitted_companies": rec["omitted_companies"],
+          "unfinished": rec["unfinished"],
+          "summary_stats": [
+              {"label": "Companies", "value": len(rows)},
+              {"label": "Researched", "value": done, **({"tone": "warn", "sub": f"{len(rows) - done} didn't finish"} if done < len(rows) else {})},
+              {"label": "Sources", "value": rec["source_count"]},
+          ],
+      }, ensure_ascii=False))
+      PY
+signal:
+  title: Firmographic research
+  icon: building
+  template: widget
+  size: 2x1
+  accent: blue
+outputWidget:
+  type: dashboard
+  fields:
+    - name: headline
+      label: Summary
+      type: text
+    - name: source_count
+      label: Sources Read
+      type: stat
+    - name: omitted_companies
+      label: Omitted Companies
+      type: badge
+    - name: tension
+      label: Conflicts And Gaps
+      type: text
+    - name: companies
+      label: CSV Records
+      type: code
+    - name: bullets
+      label: Sourced Findings
+      type: code
+  controls:
+    - type: replay
+      label: Refresh
+      inputs:
+        - TOPIC
+        - FINAL_CHOSEN_COMPANIES
+        - DEPTH
+tags:
+  - research
+  - companies
+  - firmographics
+  - sources
+entryConditions:
+  - user wants sourced firmographic data for named companies
+  - a notebook of companies needs website, value offered, why buy, employees, revenue, founding facts, fit, and sources filled in
+nonEntryConditions:
+  - user wants a general researched brief on a topic
+  - user wants to find companies that match a profile
+sampleQuestions:
+  - Fill in website, value offered, why buy, revenue, employees, founded, and fit for these companies.
+  - Enrich my final chosen company list with sourced CSV-ready fields.
+  - How many employees and how much revenue do Pigment, Runway and Mosaic have?
