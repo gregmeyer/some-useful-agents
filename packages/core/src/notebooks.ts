@@ -576,6 +576,9 @@ export class NotebookStore {
       if (r.by?.startsWith('agent:')) agents.add(r.by.slice('agent:'.length));
       if (r.run_id) runIds.add(r.run_id);
     }
+    // Runs the notebook made itself (a step's or the pipeline's) are in it,
+    // even ones that only set facts on options it has (a page reader's).
+    for (const id of this.passRunIds(notebookId)) runIds.add(id);
     return { agents: [...agents].sort(), runIds: [...runIds] };
   }
 
@@ -635,6 +638,15 @@ export class NotebookStore {
     this.db.prepare('UPDATE notebooks SET cadence_fired_at = ? WHERE id = ?').run(slot, notebookId);
   }
 
+  /** Every run in the notebook's passes. */
+  passRunIds(notebookId: string): string[] {
+    const ids = new Set<string>();
+    for (const r of this.db.prepare('SELECT run_ids_json FROM notebook_passes WHERE notebook_id = ?').all(notebookId) as Array<{ run_ids_json: string }>) {
+      try { for (const id of JSON.parse(r.run_ids_json) as unknown[]) if (typeof id === 'string') ids.add(id); } catch { /* a bad row has no runs */ }
+    }
+    return [...ids];
+  }
+
   addRunToPass(passId: string, runId: string): void {
     const row = this.db.prepare('SELECT run_ids_json FROM notebook_passes WHERE id = ?').get(passId) as { run_ids_json: string } | undefined;
     if (!row) return;
@@ -666,7 +678,8 @@ export class NotebookStore {
         SELECT notebook_id, run_id FROM notebook_searches WHERE run_id IN (${marks})
         UNION SELECT notebook_id, run_id FROM notebook_entries WHERE run_id IN (${marks})
         UNION SELECT notebook_id, run_id FROM notebook_sightings WHERE run_id IN (${marks})
-      ) x JOIN notebooks n ON n.id = x.notebook_id`).all(...runIds, ...runIds, ...runIds) as Array<{ notebook_id: string; title: string; run_id: string }>;
+        UNION SELECT p.notebook_id, j.value FROM notebook_passes p, json_each(p.run_ids_json) j WHERE j.value IN (${marks})
+      ) x JOIN notebooks n ON n.id = x.notebook_id`).all(...runIds, ...runIds, ...runIds, ...runIds) as Array<{ notebook_id: string; title: string; run_id: string }>;
     return rows.map((r) => ({ notebookId: r.notebook_id, title: r.title, runId: r.run_id }));
   }
 

@@ -1659,6 +1659,14 @@ describe('runs not in the notebook yet', () => {
     const other = store.create({ title: 'Other' });
     store.recordSearch(other.id, 'sweep', 'run-other-nb', 1);
     expect((await get()).text).not.toContain('/runs/run-other-nb/add');
+    // A run one of its steps made (a page reader setting facts on an option it has) is in it,
+    // and not offered to the other notebook either.
+    run('run-facts', 'sweep', 'completed', 20_000, '{"salary": 200000}');
+    expect((await get()).text).toContain('/runs/run-facts/add');
+    const pass = store.startPass(nb.id, 'pipeline');
+    store.addRunToPass(pass, 'run-facts');
+    expect((await get()).text).not.toContain('/runs/run-facts/add');
+    expect(store.notebooksForRuns(['run-facts'])).toEqual([{ notebookId: nb.id, title: 'Car', runId: 'run-facts' }]);
 
     const post = (runId: string) => request(app).post(`/notebooks/${nb.id}/runs/${runId}/add`)
       .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
