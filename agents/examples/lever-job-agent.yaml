@@ -1,0 +1,461 @@
+# Lever Job Agent — search public Lever job boards for a role.
+#
+# Searches the boards you name in COMPANIES (slugs or jobs.lever.co links),
+# or with none, the ones lever-discover finds for JOB_QUERY through the
+# shared web search (web-search-links). Fetches each board's postings from
+# Lever's public API, ranks them for the query, and returns the matches.
+# No boards found, or none that answer, is an empty result that says why,
+# not a failed run.
+#
+# Run:
+#   sua workflow run lever-job-agent --input JOB_QUERY="staff product manager"
+#   sua workflow run lever-job-agent --input COMPANIES=palantir,mistral
+id: lever-job-agent
+name: Lever Job Agent
+description: Search public Lever job boards (the ones you name, or ones it finds with lever-discover), then rank and summarize the best matches for a target job query.
+status: draft
+source: local
+tags:
+  - hiring
+  - jobs
+  - lever
+entryConditions:
+  - user wants open roles posted on Lever job boards, at companies they name or ones it finds
+  - user asks to search Lever postings for a role or skill
+nonEntryConditions:
+  - user only wants the list of companies on Lever (use lever-discover)
+sampleQuestions:
+  - Find staff product manager roles on Lever.
+  - Which Lever companies are hiring data engineers?
+  - Search palantir and mistral on Lever for ML roles.
+mcp: false
+permissions:
+  inboxRunnable: true
+inputs:
+  JOB_QUERY:
+    type: string
+    default: software engineer
+    description: Role, skills, or keywords to match against Lever postings.
+  COMPANIES:
+    type: string
+    default: ""
+    description: Comma-separated Lever board slugs or jobs.lever.co links (up to five). Blank finds boards for JOB_QUERY with lever-discover.
+  LOCATION_PREFERENCE:
+    type: string
+    default: remote
+    description: Preferred location, or blank for any location.
+  MAX_RESULTS_PER_COMPANY:
+    type: number
+    default: 25
+    description: Maximum postings to fetch from each board, from 1 to 100.
+  FETCH_TIMEOUT_SECONDS:
+    type: number
+    default: 12
+    description: Timeout for each Lever API request, from 3 to 15 seconds.
+  MAX_RETRIES:
+    type: number
+    default: 1
+    description: Retries for transient network errors and HTTP 429 or 5xx responses, from 0 to 1.
+outputs:
+  headline:
+    type: string
+  summary:
+    type: string
+  total_matches:
+    type: number
+  companies_searched:
+    type: number
+  postings_fetched:
+    type: number
+  query:
+    type: string
+  location_preference:
+    type: string
+  failed_boards:
+    type: string
+  matches:
+    type: array
+nodes:
+  # Which boards to search: the ones given (slugs or jobs.lever.co links), or none, and then lever-discover finds some.
+  - id: boards
+    type: shell
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+      from urllib.parse import urlparse
+
+      given, skipped = [], []
+      for part in os.environ.get("COMPANIES", "").split(","):
+          part = part.strip()
+          if not part:
+              continue
+          if "lever.co" in part:
+              host = urlparse(part if "://" in part else "https://" + part)
+              part = host.path.strip("/").split("/")[0]
+          slug = part.lower()
+          if re.fullmatch(r"[a-z0-9][a-z0-9._-]*", slug):
+              if slug not in given:
+                  given.append(slug)
+          else:
+              skipped.append(part)
+      print(json.dumps({
+          "ok": True,
+          "discover": not given,
+          "companies": given[:5],
+          "dropped": skipped + given[5:],
+      }))
+      PY
+  - id: discover
+    type: agent-invoke
+    dependsOn: [boards]
+    onlyIf: { upstream: boards, field: discover, equals: true }
+    # A failed search still lets the run finish, with nothing found.
+    optional: true
+    agentInvokeConfig:
+      agentId: lever-discover
+      inputMapping:
+        TOPIC: "{{inputs.JOB_QUERY}}"
+        MAX_RESULTS: "10"
+  - id: fetch-postings
+    type: shell
+    command: |
+      python3 - <<'PY'
+      import json
+      import os
+      import re
+      import sys
+      import time
+      import urllib.error
+      import urllib.parse
+      import urllib.request
+
+      def fail(message, failures=None):
+          print(json.dumps({
+              "error": message,
+              "failures": failures or []
+          }), file=sys.stderr)
+          sys.exit(1)
+
+      def bounded_int(name, default, minimum, maximum):
+          # Out of range or not a number: the nearest allowed value, not a failed run.
+          try:
+              value = int(float(os.environ.get(name, str(default))))
+          except ValueError:
+              value = default
+          return max(minimum, min(maximum, value))
+
+      query = os.environ.get("JOB_QUERY", "").strip()
+      if not query:
+          fail("JOB_QUERY must not be empty")
+
+      def upstream(name):
+          try:
+              value = json.loads(os.environ.get(name) or "{}")
+          except ValueError:
+              return {}
+          return value if isinstance(value, dict) else {}
+
+      boards = upstream("UPSTREAM_BOARDS_RESULT")
+      found = upstream("UPSTREAM_DISCOVER_RESULT")
+      companies = [c for c in boards.get("companies") or [] if isinstance(c, str)]
+      discovered = []
+      if not companies:
+          # The boards lever-discover found, in the search's order (most relevant first), with openings.
+          discovered = [str(c["slug"]) for c in found.get("companies") or [] if isinstance(c, dict) and c.get("slug") and c.get("job_count")][:5]
+          companies = discovered
+      notes = []
+      if boards.get("dropped"):
+          notes.append("Left out (not Lever board slugs, or more than five): " + ", ".join(boards["dropped"]))
+      if boards.get("discover") and not discovered:
+          notes.append(found.get("note") or "lever-discover found no Lever boards for this search.")
+
+      limit = bounded_int("MAX_RESULTS_PER_COMPANY", 25, 1, 100)
+      request_timeout = bounded_int("FETCH_TIMEOUT_SECONDS", 12, 3, 15)
+      retries = bounded_int("MAX_RETRIES", 1, 0, 1)
+
+      def fetch_company(slug):
+          url = (
+              "https://api.lever.co/v0/postings/"
+              + urllib.parse.quote(slug, safe="")
+              + "?mode=json&limit="
+              + str(limit)
+          )
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "User-Agent": "sua-agent/lever-job-agent",
+                  "Accept": "application/json",
+              },
+          )
+          for attempt in range(retries + 1):
+              try:
+                  with urllib.request.urlopen(request, timeout=request_timeout) as response:
+                      payload = json.load(response)
+                  if not isinstance(payload, list):
+                      raise ValueError("Lever returned a non-array response")
+                  return payload
+              except urllib.error.HTTPError as error:
+                  transient = error.code == 429 or 500 <= error.code <= 599
+                  if transient and attempt < retries:
+                      time.sleep(1)
+                      continue
+                  raise RuntimeError(f"HTTP {error.code}") from error
+              except (urllib.error.URLError, TimeoutError) as error:
+                  if attempt < retries:
+                      time.sleep(1)
+                      continue
+                  raise RuntimeError(str(error)) from error
+
+      postings = []
+      searched = []
+      failures = []
+
+      for slug in companies:
+          try:
+              jobs = fetch_company(slug)
+              searched.append(slug)
+              for job in jobs[:limit]:
+                  if not isinstance(job, dict):
+                      continue
+                  url = job.get("hostedUrl")
+                  if not isinstance(url, str) or not url.startswith("https://"):
+                      continue
+                  categories = job.get("categories") or {}
+                  if not isinstance(categories, dict):
+                      categories = {}
+                  postings.append({
+                      "company": slug,
+                      "title": job.get("text") or "",
+                      "location": categories.get("location") or "",
+                      "team": categories.get("team") or categories.get("department") or "",
+                      "workplace_type": job.get("workplaceType") or "",
+                      "url": url,
+                      "description": (job.get("descriptionPlain") or "")[:800],
+                  })
+          except Exception as error:
+              failures.append({"company": slug, "error": str(error)})
+
+      if companies and not searched:
+          notes.append("None of the Lever boards could be fetched; check the COMPANIES slugs.")
+
+      print(json.dumps({
+          "job_query": query,
+          "location_preference": os.environ.get("LOCATION_PREFERENCE", "").strip(),
+          "companies_requested": companies,
+          "companies_searched": searched,
+          "failures": failures,
+          "postings": postings,
+          "discovered": discovered,
+          "notes": notes,
+          "ok": True,
+          "has_postings": bool(postings),
+      }, ensure_ascii=True))
+      PY
+    timeout: 180
+    dependsOn: [boards, discover]
+    # Runs whether or not discover ran (its own condition, not discover's).
+    onlyIf: { upstream: boards, field: ok, equals: true }
+  - id: rank-matches
+    type: llm-prompt
+    # Nothing to rank: finalize-results says so instead.
+    onlyIf: { upstream: fetch-postings, field: has_postings, equals: true }
+    prompt: |
+      Rank these public Lever postings for the candidate.
+
+      Fetched data:
+      {{upstream.fetch-postings.result}}
+
+      Select up to 20 plausible matches for job_query, ordered by descending relevance. Treat location_preference as a preference, not a mandatory filter. Use the description to assess fit, but return only the fields below. Every URL must be copied exactly from a fetched posting. If postings is empty or none plausibly match, return an empty matches array. Mention meaningful board coverage gaps in the summary.
+
+      Return strict JSON only:
+      {
+        "headline": "short headline",
+        "summary": "one or two sentences",
+        "matches": [
+          {
+            "url": "exact hosted URL from a fetched posting",
+            "score": 0,
+            "reason": "one sentence explaining relevance"
+          }
+        ]
+      }
+
+      Scores must be integers from 0 to 100. Do not invent postings, URLs, or facts.
+    timeout: 120
+    dependsOn:
+      - fetch-postings
+  - id: finalize-results
+    type: shell
+    command: |
+      python3 - <<'PY'
+      import json
+      import os
+      import sys
+
+      def fail(message):
+          print(json.dumps({"error": message}), file=sys.stderr)
+          sys.exit(1)
+
+      def upstream(name):
+          # Over 32KB, the env copy is cut short and the full value is in $<name>_FILE.
+          path = os.environ.get(name + "_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as handle:
+                  return handle.read()
+          return os.environ[name]
+
+      try:
+          fetched = json.loads(upstream("UPSTREAM_FETCH_POSTINGS_RESULT"))
+      except (KeyError, json.JSONDecodeError) as error:
+          fail(f"Could not parse the fetched postings: {error}")
+
+      def first_object(text):
+          # The model's answer: the first JSON object in it (it may sit in a code fence).
+          for at in [i for i, ch in enumerate(text) if ch == "{"]:
+              try:
+                  value, _ = json.JSONDecoder().raw_decode(text[at:])
+              except json.JSONDecodeError:
+                  continue
+              if isinstance(value, dict):
+                  return value
+          return None
+
+      # No ranking when there was nothing to rank (or it answered badly): an empty result, said plainly.
+      try:
+          ranked = first_object(upstream("UPSTREAM_RANK_MATCHES_RESULT"))
+      except KeyError:
+          ranked = None
+      if not isinstance(ranked, dict):
+          none = not fetched["postings"]
+          ranked = {
+              "headline": "No Lever postings found" if none else "Couldn't rank the Lever postings",
+              "summary": "No postings came back from the boards searched." if none else "The ranking step gave no usable answer.",
+              "matches": [],
+          }
+      headline = ranked.get("headline") if isinstance(ranked.get("headline"), str) else "Lever matches"
+      summary_text = ranked.get("summary") if isinstance(ranked.get("summary"), str) else ""
+      proposed = ranked.get("matches") if isinstance(ranked.get("matches"), list) else []
+
+      by_url = {job["url"]: job for job in fetched["postings"]}
+      matches = []
+      seen = set()
+      for match in proposed[:20]:
+          if not isinstance(match, dict):
+              continue
+          url = match.get("url")
+          score = match.get("score")
+          reason = match.get("reason")
+          # A made-up or repeated link is left out, never filed.
+          if url not in by_url or url in seen:
+              continue
+          try:
+              score = max(0, min(100, int(score)))
+          except (TypeError, ValueError):
+              score = 0
+          if not isinstance(reason, str) or not reason.strip():
+              reason = "Matches the query."
+          seen.add(url)
+          job = by_url[url]
+          matches.append({
+              "company": job["company"],
+              "title": job["title"],
+              "location": job["location"],
+              "team": job["team"],
+              "workplace_type": job["workplace_type"],
+              "url": url,
+              "score": score,
+              "reason": reason.strip(),
+          })
+
+      failed_boards = ", ".join(
+          f'{item["company"]} ({item["error"]})'
+          for item in fetched["failures"]
+      )
+      summary = summary_text.strip()
+      if failed_boards:
+          summary += f" Boards unavailable: {failed_boards}."
+      for note in fetched.get("notes") or []:
+          summary += f" {note}"
+      if fetched.get("discovered"):
+          summary += " Boards found by lever-discover: " + ", ".join(fetched["discovered"]) + "."
+
+      print(json.dumps({
+          "headline": headline.strip(),
+          "summary": summary.strip(),
+          "total_matches": len(matches),
+          "companies_searched": len(fetched["companies_searched"]),
+          "postings_fetched": len(fetched["postings"]),
+          "query": fetched["job_query"],
+          "location_preference": fetched["location_preference"],
+          "failed_boards": failed_boards,
+          "matches": matches,
+      }))
+      PY
+    dependsOn:
+      - fetch-postings
+      - rank-matches
+    onlyIf: { upstream: fetch-postings, field: ok, equals: true }
+signal:
+  title: Lever Job Agent
+  template: widget
+  format: json
+outputWidget:
+  type: dashboard
+  fields:
+    - name: total_matches
+      label: Matches
+      type: metric
+    - name: companies_searched
+      label: Companies searched
+      type: stat
+    - name: postings_fetched
+      label: Postings fetched
+      type: stat
+    - name: query
+      label: Query
+      type: badge
+    - name: location_preference
+      label: Location
+      type: badge
+    - name: headline
+      label: Headline
+      type: text
+    - name: summary
+      label: Summary
+      type: text
+    - name: failed_boards
+      label: Boards unavailable
+      type: text
+    - name: matches
+      label: Matching jobs
+      type: table
+      columns:
+        - name: company
+          label: Company
+        - name: title
+          label: Title
+        - name: location
+          label: Location
+        - name: workplace_type
+          label: Workplace
+        - name: score
+          label: Score
+        - name: reason
+          label: Why it matches
+        - name: url
+          label: Apply
+          format: link
+          href: url
+          text: Open job
+  interactive: true
+  controls:
+    - type: replay
+      label: Search again
+      inputs:
+        - JOB_QUERY
+        - COMPANIES
+        - LOCATION_PREFERENCE
+        - MAX_RESULTS_PER_COMPANY
+        - FETCH_TIMEOUT_SECONDS
+        - MAX_RETRIES

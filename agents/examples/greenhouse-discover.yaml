@@ -1,0 +1,154 @@
+# Greenhouse Discover — find companies that use Greenhouse for hiring.
+#
+# Searches the web (through web-search-links) for Greenhouse job-board
+# pages, optionally on a topic, takes each company's board slug from the
+# links, and keeps the ones the public boards API answers for. Emits a
+# `companies[]` array of {slug, job_count} for a downstream loop+invoke.
+#
+# Run:
+#   sua workflow run greenhouse-discover --input TOPIC=fintech
+id: greenhouse-discover
+name: Greenhouse Discover
+description: |
+  Finds companies hiring on Greenhouse via web search, extracts their
+  board slugs, and verifies each one against the public Greenhouse boards
+  API. Emits a `companies[]` array of {slug, job_count}.
+status: draft
+source: local
+tags:
+  - hiring
+  - companies
+  - startups
+  - discovery
+  - greenhouse
+entryConditions:
+  - user wants to find WHICH companies hire through Greenhouse, without naming one
+  - user wants Greenhouse board slugs to search, optionally in a topic area
+nonEntryConditions:
+  - user wants the actual listings, not just the company list (use greenhouse-search-discovered)
+sampleQuestions:
+  - Which fintech companies hire through Greenhouse?
+  - Find Greenhouse job boards for AI companies.
+  - Who's hiring on Greenhouse in healthcare right now?
+mcp: false
+pulseVisible: true
+inputs:
+  TOPIC:
+    type: string
+    default: ""
+    description: Optional topic filter (e.g. "fintech", "remote", "ai"). Empty = broad search.
+  MAX_RESULTS:
+    type: number
+    default: 15
+    description: Cap on candidate slugs to verify (the API check is one HTTP call each).
+outputs:
+  headline:
+    type: string
+  count:
+    type: number
+  companies:
+    type: array
+    description: Array of {slug, job_count} for verified Greenhouse boards
+  searched:
+    type: number
+    description: How many links the search returned
+  note:
+    type: string
+nodes:
+  # The search itself is web-search-links, shared by every agent that needs search results.
+  - id: search
+    type: agent-invoke
+    agentInvokeConfig:
+      agentId: web-search-links
+      inputMapping:
+        QUERY: "site:job-boards.greenhouse.io {{inputs.TOPIC}} jobs"
+        SITE: "greenhouse.io"
+        MAX_RESULTS: "30"
+  - id: verify
+    type: shell
+    dependsOn: [search]
+    timeout: 120
+    command: |
+      python3 - <<'PY'
+      import json, os, re, urllib.request
+      from concurrent.futures import ThreadPoolExecutor
+      from urllib.parse import urlparse
+
+      topic = os.environ.get("TOPIC", "").strip()
+      try:
+          cap = max(1, min(30, int(float(os.environ.get("MAX_RESULTS", "15")))))
+      except ValueError:
+          cap = 15
+      try:
+          found = json.loads(os.environ.get("UPSTREAM_SEARCH_RESULT") or "{}")
+      except ValueError:
+          found = {}
+      links = found.get("results") if isinstance(found, dict) and isinstance(found.get("results"), list) else []
+
+      # The board's slug is the first part of the link's path.
+      hosts = ["job-boards.greenhouse.io", "boards.greenhouse.io"]
+      skip = ["api", "embed", "jobs", "v1", "www"]
+      slugs = []
+      for link in links:
+          url = link.get("url", "") if isinstance(link, dict) else ""
+          parsed = urlparse(url)
+          if (parsed.hostname or "").lower() not in hosts:
+              continue
+          part = parsed.path.strip("/").split("/")[0].lower()
+          if re.fullmatch(r"[a-z0-9][a-z0-9._-]*", part) and part not in skip and part not in slugs:
+              slugs.append(part)
+      slugs = slugs[:cap]
+
+      def check(slug):
+          request = urllib.request.Request(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", headers={"User-Agent": "sua-agent/greenhouse-discover", "Accept": "application/json"})
+          try:
+              with urllib.request.urlopen(request, timeout=8) as response:
+                  data = json.loads(response.read().decode("utf-8", errors="replace"))
+          except Exception:
+              return None
+          return {"slug": slug, "job_count": len(data.get("jobs") or [])}
+
+      with ThreadPoolExecutor(max_workers=6) as pool:
+          verified = [c for c in pool.map(check, slugs) if c]
+
+      label = topic or "all"
+      search_note = found.get("note", "") if isinstance(found, dict) else ""
+      note = "" if verified else (
+          f"The search found {len(links)} links but none to a Greenhouse board that answers." if links
+          else f"The search found no Greenhouse boards. {search_note}".strip()
+      )
+      print(json.dumps({
+          "headline": f"{len(verified)} Greenhouse board{'' if len(verified) == 1 else 's'} ({label})",
+          "count": len(verified),
+          "companies": verified,
+          "searched": len(links),
+          "note": note,
+      }))
+      PY
+signal:
+  title: Greenhouse Discover
+  icon: 🔎
+  template: text-headline
+  mapping:
+    headline: headline
+  refresh: 24h
+  size: 2x1
+outputWidget:
+  type: raw
+  interactive: true
+  fields:
+    - name: headline
+      label: Summary
+      type: text
+    - name: note
+      label: Note
+      type: text
+    - name: companies
+      label: Verified Greenhouse boards
+      type: code
+  controls:
+    - type: replay
+      label: Search Again
+      inputs:
+        - TOPIC
+        - MAX_RESULTS

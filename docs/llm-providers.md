@@ -267,6 +267,20 @@ request, though: it never skips a provider.
 A skipped provider records `tool_unavailable` and the waterfall moves on, so a node
 never "succeeds" without the tools it declared.
 
+**Search results for other agents (`web-search-links`).** An agent that needs a list of
+search results, not an answer, calls the `web-search-links` example agent with
+`agent-invoke` rather than scraping a search engine in a shell node (DuckDuckGo, Google
+and Bing block those, and the step finds nothing). It takes `QUERY` (`site:jobs.lever.co
+fintech` narrows it to one site), `SITE` (keep only links on that host or its
+subdomains) and `MAX_RESULTS` (1–40). It returns `{"query", "count", "results":
+[{"url", "title", "snippet"}], "note"}`, with only real links, no repeats. The next
+shell node reads `$UPSTREAM_<ID>_RESULT`. `ashby-discover`, `greenhouse-discover` and
+`lever-discover` work this way: they search for their job board's pages, take each
+company's board slug from the links and keep the ones the board's public API answers
+for. One search costs about as much as a short `llm-prompt` with search (around $0.30 on
+claude's default model) and takes under a minute. sua's agent builder uses it for new
+agents that need search results.
+
 Separately, when claude refuses a tool call mid-run (it still exits 0), the node keeps
 its answer but shows a warning naming the refused tool, so an answer built without data
 the model tried to fetch doesn't read as clean.
