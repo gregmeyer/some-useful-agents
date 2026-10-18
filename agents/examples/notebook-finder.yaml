@@ -199,9 +199,14 @@ nodes:
           if got is None:
               sources.append({"name": where, "found": 0, "status": "blocked", "note": "The search didn't finish." if raw is None else "Its answer couldn't be read."})
               continue
-          found = 0
-          for c in got.get("candidates") or []:
+          found = near = 0
+          picks = [(c, None) for c in got.get("candidates") or []]
+          # Near misses: filed ruled out, saying which limit they miss, so you see what's close.
+          picks += [(c, (c.get("misses") or "").strip() if isinstance(c, dict) else "") for c in (got.get("near") or [])[:3]]
+          for c, misses in picks:
               if not isinstance(c, dict) or not (c.get("title") or "").strip():
+                  continue
+              if misses is not None and not misses:
                   continue
               url = (c.get("url") or "").strip()
               key = norm_url(url) if url else norm_name(c.get("title"))
@@ -227,25 +232,34 @@ nodes:
               entry = {"kind": "option", "title": title, "body": body[:1500], "data": data}
               if url.startswith("http"):
                   entry["fingerprint"] = url
+              if misses:
+                  entry["body"] = f"Just outside the limits: {misses}. (found by the {where} search)"[:1500]
+                  entry["ruleOut"] = f"Just outside the limits: {misses}"[:300]
+                  near += 1
+              else:
+                  found += 1
               entries.append(entry)
-              found += 1
           note = (got.get("note") or "").strip()
-          sources.append({"name": where, "found": found, "status": "found" if found else "none", **({"note": note[:300]} if note else {})})
+          sources.append({"name": where, "found": found, **({"near": near} if near else {}), "status": "found" if found else "none", **({"note": note[:300]} if note else {})})
 
-      entries = entries[:30]
-      empty = [s["name"] for s in sources if s["status"] == "none"]
+      # Ones that fit first, so the cap never drops one for a near miss.
+      entries = sorted(entries, key=lambda e: "ruleOut" in e)[:30]
+      near_n = sum(1 for e in entries if "ruleOut" in e)
+      empty = [s["name"] for s in sources if s["status"] == "none" and not s.get("near")]
       unfinished = [s["name"] for s in sources if s["status"] == "blocked"]
       tail = []
       if empty:
           tail.append(f"Nothing new from {', '.join(empty)}.")
       if unfinished:
           tail.append(f"{', '.join(unfinished)} didn't finish.")
+      if near_n:
+          tail.append(f"{near_n} just outside the limits {'is' if near_n == 1 else 'are'} filed ruled out, with the limit {'it misses' if near_n == 1 else 'each misses'}.")
       if known:
           tail.append(f"{known} {'was' if known == 1 else 'were'} already in the notebook.")
       bits = [f"Searched {len(sources)} places at once: " + ", ".join(f"{s['name']} ({s['found']})" for s in sources) + "."] + tail
       entries.append({"kind": "note", "title": " ".join(bits)[:400]})
       out = {"entries": entries, "sources": sources,
-             "summary": f"{len(entries) - 1} new option{'s' if len(entries) != 2 else ''} from {len(sources)} searches run at once."}
+             "summary": f"{len(entries) - 1 - near_n} new option{'s' if len(entries) - near_n != 2 else ''} from {len(sources)} searches run at once."}
       print(" ".join([out["summary"]] + tail))
       print("<notebook>" + json.dumps(out) + "</notebook>")
       PYEOF
