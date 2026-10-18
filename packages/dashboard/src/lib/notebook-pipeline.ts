@@ -235,7 +235,13 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
         const check = typeof c === 'string' ? nb.checks.find((k) => k.toLowerCase() === c.trim().toLowerCase()) : undefined;
         if (check && !(own0.checked ?? []).some((d) => d.toLowerCase() === check.toLowerCase())) { store.checkOption(nb.id, x.id, check, true); checksMet++; }
       }
-      if (typeof x.ruleOut === 'string' && x.ruleOut.trim() && !own0.ruledOut) { store.ruleOut(nb.id, x.id, x.ruleOut.trim().slice(0, 300), `agent:${agentId}`); checksFailed++; }
+      if (typeof x.ruleOut === 'string' && x.ruleOut.trim() && !own0.ruledOut) {
+        // One you chose stays chosen (that's your call): the failed check is a note on it instead.
+        if (own0.chosenAt) {
+          const title = `${own0.title.slice(0, 120)}: ${x.ruleOut.trim()}`.slice(0, 300);
+          if (!store.entries(nb.id, 1000).some((e) => e.kind === 'note' && e.title === title)) store.addEntry(nb.id, { kind: 'note', title, body: 'You chose this one, so it stays chosen; rule it out yourself if this changes your mind.', by: `agent:${agentId}`, runId });
+        } else { store.ruleOut(nb.id, x.id, x.ruleOut.trim().slice(0, 300), `agent:${agentId}`); checksFailed++; }
+      }
     }
     if (!x.data || typeof x.data !== 'object') continue;
     const own = byId.get(x.id);

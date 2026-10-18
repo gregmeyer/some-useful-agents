@@ -70,4 +70,22 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     expect(out.facts.find((f) => f.id === 'c')).toBeUndefined();
     expect(out.summary).toBe('2 checks met with a quote; 1 ruled out; 1 unknown; 2 quotes not found word for word, left open.');
   });
+
+  it("confirms a quote of the option's facts as the judge saw them (compact JSON) or as Label: value", async () => {
+    // The judge gets OPTIONS as compact JSON, so it quotes facts like "Employees":777 with no spaces.
+    const options = [
+      { id: 'a', name: 'Acme', facts: { Revenue: 85000000, Employees: 777, Founded: 2011 }, text: '' },
+      { id: 'b', name: 'Bolt', facts: { Employees: { min: 1001, max: 5000 } }, text: '' },
+    ];
+    const checks = ['Headcount is between 1,000 and 5,000', 'Founded in 2016 or later'];
+    const out = await verify([
+      { id: 'a', check: 'Headcount is between 1,000 and 5,000', verdict: 'not met', quote: '"Revenue":85000000,"Employees":777', url: 'notebook' },
+      { id: 'b', check: 'Headcount is between 1,000 and 5,000', verdict: 'met', quote: 'Employees: {"min": 1001, "max": 5000}', url: 'notebook' },
+      { id: 'a', check: 'Founded in 2016 or later', verdict: 'not met', quote: '"Founded":2011,"Fit":68', url: 'notebook' },
+    ], options, checks);
+    expect(out.facts.find((f) => f.id === 'a')?.ruleOut).toBe('Fails "Headcount is between 1,000 and 5,000": "Revenue: 85000000, Employees: 777"');
+    expect(out.facts.find((f) => f.id === 'b')).toEqual({ id: 'b', checked: ['Headcount is between 1,000 and 5,000'] });
+    // A fact it doesn't have ("Fit") isn't confirmed.
+    expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 quote not found word for word, left open.');
+  });
 });

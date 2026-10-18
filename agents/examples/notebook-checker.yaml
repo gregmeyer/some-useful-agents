@@ -145,7 +145,10 @@ nodes:
               continue
           quote = str(v.get("quote") or "").strip()
           url = str(v.get("url") or "").strip()
-          own = " ".join([str(o.get("text") or ""), json.dumps(o.get("facts") or {}, ensure_ascii=False)])
+          # The judge saw the facts as compact JSON ("Employees":777); match that, the spaced form and "Label: value".
+          facts_ = o.get("facts") or {}
+          own = " | ".join([str(o.get("text") or ""), json.dumps(facts_, ensure_ascii=False), json.dumps(facts_, ensure_ascii=False, separators=(",", ":"))]
+                           + [f"{k}: {v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)}" for k, v in (facts_.items() if isinstance(facts_, dict) else [])])
           q = norm(quote)
           found = len(q) >= 15 and (q in norm(own) if url in ("", "notebook") else (q in norm(page_text(url)) or q in norm(own)))
           if not found:
@@ -155,7 +158,9 @@ nodes:
               ticked.setdefault(o["id"], []).append(check)
           elif o["id"] not in out_reason:
               where = "" if url in ("", "notebook") else f" ({url})"
-              out_reason[o["id"]] = f'Fails "{check}": "{quote[:200]}"{where}'[:300]
+              # A quote of its facts reads as "Employees: 777, Founded: 2011", not JSON.
+              said = re.sub(r'"([^"]+)":\s*', r"\1: ", quote).replace('"', "").replace(",", ", ").replace(",  ", ", ") if url in ("", "notebook") and '":' in quote else quote
+              out_reason[o["id"]] = f'Fails "{check}": "{said[:200]}"{where}'[:300]
 
       facts = []
       for oid in set(ticked) | set(out_reason):
