@@ -26,7 +26,7 @@ import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, s
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
-import { notebookCard } from '../lib/notebook-card.js';
+import { notebookCard, notebookCover, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
@@ -234,7 +234,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // sua's latest word in the notebook's conversation, so the page shows it remembers.
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
-  const coverPhoto = s.coverPhoto(nb.id);
+  // The same picture as the notebook's card: the lead option's, else the cover.
+  const coverPhoto = notebookCover(s, nb, notebookLead(nb, entries));
   // What sua is doing for this notebook in the background (shown as working in the header).
   const unfiled = unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) }));
   const busy = [

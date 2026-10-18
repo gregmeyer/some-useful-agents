@@ -770,6 +770,9 @@ body.has-sua-panel .nb-start__pointer { display: none; }
    small square (the header, a thumbnail) an icon keeps a margin and a wordmark uses the full width. */
 .nbo-hero__pic img.is-logo, .nb-card__cover img.is-logo, .nbl-card__cover img.is-logo { padding: 22%; }
 .nbo-hero__pic img.is-logo.is-wide, .nb-card__cover img.is-logo.is-wide, .nbl-card__cover img.is-logo.is-wide { padding: 8% 10%; }
-.nb-hero__cover.is-logo, .nb-decide__thumb.is-logo { padding: 14%; box-sizing: border-box; }
+/* In px: a % padding is a share of the parent's width, and the header's parent is the whole title row, so 14%
+   there padded a 64px logo out of sight. */
+.nb-hero__cover.is-logo { padding: 9px; box-sizing: border-box; }
+.nb-decide__thumb.is-logo { padding: 6px; box-sizing: border-box; }
 .nb-hero__cover.is-logo.is-wide, .nb-decide__thumb.is-logo.is-wide { padding: 2px; }
 .nb-hero__cover.is-logo.is-wide { width: 128px; padding: 6px 8px; }
