@@ -261,6 +261,8 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 - no option split across pages;
 - each link's address printed after it.
 
+**What's new** (under **Download / share**, once the last run that found options added some): **New in the last run** downloads a CSV of only those (`shortlist.csv?rows=new`). **Open the brief of what's new ↗** and **Save what's new as PDF ↗** give the brief of only those (`brief.html?latest=1`). It has their table and details, the ones from that run that were ruled out, and the notes since then. Key findings stay the whole notebook's.
+
 **The extended brief** (an option under **Download / share**: **Open the extended brief ↗** or **Save extended as PDF ↗**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections), under its picture. The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
 
 **Save as PDF** opens it with your browser's print dialog (choose Save as PDF). **Download the brief** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).

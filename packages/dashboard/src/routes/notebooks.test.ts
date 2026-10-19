@@ -2037,6 +2037,38 @@ describe("new notebook's suggestions from your conversations", () => {
 });
 
 describe('how a notebook was made (Workflow)', () => {
+  it("shares what's new: a CSV and a brief of only the last run's new options", async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const tick = () => new Promise((r) => setTimeout(r, 3));
+    const search = async (run: string, cars: string[]) => {
+      const at = new Date().toISOString(); await tick();
+      for (const n of cars) s.upsertOption(nb.id, { title: `Car ${n}`, by: 'agent:sweep', runId: run, data: { url: `https://cars.example/${n}` } });
+      s.recordSearch(nb.id, 'sweep', run, cars.length, at); await tick();
+    };
+    await search('r1', ['a', 'b']);
+    expect((await get('/notebooks/car')).text).not.toContain('brief.html?latest=1'); // all new: nothing to pick out
+    await search('r2', ['b', 'c', 'd']);
+    s.ruleOut(nb.id, s.findOption(nb.id, 'Car d')!.id, 'Salvage title', 'you');
+    const page = (await get('/notebooks/car')).text;
+    expect(page).toMatch(/href="\/notebooks\/car\/shortlist.csv\?rows=new"[^>]*>New in the last run <span class="nb-csv__n">1<\/span>/);
+    expect(page).toContain('href="/notebooks/car/brief.html?latest=1"');
+    const csv = await get('/notebooks/car/shortlist.csv?rows=new');
+    expect(csv.headers['content-disposition']).toContain('car-new.csv');
+    expect(csv.text).toContain('Car c');
+    expect(csv.text).not.toMatch(/Car [abd]/);
+    const brief = (await get('/notebooks/car/brief.html?latest=1')).text;
+    expect(brief).toContain('What&#39;s new · Notebook brief');
+    expect(brief).toContain('1 new in the running from the last run that found options');
+    expect(brief).toContain('1 more it found was ruled out.');
+    expect(brief).toContain('New in the last run<span class="count">1 new</span>');
+    expect(brief).toContain('Salvage title');
+    expect(brief).not.toContain('Car a');
+  });
+
   it('links to the options the last run added, once some are new and some are not', async () => {
     const app = await makeApp();
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
