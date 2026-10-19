@@ -149,12 +149,12 @@ describe('GET /start', () => {
     // The silhouette itself...
     expect(res.text).toContain('class="mini-dag"');
     // ...its plain-English summary...
-    expect(res.text).toContain('4 steps · 2 in parallel');
+    expect(res.text).toContain('6 steps');
     expect(res.text).toContain('3 steps · 1 conditional');
     // ...and per-node hover text, in words someone who has never opened this
-    // agent would use.
+    // agent would use (starter-research hands its angles to research-fanout).
     expect(res.text).toContain('While it works it can read web pages');
-    expect(res.text).toContain('Runs at the same time as');
+    expect(res.text).toContain('Hands the work to another agent');
     expect(res.text).toContain('Only runs if the &quot;judge&quot; step&#39;s verdict comes back YES.');
   });
 
