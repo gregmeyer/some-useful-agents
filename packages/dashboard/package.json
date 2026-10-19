@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@some-useful-agents/core": "*",
-    "cytoscape": "3.34.3",
+    "cytoscape": "3.34.4",
     "express": "5.3.0",
     "html2canvas": "1.4.1",
     "ws": "^8.22.0"
