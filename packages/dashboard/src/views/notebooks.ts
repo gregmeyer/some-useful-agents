@@ -295,6 +295,16 @@ function runButton(nb: Notebook): SafeHtml {
 }
 
 /**
+ * "3 new in the last run": a link to the shortlist showing only those. Only
+ * when some are new and some aren't (the first run's are all new).
+ */
+function newLink(options: readonly NotebookViewOption[]): SafeHtml {
+  const fresh = options.filter((o) => o.added === 'new' && !o.ruledOut).length;
+  if (fresh === 0 || fresh === options.filter((o) => !o.ruledOut).length) return html``;
+  return html` · <a class="nb-hero__new" href="?added=new">${String(fresh)} new in the last run →</a>`;
+}
+
+/**
  * The notebook is working: the step or pass that's running and anything sua
  * is doing in the background (photos, filter labels), with a moving dot so
  * it reads as live. The page reloads until it's quiet (renderNotebookPage).
@@ -327,7 +337,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a></span>
+          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
         ${nb.pipeline.length || nb.steps?.length ? html`

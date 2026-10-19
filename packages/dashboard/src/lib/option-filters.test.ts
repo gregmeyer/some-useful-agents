@@ -34,6 +34,15 @@ describe('option filters', () => {
     expect(filterChoices(cars.slice(0, 1), ['stage'])).toEqual([]);
   });
 
+  it('filters by the last run: new ones first, then seen again, then earlier', () => {
+    const opts: Opt[] = [{ id: 'a', added: 'earlier' }, { id: 'b', added: 'new' }, { id: 'c', added: 'again' }, { id: 'd', added: 'new' }, { id: 'e' }];
+    const c = filterChoices(opts, ['added']);
+    expect(c).toEqual([{ key: 'added', label: 'Last run', choices: [{ value: 'New', count: 2 }, { value: 'Seen again', count: 1 }, { value: 'Earlier', count: 1 }] }]);
+    expect(applyFilters(opts, { added: 'New' }).map((o) => o.id)).toEqual(['b', 'd']);
+    // The first run's options are all new: nothing to choose between.
+    expect(filterChoices(opts.filter((o) => o.added === 'new'), ['added'])).toEqual([]);
+  });
+
   it("skips a fact where every option has its own value, or that reads as a sentence", () => {
     const accounts: Opt[] = [
       { id: '1', notSeenLately: false, fields: { company: 'Adyen', value: 'Office-of-CFO suite: close, consolidation, compliance, disclosure', tier: 'Strong' } },

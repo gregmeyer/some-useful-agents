@@ -812,6 +812,25 @@ export class NotebookStore {
     return Number(r.n);
   }
 
+  /**
+   * When the last run that found options started: the newest time an agent
+   * found or re-found one, taken back to the start of the pass it was part of
+   * (a step or pipeline run of several agents counts as one), else of its
+   * search. A run that only filed notes, or an option you added, doesn't
+   * count. Undefined before any agent found one.
+   */
+  lastFindAt(notebookId: string): string | undefined {
+    const r = this.db.prepare("SELECT MAX(COALESCE(last_seen_at, created_at)) AS at FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND by LIKE 'agent:%'")
+      .get(notebookId) as { at: string | null } | undefined;
+    const at = r?.at ?? undefined;
+    if (!at) return undefined;
+    const p = this.db.prepare('SELECT started_at FROM notebook_passes WHERE notebook_id = ? AND started_at <= ? AND (finished_at IS NULL OR finished_at >= ?) ORDER BY started_at DESC LIMIT 1')
+      .get(notebookId, at, at) as { started_at: string } | undefined;
+    if (p) return p.started_at;
+    const sr = this.db.prepare('SELECT at FROM notebook_searches WHERE notebook_id = ? AND at <= ? ORDER BY at DESC LIMIT 1').get(notebookId, at) as { at: string } | undefined;
+    return sr?.at ?? at;
+  }
+
   /** An option's kept picture, if there is one: its own photo, a representative one, or an illustration. */
   photo(entryId: string): { contentType: string; bytes: Uint8Array; sourceUrl: string; kind: NotebookPhotoKind; what?: string; fetchedAt: string } | undefined {
     const r = this.db.prepare('SELECT * FROM notebook_photos WHERE entry_id = ? AND bytes IS NOT NULL').get(entryId) as Record<string, unknown> | undefined;
@@ -1888,6 +1907,8 @@ export interface NotebookViewOption {
   missedSearches: number;
   /** Missed the last 2 or more of those searches: likely sold, filled or taken down. */
   notSeenLately: boolean;
+  /** Against the last run that found options: first found by it, found again by it, or neither. */
+  added?: NotebookAddedIn;
   /** Its stage, and its place in the funnel (0 = the first; with steps, the furthest step it got through). */
   stage?: string;
   stageIndex: number;
@@ -1943,6 +1964,16 @@ export interface NotebookViewData {
   };
 }
 
+/** How an option stands against the last run that found options. */
+export type NotebookAddedIn = 'new' | 'again' | 'earlier';
+
+/** New (first found at or after `since`), seen again then, or from before; undefined with no run to compare to. */
+export function addedIn(e: Pick<NotebookEntry, 'createdAt' | 'lastSeenAt'>, since: string | undefined): NotebookAddedIn | undefined {
+  if (!since) return undefined;
+  if (e.createdAt >= since) return 'new';
+  return (e.lastSeenAt ?? '') >= since ? 'again' : 'earlier';
+}
+
 /** Searches in a row an option can miss before it reads as "not seen lately". */
 export const NOT_SEEN_AFTER_MISSES = 2;
 
@@ -1950,6 +1981,8 @@ export const NOT_SEEN_AFTER_MISSES = 2;
 export interface NotebookViewHistory {
   sightings(entryId: string): Array<{ at: string; correctedBy?: string; data: Record<string, NotebookFieldValue> }>;
   missedSearches(notebookId: string, e: NotebookEntry): number;
+  /** When the last run that found options started (NotebookStore.lastFindAt). */
+  lastFindAt?(notebookId: string): string | undefined;
   hasPhoto?(entryId: string): boolean;
   photoKind?(entryId: string): NotebookPhotoKind | undefined;
   photoShape?(entryId: string): ImageShape | undefined;
@@ -1967,8 +2000,10 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     return key === undefined ? undefined : data[key];
   };
   const view = (e: NotebookEntry): NotebookViewEntry => ({ id: e.id, kind: e.kind, title: e.title, body: e.body, by: e.by, ...(e.runId ? { runId: e.runId } : {}), at: e.createdAt });
+  const since = history?.lastFindAt?.(nb.id);
   const options = entries.filter((e) => e.kind === 'option').map((e): NotebookViewOption => {
     const data = e.data ?? {};
+    const added = addedIn(e, since);
     const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
     const price = fieldNumber(pick(data, 'price'));
     const measure = fieldNumber(pick(data, 'measure'));
@@ -1992,6 +2027,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       firstSeenAt: e.createdAt, lastSeenAt: e.lastSeenAt ?? e.createdAt,
       ...priceTrend(e, byRole.get('price'), history),
       ...(() => { const m = history ? history.missedSearches(nb.id, e) : 0; return { missedSearches: m, notSeenLately: m >= NOT_SEEN_AFTER_MISSES }; })(),
+      ...(added ? { added } : {}),
       ...(e.stage ? { stage: e.stage } : {}),
       stageIndex: Math.max(0, nb.stages.findIndex((s) => s === (e.ruledOut?.stage ?? e.stage))),
       ...(e.ruledOut ? { ruledOut: e.ruledOut } : {}),

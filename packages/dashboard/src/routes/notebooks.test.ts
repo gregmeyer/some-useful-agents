@@ -1101,12 +1101,12 @@ describe('the funnel on the page and in the conversation', () => {
     // Without steps: stages as before.
     let page = (await get(`/notebooks/${nb.id}`)).text;
     expect(page).not.toContain('"stageChips":false');
-    expect(page).toContain('"filters":["seen","stage","color"]');
+    expect(page).toContain('"filters":["added","seen","stage","color"]');
     expect((await get(`/notebooks/${nb.id}/entries/${a.id}`)).text).toContain('Move to Verified →');
     store.setSteps(nb.id, [{ title: 'Find 2', kind: 'find', target: 2 }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
     page = (await get(`/notebooks/${nb.id}`)).text;
     expect(page).toContain('"stageChips":false');
-    expect(page).toContain('"filters":["seen","color"]');
+    expect(page).toContain('"filters":["added","seen","color"]');
     const opt = (await get(`/notebooks/${nb.id}/entries/${a.id}`)).text;
     expect(opt).not.toContain('Move to Verified');
     expect(opt).not.toContain('class="nb-stage__chip" title="Stage');
@@ -2037,6 +2037,27 @@ describe("new notebook's suggestions from your conversations", () => {
 });
 
 describe('how a notebook was made (Workflow)', () => {
+  it('links to the options the last run added, once some are new and some are not', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, [{ key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const tick = () => new Promise((r) => setTimeout(r, 3));
+    const search = async (run: string, cars: string[]) => {
+      const at = new Date().toISOString(); await tick();
+      for (const n of cars) s.upsertOption(nb.id, { title: `Car ${n}`, by: 'agent:sweep', runId: run, data: { url: `https://cars.example/${n}` } });
+      s.recordSearch(nb.id, 'sweep', run, cars.length, at); await tick();
+    };
+    await search('r1', ['a', 'b']);
+    expect((await get('/notebooks/car')).text).not.toContain('new in the last run'); // all new: nothing to pick out
+    await search('r2', ['b', 'c', 'd']);
+    const page = (await get('/notebooks/car')).text;
+    expect(page).toContain('<a class="nb-hero__new" href="?added=new">2 new in the last run →</a>');
+    expect(page).toContain('"added":"new"');
+    expect(page).toContain('"filters":["added","seen"]');
+  });
+
   it('draws its runs and their sub-runs, links them, and run pages link back; sub-runs are never offered to file', async () => {
     const app = await makeApp();
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

@@ -1,10 +1,14 @@
 // Filters for an options grid (OptionGrid in a2ui-sua.js): what each declared
 // filter offers to choose from, and which options the chosen ones keep. A
-// filter is a field key, or a built-in: `stage`, or `seen` (still listed vs
-// not seen in recent searches). No DOM here, so it can be tested without a browser.
+// filter is a field key, or a built-in: `stage`, `seen` (still listed vs
+// not seen in recent searches), or `added` (new in the last run that found
+// options, seen again in it, or earlier). No DOM here, so it can be tested without a browser.
 
 /** Built-in filters: what they're called. */
-export const BUILTIN_FILTERS = { stage: 'Stage', seen: 'Listing' };
+export const BUILTIN_FILTERS = { added: 'Last run', stage: 'Stage', seen: 'Listing' };
+
+/** The `added` filter's words for each standing, in order. */
+export const ADDED_CHOICES = { new: 'New', again: 'Seen again', earlier: 'Earlier' };
 
 /** A filter as declared: "condition" or {key: "condition", label: "Condition"}. */
 export function filterSpec(f) {
@@ -17,6 +21,7 @@ export function filterSpec(f) {
 export function filterValue(o, key, fmt) {
   if (key === 'stage') return o?.ruledOut ? '' : String(o?.stage ?? '');
   if (key === 'seen') return o?.notSeenLately ? 'Not seen lately' : 'Current';
+  if (key === 'added') return ADDED_CHOICES[o?.added] ?? '';
   // A long fact's short label (sua groups sentences into a few kinds), when it has one.
   // ('' = not labelled yet: no chip, rather than the sentence.)
   if (o?.facets && typeof o.facets[key] === 'string') return o.facets[key];
@@ -54,8 +59,9 @@ export function filterChoices(options, filters, opts = {}) {
       if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
     }
     let choices = [...values.keys()].map((value) => ({ value, count: counts.get(value) ?? 0, total: values.get(value) }));
-    choices = spec.key === 'stage'
-      ? choices.sort((a, b) => stages.indexOf(a.value) - stages.indexOf(b.value))
+    const order = spec.key === 'stage' ? stages : spec.key === 'added' ? Object.values(ADDED_CHOICES) : undefined;
+    choices = order
+      ? choices.sort((a, b) => order.indexOf(a.value) - order.indexOf(b.value))
       : choices.sort((a, b) => b.total - a.total || a.value.localeCompare(b.value, undefined, { numeric: true }));
     choices = choices.map(({ total: _t, ...c }) => c);
     out.push({ key: spec.key, label: spec.label ?? BUILTIN_FILTERS[spec.key] ?? (label ? label(spec.key) : spec.key), choices: choices.slice(0, max) });
