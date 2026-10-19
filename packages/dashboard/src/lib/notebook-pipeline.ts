@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
@@ -64,7 +64,7 @@ export function optionsInput(nb: Notebook, entries: readonly NotebookEntry[], fo
   const byId = new Map(entries.map((e) => [e.id, e]));
   const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   // A check step on the top N checks only those.
-  let options = (top ? ranked.slice(0, top) : ranked).map((o) => ({ o, left: nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase())) }));
+  let options = (top ? ranked.slice(0, top) : ranked).map((o) => ({ o, left: checksLeft(nb, o) }));
   if (forChecks) options = options.filter((x) => x.left.length).slice(0, CHECK_BATCH);
   else options = options.slice(0, BRIEF_OPTIONS);
   return JSON.stringify(options.map(({ o, left }) => {
@@ -180,6 +180,8 @@ export interface KeeperOutcome {
   checksMet?: number;
   /** Options ruled out because they fail a check. */
   checksFailed?: number;
+  /** Checks failed by options you chose (kept, with a note). */
+  checksKept?: number;
   skipped: number;
   criteriaMet: number;
   summary?: string;
@@ -224,6 +226,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let factsSet = 0;
   let checksMet = 0;
   let checksFailed = 0;
+  let checksKept = 0;
   for (const f of Array.isArray(parsed.facts) ? parsed.facts.slice(0, 100) : []) {
     const x = f as { id?: unknown; data?: unknown; fingerprint?: unknown; checked?: unknown; ruleOut?: unknown };
     if (typeof x.id !== 'string') continue;
@@ -238,8 +241,12 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       if (typeof x.ruleOut === 'string' && x.ruleOut.trim() && !own0.ruledOut) {
         // One you chose stays chosen (that's your call): the failed check is a note on it instead.
         if (own0.chosenAt) {
+          // The failed check is recorded on it (so the check step counts it as checked) and noted once.
+          const named = /^Fails "(.+?)":/.exec(x.ruleOut.trim())?.[1];
+          const check = named ? nb.checks.find((k) => k.toLowerCase() === named.toLowerCase()) : undefined;
           const title = `${own0.title.slice(0, 120)}: ${x.ruleOut.trim()}`.slice(0, 300);
-          if (!store.entries(nb.id, 1000).some((e) => e.kind === 'note' && e.title === title)) store.addEntry(nb.id, { kind: 'note', title, body: 'You chose this one, so it stays chosen; rule it out yourself if this changes your mind.', by: `agent:${agentId}`, runId });
+          const fresh = check ? store.failCheck(nb.id, x.id, check, x.ruleOut.trim()) : !store.entries(nb.id, 1000).some((e) => e.kind === 'note' && e.title === title);
+          if (fresh) { store.addEntry(nb.id, { kind: 'note', title, body: 'You chose this one, so it stays chosen; rule it out yourself if this changes your mind.', by: `agent:${agentId}`, runId }); checksKept++; }
         } else { store.ruleOut(nb.id, x.id, x.ruleOut.trim().slice(0, 300), `agent:${agentId}`); checksFailed++; }
       }
     }
@@ -301,7 +308,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(checksKept ? { checksKept } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** A "Ruled out: <name>, …" title naming an option the notebook already has (by title, or its organization's name). */
@@ -332,7 +339,7 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
 export function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.checksKept ? `, ${String(out.checksKept)} failed on ones you chose (kept)` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
 /**
