@@ -1,32 +1,28 @@
 # STARTER 1 of 4 — "Research something"
 #
-# Four nodes, and the middle two run AT THE SAME TIME:
+#   plan ── angles ── research (research-fanout: 3 angles at once) ── findings ── synthesize ── brief
 #
-#         ┌── gather-main ────┐
-#   plan ─┤                   ├─ synthesize
-#         └── gather-counter ─┘
+# The plan splits the topic into 3 to 5 angles, one of them the skeptical
+# read (limits, objections, the case against), so the brief comes back with
+# the disagreement already surfaced instead of one confident summary.
 #
-# Watch the graph while it runs and you'll see both gather nodes pulse
-# together. That's not decoration — `gather-counter` is deliberately hunting
-# for the case AGAINST whatever the main angle finds, so the brief comes back
-# with the disagreement already surfaced instead of one confident summary.
+# Each angle is its own small research run (research-fanout → research-one),
+# three at a time, each with its own time limit: one slow angle can't sink
+# the rest, and one that doesn't finish is named in the brief. One long node
+# per side used to time out (240s, 10 turns) and lose that side entirely.
 #
-# The `tools:` field is what lets the model search and open pages mid-answer.
-# `web-search` is the provider's own live search (claude, codex); web-fetch
-# and web-scrape are sua's tools. A provider that can't do all three (Apple
-# Foundation Models, a local model) is skipped for these nodes rather than
-# let it answer without reading anything.
-#
-# Both gather nodes are `optional`: if one fails or times out, the other's
-# research still reaches synthesize (with a note in place of the missing
-# one), and the brief says which side it couldn't cover.
+# Every finding comes from a page an angle opened, with its address and a
+# quote. The model that writes the brief has no tools: it cites findings by
+# number, and code attaches each one's source, so a bullet can't cite a page
+# nobody read.
 #
 # Run: sua workflow run starter-research --input TOPIC="local-first software"
 id: starter-research
 name: Research a topic
 description: >
-  Plans two angles on your topic, researches both at once, then writes a
-  sourced brief that names where the sources disagree.
+  Splits your topic into a few angles, one of them the case against,
+  researches them three at a time, then writes a sourced brief that names
+  where the sources disagree.
 status: active
 source: examples
 
@@ -81,7 +77,10 @@ outputs:
     description: Where the sources disagree, or empty if they broadly agree.
   source_count:
     type: string
-    description: How many distinct pages were actually read.
+    description: How many distinct pages the findings came from.
+  unfinished:
+    type: string
+    description: The angles that didn't finish, or empty.
 
 outputWidget:
   type: ai-template
@@ -116,6 +115,9 @@ outputWidget:
         <div style="font-size:.9375rem;">{{outputs.tension}}</div>
       </div>
       {{/if}}
+      {{#if outputs.unfinished}}
+      <div style="margin-top:12px;font-size:.8125rem;opacity:.75;">{{outputs.unfinished}}</div>
+      {{/if}}
       {{#unless outputs.tension}}
       <div style="margin-top:16px;font-size:.8125rem;opacity:.6;">
         Sources broadly agreed on this one.
@@ -130,23 +132,28 @@ outputWidget:
         - DEPTH
 
 nodes:
-  # 1. Split the topic into two angles. Cheap, no tools — this node exists so
-  #    the two gather nodes below have genuinely different jobs. It says what
-  #    to look for, never what the answer is: a plan that names products or
-  #    prices leaks them into the brief unverified.
+  # 1. Split the topic into angles. Cheap, no tools. It says what to look
+  #    for, never what the answer is: a plan that names products or prices
+  #    leaks them into the brief unverified. Optional: if it fails, the next
+  #    step falls back to the topic itself and its case against.
   - id: plan
     type: llm-prompt
+    optional: true
     prompt: |
       Topic: {{inputs.TOPIC}}
+      Depth: {{inputs.DEPTH}} (quick: 3 angles; thorough: up to 5)
 
-      Split this into two research angles that a careful person would want
-      covered separately:
-        - main: the direct question, what it asks for, and what must be verified
-        - counter: the skeptical read, including limits, objections, costs,
-          failure cases, or reasons the headline claim could be overstated
+      Split this into research angles a careful person would want covered
+      separately, each small enough for a few searches and page opens:
+        - one or more "main" angles: the direct question, what it asks for,
+          and what must be verified;
+        - exactly one "counter" angle: the skeptical read, including limits,
+          objections, costs, failure cases, or reasons the headline claim
+          could be overstated.
 
-      If the topic is a URL, treat that page as the primary source to summarize
-      and critique.
+      If the topic is a URL, the first angle is what that page itself says
+      and proves (put the URL in it), and the counter angle is what it
+      doesn't prove.
 
       Important planning rules:
         - Do not name specific products, candidates, prices, retailers, stock
@@ -155,132 +162,253 @@ nodes:
         - Do not invent examples.
         - Describe what to search for and verify, not what the answer is.
 
-      Answer with one short line describing each angle. Then, on the LAST line,
-      emit ONLY this JSON object and nothing after it:
-      {"main_angle": "...", "counter_angle": "..."}
+      Answer with one short line saying how you split it. Then, on the LAST
+      line, emit ONLY this JSON object and nothing after it:
+      {"angles": [{"subject": "the angle, as a short research question", "hint": "what it should cover", "side": "main"}]}
     maxTurns: 1
     # A cold CLI start alone can take most of a minute.
     timeout: 120
 
-  # 2 + 3. No dependsOn between these two, so the executor runs them
-  #        concurrently — this is the fan-out you can see in the graph.
-  #        Optional: one failing doesn't sink the brief.
-  - id: gather-main
-    type: llm-prompt
+  # 2. The angles to research (code): the plan's, capped by depth, always
+  #    with a skeptical one; without a plan, the topic and its case against.
+  - id: angles
+    type: shell
     dependsOn: [plan]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      topic = (os.environ.get("TOPIC") or "").strip()
+      depth = (os.environ.get("DEPTH") or "quick").strip()
+      cap = 5 if depth == "thorough" else 3
+      try:
+          per = max(1, min(8, int(float(os.environ.get("MIN_SOURCES_PER_ANGLE") or "2"))))
+      except ValueError:
+          per = 2
+      try:
+          cands = max(1, min(20, int(float(os.environ.get("MAX_CANDIDATES") or "5"))))
+      except ValueError:
+          cands = 5
+
+      planned = []
+      for line in reversed((os.environ.get("UPSTREAM_PLAN_RESULT") or "").strip().splitlines()):
+          try:
+              v = json.loads(line.strip())
+          except ValueError:
+              continue
+          if isinstance(v, dict) and isinstance(v.get("angles"), list):
+              planned = [a for a in v["angles"] if isinstance(a, dict) and str(a.get("subject") or "").strip()]
+              break
+
+      angles = [{"subject": str(a["subject"]).strip()[:200], "hint": str(a.get("hint") or "").strip()[:300],
+                 "side": "counter" if str(a.get("side") or "").strip().lower() == "counter" else "main"} for a in planned]
+      mains = [a for a in angles if a["side"] == "main"] or [{"subject": topic[:200], "hint": "The direct question: what it asks for, and what must be verified.", "side": "main"}]
+      counters = [a for a in angles if a["side"] == "counter"][:1] or [{"subject": f"The case against, limits and risks: {topic}"[:200], "hint": "Limits, objections, costs, failure cases, or reasons the main claim could be overstated. If the skeptical case is weak, say so.", "side": "counter"}]
+      chosen = mains[:cap - 1] + counters
+      # Thorough opens about twice as many pages, so it reports more findings.
+      n = 5 if depth == "thorough" else 3
+      ask = [{"key": f"finding_{i}", "label": f"Finding {i}", "hint": "one concrete claim on this angle, from a page you opened, with its quote"} for i in range(1, n + 1)]
+      context = " ".join([
+          f"Part of research on: {topic}.",
+          f"Open at least {per} good pages when there are that many{' (about twice that, this is thorough)' if depth == 'thorough' else ''}.",
+          f"For a shopping or comparison topic, a finding can be one candidate (its name, price and key spec, verified on an opened page); up to {cands} candidates in all.",
+          "If the topic is a URL, fetch that exact page first.",
+          "Report only what opened pages say; fewer findings is fine, never pad from memory.",
+      ])
+      print(json.dumps({
+          "count": len(chosen),
+          "angles": chosen,
+          "items_json": json.dumps([{"subject": a["subject"], "hint": (a["hint"] + (" (the skeptical side)" if a["side"] == "counter" else "")).strip()} for a in chosen]),
+          "ask_json": json.dumps(ask),
+          "context": context,
+          "planned": bool(planned),
+      }))
+      PY
+
+  # 3. Each angle its own small research run, three at a time. Optional: if
+  #    the whole fan-out fails, the brief says nothing could be researched.
+  - id: research
+    type: agent-invoke
+    dependsOn: [angles]
     optional: true
-    tools: [web-search, web-fetch, web-scrape]
-    prompt: |
-      Topic: {{inputs.TOPIC}}
+    agentInvokeConfig:
+      agentId: research-fanout
+      inputMapping:
+        ITEMS: "$upstream.angles.items_json"
+        ASK: "$upstream.angles.ask_json"
+        CONTEXT: "$upstream.angles.context"
+        GOAL: "{{inputs.TOPIC}}"
+        DEPTH: "{{inputs.DEPTH}}"
+        MAX_ITEMS: "5"
 
-      Research plan:
-      {{upstream.plan.result}}
+  # 4. The findings, numbered, each with the page it came from (code).
+  - id: findings
+    type: shell
+    dependsOn: [angles, research]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+      from urllib.parse import urlparse
 
-      Research the main angle from the plan above.
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
 
-      Treat the plan as search guidance only. Ignore any candidate, price,
-      retailer, stock, spec, citation, or URL that appears only in the plan and
-      not in the original Topic unless you independently verify it from opened
-      pages.
+      def last_obj(text, key):
+          dec, found = json.JSONDecoder(), None
+          for m in re.finditer(r"\{", text or ""):
+              try:
+                  v, _ = dec.raw_decode(text[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and key in v:
+                  found = v
+          return found
 
-      If Topic is a URL, fetch that exact URL first with web-fetch and ground
-      the summary in that page. Then fetch supporting pages only if needed.
+      plan = last_obj(upstream("ANGLES"), "angles") or {"angles": []}
+      fan = last_obj(upstream("RESEARCH"), "results") or {"results": []}
+      by_subject = {str(r.get("subject") or "").strip().lower(): r for r in fan.get("results") or [] if isinstance(r, dict)}
 
-      If Topic is not a URL, search the web first (web-search) to discover
-      relevant current sources and candidates. Then open the best pages with
-      web-fetch before making claims; use web-scrape when you need structured
-      fields rather than prose. Do not rely on the planning text alone as
-      evidence.
+      out, urls, n = [], [], 0
+      for a in plan["angles"]:
+          r = by_subject.get(a["subject"].strip().lower()) or {}
+          done = r.get("status") == "done"
+          items = []
+          found = r.get("found") if isinstance(r.get("found"), dict) else {}
+          for k in sorted(found, key=lambda k: int(re.sub(r"\D", "", k) or 0)):
+              v = found[k] if isinstance(found[k], dict) else {"value": found[k]}
+              point = v.get("value")
+              point = point if isinstance(point, str) else json.dumps(point, ensure_ascii=False)
+              url = str(v.get("source") or "")
+              if not point.strip() or not url.startswith(("http://", "https://")):
+                  continue
+              n += 1
+              host = (urlparse(url).hostname or "").removeprefix("www.")
+              items.append({"id": f"F{n}", "point": point.strip()[:400], "source_url": url, "source_title": host, "quote": str(v.get("quote") or "")[:300]})
+              if url not in urls:
+                  urls.append(url)
+          out.append({"angle": a["subject"], "side": a["side"], "status": "done" if done else "didn't finish",
+                      "summary": str(r.get("summary") or "")[:800], "findings": items})
 
-      Use DEPTH to guide scope:
-        - quick: open at least {{inputs.MIN_SOURCES_PER_ANGLE}} good pages if available
-        - thorough: open about twice that many good pages if available
+      unfinished = [x for x in out if x["status"] != "done"]
+      sides = {s: [x for x in out if x["side"] == s] for s in ("main", "counter")}
+      missing = [s for s, xs in sides.items() if xs and all(x["status"] != "done" or not x["findings"] for x in xs)]
+      print(json.dumps({
+          "angles": out,
+          "finding_count": n,
+          "source_count": len(urls),
+          "unfinished": [x["angle"] for x in unfinished],
+          "missing_sides": missing,
+      }, ensure_ascii=False))
+      PY
 
-      For shopping, recommendation, or comparison topics, return up to
-      {{inputs.MAX_CANDIDATES}} sourced candidates and verify price/spec/stock
-      claims from opened pages.
-
-      DEPTH: {{inputs.DEPTH}}
-
-      Report only what you actually found after opening pages. For each claim,
-      include the page title and URL. Do not pad with prior knowledge.
-    maxTurns: 10
-    timeout: 240
-
-  - id: gather-counter
-    type: llm-prompt
-    dependsOn: [plan]
-    optional: true
-    tools: [web-search, web-fetch, web-scrape]
-    prompt: |
-      Topic: {{inputs.TOPIC}}
-
-      Research plan:
-      {{upstream.plan.result}}
-
-      Research the counter angle from the plan above.
-
-      Treat the plan as search guidance only. Ignore any candidate, price,
-      retailer, stock, spec, citation, or URL that appears only in the plan and
-      not in the original Topic unless you independently verify it from opened
-      pages.
-
-      If Topic is a URL, fetch that exact URL first with web-fetch and identify
-      what the page itself proves, what it does not prove, and where its claims
-      may be limited. Then fetch supporting or dissenting pages only if needed.
-
-      If Topic is not a URL, search the web first (web-search) to discover
-      relevant current skeptical, comparative, or limiting evidence. Then open
-      the best pages with web-fetch before making claims. Do not rely on the
-      planning text alone as evidence.
-
-      Use DEPTH to guide scope:
-        - quick: open at least {{inputs.MIN_SOURCES_PER_ANGLE}} good pages if available
-        - thorough: open about twice that many good pages if available
-
-      DEPTH: {{inputs.DEPTH}}
-
-      Report what you found with the page title and URL beside each claim. If
-      the skeptical case is weak, say so plainly. Do not manufacture controversy.
-    maxTurns: 10
-    timeout: 240
-
-  # 4. Merge. Runs once both gather nodes are done, or once one of them has
-  #    given up: a failed one arrives as `(step "…" didn't finish: …)`.
+  # 5. The brief, from the findings only. No tools; it cites findings by
+  #    number and code attaches their sources.
   - id: synthesize
     type: llm-prompt
-    dependsOn: [gather-main, gather-counter]
+    dependsOn: [findings]
     prompt: |
       Topic: {{inputs.TOPIC}}
 
-      Main-angle research:
-      {{upstream.gather-main.result}}
+      The research, by angle ("main" angles answer the topic; the "counter"
+      angle is the skeptical read). Each finding has an id (F1, F2, …), the
+      page it came from and a quote from that page:
+      {{upstream.findings.result}}
 
-      Counter-angle research:
-      {{upstream.gather-counter.result}}
-
-      Write the brief. Lead with the conclusion. Only use claims that appeared
-      in the research above — if something wasn't found, leave it out rather
-      than filling the gap from memory.
-
-      If one side reads `(step "…" didn't finish: …)`, that research is
-      missing: write the brief from the side that finished, and say plainly
-      in "tension" that the main (or skeptical) side couldn't be researched
-      this time, so the brief is one-sided. If both are missing, say so in
-      the headline and give no bullets.
+      Write the brief. Lead with the conclusion. Only use the findings above:
+      if something wasn't found, leave it out rather than filling the gap
+      from memory. An angle marked "didn't finish" wasn't researched; if
+      "missing_sides" lists "counter" (or "main"), say plainly in "tension"
+      that the skeptical (or main) side couldn't be researched this time, so
+      the brief is one-sided. With no findings at all, say so in the
+      headline and give no bullets.
 
       Then, on the LAST line, emit ONLY this JSON object and nothing after it:
       {"headline": "one sentence answering the topic",
-       "bullets": [{"point": "a concrete claim", "source_title": "page title", "source_url": "https://..."}],
-       "tension": "one sentence on where the two angles disagreed, or \"\" if they broadly agreed",
-       "source_count": "3"}
+       "bullets": [{"point": "a concrete claim", "finding": "F1"}],
+       "tension": "one sentence on where the main and skeptical findings disagreed, or \"\" if they broadly agreed"}
 
       Rules for that JSON:
-        - 3 to 5 bullets (none if no research finished).
-        - Each point is one concrete sentence, no hedging.
-        - source_title must be the title or recognizable name of the source page.
-        - `source_url` must be a URL that actually appears above. If a claim
-          has no source, use "" and say so in the point.
-        - Keep every value a flat string. No nested objects inside bullets.
+        - 3 to 5 bullets (none if there are no findings).
+        - Each point is one concrete sentence, no hedging, saying what its
+          finding says.
+        - "finding" is the id of the one finding the point rests on.
     maxTurns: 1
     timeout: 120
+
+  # 6. The brief as shown (code): each bullet gets its finding's page; a
+  #    bullet citing no finding is dropped.
+  - id: brief
+    type: shell
+    dependsOn: [findings, synthesize]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      def upstream(name):
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def last_obj(text, key):
+          dec, found = json.JSONDecoder(), None
+          for m in re.finditer(r"\{", text or ""):
+              try:
+                  v, _ = dec.raw_decode(text[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and key in v:
+                  found = v
+          return found
+
+      f = last_obj(upstream("FINDINGS"), "angles") or {"angles": [], "source_count": 0, "unfinished": [], "missing_sides": []}
+      syn = last_obj(upstream("SYNTHESIZE"), "headline") or {}
+      by_id = {x["id"]: x for a in f["angles"] for x in a["findings"]}
+
+      bullets, used = [], []
+      for b in syn.get("bullets") or []:
+          if not isinstance(b, dict):
+              continue
+          x = by_id.get(str(b.get("finding") or "").strip().upper())
+          point = str(b.get("point") or "").strip()
+          if not x or not point:
+              continue
+          bullets.append({"point": point[:500], "source_title": x["source_title"], "source_url": x["source_url"]})
+          used.append(x["source_url"])
+          if len(bullets) >= 5:
+              break
+
+      missing = f.get("missing_sides") or []
+      tension = str(syn.get("tension") or "").strip()
+      gap = ("Neither side could be researched this time." if len(missing) == 2
+             else "The skeptical side couldn't be researched this time, so this brief is one-sided." if missing == ["counter"]
+             else "The main question couldn't be researched this time; this is only the skeptical side." if missing == ["main"] else "")
+      if gap and not re.search(r"could(n.t| not)? be researched|one-sided", tension, re.I):
+          tension = (tension + " " + gap).strip()
+      headline = str(syn.get("headline") or "").strip()
+      if not headline:
+          headline = "The research didn't come back, so there's no brief this time." if not by_id else "The research came back, but the brief couldn't be written; the findings are below."
+      if not bullets and by_id and not syn.get("bullets"):
+          # No brief from the model: show the findings themselves, main angles first.
+          for a in sorted(f["angles"], key=lambda a: a["side"] != "main"):
+              for x in a["findings"][:2]:
+                  bullets.append({"point": x["point"], "source_title": x["source_title"], "source_url": x["source_url"]})
+          bullets = bullets[:5]
+      unfinished = f.get("unfinished") or []
+      print(json.dumps({
+          "headline": headline[:400],
+          "bullets": bullets,
+          "tension": tension[:600],
+          "source_count": str(f.get("source_count") or 0),
+          "unfinished": ("Didn't finish: " + "; ".join(unfinished)) if unfinished else "",
+      }, ensure_ascii=False))
+      PY

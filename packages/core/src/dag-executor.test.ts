@@ -2705,24 +2705,26 @@ describe('executeAgentDag — optional nodes', () => {
     expect(rows.merge.status).toBe('skipped');
   });
 
-  it('starter-research: one research angle failing still gets a brief (live runs used to fail outright)', async () => {
+  it('starter-research: research that fails outright still gets a brief that says so (live runs used to fail outright)', async () => {
     const { parseAgent } = await import('./agent-yaml.js');
     const { readFileSync } = await import('node:fs');
+    const { spawnNodeReal } = await import('./node-spawner.js');
     const agent = parseAgent(readFileSync(join(__dirname, '..', '..', '..', 'agents', 'examples', 'starter-research.yaml'), 'utf8'));
-    expect(agent.nodes.filter((n) => n.optional).map((n) => n.id)).toEqual(['gather-main', 'gather-counter']);
-    const run = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { TOPIC: 'SQLite in production' } }, { runStore, spawnNode: cannedSpawner({
-      plan: { exitCode: 0, result: 'angles\n{"main_angle": "a", "counter_angle": "b"}' },
-      'gather-main': { exitCode: 0, result: 'main findings https://example.com/a' },
-      'gather-counter': { exitCode: 1, error: 'Process exited with code 1', category: 'exit_nonzero' },
-      synthesize: { exitCode: 0, result: 'brief\n{"headline": "h", "bullets": [], "tension": "the skeptical side couldn\'t be researched", "source_count": "1"}' },
-    }) });
+    expect(agent.nodes.filter((n) => n.optional).map((n) => n.id)).toEqual(['plan', 'research']);
+    // Models are canned; the shell steps run for real. No agent store, so the research-fanout call fails.
+    const canned = cannedSpawner({
+      plan: { exitCode: 0, result: 'two angles\n{"angles": [{"subject": "Where SQLite works in production", "hint": "", "side": "main"}, {"subject": "Where it breaks down", "hint": "", "side": "counter"}]}' },
+      synthesize: { exitCode: 0, result: '{"headline": "Nothing could be researched this time.", "bullets": [], "tension": ""}' },
+    });
+    const spawnNode: DagExecutorDeps['spawnNode'] = (node, ...rest) => (node.type === 'shell' ? spawnNodeReal(node, ...rest) : canned!(node, ...rest));
+    const run = await executeAgentDag(agent, { triggeredBy: 'cli', inputs: { TOPIC: 'SQLite in production' } }, { runStore, spawnNode });
     expect(run.status).toBe('completed');
     const rows = Object.fromEntries(runStore.listNodeExecutions(run.id).map((n) => [n.nodeId, n]));
-    expect(rows['gather-counter'].status).toBe('failed');
-    expect(JSON.parse(rows.synthesize.upstreamInputsJson!)).toMatchObject({
-      'gather-main': 'main findings https://example.com/a',
-      'gather-counter': '(step "gather-counter" didn\'t finish: Process exited with code 1)',
-    });
+    expect(rows.research.status).toBe('failed');
+    const brief = JSON.parse(rows.brief.result!.trim().split('\n').at(-1)!);
+    expect(brief).toMatchObject({ headline: 'Nothing could be researched this time.', bullets: [], source_count: '0' });
+    expect(brief.unfinished).toBe("Didn't finish: Where SQLite works in production; Where it breaks down");
+    expect(brief.tension).toBe('Neither side could be researched this time.');
   });
 
   it('round-trips through YAML', async () => {
