@@ -26,10 +26,10 @@ async function page(body: string): Promise<string> {
   return `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/case-study`;
 }
 
-function verify(verdicts: unknown[], options: unknown[], checks: string[]): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; summary: string }> {
+function verify(verdicts: unknown[], options: unknown[], checks: string[], extra: Record<string, string> = {}): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; summary: string }> {
   const node = parseAgent(yaml).nodes.find((n) => n.id === 'verify') as { command: string };
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['-c', node.command], { env: { ...process.env, UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks) } });
+    const p = spawn('bash', ['-c', node.command], { env: { ...process.env, UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra } });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => { out += String(d); });
@@ -40,6 +40,29 @@ function verify(verdicts: unknown[], options: unknown[], checks: string[]): Prom
     });
   });
 }
+
+function shellNode(id: string, env: Record<string, string>): Promise<string> {
+  const node = parseAgent(yaml).nodes.find((n) => n.id === id) as { command: string };
+  return new Promise((resolve, reject) => {
+    const p = spawn('bash', ['-c', node.command], { env: { ...process.env, ...env } });
+    let out = '';
+    let err = '';
+    p.stdout.on('data', (d) => { out += String(d); });
+    p.stderr.on('data', (d) => { err += String(d); });
+    p.on('close', (code) => { if (code !== 0) reject(new Error(err)); else resolve(out); });
+  });
+}
+
+describe('notebook-checker wiring', () => {
+  it('judges from own facts with no tools, and sends only what is open to research-fanout', () => {
+    const agent = parseAgent(yaml);
+    expect(agent.nodes.map((n) => n.id)).toEqual(['judge', 'pending', 'web', 'verify']);
+    expect(agent.nodes.find((n) => n.id === 'judge')).toMatchObject({ type: 'llm-prompt', maxTurns: 1 });
+    expect(agent.nodes.filter((n) => n.type === 'llm-prompt' && n.tools?.length)).toEqual([]);
+    expect(agent.nodes.find((n) => n.id === 'web')).toMatchObject({ type: 'agent-invoke', optional: true, onlyIf: { upstream: 'pending', field: 'need_web', equals: true }, agentInvokeConfig: { agentId: 'research-fanout' } });
+    expect(agent.nodes.find((n) => n.id === 'verify')).toMatchObject({ onlyIf: { upstream: 'pending', field: 'ok', equals: true } });
+  });
+});
 
 describe.skipIf(!hasPython)('notebook-checker verify step', () => {
   it('ticks only quotes it finds word for word, rules out only a confirmed fail, and leaves the rest open', async () => {
@@ -85,7 +108,52 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     ], options, checks);
     expect(out.facts.find((f) => f.id === 'a')?.ruleOut).toBe('Fails "Headcount is between 1,000 and 5,000": "Revenue: 85000000, Employees: 777"');
     expect(out.facts.find((f) => f.id === 'b')).toEqual({ id: 'b', checked: ['Headcount is between 1,000 and 5,000'] });
-    // A fact it doesn't have ("Fit") isn't confirmed.
+    // A fact it doesn't have ("Fit") isn't confirmed; Bolt's founding year nothing answered.
+    expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 unknown; 1 quote not found word for word, left open.');
+  });
+
+  it('sends only the checks its own facts left open to the web, one item per option', async () => {
+    const options = [
+      { id: 'a', name: 'Acme', facts: { Website: 'https://acme.example', Employees: 300 }, sources: ['https://acme.example/about'], left: ['Headcount under 500', 'Why people buy is quoted'] },
+      { id: 'b', name: 'Bolt', facts: {}, left: ['Headcount under 500'] },
+      { id: 'c', name: 'Acme', facts: {}, left: ['Why people buy is quoted'] },
+    ];
+    const judge = [{ id: 'a', check: 'Headcount under 500', verdict: 'met', quote: '"Employees":300', url: 'notebook' }, { id: 'b', check: 'Headcount under 500', verdict: 'unknown' }];
+    const out = await shellNode('pending', { UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(judge)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(['Headcount under 500', 'Why people buy is quoted']) });
+    const p = JSON.parse(out.trim().split('\n').at(-1)!);
+    expect(p.need_web).toBe(true);
+    expect(JSON.parse(p.items_json)).toEqual([
+      { subject: 'Acme (https://acme.example)', hint: 'Checks still open for it: Why people buy is quoted. Its pages: https://acme.example/about.' },
+      { subject: 'Bolt', hint: 'Checks still open for it: Headcount under 500.' },
+      { subject: 'Acme', hint: 'Checks still open for it: Why people buy is quoted.' },
+    ]);
+    expect(p.keys).toEqual({ c1: 'Why people buy is quoted', c2: 'Headcount under 500' });
+    expect(p.subjects).toEqual({ 'acme (https://acme.example)': 'a', bolt: 'b', acme: 'c' });
+    // All settled from their own facts: no web.
+    const none = JSON.parse((await shellNode('pending', { UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify([judge[0]])}</verdicts>`, OPTIONS: JSON.stringify([{ ...options[0], left: ['Headcount under 500'] }]), CHECKS: '[]' })).trim().split('\n').at(-1)!);
+    expect(none.need_web).toBe(false);
+  });
+
+  it("ticks and rules out from the web research's answers, checking their quotes on the page", async () => {
+    const url = await page('<p>Customers say they buy it to close the books in half the time.</p><p>We have 2,400 employees worldwide.</p>');
+    const options = [
+      { id: 'a', name: 'Acme', facts: {}, left: ['Why people buy is quoted', 'Headcount under 500'] },
+      { id: 'b', name: 'Bolt', facts: {}, left: ['Why people buy is quoted'] },
+    ];
+    const checks = ['Why people buy is quoted', 'Headcount under 500'];
+    const pending = { ok: true, keys: { c1: 'Why people buy is quoted', c2: 'Headcount under 500' }, subjects: { acme: 'a', bolt: 'b' } };
+    const web = { headline: '2 of 2 researched.', results: [
+      { subject: 'Acme', status: 'done', found: {
+        c1: { value: 'met', source: url, quote: 'buy it to close the books in half the time' },
+        c2: { value: 'not met', source: url, quote: 'We have 2,400 employees worldwide' },
+      } },
+      { subject: 'Bolt', status: 'done', found: { c1: { value: 'met', source: url, quote: 'words that are not on that page at all' } } },
+    ] };
+    const out = await verify([{ id: 'a', check: 'Headcount under 500', verdict: 'unknown' }], options, checks, {
+      UPSTREAM_PENDING_RESULT: JSON.stringify(pending), UPSTREAM_WEB_RESULT: `ran\n${JSON.stringify(web)}`,
+    });
+    expect(out.facts.find((f) => f.id === 'a')).toEqual({ id: 'a', checked: ['Why people buy is quoted'], ruleOut: `Fails "Headcount under 500": "We have 2,400 employees worldwide" (${url})` });
+    expect(out.facts.find((f) => f.id === 'b')).toBeUndefined();
     expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 quote not found word for word, left open.');
   });
 });

@@ -17,7 +17,7 @@ import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
-import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
+import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
 
@@ -180,7 +180,7 @@ function stepAgent(ctx: Ctx, step: NotebookStep): { agentId?: string; reason?: s
   const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
   const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
   if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
-    && (agentId !== NOTEBOOK_FINDER_ID || ensureSystemAgentCurrent(ctx, NOTEBOOK_FIND_ONE_ID, 'a notebook find step')))) {
+    && stepAgentHelpers(agentId).every((id) => ensureSystemAgentCurrent(ctx, id, `a notebook ${step.kind} step`)))) {
     return { reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.` };
   }
   const agent = agentId ? ctx.agentStore.getAgent(agentId) : undefined;
