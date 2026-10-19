@@ -102,11 +102,13 @@ describe('shipped builtin packs', () => {
       expect(agent.status).toBe('active');
       expect(agent.source).toBe('examples');
 
-      // The whole point of the trio: an LLM node that can call tools.
+      // The whole point of the trio: an LLM node, and tools — its own, or
+      // through the agent it hands research to (starter-research → research-fanout).
       const llm = agent.nodes.filter((n) => n.type === 'llm-prompt');
       expect(llm.length, `${ref.id} has no llm-prompt node`).toBeGreaterThan(0);
       const withTools = llm.filter((n) => (n.tools?.length ?? 0) > 0);
-      expect(withTools.length, `${ref.id} exposes no tools`).toBeGreaterThan(0);
+      const invokes = agent.nodes.filter((n) => n.type === 'agent-invoke');
+      expect(withTools.length + invokes.length, `${ref.id} exposes no tools`).toBeGreaterThan(0);
     }
   });
 
@@ -136,24 +138,17 @@ describe('shipped builtin packs', () => {
     }
   });
 
-  it('starter-research fans out — two gather nodes share a parent and run concurrently', () => {
+  it('starter-research researches its angles at the same time, through research-fanout', () => {
     const { packsStore: store } = freshStores();
     loadBuiltinPacks(store, PACKS_DIR);
     const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
     const agent = parseAgent(refs.find((r) => r.id === 'starter-research')!.yaml!);
 
-    const gatherers = agent.nodes.filter((n) => n.dependsOn?.includes('plan'));
-    expect(gatherers.length, 'no fan-out from plan').toBe(2);
-    // Neither may depend on the other, or they serialize and the graph shows
-    // one node pulsing at a time instead of two.
-    const ids = gatherers.map((n) => n.id);
-    for (const g of gatherers) {
-      for (const other of ids) {
-        if (other !== g.id) expect(g.dependsOn).not.toContain(other);
-      }
-    }
-    const merge = agent.nodes.find((n) => ids.every((i) => n.dependsOn?.includes(i)));
-    expect(merge, 'nothing merges the two gather branches').toBeDefined();
+    // research-fanout runs the angles three at a time (sibling nodes would run one after another).
+    const research = agent.nodes.find((n) => n.type === 'agent-invoke');
+    expect(research?.agentInvokeConfig?.agentId).toBe('research-fanout');
+    expect(research?.dependsOn).toContain('angles');
+    expect(agent.nodes.some((n) => n.dependsOn?.includes(research!.id)), 'nothing reads the research').toBe(true);
   });
 
   it('starter-goal is one goal step with tools, a budget, and structured outputs', () => {
@@ -203,6 +198,11 @@ describe('shipped builtin packs', () => {
       // run has to emit the framed JSON — otherwise one branch renders a
       // populated card and another renders an empty one.
       for (const t of terminals) {
+        // A code step prints the JSON itself; a prompt has to ask for it.
+        if (t.type === 'shell') {
+          expect(t.command ?? '', `${ref.id}: terminal node "${t.id}" never prints JSON`).toMatch(/json\.dumps|JSON\.stringify/);
+          continue;
+        }
         expect(
           t.prompt ?? '',
           `${ref.id}: terminal node "${t.id}" never emits framed JSON`,
