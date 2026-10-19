@@ -1,12 +1,18 @@
 # Notebook Checker — checks a notebook's options against its checks ("Sells
 # enterprise software", "Why people buy is quoted from a customer case
-# study"). A model judges each option against each check, with the words
-# that show it, copied from a page or from the option's own facts; then code
-# confirms those words are really there before anything is ticked. A check
-# met is ticked; one clearly not met rules the option out, with the quote as
-# the reason; anything unconfirmed is left for the next try. Route-
-# dispatched only, by a notebook's check step (dashboard lib/notebook-steps.ts);
-# never proposed in triage.
+# study"), with the words that show each one; code confirms those words are
+# really there before anything is ticked. A check met is ticked; one clearly
+# not met rules the option out, with the quote as the reason; anything
+# unconfirmed is left for the next try. Route-dispatched only, by a
+# notebook's check step (dashboard lib/notebook-steps.ts); never proposed in
+# triage.
+#
+#   judge (own facts, no web) ── pending ── web (research-fanout, 3 at once) ── verify
+#
+# Most checks are settled by an option's own facts and notes, so a model
+# judges those first with no tools. Only the checks still unknown go to the
+# web, one small research run per option, three at a time, each with its own
+# time limit (one long node over every option used to time out).
 
 id: notebook-checker
 name: Notebook Checker
@@ -33,11 +39,12 @@ inputs:
       "text": the option's own notes, "left": [checks not done yet]}].
 
 nodes:
+  # 1. Each check from the option's own facts, notes and sources: no web, so
+  #    it's quick. What they don't settle is "unknown" and goes to the web.
   - id: judge
     type: llm-prompt
-    tools: [web-search, web-fetch]
-    maxTurns: 14
-    timeout: 360
+    maxTurns: 1
+    timeout: 180
     outputContract:
       mustMatch: '<verdicts>[\s\S]*?</verdicts>'
       description: a <verdicts> JSON block
@@ -52,31 +59,127 @@ nodes:
       ("left"), its facts, its sources and its own notes:
       {{inputs.OPTIONS}}
 
-      For each option, decide each check in its "left" list:
-        - "met" when a source shows it is true;
-        - "not met" only when a source clearly shows it is false;
-        - "unknown" when you can't find out. Never guess.
+      For each option, decide each check in its "left" list from the option's
+      own facts and notes ONLY (you can't open pages here):
+        - "met" when its facts or notes show it is true;
+        - "not met" only when they clearly show it is false;
+        - "unknown" when they don't say. Never guess: unknown ones are
+          researched on the web next.
 
-      Use the option's own facts, notes and sources first. Search the web
-      (web-search) and open pages (web-fetch) only for what they don't
-      answer; open at most 2 pages per option.
-
-      For "met" and "not met", "quote" is a sentence or phrase of at least
-      15 characters COPIED CHARACTER FOR CHARACTER from the page you opened
-      (or from the option's own "text" or facts), the one that best shows
-      it, and "url" is that page (or "notebook" for the option's own text).
-      Never paraphrase or join pieces: code checks each quote against the
-      page word for word, and a check whose quote isn't there stays open.
-      "why" is one plain sentence.
+      For "met" and "not met", "quote" is the fact or words that show it,
+      COPIED CHARACTER FOR CHARACTER from the option's facts or notes as
+      given above (at least 15 characters), and "url" is "notebook". Never
+      paraphrase or join pieces: code checks each quote word for word, and a
+      check whose quote isn't there stays open. "why" is one plain sentence.
 
       Reply with only this, as valid JSON:
       <verdicts>
-      [{"id": "option id", "check": "the check, as written", "verdict": "met|not met|unknown", "quote": "", "url": "", "why": ""}]
+      [{"id": "option id", "check": "the check, as written", "verdict": "met|not met|unknown", "quote": "", "url": "notebook", "why": ""}]
       </verdicts>
 
-  - id: verify
+  # 2. What the option's own facts didn't settle: those options, with the
+  #    checks still open, for the web.
+  - id: pending
     type: shell
     dependsOn: [judge]
+    timeout: 30
+    command: |
+      python3 - <<'PY'
+      import json, os, re
+
+      def upstream(name):
+          # Past 32KB the env value is cut short and the whole of it is in a file.
+          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
+          if path and os.path.exists(path):
+              with open(path, encoding="utf-8") as f:
+                  return f.read()
+          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+
+      def block(raw, tag):
+          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
+          if not m:
+              return None
+          try:
+              return json.loads(m.group(1))
+          except Exception:
+              return None
+
+      def norm(s):
+          return re.sub(r"\s+", " ", s or "").strip().lower()
+
+      try:
+          options = [o for o in json.loads(os.environ.get("OPTIONS") or "[]") if isinstance(o, dict) and o.get("id")]
+      except Exception:
+          options = []
+      try:
+          checks = [c for c in json.loads(os.environ.get("CHECKS") or "[]") if isinstance(c, str)]
+      except Exception:
+          checks = []
+      # Settled from its own facts (subject to verify's quote check): met or not met.
+      settled = set()
+      for v in block(upstream("JUDGE"), "verdicts") or []:
+          if isinstance(v, dict) and str(v.get("verdict", "")).lower().strip() in ("met", "not met"):
+              settled.add((str(v.get("id", "")), norm(str(v.get("check", "")))))
+
+      items, open_checks, subjects = [], [], {}
+      for o in options:
+          left = [c for c in (o.get("left") if isinstance(o.get("left"), list) else checks) if isinstance(c, str)]
+          todo = [c for c in left if (str(o["id"]), norm(c)) not in settled]
+          if not todo:
+              continue
+          facts = o.get("facts") if isinstance(o.get("facts"), dict) else {}
+          site = next((str(v) for k, v in facts.items() if re.search(r"web ?site|url|link", str(k), re.I) and str(v).startswith("http")), "")
+          name = str(o.get("name") or o["id"]).strip()[:150]
+          subject = f"{name} ({site})" if site else name
+          # Same-named options stay apart: research-fanout drops repeats.
+          if norm(subject) in subjects:
+              subject = f"{subject} [{len(subjects) + 1}]"
+          subjects[norm(subject)] = str(o["id"])
+          sources = [u for u in (o.get("sources") or []) if isinstance(u, str) and u.startswith("http")][:3]
+          items.append({"subject": subject, "hint": " ".join(x for x in [
+              f"Checks still open for it: {'; '.join(todo)}.",
+              f"Its pages: {' '.join(sources)}." if sources else "",
+          ] if x)[:300]})
+          for c in todo:
+              if c not in open_checks:
+                  open_checks.append(c)
+
+      keys = {f"c{i + 1}": c for i, c in enumerate(open_checks)}
+      ask = [{"key": k, "label": c, "hint": "\"met\" or \"not met\", only when a page you opened shows it; the quote is the words on that page that show it, copied exactly"} for k, c in keys.items()]
+      print(json.dumps({
+          "ok": True,
+          "need_web": bool(items),
+          "count": len(items),
+          "items_json": json.dumps(items),
+          "ask_json": json.dumps(ask),
+          "keys": keys,
+          "subjects": subjects,
+      }))
+      PY
+
+  # 3. The open checks on the web: one small research run per option, three
+  #    at a time. Optional: if it fails, the own-fact verdicts still count.
+  - id: web
+    type: agent-invoke
+    dependsOn: [pending]
+    onlyIf: { upstream: pending, field: need_web, equals: true }
+    optional: true
+    agentInvokeConfig:
+      agentId: research-fanout
+      inputMapping:
+        ITEMS: "$upstream.pending.items_json"
+        ASK: "$upstream.pending.ask_json"
+        CONTEXT: "Checking options for a notebook: {{inputs.NOTEBOOK}}. For each check, answer \"met\" or \"not met\" only when a page you opened shows it, with the exact words; otherwise leave it under not_found. Open at most 2 pages; start with the option's own pages when given."
+        DEPTH: "quick"
+        MAX_ITEMS: "20"
+
+  # 4. Code confirms each quote, from the option's own facts or the page
+  #    the web research cites, before anything is ticked or ruled out.
+  #    Runs whether or not the web step ran.
+  - id: verify
+    type: shell
+    dependsOn: [judge, pending, web]
+    onlyIf: { upstream: pending, field: ok, equals: true }
     timeout: 150
     command: |
       set -e
@@ -131,18 +234,42 @@ nodes:
           checks = []
       canon = {norm(c): c for c in checks}
 
-      ticked, out_reason, unconfirmed, unknown = {}, {}, 0, 0
-      for v in block(upstream("JUDGE"), "verdicts") or []:
-          if not isinstance(v, dict):
-              continue
+      def last_obj(text, key):
+          dec, found = json.JSONDecoder(), None
+          for m in re.finditer(r"\{", text or ""):
+              try:
+                  v, _ = dec.raw_decode(text[m.start():])
+              except ValueError:
+                  continue
+              if isinstance(v, dict) and key in v:
+                  found = v
+          return found
+
+      # The verdicts: the judge's from its own facts, then the web research's
+      # (research-fanout's results, its keys c1, c2, … standing for the checks).
+      verdicts = [v for v in block(upstream("JUDGE"), "verdicts") or [] if isinstance(v, dict)]
+      pend = last_obj(upstream("PENDING"), "subjects") or {}
+      web = last_obj(upstream("WEB"), "results") or {}
+      keys, subjects = pend.get("keys") or {}, pend.get("subjects") or {}
+      for r in web.get("results") or []:
+          oid = subjects.get(norm(str((r or {}).get("subject") or ""))) if isinstance(r, dict) else None
+          found = r.get("found") if oid and isinstance(r.get("found"), dict) else {}
+          for k, a in found.items():
+              said = norm(str((a or {}).get("value") if isinstance(a, dict) else a))
+              verdict = "not met" if said.startswith(("not met", "no", "false")) else "met" if said.startswith(("met", "yes", "true")) else ""
+              if k in keys and verdict and isinstance(a, dict):
+                  verdicts.append({"id": oid, "check": keys[k], "verdict": verdict, "quote": str(a.get("quote") or ""), "url": str(a.get("source") or "")})
+
+      ticked, out_reason, tried, failed, confirmed = {}, {}, set(), set(), set()
+      for v in verdicts:
           o = options.get(str(v.get("id", "")))
           check = canon.get(norm(str(v.get("check", ""))))
           verdict = str(v.get("verdict", "")).lower().strip()
-          if not o or not check:
+          if not o or not check or verdict not in ("met", "not met"):
               continue
-          if verdict not in ("met", "not met"):
-              unknown += 1
+          if check in ticked.get(o["id"], []):
               continue
+          tried.add((o["id"], check))
           quote = str(v.get("quote") or "").strip()
           url = str(v.get("url") or "").strip()
           # The judge saw the facts as compact JSON ("Employees":777); match that, the spaced form and "Label: value".
@@ -152,8 +279,9 @@ nodes:
           q = norm(quote)
           found = len(q) >= 15 and (q in norm(own) if url in ("", "notebook") else (q in norm(page_text(url)) or q in norm(own)))
           if not found:
-              unconfirmed += 1
+              failed.add((o["id"], check))
               continue
+          confirmed.add((o["id"], check))
           if verdict == "met":
               ticked.setdefault(o["id"], []).append(check)
           elif o["id"] not in out_reason:
@@ -171,6 +299,12 @@ nodes:
               f["ruleOut"] = out_reason[oid]
           facts.append(f)
       n_ticked = sum(len(v) for v in ticked.values())
+      # A quote that failed counts only when no other verdict on that check held up.
+      unconfirmed = len(failed - confirmed)
+      # Unknown: a check still open on an option in the running that nothing answered.
+      unknown = sum(1 for oid, o in options.items() if oid not in out_reason
+                    for c in (o.get("left") if isinstance(o.get("left"), list) else checks)
+                    if canon.get(norm(str(c))) and (oid, canon[norm(str(c))]) not in tried)
       bits = [f"{n_ticked} check{'s' if n_ticked != 1 else ''} met with a quote", f"{len(out_reason)} ruled out"]
       if unknown: bits.append(f"{unknown} unknown")
       if unconfirmed: bits.append(f"{unconfirmed} quote{'s' if unconfirmed != 1 else ''} not found word for word, left open")

@@ -17,3 +17,12 @@ describe('shortSteps: what a completed run left undone', () => {
     expect(shortSteps([])).toBeUndefined();
   });
 });
+
+describe("stepAgentHelpers: the agents sua's step agents call", () => {
+  it('installs the checker with research-fanout and research-one, and the finder with its search', async () => {
+    const { stepAgentHelpers } = await import('./notebook-step-agents.js');
+    expect(stepAgentHelpers('notebook-checker')).toEqual(['research-fanout', 'research-one']);
+    expect(stepAgentHelpers('notebook-finder')).toEqual(['notebook-find-one']);
+    expect(stepAgentHelpers('my-own-agent')).toEqual([]);
+  });
+});
