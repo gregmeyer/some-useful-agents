@@ -13,7 +13,7 @@ import {
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v0_9.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
-import { filterChoices, applyFilters, liveSelection } from '/assets/option-filters.js';
+import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -346,6 +346,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     .chip.stage { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; border-radius: 999px; }
     .chip.better { color: var(--color-ok); border-color: var(--color-ok); } .chip.worse { color: var(--color-warn); border-color: var(--color-warn); }
     .chip.gone { border-style: dashed; color: var(--color-text-muted); }
+    .chip.new { color: var(--color-primary); border-color: var(--color-primary); }
     .why { font-size: var(--font-size-xs); color: var(--color-warn); }
     .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; align-items: center; }
     .btn { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--color-border); color: var(--color-text); background: var(--color-surface); }
@@ -411,7 +412,18 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
     const fmtKey = (key, v) => { const f = fields.find((x) => x.key === key); return f ? fmtField(f, v) : String(v); };
     const labelOf = (key) => fields.find((x) => x.key === key)?.label ?? key;
     const filterKey = `sua-option-filters:${location.pathname}`;
-    if (this._sel === undefined) { try { this._sel = JSON.parse(localStorage.getItem(filterKey) ?? '{}') || {}; } catch { this._sel = {}; } }
+    if (this._sel === undefined) {
+      try { this._sel = JSON.parse(localStorage.getItem(filterKey) ?? '{}') || {}; } catch { this._sel = {}; }
+      // A link to "the new ones" (?added=new, from the header) starts with only those.
+      const asked = new URLSearchParams(location.search).get('added');
+      if (ADDED_CHOICES[asked]) {
+        // Kept like a filter you picked, and the address tidied, so a refresh or Clear filters behaves as usual.
+        this._sel = { added: ADDED_CHOICES[asked] };
+        try { localStorage.setItem(filterKey, JSON.stringify(this._sel)); } catch { /* not kept */ }
+        try { const u = new URL(location.href); u.searchParams.delete('added'); history.replaceState(history.state, '', u); } catch { /* left as is */ }
+        setTimeout(() => this.scrollIntoView?.({ block: 'start', behavior: 'smooth' }), 300);
+      }
+    }
     const sel = liveSelection(this._sel, filterChoices(opts, p.filters, { fmt: fmtKey, label: labelOf, stages }));
     const choices = filterChoices(opts, p.filters, { fmt: fmtKey, label: labelOf, stages, selected: sel });
     const keepSel = (next) => { this._sel = next; try { localStorage.setItem(filterKey, JSON.stringify(next)); } catch { /* not kept */ } this.requestUpdate(); };
@@ -517,7 +529,7 @@ const OptionGrid = define('OptionGrid', 'sua-a2ui-option-grid',
         ${scoreF && o.fields?.[scoreF.key] != null ? html`<div class="score" title="${scoreF.label}"><b>${est(o, scoreF)}${fmtField(scoreF, o.fields[scoreF.key])}</b> ${scoreF.label.toLowerCase()}</div>` : nothing}
         ${quoteOf(o)}
         ${priceF && o.fields?.[priceF.key] != null ? html`<div class="price">${est(o, priceF)}${fmtField(priceF, o.fields[priceF.key])}</div>` : nothing}
-        <div class="chips">${facts(o).map((f) => fact(o, f.key, f.text, f.label))}${change(o)}
+        <div class="chips">${o.added === 'new' && !o.ruledOut ? html`<span class="chip new" title="First found by the last run">new</span>` : nothing}${facts(o).map((f) => fact(o, f.key, f.text, f.label))}${change(o)}
           ${o.notSeenLately && !o.ruledOut ? html`<span class="chip gone" title="Recent searches found others but not this one">not seen lately</span><button type="button" class="btn ghost" @click=${() => act({ op: 'gone', id: o.id })}>Mark gone</button>` : nothing}</div>
         ${o.stage && !o.ruledOut && showStages ? html`<div class="chips"><span class="chip stage">${o.stage}</span></div>` : nothing}
         ${o.ruledOut ? (o.ruledOut.gone ? html`<div class="why gone-why">No longer available</div>` : html`<div class="why">Ruled out${o.ruledOut.stage && showStages ? ` at ${o.ruledOut.stage}` : ''}: ${o.ruledOut.reason}</div>`) : nothing}

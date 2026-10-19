@@ -341,13 +341,13 @@ function clip(text: string, n: number): string {
 }
 
 /**
- * What the shortlist can be filtered by: still listed or not, its stage, and
+ * What the shortlist can be filtered by: new in the last run or not, still listed or not, its stage, and
  * the notebook's text facts (a seller, a body style). The grid shows a filter
  * only when options differ on it, so listing every candidate is safe.
  */
 export function defaultFilters(nb: Pick<Notebook, 'fields' | 'stages'> & { steps?: Notebook['steps'] }): string[] {
   const text = nb.fields.filter((f) => f.type === 'text' && f.role !== 'link' && f.role !== 'image').map((f) => f.key);
-  return ['seen', ...(nb.stages.length && !handStagesHidden(nb) ? ['stage'] : []), ...text].slice(0, 8);
+  return ['added', 'seen', ...(nb.stages.length && !handStagesHidden(nb) ? ['stage'] : []), ...text].slice(0, 9);
 }
 
 /** A notebook with steps: they say how far each option got, so stages moved by hand aren't shown. */

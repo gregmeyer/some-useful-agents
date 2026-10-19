@@ -321,6 +321,34 @@ describe('option history and not seen lately', () => {
     await search('r6', [['b', 4400]]);
     expect(view().get('Car b')).toMatchObject({ missedSearches: 0, notSeenLately: false, priceChange: { from: 4500, to: 4400 } });
   });
+
+  it('says which options the last run that found any added, found again, or had from before', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Buy a used car' }).id, [{ key: 'url', label: 'Listing', type: 'url', role: 'link' }]);
+    const tick = () => new Promise((r) => setTimeout(r, 3));
+    const add = (n: string, agent: string, run: string) => s.upsertOption(nb.id, { title: `Car ${n}`, by: `agent:${agent}`, runId: run, data: { url: `https://cars.example/${n}` } });
+    const added = () => Object.fromEntries(notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook.options.map((o) => [o.title, o.added]));
+    expect(s.lastFindAt(nb.id)).toBeUndefined();
+    let at = new Date().toISOString(); await tick();
+    add('a', 'sweep', 'r1'); add('b', 'sweep', 'r1'); s.recordSearch(nb.id, 'sweep', 'r1', 2, at);
+    await tick();
+    // A step's pass with two agents is one run: what either found is new.
+    const pass = s.startPass(nb.id, 'pipeline'); await tick();
+    at = new Date().toISOString(); await tick();
+    add('b', 'sweep', 'r2'); add('c', 'sweep', 'r2'); s.recordSearch(nb.id, 'sweep', 'r2', 2, at);
+    await tick();
+    at = new Date().toISOString(); await tick();
+    add('d', 'finder', 'r3'); s.recordSearch(nb.id, 'finder', 'r3', 1, at);
+    s.finishPass(pass);
+    expect(added()).toEqual({ 'Car a': 'earlier', 'Car b': 'again', 'Car c': 'new', 'Car d': 'new' });
+    // A later search that found nothing isn't the last run that found options.
+    await tick(); s.recordSearch(nb.id, 'sweep', 'r4', 0);
+    expect(added()['Car c']).toBe('new');
+    // Without the store there's nothing to compare to.
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options[0].added).toBeUndefined();
+  });
 });
 
 describe('option photos', () => {

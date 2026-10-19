@@ -78,11 +78,11 @@ describe('notebook widgets', () => {
       { key: 'price', label: 'Price', type: 'money' as const, role: 'price' as const }, { key: 'seller', label: 'Seller', type: 'text' as const, role: 'org' as const },
       { key: 'body', label: 'Body', type: 'text' as const }, { key: 'url', label: 'Listing', type: 'url' as const, role: 'link' as const },
     ], stages: ['Found', 'Checked'] };
-    expect(defaultFilters(nb)).toEqual(['seen', 'stage', 'seller', 'body']);
-    expect(defaultFilters({ fields: [], stages: [] })).toEqual(['seen']);
+    expect(defaultFilters(nb)).toEqual(['added', 'seen', 'stage', 'seller', 'body']);
+    expect(defaultFilters({ fields: [], stages: [] })).toEqual(['added', 'seen']);
     const v = validateViewComponents(notebookWidgetComponents(nb));
     expect(v.ok).toBe(true); // the catalog knows OptionGrid's filters
-    expect((v.ok ? v.components : []).find((c) => c.component === 'OptionGrid')).toMatchObject({ filters: ['seen', 'stage', 'seller', 'body'] });
+    expect((v.ok ? v.components : []).find((c) => c.component === 'OptionGrid')).toMatchObject({ filters: ['added', 'seen', 'stage', 'seller', 'body'] });
   });
 
   it('leaves out the map without a price and a measure, and the funnel without stages', () => {

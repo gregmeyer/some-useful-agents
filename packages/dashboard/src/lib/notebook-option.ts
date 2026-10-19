@@ -6,7 +6,7 @@
  * history (found, seen again, moved, ruled out) with the runs behind each.
  */
 import { rankOptions, validateViewComponents, viewToMessages,
-  type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption, type ViewComponent,
+  type Notebook, type NotebookAddedIn, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
 import { notebookWidgetData, checksFor, defaultFilters, handStagesHidden, optionFacets, type NotebookWidgetHistory } from './notebook-widgets.js';
 import { formatFieldValue } from '../views/notebooks.js';
@@ -41,6 +41,8 @@ export interface OptionNavItem {
   /** The option whose page this is, ruled out: it sits where it ranked, so Previous / Next go on from there. */
   out?: boolean;
   stage?: string; notSeenLately: boolean; fields: Record<string, string | boolean>;
+  /** New in the last run that found options, seen again in it, or earlier. */
+  added?: NotebookAddedIn;
   /** Short labels for its long facts, which the grid's chips use. */
   facets?: Record<string, string>;
 }
@@ -166,7 +168,7 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
   let n = 0;
   const order: OptionNavItem[] = ranked.map((o) => ({
     id: o.id, name: o.name, rank: o.out ? 0 : ++n, page: optionPage(nb.id, o.id), ...(o.out ? { out: true } : {}),
-    ...(o.stage ? { stage: o.stage } : {}), notSeenLately: !!o.notSeenLately,
+    ...(o.stage ? { stage: o.stage } : {}), notSeenLately: !!o.notSeenLately, ...(o.added ? { added: o.added } : {}),
     ...(optionFacets(nb, o) ? { facets: optionFacets(nb, o) } : {}),
     // Facts as the grid shows them, so its filter values match these.
     fields: Object.fromEntries(filters.flatMap((k) => {
