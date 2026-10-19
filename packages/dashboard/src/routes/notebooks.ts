@@ -756,8 +756,10 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const entries = s.entries(nb.id, 1000);
   // Opened here, pictures load from the dashboard; a saved file carries its own.
   const download = req.query.download === '1';
-  const page = renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
-  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${full ? '-extended' : ''}.html`;
+  // ?latest=1: only the options the last run found for the first time.
+  const latest = req.query.latest === '1';
+  const page = renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
 
@@ -769,12 +771,15 @@ notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response
   // Which rows: ?rows=chosen|running|all (all=1 is the older spelling); else
   // the final set once you've decided, the ones in the running before.
   // ?ids=a,b,c keeps just those: the shortlist as you filtered it.
+  // ?rows=new: the ones in the running the last run found for the first time.
   const asked = String(req.query.rows ?? (req.query.all === '1' ? 'all' : ''));
+  const fresh = asked === 'new';
   const decidedSet = nb.status === 'decided' && options.some((o) => o.chosen && !o.ruledOut);
-  const rows = asked === 'chosen' || asked === 'running' || asked === 'all' ? asked : decidedSet ? 'chosen' : 'running';
-  const ids = typeof req.query.ids === 'string' && req.query.ids ? req.query.ids.split(',').slice(0, 500) : undefined;
+  const rows = asked === 'chosen' || asked === 'running' || asked === 'all' ? asked : fresh ? 'running' : decidedSet ? 'chosen' : 'running';
+  const ids = fresh ? options.filter((o) => o.added === 'new').map((o) => o.id)
+    : typeof req.query.ids === 'string' && req.query.ids ? req.query.ids.split(',').slice(0, 500) : undefined;
   const csv = notebookCsv(nb, options, { rows, ...(ids ? { ids } : {}) });
-  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-${ids ? 'selection' : rows === 'all' ? 'all' : rows === 'chosen' ? 'chosen' : 'shortlist'}.csv`;
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-${fresh ? 'new' : ids ? 'selection' : rows === 'all' ? 'all' : rows === 'chosen' ? 'chosen' : 'shortlist'}.csv`;
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'private, no-store' }).send(csv);
 });
 

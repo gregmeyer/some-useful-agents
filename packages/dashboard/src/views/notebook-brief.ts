@@ -261,7 +261,7 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean }): string {
   const { nb } = args;
   const now = args.now ?? new Date();
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
@@ -269,10 +269,15 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const ranked = rankOptions(nb, d.options);
   const chosen = ranked.filter((o) => o.chosen);
   const decided = nb.status === 'decided';
-  const active = decided && chosen.length ? [...chosen, ...ranked.filter((o) => !o.chosen)] : ranked;
+  const inRunning = decided && chosen.length ? [...chosen, ...ranked.filter((o) => !o.chosen)] : ranked;
+  // ?latest=1: only what the last run found for the first time (the findings stay the whole notebook's).
+  const since = args.latest ? args.history?.lastFindAt?.(nb.id) : undefined;
+  const isNew = (o: { added?: string }) => !args.latest || o.added === 'new';
+  const active = inRunning.filter(isNew);
   const detailed = active.slice(0, 12);
   const brief = active.slice(12);
-  const ruled = [...d.options.filter((o) => o.ruledOut)].sort((a, b) => b.ruledOut!.at.localeCompare(a.ruledOut!.at));
+  const ruled = [...d.options.filter((o) => o.ruledOut && isNew(o))].sort((a, b) => b.ruledOut!.at.localeCompare(a.ruledOut!.at));
+  const noted = notes(args.entries.filter((e) => !since || e.createdAt >= since));
   const searches = args.history?.searches?.(nb.id, 50).length ?? 0;
   const picks = decided ? decisionPicks(nb, args.entries) : undefined;
   const keyF = compareFields(nb)[0];
@@ -433,7 +438,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 </style>
 <main class="brief">
   <header>
-    <div class="eyebrow">${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}</div>
+    <div class="eyebrow">${args.latest ? "What's new · " : ''}${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}</div>
     <h1>${nb.title}</h1>
     ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
   </header>
@@ -445,19 +450,22 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
           : html`<p>${nb.decision}</p>`}
       </section>`
     : html`<p class="stands">${inline(d.summary)}</p>`}
+  ${args.latest ? html`<p class="stands">${active.length
+    ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
+    : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}
   <section aria-labelledby="b-find">
-    <h2 id="b-find">Key findings</h2>
-    <ul class="findings">${findings(nb, d.options, active, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>
+    <h2 id="b-find">Key findings${args.latest ? html`<span class="count">the whole notebook</span>` : html``}</h2>
+    <ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>
   </section>
   ${active.length ? html`<section aria-labelledby="b-table">
-    <h2 id="b-table">${decided && chosen.length ? 'The final set, and the rest in the running' : 'The shortlist'}<span class="count">${decided && chosen.length ? `${String(chosen.length)} chosen of ${String(active.length)}` : `${String(active.length)} in the running`}</span></h2>
+    <h2 id="b-table">${args.latest ? 'New in the last run' : decided && chosen.length ? 'The final set, and the rest in the running' : 'The shortlist'}<span class="count">${args.latest ? `${String(active.length)} new` : decided && chosen.length ? `${String(chosen.length)} chosen of ${String(active.length)}` : `${String(active.length)} in the running`}</span></h2>
     ${table(nb, active, pic)}
   </section>
   ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
     <ol class="opts">${detailed.map((o, i) => optionRow(nb, o, i + 1)) as unknown as SafeHtml[]}</ol>
-    ${brief.length ? html`<p class="more">Also in the running:</p><ul class="plain">${brief.map((o) => html`<li>${o.title}${keyF && o.fields[keyF.key] !== undefined ? html` <span class="why">· ${formatFieldValue(keyF, o.fields[keyF.key])}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
-  </section>`}` : html`<p class="more">Nothing in the running yet.</p>`}
+    ${brief.length ? html`<p class="more">${args.latest ? "Also new:" : "Also in the running:"}</p><ul class="plain">${brief.map((o) => html`<li>${o.title}${keyF && o.fields[keyF.key] !== undefined ? html` <span class="why">· ${formatFieldValue(keyF, o.fields[keyF.key])}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+  </section>`}` : args.latest ? html`` : html`<p class="more">Nothing in the running yet.</p>`}
   ${args.full && active.length ? html`<section class="fullset" aria-labelledby="b-full">
     <h2 id="b-full">Each option in full<span class="count">${String(active.length)}</span></h2>
     ${active.map((o, i) => optionInFull(nb, o, i + 1, args.entries, args.history, pic)) as unknown as SafeHtml[]}
@@ -467,9 +475,9 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     <ul class="plain">${ruled.slice(0, RULED_SHOWN).map((o) => html`<li><strong>${clip(o.title, 90)}</strong> <span class="why">· ${clip(o.ruledOut!.reason.replace(/\s*\(https?:\/\/[^)]*\)?/g, ''), 140)}</span></li>`) as unknown as SafeHtml[]}</ul>
     ${ruled.length > RULED_SHOWN ? html`<p class="more">And ${String(ruled.length - RULED_SHOWN)} more (the notebook has them all, with their sources).</p>` : html``}
   </section>` : html``}
-  ${notes(args.entries).length ? html`<section aria-labelledby="b-notes">
-    <h2 id="b-notes">Notes along the way</h2>
-    <ul class="plain">${notes(args.entries).map((e) => html`<li>${e.title}</li>`) as unknown as SafeHtml[]}</ul>
+  ${noted.length ? html`<section aria-labelledby="b-notes">
+    <h2 id="b-notes">${args.latest ? 'Notes since then' : 'Notes along the way'}</h2>
+    <ul class="plain">${noted.map((e) => html`<li>${e.title}</li>`) as unknown as SafeHtml[]}</ul>
   </section>` : html``}
   ${nb.params.length || nb.criteria.length ? html`<section class="cols">
     ${nb.params.length ? html`<div><h2>Limits</h2><div class="limits">${nb.params.slice(0, 12).map((p) => html`<span class="chip">${p.length > 80 ? `${p.slice(0, 77)}…` : p}</span>`) as unknown as SafeHtml[]}</div></div>` : html``}
