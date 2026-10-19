@@ -343,9 +343,14 @@ describe('option history and not seen lately', () => {
     add('d', 'finder', 'r3'); s.recordSearch(nb.id, 'finder', 'r3', 1, at);
     s.finishPass(pass);
     expect(added()).toEqual({ 'Car a': 'earlier', 'Car b': 'again', 'Car c': 'new', 'Car d': 'new' });
-    // A later search that found nothing isn't the last run that found options.
+    // A later search that found nothing, or a run that filed only notes, isn't the last run that found options.
     await tick(); s.recordSearch(nb.id, 'sweep', 'r4', 0);
-    expect(added()['Car c']).toBe('new');
+    const talk = s.startPass(nb.id, 'conversation'); await tick();
+    s.addEntry(nb.id, { kind: 'note', title: 'Dealer reply', body: '', by: 'agent:helper', runId: 'r5' }); s.recordSearch(nb.id, 'helper', 'r5', 1);
+    s.finishPass(talk);
+    // Nor does one you add by hand.
+    s.upsertOption(nb.id, { title: 'Car e', by: 'you', data: { url: 'https://cars.example/e' } });
+    expect(added()).toMatchObject({ 'Car a': 'earlier', 'Car b': 'again', 'Car c': 'new', 'Car d': 'new' });
     // Without the store there's nothing to compare to.
     expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.options[0].added).toBeUndefined();
   });

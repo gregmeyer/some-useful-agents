@@ -813,16 +813,22 @@ export class NotebookStore {
   }
 
   /**
-   * When the last run that found options started: the pass its latest such
-   * search was part of (a step or pipeline run of several agents counts as
-   * one), else that search. Undefined before any search found one.
+   * When the last run that found options started: the newest time an agent
+   * found or re-found one, taken back to the start of the pass it was part of
+   * (a step or pipeline run of several agents counts as one), else of its
+   * search. A run that only filed notes, or an option you added, doesn't
+   * count. Undefined before any agent found one.
    */
   lastFindAt(notebookId: string): string | undefined {
-    const s = this.db.prepare('SELECT at FROM notebook_searches WHERE notebook_id = ? AND found > 0 ORDER BY at DESC LIMIT 1').get(notebookId) as { at: string } | undefined;
-    if (!s) return undefined;
+    const r = this.db.prepare("SELECT MAX(COALESCE(last_seen_at, created_at)) AS at FROM notebook_entries WHERE notebook_id = ? AND kind = 'option' AND by LIKE 'agent:%'")
+      .get(notebookId) as { at: string | null } | undefined;
+    const at = r?.at ?? undefined;
+    if (!at) return undefined;
     const p = this.db.prepare('SELECT started_at FROM notebook_passes WHERE notebook_id = ? AND started_at <= ? AND (finished_at IS NULL OR finished_at >= ?) ORDER BY started_at DESC LIMIT 1')
-      .get(notebookId, s.at, s.at) as { started_at: string } | undefined;
-    return p?.started_at ?? s.at;
+      .get(notebookId, at, at) as { started_at: string } | undefined;
+    if (p) return p.started_at;
+    const sr = this.db.prepare('SELECT at FROM notebook_searches WHERE notebook_id = ? AND at <= ? ORDER BY at DESC LIMIT 1').get(notebookId, at) as { at: string } | undefined;
+    return sr?.at ?? at;
   }
 
   /** An option's kept picture, if there is one: its own photo, a representative one, or an illustration. */
