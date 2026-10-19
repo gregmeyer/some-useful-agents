@@ -459,7 +459,7 @@ A check step with no agent of its own uses sua's checker (`notebook-checker`, a 
 3. **Only the checks still unknown go to the web**, through `research-fanout` (see [agents](agents.md#research-that-takes-a-while-research-fanout)): one small research run per option, three at a time, each opening up to 2 pages, starting with the option's own. Each answer comes with the page and the words that show it. If that research fails, the step keeps what the facts settled.
 4. **Code confirms each quote** in the page it cites, or in the option's own notes and facts (as the model saw them, `"Employees":777`, or as `Employees: 777`). Only a confirmed quote counts:
    - **met:** the check is ticked on the option;
-   - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`). An option you've chosen isn't ruled out: the failed check is a note on the notebook, and the decision stays yours;
+   - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`). An option you've chosen isn't ruled out: the failed check is a note on the notebook (once per check), it shows on the option as ✗ "fails; you kept it", and it counts as checked, so the step can finish. The decision stays yours;
    - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
 
 The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").

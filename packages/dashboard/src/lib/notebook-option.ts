@@ -185,7 +185,7 @@ export function notebookOptionData(nb: Notebook, entries: readonly NotebookEntry
       priceLabel: priceF?.label ?? 'Price',
       priceNow: priceF && view.fields[priceF.key] !== undefined ? formatFieldValue(priceF, view.fields[priceF.key]) : '',
       priceSeries: view.priceHistory.map((p) => p.value),
-      checks: checkList.length ? [{ id: e.id, title: '', items: checkList.map((c) => ({ text: c, done: view.checked.includes(c) })) }] : [],
+      checks: checkList.length ? [{ id: e.id, title: '', items: checkList.map((c) => ({ text: view.failed.includes(c) && !view.checked.includes(c) ? `${c} (fails; you kept it)` : c, done: view.checked.includes(c) })) }] : [],
       timeline: optionTimeline(nb, e, history),
     },
     ...(order.some((o) => o.id === e.id) ? { nav: { order, filters, filterKey: `/notebooks/${encodeURIComponent(nb.id)}`, ...optionNeighbours(order, e.id) } } : {}),

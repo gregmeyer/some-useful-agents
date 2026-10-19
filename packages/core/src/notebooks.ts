@@ -235,6 +235,8 @@ export interface NotebookEntry {
   ruledOut?: { reason: string; at: string; by: string; stage?: string; gone?: boolean };
   /** The notebook's checks ticked for this option. */
   checked?: string[];
+  /** Checks it failed that didn't rule it out (it's chosen, so that's your call), with why: check → reason. */
+  failedChecks?: Record<string, string>;
   /** When it was picked in the notebook's decision. */
   chosenAt?: string;
   /** When sua recommended it for the decision (its latest picks). */
@@ -469,7 +471,7 @@ export class NotebookStore {
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
-      ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'],
+      ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
@@ -774,6 +776,21 @@ export class NotebookStore {
     this.db.prepare('UPDATE notebook_entries SET checked_json = ? WHERE id = ?').run(JSON.stringify([...set]), e.id);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
     return this.mustGetOption(notebookId, entryId);
+  }
+
+  /**
+   * A check an option failed that doesn't rule it out (you chose it): kept
+   * with the reason, so the check counts as done. False when it was already
+   * recorded.
+   */
+  failCheck(notebookId: string, entryId: string, check: string, reason: string): boolean {
+    const e = this.mustGetOption(notebookId, entryId);
+    const failed = { ...(e.failedChecks ?? {}) };
+    if (Object.keys(failed).some((c) => c.toLowerCase() === check.toLowerCase())) return false;
+    failed[check] = reason.slice(0, 300);
+    this.db.prepare('UPDATE notebook_entries SET failed_checks_json = ? WHERE id = ?').run(JSON.stringify(failed), e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), notebookId);
+    return true;
   }
 
   /** What searches said about an option over time, oldest first; a correction says who made it (`correctedBy`). */
@@ -1612,6 +1629,7 @@ export class NotebookStore {
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
       ...(r.stage ? { stage: String(r.stage) } : {}),
       ...(r.checked_json ? { checked: (() => { try { return JSON.parse(String(r.checked_json)) as string[]; } catch { return []; } })() } : {}),
+      ...(r.failed_checks_json ? { failedChecks: (() => { try { return JSON.parse(String(r.failed_checks_json)) as Record<string, string>; } catch { return {}; } })() } : {}),
       ...(r.stage_at ? { stageAt: String(r.stage_at) } : {}),
       ...(r.ruled_out_at ? { ruledOut: { reason: String(r.ruled_out_reason ?? ''), at: String(r.ruled_out_at), by: String(r.ruled_out_by ?? 'you'), ...(r.ruled_out_stage ? { stage: String(r.ruled_out_stage) } : {}), ...(r.ruled_out_gone ? { gone: true } : {}) } } : {}),
       ...(r.chosen_at ? { chosenAt: String(r.chosen_at) } : {}),
@@ -1836,6 +1854,8 @@ export interface NotebookViewOption {
   name: string;
   /** The notebook's checks ticked for it. */
   checked: string[];
+  /** Checks it failed but stays in for (you chose it): checked, not ticked. */
+  failed: string[];
   body: string;
   /** The option's facts by field key. */
   fields: Record<string, NotebookFieldValue>;
@@ -1963,7 +1983,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const imageShape = imageKind === 'logo' ? history?.photoShape?.(e.id) : undefined;
     const when = pick(data, 'when');
     return {
-      id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], body: e.body, fields: data,
+      id: e.id, title: e.title, name: shortName(e.title), checked: e.checked ?? [], failed: Object.keys(e.failedChecks ?? {}), body: e.body, fields: data,
       ...(e.factMeta && Object.keys(e.factMeta).length ? { factMeta: e.factMeta } : {}),
       ...(price !== undefined ? { price } : {}), ...(measure !== undefined ? { measure } : {}), ...(score !== undefined ? { score } : {}),
       ...(place ? { place } : {}), ...(org ? { org } : {}), ...(link ? { link } : {}), ...(image ? { image } : {}), ...(imageKind ? { imageKind } : {}), ...(imageShape ? { imageShape } : {}), ...(imageSource ? { imageSource } : {}),
@@ -2373,15 +2393,17 @@ export function sourceJobs(nb: Notebook, entries: readonly NotebookEntry[], step
 }
 
 /** The notebook's checks not yet ticked for an option. */
-function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'checked'>): string[] {
-  return nb.checks.filter((c) => !o.checked.some((d) => d.toLowerCase() === c.toLowerCase()));
+/** The notebook's checks an option still needs: not ticked, and not failed (a failed one on an option you kept is done). */
+export function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOption, 'checked'> & { failed?: string[] }): string[] {
+  const done = [...o.checked, ...(o.failed ?? [])].map((d) => d.toLowerCase());
+  return nb.checks.filter((c) => !done.includes(c.toLowerCase()));
 }
 
 /**
  * Whether one option got through a step: found (it's here), its facts
  * sourced, every check ticked, or picked in the decision.
  */
-export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut' | 'linkIsList'>, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
+export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut' | 'linkIsList'> & { failed?: string[] }, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
   if (step.kind === 'find') return true;
   // Kept when you narrowed (a narrow step not done yet has kept nothing).
   if (step.kind === 'narrow') return step.status === 'done' && !o.ruledOut;
