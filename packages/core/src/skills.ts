@@ -10,9 +10,13 @@
  *
  * Shipped skills are found the way example agents are (example-loader.ts):
  * the repo copy first, then the bundled one, so an npm install has them too.
+ * Skills the builder or analyzer proposed, once approved, are saved in the
+ * run database with versions (SkillStore); a saved one with a shipped name is
+ * your copy, and wins over the shipped file.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import type { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontmatter } from './behaviors/frontmatter.js';
@@ -31,8 +35,12 @@ export interface Skill {
   name: string;
   description: string;
   body: string;
-  /** The SKILL.md it came from. */
+  /** The SKILL.md it came from; empty for a saved skill. */
   file: string;
+  /** shipped (a file in the examples) or local (saved here, with versions). */
+  source?: 'shipped' | 'local';
+  /** A saved skill's current version. */
+  version?: number;
 }
 
 export interface LoadSkillsResult {
@@ -47,6 +55,18 @@ export class SkillError extends Error {
     super(message);
     this.name = 'SkillError';
   }
+}
+
+/** Why a skill's name, description and text can't be used, or undefined when they can. */
+export function skillProblem(name: string, description: string, body: string): string | undefined {
+  if (!SKILL_NAME_PATTERN.test(name) || name.length > 64) return 'name is missing or not lowercase-with-hyphens';
+  if (!description.trim()) return 'description is missing';
+  if (description.length > 300) return 'description is over 300 characters';
+  if (!body.trim()) return 'it has no text';
+  if (Buffer.byteLength(body, 'utf8') > MAX_SKILL_BYTES) return `its text is over ${MAX_SKILL_BYTES / 1024} KB`;
+  // Skills are quoted as written; a template in one would never be filled.
+  if (/\{\{/.test(body)) return 'its text has a {{…}} template, which skills never fill';
+  return undefined;
 }
 
 /** One SKILL.md, or why it isn't one. */
@@ -64,7 +84,7 @@ export function parseSkill(raw: string, file: string, dirName: string): Skill | 
   const body = split.body.trim();
   if (!body) return { problem: 'it has no text' };
   if (Buffer.byteLength(body, 'utf8') > MAX_SKILL_BYTES) return { problem: `its text is over ${MAX_SKILL_BYTES / 1024} KB` };
-  return { name, description, body, file };
+  return { name, description, body, file, source: 'shipped' };
 }
 
 /** The shipped skills, from the first examples dir that has a skills folder. */
@@ -89,6 +109,17 @@ export function loadShippedSkills(repoDir?: string): LoadSkillsResult {
     break;
   }
   return { byName, problems };
+}
+
+/** Every skill an agent can use: the shipped ones, with saved ones over them. */
+export function loadSkills(store?: SkillStore, repoDir?: string): LoadSkillsResult {
+  const loaded = loadShippedSkills(repoDir);
+  if (store) {
+    try {
+      for (const s of store.list()) loaded.byName.set(s.name, s);
+    } catch { /* no table yet: shipped only */ }
+  }
+  return loaded;
 }
 
 /** Names and descriptions, for catalogs and pickers. */
@@ -138,3 +169,152 @@ export function buildSkillsPreamble(names: readonly string[], loaded: LoadSkills
 
 /** Exported for tests asserting the block is present. */
 export const SKILLS_PREAMBLE_MARKERS = { open: OPEN, close: CLOSE } as const;
+
+export interface SkillVersion {
+  name: string;
+  version: number;
+  description: string;
+  body: string;
+  createdAt: string;
+  createdBy: 'dashboard' | 'cli' | 'import';
+  message: string;
+}
+
+/**
+ * Saved skills, with every version kept (like agent_versions), so a change
+ * the builder or analyzer proposed can be rolled back. Shares the run DB.
+ */
+export class SkillStore {
+  private db!: DatabaseSync;
+
+  static fromHandle(db: DatabaseSync): SkillStore {
+    const store = Object.create(SkillStore.prototype) as SkillStore;
+    store.db = db;
+    store.ensureSchema();
+    return store;
+  }
+
+  private ensureSchema(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS skills (
+        name TEXT PRIMARY KEY,
+        current_version INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS skill_versions (
+        name TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        message TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (name, version)
+      );
+    `);
+  }
+
+  get(name: string): Skill | undefined {
+    const row = this.db.prepare(`
+      SELECT v.name, v.version, v.description, v.body FROM skills s
+      JOIN skill_versions v ON v.name = s.name AND v.version = s.current_version
+      WHERE s.name = ?
+    `).get(name) as { name: string; version: number; description: string; body: string } | undefined;
+    return row ? { name: row.name, description: row.description, body: row.body, file: '', source: 'local', version: Number(row.version) } : undefined;
+  }
+
+  list(): Skill[] {
+    const rows = this.db.prepare(`
+      SELECT v.name, v.version, v.description, v.body FROM skills s
+      JOIN skill_versions v ON v.name = s.name AND v.version = s.current_version
+      ORDER BY v.name
+    `).all() as Array<{ name: string; version: number; description: string; body: string }>;
+    return rows.map((r) => ({ name: r.name, description: r.description, body: r.body, file: '', source: 'local' as const, version: Number(r.version) }));
+  }
+
+  /**
+   * Save a skill as its next version (the first saves a shipped name as your
+   * copy). Unchanged text saves nothing. Throws when it can't be used.
+   */
+  save(input: { name: string; description: string; body: string }, createdBy: SkillVersion['createdBy'], message = ''): number {
+    const name = input.name.trim();
+    const description = input.description.trim();
+    const body = input.body.trim();
+    const problem = skillProblem(name, description, body);
+    if (problem) throw new SkillError(`Skill "${name}" can't be saved: ${problem}.`);
+    const current = this.get(name);
+    if (current && current.description === description && current.body === body) return current.version!;
+    const row = this.db.prepare('SELECT MAX(version) AS v FROM skill_versions WHERE name = ?').get(name) as { v: number | null } | undefined;
+    const version = Number(row?.v ?? 0) + 1;
+    const now = new Date().toISOString();
+    this.db.exec('BEGIN');
+    try {
+      this.db.prepare('INSERT INTO skill_versions (name, version, description, body, created_at, created_by, message) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name, version, description, body, now, createdBy, message);
+      this.db.prepare(`INSERT INTO skills (name, current_version, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET current_version = excluded.current_version, updated_at = excluded.updated_at`).run(name, version, now);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return version;
+  }
+
+  listVersions(name: string): SkillVersion[] {
+    const rows = this.db.prepare('SELECT * FROM skill_versions WHERE name = ? ORDER BY version DESC').all(name) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      name: String(r.name), version: Number(r.version), description: String(r.description), body: String(r.body),
+      createdAt: String(r.created_at), createdBy: r.created_by as SkillVersion['createdBy'], message: String(r.message ?? ''),
+    }));
+  }
+
+  /** Roll back by saving an old version as the newest, as agent rollback does. */
+  rollback(name: string, version: number): number {
+    const v = this.listVersions(name).find((x) => x.version === version);
+    if (!v) throw new SkillError(`Skill "${name}" has no version ${version}.`);
+    return this.save(v, 'dashboard', `Rollback to v${version}`);
+  }
+
+  /**
+   * Take back one save (when what it was saved with failed): drops that
+   * version, and the skill goes back to its version before, or away.
+   */
+  undoSave(name: string, version: number): void {
+    this.db.prepare('DELETE FROM skill_versions WHERE name = ? AND version = ?').run(name, version);
+    const row = this.db.prepare('SELECT MAX(version) AS v FROM skill_versions WHERE name = ?').get(name) as { v: number | null } | undefined;
+    if (row?.v == null) this.db.prepare('DELETE FROM skills WHERE name = ?').run(name);
+    else this.db.prepare('UPDATE skills SET current_version = ? WHERE name = ?').run(Number(row.v), name);
+  }
+
+  /** Drop your copy: the shipped skill of that name (if any) applies again. */
+  remove(name: string): void {
+    this.db.prepare('DELETE FROM skill_versions WHERE name = ?').run(name);
+    this.db.prepare('DELETE FROM skills WHERE name = ?').run(name);
+  }
+}
+
+export interface SkillProposal { name: string; description: string; body: string }
+
+/**
+ * Skills a builder or analyzer reply proposes, as
+ * `<skill name="kebab-name" description="one line">text</skill>` blocks.
+ * One that can't be used is listed in `problems`, not dropped silently.
+ */
+export function extractSkillProposals(text: string): { skills: SkillProposal[]; problems: string[] } {
+  const skills: SkillProposal[] = [];
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const m of (text ?? '').matchAll(/<skill\b([^>]*)>([\s\S]*?)<\/skill>/g)) {
+    const attr = (k: string) => m[1].match(new RegExp(`${k}\\s*=\\s*"([^"]*)"`))?.[1]?.trim() ?? '';
+    const name = attr('name');
+    const description = attr('description');
+    const body = m[2].trim();
+    const problem = skillProblem(name, description, body);
+    if (problem) { problems.push(`${name || '(no name)'}: ${problem}`); continue; }
+    if (seen.has(name)) continue;
+    seen.add(name);
+    skills.push({ name, description, body });
+  }
+  return { skills, problems };
+}

@@ -33,7 +33,7 @@ import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
 import { describeDraftShape } from '../lib/draft-shape.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
-import { collectLatestRunNodeDigest } from './inbox-catalog.js';
+import { collectLatestRunNodeDigest, skillsForCatalog } from './inbox-catalog.js';
 import {
   startBuildSession,
   startDraftOneSession,
@@ -350,6 +350,7 @@ async function kickoffPlannerRun(args: PlannerKickoffArgs): Promise<string | nul
     templateRegistry: TEMPLATE_REGISTRY,
     dashboards: ctx.dashboardsStore?.listDashboards(),
     packs: ctx.packsStore?.listPacks(),
+    skills: skillsForCatalog(ctx, []),
   });
 
   // Append critic feedback + prior-plan examples to the goal. Keeps the
@@ -513,6 +514,7 @@ buildRouter.post('/agents/:name/analyze', async (req: Request, res: Response) =>
     agents: ctx.agentStore.listAgents(),
     tools: [...aBuiltins, ...aUserTools],
     templateRegistry: TEMPLATE_REGISTRY,
+    skills: skillsForCatalog(ctx, []),
   });
 
   const runPromise = executeAgentDag(

@@ -50,7 +50,7 @@ import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-ima
 import { explainNodeFailure } from './failure-explain.js';
 import { loadBehaviors, defaultBehaviorScopes, type LoadBehaviorsResult } from './behaviors/index.js';
 import { resolveBehaviorsForRun } from './behavior-conditioning/index.js';
-import { loadShippedSkills, buildSkillsPreamble, type LoadSkillsResult } from './skills.js';
+import { loadSkills, SkillStore, buildSkillsPreamble, type LoadSkillsResult } from './skills.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
@@ -484,11 +484,12 @@ export async function executeAgentDag(
     }
   }
 
-  // Skills (docs/skills.md): shared know-how the agent lists, after its
+  // Skills (docs/skills.md): shared know-how the agent lists (shipped, or
+  // saved here with versions, which wins), after its
   // behaviors. A listed skill that's missing fails the run, like a behavior.
   if (agent.skills && agent.skills.length > 0) {
     try {
-      const { text } = buildSkillsPreamble(agent.skills, (deps.loadSkills ?? (() => loadShippedSkills()))());
+      const { text } = buildSkillsPreamble(agent.skills, (deps.loadSkills ?? (() => loadSkills(skillStoreOf(deps.runStore))))());
       if (text) behaviorPreamble = behaviorPreamble ? `${behaviorPreamble}\n${text}` : text;
     } catch (err) {
       deps.runStore.updateRun(runId, { status: 'failed', completedAt: new Date().toISOString(), error: (err as Error).message });
@@ -1829,4 +1830,9 @@ export function topologicalSort(nodes: AgentNode[]): AgentNode[] {
     throw new Error(`Cycle detected in DAG (schema should have rejected this)`);
   }
   return order;
+}
+
+/** Saved skills share the run database; none when it can't be opened. */
+function skillStoreOf(runStore: RunStore): SkillStore | undefined {
+  try { return SkillStore.fromHandle(runStore.databaseHandle()); } catch { return undefined; }
 }

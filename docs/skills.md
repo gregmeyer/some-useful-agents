@@ -52,6 +52,34 @@ When a step researches a list (companies, options, people), use …
 
 Skills ship with the examples, so an npm install has them too.
 
+## Skills sua proposes
+
+When sua builds an agent (agent-builder) or fixes one (agent-analyzer) and the
+work needs know-how other agents would use too, it can propose a skill with
+it: a new one, or a change to one the agent already lists. The builder and
+analyzer see every skill by name (and the full text of the ones the agent
+being fixed lists), and are told to use a skill rather than paste know-how
+into a prompt.
+
+The skill rides on the same card as the agent ("Install draft", "Apply fix"),
+under **New skill** with its text, or **Changes skill** with what changes.
+Nothing is saved until you approve the card. Then:
+
+- the skill is saved as a new version in the run database, which you can
+  roll back. Changing a shipped skill saves **your copy**, which wins over
+  the shipped file for every agent here; the file itself stays as it is;
+- the agent is saved after it. If the agent can't be saved, the skill is
+  taken back;
+- if the skill changed since it was proposed, or the agent lists a skill
+  that doesn't exist, the card is refused and nothing is saved.
+
+A proposed skill has the same limits as a written one, and can't contain a
+`{{…}}` template: skills are quoted as written. A card carries at most two.
+
+This covers fixes and builds that happen in a conversation. The agent page's
+**Suggest improvements** and **Build from goal** list skills for the agent to
+use, but don't propose new ones yet.
+
 ## Commands
 
 ```bash
@@ -73,5 +101,8 @@ sua skill show <name>    # its full text, as agents get it
 | [Behaviors](behaviors.md) | how to act (conduct) | the project, `.agents/behaviors/` | across agents that list it |
 | Skills | how a kind of work is done | the project, `agents/examples/skills/` | across agents that list it |
 | [Memory](memory.md) | what this agent learned | the agent, at run time | never; per agent |
+
+A saved skill (one sua proposed, or your copy of a shipped one) is stored
+with its versions in the run database; `sua skill list` shows both kinds.
 
 See [ADR-0054](adr/0054-skills.md).
