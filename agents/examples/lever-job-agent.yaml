@@ -129,6 +129,7 @@ nodes:
       import urllib.error
       import urllib.parse
       import urllib.request
+      from sua_helpers import upstream_json
 
       def fail(message, failures=None):
           print(json.dumps({
@@ -149,15 +150,12 @@ nodes:
       if not query:
           fail("JOB_QUERY must not be empty")
 
-      def upstream(name):
-          try:
-              value = json.loads(os.environ.get(name) or "{}")
-          except ValueError:
-              return {}
+      def upstream_dict(name):
+          value = upstream_json(name, {})
           return value if isinstance(value, dict) else {}
 
-      boards = upstream("UPSTREAM_BOARDS_RESULT")
-      found = upstream("UPSTREAM_DISCOVER_RESULT")
+      boards = upstream_dict("boards")
+      found = upstream_dict("discover")
       companies = [c for c in boards.get("companies") or [] if isinstance(c, str)]
       discovered = []
       if not companies:
@@ -292,22 +290,15 @@ nodes:
       import json
       import os
       import sys
+      from sua_helpers import upstream
 
       def fail(message):
           print(json.dumps({"error": message}), file=sys.stderr)
           sys.exit(1)
 
-      def upstream(name):
-          # Over 32KB, the env copy is cut short and the full value is in $<name>_FILE.
-          path = os.environ.get(name + "_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as handle:
-                  return handle.read()
-          return os.environ[name]
-
       try:
-          fetched = json.loads(upstream("UPSTREAM_FETCH_POSTINGS_RESULT"))
-      except (KeyError, json.JSONDecodeError) as error:
+          fetched = json.loads(upstream("fetch-postings"))
+      except json.JSONDecodeError as error:
           fail(f"Could not parse the fetched postings: {error}")
 
       def first_object(text):
@@ -322,10 +313,7 @@ nodes:
           return None
 
       # No ranking when there was nothing to rank (or it answered badly): an empty result, said plainly.
-      try:
-          ranked = first_object(upstream("UPSTREAM_RANK_MATCHES_RESULT"))
-      except KeyError:
-          ranked = None
+      ranked = first_object(upstream("rank-matches"))
       if not isinstance(ranked, dict):
           none = not fetched["postings"]
           ranked = {

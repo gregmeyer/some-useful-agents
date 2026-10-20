@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { parseAgent, SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
+import { parseAgent, SYSTEM_AGENT_IDS, withShellHelpers } from '@some-useful-agents/core';
 
 // sua's finder splits a find step into a few narrow searches run at once,
 // then files what they found with code (no model between the searches and
@@ -13,7 +13,7 @@ const agent = (id: string) => parseAgent(readFileSync(join(root, 'agents/example
 
 function merge(env: Record<string, string>): { line: string; block: { entries: Array<Record<string, unknown>>; sources: Array<Record<string, unknown>> } } {
   const cmd = agent('notebook-finder').nodes.find((n) => n.id === 'merge')!.command!;
-  const out = execFileSync('sh', ['-c', cmd], { env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8' });
+  const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', ...env }), encoding: 'utf8' });
   const m = /<notebook>([\s\S]*)<\/notebook>/.exec(out)!;
   return { line: out.split('\n')[0], block: JSON.parse(m[1]) };
 }

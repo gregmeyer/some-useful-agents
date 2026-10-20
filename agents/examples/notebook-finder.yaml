@@ -122,37 +122,7 @@ nodes:
     command: |
       python3 << 'PYEOF'
       import json, os, re
-
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def last_json(text):
-          """The last JSON object in a reply (a search out of turns may add words around it)."""
-          if isinstance(text, dict):
-              return text
-          if not isinstance(text, str):
-              return None
-          text = text.strip()
-          try:
-              v = json.loads(text)
-              return v if isinstance(v, dict) else None
-          except Exception:
-              pass
-          dec = json.JSONDecoder()
-          found = None
-          for m in re.finditer(r"\{", text):
-              try:
-                  v, _ = dec.raw_decode(text[m.start():])
-                  if isinstance(v, dict) and "candidates" in v:
-                      found = v
-              except Exception:
-                  continue
-          return found
+      from sua_helpers import upstream, last_json
 
       def norm_url(u):
           u = (u or "").strip().lower()
@@ -195,7 +165,7 @@ nodes:
       entries, sources, seen, dupes, known = [], [], set(), 0, 0
       for i, raw in enumerate(items):
           where = (searches[i].get("where") if i < len(searches) and isinstance(searches[i], dict) else None) or f"Search {i + 1}"
-          got = last_json(raw)
+          got = last_json(raw, "candidates")
           if got is None:
               sources.append({"name": where, "found": 0, "status": "blocked", "note": "The search didn't finish." if raw is None else "Its answer couldn't be read."})
               continue

@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { withShellHelpers } from './node-spawner.js';
 import { parseAgent } from './agent-yaml.js';
 
 const yaml = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'agents', 'examples', 'notebook-checker.yaml'), 'utf8');
@@ -29,7 +30,7 @@ async function page(body: string): Promise<string> {
 function verify(verdicts: unknown[], options: unknown[], checks: string[], extra: Record<string, string> = {}): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; summary: string }> {
   const node = parseAgent(yaml).nodes.find((n) => n.id === 'verify') as { command: string };
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['-c', node.command], { env: { ...process.env, UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra } });
+    const p = spawn('bash', ['-c', node.command], { env: withShellHelpers({ ...process.env, UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra } as Record<string, string>) });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => { out += String(d); });
@@ -44,7 +45,7 @@ function verify(verdicts: unknown[], options: unknown[], checks: string[], extra
 function shellNode(id: string, env: Record<string, string>): Promise<string> {
   const node = parseAgent(yaml).nodes.find((n) => n.id === id) as { command: string };
   return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['-c', node.command], { env: { ...process.env, ...env } });
+    const p = spawn('bash', ['-c', node.command], { env: withShellHelpers({ ...process.env, ...env } as Record<string, string>) });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => { out += String(d); });

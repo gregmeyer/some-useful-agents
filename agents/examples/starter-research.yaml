@@ -250,29 +250,11 @@ nodes:
     command: |
       python3 - <<'PY'
       import json, os, re
+      from sua_helpers import upstream, last_json
       from urllib.parse import urlparse
 
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def last_obj(text, key):
-          dec, found = json.JSONDecoder(), None
-          for m in re.finditer(r"\{", text or ""):
-              try:
-                  v, _ = dec.raw_decode(text[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(v, dict) and key in v:
-                  found = v
-          return found
-
-      plan = last_obj(upstream("ANGLES"), "angles") or {"angles": []}
-      fan = last_obj(upstream("RESEARCH"), "results") or {"results": []}
+      plan = last_json(upstream("ANGLES"), "angles") or {"angles": []}
+      fan = last_json(upstream("RESEARCH"), "results") or {"results": []}
       by_subject = {str(r.get("subject") or "").strip().lower(): r for r in fan.get("results") or [] if isinstance(r, dict)}
 
       out, urls, n = [], [], 0
@@ -351,27 +333,10 @@ nodes:
     command: |
       python3 - <<'PY'
       import json, os, re
+      from sua_helpers import upstream, last_json
 
-      def upstream(name):
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def last_obj(text, key):
-          dec, found = json.JSONDecoder(), None
-          for m in re.finditer(r"\{", text or ""):
-              try:
-                  v, _ = dec.raw_decode(text[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(v, dict) and key in v:
-                  found = v
-          return found
-
-      f = last_obj(upstream("FINDINGS"), "angles") or {"angles": [], "source_count": 0, "unfinished": [], "missing_sides": []}
-      syn = last_obj(upstream("SYNTHESIZE"), "headline") or {}
+      f = last_json(upstream("FINDINGS"), "angles") or {"angles": [], "source_count": 0, "unfinished": [], "missing_sides": []}
+      syn = last_json(upstream("SYNTHESIZE"), "headline") or {}
       by_id = {x["id"]: x for a in f["angles"] for x in a["findings"]}
 
       bullets, used = [], []

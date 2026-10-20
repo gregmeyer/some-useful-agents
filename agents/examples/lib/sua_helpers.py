@@ -16,7 +16,7 @@ import json
 import os
 import re
 
-__all__ = ["upstream", "upstream_json", "last_json", "as_obj", "emit"]
+__all__ = ["upstream", "upstream_json", "last_json", "tagged_json", "as_obj", "emit"]
 
 
 def upstream(name):
@@ -35,19 +35,27 @@ def upstream(name):
 
 
 def last_json(text, *keys):
-    """The last top-level JSON object in a reply, or None.
+    """The object a model's reply carries, or None.
 
-    Models add words around their JSON, or put it on the last line after a
-    sentence. With keys, only an object that has one of them counts
-    (last_json(reply, "found", "summary")). Objects nested inside another
-    are never picked on their own.
+    A reply that is one JSON object as a whole (or already a dict) is that
+    object. Otherwise it's the last top-level JSON object in the text: models
+    add words around their JSON, or put it on the last line after a sentence.
+    With keys, only an object that has one of them counts
+    (last_json(reply, "found", "summary")); when no top-level object has one,
+    the last object nested in them that does.
     """
     if isinstance(text, dict):
-        return text if not keys or any(k in text for k in keys) else None
+        return text
     if not isinstance(text, str):
         return None
+    try:
+        whole = json.loads(text)
+        if isinstance(whole, dict):
+            return whole
+    except ValueError:
+        pass
     dec = json.JSONDecoder()
-    found = None
+    tops = []
     i = 0
     while True:
         start = text.find("{", i)
@@ -58,10 +66,41 @@ def last_json(text, *keys):
         except ValueError:
             i = start + 1
             continue
-        if isinstance(value, dict) and (not keys or any(k in value for k in keys)):
-            found = value
+        if isinstance(value, dict):
+            tops.append(value)
         i = end
-    return found
+    if not keys:
+        return tops[-1] if tops else None
+    has = lambda o: isinstance(o, dict) and any(k in o for k in keys)
+    for o in reversed(tops):
+        if has(o):
+            return o
+    nested = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            if has(v):
+                nested.append(v)
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    for o in tops:
+        walk(o)
+    return nested[-1] if nested else None
+
+
+def tagged_json(text, tag):
+    """The JSON inside <tag>…</tag> in a reply, or None (tagged_json(reply, "verdicts"))."""
+    m = re.search(rf"<{re.escape(tag)}>([\s\S]*?)</{re.escape(tag)}>", text or "")
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(1))
+    except ValueError:
+        return None
 
 
 def as_obj(value, *keys):

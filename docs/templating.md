@@ -53,7 +53,8 @@ command: |
 | Helper | Gives |
 |---|---|
 | `upstream("step-id")` | The step's whole result as text; past 32 KB it reads `$UPSTREAM_<ID>_RESULT_FILE`, so nothing is cut short. |
-| `last_json(text, *keys)` | The last top-level JSON object in a model's reply (words around it are fine). With keys, only an object that has one of them. |
+| `last_json(text, *keys)` | The object a model's reply carries: the reply itself when it's one JSON object, else the last top-level object in it (words around it are fine). With keys, only an object that has one of them (a nested one when no top-level object has them). |
+| `tagged_json(text, tag)` | The JSON inside `<tag>…</tag>` in a reply. |
 | `upstream_json("step-id", default)` | The result as JSON, else the last object in it, else `default`. |
 | `as_obj(value, *keys)` | A sub-run's answer as an object, whether it came back as one or as text. |
 | `emit(obj)` | The step's result, printed as one line of JSON. |
