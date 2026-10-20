@@ -29,7 +29,8 @@ import type { OpenAiTool, ToolCallExecutor } from './llm-tools.js';
 import { startToolEndpoint, TOOL_ENDPOINT_SERVER_NAME, type ToolEndpoint } from './tool-mcp-endpoint.js';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { resolveExamplePath } from './example-loader.js';
 import type { ToolStore } from './tool-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
 import type { VariablesStore } from './variables-store.js';
@@ -1124,7 +1125,7 @@ export async function spawnNodeReal(
     }
     return spawnProcess('bash', ['-c', node.command], {
       cwd: node.workingDirectory,
-      env,
+      env: withShellHelpers(env),
       timeoutSec: node.timeout ?? 300,
       signal,
       onSpawn,
@@ -2276,4 +2277,17 @@ export async function spawnProcess(
       resolve({ result: '', exitCode: 127, error: err.message, category: 'spawn_failure' });
     });
   });
+}
+
+/**
+ * Shell steps find the shipped Python helpers (agents/examples/lib/
+ * sua_helpers.py) on PYTHONPATH. Set here, where the step is started, so it
+ * holds wherever the step runs (the Temporal worker too). PYTHONPATH is never
+ * taken from inputs or variables (SENSITIVE_ENV_NAMES); only this trusted
+ * directory is put on it.
+ */
+export function withShellHelpers(env: Record<string, string>): Record<string, string> {
+  const file = resolveExamplePath(join('lib', 'sua_helpers.py'));
+  // No .pyc files written into the examples (or an installed package).
+  return file ? { ...env, PYTHONPATH: dirname(file), PYTHONDONTWRITEBYTECODE: '1' } : env;
 }

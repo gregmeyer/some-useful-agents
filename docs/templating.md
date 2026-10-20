@@ -35,6 +35,34 @@ Notes:
 - **Big results.** A result over 32 KB is too big to pass whole in a shell node's environment: `$UPSTREAM_<ID>_RESULT` holds the first 32 KB and `$UPSTREAM_<ID>_RESULT_FILE` names a file with all of it. `{{upstream.<id>.result}}` in a prompt is not cut at 32 KB — it reads that file, up to 256 KB, since the prompt doesn't travel through the environment.
 - Look-alikes such as `{{nodes.<id>}}`, `{{steps.<id>}}` or `{{upstream.<id>}}` (no `.result`) are never substituted, so they'd reach the prompt as literal text. When `<id>` is a node in the agent, saving fails with a message pointing at `{{upstream.<id>.result}}`.
 
+### Shell helpers (Python)
+
+A shell step written in Python can import the shipped helpers, which are on
+`PYTHONPATH` for every shell step (`agents/examples/lib/sua_helpers.py`):
+
+```yaml
+command: |
+  python3 - <<'PY'
+  from sua_helpers import upstream, upstream_json, last_json, emit
+  plan = upstream_json("plan", {})
+  reply = last_json(upstream("research"), "found", "summary") or {}
+  emit({"items": plan.get("items", []), "found": reply.get("found", {})})
+  PY
+```
+
+| Helper | Gives |
+|---|---|
+| `upstream("step-id")` | The step's whole result as text; past 32 KB it reads `$UPSTREAM_<ID>_RESULT_FILE`, so nothing is cut short. |
+| `last_json(text, *keys)` | The last top-level JSON object in a model's reply (words around it are fine). With keys, only an object that has one of them. |
+| `upstream_json("step-id", default)` | The result as JSON, else the last object in it, else `default`. |
+| `as_obj(value, *keys)` | A sub-run's answer as an object, whether it came back as one or as text. |
+| `emit(obj)` | The step's result, printed as one line of JSON. |
+
+Use them instead of pasting your own copies, so a fix reaches every agent.
+The `shell-steps` [skill](skills.md) teaches the builder and analyzer the same.
+`PYTHONPATH` can't be set from inputs or variables; only this directory is put
+on it.
+
 ## What the executor guarantees today
 
 For every node, the runtime provides:

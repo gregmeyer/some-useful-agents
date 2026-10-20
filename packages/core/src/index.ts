@@ -511,6 +511,7 @@ export {
   codexSpawner,
   getSpawner,
   spawnNodeReal,
+  withShellHelpers,
 } from './node-spawner.js';
 export { stripSensitiveEnv } from './node-env.js';
 export {

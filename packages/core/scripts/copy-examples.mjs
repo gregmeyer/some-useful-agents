@@ -21,7 +21,7 @@ const src = resolve(pkgRoot, '..', '..', 'agents', 'examples');
 const dst = resolve(pkgRoot, 'examples');
 
 /** Data files that are generated, not authored — never ship these. */
-const SKIP = new Set(['churn-customers.db', 'error-reference.db', 'make-churn-db.sh', 'make-error-reference-db.mjs']);
+const SKIP = new Set(['__pycache__', 'churn-customers.db', 'error-reference.db', 'make-churn-db.sh', 'make-error-reference-db.mjs']);
 
 rmSync(dst, { recursive: true, force: true });
 mkdirSync(dst, { recursive: true });

@@ -6,7 +6,7 @@ description: >
   errors automatically. Run via "Suggest improvements" on any agent's detail page.
 status: active
 source: examples
-skills: [research-shape, web-search]
+skills: [research-shape, web-search, shell-steps]
 
 inputs:
   AGENT_YAML:
