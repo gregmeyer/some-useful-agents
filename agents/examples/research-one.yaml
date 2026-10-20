@@ -90,28 +90,8 @@ nodes:
     timeout: 30
     command: |
       python3 - <<'PY'
-      import json, os, re
-
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def last_json(text):
-          """The last JSON object with a "found" or "summary" in a reply (words may come around it)."""
-          dec = json.JSONDecoder()
-          found = None
-          for m in re.finditer(r"\{", text or ""):
-              try:
-                  v, _ = dec.raw_decode(text[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(v, dict) and ("found" in v or "summary" in v):
-                  found = v
-          return found
+      import json, os
+      from sua_helpers import upstream, last_json
 
       subject = os.environ.get("SUBJECT", "").strip()
       # The asked keys, when ASK is a JSON list of {key}; plain questions allow any key.
@@ -121,7 +101,7 @@ nodes:
           ask = []
       keys = {a["key"] for a in ask if isinstance(a, dict) and isinstance(a.get("key"), str)} if isinstance(ask, list) else set()
 
-      got = last_json(upstream("RESEARCH")) or {}
+      got = last_json(upstream("research"), "found", "summary") or {}
       found = {}
       for k, v in (got.get("found") or {}).items() if isinstance(got.get("found"), dict) else []:
           if keys and k not in keys:

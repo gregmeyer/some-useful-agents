@@ -93,6 +93,7 @@ sua skill show <name>    # its full text, as agents get it
 |---|---|---|
 | `research-shape` | agent-builder, agent-analyzer | Research a list through research-fanout; never one node over all of it or gather-N copies. |
 | `web-search` | agent-builder, agent-analyzer | Search results come from web-search-links; a model that searches and reads uses the web-search tool; never scrape a search engine. |
+| `shell-steps` | agent-builder, agent-analyzer | Python shell steps import `sua_helpers` (upstream, last_json, emit) instead of their own copies. See [templating](templating.md#shell-helpers-python). |
 
 ## Skills, behaviors and memory
 

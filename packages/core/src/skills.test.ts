@@ -58,12 +58,12 @@ describe('the shipped skills', () => {
   it('the builder and the analyzer share them instead of each keeping a copy', () => {
     for (const id of ['agent-builder', 'agent-analyzer']) {
       const agent = parseAgent(readFileSync(join(root, 'agents/examples', `${id}.yaml`), 'utf8'));
-      expect(agent.skills, id).toEqual(['research-shape', 'web-search']);
+      expect(agent.skills, id).toEqual(['research-shape', 'web-search', 'shell-steps']);
       const prompts = agent.nodes.map((n) => n.prompt ?? '').join('\n');
       expect(prompts, id).not.toMatch(/sibling nodes run one after another/);
       expect(prompts, id).not.toMatch(/Never scrape a search engine/);
     }
-    expect(() => buildSkillsPreamble(['research-shape', 'web-search'], loaded)).not.toThrow();
+    expect(() => buildSkillsPreamble(['research-shape', 'web-search', 'shell-steps'], loaded)).not.toThrow();
   });
 
   it('every skill a shipped agent lists exists', async () => {

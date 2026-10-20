@@ -190,32 +190,8 @@ nodes:
     timeout: 60
     command: |
       python3 - <<'PY'
-      import json, os, re
-
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def as_obj(v):
-          """A sub-run's answer: an object, or JSON text (the last object in it)."""
-          if isinstance(v, dict):
-              return v
-          if not isinstance(v, str):
-              return None
-          dec = json.JSONDecoder()
-          found = None
-          for m in re.finditer(r"\{", v):
-              try:
-                  o, _ = dec.raw_decode(v[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(o, dict) and "subject" in o:
-                  found = o
-          return found
+      import json, os
+      from sua_helpers import upstream, as_obj
 
       try:
           picked = json.loads(upstream("PICK") or "{}")
@@ -231,7 +207,7 @@ nodes:
 
       results, unfinished = [], []
       for i, it in enumerate(items):
-          o = as_obj(got[i]) if i < len(got) else None
+          o = as_obj(got[i], "subject") if i < len(got) else None
           subject = it.get("subject", f"Item {i + 1}")
           if not o or (not o.get("found") and not o.get("summary")):
               unfinished.append(subject)

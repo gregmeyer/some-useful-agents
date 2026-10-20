@@ -7,7 +7,7 @@ description: >
   automatically. Run via "Build from goal" on the agents page.
 status: active
 source: examples
-skills: [research-shape, web-search]
+skills: [research-shape, web-search, shell-steps]
 
 inputs:
   GOAL:

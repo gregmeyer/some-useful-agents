@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { parseAgent, SYSTEM_AGENT_IDS } from '@some-useful-agents/core';
+import { parseAgent, SYSTEM_AGENT_IDS, withShellHelpers } from '@some-useful-agents/core';
 
 // research-fanout's code steps: the list as given, what each item is told,
 // and the merge that says which didn't finish. These run that code on what
@@ -12,7 +12,7 @@ const root = join(__dirname, '../../../..');
 const agent = (id: string) => parseAgent(readFileSync(join(root, 'agents/examples', `${id}.yaml`), 'utf8'));
 const run = (agentId: string, nodeId: string, env: Record<string, string>) => {
   const cmd = agent(agentId).nodes.find((n) => n.id === nodeId)!.command!;
-  const out = execFileSync('sh', ['-c', cmd], { env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8' });
+  const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', ...env }), encoding: 'utf8' });
   return JSON.parse(out.trim().split('\n').at(-1)!) as Record<string, any>;
 };
 
