@@ -517,6 +517,18 @@ export const agentV2Schema = z.object({
       'Behavior names are lowercase letters, digits, and single hyphens (e.g. "declare-blind-spots").',
     ),
   ).optional(),
+
+  /**
+   * Skills this agent uses (docs/skills.md): shared know-how from
+   * `skills/<name>/SKILL.md`, put in front of its llm prompts. Like behaviors,
+   * only the name shape is checked here; a name with no skill fails the run.
+   */
+  skills: z.array(
+    z.string().regex(
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+      'Skill names are lowercase letters, digits, and single hyphens (e.g. "research-shape").',
+    ),
+  ).optional(),
 }).superRefine((data, ctx) => {
   // Unique node ids
   const seen = new Map<string, number>();

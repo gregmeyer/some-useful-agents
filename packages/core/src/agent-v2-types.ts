@@ -603,6 +603,12 @@ export interface Agent {
    * See docs/behaviors.md and behavior-conditioning/resolve.ts.
    */
   behaviors?: string[];
+  /**
+   * Skills this agent uses, by name: shared know-how from
+   * `skills/<name>/SKILL.md`, put in front of every llm-prompt node's prompt.
+   * A name with no skill fails the run. See docs/skills.md.
+   */
+  skills?: string[];
 }
 
 /**
@@ -719,6 +725,8 @@ export interface AgentVersionDag {
   sampleQuestions?: string[];
   /** See Agent.behaviors. */
   behaviors?: string[];
+  /** See Agent.skills. */
+  skills?: string[];
   /** CSP allowlist contributions + inbox execution capabilities — see Agent.permissions. */
   permissions?: { imgSrc?: string[]; inboxRunnable?: boolean };
   /** See Agent.allowedSubAgents. */

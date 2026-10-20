@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { MemoryStore, NotebookStore, SYSTEM_AGENT_IDS, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
+import { MemoryStore, NotebookStore, SYSTEM_AGENT_IDS, loadShippedSkills, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
 import { renderAgentsList, type HomeStats } from '../../views/agents-list.js';
 import { renderAgentDetail } from '../../views/agent-detail.js';
@@ -40,6 +40,14 @@ function resolveBehaviorStatus(
     return { name, usable: true };
   });
 }
+/** Each skill the agent lists, with what it's for, or that it's missing (the run would fail). */
+function resolveSkillStatus(names: string[] | undefined): Array<{ name: string; description?: string }> | undefined {
+  if (!names || names.length === 0) return undefined;
+  let byName: ReturnType<typeof loadShippedSkills>['byName'];
+  try { byName = loadShippedSkills().byName; } catch { return undefined; }
+  return names.map((name) => ({ name, ...(byName.get(name) ? { description: byName.get(name)!.description } : {}) }));
+}
+
 /** The spend limits in force for an agent (its own, else the defaults), or undefined when none. */
 function loadSpendLimits(ctx: ReturnType<typeof getContext>, agent: Parameters<typeof effectiveSpendLimits>[0] & { id: string }) {
   const settings = ctx.llmSettingsStore?.get();
@@ -140,6 +148,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       from: fromParam,
       widgetControls,
       behaviorStatus: resolveBehaviorStatus(ctx, v2Agent.behaviors),
+      skillStatus: resolveSkillStatus(v2Agent.skills),
       invokes,
       invokedBy,
       connectedAgents,

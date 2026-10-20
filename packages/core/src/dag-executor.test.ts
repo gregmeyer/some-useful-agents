@@ -2610,6 +2610,40 @@ describe('executeAgentDag resume in place (B2)', () => {
   });
 });
 
+describe('skills (skills: [...])', () => {
+  const skillAgent = (skills: string[]): Agent => makeAgent({
+    skills,
+    nodes: [{ id: 'ask', type: 'llm-prompt', prompt: 'Research these companies.' }],
+  });
+  const loaded = () => ({
+    byName: new Map([['research-shape', { name: 'research-shape', description: 'd', body: 'Use research-fanout for a list.', file: '/x/SKILL.md' }]]),
+    problems: [],
+  });
+
+  it("puts the skill's text in the preamble of its llm nodes", async () => {
+    const seen: Array<{ preamble?: string }> = [];
+    const run = await executeAgentDag(skillAgent(['research-shape']), { triggeredBy: 'cli' }, {
+      runStore,
+      loadSkills: loaded,
+      spawnNode: async (_node, _env, opts) => { seen.push({ preamble: (opts as { behaviorPreamble?: string }).behaviorPreamble }); return { result: 'ok', exitCode: 0 }; },
+    });
+    expect(run.status).toBe('completed');
+    expect(seen[0].preamble).toContain('## research-shape\n\nUse research-fanout for a list.');
+  });
+
+  it('fails the run before any node when a listed skill is missing', async () => {
+    const spawned: string[] = [];
+    const run = await executeAgentDag(skillAgent(['research-shape', 'no-such-skill']), { triggeredBy: 'cli' }, {
+      runStore,
+      loadSkills: loaded,
+      spawnNode: async (node) => { spawned.push(node.id); return { result: 'ok', exitCode: 0 }; },
+    });
+    expect(run.status).toBe('failed');
+    expect(run.error).toContain('no-such-skill');
+    expect(spawned).toEqual([]);
+  });
+});
+
 describe('agent memory (memory: on)', () => {
   const llmAgent = (overrides: Partial<Agent> = {}): Agent => makeAgent({
     nodes: [

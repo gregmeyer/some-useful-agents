@@ -96,10 +96,11 @@ async function makeApp(opts: { userRoot?: string } = {}) {
   return buildDashboardApp(ctx);
 }
 
-function seedAgent(behaviors?: string[]): void {
+function seedAgent(behaviors?: string[], skills?: string[]): void {
   agentStore.upsertAgent({
     id: 'demo', name: 'Demo', status: 'active', source: 'local', mcp: false,
     ...(behaviors ? { behaviors } : {}),
+    ...(skills ? { skills } : {}),
     nodes: [{ id: 'work', type: 'claude-code', prompt: 'do it' }],
   } as unknown as Agent, 'import', 'test');
 }
@@ -123,6 +124,18 @@ afterEach(async () => {
   try { agentStore?.close(); } catch { /* ignore */ }
   try { inboxStore?.close(); } catch { /* ignore */ }
   if (dir) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('agent detail — "Uses skills"', () => {
+  it('lists its skills and marks one that does not exist', async () => {
+    const app = await makeApp();
+    seedAgent(undefined, ['research-shape', 'no-such-skill']);
+    const res = await get(app, '/agents/demo');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Uses skills');
+    expect(res.text).toMatch(/title="How an agent researches a list[^"]*">research-shape</);
+    expect(res.text).toMatch(/no-such-skill <span class="badge badge--err"[^>]*>missing/);
+  });
 });
 
 describe('agent detail — "Held to"', () => {

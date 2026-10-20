@@ -4,6 +4,7 @@ export * from './sqlite-open.js';
 export * from './markdown.js';
 export * from './behaviors/index.js';
 export * from './behavior-conditioning/index.js';
+export * from './skills.js';
 export * from './agent-loader.js';
 export * from './run-store.js';
 export * from './tool-call-record.js';
