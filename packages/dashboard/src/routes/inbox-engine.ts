@@ -11,6 +11,7 @@ import cycle is created — the route handlers in inbox.ts call into the
 
 import { randomUUID } from 'node:crypto';
 import { forkForNotebook } from '../lib/agent-fork.js';
+import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
@@ -1667,7 +1668,20 @@ export function executeAgentEditor(
       refusalReason: `\`${agentId}\` would call ${missing.map((id) => `\`${id}\``).join(', ')}, which ${missing.length === 1 ? "isn't" : "aren't"} installed. Install ${missing.length === 1 ? 'it' : 'them'} first, or ask sua for a fix that doesn't need ${missing.length === 1 ? 'it' : 'them'}.`,
     };
   }
-  if (meta.fork) return applyFixAsCopy(ctx, meta, parsed);
+  // Skills on the card, and every skill the agent lists: checked before
+  // anything is saved, so a fix can't leave an agent that fails to start.
+  const skillCheck = checkCardSkills(ctx, meta.inputs.NEW_SKILLS, { id: agentId, skills: parsed.skills ?? ctx.agentStore.getAgent(agentId)?.skills });
+  if (skillCheck.error) return { status: 'failed', refusalReason: skillCheck.error };
+  if (meta.fork) {
+    let skillsSaved;
+    try { skillsSaved = saveCardSkills(ctx, skillCheck.skills); } catch (err) {
+      return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+    }
+    const forked = applyFixAsCopy(ctx, meta, parsed);
+    if (forked.status === 'failed') skillsSaved.undo();
+    else if (forked.summary) forked.summary += skillsSaved.note;
+    return forked;
+  }
   // Carry the agent's ACCEPTANCE fields across the rewrite when NEW_YAML omits
   // them.
   //
@@ -1726,10 +1740,20 @@ export function executeAgentEditor(
       parsed.behaviors = before.behaviors;
       preserved.push('behaviors');
     }
+    // And `skills:`: dropping them quietly takes away know-how it was built with.
+    if (before.skills && !parsed.skills) {
+      parsed.skills = before.skills;
+      preserved.push('skills');
+    }
+  }
+  let skillsSaved;
+  try { skillsSaved = saveCardSkills(ctx, skillCheck.skills); } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
   try {
     ctx.agentStore.upsertAgent(parsed, 'dashboard', 'Inbox triage applied YAML fix');
   } catch (err) {
+    skillsSaved.undo();
     return {
       status: 'failed',
       refusalReason: `upsertAgent failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1741,9 +1765,9 @@ export function executeAgentEditor(
   const installed = !message?.agentId || message.agentId !== agentId;
   // Say so out loud — a silent preservation is only marginally better than a
   // silent deletion.
-  const note = preserved.length > 0
+  const note = (preserved.length > 0
     ? ` Kept the existing ${preserved.join(' and ')} (the edit omitted ${preserved.length === 1 ? 'it' : 'them'}).`
-    : '';
+    : '') + skillsSaved.note;
   return {
     status: 'completed',
     summary: installed
@@ -1796,6 +1820,12 @@ function applyFixAsCopy(
     status: 'completed',
     summary: `Saved the fix as \`${fork.id}\` (v${String(version)}), a copy for this notebook, because ${fork.why}.${switched ? ` This notebook now searches with the copy;` : ''} \`${parsed.id}\` is unchanged.`,
   };
+}
+
+/** The completed replies of these nodes, in order (for proposed skills). */
+function runNodeReplies(ctx: ReturnType<typeof getContext>, runId: string, nodeIds: readonly string[]): string[] {
+  const execs = ctx.runStore.listNodeExecutions(runId);
+  return nodeIds.map((id) => String(execs.find((e) => e.nodeId === id && e.status === 'completed')?.result ?? '')).filter(Boolean);
 }
 
 function extractYamlBlockFromRunNodes(
@@ -1948,6 +1978,8 @@ export function maybeAutoProposeEditorAction(
 
   // Respect the cap so a chatty analyzer can't fan out unbounded edits.
   if (countActionsSinceLastUser(ctx, messageId) >= MAX_ACTIONS_PER_MESSAGE) return;
+  // A skill it proposed with the fix rides on the same card (docs/skills.md).
+  const newSkills = proposedSkillsJson(ctx, runNodeReplies(ctx, analyzerRunId, ['analyze', 'fix']));
 
   // Avoid duplicate proposals if the same YAML was already proposed
   // and is still pending — operator might be mid-decision.
@@ -1965,7 +1997,7 @@ export function maybeAutoProposeEditorAction(
       status: 'proposed',
       agentId: 'agent-compose',
       effect: 'write',
-      inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, HELPER_ID: helper!, HELPER_ABOUT: helperAbout(ctx, helper!) },
+      inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, HELPER_ID: helper!, HELPER_ABOUT: helperAbout(ctx, helper!), ...(newSkills ? { NEW_SKILLS: newSkills } : {}) },
       rationale: `The new helper and the step that calls it, approved together.`,
       ctaLabel: 'Add it and wire it in',
     };
@@ -1987,7 +2019,7 @@ export function maybeAutoProposeEditorAction(
     // resolved the thread WITHOUT verifying anything, because the gate saw no
     // write. Only inbox-plan's parser had ever set the field.
     effect: 'write',
-    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
+    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, ...(newSkills ? { NEW_SKILLS: newSkills } : {}) },
     rationale: `Apply the YAML fix that agent-analyzer produced.`,
   };
   const editorResp = ctx.inboxStore.addResponse(
@@ -2034,6 +2066,7 @@ function maybeAutoProposeBuilderInstallAction(
       && m.inputs.NEW_YAML === proposedYaml) return;
   }
 
+  const newSkills = proposedSkillsJson(ctx, runNodeReplies(ctx, builderRunId, ['design', 'fix']));
   const alreadyInstalled = ctx.agentStore.getAgent(parsed.id);
   const rationale = alreadyInstalled
     ? `Apply the drafted update for \`${parsed.id}\`.`
@@ -2045,7 +2078,7 @@ function maybeAutoProposeBuilderInstallAction(
     // See the note on the analyzer-fix card above — installing a builder draft
     // is a write too, and must reach the same verify gate.
     effect: 'write',
-    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml },
+    inputs: { AGENT_ID: parsed.id, NEW_YAML: proposedYaml, ...(newSkills ? { NEW_SKILLS: newSkills } : {}) },
     rationale,
     ctaLabel: alreadyInstalled ? 'Apply draft' : 'Install draft',
   };

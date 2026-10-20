@@ -215,6 +215,7 @@ import {
 } from '@some-useful-agents/core';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { formatToolCatalog, autoFixYaml } from './run-now-build.js';
+import { skillsForCatalog } from './inbox-catalog.js';
 
 function buildCatalogs(ctx: Ctx): { tools: string; discovery: string } {
   const builtins = listBuiltinTools();
@@ -230,6 +231,7 @@ function buildCatalogs(ctx: Ctx): { tools: string; discovery: string } {
       templateRegistry: TEMPLATE_REGISTRY,
       dashboards: ctx.dashboardsStore?.listDashboards(),
       packs: ctx.packsStore?.listPacks(),
+      skills: skillsForCatalog(ctx, []),
     }),
   };
 }

@@ -11,6 +11,8 @@ import {
   type LlmProvider,
   type ToolDefinition,
   readExampleYaml,
+  loadSkills,
+  SkillStore,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { formatToolCatalog } from './run-now-build.js';
@@ -447,6 +449,22 @@ export function enrichAgentCatalogSearchInputs(
  * on the missing required AGENT_YAML, surfaced via the action's
  * `failed` state in the conversation thread.
  */
+/**
+ * The skills for a builder or analyzer catalog: every one by name, and the
+ * full text of `withBody` (the skills the agent being fixed lists).
+ */
+export function skillsForCatalog(ctx: ReturnType<typeof getContext>, withBody: readonly string[]): Array<{ name: string; description: string; body?: string; source?: string }> {
+  try {
+    const { byName } = loadSkills(SkillStore.fromHandle(ctx.runStore.databaseHandle()));
+    return [...byName.values()].map((s) => ({
+      name: s.name, description: s.description, ...(s.source ? { source: s.source } : {}),
+      ...(withBody.includes(s.name) ? { body: s.body } : {}),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function enrichAgentAnalyzerInputs(
   ctx: ReturnType<typeof getContext>,
   targetAgentId: string | undefined,
@@ -474,10 +492,12 @@ export function enrichAgentAnalyzerInputs(
     try {
       let userTools: ToolDefinition[] = [];
       try { if (ctx.toolStore) userTools = ctx.toolStore.listTools(); } catch { /* store not available */ }
+      const target = targetAgentId ? ctx.agentStore.getAgent(targetAgentId) : undefined;
       out.DISCOVERY_CATALOG = buildDiscoveryCatalog({
         agents: ctx.agentStore.listAgents(),
         tools: [...listBuiltinTools(), ...userTools],
         templateRegistry: TEMPLATE_REGISTRY,
+        skills: skillsForCatalog(ctx, target?.skills ?? []),
       });
     } catch { /* the analyzer still works without it */ }
   }
@@ -542,6 +562,7 @@ export function enrichAgentBuilderInputs(
         templateRegistry: TEMPLATE_REGISTRY,
         dashboards: ctx.dashboardsStore?.listDashboards(),
         packs: ctx.packsStore?.listPacks(),
+        skills: skillsForCatalog(ctx, []),
       });
     }
   } catch { /* swallow — agent-builder validates inputs and will fail loudly */ }

@@ -10,7 +10,7 @@ const md = (front: string, body = 'Do it this way.') => `---\n${front}\n---\n\n$
 describe('parseSkill', () => {
   it('reads name, description and text', () => {
     expect(parseSkill(md('name: web-search\ndescription: How to search.'), '/s/web-search/SKILL.md', 'web-search'))
-      .toEqual({ name: 'web-search', description: 'How to search.', body: 'Do it this way.', file: '/s/web-search/SKILL.md' });
+      .toEqual({ name: 'web-search', description: 'How to search.', body: 'Do it this way.', file: '/s/web-search/SKILL.md', source: 'shipped' });
   });
 
   it('says why a file is not a skill', () => {
@@ -75,5 +75,60 @@ describe('the shipped skills', () => {
         return (a.skills ?? []).filter((s) => !loaded.byName.has(s)).map((s) => `${a.id}: ${s}`);
       });
     expect(missing).toEqual([]);
+  });
+});
+
+describe('SkillStore', () => {
+  const open = async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { RunStore } = await import('./run-store.js');
+    const { SkillStore, loadSkills } = await import('./skills.js');
+    const runStore = new RunStore(join(mkdtempSync(join(tmpdir(), 'sua-skills-')), 'runs.db'));
+    return { store: SkillStore.fromHandle(runStore.databaseHandle()), loadSkills };
+  };
+
+  it('saves versions, skips unchanged text, rolls back as a new version, and takes a save back', async () => {
+    const { store } = await open();
+    expect(store.save({ name: 'cite-filings', description: 'Cite filings', body: 'One.' }, 'cli')).toBe(1);
+    expect(store.save({ name: 'cite-filings', description: 'Cite filings', body: 'One.' }, 'cli')).toBe(1);
+    expect(store.save({ name: 'cite-filings', description: 'Cite filings', body: 'Two.' }, 'dashboard', 'edit')).toBe(2);
+    expect(store.rollback('cite-filings', 1)).toBe(3);
+    expect(store.get('cite-filings')).toMatchObject({ body: 'One.', version: 3, source: 'local' });
+    store.undoSave('cite-filings', 3);
+    expect(store.get('cite-filings')).toMatchObject({ body: 'Two.', version: 2 });
+    store.undoSave('cite-filings', 2);
+    store.undoSave('cite-filings', 1);
+    expect(store.get('cite-filings')).toBeUndefined();
+  });
+
+  it("won't save a skill it can't use", async () => {
+    const { store } = await open();
+    expect(() => store.save({ name: 'Bad', description: 'd', body: 'x' }, 'cli')).toThrow(/lowercase/);
+    expect(() => store.save({ name: 'ok-name', description: 'd', body: 'Use {{inputs.X}}' }, 'cli')).toThrow(/template/);
+  });
+
+  it('a saved skill with a shipped name is your copy, and wins', async () => {
+    const { store, loadSkills } = await open();
+    store.save({ name: 'web-search', description: 'Mine', body: 'My way.' }, 'dashboard');
+    const loaded = loadSkills(store, join(root, 'agents/examples'));
+    expect(loaded.byName.get('web-search')).toMatchObject({ body: 'My way.', source: 'local' });
+    expect(loaded.byName.get('research-shape')?.source).toBe('shipped');
+  });
+});
+
+describe('extractSkillProposals', () => {
+  it('reads skill blocks from a reply, and says why one is unusable', async () => {
+    const { extractSkillProposals } = await import('./skills.js');
+    const reply = [
+      '<yaml>id: x</yaml>',
+      '<skill name="cite-filings" description="Cite the filing">\nQuote the filing.\n</skill>',
+      '<skill name="Bad Name" description="d">x</skill>',
+      '<skill name="cite-filings" description="again">dup</skill>',
+    ].join('\n');
+    expect(extractSkillProposals(reply)).toEqual({
+      skills: [{ name: 'cite-filings', description: 'Cite the filing', body: 'Quote the filing.' }],
+      problems: ['Bad Name: name is missing or not lowercase-with-hyphens'],
+    });
   });
 });

@@ -33,6 +33,13 @@ export interface DiscoveryCatalogOptions {
    */
   dashboards?: Dashboard[];
   /**
+   * Optional. Skills agents can list (`skills:`), so a built or fixed agent
+   * uses the shared know-how instead of a copy in its prompt. A skill with a
+   * `body` is shown in full (the ones the agent being fixed lists), so a
+   * proposal can change it.
+   */
+  skills?: Array<{ name: string; description: string; body?: string; source?: string }>;
+  /**
    * Optional. When supplied, the catalog appends an INSTALLED PACKS
    * section so the planner can suggest pack installation as an
    * alternative to from-scratch agent generation.
@@ -201,6 +208,14 @@ function buildPacksSection(packs: Pack[]): string {
   return `## INSTALLED + AVAILABLE PACKS\nIf an available pack already covers the goal, suggest installing it as a question rather than building from scratch.\n${lines.join('\n')}`;
 }
 
+function buildSkillsSection(skills: NonNullable<DiscoveryCatalogOptions['skills']>): string {
+  const head = '## SKILLS (shared know-how; an agent lists the ones it uses as `skills: [name]`)';
+  if (skills.length === 0) return `${head}\nNo skills yet.`;
+  const lines = skills.map((s) => `- ${s.name}${s.source === 'local' ? ' (yours)' : ''}: ${s.description}`);
+  const full = skills.filter((s) => s.body).map((s) => `### ${s.name} (its full text)\n${s.body}`);
+  return [head, ...lines, ...full].join('\n');
+}
+
 function buildAgentsSection(agents: Agent[]): string {
   // Include drafts AND active agents. Drafts are work-in-progress
   // agents the user has scaffolded but not yet promoted; they're
@@ -276,6 +291,7 @@ export function buildDiscoveryCatalog(opts: DiscoveryCatalogOptions): string {
   ];
   if (opts.dashboards) sections.push(buildDashboardsSection(opts.dashboards));
   if (opts.packs) sections.push(buildPacksSection(opts.packs));
+  if (opts.skills) sections.push(buildSkillsSection(opts.skills));
   sections.push(PATTERNS, WIDGET_GUIDANCE, DESIGN_DISCIPLINE);
 
   return sections.join('\n\n');

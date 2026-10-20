@@ -140,10 +140,22 @@ nodes:
       - Self-Correcting: validate LLM output with a shell node, fix with onlyIf on failure.
       - Always consider whether the goal benefits from control-flow nodes (conditional, switch, loop).
 
+      SKILLS (see SKILLS in the catalog): list the ones that fit as `skills: [name]`
+      on the agent, instead of writing that know-how into its prompts. When the
+      agent needs know-how no skill has and that other agents would use too (a
+      field's terms, how a kind of site lays out its pages, a scoring rubric),
+      you may propose ONE new skill after the yaml, and list it in skills:.
+      Don't make a skill for this agent's own task: that goes in its prompt.
+
       Respond in EXACTLY this format:
       <yaml>
       The complete agent YAML. Must be valid and parseable.
       </yaml>
+      Optionally, one new skill (approved by the operator with the agent):
+      <skill name="lowercase-with-hyphens" description="What it's for, in one line">
+      The know-how as short rules with their reasons, in Markdown. Under 6 KB,
+      and no double-brace templates (skills are quoted as written).
+      </skill>
     maxTurns: 6
     timeout: 180
 

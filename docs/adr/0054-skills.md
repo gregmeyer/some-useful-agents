@@ -30,5 +30,9 @@ and missed ones. Shell helpers had the same problem, but that's code, not know-h
 
 - One edit to a skill reaches every agent that lists it, with no reimport of those agents.
 - Skills don't fix timeouts. They spread the agent shapes that do.
-- Next: the builder and analyzer can propose a new skill, or a change to one, approved on a card like
-  a new helper agent (ADR-0051), stored with versions so it can be rolled back.
+- The builder and analyzer propose skills as `<skill name description>` blocks. A proposal rides on the
+  agent's own card (like a helper on an `agent-compose` card, ADR-0051), so one approval saves both, and
+  a fix can't land listing a skill that isn't there. Saved skills live in the run database
+  (`skills` + `skill_versions`, like `agent_versions`) and win over a shipped skill of the same name:
+  your copy, never an edit to the shipped file. Each proposal records the skill it replaces, so a skill
+  changed in between refuses the card instead of being overwritten.

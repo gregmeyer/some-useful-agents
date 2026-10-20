@@ -2631,6 +2631,17 @@ describe('skills (skills: [...])', () => {
     expect(seen[0].preamble).toContain('## research-shape\n\nUse research-fanout for a list.');
   });
 
+  it('uses a skill saved in the run database, with no loader given', async () => {
+    const { SkillStore } = await import('./skills.js');
+    SkillStore.fromHandle(runStore.databaseHandle()).save({ name: 'cite-filings', description: 'd', body: 'Quote the filing.' }, 'cli');
+    let preamble: string | undefined;
+    await executeAgentDag(skillAgent(['cite-filings']), { triggeredBy: 'cli' }, {
+      runStore,
+      spawnNode: async (_node, _env, opts) => { preamble = (opts as { behaviorPreamble?: string }).behaviorPreamble; return { result: 'ok', exitCode: 0 }; },
+    });
+    expect(preamble).toContain('## cite-filings\n\nQuote the filing.');
+  });
+
   it('fails the run before any node when a listed skill is missing', async () => {
     const spawned: string[] = [];
     const run = await executeAgentDag(skillAgent(['research-shape', 'no-such-skill']), { triggeredBy: 'cli' }, {

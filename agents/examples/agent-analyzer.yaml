@@ -180,6 +180,18 @@ nodes:
       If SUGGESTIONS or REWRITE, provide the complete improved YAML.
       Must be valid, keep the same agent id. If NO_IMPROVEMENTS, leave empty.
       </yaml>
+      Optionally, a skill (see SKILLS in the catalog), approved with the fix:
+      <skill name="lowercase-with-hyphens" description="What it's for, in one line">
+      The skill's COMPLETE text, in Markdown, under 6 KB, no double-brace
+      templates.
+      </skill>
+      Propose one only when the fix is know-how that other agents need too
+      ("cite the filing, not the press release"; "a listing's price is the
+      one by the title"), not a change to this agent's own steps. To change a
+      skill the agent lists, use its name and give its full new text (it's
+      shown in full under SKILLS). A new skill's name must not be taken. Put
+      the skill in the agent's skills: in your yaml, and take the same
+      know-how out of its prompts.
 
       Here is the agent YAML to review:
 

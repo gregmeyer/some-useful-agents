@@ -1,4 +1,5 @@
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
+import { parseCardSkills } from '../lib/skill-proposals.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { renderReplyBody } from '../lib/reply-body.js';
 import { renderThreadMessage, renderThread, isGrouped } from './thread.js';
@@ -905,7 +906,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
         ? meta.fork
           ? html`<p class="act-card__note act-card__note--fork">Saved as a copy for this notebook, <span class="mono">${meta.fork.id}</span>, because ${meta.fork.why}. This notebook will search with the copy; <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> stays as it is.</p>`
           : html`<p class="act-card__note">Saved as a new version of <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span>. Its status and schedule stay as they are; roll back any time from Versions.</p>`
-        : html``}${renderAgentChange(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}`
+        : html``}${renderAgentChange(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}${renderYamlDiff(meta.base?.yaml ?? currentTargetYaml ?? '', meta.inputs.NEW_YAML)}${renderSkillChanges(meta.inputs.NEW_SKILLS, meta.status === 'proposed')}`
       : hasInputs ? html`<details class="act-card__details"><summary>Details</summary>${inputsRendered}</details>` : html``}
     ${detailBlock}
     ${meta.status === 'proposed' ? html`<div class="act-card__foot">${controlsBlock}<span class="act-card__spacer"></span>${trustBlock}</div>` : trustBlock}
@@ -1111,7 +1112,25 @@ function renderAgentChange(oldYaml: string, newYaml: string): SafeHtml {
   return html`<ul class="act-card__changes">${lines.map((l) => html`<li class="act-card__change"><span class="act-card__change-what">${l.what}</span><span>${l.detail}</span></li>`) as unknown as SafeHtml[]}</ul>`;
 }
 
-function renderYamlDiff(oldYaml: string, newYaml: string): SafeHtml {
+/**
+ * Skills proposed with the agent (docs/skills.md): each as "New skill" with
+ * its text, or "Changes skill" with what changes. Saved with the agent.
+ */
+function renderSkillChanges(raw: string | undefined, proposed: boolean): SafeHtml {
+  const skills = parseCardSkills(raw);
+  if (skills.length === 0) return html``;
+  return html`<div class="act-card__skills">${skills.map((s) => html`
+    <div class="act-card__skill">
+      <p class="act-card__skill-head"><span class="act-card__change-what">${s.base ? 'Changes skill' : 'New skill'}</span> <span class="mono">${s.name}</span> — ${s.description}</p>
+      ${s.base
+        ? renderYamlDiff(s.base.body, s.body, `changes to the skill${s.base.source === 'shipped' ? ' (saved as your copy; the shipped one stays as it is)' : ''}`)
+        : html`<details class="inbox-action__diff"><summary class="inbox-action__diff-header"><span class="inbox-action__diff-toggle">the skill's text</span></summary><pre class="inbox-action__diff-body mono">${s.body}</pre></details>`}
+    </div>`) as unknown as SafeHtml[]}
+    ${proposed ? html`<p class="act-card__note">Saved with the agent, as a new version you can roll back. Every agent that lists ${skills.length === 1 ? 'it' : 'them'} gets the new text.</p>` : html``}
+  </div>`;
+}
+
+function renderYamlDiff(oldYaml: string, newYaml: string, label = 'changes to the agent'): SafeHtml {
   const a = oldYaml.split('\n');
   const b = newYaml.split('\n');
   const m = a.length, n = b.length;
@@ -1136,7 +1155,7 @@ function renderYamlDiff(oldYaml: string, newYaml: string): SafeHtml {
     <details class="inbox-action__diff">
       <summary class="inbox-action__diff-header">
         <span class="mono"><span class="inbox-action__diff-add">+${plus}</span> <span class="inbox-action__diff-del">−${minus}</span></span>
-        <span class="inbox-action__diff-toggle">changes to the agent</span>
+        <span class="inbox-action__diff-toggle">${label}</span>
       </summary>
       <pre class="inbox-action__diff-body mono">${rows as unknown as SafeHtml[]}</pre>
     </details>
