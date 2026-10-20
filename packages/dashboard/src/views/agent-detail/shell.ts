@@ -31,6 +31,8 @@ export interface AgentDetailArgs {
    * with a reason. Absent when the host did not wire behavior discovery.
    */
   behaviorStatus?: Array<{ name: string; usable: boolean; reason?: string }>;
+  /** Each name in `agent.skills`, with its description; none when the skill is missing. */
+  skillStatus?: Array<{ name: string; description?: string }>;
   /**
    * Available integrations (from `/settings/integrations`) surfaced in the
    * Notify card's per-handler dropdowns. Empty when the route can't reach

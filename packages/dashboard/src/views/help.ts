@@ -97,6 +97,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
       { cmd: 'sua usage --days 30', desc: 'What runs cost, by agent and provider/model.', inDashboard: { label: 'Settings → Usage', href: '/settings/usage' } },
       { cmd: 'sua policy check <tool> [resource]', desc: 'Would this tool call be allowed? (also: show, validate)', inDashboard: { label: 'Settings → Policies', href: '/settings/policies' } },
       { cmd: 'sua behaviors list', desc: 'Agent Behavior specs in this project (also: show, validate).', inDashboard: { label: 'Behaviors', href: '/behaviors' } },
+      { cmd: 'sua skill list', desc: 'Skills agents share: know-how such as how to research a list (also: show).' },
     ],
   },
   {

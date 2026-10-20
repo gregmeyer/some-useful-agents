@@ -50,6 +50,7 @@ import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-ima
 import { explainNodeFailure } from './failure-explain.js';
 import { loadBehaviors, defaultBehaviorScopes, type LoadBehaviorsResult } from './behaviors/index.js';
 import { resolveBehaviorsForRun } from './behavior-conditioning/index.js';
+import { loadShippedSkills, buildSkillsPreamble, type LoadSkillsResult } from './skills.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
@@ -219,6 +220,8 @@ export interface DagExecutorDeps {
    * executor inherits it rather than having to remember it.
    */
   loadBehaviors?: () => LoadBehaviorsResult;
+  /** Skills (skills.ts), injectable for tests. Defaults to the shipped ones. */
+  loadSkills?: () => LoadSkillsResult;
 }
 
 export interface DagExecuteOptions {
@@ -475,6 +478,20 @@ export async function executeAgentDag(
         completedAt,
         error: message,
       });
+      const failed = deps.runStore.getRun(runId);
+      if (failed) return failed;
+      throw err;
+    }
+  }
+
+  // Skills (docs/skills.md): shared know-how the agent lists, after its
+  // behaviors. A listed skill that's missing fails the run, like a behavior.
+  if (agent.skills && agent.skills.length > 0) {
+    try {
+      const { text } = buildSkillsPreamble(agent.skills, (deps.loadSkills ?? (() => loadShippedSkills()))());
+      if (text) behaviorPreamble = behaviorPreamble ? `${behaviorPreamble}\n${text}` : text;
+    } catch (err) {
+      deps.runStore.updateRun(runId, { status: 'failed', completedAt: new Date().toISOString(), error: (err as Error).message });
       const failed = deps.runStore.getRun(runId);
       if (failed) return failed;
       throw err;

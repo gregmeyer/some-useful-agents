@@ -6,6 +6,7 @@ description: >
   errors automatically. Run via "Suggest improvements" on any agent's detail page.
 status: active
 source: examples
+skills: [research-shape, web-search]
 
 inputs:
   AGENT_YAML:
@@ -107,16 +108,9 @@ nodes:
         agent itself, and never one that calls this agent back. Keep it to one
         or two calls; agent calls go at most 3 levels deep.
       - Say which you chose in <details> ("Adds a call to X for Y because …").
-      - A step that TIMED OUT or ran out of turns researching a list (ten
-        companies, every option, several angles) is too much for one node.
-        Replace it with one `agent-invoke` of research-fanout (ITEMS: the list,
-        ASK: what to find for each as JSON [{key, label, hint}], CONTEXT: the
-        goal and limits), which runs each item as its own small run, three at
-        a time, and lists the ones that didn't finish; keep the agent's own
-        checking and summing-up nodes after it, reading its `results`. Never
-        split the list into copies of the same node (gather-1, gather-2, …):
-        sibling nodes run one after another, so it's as slow and repeats the
-        prompt.
+      - A step that TIMED OUT or ran out of turns researching a list, or a
+        step that searches the web: follow the research-shape and web-search
+        skills at the top.
 
       {{inputs.FOCUS}}
 

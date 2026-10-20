@@ -9,7 +9,7 @@ import type { AgentEdge } from '../../lib/agent-graph.js';
 import { formatUsd, type Memory } from '@some-useful-agents/core';
 
 export async function renderAgentOverview(args: AgentDetailArgs): Promise<string> {
-  const { agent, recentRuns, widgetControls, behaviorStatus } = args;
+  const { agent, recentRuns, widgetControls, behaviorStatus, skillStatus } = args;
   const latestCompletedRun = recentRuns.find((r) => r.status === 'completed');
   const latestRun = recentRuns[0];
   const latestRunInputsJson = (latestRun as { inputsJson?: string } | undefined)?.inputsJson;
@@ -120,6 +120,20 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     </dd>
   `;
 
+  const skills = agent.skills ?? [];
+  const usesSkills = skills.length === 0 ? html`` : html`
+    <dt>Uses skills</dt>
+    <dd>
+      ${skills.map((name) => {
+        const status = skillStatus?.find((s) => s.name === name);
+        const missing = status ? !status.description : false;
+        return html`<span class="mono" style="display: inline-block; margin-right: var(--space-2);" title="${status?.description ?? ''}">${name}${missing
+          ? html` <span class="badge badge--err" title="No skill with this name; the agent fails to run until it exists.">missing</span>`
+          : html``}</span>`;
+      }) as unknown as SafeHtml[]}
+    </dd>
+  `;
+
   const last = args.latestResult;
   const newest = recentRuns[0];
   const running = recentRuns.find((r) => r.status === 'running' || r.status === 'pending');
@@ -196,6 +210,7 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
         ${args.spend7d ? html`<dt>Spend, 7 days</dt><dd><span class="mono" title="USD at list price, incl. agents it called">${formatUsd(args.spend7d.costUsd, args.spend7d.costComplete)}</span> <span class="dim">over ${String(args.spend7d.runs)} run${args.spend7d.runs === 1 ? '' : 's'}</span></dd>` : html``}
         ${spendLimitsRow(args.spendLimits)}
         ${heldTo}
+        ${usesSkills}
       </dl>
       ${toolBadges.length > 0 ? html`<div class="agent-glance__tools">${toolBadges as unknown as SafeHtml[]}</div>` : html``}
       ${connectionsList(agent.id, args.invokes ?? [], args.invokedBy ?? [], args.feedsNotebooks ?? [], args.connectedAgents ?? {})}
