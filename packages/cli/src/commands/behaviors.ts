@@ -59,12 +59,12 @@ function printEmptyHelp(roots: string[]): void {
   console.log(`  See ${ui.dim('docs/behaviors.md')}`);
 }
 
-const SCOPE_ORDER: BehaviorScope[] = ['project', 'user', 'org'];
+const SCOPE_ORDER: BehaviorScope[] = ['project', 'bundled', 'user', 'org'];
 
 behaviorsCommand
   .command('list')
   .description('List discovered behavior specs')
-  .option('-s, --scope <scope>', 'Only this scope (project | user | org)')
+  .option('-s, --scope <scope>', 'Only this scope (project | bundled | user | org)')
   .option('--json', 'Output JSON')
   .action((options: { scope?: string; json?: boolean }) => {
     const res = collect(options.scope);
@@ -105,7 +105,7 @@ behaviorsCommand
 behaviorsCommand
   .command('validate')
   .description('Validate behavior specs; exits non-zero when any is invalid')
-  .option('-s, --scope <scope>', 'Only this scope (project | user | org)')
+  .option('-s, --scope <scope>', 'Only this scope (project | bundled | user | org)')
   .option('--strict', 'Treat warnings as failures too')
   .option('--json', 'Output JSON')
   .action((options: { scope?: string; strict?: boolean; json?: boolean }) => {

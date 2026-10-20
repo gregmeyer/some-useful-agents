@@ -14,9 +14,12 @@
 
 /**
  * Where a spec was found. The standard defines three scopes but no precedence
- * between them; ours is project > user > org (see `loadBehaviors`).
+ * between them; ours is project > bundled > user > org (see `loadBehaviors`).
+ * `bundled` is sua's own: the specs shipped in the package beside the example
+ * agents, reviewed like its code, so shipped agents can be held to them on
+ * any install.
  */
-export type BehaviorScope = 'project' | 'user' | 'org';
+export type BehaviorScope = 'project' | 'bundled' | 'user' | 'org';
 
 /**
  * Provenance. Deliberately a struct rather than a bare path string: the standard

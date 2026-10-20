@@ -50,7 +50,7 @@ function writeSpec(root: string, name: string, scopeDir = '.agents/behaviors'): 
     `---\nname: ${name}\ndescription: Spec for ${name}.\n---\n# ${name}\n\nbody`);
 }
 
-async function makeApp(opts: { userRoot?: string } = {}) {
+async function makeApp(opts: { userRoot?: string; bundledRoot?: string } = {}) {
   dir = mkdtempSync(join(tmpdir(), 'sua-behavior-ui-'));
   const dbPath = join(dir, 'runs.db');
   const agentsDir = join(dir, 'agents', 'local');
@@ -65,6 +65,7 @@ async function makeApp(opts: { userRoot?: string } = {}) {
 
   const scopes = [
     { scope: 'project' as const, rootDir: dir, optional: true },
+    ...(opts.bundledRoot ? [{ scope: 'bundled' as const, rootDir: opts.bundledRoot, optional: true }] : []),
     ...(opts.userRoot ? [{ scope: 'user' as const, rootDir: opts.userRoot, optional: true }] : []),
   ];
 
@@ -183,6 +184,21 @@ describe('agent detail — "Held to"', () => {
       expect(res.text).toContain('unusable');
     } finally {
       rmSync(userRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('does not flag a behavior shipped with sua (bundled), which can condition a run', async () => {
+    const bundledRoot = mkdtempSync(join(tmpdir(), 'sua-behavior-bundled-'));
+    try {
+      const app = await makeApp({ bundledRoot });
+      writeSpec(bundledRoot, 'shipped');
+      seedAgent(['shipped']);
+      const res = await get(app, '/agents/demo');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Held to');
+      expect(res.text).not.toContain('unusable');
+    } finally {
+      rmSync(bundledRoot, { recursive: true, force: true });
     }
   });
 

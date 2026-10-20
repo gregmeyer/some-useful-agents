@@ -20,6 +20,7 @@ name: Firmographic research
 description: Finds sourced CSV-ready firmographic and buying-context fields for a bounded batch of named companies, with sourced values or "not found" for every requested cell.
 status: active
 source: examples
+behaviors: [cite-evidence-before-claiming]
 mcp: false
 view:
   components:

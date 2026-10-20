@@ -17,6 +17,7 @@ description: >
   returns each answer with its source and a quote, or "not found".
 status: active
 source: examples
+behaviors: [cite-evidence-before-claiming, declare-blind-spots]
 mcp: false
 
 inputs:

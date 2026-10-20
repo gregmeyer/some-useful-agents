@@ -41,4 +41,13 @@ for (const entry of readdirSync(src)) {
   }
 }
 
-console.log(`bundled ${yamls} example agents -> ${dst}`);
+// The repo's behavior specs ship beside the examples, so shipped agents can
+// be held to them on an npm install (the `bundled` behavior scope).
+const behaviors = resolve(pkgRoot, '..', '..', '.agents', 'behaviors');
+let specs = 0;
+try {
+  cpSync(behaviors, join(dst, '.agents', 'behaviors'), { recursive: true });
+  specs = readdirSync(behaviors).length;
+} catch { /* no specs in this checkout */ }
+
+console.log(`bundled ${yamls} example agents and ${specs} behaviors -> ${dst}`);

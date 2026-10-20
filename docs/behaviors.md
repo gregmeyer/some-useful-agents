@@ -74,12 +74,28 @@ requirement — sua does not parse them.
 | Scope | Path | Notes |
 | --- | --- | --- |
 | project | `<repo>/.agents/behaviors/` | In the repo, under code review |
+| bundled | inside sua's package, beside the example agents | sua's own specs (copied from this repo's `.agents/behaviors/` at build), so shipped agents can be held to them on any install |
 | user | `~/.agents/behaviors/` | Shared across all your projects |
 | org | configured via `behaviors.orgDir` in `sua.config.json` | Centrally managed |
 
-**Precedence is project > user > org**, first match wins. When the same `name` appears in two
+**Precedence is project > bundled > user > org**, first match wins. When the same `name` appears in two
 scopes, the winner is used and the loser is listed as *shadowed* rather than silently dropped,
-with a warning naming both files.
+with a warning naming both files. The same file found twice (a sua checkout sees its own specs as
+project and as the bundled copy) counts once, with no warning.
+
+Only **project** and **bundled** specs can condition a run: both are reviewed like code. A user or
+org spec is shown but never steers an agent.
+
+### Shipped agents held to behaviors
+
+| Agent | Behaviors |
+| --- | --- |
+| research-one, notebook-checker, starter-research, agent-analyzer | `cite-evidence-before-claiming`, `declare-blind-spots` |
+| firmographic-research | `cite-evidence-before-claiming` |
+
+These are the agents that report facts, verdicts and diagnoses. The behaviors make an invented
+value or a quietly skipped item less likely; the code checks after them (quote checks, number
+grounding, the list of what didn't finish) still decide what's kept.
 
 The standard defines the three scopes but not the precedence between them, so this ordering is
 sua's choice: project-local is both the most specific and the most reviewed, and a file in your
@@ -170,20 +186,22 @@ nodes:
 This is **opt-in per agent**. Nothing is injected unless you name it, and discovery alone never
 steers anything.
 
-### Only project scope can steer
+### Only project (and bundled) scope can steer
 
-A name is resolved against `<repo>/.agents/behaviors/` **only**. A behavior that exists solely
+A name is resolved against `<repo>/.agents/behaviors/`, and the specs shipped inside sua's own
+package (bundled), **only**. A behavior that exists solely
 in `~/.agents/behaviors/` or an org directory is readable and displayable but cannot condition a
 run, and naming one is an error.
 
 The asymmetry is the point. A project-scope spec lives in your repository under code review, at
-the same trust level as the agent YAML beside it — which already goes into prompts. Anything in
+the same trust level as the agent YAML beside it — which already goes into prompts. A bundled spec
+ships in the same package as sua's code and example agents, at the same trust level as them. Anything in
 a home directory or a central registry is ambient text that would otherwise gain authority over
 every run on the machine just by existing.
 
 ### Failures are loud
 
-If a named behavior does not exist, resolves only outside project scope, or is too large for the
+If a named behavior does not exist, resolves only in user or org scope, or is too large for the
 conditioning budget, **the run fails before any node executes**. It does not fall back to running
 unconditioned: you asked to be held to that conduct, and a run that quietly drops it produces
 output nobody knows was un-steered.

@@ -61,8 +61,9 @@ describe('sua behaviors list', () => {
 
   it('names the roots it searched when nothing is found', () => {
     // A mute "0 results" is the failure mode this whole feature is built to
-    // avoid; the empty state must be actionable.
-    run('list');
+    // avoid; the empty state must be actionable. (Project scope only: the
+    // specs shipped with sua are always there.)
+    run('list', '--scope', 'project');
     expect(out()).toContain('No behavior specs found');
     expect(out()).toContain('.agents/behaviors');
     expect(out()).toContain('BEHAVIOR.md');
@@ -76,13 +77,22 @@ describe('sua behaviors list', () => {
 
   it('emits stable JSON', () => {
     writeSpec(dir, 'alpha');
-    run('list', '--json');
+    run('list', '--json', '--scope', 'project');
     const parsed = JSON.parse(out());
     expect(parsed.behaviors).toHaveLength(1);
     expect(parsed.behaviors[0].name).toBe('alpha');
     expect(parsed.behaviors[0].location.scope).toBe('project');
     // The body is NOT in list output — it is untrusted bulk.
     expect(parsed.behaviors[0].body).toBeUndefined();
+  });
+});
+
+describe('sua behaviors list — shipped specs', () => {
+  it('lists the specs shipped with sua under bundled', () => {
+    run('list', '--json');
+    const parsed = JSON.parse(out());
+    const bundled = parsed.behaviors.filter((b: { location: { scope: string } }) => b.location.scope === 'bundled').map((b: { name: string }) => b.name);
+    expect(bundled).toEqual(expect.arrayContaining(['cite-evidence-before-claiming', 'declare-blind-spots']));
   });
 });
 
