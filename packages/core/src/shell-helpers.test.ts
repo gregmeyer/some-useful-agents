@@ -34,6 +34,18 @@ describe('sua_helpers', () => {
     expect(py(code(', "missing"'))).toBe('null');
   });
 
+  it('a reply that is one object is that object; with keys, a nested match when no top-level one has them', () => {
+    const run = (text: string, args = '') => JSON.parse(py(`import json; from sua_helpers import last_json; print(json.dumps(last_json(${JSON.stringify(text)}${args})))`));
+    expect(run('{"note": "nothing found"}', ', "candidates"')).toEqual({ note: 'nothing found' });
+    expect(run('ran {"outputs": {"results": [1]}} ok', ', "results"')).toEqual({ results: [1] });
+  });
+
+  it('tagged_json reads the JSON inside a tag', () => {
+    const code = (text: string) => py(`import json; from sua_helpers import tagged_json; print(json.dumps(tagged_json(${JSON.stringify(text)}, "verdicts")))`);
+    expect(JSON.parse(code('Here: <verdicts>[{"ok": true}]</verdicts>'))).toEqual([{ ok: true }]);
+    expect(code('<verdicts>not json</verdicts>')).toBe('null');
+  });
+
   it('upstream_json reads whole JSON, else the last object, else the default', () => {
     const code = 'import json; from sua_helpers import upstream_json; print(json.dumps(upstream_json("x", {"none": True})))';
     expect(JSON.parse(py(code, { UPSTREAM_X_RESULT: '[1, 2]' }))).toEqual([1, 2]);
@@ -43,18 +55,12 @@ describe('sua_helpers', () => {
 });
 
 describe('shipped agents use the shared helpers', () => {
-  // Agents that still keep their own copy, moved one at a time as they're
-  // changed anyway. Only ever shrinks: a new copy fails here.
-  const STILL_OWN_COPY = new Set(['account-research', 'firmographic-research', 'lever-job-agent', 'notebook-checker', 'notebook-finder', 'starter-research']);
-
-  it('no new agent defines its own upstream() or last_json()', async () => {
+  it('no shipped agent defines its own upstream(), last_json() or JSON scanner', async () => {
     const { readdirSync, readFileSync } = await import('node:fs');
     const dir = join(__dirname, '../../../agents/examples');
     const own = readdirSync(dir).filter((f) => f.endsWith('.yaml'))
-      .filter((f) => /def (upstream|last_json)\(/.test(readFileSync(join(dir, f), 'utf8')))
+      .filter((f) => /def (upstream|last_json|last_obj|block)\(/.test(readFileSync(join(dir, f), 'utf8')))
       .map((f) => f.replace(/\.yaml$/, ''));
-    expect(own.filter((id) => !STILL_OWN_COPY.has(id))).toEqual([]);
-    // Moved off the list: take it out, so it can't drift back.
-    expect([...STILL_OWN_COPY].filter((id) => !own.includes(id))).toEqual([]);
+    expect(own).toEqual([]);
   });
 });

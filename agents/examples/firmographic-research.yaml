@@ -229,24 +229,7 @@ nodes:
     command: |
       python3 - <<'PY'
       import json, os, re
-
-      def upstream(name):
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def last_obj(text, key):
-          found = None
-          for m in re.finditer(r"\{", text or ""):
-              try:
-                  v, _ = json.JSONDecoder().raw_decode(text[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(v, dict) and key in v:
-                  found = v
-          return found
+      from sua_helpers import upstream, last_json
 
       def number(value):
           """A plain number from a sourced value; a range's midpoint; "not found" otherwise."""
@@ -269,7 +252,7 @@ nodes:
           return int(values[0])
 
       plan = json.loads(upstream("LIST"))
-      fan = last_obj(upstream("RESEARCH"), "results") or {}
+      fan = last_json(upstream("RESEARCH"), "results") or {}
       results = fan.get("results") or []
       rows, sources = [], set()
       for i, name in enumerate(plan["selected_companies"]):
@@ -334,13 +317,7 @@ nodes:
     command: |
       python3 - <<'PY'
       import json, os, re, sys
-
-      def upstream(name):
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
+      from sua_helpers import upstream
 
       rec = json.loads(upstream("RECORDS"))
       syn = None

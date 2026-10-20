@@ -9,7 +9,7 @@ its own (they're on PYTHONPATH for every shell step):
 ```python
 python3 - <<'PY'
 import json, os
-from sua_helpers import upstream, upstream_json, last_json, emit
+from sua_helpers import upstream, upstream_json, last_json, tagged_json, emit
 
 plan = upstream_json("plan", {})          # whole JSON, else the last object in it
 reply = last_json(upstream("research"), "found", "summary")
@@ -23,6 +23,7 @@ PY
 - `last_json(text, *keys)`: the last top-level JSON object in a model's reply
   (models add words around their JSON). With keys, only an object that has
   one of them; a nested object is never picked on its own.
+- `tagged_json(text, "verdicts")`: the JSON inside `<verdicts>…</verdicts>`.
 - `upstream_json("step-id", default)`: the result as JSON, else the last
   object in it, else the default.
 - `emit(obj)`: print the step's result as one line of JSON.

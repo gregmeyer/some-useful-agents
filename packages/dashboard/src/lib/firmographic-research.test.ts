@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { parseAgent } from '@some-useful-agents/core';
+import { parseAgent, withShellHelpers } from '@some-useful-agents/core';
 
 // firmographic-research researches each company through research-fanout;
 // code builds the records from what it found, and the model only scores fit.
@@ -11,7 +11,7 @@ const root = join(__dirname, '../../../..');
 const agent = parseAgent(readFileSync(join(root, 'agents/examples', 'firmographic-research.yaml'), 'utf8'));
 const run = (nodeId: string, env: Record<string, string>) => {
   const cmd = agent.nodes.find((n) => n.id === nodeId)!.command!;
-  const out = execFileSync('sh', ['-c', cmd], { env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8' });
+  const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', ...env }), encoding: 'utf8' });
   return JSON.parse(out.trim().split('\n').at(-1)!) as Record<string, any>;
 };
 

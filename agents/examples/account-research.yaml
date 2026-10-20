@@ -265,31 +265,15 @@ nodes:
       set -e
       python3 << 'PYEOF'
       import json, os, re, unicodedata
-
-      def block(raw, tag):
-          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
-          if not m:
-              return None
-          try:
-              return json.loads(m.group(1))
-          except Exception:
-              return None
+      from sua_helpers import upstream, tagged_json
 
       REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
       def norm(s):
           s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
           return re.sub(r"\s+", " ", s).strip()
 
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
       disc = json.loads(upstream("DISCOVER") or "{}")
-      scored = block(upstream("SCORE"), "scored") or []
+      scored = tagged_json(upstream("SCORE"), "scored") or []
       by_slug = {c["slug"].lower(): c for c in disc.get("companies", [])}
 
       try:

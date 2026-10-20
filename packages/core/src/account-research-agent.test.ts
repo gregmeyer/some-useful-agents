@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { withShellHelpers } from './node-spawner.js';
 import { parseAgent } from './agent-yaml.js';
 
 const yaml = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'agents', 'examples', 'account-research.yaml'), 'utf8');
@@ -30,7 +31,7 @@ function verify(scored: unknown[], fields: unknown[] = []) {
     ],
   };
   const r = spawnSync('bash', ['-c', (node as { command: string }).command], {
-    env: { ...process.env, UPSTREAM_DISCOVER_RESULT: JSON.stringify(discover), UPSTREAM_SCORE_RESULT: `<scored>${JSON.stringify(scored)}</scored>`, FIELDS: JSON.stringify(fields) },
+    env: withShellHelpers({ ...process.env, UPSTREAM_DISCOVER_RESULT: JSON.stringify(discover), UPSTREAM_SCORE_RESULT: `<scored>${JSON.stringify(scored)}</scored>`, FIELDS: JSON.stringify(fields) } as Record<string, string>),
     encoding: 'utf8',
   });
   expect(r.status, r.stderr).toBe(0);

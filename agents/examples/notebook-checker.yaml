@@ -86,23 +86,7 @@ nodes:
     command: |
       python3 - <<'PY'
       import json, os, re
-
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def block(raw, tag):
-          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
-          if not m:
-              return None
-          try:
-              return json.loads(m.group(1))
-          except Exception:
-              return None
+      from sua_helpers import upstream, tagged_json
 
       def norm(s):
           return re.sub(r"\s+", " ", s or "").strip().lower()
@@ -117,7 +101,7 @@ nodes:
           checks = []
       # Settled from its own facts (subject to verify's quote check): met or not met.
       settled = set()
-      for v in block(upstream("JUDGE"), "verdicts") or []:
+      for v in tagged_json(upstream("JUDGE"), "verdicts") or []:
           if isinstance(v, dict) and str(v.get("verdict", "")).lower().strip() in ("met", "not met"):
               settled.add((str(v.get("id", "")), norm(str(v.get("check", "")))))
 
@@ -185,23 +169,7 @@ nodes:
       set -e
       python3 << 'PYEOF'
       import html, json, os, re, unicodedata, urllib.request
-
-      def upstream(name):
-          # Past 32KB the env value is cut short and the whole of it is in a file.
-          path = os.environ.get(f"UPSTREAM_{name}_RESULT_FILE")
-          if path and os.path.exists(path):
-              with open(path, encoding="utf-8") as f:
-                  return f.read()
-          return os.environ.get(f"UPSTREAM_{name}_RESULT", "")
-
-      def block(raw, tag):
-          m = re.search(rf"<{tag}>([\s\S]*?)</{tag}>", raw or "")
-          if not m:
-              return None
-          try:
-              return json.loads(m.group(1))
-          except Exception:
-              return None
+      from sua_helpers import upstream, last_json, tagged_json
 
       REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
       def norm(s):
@@ -234,22 +202,11 @@ nodes:
           checks = []
       canon = {norm(c): c for c in checks}
 
-      def last_obj(text, key):
-          dec, found = json.JSONDecoder(), None
-          for m in re.finditer(r"\{", text or ""):
-              try:
-                  v, _ = dec.raw_decode(text[m.start():])
-              except ValueError:
-                  continue
-              if isinstance(v, dict) and key in v:
-                  found = v
-          return found
-
       # The verdicts: the judge's from its own facts, then the web research's
       # (research-fanout's results, its keys c1, c2, … standing for the checks).
-      verdicts = [v for v in block(upstream("JUDGE"), "verdicts") or [] if isinstance(v, dict)]
-      pend = last_obj(upstream("PENDING"), "subjects") or {}
-      web = last_obj(upstream("WEB"), "results") or {}
+      verdicts = [v for v in tagged_json(upstream("JUDGE"), "verdicts") or [] if isinstance(v, dict)]
+      pend = last_json(upstream("PENDING"), "subjects") or {}
+      web = last_json(upstream("WEB"), "results") or {}
       keys, subjects = pend.get("keys") or {}, pend.get("subjects") or {}
       for r in web.get("results") or []:
           oid = subjects.get(norm(str((r or {}).get("subject") or ""))) if isinstance(r, dict) else None
