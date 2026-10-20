@@ -21,6 +21,7 @@ description: >
   a quote from a source shows it.
 status: active
 source: examples
+behaviors: [cite-evidence-before-claiming, declare-blind-spots]
 
 inputs:
   NOTEBOOK:

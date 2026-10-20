@@ -91,6 +91,11 @@ describe('buildBehaviorPreamble', () => {
 });
 
 describe('resolveBehaviorsForRun', () => {
+  it("lets a bundled spec (shipped in sua's package) condition a run", () => {
+    const out = resolveBehaviorsForRun({ names: ['shipped'], discovered: discovered([rec('shipped', { scope: 'bundled' })]) });
+    expect(out.applied).toEqual(['shipped']);
+  });
+
   it('resolves project-scope names', () => {
     const out = resolveBehaviorsForRun({
       names: ['alpha'],

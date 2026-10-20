@@ -132,3 +132,22 @@ describe('extractSkillProposals', () => {
     });
   });
 });
+
+describe('behaviors shipped agents list', () => {
+  it('all resolve from the specs shipped with sua, as on an npm install (no project specs)', async () => {
+    const { readdirSync, mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { loadBehaviors, defaultBehaviorScopes } = await import('./behaviors/index.js');
+    const { resolveBehaviorsForRun } = await import('./behavior-conditioning/index.js');
+    // The repo root holds .agents/behaviors, which the build copies to the bundled dir.
+    const discovered = loadBehaviors({ scopes: defaultBehaviorScopes({ projectRoot: mkdtempSync(join(tmpdir(), 'sua-npm-')), bundledDir: root, userScope: false }) });
+    const listed = readdirSync(join(root, 'agents/examples')).filter((f) => f.endsWith('.yaml'))
+      .map((f) => parseAgent(readFileSync(join(root, 'agents/examples', f), 'utf8')))
+      .filter((a) => a.behaviors?.length);
+    expect(listed.map((a) => a.id).sort()).toEqual(['agent-analyzer', 'firmographic-research', 'notebook-checker', 'research-one', 'starter-research']);
+    for (const a of listed) {
+      expect(() => resolveBehaviorsForRun({ names: a.behaviors!, discovered }), a.id).not.toThrow();
+      expect(discovered.byName.get(a.behaviors![0])?.location.scope).toBe('bundled');
+    }
+  });
+});

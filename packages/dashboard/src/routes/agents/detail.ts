@@ -30,7 +30,7 @@ function resolveBehaviorStatus(
     const hit = discovered.byName.get(name)
       ?? discovered.shadowed.find((sh) => sh.name === name);
     if (!hit) return { name, usable: false, reason: 'No spec with this name was found in this project.' };
-    if (hit.location.scope !== 'project') {
+    if (hit.location.scope !== 'project' && hit.location.scope !== 'bundled') {
       return {
         name,
         usable: false,

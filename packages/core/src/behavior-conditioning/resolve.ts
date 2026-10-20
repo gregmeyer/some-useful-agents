@@ -6,7 +6,8 @@
  * is the reason conditioning lives in its own module instead of inside
  * `behaviors/`.
  *
- * ONLY `project` scope may condition a run.
+ * ONLY `project` scope (and `bundled`: the specs shipped inside sua's own
+ * package, reviewed like its code) may condition a run.
  *
  * A project spec lives in the repository under code review, at the same trust
  * level as the agent YAML sitting beside it — which we already put in prompts.
@@ -64,7 +65,7 @@ export function resolveBehaviorsForRun(input: ResolveBehaviorsInput): ResolvedBe
 
   for (const name of names) {
     const hit = discovered.byName.get(name);
-    if (hit && hit.location.scope === 'project') {
+    if (hit && (hit.location.scope === 'project' || hit.location.scope === 'bundled')) {
       records.push(hit);
       continue;
     }

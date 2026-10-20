@@ -25,6 +25,7 @@ description: >
   where the sources disagree.
 status: active
 source: examples
+behaviors: [cite-evidence-before-claiming, declare-blind-spots]
 
 tags:
   - research

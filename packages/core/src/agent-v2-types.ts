@@ -597,9 +597,10 @@ export interface Agent {
   sampleQuestions?: string[];
   /**
    * Agent Behavior specs (agentbehavior.dev) this agent is held to, by name.
-   * Resolved against PROJECT-scope `.agents/behaviors/` only; each body is
+   * Resolved against PROJECT-scope `.agents/behaviors/` (and the specs bundled
+   * with sua) only; each body is
    * prepended to every llm-prompt node's prompt as conduct guidance. An
-   * unresolvable or non-project-scope name fails the run before it starts.
+   * unresolvable, user- or org-scope name fails the run before it starts.
    * See docs/behaviors.md and behavior-conditioning/resolve.ts.
    */
   behaviors?: string[];

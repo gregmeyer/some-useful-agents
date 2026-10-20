@@ -177,13 +177,26 @@ describe('behavior discovery', () => {
     expect(seen).toEqual(res.diagnostics.map((d) => d.code));
   });
 
-  it('orders default scopes project, user, org', () => {
+  it('orders default scopes project, bundled, user, org', () => {
     const scopes = defaultBehaviorScopes({ projectRoot: '/p', home: '/h', orgDir: '/o' });
-    expect(scopes.map((s) => s.scope)).toEqual(['project', 'user', 'org']);
+    expect(scopes.map((s) => s.scope)).toEqual(['project', 'bundled', 'user', 'org']);
   });
 
-  it('omits the user scope when asked', () => {
-    const scopes = defaultBehaviorScopes({ projectRoot: '/p', home: '/h', userScope: false });
+  it('omits the user and bundled scopes when asked', () => {
+    const scopes = defaultBehaviorScopes({ projectRoot: '/p', home: '/h', userScope: false, bundledScope: false });
     expect(scopes.map((s) => s.scope)).toEqual(['project']);
+  });
+
+  it('finds shipped specs in the bundled scope, and the same file in project and bundled is one spec', () => {
+    const project = tmp();
+    const bundled = tmp();
+    writeSpec(bundled, 'shipped-only');
+    writeSpec(bundled, 'both');
+    writeSpec(project, 'both');
+    const res = loadBehaviors({ scopes: defaultBehaviorScopes({ projectRoot: project, bundledDir: bundled, userScope: false }) });
+    expect(res.byName.get('shipped-only')?.location.scope).toBe('bundled');
+    expect(res.byName.get('both')?.location.scope).toBe('project');
+    expect(res.shadowed).toEqual([]);
+    expect(res.diagnostics.filter((d) => d.code === 'behavior/duplicate-name')).toEqual([]);
   });
 });

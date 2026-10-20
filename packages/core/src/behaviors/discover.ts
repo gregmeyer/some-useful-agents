@@ -20,6 +20,7 @@ import {
   MAX_BODY_BYTES,
 } from './constants.js';
 import { validateBehavior } from './validate.js';
+import { defaultBundledExamplesDir } from '../example-loader.js';
 import type {
   BehaviorDiagnostic,
   BehaviorRecord,
@@ -34,10 +35,14 @@ export interface DefaultScopesOptions {
   orgDir?: string;
   /** Set false to skip ~/.agents/behaviors entirely. */
   userScope?: boolean;
+  /** Search the specs shipped with sua (beside the bundled example agents). Default true. */
+  bundledScope?: boolean;
+  /** Where the bundled specs' root is; defaults to the bundled examples dir. */
+  bundledDir?: string;
 }
 
 /**
- * Scope roots in PRECEDENCE ORDER: project, then user, then org.
+ * Scope roots in PRECEDENCE ORDER: project, then bundled, then user, then org.
  *
  * The standard names three scopes but defines no precedence between them, so
  * this is our call: project wins because it is the most specific and the most
@@ -51,6 +56,11 @@ export function defaultBehaviorScopes(opts: DefaultScopesOptions = {}): Behavior
   const scopes: BehaviorScopeConfig[] = [
     { scope: 'project', rootDir: projectRoot, optional: true },
   ];
+  // sua's shipped specs, beside the bundled examples (the build copies the
+  // repo's .agents/behaviors there), so shipped agents can list them anywhere.
+  if (opts.bundledScope !== false) {
+    scopes.push({ scope: 'bundled', rootDir: opts.bundledDir ?? defaultBundledExamplesDir(), optional: true });
+  }
   if (opts.userScope !== false && home && home !== projectRoot) {
     scopes.push({ scope: 'user', rootDir: home, optional: true });
   }
@@ -201,6 +211,9 @@ export function loadBehaviors(options: LoadBehaviorsOptions): LoadBehaviorsResul
       if (!result.record) continue; // every path above already emitted an error
 
       const existing = byName.get(result.record.name);
+      // The same file in two scopes (a repo checkout finds its own specs both
+      // as project and as the bundled copy the build made): one spec, no warning.
+      if (existing && existing.sha256 === result.record.sha256) continue;
       if (existing) {
         // First scope wins; the loser is kept so the UI can explain the shadowing
         // instead of a spec just not being there.

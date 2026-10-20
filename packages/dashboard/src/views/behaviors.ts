@@ -31,10 +31,11 @@ export interface BehaviorsViewData {
   available: boolean;
 }
 
-const SCOPE_ORDER: BehaviorScope[] = ['project', 'user', 'org'];
+const SCOPE_ORDER: BehaviorScope[] = ['project', 'bundled', 'user', 'org'];
 
 const SCOPE_HINT: Record<BehaviorScope, string> = {
   project: 'From this repository',
+  bundled: 'Shipped with sua, beside its example agents',
   user: 'From your home directory, applies across projects',
   org: 'From a configured organization directory',
 };
