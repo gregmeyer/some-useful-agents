@@ -43,6 +43,12 @@ describe('option filters', () => {
     expect(filterChoices(opts.filter((o) => o.added === 'new'), ['added'])).toEqual([]);
   });
 
+  it("counts a ruled-out option as no run's, so New matches the export and the brief", () => {
+    const opts: Opt[] = [{ id: 'a', added: 'earlier' }, { id: 'b', added: 'new' }, { id: 'c', added: 'new', ruledOut: { reason: 'x' } }];
+    expect(filterChoices(opts, ['added'])[0].choices).toEqual([{ value: 'New', count: 1 }, { value: 'Earlier', count: 1 }]);
+    expect(applyFilters(opts, { added: 'New' }).map((o) => o.id)).toEqual(['b']);
+  });
+
   it("skips a fact where every option has its own value, or that reads as a sentence", () => {
     const accounts: Opt[] = [
       { id: '1', notSeenLately: false, fields: { company: 'Adyen', value: 'Office-of-CFO suite: close, consolidation, compliance, disclosure', tier: 'Strong' } },
