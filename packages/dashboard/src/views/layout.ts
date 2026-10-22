@@ -9,7 +9,7 @@ export interface LayoutOptions {
    * now (see section-tabs.ts), so pages on /scheduled should pass
    * `activeNav: 'agents'` to highlight Agents in the top bar.
    */
-  activeNav?: 'home' | 'agents' | 'tools' | 'nodes' | 'runs' | 'packs' | 'pulse' | 'inbox' | 'settings' | 'help';
+  activeNav?: 'home' | 'notebooks' | 'agents' | 'tools' | 'nodes' | 'runs' | 'packs' | 'pulse' | 'inbox' | 'settings' | 'help';
   /** Flash banner shown at the top of the body (errors from prior actions). */
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   /** Widen the main column (for screens with 2-col layouts). */
@@ -55,6 +55,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   ${/* The brand is Home, and Home is the inbox: one link, not two. */ ''}
   <a class="topbar__brand ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? 'is-active' : ''}" href="/" title="Home: your inbox" ${opts.activeNav === 'home' || opts.activeNav === 'inbox' ? html`aria-current="page"` : html``}>sua</a>
   <nav class="topbar__nav">
+    <a href="/notebooks" class="${opts.activeNav === 'notebooks' ? 'is-active' : ''}">Notebooks</a>
     <a href="/agents" class="${opts.activeNav === 'agents' || opts.activeNav === 'tools' || opts.activeNav === 'nodes' || opts.activeNav === 'runs' || opts.activeNav === 'packs' ? 'is-active' : ''}">Agents</a>
     <a href="/pulse" class="${opts.activeNav === 'pulse' ? 'is-active' : ''}">Pulse</a>
     <a href="/settings" class="${opts.activeNav === 'settings' ? 'is-active' : ''}">Settings</a>

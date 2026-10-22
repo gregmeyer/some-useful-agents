@@ -86,7 +86,7 @@ export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLi
   const total = passes.reduce((n, p) => n + p.feeders.length + p.feeders.reduce((m, f) => m + f.subRuns.length, 0), 0);
   const agents = new Set(passes.flatMap((p) => p.feeders.flatMap((f) => [f.run.agentId, ...f.subRuns.map((s) => s.agentId)])));
   const shown = selected ? selected.feeders.length + selected.feeders.reduce((m, f) => m + f.subRuns.length, 0) : 0;
-  return render(layout({ title: `How ${nb.title} was made`, activeNav: 'inbox', wide: true }, html`
+  return render(layout({ title: `How ${nb.title} was made`, activeNav: 'notebooks', wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › How it was made</p>
     <header class="nbw-head">
       <h1 class="nbw-head__title">How this notebook was made</h1>
