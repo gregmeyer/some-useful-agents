@@ -774,7 +774,8 @@ export function addInboxReply(
   if (!runningPending) {
     for (const r of responsesNow) {
       const m = parseActionMeta(r);
-      if (!m || m.status !== 'proposed') continue;
+      // A notebook step card stays: it's the step's own request, kept in line with the notebook (ADR-0055).
+      if (!m || m.status !== 'proposed' || m.agentId === 'notebook-step') continue;
       const superseded: InboxActionMeta = { ...m, status: 'skipped', skippedBy: 'triage', endedAt: Date.now() };
       if (ctx.inboxStore.transitionActionStatus(r.id, 'proposed', JSON.stringify(superseded))) {
         publishInboxEvent(ctx, id, 'action:status', {

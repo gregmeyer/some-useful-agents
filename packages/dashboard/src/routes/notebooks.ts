@@ -22,7 +22,8 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, moveOnFromStep, searchAgain, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
+import { actOnStep, reconcileStepCards } from '../lib/notebook-step-queue.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
@@ -207,6 +208,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   if (!found) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
   // Done-whens the notebook's own work now meets tick themselves (enough options, a decision…).
   const nb = s.autoMeetCriteria(found.id).nb;
+  // The conversation's step cards match the steps as they are (one queue: ADR-0055).
+  reconcileStepCards(ctx, nb.id);
   // A notebook with options but no fields (kept before fields existed, or
   // filled by talking): set it up once, in the background; the page redraws.
   if (s.needsSetup(nb.id)) startNotebookSetup(ctx, nb.id);
@@ -603,6 +606,7 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
       return;
     }
     store(req).decide(id, str(req.body?.decision), 'you', chosen);
+    reconcileStepCards(getContext(req.app.locals), id);
     res.redirect(303, back(id, 'Decided. The notebook is closed; reopen it any time.'));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
@@ -617,6 +621,7 @@ notebooksRouter.post('/notebooks/:id/narrow', (req: Request, res: Response) => {
     const keep = [...new Set((Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map((x) => String(x)).filter(Boolean))];
     const before = store(req).entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut).length;
     const nb = store(req).narrow(id, keep, str(req.body?.decision), 'you');
+    reconcileStepCards(getContext(req.app.locals), id);
     const next = nb.steps?.find((x) => x.status !== 'done');
     res.redirect(303, back(id, `Kept ${String(keep.length)}, ruled out ${String(before - keep.length)}.${next ? ` Next: ${next.title}.` : ''}`));
   } catch (err) {
@@ -630,6 +635,7 @@ notebooksRouter.post('/notebooks/:id/status', (req: Request, res: Response) => {
   if (status !== 'active' && status !== 'stopped') { res.redirect(303, back(id, 'Unknown status.')); return; }
   try {
     store(req).setStatus(id, status);
+    reconcileStepCards(getContext(req.app.locals), id);
     res.redirect(303, back(id, status === 'active' ? 'Reopened.' : 'Stopped. Its pipeline won’t run until you reopen it.'));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
@@ -644,14 +650,18 @@ notebooksRouter.post('/notebooks/:id/runs/:runId/add', (req: Request, res: Respo
   res.redirect(303, back(id, out.started ? 'Adding that run\'s results. They show up here in a minute or so.' : out.reason ?? 'It could not be added.'));
 });
 
-notebooksRouter.post('/notebooks/:id/run', (req: Request, res: Response) => {
+/** A step's outcome, as the header flashes it (the conversation has the same words). */
+const flashWords = (s: string) => s.replace(/\*\*/g, '');
+
+notebooksRouter.post('/notebooks/:id/run', async (req: Request, res: Response) => {
   const id = String(req.params.id);
   const ctx = getContext(req.app.locals);
-  // With steps still to do, Run works on the current one (Continue, Try again); else the pipeline, as before.
+  // With steps still to do, Run works on the current one (Continue, Try again)
+  // through the conversation's card for it; else the pipeline, as before.
   const nb = store(req).get(id);
   if (nb && hasOpenSteps(nb)) {
-    const step = startNotebookStep(ctx, id);
-    res.redirect(303, back(id, step.started ? `Working on ${step.step!.title}. This page updates as it goes.` : step.reason ?? 'It could not start.'));
+    const out = await actOnStep(ctx, id, 'start');
+    res.redirect(303, back(id, flashWords(out.message)));
     return;
   }
   const out = startNotebookPipeline(ctx, id);
@@ -669,26 +679,27 @@ notebooksRouter.post('/notebooks/:id/steps/stop', (req: Request, res: Response) 
  * Move on from the current step short of its goal: it keeps what it found,
  * is marked done, and the next step starts (the header's Move on).
  */
-notebooksRouter.post('/notebooks/:id/steps/move-on', (req: Request, res: Response) => {
+notebooksRouter.post('/notebooks/:id/steps/move-on', async (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const m = moveOnFromStep(getContext(req.app.locals), id, { stepId: str(req.body?.step) || undefined });
-  const then = m.next?.started ? ` Working on ${m.next.step!.title}.` : m.next?.reason ? ` ${m.next.reason}` : '';
-  res.redirect(303, back(id, m.moved ? `Moved on from ${m.step!.title}, keeping what it found.${then}` : m.reason ?? 'It could not move on.'));
+  const out = await actOnStep(getContext(req.app.locals), id, 'move', { stepId: str(req.body?.step) || undefined });
+  res.redirect(303, back(id, flashWords(out.message)));
 });
 
 /** Check (or source) the top N: a step you moved on from short works again on just the best options. */
 notebooksRouter.post('/notebooks/:id/steps/:step/top', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const top = Number(req.body?.top);
-  const out = focusStepOnTop(getContext(req.app.locals), id, String(req.params.step), top);
+  const ctx = getContext(req.app.locals);
+  const out = focusStepOnTop(ctx, id, String(req.params.step), top);
+  reconcileStepCards(ctx, id);
   res.redirect(303, back(id, out.started ? `Working on ${out.step!.title}, for the top ${String(Math.round(top))}.` : out.reason ?? 'It could not start.'));
 });
 
 /** Search again: a find step that's done runs once more for new options (sua says how many are new). */
-notebooksRouter.post('/notebooks/:id/steps/:step/again', (req: Request, res: Response) => {
+notebooksRouter.post('/notebooks/:id/steps/:step/again', async (req: Request, res: Response) => {
   const id = String(req.params.id);
-  const out = searchAgain(getContext(req.app.locals), id, { stepId: String(req.params.step) });
-  res.redirect(303, back(id, out.started ? `Searching again: ${out.step!.title}. sua says in the conversation how many are new.` : out.reason ?? 'It could not start.'));
+  const out = await actOnStep(getContext(req.app.locals), id, 'again', { stepId: String(req.params.step) });
+  res.redirect(303, back(id, flashWords(out.message)));
 });
 
 /**

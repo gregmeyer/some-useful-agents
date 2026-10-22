@@ -12,6 +12,7 @@ import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
 import { suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
+import { waitingStepCard } from './notebook-step-queue.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -314,6 +315,16 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}) })) } : {}),
+    // Where the steps are now, as the notebook's page shows them: running, or the card waiting on the operator.
+    ...(nb.steps?.length ? { stepNow: ((): Record<string, unknown> => {
+      const cur = nb.steps.find((x) => x.status !== 'done');
+      const card = waitingStepCard(ctx, nb.id);
+      return {
+        step: cur ? { id: cur.id, title: cur.title, status: cur.status } : 'every step is done',
+        running: !!ctx.notebookPipelines?.has(nb.id),
+        ...(card ? { waitingOnOperator: `${card.ctaLabel ?? 'Run'}: ${card.rationale ?? ''}` } : {}),
+      };
+    })() } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
     link: `/notebooks/${encodeURIComponent(nb.id)}`,

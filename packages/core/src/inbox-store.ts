@@ -150,8 +150,15 @@ export interface InboxActionMeta {
    * auto-retired because the operator's newer reply superseded it (the
    * route skips it, then fires a fresh triage turn). Absent → treat as
    * `operator` for back-compat with cards skipped before this field.
+   * `notebook` = a notebook step card the notebook no longer needs (its step
+   * moved on, started from the notebook's page, or a newer card asks the same);
+   * `skipReason` says which.
    */
-  skippedBy?: 'operator' | 'triage';
+  skippedBy?: 'operator' | 'triage' | 'notebook';
+  /** Why the notebook retired this card (skippedBy `notebook`). */
+  skipReason?: string;
+  /** Where it was approved, when not on the card: `notebook` = a notebook header button. */
+  from?: 'notebook';
   /**
    * How this action was approved to run (set when it leaves `proposed`).
    * `policy` = auto-approved by the trust policy (no operator click);

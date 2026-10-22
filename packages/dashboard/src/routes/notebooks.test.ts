@@ -312,7 +312,10 @@ describe('filing into a notebook of organizations', () => {
     expect(res.body.steps.map((x: { status: string; note?: string }) => `${x.status}:${x.note ?? ''}`)).toEqual(['done:2 of 2 found, already', 'todo:1 of 2 facts sourced', 'todo:', 'todo:']);
     // sua says so in the notebook's conversation; Next step starts at step 2.
     const thread = store.get(nb.id)!.conversationId!;
-    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toBe('The notebook already has what this step needs, so it’s done: step 1, **Find 2 companies** (2 of 2 found). Next is step 2, **Source their facts** (1 of 2 facts sourced).');
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread);
+    expect(said.at(-2)!.body).toBe('The notebook already has what this step needs, so it’s done: step 1, **Find 2 companies** (2 of 2 found). Next is step 2, **Source their facts** (1 of 2 facts sourced).');
+    // …and the step it starts at waits on you there too, as the header's Next step does.
+    expect(JSON.parse(said.at(-1)!.metaJson!)).toMatchObject({ agentId: 'notebook-step', status: 'proposed', ctaLabel: 'Start', inputs: { STEP: 's2', WAS: 'todo' } });
     const { nextStepAction } = await import('../views/notebooks.js');
     expect(nextStepAction(store.get(nb.id)!)).toMatchObject({ label: 'Next step', hint: 'Step 2 of 4: Source their facts' });
 
@@ -320,7 +323,7 @@ describe('filing into a notebook of organizations', () => {
     store.correctOption(nb.id, co2.id, { employees: 120 });
     const again = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`).send({ steps });
     expect(again.body.steps.map((x: { status: string }) => x.status)).toEqual(['done', 'done', 'todo', 'todo']);
-    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).at(-1)).toContain('step 2, **Source their facts** (2 of 2 facts sourced). Next is step 3, **Check them** (0 of 2 checked).');
+    expect(InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).filter((r) => r.role === 'triage').map((r) => r.body).at(-1)).toContain('step 2, **Source their facts** (2 of 2 facts sourced). Next is step 3, **Check them** (0 of 2 checked).');
 
     // Every option checked: only Decide is left, and that's never done for you.
     for (const o of store.entries(nb.id, 100).filter((e) => e.kind === 'option')) store.checkOption(nb.id, o.id, 'Sells software', true);
@@ -647,7 +650,7 @@ describe('notebook pipeline (G2–G3)', () => {
 
     // Move on from the header: done with what it found, and the next step starts.
     const moved = await post(`/notebooks/${nb.id}/steps/move-on`, { step: 's1' });
-    expect(decodeURIComponent(moved.headers.location)).toContain('Moved on from Find 5 companies, keeping what it found. Working on Find 9 companies.');
+    expect(decodeURIComponent(moved.headers.location)).toContain('Moved on from Find 5 companies, keeping what it found. Working on Find 9 companies now');
     expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'done', movedOn: true });
     // While it runs, the header has Stop.
     for (let i = 0; i < 200 && !runStore.databaseHandle().prepare("SELECT 1 FROM runs WHERE agentName = 'slow-find' AND status = 'running'").get(); i++) await new Promise((r) => setTimeout(r, 25));
@@ -2829,5 +2832,115 @@ describe('editing a notebook on its own page', () => {
     expect(refused.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/edit\\?flash=`));
     expect(decodeURIComponent(refused.headers.location)).toContain('“Check each” is running'.replace(/[“”]/g, '"'));
     expect(s.get(nb.id)!.steps).toHaveLength(3);
+  });
+});
+
+describe('notebook steps: one queue for the header and the conversation (ADR-0055)', () => {
+  async function setup(steps: unknown[]) {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    // One new company a run; and one that only ever finds the same company.
+    const counter = join(dir, 'n');
+    agentStore.createAgent({ id: 'finder', name: 'Finder', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `n=$(cat ${counter} 2>/dev/null || echo 0); n=$((n+1)); echo $n > ${counter}; echo '<notebook>{"entries":[{"kind":"option","title":"Company '$n'"}]}</notebook>'` }] } as never, 'cli');
+    agentStore.createAgent({ id: 'samey', name: 'Samey', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: `echo '<notebook>{"entries":[{"kind":"option","title":"Company 1"}]}</notebook>'` }] } as never, 'cli');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals as never);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Peers' });
+    store.setSteps(nb.id, steps);
+    const threadId = inbox.add({ priority: 'medium', source: 'manual', title: 'Notebook: Peers', body: '(empty)' }).id;
+    store.setConversation(nb.id, threadId);
+    // Until the step's run is over and its lock let go (its card comes after).
+    const settle = async () => { for (let i = 0; i < 400 && ((store.get(nb.id)!.steps ?? []).some((x) => x.status === 'running') || ctx.notebookPipelines?.has(nb.id)); i++) await new Promise((r) => setTimeout(r, 25)); };
+    const cards = () => inbox.listResponses(threadId).filter((r) => r.role === 'action').map((r) => JSON.parse(r.metaJson!) as Record<string, any>);
+    const waiting = () => cards().filter((m) => m.status === 'proposed');
+    const page = async () => (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    return { app, post, ctx, store, inbox, nb, threadId, settle, cards, waiting, page };
+  }
+
+  it('a header press uses the card waiting in the conversation; each pause leaves one card, and stale ones go with why', async () => {
+    const t = await setup([
+      { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
+      { title: 'Find 5 companies', kind: 'find', agentId: 'samey', target: 5 },
+      { title: 'Pick the final set', kind: 'decide', target: 1 },
+    ]);
+    // Opening the notebook gives the current step its card, once.
+    await t.page();
+    await t.page();
+    expect(t.waiting()).toEqual([expect.objectContaining({ ctaLabel: 'Start', inputs: { NOTEBOOK: t.nb.id, STEP: 's1', WAS: 'todo' } })]);
+
+    // Next step on the header: that card is used (you, from the notebook), with what it did.
+    const flash = decodeURIComponent((await t.post(`/notebooks/${t.nb.id}/run`)).headers.location);
+    expect(flash).toContain('Working on Find 1 company');
+    expect(flash).not.toContain('**');
+    expect(t.cards()[0]).toMatchObject({ status: 'completed', approvedBy: 'operator', from: 'notebook', resultSummary: expect.stringContaining('Working on **Find 1 company**') });
+    await t.settle();
+    // Met: one Continue waits.
+    expect(t.waiting()).toEqual([expect.objectContaining({ ctaLabel: 'Continue', inputs: { NOTEBOOK: t.nb.id, STEP: 's1', WAS: 'met' } })]);
+
+    // Continue from the header: step 2 can't get far (the same company each run), so it's stuck.
+    await t.post(`/notebooks/${t.nb.id}/run`);
+    await t.settle();
+    expect(t.store.get(t.nb.id)!.steps![1]).toMatchObject({ status: 'stuck', stalled: true });
+    expect(t.waiting().map((m) => m.ctaLabel)).toEqual(['Move on', 'Try again']);
+
+    // Try again from the header: the round's Move on goes as it starts; stuck again, one new pair waits.
+    await t.post(`/notebooks/${t.nb.id}/run`);
+    expect(t.cards().filter((m) => m.skippedBy === 'notebook').map((m) => m.skipReason)).toEqual(['The notebook is already working on it.']);
+    await t.settle();
+    expect(t.waiting().map((m) => m.ctaLabel)).toEqual(['Move on', 'Try again']);
+    // Two cards asking the same (sua's and the step's): only the newest stays.
+    const { addStepCard: add } = await import('../lib/notebook-steps.js');
+    add(t.ctx, t.threadId, { ...t.waiting()[0], status: 'proposed' } as never);
+    await t.page();
+    expect(t.waiting().map((m) => m.ctaLabel)).toEqual(['Try again', 'Move on']);
+    expect(t.cards().filter((m) => m.skippedBy === 'notebook').map((m) => m.skipReason)).toContain('A newer card asks the same.');
+
+    // A card from an earlier step (left from before) is retired when the notebook is opened.
+    const { addStepCard } = await import('../lib/notebook-steps.js');
+    addStepCard(t.ctx, t.threadId, { kind: 'action', status: 'proposed', agentId: 'notebook-step', effect: 'write', inputs: { NOTEBOOK: t.nb.id, STEP: 's1', WAS: 'met' }, rationale: 'Start step 2.', ctaLabel: 'Continue' });
+    await t.page();
+    expect(t.cards().at(-1)).toMatchObject({ status: 'skipped', skippedBy: 'notebook', skipReason: 'The notebook has moved on from this.' });
+
+    // Move on from the header: the next step is yours (Decide), so nothing waits in the conversation.
+    expect(decodeURIComponent((await t.post(`/notebooks/${t.nb.id}/steps/move-on`, { step: 's2' })).headers.location)).toContain('Moved on from Find 5 companies');
+    expect(t.waiting()).toEqual([]);
+    expect(t.cards().filter((m) => m.status === 'completed').at(-1)).toMatchObject({ ctaLabel: 'Move on', from: 'notebook' });
+  });
+
+  it("a Continue that can't start the next step leaves the step met, and says why in both places", async () => {
+    const t = await setup([
+      { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
+      { title: 'Check them', kind: 'check' },
+    ]);
+    await t.post(`/notebooks/${t.nb.id}/run`);
+    await t.settle();
+    // The check step has no checks: Continue is refused, and step 1 stays met (it used to be marked done).
+    const flash = decodeURIComponent((await t.post(`/notebooks/${t.nb.id}/run`)).headers.location);
+    expect(flash).toContain('The notebook has no checks yet.');
+    expect(t.store.get(t.nb.id)!.steps!.map((s) => s.status)).toEqual(['met', 'todo']);
+    expect(t.cards().at(-1)).toMatchObject({ status: 'failed', ctaLabel: 'Continue', refusalReason: expect.stringContaining('The notebook has no checks yet.') });
+    // Opening the page doesn't put the same refused card back each time.
+    await t.page();
+    expect(t.waiting()).toEqual([]);
+  });
+
+  it("sua's step cards are pinned to the step as it is now, and refused while one runs or when one already waits", async () => {
+    const t = await setup([
+      { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
+      { title: 'Pick one', kind: 'decide', target: 1 },
+    ]);
+    const { pinStepAction } = await import('../lib/notebook-step-queue.js');
+    const proposed = { kind: 'action' as const, status: 'proposed' as const, agentId: 'notebook-step', effect: 'write' as const, inputs: { NOTEBOOK: t.nb.id } };
+    expect(pinStepAction(t.ctx, proposed).action?.inputs).toEqual({ NOTEBOOK: t.nb.id, STEP: 's1', WAS: 'todo' });
+    expect(pinStepAction(t.ctx, { ...proposed, inputs: { NOTEBOOK: t.nb.id, STEP: 's2' } }).reason).toContain('only the current step');
+    await t.page();
+    expect(pinStepAction(t.ctx, proposed).reason).toBe('that step card is already waiting on the operator');
+    t.ctx.notebookPipelines = new Map([[t.nb.id, { agentId: 'finder', step: 1, of: 2, startedAt: Date.now() }]]);
+    expect(pinStepAction(t.ctx, proposed).reason).toContain('already running');
+    t.ctx.notebookPipelines.clear();
   });
 });
