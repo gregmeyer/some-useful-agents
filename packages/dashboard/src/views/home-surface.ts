@@ -64,6 +64,20 @@ function rowMenu(e: CompiledEntry): SafeHtml {
     </details>`;
 }
 
+/** A card waiting on you, pressed from the row: its own button, and Not now. The rest open the thread. */
+function rowActs(item: Item): SafeHtml {
+  const approve = item.actions.find((a) => a.type === 'approve');
+  const skip = item.actions.find((a) => a.type === 'skip');
+  // Several cards are a choice: made in the thread, where each one shows what it does.
+  if (!approve || approve.type !== 'approve' || item.value) return html``;
+  const at = (verb: 'run' | 'skip', a: { threadId: string; responseId: string }) => `/inbox/${encodeURIComponent(a.threadId)}/actions/${encodeURIComponent(a.responseId)}/${verb}`;
+  return html`
+    <span class="panel-row__acts">
+      <form method="POST" action="${at('run', approve)}" data-item-act class="item-pane__form"><button type="submit" class="btn btn--sm btn--primary">${approve.label}</button></form>
+      ${skip && skip.type === 'skip' ? html`<form method="POST" action="${at('skip', skip)}" data-item-act class="item-pane__form"><button type="submit" class="btn btn--sm btn--ghost">${skip.label}</button></form>` : html``}
+    </span>`;
+}
+
 function row(e: CompiledEntry, wide: boolean, why = shownWhy(e)): SafeHtml {
   const { item } = e;
   const dot = dotOf(item);
@@ -73,10 +87,11 @@ function row(e: CompiledEntry, wide: boolean, why = shownWhy(e)): SafeHtml {
         <span class="panel-row__dot ${dot ? `panel-row__dot--${dot}` : ''}" aria-hidden="true"></span>
         <span class="panel-row__title ${dot && !e.collapsed ? 'is-strong' : ''}">${item.title}</span>
         <span class="panel-row__age">${formatAge(item.provenance.at)}</span>
-        <span class="panel-row__latest">${item.summary ?? ''}</span>
+        <span class="panel-row__latest">${dot && item.summary ? html`<span class="panel-row__ask">${item.summary}</span>` : item.summary ?? ''}</span>
         <span class="panel-row__tag ${dot ? `panel-row__tag--${dot}` : ''}">${e.pinned ? html`<span class="panel-row__pin">Pinned</span>` : html``}${tagOf(item)}</span>
         ${why ? html`<span class="panel-row__why">${why}</span>` : html``}
       </button>
+      ${rowActs(item)}
       ${rowMenu(e)}
     </li>`;
 }
@@ -138,6 +153,12 @@ function hiddenList(today: HomeSurface): SafeHtml {
 }
 
 /** "3 failing agents · 2 waiting on your reply · 6 drafts folded": why Needs you has what it has. */
+/** How many things on Today need you: agent problems and things waiting on your reply, not drafts or folded rows. The top bar's count. */
+export function needsYouCount(today: HomeSurface): number {
+  const entries = today.compiled.regions.find((r) => r.id === 'needs-you')?.entries ?? [];
+  return entries.filter((e) => !e.collapsed && !e.item.id.endsWith(':draft')).length;
+}
+
 export function needsBreakdown(entries: readonly CompiledEntry[]): string {
   const n = (pred: (e: CompiledEntry) => boolean) => entries.filter(pred).length;
   const failing = n((e) => /:(failing|outcome)$/.test(e.item.id) || (e.item.id.startsWith('thread:') && e.item.kind === 'alert'));

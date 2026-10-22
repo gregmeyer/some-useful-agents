@@ -40,7 +40,7 @@ import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
-import { renderHomeNotebooksLine } from '../views/notebooks.js';
+import { renderHomeNotebooksButtons } from '../views/notebooks.js';
 import { SessionStore } from '@some-useful-agents/core';
 import { startChatTurn } from '../lib/chat-turn.js';
 import { conversationWorking, agentTurnInProgress } from '../lib/conversation-working.js';
@@ -77,6 +77,7 @@ import {
   parseActionMeta,
   buildRowPreview,
   SYSTEM_AGENT_IDS,
+  settleWaitingThread,
 } from './inbox-shared.js';
 import {
   buildThreadSummary,
@@ -251,7 +252,7 @@ function panelListFor(req: Request) {
 function notebooksLineFor(ctx: ReturnType<typeof getContext>) {
   try {
     const all = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list();
-    return renderHomeNotebooksLine(all.filter((n) => n.status === 'active').length, all.length);
+    return renderHomeNotebooksButtons(all.filter((n) => n.status === 'active').length, all.length);
   } catch { return undefined; }
 }
 
@@ -1382,6 +1383,8 @@ inboxRouter.post('/inbox/:id/actions/:rid/skip', (req: Request, res: Response) =
     agentId: meta.agentId,
     endedAt: skippedMeta.endedAt,
   });
+  // Its last card skipped, a thread that asks nothing else stops waiting on you.
+  settleWaitingThread(ctx, id);
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Skipped.')}`);
 });

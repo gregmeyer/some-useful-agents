@@ -7,11 +7,15 @@
  */
 import { Router, type Request, type Response } from 'express';
 import { getContext } from '../context.js';
+import { readHomeSurface } from '../lib/home-surface.js';
+import { needsYouCount } from '../views/home-surface.js';
 
 export const inboxCountRouter: Router = Router();
 
 inboxCountRouter.get('/inbox/needs-you-count', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const count = ctx.inboxStore ? ctx.inboxStore.countNeedsYou() : 0;
+  // What Today shows as needing you, so the pill and the page it opens agree; the raw thread count if Today can't be read.
+  let count: number;
+  try { count = needsYouCount(readHomeSurface(ctx)); } catch { count = ctx.inboxStore ? ctx.inboxStore.countNeedsYou() : 0; }
   res.json({ count });
 });

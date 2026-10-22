@@ -90,12 +90,23 @@ export function renderAutonomyControl(mode: AutonomyMode, opts: { compact?: bool
       : 'Trusted agents run automatically; others wait for your approval.';
   const dotClass = mode === 'off' ? 'inbox-autonomy__dot--off' : mode === 'propose-only' ? 'inbox-autonomy__dot--warn' : 'inbox-autonomy__dot--on';
   if (opts.compact) {
-    // In Home's header: the switch alone; what each setting means is its tooltip.
+    // In Home's header: a button like the ones beside it, naming the setting; the menu says what each one does.
+    const choice = (value: AutonomyMode, label: string, says: string) => html`
+      <form method="POST" action="/inbox/trust/mode" class="home-autonomy__form">
+        <input type="hidden" name="mode" value="${value}">
+        <button type="submit" class="home-autonomy__choice ${mode === value ? 'is-current' : ''}" ${mode === value ? 'aria-current="true"' : ''}>
+          <span class="home-autonomy__name">${label}</span><span class="home-autonomy__says">${says}</span>
+        </button>
+      </form>`;
     return html`
-      <div class="inbox-autonomy inbox-autonomy--compact" role="group" aria-label="Autonomy: ${caption}" title="${caption}">
-        <span class="inbox-autonomy__label"><span class="inbox-autonomy__dot ${dotClass}" aria-hidden="true"></span>Autonomy</span>
-        <div class="inbox-autonomy__segs">${seg('full', 'Full')}${seg('propose-only', 'Approve first')}${seg('off', 'Off')}</div>
-      </div>`;
+      <details class="home-adjust home-autonomy">
+        <summary class="btn btn--sm" title="${caption}"><span class="inbox-autonomy__dot ${dotClass}" aria-hidden="true"></span>Autonomy: ${mode === 'off' ? 'Off' : mode === 'propose-only' ? 'Approve first' : 'Full'} <span aria-hidden="true">▾</span></summary>
+        <div class="home-adjust__panel home-autonomy__panel">
+          ${choice('full', 'Full', 'Trusted agents run on their own; others wait for you.')}
+          ${choice('propose-only', 'Approve first', 'sua still looks at new items, but every action waits for you.')}
+          ${choice('off', 'Off', 'New items wait untouched, and nothing runs on its own.')}
+        </div>
+      </details>`;
   }
   return html`
     <div class="inbox-autonomy" role="group" aria-label="Autonomy mode">

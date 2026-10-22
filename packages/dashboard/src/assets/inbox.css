@@ -2559,6 +2559,14 @@ body.app.sua-panel-easing { transition: padding-right 200ms ease-in-out; }
 .panel-row__title.is-strong { font-weight: 600; }
 .panel-row__age { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .panel-row__latest { grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+/* What a waiting thread needs from you, ahead of sua's words: it reads as the row's point, not a preview. */
+.panel-row__ask { color: var(--color-text); }
+/* A card pressed from its row (Today): its own button and Not now, on a line under the ask. */
+.panel-row:has(.panel-row__acts) { flex-wrap: wrap; }
+.panel-row:has(.panel-row__acts) .panel-row__main { flex: 1 1 0; min-width: 0; }
+.panel-row__acts { order: 3; flex: 1 0 100%; display: flex; gap: var(--space-2); align-items: center; padding: 0 0 var(--space-2) calc(var(--space-2) + 8px + var(--space-3)); }
+.panel-row--wide .panel-row__acts { padding-left: calc(var(--space-4) + 8px + var(--space-3)); }
+.panel-row__acts .item-pane__form { margin: 0; }
 .panel-row__tag { font-size: var(--font-size-xs); }
 .panel-row__tag--approve { color: var(--color-warn); }
 .panel-row__tag--answer { color: var(--color-info); }
@@ -3153,8 +3161,21 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-head__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .home-head .home-notebooks { margin: 0; font-size: var(--font-size-sm); }
 .home-notebooks__new { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.inbox-autonomy--compact { padding: 0; border: 0; background: none; gap: var(--space-2); }
-.inbox-autonomy--compact .inbox-autonomy__label { font-size: var(--font-size-xs); }
+/* Home's header controls: one size of button each. Notebooks with a joined "+". */
+.home-head__controls { gap: var(--space-2); }
+.home-nbgroup { display: inline-flex; }
+.home-nbgroup .btn { display: inline-flex; align-items: center; gap: var(--space-2); }
+.home-nbgroup .btn svg { color: var(--color-primary); }
+.home-nbgroup .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.home-nbgroup__new { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; padding-inline: var(--space-3); }
+.home-autonomy > summary { display: inline-flex; align-items: center; gap: var(--space-2); }
+.home-autonomy .home-autonomy__panel { width: min(340px, 90vw); gap: var(--space-1); padding: var(--space-2); }
+.home-autonomy__form { margin: 0; }
+.home-autonomy__choice { display: grid; gap: 2px; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: none; color: var(--color-text); cursor: pointer; font: inherit; }
+.home-autonomy__choice:hover { background: var(--color-surface-raised); }
+.home-autonomy__choice.is-current { background: var(--color-primary-soft); }
+.home-autonomy__name { font-size: var(--font-size-sm); font-weight: var(--weight-semibold); }
+.home-autonomy__says { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .home-adjust { position: relative; }
 .home-adjust > summary { list-style: none; cursor: pointer; }
 .home-adjust > summary::-webkit-details-marker { display: none; }

@@ -95,6 +95,20 @@ auto-triaged — the message already says what to do.
 
 That is enough to prove the surface, but not enough to make inbox the default place to build and operate agents end to end.
 
+## What "needs you" means
+
+A thread waits on you (`awaiting_user`) only when it asks you something:
+
+- a card to approve (one card names what it does; several are a choice: "Choose: Try again · Move on"),
+- buttons in sua's last reply ("Pick one: Rule it out · Keep it"),
+- a question near the end of sua's last reply,
+- a note asking you to reply (sua paused, or crashed),
+- or a failing agent.
+
+A reply that only reports back ("Searched again: 5 new options") asks nothing, so the thread settles as answered (`triaged`). It stays in Open and Chats, but it's off Today and out of the count. The rule is `threadAsk` in core (`items/projections.ts`). The end of each sua turn, skipping a card, and a restart settle the status with it.
+
+Each waiting row on Today says what it needs, in place of the start of sua's last message. A thread waiting on one card has that card's button and Not now on the row. The top bar's "N need you" counts what Today lists as needing you, not counting drafts, so the number matches the page it opens.
+
 ## Product goal
 
 Make inbox the place where an operator can:

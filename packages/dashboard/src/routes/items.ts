@@ -7,7 +7,7 @@
  */
 import { Router, type Request, type Response } from 'express';
 import { collectItems, itemSourcesFromHandle, ItemDismissals, ITEM_KINDS, type ItemKind } from '@some-useful-agents/core';
-import { publishInboxChanged } from './inbox-shared.js';
+import { publishInboxChanged, waitingStatus } from './inbox-shared.js';
 import { getContext } from '../context.js';
 import { readHomeSurface, findSurfaceEntry } from '../lib/home-surface.js';
 import { renderItemPane } from '../views/home-surface.js';
@@ -66,8 +66,9 @@ itemsRouter.post('/items/:id/undismiss', (req: Request, res: Response) => {
   if (id.startsWith('thread:')) {
     const threadId = id.slice('thread:'.length);
     if (!ctx.inboxStore?.get(threadId)) { res.status(404).json({ error: 'That conversation is gone.' }); return; }
-    ctx.inboxStore.updateStatus(threadId, 'awaiting_user');
-    publishInboxChanged(ctx, threadId, 'awaiting_user');
+    const status = waitingStatus(ctx.inboxStore, threadId);
+    ctx.inboxStore.updateStatus(threadId, status);
+    publishInboxChanged(ctx, threadId, status);
   } else {
     ItemDismissals.fromHandle(ctx.runStore.databaseHandle()).undismiss(id);
   }

@@ -76,6 +76,7 @@ import {
   PENDING_USER_REPLY_WINDOW_MS,
   TRIAGE_AGENT_ID,
   SYSTEM_AGENT_IDS,
+  waitingStatus,
 } from './inbox-shared.js';
 import {
   getSubAgentAllowlist,
@@ -3016,15 +3017,17 @@ export async function runTriageAgent(
 
     // A resolve-thread action already set the thread to `resolved`; don't stomp
     // it back to awaiting_user.
+    // Waiting on you only when the turn asks something; a reply that just reports back is answered.
+    const settled = threadResolved ? 'resolved' : waitingStatus(ctx.inboxStore, messageId);
     if (!threadResolved) {
       try {
-        ctx.inboxStore.updateStatus(messageId, 'awaiting_user', { recommendation: rec, triageRunId: runId });
+        ctx.inboxStore.updateStatus(messageId, settled, { recommendation: rec, triageRunId: runId });
       } catch { /* ignore */ }
     }
     // One coarse global push at the turn's terminal settle so the live
     // badge/list reflect the final state (the inner verify/resolve branches
     // already left the status set; this just broadcasts it once).
-    publishInboxChanged(ctx, messageId, threadResolved ? 'resolved' : 'awaiting_user');
+    publishInboxChanged(ctx, messageId, settled);
     // A turn completed cleanly — the thread isn't in a crash loop, so refund
     // the auto-retry budget for any future transient failure.
     resetTriageCrashRetries(ctx, messageId);

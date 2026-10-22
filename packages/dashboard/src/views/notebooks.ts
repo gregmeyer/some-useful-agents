@@ -979,6 +979,11 @@ export function renderHomeNotebooksLine(active: number, total: number): SafeHtml
   return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
 }
 
+/** The notebooks control in Home's header: a button to the list with a joined "+" for a new one, sized like the controls beside it. */
+export function renderHomeNotebooksButtons(active: number, total: number): SafeHtml {
+  return html`<span class="home-nbgroup" title="Notebooks: goals you keep over time"><a class="btn btn--sm" href="/notebooks">${NOTEBOOK_ICON}${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a class="btn btn--sm home-nbgroup__new" href="/notebooks/new" aria-label="New notebook" title="New notebook">+</a></span>`;
+}
+
 /** "today 7:00 am", "tomorrow 7:00 am", "Thu 7:00 am". */
 function formatWhen(iso: string, now = new Date()): string {
   const d = new Date(iso);

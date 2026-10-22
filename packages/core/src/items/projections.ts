@@ -37,6 +37,8 @@ export interface ProposedCard {
   responseId: string;
   agentId: string;
   label: string;
+  /** Why sua proposed it, as the card says. */
+  rationale?: string;
 }
 
 /** Proposed (not yet approved) action cards, oldest first. */
@@ -45,12 +47,92 @@ export function proposedCards(responses: readonly InboxResponse[]): ProposedCard
   for (const r of responses) {
     if (r.role !== 'action' || !r.metaJson) continue;
     try {
-      const m = JSON.parse(r.metaJson) as { kind?: string; status?: string; agentId?: string; ctaLabel?: string; inputs?: Record<string, string> };
+      const m = JSON.parse(r.metaJson) as { kind?: string; status?: string; agentId?: string; ctaLabel?: string; rationale?: string; inputs?: Record<string, string> };
       if (m.kind !== 'action' || m.status !== 'proposed' || typeof m.agentId !== 'string') continue;
-      out.push({ responseId: r.id, agentId: m.agentId, label: m.ctaLabel || (m.agentId === 'agent-editor' ? 'Apply fix' : `Run ${m.agentId}`) });
+      out.push({
+        responseId: r.id, agentId: m.agentId,
+        label: m.ctaLabel || (m.agentId === 'agent-editor' ? 'Apply fix' : `Run ${m.agentId}`),
+        ...(m.rationale?.trim() ? { rationale: m.rationale.trim() } : {}),
+      });
     } catch { /* not an action card */ }
   }
   return out;
+}
+
+/** What a thread is waiting on you for, in words: the row's first line on Home and in the inbox. */
+export interface ThreadAsk {
+  kind: ThreadAttention;
+  text: string;
+  /** Proposed cards waiting, oldest first. */
+  cards: ProposedCard[];
+}
+
+/** The buttons of the last widget in a reply (`<a2ui>` with Button components), by their text. */
+export function replyPicks(body: string): string[] {
+  const blocks = [...body.matchAll(/<a2ui>([\s\S]*?)<\/a2ui>/g)];
+  const last = blocks.at(-1)?.[1];
+  if (!last) return [];
+  let doc: unknown;
+  try { doc = JSON.parse(last); } catch { return []; }
+  const nodes: Array<Record<string, unknown>> = [];
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (v && typeof v === 'object') { nodes.push(v as Record<string, unknown>); Object.values(v).forEach(walk); }
+  };
+  walk(doc);
+  const text = (id: unknown): string => {
+    const n = nodes.find((x) => x.id === id);
+    return n && typeof n.text === 'string' ? n.text : '';
+  };
+  return nodes.filter((n) => n.component === 'Button').map((n) => text(n.child) || (typeof n.label === 'string' ? n.label : '')).filter(Boolean);
+}
+
+/** The last question a reply asks, if it ends on one ("Want me to check the other six?"). */
+export function replyQuestion(body: string): string | undefined {
+  const text = oneLine(body.replace(/<a2ui>[\s\S]*?<\/a2ui>/g, ' ').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'), 4000);
+  const tail = text.slice(-400);
+  const sentences = tail.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+  const q = [...sentences].reverse().slice(0, 2).find((x) => x.endsWith('?'));
+  return q ? oneLine(q, 160) : undefined;
+}
+
+/**
+ * What a thread needs from you, or undefined when it needs nothing: a card to approve, buttons to
+ * pick from, a question sua asked, a note asking you to reply (sua stopped or crashed), or a
+ * failing agent. A reply that only reports back asks nothing; it's there to read, not to wait on.
+ */
+export function threadAsk(message: Pick<InboxMessage, 'status' | 'source' | 'title' | 'agentId'>, responses: readonly InboxResponse[]): ThreadAsk | undefined {
+  if (message.status === 'resolved' || message.status === 'dismissed') return undefined;
+  const cards = proposedCards(responses);
+  const first = cards[0];
+  const cardText = first ? oneLine(first.rationale ? `${first.label}: ${first.rationale}` : first.label, 150) : '';
+  if (message.source === 'run-failure' || message.source === 'outcome') {
+    return { kind: 'fail', cards, text: first ? `A fix is ready. ${cardText}` : `${message.agentId ?? 'An agent'} keeps failing` };
+  }
+  if (first) {
+    // Several cards are usually alternatives (a step's Try again / Move on): name them, once each.
+    const labels = [...new Set(cards.map((c) => c.label))];
+    return { kind: 'approve', cards, text: labels.length === 1 ? cardText : oneLine(`Choose: ${labels.join(' · ')}`, 150) };
+  }
+  if (message.source === 'board' && message.status === 'awaiting_user') return { kind: 'approve', cards, text: 'A board build is waiting on you' };
+  if (message.source === 'question') return { kind: 'answer', cards, text: oneLine(message.title, 150) };
+  // A question or a note asks only while the thread is waiting on you (the status settles it; dashboard waitingStatus).
+  if (message.status !== 'awaiting_user') return undefined;
+  // The newest word since you last wrote: sua's, an agent's, or a note from the system.
+  let last: InboxResponse | undefined;
+  for (let i = responses.length - 1; i >= 0; i--) {
+    const r = responses[i];
+    if (r.role === 'user') break;
+    if (r.role === 'triage' || r.role === 'agent' || r.role === 'system') { last = r; break; }
+  }
+  if (last && last.role !== 'system') {
+    const picks = replyPicks(last.body);
+    if (picks.length) return { kind: 'answer', cards, text: oneLine(`Pick one: ${picks.join(' · ')}`, 150) };
+    const q = replyQuestion(last.body);
+    if (q) return { kind: 'answer', cards, text: q };
+  }
+  if (last?.role === 'system' && /\breply\b|leaving this with you|crashed/i.test(last.body)) return { kind: 'answer', cards, text: oneLine(last.body, 150) };
+  return undefined;
 }
 
 /**
@@ -58,10 +140,9 @@ export function proposedCards(responses: readonly InboxResponse[]): ProposedCard
  * card's approve / skip), `answer` → a question, `fail` → an alert.
  */
 export function threadItem(message: InboxMessage, responses: readonly InboxResponse[]): Item | undefined {
-  const cards = proposedCards(responses);
-  const attention = threadAttention(message, cards.length);
-  if (!attention) return undefined;
-  const latest = [...responses].reverse().find((r) => r.role === 'triage' || r.role === 'system' || r.role === 'agent');
+  const ask = threadAsk(message, responses);
+  if (!ask) return undefined;
+  const { cards, kind: attention } = ask;
   const actions: ItemAction[] = [];
   const card = cards[0];
   if (card) {
@@ -74,7 +155,8 @@ export function threadItem(message: InboxMessage, responses: readonly InboxRespo
     id: `thread:${message.id}`,
     kind: attention === 'approve' ? 'decision' : attention === 'answer' ? 'question' : 'alert',
     title: message.title,
-    ...(latest ? { summary: `${latest.role === 'triage' ? 'sua: ' : ''}${oneLine(latest.body)}` } : {}),
+    // What it needs from you, not the start of sua's last message.
+    summary: ask.text,
     // Waiting on you is never low urgency, whatever the thread's priority.
     urgency: message.priority === 'high' || attention === 'approve' ? 'high' : 'normal',
     state: 'open',

@@ -1,4 +1,4 @@
-import { INBOX_SOURCES, markdownToText, stripInlineWidgets, threadAttention, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
+import { INBOX_SOURCES, markdownToText, stripInlineWidgets, threadAsk, type InboxMessage, type InboxSource, type InboxStore, type ListMessagesOpts } from '@some-useful-agents/core';
 import { buildRowPreview } from '../routes/inbox-shared.js';
 import type { HomeSurface } from './home-surface.js';
 
@@ -40,6 +40,8 @@ export type PanelRowKind = 'approve' | 'answer' | 'fail';
 export interface PanelRow {
   message: InboxMessage;
   kind?: PanelRowKind;
+  /** What it needs from you, in words ("Approve: …", "Pick one: …", a question sua asked). */
+  ask?: string;
   /** The latest reply, as one line of plain text. */
   latest?: { who: 'you' | 'sua' | 'system'; text: string };
   /** Being answered right now: "sua is working…" / "<agent> is replying…" (lib/conversation-working.ts). */
@@ -150,11 +152,13 @@ export function buildPanelList(store: InboxStore, args: { tab?: PanelTab; q?: st
       const preview = buildRowPreview(store, message.id);
       const latest = preview.latestResponse;
       // The same rule the item index uses (core items/projections.ts).
-      const kind: PanelRowKind | undefined = threadAttention(message, preview.proposedActions?.count ?? 0);
+      const ask = threadAsk(message, store.listResponses(message.id));
+      const kind: PanelRowKind | undefined = ask?.kind;
       const working = args.working?.(message);
       return {
         message,
         ...(kind ? { kind } : {}),
+        ...(ask ? { ask: ask.text } : {}),
         ...(working ? { working } : {}),
         latest: latest ? { who: latest.role === 'user' ? 'you' as const : latest.role === 'triage' ? 'sua' as const : 'system' as const, text: oneLine(latest.body) } : undefined,
       };

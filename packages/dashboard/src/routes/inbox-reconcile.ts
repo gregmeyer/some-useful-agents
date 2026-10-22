@@ -37,7 +37,7 @@
  */
 import { isInboxAutoTriageEnabled, type InboxMessage, type Run } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
-import { parseActionMeta, addSystemMessage, publishInboxEvent, publishInboxChanged } from './inbox-shared.js';
+import { parseActionMeta, addSystemMessage, publishInboxEvent, publishInboxChanged, settleWaitingThread } from './inbox-shared.js';
 import {
   awaitRunTerminal,
   finalizeActionFromOutcome,
@@ -89,6 +89,16 @@ export function reconcileInboxOnBoot(ctx: Ctx): ReconcileResult {
       );
     }
   }
+  // A thread left waiting on you by a reply that asked nothing (before replies were read for an ask) is answered.
+  let answered = 0;
+  for (const message of messages) {
+    try {
+      if (message.status !== 'awaiting_user') continue;
+      settleWaitingThread(ctx, message.id);
+      if (ctx.inboxStore.get(message.id)?.status === 'triaged') answered += 1;
+    } catch { /* one thread can't take down boot */ }
+  }
+  if (answered > 0) console.warn(`[inbox-reconcile] ${String(answered)} thread(s) asked nothing of you; marked answered.`);
   if (result.finalized + result.resumed + result.refired > 0) {
     console.warn(
       `[inbox-reconcile] settled ${result.finalized} stranded action(s), ` +
