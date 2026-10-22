@@ -689,6 +689,61 @@ export function parseProposedActions(
  * real crash. `willRetry` true → schedule another attempt and bump the count;
  * false → the budget is spent, post a terminal note and clear the count.
  */
+/** The most items a list agent (research-fanout and its kind) takes in one run. */
+const MAX_LIST_ITEMS = 20;
+
+/** An ITEMS value as its items, read the way the list agents read it: JSON, one per line, or commas outside parentheses. */
+export function listItems(raw: string): Array<{ subject: string; hint: string }> {
+  const text = raw.trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.flatMap((x) => {
+          if (typeof x === 'string') return x.trim() ? [{ subject: x.trim(), hint: '' }] : [];
+          if (x && typeof x === 'object') {
+            const o = x as Record<string, unknown>;
+            const subject = String(o.subject ?? o.name ?? '').trim();
+            return subject ? [{ subject, hint: String(o.hint ?? '').trim() }] : [];
+          }
+          return [];
+        });
+      }
+    } catch { /* not JSON: read it as text */ }
+  }
+  let parts = text.split(/\r?\n/).filter((l) => l.trim());
+  if (parts.length === 1) parts = parts[0].split(/,(?![^()]*\))/).filter((p) => p.trim());
+  return parts.map((p) => ({ subject: p.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim(), hint: '' })).filter((x) => x.subject);
+}
+
+/**
+ * Runs of one list agent that differ only in their ITEMS become one card: sua split a list it
+ * thought was too long (research-fanout stops at 12 unless MAX_ITEMS says more), and the operator
+ * then had a card per part to press. The merged card asks for every item, up to MAX_LIST_ITEMS.
+ */
+export function mergeListActions(
+  actions: InboxActionMeta[],
+  inputsOf: (agentId: string) => Record<string, unknown> | undefined,
+): InboxActionMeta[] {
+  const out: InboxActionMeta[] = [];
+  const rest = (a: InboxActionMeta) => JSON.stringify(Object.entries(a.inputs ?? {}).filter(([k]) => k !== 'ITEMS' && k !== 'MAX_ITEMS').sort(([x], [y]) => x.localeCompare(y)));
+  for (const action of actions) {
+    const declared = (!action.mode || action.mode === 'run') ? inputsOf(action.agentId) : undefined;
+    const into = declared && 'ITEMS' in declared && action.inputs?.ITEMS
+      ? out.find((a) => a.agentId === action.agentId && (!a.mode || a.mode === 'run') && a.inputs?.ITEMS && rest(a) === rest(action))
+      : undefined;
+    if (!into) { out.push(action); continue; }
+    const items = [...listItems(into.inputs.ITEMS), ...listItems(action.inputs.ITEMS)];
+    if (items.length > MAX_LIST_ITEMS) { out.push(action); continue; }
+    const asked = Math.max(...[into.inputs.MAX_ITEMS, action.inputs.MAX_ITEMS].map((v) => Number(v) || 0));
+    const inputs: Record<string, string> = { ...into.inputs, ITEMS: JSON.stringify(items.map((x) => (x.hint ? x : { subject: x.subject }))) };
+    if (declared && 'MAX_ITEMS' in declared) inputs.MAX_ITEMS = String(Math.min(MAX_LIST_ITEMS, Math.max(asked, items.length)));
+    out[out.indexOf(into)] = { ...into, inputs, rationale: `All ${String(items.length)} in one run${inputs.GOAL ? `: ${inputs.GOAL.replace(/[.\s]+$/, '')}` : ''}.` };
+  }
+  return out;
+}
+
 export function planTriageCrashRecovery(
   used: number,
   errorMessage: string,
