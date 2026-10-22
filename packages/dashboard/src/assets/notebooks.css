@@ -765,11 +765,13 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-decide__submit { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 
 /* A company's logo: whole, on a white tile in either theme (logos are drawn for white). */
-.nb-hero__cover.is-logo, .nb-card__cover img.is-logo, .nbl-card__cover img.is-logo, .nbo-hero__pic img.is-logo, .nb-decide__thumb.is-logo { background: #fff; }
+.nb-hero__cover.is-logo, .nb-decide__thumb.is-logo,
+.nb-card__cover:has(img.is-logo), .nbl-card__cover:has(img.is-logo), .nbo-hero__pic:has(img.is-logo) { background: #fff; }
 /* Sized to read: in a big frame an app icon sits at about half its height and a wordmark fills its width; in a
-   small square (the header, a thumbnail) an icon keeps a margin and a wordmark uses the full width. */
-.nbo-hero__pic img.is-logo, .nb-card__cover img.is-logo, .nbl-card__cover img.is-logo { padding: 22%; }
-.nbo-hero__pic img.is-logo.is-wide, .nb-card__cover img.is-logo.is-wide, .nbl-card__cover img.is-logo.is-wide { padding: 8% 10%; }
+   small square (the header, a thumbnail) an icon keeps a margin and a wordmark uses the full width. Inset, not
+   padded: a % padding is a share of the frame's width, so in a wide, short frame it left the logo a sliver. */
+.nbo-hero__pic img.is-logo, .nb-card__cover img.is-logo, .nbl-card__cover img.is-logo { inset: 25% 10%; width: 80%; height: 50%; padding: 0; }
+.nbo-hero__pic img.is-logo.is-wide, .nb-card__cover img.is-logo.is-wide, .nbl-card__cover img.is-logo.is-wide { inset: 12% 10%; height: 76%; }
 /* In px: a % padding is a share of the parent's width, and the header's parent is the whole title row, so 14%
    there padded a 64px logo out of sight. */
 .nb-hero__cover.is-logo { padding: 9px; box-sizing: border-box; }
