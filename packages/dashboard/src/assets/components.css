@@ -33,6 +33,7 @@
 }
 
 .topbar__nav a {
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   padding: var(--space-2) 0;
   font-weight: var(--weight-medium);
@@ -61,7 +62,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
+  box-sizing: border-box;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-warn-border);
   background: var(--color-warn-soft);
@@ -97,10 +100,12 @@
 }
 
 .topbar__theme-toggle {
+  box-sizing: border-box;
+  height: var(--control-h-sm);
   background: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
+  padding: 0 var(--space-2);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -119,9 +124,11 @@
   background: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
+  box-sizing: border-box;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
   font: inherit;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   line-height: 1;
   cursor: pointer;
@@ -274,8 +281,12 @@
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  box-sizing: border-box;
+  min-height: var(--control-h);
+  padding: 0 var(--space-4);
+  line-height: 1.2;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface);
   color: var(--color-text);
@@ -333,10 +344,18 @@
   color: var(--color-text);
 }
 
+/* Small, not tiny: the same 13px text as everything around it, in a shorter control.
+   (11px is for labels and hints, not things you press.) */
 .btn--sm {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-xs);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
 }
+
+/* The board picker's button: a small button with the board's name and one ▾ (not the details ▸ as well). */
+.dashboards-dropdown > summary.dashboards-dropdown__summary { list-style: none; max-width: 18rem; }
+.dashboards-dropdown > summary.dashboards-dropdown__summary::before { content: none; }
+.dashboards-dropdown__summary > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Star toggle ---------- */
 .btn-star {
@@ -1806,7 +1825,7 @@
   .topbar__nav::-webkit-scrollbar { display: none; }
   .topbar__nav a { white-space: nowrap; }
   .topbar__right { margin-left: 0; flex: none; gap: var(--space-2); }
-  .topbar__needs { padding: var(--space-1) var(--space-2); }
+  .topbar__needs { padding: 0 var(--space-2); }
   .topbar__needs [data-inbox-label], .topbar__needs-arrow { display: none; }
   .topbar__ask-key { display: none; }
   /* Section tabs (Agents · Tools · Runs…, Settings) scroll within themselves. */

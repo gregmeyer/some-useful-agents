@@ -241,7 +241,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <span class="dim board-page__meta">${String(tileCount)} placed${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
         <div class="board-page__actions">
           ${dropdown}
-          <a class="btn btn--ghost btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">＋ New board</a>
+          <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
           ${p.tiles.length > 0 ? html`
             <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
               <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
@@ -265,7 +265,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <span class="dim board-page__meta">${String(tileCount)} tile${tileCount === 1 ? '' : 's'} · ${sourceLabel}</span>
         <div class="board-page__actions">
           ${dropdown}
-          <a class="btn btn--ghost btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">＋ New board</a>
+          <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/edit">Edit dashboard</a>
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/export" title="Download as a pack manifest YAML">Save as pack</a>
         </div>
@@ -318,8 +318,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       </div>` : html``}
     ${buildBanner}
     <div class="board-toolbar" data-canvas-toolbar>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>✎ Arrange</button>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="Ask the layout planner for an arrangement; you review it before saving">✨ Suggest a layout</button>
+      <button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>
+      <button type="button" class="btn btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
       ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">

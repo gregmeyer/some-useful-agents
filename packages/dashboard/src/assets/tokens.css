@@ -108,6 +108,9 @@
   --content-max: 1600px;
   --content-max-wide: 1760px;
   --topbar-height: 3rem;
+  /* Control heights: every button, pill and picker is one of these, so neighbours line up. */
+  --control-h: 2rem;
+  --control-h-sm: 1.75rem;
   --breakpoint-md: 900px;
 }
 
