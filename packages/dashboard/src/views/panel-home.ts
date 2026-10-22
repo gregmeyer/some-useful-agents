@@ -92,9 +92,9 @@ export function renderPanelHome(list: PanelList, facets?: PanelFacets): SafeHtml
     <div class="panel-bulk" data-panel-bulk hidden>
       <label class="panel-filters__check"><input type="checkbox" data-panel-select-all> <span data-panel-bulk-count>0 selected</span></label>
       <span class="panel-bulk__spacer"></span>
-      <button type="button" class="btn btn--xs" data-panel-bulk-action="resolve">Resolve</button>
-      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-action="dismiss">Dismiss</button>
-      <button type="button" class="btn btn--xs btn--ghost" data-panel-bulk-clear>Clear</button>
+      <button type="button" class="btn btn--sm btn--primary" data-panel-bulk-action="resolve" title="Mark them done: they move to Done">Close <span data-panel-bulk-n>0</span></button>
+      <button type="button" class="btn btn--sm btn--ghost" data-panel-bulk-action="dismiss" title="Off your list without marking them done">Dismiss <span data-panel-bulk-n>0</span></button>
+      <button type="button" class="btn btn--sm btn--ghost" data-panel-bulk-clear>Clear</button>
     </div>` : html``}
       <div class="panel-suggest" data-panel-suggest role="group" aria-label="Things to ask sua">
         ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-suggest__pill" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}

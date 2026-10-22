@@ -30,7 +30,7 @@ export const INBOX_BADGE_JS = `
         if (!d || typeof d.count !== 'number') return;
         if (d.count > 0) {
           countEl.textContent = String(d.count);
-          if (labelEl) labelEl.textContent = d.count === 1 ? '\\u00a0needs you' : '\\u00a0need you';
+          if (labelEl) labelEl.textContent = d.count === 1 ? 'needs you' : 'need you';
           toast.hidden = false;
         } else { toast.hidden = true; }
       })

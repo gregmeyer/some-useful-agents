@@ -1432,6 +1432,8 @@ export const INBOX_MODAL_JS = `
     bar.hidden = n === 0;
     var count = bar.querySelector('[data-panel-bulk-count]');
     if (count) count.textContent = n + ' selected';
+    var ns = bar.querySelectorAll('[data-panel-bulk-n]');
+    for (var k = 0; k < ns.length; k++) ns[k].textContent = String(n);
     var master = bar.querySelector('[data-panel-select-all]');
     if (master) { master.checked = n > 0 && n === all; master.indeterminate = n > 0 && n < all; }
   }

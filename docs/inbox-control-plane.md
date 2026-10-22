@@ -107,7 +107,9 @@ A thread waits on you (`awaiting_user`) only when it asks you something:
 
 A reply that only reports back ("Searched again: 5 new options") asks nothing, so the thread settles as answered (`triaged`). It stays in Open and Chats, but it's off Today and out of the count. The rule is `threadAsk` in core (`items/projections.ts`). The end of each sua turn, skipping a card, and a restart settle the status with it.
 
-Each waiting row on Today says what it needs, in place of the start of sua's last message. A thread waiting on one card has that card's button and Not now on the row. The top bar's "N need you" counts what Today lists as needing you, not counting drafts, so the number matches the page it opens.
+Each waiting row on Today says what it needs, in place of the start of sua's last message. A thread waiting on one card has that card's button and Not now on the row. To clear several at once, tick them on Home's Today (or any tab) and press **Close N** (done: they move to Done) or **Dismiss N** (off your list). A Today row that isn't a conversation, like a draft or an agent problem, is taken off Today the way its own Dismiss does, and comes back when something newer happens to it.
+
+The top bar's "N need you" counts what Today lists as needing you, not counting drafts, so the number matches the page it opens.
 
 ## Product goal
 

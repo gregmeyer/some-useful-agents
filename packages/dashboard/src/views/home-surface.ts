@@ -83,6 +83,7 @@ function row(e: CompiledEntry, wide: boolean, why = shownWhy(e)): SafeHtml {
   const dot = dotOf(item);
   return html`
     <li class="panel-row ${wide ? 'panel-row--wide' : ''} ${e.pinned ? 'is-pinned' : ''}" data-item-id="${item.id}" data-item-title="${item.title}"${e.pinned ? unsafeHtml(' data-pinned') : unsafeHtml('')} draggable="true">
+      ${wide ? html`<input type="checkbox" class="panel-row__select" data-panel-select value="${item.subject.threadId ?? item.id}" aria-label="Select “${item.title}”">` : html``}
       <button type="button" class="panel-row__main" data-panel-thread-id="${rowTarget(item)}" title="${e.reasons[0] ?? ''}">
         <span class="panel-row__dot ${dot ? `panel-row__dot--${dot}` : ''}" aria-hidden="true"></span>
         <span class="panel-row__title ${dot && !e.collapsed ? 'is-strong' : ''}">${item.title}</span>

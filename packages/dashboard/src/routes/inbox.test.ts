@@ -748,6 +748,21 @@ describe('POST /inbox/bulk-resolve', () => {
     expect(inboxStore.get(a.id)?.autoResolved).toBe(false);
   });
 
+  it("closes Today rows that aren't conversations by taking them off Today", async () => {
+    const app = await makeApp();
+    const ctx = app.locals as DashboardContext;
+    const a = inboxStore.add({ priority: 'medium', source: 'manual', title: 'a', body: 'x' });
+    const res = await request(app)
+      .post('/inbox/bulk-resolve')
+      .set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
+      .send({ ids: `${a.id},agent:lever:draft,not-a-thing` });
+    expect(res.body).toEqual({ resolved: 2, requested: 3 });
+    expect(inboxStore.get(a.id)?.status).toBe('resolved');
+    const { ItemDismissals } = await import('@some-useful-agents/core');
+    expect(ItemDismissals.fromHandle(ctx.runStore.databaseHandle()).all().has('agent:lever:draft')).toBe(true);
+  });
+
   it('returns 400 when no ids are selected', async () => {
     const app = await makeApp();
     const res = await request(app)
@@ -1912,6 +1927,10 @@ describe('conversation panel', () => {
     // Today = Home's surface: your question first (questions and approvals first), then the open failure.
     expect(res.text).toContain('data-surface-region="needs-you"');
     expect(res.text).toContain('panel-row__tag--answer">Answer');
+    // Home's full-width Today: each row can be selected for Close / Dismiss in bulk.
+    const wide = await panel(app, '/panel/home?wide=1');
+    expect(wide.text).toContain(`data-panel-select value="${waiting.id}"`);
+    expect(wide.text).toContain('Close <span data-panel-bulk-n>');
     expect(res.text).toContain('Open full inbox');
     expect(res.text).toMatch(/data-panel-tab="needs" aria-selected="true"[\s\S]*?Today[\s\S]*?>2</);
     expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${failure.id}"`));

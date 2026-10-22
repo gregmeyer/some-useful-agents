@@ -55,48 +55,48 @@
   gap: var(--space-3);
 }
 
-/* Global "needs you" toast. Populated client-side (inbox-badge.js); hidden when
-   the count is zero. A bordered soft-amber pill with a mono count + a gently
-   pulsing dot — a deliberate attention cue, not a flat wash. */
+/* Global "needs you" link (inbox-badge.js; hidden at zero). An outlined button like Ask sua beside
+   it, so the bar stays quiet; the count is the one spot of colour: a small amber badge. */
 .topbar__needs {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   box-sizing: border-box;
   height: var(--control-h-sm);
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-3) 0 var(--space-1);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-warn-border);
-  background: var(--color-warn-soft);
-  color: var(--color-warn);
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-text);
   font-size: var(--font-size-sm);
   font-weight: var(--weight-medium);
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
 }
-.topbar__needs:hover { filter: brightness(1.12); }
+.topbar__needs:hover { border-color: var(--color-border-strong); background: var(--color-surface-raised); text-decoration: none; }
 .topbar__needs[hidden] { display: none; }
-/* The count is data — mono, per DESIGN.md. */
-.topbar__needs [data-inbox-count] {
+/* The count is data: mono, per DESIGN.md. */
+.topbar__needs-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 var(--space-1);
+  box-sizing: border-box;
+  border-radius: var(--radius-sm);
+  background: var(--color-warn);
+  color: var(--color-surface);
   font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
   font-weight: var(--weight-semibold);
 }
-.topbar__needs-arrow { opacity: 0.7; }
-.topbar__needs-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-warn);
-  animation: sua-pulse 2s ease-in-out infinite;
-}
-/* Steady-state attention cue; respect reduced-motion. */
+
+/* A gently pulsing attention dot (Home's feed rows); respect reduced-motion. */
 @keyframes sua-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.45; transform: scale(0.8); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .topbar__needs-dot { animation: none; }
 }
 
 .topbar__theme-toggle {
@@ -1825,8 +1825,8 @@
   .topbar__nav::-webkit-scrollbar { display: none; }
   .topbar__nav a { white-space: nowrap; }
   .topbar__right { margin-left: 0; flex: none; gap: var(--space-2); }
-  .topbar__needs { padding: 0 var(--space-2); }
-  .topbar__needs [data-inbox-label], .topbar__needs-arrow { display: none; }
+  .topbar__needs { padding: 0 var(--space-1); }
+  .topbar__needs [data-inbox-label] { display: none; }
   .topbar__ask-key { display: none; }
   /* Section tabs (Agents · Tools · Runs…, Settings) scroll within themselves. */
   .tab-strip { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; }
