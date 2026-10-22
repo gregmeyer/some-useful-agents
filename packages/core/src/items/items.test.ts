@@ -14,7 +14,7 @@ import type { Run } from '../types.js';
 import type { OutcomeRow } from '../outcome/outcome-store.js';
 import type { BoardBuild } from '../board-build.js';
 import {
-  threadAttention, threadItem, failingAgentItem, outcomeItem, boardBuildItem, schedulerItem,
+  threadAttention, threadAsk, threadItem, failingAgentItem, outcomeItem, boardBuildItem, schedulerItem,
 } from './projections.js';
 import { collectItems, itemSourcesFromHandle, sortItems } from './collect.js';
 import { ItemDismissals } from './dismissals.js';
@@ -40,6 +40,27 @@ describe('projections', () => {
     expect(threadAttention({ status: 'open', source: 'question' }, 0)).toBe('answer');
     expect(threadAttention({ status: 'awaiting_user', source: 'manual' }, 0)).toBe('answer');
     expect(threadAttention({ status: 'open', source: 'manual' }, 0)).toBeUndefined();
+  });
+
+  it('threadAsk: says what a thread needs from you, and nothing for a reply that only reports back', () => {
+    const reply = (body: string, role: InboxResponse['role'] = 'triage', at = 3_000): InboxResponse => ({ id: `x${String(at)}`, messageId: 'm1', createdAt: at, role, body });
+    const ask = (rs: InboxResponse[], over: Partial<InboxMessage> = {}) => threadAsk(msg(over), rs);
+    expect(ask([reply('Searched again: 5 new options in the notebook.')])).toBeUndefined();
+    expect(ask([reply('Found 3. Want me to check the other six?')])).toMatchObject({ kind: 'answer', text: 'Want me to check the other six?' });
+    // A question earlier in a long report isn't the ask; one near the end is.
+    expect(ask([reply(`Is it remote? ${'Lots of findings. '.repeat(40)}Done.`)])).toBeUndefined();
+    const widget = '<a2ui>{"components":[{"id":"b","component":"Button","child":"bl"},{"id":"bl","component":"Text","text":"Rule it out"},{"id":"c","component":"Button","child":"cl"},{"id":"cl","component":"Text","text":"Keep it"}]}</a2ui>';
+    expect(ask([reply(`Here they are.\n${widget}`)])).toMatchObject({ kind: 'answer', text: 'Pick one: Rule it out · Keep it' });
+    // Once you've written back, it's sua's turn.
+    expect(ask([reply('Want me to?'), reply('yes', 'user', 4_000)])).toBeUndefined();
+    expect(ask([reply('Auto-follow-up paused after 5 consecutive triage turns. Reply or dismiss to continue.', 'system')])).toMatchObject({ kind: 'answer' });
+    expect(ask([reply('Verified: it ran fine.', 'system')])).toBeUndefined();
+    const step = (id: string, label: string): InboxResponse => ({ id, messageId: 'm1', createdAt: 2_000, role: 'action', body: 'c',
+      metaJson: JSON.stringify({ kind: 'action', status: 'proposed', agentId: 'notebook-step', ctaLabel: label, rationale: `${label} the step.`, inputs: {} }) });
+    expect(ask([step('s1', 'Continue')])).toMatchObject({ kind: 'approve', text: 'Continue: Continue the step.' });
+    expect(ask([step('s1', 'Try again'), step('s2', 'Move on'), step('s3', 'Try again')])!.text).toBe('Choose: Try again · Move on');
+    expect(ask([card('r1')], { source: 'run-failure', agentId: 'a' })).toMatchObject({ kind: 'fail', text: 'A fix is ready. Apply fix' });
+    expect(ask([], { status: 'resolved' })).toBeUndefined();
   });
 
   it('a thread with a proposed card is a decision you can approve or skip', () => {
@@ -172,6 +193,7 @@ describe('one problem, one item', () => {
     src.inbox!.updateStatus(fix.id, 'awaiting_user');
     const chat = src.inbox!.add({ priority: 'medium', source: 'manual', agentId: 'apod', title: 'What does APOD show?', body: '(empty)' });
     src.inbox!.updateStatus(chat.id, 'awaiting_user');
+    src.inbox!.addResponse(chat.id, 'triage', 'It shows a photo a day. Want me to add it to a board?');
     const ids = collectItems(src).map((i) => i.id);
     expect(ids).toContain('agent:apod:failing');
     expect(ids).not.toContain(`thread:${fix.id}`);

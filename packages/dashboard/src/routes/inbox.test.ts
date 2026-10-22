@@ -1901,7 +1901,7 @@ describe('conversation panel', () => {
     const failure = inboxStore.add({ priority: 'high', source: 'run-failure', title: 'older failure', body: 'x' });
     const waiting = inboxStore.add({ priority: 'low', source: 'manual', title: '<b>my question</b>', body: '(empty)' });
     inboxStore.updateStatus(waiting.id, 'awaiting_user');
-    inboxStore.addResponse(waiting.id, 'triage', 'Here is **the** answer.');
+    inboxStore.addResponse(waiting.id, 'triage', 'Here is **the** answer. Want me to save it?');
     const done = inboxStore.add({ priority: 'medium', source: 'manual', title: 'all done', body: 'x' });
     inboxStore.updateStatus(done.id, 'resolved');
 
@@ -1917,7 +1917,8 @@ describe('conversation panel', () => {
     expect(res.text.indexOf(`data-panel-thread-id="${waiting.id}"`)).toBeLessThan(res.text.indexOf(`data-panel-thread-id="${failure.id}"`));
     expect(res.text).toContain('title="First because: questions and approvals first (by default)"');
     expect(res.text).toContain('&lt;b&gt;my question&lt;/b&gt;');
-    expect(res.text).toContain('sua: Here is the answer.');
+    // The row says what it needs from you: the question, not the start of the reply.
+    expect(res.text).toContain('panel-row__ask">Want me to save it?');
 
     const open = await panel(app, '/panel/list?tab=open');
     expect(open.headers['x-panel-tab']).toBe('open');
@@ -2227,6 +2228,7 @@ describe('sua changes Home (adjust-surface)', () => {
     ctx.runStore.createRun({ id: 'fr1', agentName: 'flaky', status: 'failed', startedAt: new Date(Date.now() - 3600_000).toISOString(), triggeredBy: 'schedule', error: 'exit 1' });
     const q = inboxStore.add({ priority: 'medium', source: 'manual', title: 'A question for you', body: 'x' });
     inboxStore.updateStatus(q.id, 'awaiting_user');
+    inboxStore.addResponse(q.id, 'triage', 'Which one should I keep?');
     const { parseProposedActions } = await import('./inbox-plan.js');
     const engine = await import('./inbox-engine.js');
 

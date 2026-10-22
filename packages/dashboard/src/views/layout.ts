@@ -63,7 +63,7 @@ export function layout(opts: LayoutOptions, body: SafeHtml): SafeHtml {
   <div class="topbar__right">
     <a class="topbar__needs" data-inbox-toast href="/inbox" aria-live="polite" hidden>
       <span class="topbar__needs-dot" aria-hidden="true"></span>
-      <span data-inbox-count></span><span data-inbox-label>&nbsp;need your reply</span>
+      <span data-inbox-count></span><span data-inbox-label>&nbsp;need you</span>
       <span class="topbar__needs-arrow" aria-hidden="true">→</span>
     </a>
     <button type="button" class="topbar__ask" data-panel-toggle aria-pressed="false" title="Ask sua (Cmd/Ctrl+K)">

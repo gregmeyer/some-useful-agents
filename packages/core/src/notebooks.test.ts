@@ -97,7 +97,7 @@ describe('NotebookStore', () => {
     let items = collect();
     expect(items.some((i) => i.id === `thread:${thread.id}`)).toBe(false);
     expect(items.find((i) => i.id === 'notebook:car')).toMatchObject({
-      kind: 'question', state: 'open', title: 'Notebook: Car', summary: 'sua: What is your budget?', subject: { threadId: thread.id },
+      kind: 'question', state: 'open', title: 'Notebook: Car', summary: 'What is your budget?', subject: { threadId: thread.id },
     });
     expect(items.find((i) => i.id === 'notebook:car')!.actions.map((a) => a.type)).toEqual(['reply', 'open']);
     // Answered: back to how far along it is, still one row.

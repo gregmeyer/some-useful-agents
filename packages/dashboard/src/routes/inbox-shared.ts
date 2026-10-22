@@ -9,6 +9,7 @@ import {
   droppedNote,
   takeWithinBudget,
   stripInlineWidgets,
+  threadAsk,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
@@ -140,10 +141,31 @@ export function addSystemMessage(
   return reply;
 }
 
+/**
+ * The status a thread settles in after sua has had its say: `awaiting_user` only when it asks you
+ * something (a card, buttons, a question, a note to reply; core threadAsk), else `triaged`, so a
+ * reply that only reports back doesn't count as needing you.
+ */
+export function waitingStatus(store: InboxStore, messageId: string): 'awaiting_user' | 'triaged' {
+  const message = store.get(messageId);
+  // Asked as if waiting: the question is whether this turn leaves you something to do.
+  return message && threadAsk({ ...message, status: 'awaiting_user' }, store.listResponses(messageId)) ? 'awaiting_user' : 'triaged';
+}
+
+/** Re-settle a thread waiting on you that no longer asks anything (its last card was skipped). */
+export function settleWaitingThread(ctx: ReturnType<typeof getContext>, messageId: string): void {
+  const store = ctx.inboxStore;
+  if (!store || store.get(messageId)?.status !== 'awaiting_user') return;
+  if (waitingStatus(store, messageId) === 'awaiting_user') return;
+  store.updateStatus(messageId, 'triaged');
+  publishInboxChanged(ctx, messageId, 'triaged');
+}
+
 /** Humanize an inbox status for the thread-summary block. */
 export function humanInboxStatus(status: string): string {
   switch (status) {
     case 'awaiting_user': return 'Your turn';
+    case 'triaged': return 'Answered';
     case 'run-failure': return 'Run failure';
     default: return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
