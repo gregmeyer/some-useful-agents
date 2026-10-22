@@ -50,7 +50,7 @@ export function renderDashboardsDropdown(args: {
   const active = args.options.find((o) => o.href === args.activeHref) ?? args.options[0];
   return html`
     <details class="dashboards-dropdown" style="position: relative;">
-      <summary style="list-style: none; cursor: pointer; padding: var(--space-1) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); font-size: var(--font-size-sm); display: inline-flex; align-items: center; gap: var(--space-2); max-width: 18rem;">
+      <summary class="btn btn--sm dashboards-dropdown__summary">
         <span title="${active.label}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${active.label}</span>
         <span style="font-size: var(--font-size-xs); opacity: 0.6; flex-shrink: 0;">▾</span>
       </summary>
