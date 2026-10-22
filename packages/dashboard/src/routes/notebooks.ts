@@ -22,7 +22,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
@@ -421,13 +421,16 @@ notebooksRouter.post('/notebooks/:id/steps', (req: Request, res: Response) => {
     const unknownAgent = raw.map((x) => (x && typeof x === 'object' ? (x as { agentId?: unknown }).agentId : undefined))
       .find((a) => typeof a === 'string' && a && !ctx.agentStore.getAgent(a));
     if (unknownAgent) throw new Error(`No agent "${String(unknownAgent)}".`);
-    store(req).setSteps(id, raw);
+    // An agent that can't do its step comes off it (sua's finder or checker does it), said in the flash.
+    const fit = fitStepAgents(ctx, raw);
+    store(req).setSteps(id, fit.steps);
     // Steps the notebook's work already covers are done (sua says so in its conversation).
     const already = confirmDoneStepsAndSay(ctx, id);
     const nb = store(req).get(id)!;
-    if (wantsJson) { res.json({ steps: nb.steps ?? [] }); return; }
+    if (wantsJson) { res.json({ steps: nb.steps ?? [], ...(fit.notes.length ? { notes: fit.notes } : {}) }); return; }
     const done = already.done.length ? ` ${String(already.done.length)} already done.` : '';
-    res.redirect(303, back(id, nb.steps?.length ? `Saved ${String(nb.steps.length)} steps.${done}` : 'Steps removed.'));
+    const fixed = fit.notes.length ? ` ${fit.notes.join(' ')}` : '';
+    res.redirect(303, back(id, nb.steps?.length ? `Saved ${String(nb.steps.length)} steps.${done}${fixed}` : 'Steps removed.'));
   } catch (err) {
     const msg = err instanceof SyntaxError ? 'Steps must be valid JSON.' : err instanceof Error ? err.message : String(err);
     if (wantsJson) { res.status(400).json({ error: msg }); return; }
@@ -546,6 +549,7 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
   try {
     if (cadence) validateScheduleInterval(cadence, {});
     const ctx = getContext(req.app.locals);
+    let fixedSteps: string[] = [];
     const s = store(req);
     const nb = s.get(id);
     if (!nb) throw new Error('No such notebook.');
@@ -578,11 +582,13 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
       const kept = new Set(many(req.body?.field).map((f) => { try { return (JSON.parse(f) as { key?: unknown }).key; } catch { return undefined; } }));
       s.setFields(id, nb.fields.filter((f) => kept.has(f.key)));
       if (steps) {
-        s.setSteps(id, steps);
+        const fit = fitStepAgents(ctx, steps);
+        s.setSteps(id, fit.steps);
         confirmDoneStepsAndSay(ctx, id);
+        fixedSteps = fit.notes;
       }
     }
-    res.redirect(303, back(id, 'Saved.'));
+    res.redirect(303, back(id, `Saved.${fixedSteps.length ? ` ${fixedSteps.join(' ')}` : ''}`));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const say = cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg;

@@ -142,7 +142,7 @@ export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: No
  * must still be the one it would act on, so a stale card does nothing.
  * Runs in the background; returns at once.
  */
-export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?: string; expect?: NotebookStep['status'] } = {}): { started: boolean; reason?: string; step?: NotebookStep } {
+export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?: string; expect?: NotebookStep['status'] } = {}): { started: boolean; reason?: string; step?: NotebookStep; note?: string } {
   const store = stores(ctx);
   let nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
@@ -167,9 +167,11 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
-  const resolved = stepAgent(ctx, step);
+  const resolved = stepAgent(ctx, step, nb.id);
   if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
   if (met) nb = store.updateStep(nb.id, met.id, { status: 'done' });
+  // Its agent came off (sua's does it): the step as it is now.
+  if (resolved.note) { nb = store.get(nb.id)!; step = nb.steps?.find((x) => x.id === step!.id) ?? step; }
   const agentId = resolved.agentId;
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
@@ -182,7 +184,7 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
     // It paused: its card is the one waiting (an earlier round's that asks the same goes).
     reconcileStepCards(ctx, notebookId);
   });
-  return { started: true, step };
+  return { started: true, step, ...(resolved.note ? { note: resolved.note } : {}) };
 }
 
 /**
@@ -190,7 +192,16 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
  * sua's (the checker, the finder; installed or updated now). A reason when
  * there's none it can run.
  */
-function stepAgent(ctx: Ctx, step: NotebookStep): { agentId?: string; reason?: string } {
+function stepAgent(ctx: Ctx, step: NotebookStep, notebookId?: string): { agentId?: string; reason?: string; note?: string } {
+  // Its own agent reads one item's page a run, which can't find or check:
+  // sua's finder or checker does it instead, and the step says so from now on.
+  const misfit = misfitStepAgent(ctx, step);
+  if (misfit) {
+    const sua = stepAgent(ctx, { ...step, agentId: undefined });
+    if (!sua.agentId) return sua;
+    if (notebookId) stores(ctx).updateStep(notebookId, step.id, { agentId: undefined });
+    return { ...sua, note: misfitWords(step, misfit) };
+  }
   const agentId = step.agentId ?? suaStepAgent(step.kind);
   const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
   const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
@@ -208,6 +219,41 @@ function stepAgent(ctx: Ctx, step: NotebookStep): { agentId?: string; reason?: s
     return { reason: `${agentId} reads one item's own page at a time, so it can't do a ${step.kind} step. ${step.kind === 'check' ? 'Pick sua’s checker for it under Edit' : step.kind === 'find' ? 'Pick sua’s finder for it under Edit' : 'Pick another agent under Edit'}, or use ${agentId} in a source step.` };
   }
   return { agentId };
+}
+
+/**
+ * A step's own agent that can't do it: one that reads one item's own page a
+ * run (listing-page-facts) given a find or check step, which have no page to
+ * read. sua's finder or checker does those. Undefined when it fits.
+ */
+function misfitStepAgent(ctx: Ctx, step: Pick<NotebookStep, 'kind' | 'agentId'>): string | undefined {
+  if (!step.agentId || !suaStepAgent(step.kind)) return undefined;
+  const agent = ctx.agentStore.getAgent(step.agentId);
+  return agent && perItemInputs(agent) ? step.agentId : undefined;
+}
+
+function misfitWords(step: Pick<NotebookStep, 'kind' | 'title'>, agentId: string): string {
+  return `${suaStepAgentName(step.kind)!.replace(/^s/, 'S')} does “${step.title}”: ${agentId} reads one item's own page at a time, so it can only do a source step.`;
+}
+
+/**
+ * Steps about to be saved (from Edit, the steps card, a draft or the
+ * drafter), with any agent that can't do its step taken off it, so sua's
+ * finder or checker does it; and what was changed, in words.
+ */
+export function fitStepAgents<T>(ctx: Ctx, steps: readonly T[]): { steps: T[]; notes: string[] } {
+  const notes: string[] = [];
+  const out = steps.map((x) => {
+    if (!x || typeof x !== 'object') return x;
+    const o = x as unknown as { kind?: NotebookStep['kind']; title?: string; agentId?: string; agent?: string };
+    const agentId = o.agentId ?? o.agent;
+    const misfit = o.kind ? misfitStepAgent(ctx, { kind: o.kind, agentId }) : undefined;
+    if (!misfit) return x;
+    notes.push(misfitWords({ kind: o.kind!, title: o.title ?? 'that step' }, misfit));
+    const { agentId: _a, agent: _b, ...rest } = o;
+    return rest as unknown as T;
+  });
+  return { steps: out, notes };
 }
 
 /**
@@ -232,7 +278,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   if (step.kind !== 'find') return { started: false, reason: `${step.title} isn't a find step, so there's nothing to search again.`, step };
   // Not there yet: that's the step's own run.
   if (step === currentStep(nb) && step.status !== 'met') return startNotebookStep(ctx, nb.id, { stepId: step.id });
-  const resolved = stepAgent(ctx, step);
+  const resolved = stepAgent(ctx, step, nb.id);
   if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines ??= new Map();
