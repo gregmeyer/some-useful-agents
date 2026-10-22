@@ -325,6 +325,10 @@ Rules:
   or send up to 3 reads together. (The route enforces this too: it
   holds extra `write` cards, so proposing two only delays the
   second — declare them honestly and lead with the most important.)
+- One list, one card: an agent that takes a list (an `ITEMS` input, like
+  research-fanout) covers the whole list in one run. Don't split it into
+  a card per part; when the list is longer than its default `MAX_ITEMS`,
+  set `MAX_ITEMS` to the count (up to 20).
 - `inputs` keys must be plausible inputs for the target agent
   (use the agent id + your prior knowledge). Values must be strings.
 - `rationale` is shown to the operator under the Run/Skip

@@ -95,6 +95,7 @@ import {
 } from './inbox-catalog.js';
 import {
   parseProposedActions,
+  mergeListActions,
   parseTriageLinks, parseTriageWidget, parseTriageOpen,
   triageReplyBody,
   hasRecoveryRefireSinceLastUser,
@@ -2777,7 +2778,7 @@ export async function runTriageAgent(
       // wrong target unless they said Home / Today.
       const askedFrom = (() => { try { return (JSON.parse(message.contextJson ?? '{}') as { page?: { kind?: string; title?: string; path?: string } }).page; } catch { return undefined; } })();
       const saidHome = /\b(home|today)\b/i.test(latestUserRequest(ctx.inboxStore?.listResponses(messageId) ?? []) ?? '');
-      for (const action of accepted) {
+      for (const action of mergeListActions(accepted, (id) => ctx.agentStore.getAgent(id)?.inputs)) {
         if (action.agentId === 'adjust-surface' && askedFrom && askedFrom.kind !== 'home' && !saidHome) {
           rejected.push({
             agentId: 'adjust-surface',
