@@ -407,13 +407,13 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-new__form { position: absolute; right: 0; top: calc(100% + var(--space-2)); z-index: 10; width: min(460px, 92vw); padding: var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); }
 .nbl-new__hint { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbl-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-6); }
-.nbl-tools .nb-tabs { height: 36px; align-items: stretch; }
+.nbl-tools .nb-tabs { height: var(--control-h); align-items: stretch; }
 .nbl-tools .nb-tabs__tab { display: inline-flex; align-items: center; gap: var(--space-1); }
-.nbl-tools__search { flex: 1 1 240px; max-width: 420px; height: 36px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); }
+.nbl-tools__search { flex: 1 1 240px; max-width: 420px; height: var(--control-h); display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); }
 .nbl-tools__search:focus-within { border-color: var(--color-primary); box-shadow: var(--shadow-focus); }
 .nbl-tools__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: var(--font-size-sm); color: var(--color-text); }
 .nbl-tools__sort { margin-left: auto; }
-.nbl-tools__sort select { height: 36px; padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
+.nbl-tools__sort select { height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
 .nbl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
 .nbl-card { display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-text); text-decoration: none; transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease; }
 .nbl-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }

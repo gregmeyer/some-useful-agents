@@ -17,6 +17,15 @@ export interface PageHeaderOptions {
   description?: string;
   /** Contextual back link rendered above the title. */
   back?: PageHeaderBack;
+  /** Where this page sits ("Home › Agents"): the last one is this page and isn't a link. */
+  crumbs?: Crumb[];
+}
+
+export interface Crumb { label: string; href?: string }
+
+/** "Home › Notebooks › Car": every page's first line, so titles sit in the same place on every page. */
+export function renderCrumbs(crumbs: readonly Crumb[]): SafeHtml {
+  return html`<nav class="crumbs" aria-label="Breadcrumb">${crumbs.map((c, i) => html`${i ? html`<span class="crumbs__sep" aria-hidden="true">›</span>` : html``}${c.href && i < crumbs.length - 1 ? html`<a href="${c.href}">${c.label}</a>` : html`<span aria-current="page">${c.label}</span>`}`) as unknown as SafeHtml[]}</nav>`;
 }
 
 /**
@@ -42,6 +51,7 @@ export function pageHeader(opts: PageHeaderOptions): SafeHtml {
 
   return html`
     <header class="page-header">
+      ${opts.crumbs?.length ? renderCrumbs(opts.crumbs) : unsafeHtml('')}
       ${backBlock}
       <h1>${opts.title}</h1>
       ${metaBlock}

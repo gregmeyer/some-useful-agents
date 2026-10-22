@@ -82,7 +82,7 @@ const Metric = define('Metric', 'sua-a2ui-metric',
     .delta { font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .value.long { font-family: inherit; font-size: var(--font-size-md, 1rem); line-height: 1.4; }`,
   // A "metric" that's really a sentence (e.g. a day's forecast) reads as text, not a big number.
-  (p) => html`<div class="label">${p.label}</div>
+  (p) => html`${p.label ? html`<div class="label">${p.label}</div>` : nothing}
     <div class="value ${tone(p.tone)} ${String(p.value ?? '').length > 14 ? 'long' : ''}">${p.value}${p.unit ? html`<span class="unit">${p.unit}</span>` : nothing}</div>
     ${p.delta ? html`<div class="delta">${p.delta}</div>` : nothing}`);
 

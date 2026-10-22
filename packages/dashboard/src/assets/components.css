@@ -169,12 +169,20 @@
   margin-bottom: var(--space-4);
 }
 
+/* One header on every page (DESIGN.md "Page header"): breadcrumbs, then the title with its
+   counts beside it and its actions at the right, then one line saying what the page is for. */
 .page-header h1 {
   margin: 0;
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
 }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); margin: 0 0 var(--space-3); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.crumbs a { color: var(--color-text-muted); }
+.crumbs a:hover { color: var(--color-primary); }
+.page-header > .crumbs { flex-basis: 100%; margin: 0 0 calc(var(--space-1) * -1); }
 
 .page-header__meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
   display: flex;
   gap: var(--space-2);
   align-items: center;
@@ -183,7 +191,13 @@
 
 .page-header__cta {
   margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
+/* Header actions are small buttons, whatever size the page asked for. */
+.page-header__cta .btn { min-height: var(--control-h-sm); padding: 0 var(--space-3); font-size: var(--font-size-sm); }
 
 .page-header__description {
   flex-basis: 100%;

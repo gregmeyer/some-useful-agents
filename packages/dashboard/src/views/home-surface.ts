@@ -301,7 +301,7 @@ export function renderSurfaceHistory(versions: Array<{ version: number; who: str
 
 /** Home's goal, as a quiet subtitle under the title. */
 export function renderHomeGoal(today: HomeSurface): SafeHtml {
-  return html`<p class="home-head__goal">${today.goal}</p>`;
+  return html`<p class="page-header__description home-head__goal">${today.goal}</p>`;
 }
 
 /** Adjust Home ▾: ask sua to change it, how it's arranged, and what changed (with Undo). */

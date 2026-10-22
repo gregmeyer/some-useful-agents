@@ -3154,10 +3154,7 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .item-pane.is-done .item-pane__why { display: none; }
 
 /* Home's header, compact: title + goal on the left, notebooks / autonomy / Adjust on the right. */
-.home-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-6); margin-bottom: var(--space-4); }
-.home-head__text { min-width: 0; }
-.home-head__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl); }
-.home-head__goal { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+/* Home's header is the shared page header (components.css .page-header); the goal is its description line. */
 .home-head__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .home-head .home-notebooks { margin: 0; font-size: var(--font-size-sm); }
 .home-notebooks__new { font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -3307,7 +3304,8 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 
 /* A company's logo: whole, on a white tile in either theme. */
 .ib-notebook__cover.is-logo, .nbs-card__cover:has(img.is-logo) { background: #fff; }
-.ib-notebook__cover.is-logo { padding: 14%; box-sizing: border-box; }
+/* In px: a % padding is a share of the card's width, so 14% padded a 56px logo out of sight. */
+.ib-notebook__cover.is-logo { padding: 8px; box-sizing: border-box; }
 .ib-notebook__cover.is-logo.is-wide { padding: 2px; }
 /* Inset, not padded: the shelf card's cover is wide and short, and a % padding (a share of its width) left a logo a sliver. */
 .nbs-card__cover img.is-logo { position: absolute; inset: 25% 10%; width: 80%; height: 50%; }

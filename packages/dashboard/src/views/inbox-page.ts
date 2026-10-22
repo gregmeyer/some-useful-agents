@@ -1,3 +1,4 @@
+import { renderCrumbs } from './page-header.js';
 import type { AutonomyMode } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -48,16 +49,15 @@ export function renderInboxPage(opts: {
     `));
   }
   return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash, wide: true }, html`
-    <header class="home-head">
-      <div class="home-head__text">
-        <h1 class="home-head__title">Home</h1>
-        ${opts.goalLine ?? html``}
-      </div>
-      <div class="home-head__controls">
+    <header class="page-header home-head">
+      ${renderCrumbs([{ label: 'Home' }])}
+      <h1>Home</h1>
+      <div class="page-header__cta home-head__controls">
         ${opts.notebooksLine ?? html``}
         ${renderAutonomyControl(opts.autonomyMode, { compact: true })}
         ${opts.adjustMenu ?? html``}
       </div>
+      ${opts.goalLine ?? html``}
     </header>
     ${pageIntro({
       key: 'home',
