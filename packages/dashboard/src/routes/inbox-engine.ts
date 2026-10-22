@@ -1172,7 +1172,7 @@ export async function executeNotebookSteps(
     const { reconcileStepCards } = await import('../lib/notebook-step-queue.js');
     // Steps the notebook's work already covers are done; the next one is where it starts.
     const already = confirmDoneSteps(ctx, id);
-    const said = already.words ? ` ${already.words}` : '';
+    const said = `${p.notes?.length ? ` ${p.notes.join(' ')}` : ''}${already.words ? ` ${already.words}` : ''}`;
     if (meta.inputs.RUN !== '1') {
       // Cards for the old steps go; the current one gets its Start card.
       reconcileStepCards(ctx, id);
@@ -1283,14 +1283,14 @@ async function notebookStepOutcome(
   if (meta.inputs.MOVE === '1') {
     const m = moveOnFromStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
     if (!m.moved) return { status: 'failed', refusalReason: m.reason ?? 'It could not move on.' };
-    const then = m.next?.started ? ` Working on **${m.next.step!.title}** now; I'll say here when it's done.` : m.next?.reason ? ` ${m.next.reason}` : ' Next is yours: pick the final set with Decide.';
+    const then = m.next?.started ? `${m.next.note ? ` ${m.next.note}` : ''} Working on **${m.next.step!.title}** now; I'll say here when it's done.` : m.next?.reason ? ` ${m.next.reason}` : ' Next is yours: pick the final set with Decide.';
     return { status: 'completed', summary: `Moved on from **${m.step!.title}**, keeping what it found.${then}` };
   }
   // todo: the greeting's Start, for a notebook's first step.
   const was = meta.inputs.WAS === 'met' || meta.inputs.WAS === 'stuck' || meta.inputs.WAS === 'todo' ? meta.inputs.WAS : undefined;
   const out = startNotebookStep(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP, expect: was });
   if (!out.started) return { status: 'failed', refusalReason: out.reason ?? 'It could not start.' };
-  return { status: 'completed', summary: `Working on **${out.step!.title}**${out.step!.agentId ? ` with ${out.step!.agentId}` : ''}. I'll say here when it's done or stuck.` };
+  return { status: 'completed', summary: `${out.note ? `${out.note} ` : ''}Working on **${out.step!.title}**${out.step!.agentId ? ` with ${out.step!.agentId}` : ''}. I'll say here when it's done or stuck.` };
 }
 
 /**

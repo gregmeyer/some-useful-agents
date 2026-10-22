@@ -409,6 +409,9 @@ Each step has a **kind**, which decides its goal. The notebook checks that goal 
   - **A blocked page** is named in the pass ("ebay.com blocked the reader").
   - **An option without a page of its own is skipped**, so the agent never runs on an empty address. The step's note counts them.
   - Pressing again does the next 8.
+  - **Only on a source step.** A find or check step has no page to read. Given one of these agents, the step uses sua's finder or checker instead and says so: "Sua’s checker does “Verify the claims”: listing-page-facts reads one item's own page at a time, so it can only do a source step."
+    - This happens when the steps are saved (Edit, sua's steps card, a draft) and when an older step runs.
+    - It's noted on the page and in the conversation, and the step shows sua's agent from then on.
 - **From your sentence:**
 
   ![A notebook draft's Steps: find with account-research, source with firmographic-research, check with sua's checker, and decide with you](images/new-notebook-steps.png)

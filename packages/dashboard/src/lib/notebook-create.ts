@@ -6,6 +6,7 @@
  * steps. Then sua says hello in the notebook's conversation.
  */
 import { NotebookStore, type Notebook, type NotebookStep } from '@some-useful-agents/core';
+import { fitStepAgents } from './notebook-steps.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
@@ -39,7 +40,8 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     pipeline: input.pipeline ?? [],
     cadence: input.cadence ?? '',
   });
-  const steps = input.steps?.length ? input.steps : undefined;
+  // A page reader can't find or check: those steps go to sua's finder or checker.
+  const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
   if (steps) store.setSteps(nb.id, steps);
   if (input.fields?.length) {
     store.setFields(nb.id, input.fields);

@@ -15,6 +15,7 @@ import {
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
+import { fitStepAgents } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -272,6 +273,6 @@ export async function layOutNotebookSteps(ctx: Ctx, notebookId: string): Promise
   if (!steps?.length) return undefined;
   // Someone set steps while sua worked: theirs stand.
   if (store.get(notebookId)?.steps?.length) return undefined;
-  store.setSteps(notebookId, steps);
+  store.setSteps(notebookId, fitStepAgents(ctx, steps).steps);
   return store.get(notebookId)?.steps;
 }

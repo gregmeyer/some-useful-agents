@@ -611,13 +611,26 @@ describe('notebook pipeline (G2–G3)', () => {
     const { perItemInputs } = await import('../lib/notebook-pipeline.js');
     expect(perItemInputs({ inputs: { NOTEBOOK: {}, URL: {} } } as never)).toBeUndefined();
     expect(perItemInputs({ inputs: { URL: {}, FACTS: {} } } as never)).toEqual({ page: 'URL', want: 'FACTS' });
-    // As a check step it would run with no page: it's refused, saying what to do instead.
+    // As a check step it would run with no page: sua's checker does the step instead, and says so; the reader never runs.
     store.setChecks(nb.id, ['Works']);
     store.setSteps(nb.id, [{ title: 'Check each set', kind: 'check', agentId: 'page-reader' }]);
-    const before = calls.length;
-    const refused = await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
-    expect(decodeURIComponent(refused.headers.location)).toContain("page-reader reads one item's own page at a time, so it can't do a check step. Pick sua’s checker for it under Edit");
+    const before = readFileSync(wanted, 'utf-8').trim().split('\n').length;
+    const ran = await request(app).post(`/notebooks/${nb.id}/run`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    const said = decodeURIComponent(ran.headers.location);
+    expect(said).toContain("Sua’s checker does “Check each set”: page-reader reads one item's own page at a time, so it can only do a source step.");
+    expect(said).not.toContain('with page-reader');
+    expect(store.get(nb.id)!.steps![0].agentId).toBeUndefined();
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
     expect(readFileSync(wanted, 'utf-8').trim().split('\n')).toHaveLength(before);
+
+    // Saving steps that give it a find or check step takes it off there (and says so); a source step keeps it.
+    const saved = await request(app).post(`/notebooks/${nb.id}/steps`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`)
+      .send({ steps: [{ title: 'Find sets', kind: 'find', agentId: 'page-reader' }, { title: 'Source each set', kind: 'source', agentId: 'page-reader' }, { title: 'Check each set', kind: 'check', agentId: 'page-reader' }] });
+    expect(saved.body.steps.map((x: { agentId?: string }) => x.agentId ?? null)).toEqual([null, 'page-reader', null]);
+    expect(saved.body.notes).toEqual([
+      "Sua’s finder does “Find sets”: page-reader reads one item's own page at a time, so it can only do a source step.",
+      "Sua’s checker does “Check each set”: page-reader reads one item's own page at a time, so it can only do a source step.",
+    ]);
   });
 
   it('a step still getting closer when it runs out of tries offers Try again first; Stop and Move on from the header', async () => {

@@ -13,6 +13,7 @@ import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
 import { suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 import { waitingStepCard } from './notebook-step-queue.js';
+import { fitStepAgents } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -220,15 +221,17 @@ export function parseNotebookPipeline(ctx: Ctx, agentsRaw: string, cadence: stri
  * kind, agent, target}), checked: at most 6, known kinds, and every agent
  * named must be installed (a check or find step may name none: sua's checker or finder).
  */
-export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookStep[]; error?: string } {
+export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookStep[]; error?: string; notes?: string[] } {
   let list: unknown;
   try { list = JSON.parse(raw); } catch { return { error: 'The steps weren\'t a JSON list.' }; }
   if (!Array.isArray(list) || list.length === 0) return { error: 'No steps.' };
   const named = list.map((x) => (x && typeof x === 'object' ? (x as { agent?: unknown; agentId?: unknown }) : {})).map((x) => (typeof x.agentId === 'string' ? x.agentId : typeof x.agent === 'string' ? x.agent : '')).filter(Boolean);
   const missing = named.filter((a) => { const g = ctx.agentStore.getAgent(a); return !g || g.status === 'archived'; });
   if (missing.length) return { error: `Not installed: ${[...new Set(missing)].join(', ')}.` };
-  const { steps } = draftSteps(list, new Set(named));
-  return steps ? { steps } : { error: 'None of those were steps (each needs a title and a kind: find, source, check or decide).' };
+  // An agent that can't do its step (a page reader on a find or check step) comes off it: sua's finder or checker does it.
+  const fit = fitStepAgents(ctx, list);
+  const { steps } = draftSteps(fit.steps, new Set(named));
+  return steps ? { steps, ...(fit.notes.length ? { notes: fit.notes } : {}) } : { error: 'None of those were steps (each needs a title and a kind: find, source, check or decide).' };
 }
 
 /** The steps card's preview: each step, its agent, and what it replaces. */
