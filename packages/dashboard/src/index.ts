@@ -93,6 +93,7 @@ import { installCatalogSorter } from './lib/agent-catalog-sort.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
+import { reconcileStepsOnBoot } from './lib/notebook-step-queue.js';
 import { pulseRouter } from './routes/pulse.js';
 import { pulseLayoutPlanRouter } from './routes/pulse-layout-plan.js';
 import { dashboardLayoutPlanRouter } from './routes/dashboard-layout-plan.js';
@@ -744,6 +745,13 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     reconcileInboxOnBoot(ctx);
   } catch (err) {
     console.warn('[inbox-reconcile] boot pass failed:', err instanceof Error ? err.message : String(err));
+  }
+  // Notebook steps a restart left running stop there, with Try again / Move on (ADR-0055).
+  try {
+    const stopped = reconcileStepsOnBoot(ctx);
+    if (stopped) console.log(`[notebook-steps] ${String(stopped)} step(s) left running by a restart now stopped short.`);
+  } catch (err) {
+    console.warn('[notebook-steps] boot pass failed:', err instanceof Error ? err.message : String(err));
   }
 
   // Autonomous first-touch sweeper — the durable half of auto-triage (the

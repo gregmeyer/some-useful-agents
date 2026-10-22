@@ -2928,6 +2928,40 @@ describe('notebook steps: one queue for the header and the conversation (ADR-005
     expect(t.waiting()).toEqual([]);
   });
 
+  it('the page reloads when the steps move from the conversation: /main carries the key the page started with', async () => {
+    const t = await setup([
+      { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
+      { title: 'Pick one', kind: 'decide', target: 1 },
+    ]);
+    const main = async () => (await request(t.app).get(`/notebooks/${t.nb.id}/main`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).headers['x-notebook-steps'];
+    const key = /data-nb-steps="([0-9a-f]+)"/.exec(await t.page())![1];
+    expect(await main()).toBe(key);
+    // Started from the conversation's card (not the header): the key moves, so the header catches up.
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    await executeNotebookStep(t.ctx, t.waiting()[0] as never);
+    expect(await main()).not.toBe(key);
+    await t.settle();
+    expect(/data-nb-steps="([0-9a-f]+)"/.exec(await t.page())![1]).toBe(await main());
+  });
+
+  it('a step a restart left running stops short there, with Try again and Move on waiting', async () => {
+    const t = await setup([
+      { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
+      { title: 'Pick one', kind: 'decide', target: 1 },
+    ]);
+    t.store.updateStep(t.nb.id, 's1', { status: 'running' });
+    const { reconcileStepsOnBoot } = await import('../lib/notebook-step-queue.js');
+    expect(reconcileStepsOnBoot(t.ctx)).toBe(1);
+    expect(t.store.get(t.nb.id)!.steps![0]).toMatchObject({ status: 'stuck', note: 'stopped by a restart' });
+    expect(t.inbox.listResponses(t.threadId).some((r) => r.body.includes('sua restarted while **Find 1 company** was running'))).toBe(true);
+    expect(t.waiting().map((m) => m.ctaLabel)).toEqual(['Try again', 'Move on']);
+    // A step that's really running (its lock is held) is left alone.
+    t.store.updateStep(t.nb.id, 's1', { status: 'running' });
+    t.ctx.notebookPipelines = new Map([[t.nb.id, { agentId: 'finder', step: 1, of: 2, startedAt: Date.now() }]]);
+    expect(reconcileStepsOnBoot(t.ctx)).toBe(0);
+    t.ctx.notebookPipelines.clear();
+  });
+
   it("sua's step cards are pinned to the step as it is now, and refused while one runs or when one already waits", async () => {
     const t = await setup([
       { title: 'Find 1 company', kind: 'find', agentId: 'finder', target: 1 },
