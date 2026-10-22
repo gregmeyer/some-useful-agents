@@ -10,6 +10,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { layout } from './layout.js';
+import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
@@ -870,14 +871,12 @@ export function renderNotebooksList(args: {
     ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
     : html``;
   return render(layout({ title: 'Notebooks', activeNav: 'inbox', flash: args.flash, wide: true }, html`
-    <p class="nb-crumbs"><a href="/">Home</a> › Notebooks</p>
-    <header class="nbl-head">
-      <div>
-        <h1 class="nb-list__title">Notebooks</h1>
-        <p class="nb-list__sub">A goal you keep over time: what it's for, what you've found, how far each one got, and what you decided.</p>
-      </div>
-      <a class="btn btn--primary nbl-new__btn" href="/notebooks/new">+ New notebook</a>
-    </header>
+    ${pageHeader({
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks' }],
+      title: 'Notebooks',
+      description: "A goal you keep over time: what it's for, what you've found, how far each one got, and what you decided.",
+      cta: html`<a class="btn btn--primary btn--sm nbl-new__btn" href="/notebooks/new">+ New notebook</a>`,
+    })}
     ${renderDraftsStrip(args.drafts ?? [], 'list')}
     ${counts.all || counts.archived ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">

@@ -23,6 +23,7 @@ export function renderSettingsShell(args: SettingsShellArgs): string {
 
   const body = html`
     ${pageHeader({
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Settings' }],
       title: 'Settings',
       description: 'Model providers, secrets and variables, what runs cost, and which tools agents may call, plus how this dashboard looks. Connected services and MCP servers live under Tools.',
     })}

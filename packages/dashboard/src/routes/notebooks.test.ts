@@ -152,7 +152,7 @@ describe('notebooks pages', () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
     expect(empty.text).toContain('+ New notebook');
-    expect(empty.text).toContain('class="btn btn--primary nbl-new__btn" href="/notebooks/new"');
+    expect(empty.text).toContain('class="btn btn--primary btn--sm nbl-new__btn" href="/notebooks/new"');
 
     const made = await post(app, '/notebooks', { title: 'Buy a used car', statement: 'Find a reliable SUV', params: 'AWD\nunder $26k', criteria: 'One fits\nClean history\nDecided' });
     expect(made.status).toBe(303);

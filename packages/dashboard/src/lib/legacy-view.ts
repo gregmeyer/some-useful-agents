@@ -68,8 +68,11 @@ export function legacySignalView(signal: AgentSignal, slots: Record<string, unkn
         const d = cur - prev;
         (data.slots as Record<string, unknown>)._delta = `${d >= 0 ? '+' : ''}${Number(d.toFixed(2))} vs previous`;
       }
+      // The tile's frame already shows its title: a label that only repeats it ("RUNS TODAY" twice) is left off.
+      const same = (a: unknown) => String(a ?? '').trim().toLowerCase() === signal.title.trim().toLowerCase();
+      const label = has('label') && !same(slots.label) ? s('label') : '';
       return { data, components: [{
-        id: 'root', component: 'Metric', label: has('label') ? s('label') : signal.title, value: s('value'),
+        id: 'root', component: 'Metric', label, value: s('value'),
         ...(has('unit') ? { unit: s('unit') } : {}),
         ...((data.slots as Record<string, unknown>)._delta ? { delta: s('_delta') } : {}),
         ...(tone ? { tone: s('_tone') } : {}),
@@ -147,7 +150,8 @@ export function legacySignalView(signal: AgentSignal, slots: Record<string, unkn
       (data.slots as Record<string, unknown>)._values = Array.isArray(values) ? values : [];
       return { data, components: [{
         id: 'root', component: 'Sparkline', values: s('_values'),
-        label: has('label') ? s('label') : signal.title,
+        // Not the tile's title again: its frame shows that.
+        ...(has('label') && String(slots.label).trim().toLowerCase() !== signal.title.trim().toLowerCase() ? { label: s('label') } : {}),
         ...(has('current') ? { current: s('current') } : {}),
       }] };
     }

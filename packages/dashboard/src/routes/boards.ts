@@ -20,7 +20,7 @@ import {
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
-import { pageHeader } from '../views/page-header.js';
+import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
 import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, startBoardBuild } from '../lib/board-build.js';
 import { boardApprovalButtons } from '../views/board-approval.js';
@@ -236,10 +236,11 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     const p = r.pulse!;
     const hidden = p.hiddenTiles.length;
     header = html`
-      <div class="board-page__head">
-        <h1 style="margin: 0;">Pulse</h1>
-        <span class="dim board-page__meta">${String(tileCount)} placed${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
-        <div class="board-page__actions">
+      <div class="page-header board-page__head">
+        ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
+        <h1>Pulse</h1>
+        <span class="page-header__meta board-page__meta">${String(tileCount)} placed${hidden > 0 ? html` · ${String(hidden)} hidden` : html``}</span>
+        <div class="page-header__cta board-page__actions">
           ${dropdown}
           <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
           ${p.tiles.length > 0 ? html`
@@ -260,10 +261,11 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   } else {
     const sourceLabel = r.board.packId ? `from pack: ${r.board.packId}` : 'user-created';
     header = html`
-      <div class="board-page__head">
-        <h1 style="margin: 0;">${r.board.name}</h1>
-        <span class="dim board-page__meta">${String(tileCount)} tile${tileCount === 1 ? '' : 's'} · ${sourceLabel}</span>
-        <div class="board-page__actions">
+      <div class="page-header board-page__head">
+        ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse', href: '/pulse' }, { label: r.board.name }])}
+        <h1>${r.board.name}</h1>
+        <span class="page-header__meta board-page__meta">${String(tileCount)} tile${tileCount === 1 ? '' : 's'} · ${sourceLabel}</span>
+        <div class="page-header__cta board-page__actions">
           ${dropdown}
           <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
           <a class="btn btn--ghost btn--sm" href="/dashboards/${encodeURIComponent(id)}/edit">Edit dashboard</a>

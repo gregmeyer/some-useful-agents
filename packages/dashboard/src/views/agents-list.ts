@@ -133,6 +133,7 @@ export function renderAgentsList(input: AgentsListInput): string {
 
   const body = html`
     ${pageHeader({
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Agents' }],
       title: 'Agents',
       description: 'Everything you have built or installed. Open one to see what it does, run it, or put it on a schedule.',
       cta: html`

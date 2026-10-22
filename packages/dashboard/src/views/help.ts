@@ -144,6 +144,7 @@ export function renderHelp(): string {
 
   const body = html`
     ${pageHeader({
+      crumbs: [{ label: 'Home', href: '/' }, { label: 'Help' }],
       title: 'Help & tutorial',
       description: 'Your map for using sua from the terminal and the dashboard. ' +
         'The CLI is authoritative; the dashboard is the ergonomic surface.',
