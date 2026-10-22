@@ -1169,11 +1169,17 @@ export async function executeNotebookSteps(
     const nb = notebooksOf(ctx).setSteps(id, p.steps);
     const list = (nb.steps ?? []).map((x, i) => `${String(i + 1)}. ${x.title}`).join('; ');
     const { startNotebookStep, confirmDoneSteps } = await import('../lib/notebook-steps.js');
+    const { reconcileStepCards } = await import('../lib/notebook-step-queue.js');
     // Steps the notebook's work already covers are done; the next one is where it starts.
     const already = confirmDoneSteps(ctx, id);
     const said = already.words ? ` ${already.words}` : '';
-    if (meta.inputs.RUN !== '1') return { status: 'completed', summary: `Steps set: ${list}.${said} Run ${already.done.length ? 'the next step' : 'step 1'} from the notebook when you're ready.` };
+    if (meta.inputs.RUN !== '1') {
+      // Cards for the old steps go; the current one gets its Start card.
+      reconcileStepCards(ctx, id);
+      return { status: 'completed', summary: `Steps set: ${list}.${said} Run ${already.done.length ? 'the next step' : 'step 1'} from the notebook when you're ready.` };
+    }
     const started = startNotebookStep(ctx, id);
+    reconcileStepCards(ctx, id);
     return { status: 'completed', summary: `Steps set: ${list}.${said}${started.started ? ` Working on **${started.step!.title}** now; I'll say here when it's done.` : ` ${started.reason ?? ''}`}` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
@@ -1252,6 +1258,17 @@ export function executeNotebookCreate(
  * find step that's already done (one card for "re-run the search").
  */
 export async function executeNotebookStep(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+  const { reconcileStepCards } = await import('../lib/notebook-step-queue.js');
+  const out = await notebookStepOutcome(ctx, meta);
+  // Every other card for the notebook's steps now matches where it is (one queue: ADR-0055).
+  reconcileStepCards(ctx, meta.inputs.NOTEBOOK ?? '');
+  return out;
+}
+
+async function notebookStepOutcome(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
 ): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
@@ -2794,6 +2811,14 @@ export async function runTriageAgent(
           : undefined;
         if (exhaustedTarget) {
           convergenceBlocked.add(exhaustedTarget);
+          continue;
+        }
+        // A notebook step card acts on the step as it is now: pinned to it (STEP, WAS), never while one runs.
+        if (action.agentId === 'notebook-step') {
+          const { pinStepAction } = await import('../lib/notebook-step-queue.js');
+          const pinned = pinStepAction(ctx, action);
+          if (!pinned.action) { rejected.push({ agentId: action.agentId, reason: pinned.reason ?? 'not now' }); continue; }
+          dedupedAccepted.push(pinned.action);
           continue;
         }
         dedupedAccepted.push(action);

@@ -17,6 +17,7 @@ import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
+import { reconcileStepCards } from './notebook-step-queue.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
@@ -130,6 +131,8 @@ export function confirmDoneStepsAndSay(ctx: Ctx, notebookId: string): { done: No
     publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
     reopenForStepNews(ctx, threadId);
   }
+  // New steps: cards for the old ones go, and the current one gets its card.
+  reconcileStepCards(ctx, notebookId);
   return out;
 }
 
@@ -149,16 +152,24 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   let step = currentStep(nb);
   if (!step) return { started: false, reason: 'All its steps are done.' };
   if ((opts.stepId && opts.stepId !== step.id) || (opts.expect && opts.expect !== step.status)) return { started: false, reason: 'It has already moved on from that step.' };
-  // Continue: the met step is done; the next one starts.
-  if (step.status === 'met') {
-    nb = store.updateStep(nb.id, step.id, { status: 'done' });
-    step = currentStep(nb);
-    if (!step) return { started: false, reason: 'All its steps are done.' };
+  // Continue: the met step is done and the next one starts. A next step that
+  // can't start (no checks, an agent that can't do it) leaves the met one as
+  // it is, so nothing moves on without saying why; one that's yours, or none
+  // left, is where it ends.
+  const met = step.status === 'met' ? step : undefined;
+  if (met) {
+    const after = (nb.steps ?? []).slice((nb.steps ?? []).indexOf(met) + 1).find((s) => s.status !== 'done');
+    if (!after || isYourStep(after)) {
+      nb = store.updateStep(nb.id, met.id, { status: 'done' });
+      return after ? { started: false, reason: yoursReason(after), step: after } : { started: false, reason: 'All its steps are done.' };
+    }
+    step = after;
   }
   if (isYourStep(step)) return { started: false, reason: yoursReason(step), step };
   if (step.kind === 'check' && nb.checks.length === 0) return { started: false, reason: 'The notebook has no checks yet. Add them under Edit, or tell sua what to check.', step };
   const resolved = stepAgent(ctx, step);
   if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
+  if (met) nb = store.updateStep(nb.id, met.id, { status: 'done' });
   const agentId = resolved.agentId;
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
   ctx.notebookPipelines.set(notebookId, { agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now() });
@@ -166,7 +177,11 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   const s = step;
   void runStep(ctx, store, nb.id, s, agentId).catch((err: unknown) => {
     try { store.updateStep(notebookId, s.id, { status: 'stuck', note: err instanceof Error ? err.message.slice(0, 160) : 'It failed.' }); } catch { /* the notebook is gone */ }
-  }).finally(() => ctx.notebookPipelines?.delete(notebookId));
+  }).finally(() => {
+    ctx.notebookPipelines?.delete(notebookId);
+    // It paused: its card is the one waiting (an earlier round's that asks the same goes).
+    reconcileStepCards(ctx, notebookId);
+  });
   return { started: true, step };
 }
 
@@ -225,7 +240,11 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   const agentId = resolved.agentId;
   void runAgain(ctx, store, nb.id, step, agentId).catch((err: unknown) => {
     try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
-  }).finally(() => ctx.notebookPipelines?.delete(notebookId));
+  }).finally(() => {
+    ctx.notebookPipelines?.delete(notebookId);
+    // It paused: its card is the one waiting (an earlier round's that asks the same goes).
+    reconcileStepCards(ctx, notebookId);
+  });
   return { started: true, step };
 }
 
@@ -461,21 +480,42 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   reopenForStepNews(ctx, threadId);
-  // No card after the last step, or before a step of yours (that's its Narrow or Decide button).
-  if (p.met && (!next || isYourStep(next))) return msg.id;
-  const card = (action: InboxActionMeta): string => {
-    const c = inbox.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
-    publishInboxEvent(ctx, threadId, 'action:created', { responseId: c.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: c.createdAt });
-    return c.id;
-  };
+  const ids = stepCards(nb, step.id, p).map((action) => addStepCard(ctx, threadId, action));
+  return ids[0] ?? msg.id;
+}
+
+/** Put one step card in the thread (proposed, waiting on you). */
+export function addStepCard(ctx: Ctx, threadId: string, action: InboxActionMeta): string {
+  const c = ctx.inboxStore!.addResponse(threadId, 'action', action.rationale!, JSON.stringify(action));
+  publishInboxEvent(ctx, threadId, 'action:created', { responseId: c.id, agentId: action.agentId, rationale: action.rationale, inputs: action.inputs, createdAt: c.createdAt });
+  return c.id;
+}
+
+/**
+ * The cards a paused step offers, first button first: Continue for a met step
+ * (none after the last step, or before a step of yours: that's its Narrow or
+ * Decide button); Try again and Move on for a stuck one (Move on first when
+ * its agent got no further); Start for one not started yet.
+ */
+export function stepCards(nb: Notebook, stepId: string, p: Pick<NotebookStepProgress, 'have' | 'want' | 'met'>): InboxActionMeta[] {
+  const steps = nb.steps ?? [];
+  const i = steps.findIndex((s) => s.id === stepId);
+  const step = steps[i];
+  if (!step) return [];
+  const next = steps[i + 1];
   const base = { kind: 'action' as const, status: 'proposed' as const, agentId: NOTEBOOK_STEP_ACTION, effect: 'write' as const };
-  if (p.met) return card({ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'met' }, rationale: `Start step ${String(i + 2)}: ${next!.title}.`, ctaLabel: 'Continue' });
+  if (p.met) {
+    if (!next || isYourStep(next)) return [];
+    return [{ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'met' }, rationale: `Start step ${String(i + 2)}: ${next.title}.`, ctaLabel: 'Continue' }];
+  }
+  if (isYourStep(step)) return [];
+  if (step.status !== 'stuck') {
+    return [{ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: step.status }, rationale: `Start step ${String(i + 1)}: ${step.title}.`, ctaLabel: 'Start' }];
+  }
+  const words = progressWords(step, p);
   const moveOn: InboxActionMeta = { ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'stuck', MOVE: '1' }, rationale: `Keep what ${step.title} found (${words}) and ${next ? `go on to ${next.title}` : 'finish'}.`, ctaLabel: 'Move on' };
   const again: InboxActionMeta = { ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'stuck' }, rationale: `Run ${step.title} again with what's still missing.`, ctaLabel: 'Try again' };
-  const [first, second] = stalled ? [moveOn, again] : [again, moveOn];
-  const id = card(first);
-  card(second);
-  return id;
+  return step.stalled ? [moveOn, again] : [again, moveOn];
 }
 
 /**

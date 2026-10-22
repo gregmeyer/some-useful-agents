@@ -850,7 +850,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   const provenance = isDispatched && meta.status !== 'proposed' && meta.approvedBy
     ? (meta.approvedBy === 'policy'
         ? html`<span class="inbox-action__prov inbox-action__prov--auto" title="Auto-run by your trust policy — no click needed">⚡ auto-ran</span>`
-        : html`<span class="inbox-action__prov inbox-action__prov--operator" title="You approved this action">✓ you approved</span>`)
+        : meta.from === 'notebook'
+          ? html`<span class="inbox-action__prov inbox-action__prov--operator" title="You pressed this on the notebook's page">✓ you, from the notebook</span>`
+          : html`<span class="inbox-action__prov inbox-action__prov--operator" title="You approved this action">✓ you approved</span>`)
     : html``;
 
   // The action's one-line identity — reused as both the expanded headline and
@@ -1084,7 +1086,7 @@ function renderActionStatusBody(meta: InboxActionMeta, inlineWidget?: SafeHtml):
       `;
     case 'skipped':
       return html`<div class="inbox-action__result inbox-action__result--muted">${
-        meta.skippedBy === 'triage' ? 'Superseded by your reply.' : 'Skipped by operator.'
+        meta.skippedBy === 'notebook' ? (meta.skipReason ?? 'The notebook has moved on from this.') : meta.skippedBy === 'triage' ? 'Superseded by your reply.' : 'Skipped by operator.'
       }</div>`;
     case 'refused':
       return html`
