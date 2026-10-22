@@ -155,9 +155,13 @@ export const NOTEBOOK_PAGE_JS = `
           var ch = r.headers.get('X-Notebook-Changed') || '';
           var hint = r.headers.get('X-Notebook-Hint');
           var ph = r.headers.get('X-Notebook-Placeholder');
-          return r.text().then(function (t) { return { n: n, ch: ch, t: t, hint: hint, ph: ph }; });
+          var st = r.headers.get('X-Notebook-Steps');
+          return r.text().then(function (t) { return { n: n, ch: ch, t: t, hint: hint, ph: ph, st: st }; });
         })
         .then(function (res) {
+          // The steps moved (started, paused or waiting on a new card, from here or the
+          // conversation): reload, so the header's buttons match the conversation's card.
+          if (res.st !== null && res.st !== (main.getAttribute('data-nb-steps') || '') && !document.querySelector('textarea:focus, input:focus')) { window.location.reload(); return; }
           // The talk box's hint and ghost text follow the notebook's next step.
           try {
             var labels = document.querySelectorAll('.nb-talk__next');

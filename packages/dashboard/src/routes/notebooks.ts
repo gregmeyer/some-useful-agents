@@ -23,7 +23,7 @@ import {
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
-import { actOnStep, reconcileStepCards } from '../lib/notebook-step-queue.js';
+import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
@@ -247,7 +247,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),
     ...(unfiled.some((r) => r.adding) ? ['Adding a run'] : []),
   ];
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind, ...(coverPhoto.shape ? { shape: coverPhoto.shape } : {}) } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind, ...(coverPhoto.shape ? { shape: coverPhoto.shape } : {}) } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -810,5 +810,7 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const step = nextStep(s.get(nb.id) ?? nb, entries);
   res.setHeader('X-Notebook-Hint', encodeURIComponent(step.hint));
   res.setHeader('X-Notebook-Placeholder', encodeURIComponent(step.placeholder));
+  // The header's steps (what runs, what waits on you): the page reloads when they change.
+  res.setHeader('X-Notebook-Steps', stepsKey(ctx, s.get(nb.id) ?? nb));
   res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp));
 });

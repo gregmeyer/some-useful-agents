@@ -455,7 +455,7 @@ While a notebook has steps left, the main button in its header is **Next step �
   - **sua's own step cards are tied to the step as it is** when sua proposes them, and it doesn't propose one while a step runs. Replying to sua leaves the step's card waiting (other cards are still replaced by your reply).
   - **A Continue that can't start the next step leaves the step met.** For example, the next step has no checks, or its agent can't do that kind of step. The reason shows on the page and on the card, and the same card isn't put back each time you open the notebook. Fix the step, then press Next step again.
 
-**When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. A step whose status says running but isn't (left by a restart) doesn't spin.
+**When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. The header also catches up on its own when a step starts, pauses or gets a new card from the conversation, so its buttons always match the card waiting there. If sua restarts while a step runs, that step stops there ("stopped by a restart"), keeping what it found. sua says so in the conversation, and **Try again** and **Move on** wait.
 
 
 ### sua's checker

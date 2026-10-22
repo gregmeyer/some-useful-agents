@@ -6,6 +6,7 @@
  * a card that no longer matches the notebook (the step moved on, started, or
  * was replaced) is retired with why; and a paused step always has its card.
  */
+import { createHash } from 'node:crypto';
 import { NotebookStore, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { parseActionMeta, publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
@@ -98,9 +99,11 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
   const p = step.status === 'met' ? { have: 0, want: 0, met: true } : stepProgress(nb, stores(ctx).entries(nb.id, 1000), step);
   const want = stepCards(nb, step.id, { ...p, met: step.status === 'met' });
   if (!want.length) return live;
-  // Asked before and failed or skipped by you: the header says why; no new card each time the page loads.
+  // Being acted on now, refused, or skipped by you: the header says why; no new card each time the page loads.
+  // (One that ran to the end doesn't count: the step came back to the same place, so it's asked again.)
   const asked = new Set((ctx.inboxStore.listResponses(threadId)).map((r) => parseActionMeta(r))
-    .filter((m): m is InboxActionMeta => !!m && m.agentId === NOTEBOOK_STEP_ACTION && m.inputs.NOTEBOOK === nb.id && !(m.status === 'skipped' && m.skippedBy === 'notebook'))
+    .filter((m): m is InboxActionMeta => !!m && m.agentId === NOTEBOOK_STEP_ACTION && m.inputs.NOTEBOOK === nb.id
+      && (m.status === 'running' || m.status === 'failed' || (m.status === 'skipped' && m.skippedBy !== 'notebook')))
     .map(cardKey));
   if (want.some((a) => asked.has(cardKey(a)))) return live;
   for (const a of want) {
@@ -194,4 +197,44 @@ export async function actOnStep(ctx: Ctx, notebookId: string, op: StepOp, opts: 
   const done = parseActionMeta(ctx.inboxStore!.getResponse(card.r.id)!);
   const ok = done?.status === 'completed';
   return { ok, message: (ok ? done?.resultSummary : done?.refusalReason) ?? (ok ? 'Started.' : 'It could not start.') };
+}
+
+/**
+ * What the notebook's header shows about its steps, as a short key: each
+ * step's status, whether one is running, and the card waiting on you. The
+ * page's poll reloads when it changes (a step started or paused from the
+ * conversation, say), so the header and the conversation never disagree.
+ */
+export function stepsKey(ctx: Ctx, nb: Notebook): string {
+  if (!nb.steps?.length) return '';
+  const card = waitingStepCard(ctx, nb.id);
+  const parts = [nb.status, isRunning(ctx, nb.id), nb.steps.map((s) => [s.id, s.status, s.tries, s.note ?? '', !!s.stalled]), card ? `${card.ctaLabel ?? ''}|${card.rationale ?? ''}` : ''];
+  return createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 16);
+}
+
+/**
+ * At boot: a step left running by a restart (its run went with the process)
+ * stopped short there. It's marked stuck, sua says so in the conversation,
+ * and its Try again / Move on cards wait, so Next step doesn't pretend it's
+ * still going. Returns how many it found.
+ */
+export function reconcileStepsOnBoot(ctx: Ctx): number {
+  const store = stores(ctx);
+  let n = 0;
+  for (const nb of store.list({ archived: 'include' })) {
+    const step = nb.steps?.find((s) => s.status === 'running');
+    if (!step || isRunning(ctx, nb.id)) continue;
+    try {
+      store.updateStep(nb.id, step.id, { status: 'stuck', note: step.note ? `${step.note} · stopped by a restart` : 'stopped by a restart' });
+      store.noteRun(nb.id, `${step.title}: stopped by a restart`);
+      const threadId = nb.conversationId && ctx.inboxStore?.get(nb.conversationId) ? nb.conversationId : undefined;
+      if (threadId) {
+        const msg = ctx.inboxStore!.addResponse(threadId, 'triage', `sua restarted while **${step.title}** was running, so it stopped there, keeping what it had found. **Try again** runs it again; **Move on** keeps what it found and goes on.`);
+        publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+      }
+      reconcileStepCards(ctx, nb.id);
+      n++;
+    } catch { /* one notebook can't stop the rest */ }
+  }
+  return n;
 }
