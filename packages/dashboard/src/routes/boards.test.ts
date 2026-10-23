@@ -255,6 +255,25 @@ describe('brand theme', () => {
   const form = (app: Parameters<typeof request>[0], p: string, body: Record<string, string>) =>
     request(app).post(p).type('form').send(body).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
+  it("keeps colours the form doesn't show while the preset stays; a new preset starts from its own", async () => {
+    const app = await setup();
+    const version = async () => /name="version" value="([^"]*)"/.exec((await get(app, '/settings/appearance')).text)![1];
+    const css = async () => (await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text;
+    // A made brand sets shades the form has no field for.
+    await form(app, '/settings/appearance/brand', { version: await version(), preset: 'minimal', name: 'Apple', 'dark.primary': '#2997ff', 'dark.primary-hover': '#47a6ff' });
+    expect(await css()).toContain('--color-primary-hover: #47a6ff;');
+    // Saving the form (no hover field) keeps it.
+    await form(app, '/settings/appearance/brand', { version: await version(), preset: 'minimal', name: 'Apple', 'dark.primary': '#3399ff' });
+    expect(await css()).toContain('--color-primary-hover: #47a6ff;');
+    expect(await css()).toContain('--color-primary: #3399ff;');
+    // Picking another preset: the page knows its values, and the old shades don't carry over.
+    const page = await get(app, '/settings/appearance');
+    expect(page.text).toContain('var presets = {"default":');
+    await form(app, '/settings/appearance/brand', { version: await version(), preset: 'warm' });
+    expect(await css()).not.toContain('#47a6ff');
+    expect(await css()).toContain('--color-bg: #1c1917;');
+  });
+
   it('is served as theme.css on every page, edited in Settings → Appearance, with undo and reset', async () => {
     const app = await setup();
     let css = await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`);

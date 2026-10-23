@@ -13,6 +13,8 @@ export interface BrandFormInput {
   hasBackup: boolean;
   /** Effective (preset + overrides) colours, to show what each field currently is. */
   effective: ReturnType<typeof resolveBrandTheme>;
+  /** Each preset's own values (no overrides), so picking one shows it before you save. */
+  presets?: Record<string, ReturnType<typeof resolveBrandTheme>>;
   /** Saved brands, with their effective colours and whether each is the one in use. */
   saved?: Array<{ id: string; name: string; active: boolean; effective: ReturnType<typeof resolveBrandTheme> }>;
   /** sua's brand proposal (Update my brand), if there is one. */
@@ -226,11 +228,43 @@ export function renderSettingsAppearance(opts: { brand?: BrandFormInput } = {}):
             form.parentNode.insertBefore(p, form);
           }
           try { localStorage.removeItem('sua-widget-theme'); } catch (e) {}
-          // Selecting a preset card marks it active.
+          // Picking another preset starts from it: your own colours, fonts, corners
+          // and accents would otherwise win over it, so nothing would change. They're
+          // cleared (and come back if you pick the saved preset again); the hints show the preset's.
+          var saved = ${JSON.stringify(brand.theme.preset)};
+          var presets = ${JSON.stringify(brand.presets ?? {}).replace(/</g, '\\u003c')};
+          var fields = form ? [].slice.call(form.querySelectorAll('input[name^="dark."], input[name^="light."], input[name^="fonts."], input[name^="radius."], input[name^="accents."], input[name="name"]')) : [];
+          fields.forEach(function (f) { f.dataset.own = f.value; f.dataset.hint = f.placeholder; });
+          var note = null;
+          function presetValue(p, name) {
+            if (name === 'name') return '';
+            var parts = name.split('.'); var g = p && p[parts[0]];
+            return g && g[parts[1]] !== undefined ? String(g[parts[1]]) : '';
+          }
+          function show(id) {
+            var back = id === saved;
+            var hadOwn = false;
+            fields.forEach(function (f) {
+              if (f.dataset.own) hadOwn = true;
+              f.value = back ? f.dataset.own : '';
+              f.placeholder = back ? f.dataset.hint : (presetValue(presets[id], f.name) || (f.name === 'name' ? 'Your brand' : 'default'));
+              var sw = f.parentNode && f.parentNode.querySelector('.brand-swatch');
+              if (sw) sw.style.background = f.value || (back ? f.dataset.hint : presetValue(presets[id], f.name)) || 'transparent';
+            });
+            if (note) { note.remove(); note = null; }
+            if (!back && hadOwn && form) {
+              note = document.createElement('p');
+              note.className = 'flash flash--info';
+              note.setAttribute('role', 'status');
+              note.textContent = 'Your own colours, fonts and corners are cleared so this preset shows. Save brand to use it. To keep the current look, save it under Your brands first, or pick it again to get it back.';
+              form.insertBefore(note, form.firstChild);
+            }
+          }
           document.querySelectorAll('.theme-card__radio').forEach(function (r) {
             r.addEventListener('change', function () {
               document.querySelectorAll('.theme-card').forEach(function (c) { c.classList.remove('is-active'); });
               r.closest('.theme-card').classList.add('is-active');
+              show(r.value);
             });
           });
         })();
