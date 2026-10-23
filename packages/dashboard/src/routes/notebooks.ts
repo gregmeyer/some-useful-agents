@@ -28,7 +28,7 @@ import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { notebookCard, notebookCover, notebookLead } from '../lib/notebook-card.js';
-import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook } from '../lib/notebook-pipeline.js';
+import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
 import { notebookThread, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
@@ -654,6 +654,23 @@ notebooksRouter.post('/notebooks/:id/runs/:runId/add', (req: Request, res: Respo
   const id = String(req.params.id);
   const out = addRunToNotebook(getContext(req.app.locals), id, String(req.params.runId));
   res.redirect(303, back(id, out.started ? 'Adding that run\'s results. They show up here in a minute or so.' : out.reason ?? 'It could not be added.'));
+});
+
+// Skip: a run of one of its agents that doesn't belong here stops being offered.
+notebooksRouter.post('/notebooks/:id/runs/skip-all', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const n = skipUnfiledRuns(getContext(req.app.locals), nb, 'all');
+  res.redirect(303, back(id, n ? `Skipped ${String(n)} run${n === 1 ? '' : 's'}. They won't be offered here again.` : 'Nothing to skip.'));
+});
+
+notebooksRouter.post('/notebooks/:id/runs/:runId/skip', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const n = skipUnfiledRuns(getContext(req.app.locals), nb, [String(req.params.runId)]);
+  res.redirect(303, back(id, n ? 'Skipped. It won\'t be offered here again.' : 'That run isn\'t offered here.'));
 });
 
 /** A step's outcome, as the header flashes it (the conversation has the same words). */

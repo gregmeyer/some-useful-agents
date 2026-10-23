@@ -628,14 +628,18 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
     ${unfiled.length ? html`
       <section class="nb-side__card nb-unfiled" aria-labelledby="nb-unfiled-title">
         <h2 class="nb-side__title" id="nb-unfiled-title">Runs not in this notebook yet</h2>
-        <p class="nb-unfiled__lede">These finished, but what they found isn't in the notebook yet.</p>
+        <p class="nb-unfiled__lede">Finished, but not filed here. Add what they found, or skip ones that don't belong.</p>
         <ul class="nb-unfiled__list">${unfiled.map((r) => html`
           <li class="nb-unfiled__item">
-            <span class="nb-unfiled__what"><a href="/runs/${encodeURIComponent(r.id)}">${r.agentId}</a> <span class="nb-unfiled__when">${formatAge(r.startedAt)}</span></span>
+            <span class="nb-unfiled__what"><a href="/runs/${encodeURIComponent(r.id)}">${r.agentId}</a><span class="nb-unfiled__when">${formatAge(r.startedAt)}</span></span>
             ${r.adding
               ? html`<span class="nb-unfiled__adding" role="status">Adding…</span>`
-              : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/runs/${encodeURIComponent(r.id)}/add"><button type="submit" class="btn btn--sm">Add to notebook</button></form>`}
+              : html`<span class="nb-unfiled__acts">
+                  <form method="POST" action="/notebooks/${id}/runs/${encodeURIComponent(r.id)}/add"><button type="submit" class="btn btn--sm">Add</button></form>
+                  <form method="POST" action="/notebooks/${id}/runs/${encodeURIComponent(r.id)}/skip"><button type="submit" class="btn btn--sm btn--ghost" aria-label="Skip this ${r.agentId} run">Skip</button></form>
+                </span>`}
           </li>`) as unknown as SafeHtml[]}</ul>
+        ${unfiled.filter((r) => !r.adding).length > 1 ? html`<form method="POST" action="/notebooks/${id}/runs/skip-all" class="nb-unfiled__all"><button type="submit" class="btn btn--sm btn--ghost">Skip all</button></form>` : html``}
       </section>` : html``}
 `;
 }

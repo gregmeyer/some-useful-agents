@@ -744,6 +744,13 @@ assetsRouter.get('/assets/option-filters.js', (_req: Request, res: Response) => 
   res.type('application/javascript').send(OPTION_FILTERS_JS);
 });
 
+// A timeline's events (fold repeats, search), imported by a2ui-sua.js.
+const TIMELINE_EVENTS_JS = readAsset('timeline-events.js');
+assetsRouter.get('/assets/timeline-events.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(TIMELINE_EVENTS_JS);
+});
+
 // Previous / Next on an option's page, narrowed to the grid's filters.
 const OPTION_NAV_JS = readAsset('option-nav.js');
 assetsRouter.get('/assets/option-nav.js', (_req: Request, res: Response) => {
