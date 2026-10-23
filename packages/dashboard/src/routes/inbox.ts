@@ -41,7 +41,7 @@ import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksButtons } from '../views/notebooks.js';
-import { SessionStore } from '@some-useful-agents/core';
+import { SessionStore, ItemDismissals } from '@some-useful-agents/core';
 import { startChatTurn } from '../lib/chat-turn.js';
 import { conversationWorking, agentTurnInProgress } from '../lib/conversation-working.js';
 import { Router, type Request, type Response } from 'express';
@@ -562,6 +562,16 @@ inboxRouter.post('/inbox/:id/resolve', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * A Today row that isn't a conversation (a draft, an agent problem, a notebook): selected on Home
+ * and closed or dismissed in bulk, it's dismissed from Today the way its own Dismiss does, and
+ * comes back when something newer happens to it (POST /items/:id/dismiss).
+ */
+function dismissTodayItem(ctx: ReturnType<typeof getContext>, id: string): boolean {
+  if (!/^[a-z]+:/.test(id)) return false;
+  try { ItemDismissals.fromHandle(ctx.runStore.databaseHandle()).dismiss(id, 'you'); return true; } catch { return false; }
+}
+
 inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   if (!ctx.inboxStore) {
@@ -589,7 +599,7 @@ inboxRouter.post('/inbox/bulk-dismiss', (req: Request, res: Response) => {
   const dismissedIds: string[] = [];
   for (const id of ids) {
     const row = ctx.inboxStore.get(id);
-    if (!row) continue;
+    if (!row) { if (dismissTodayItem(ctx, id)) dismissed += 1; continue; }
     try {
       ctx.inboxStore.dismiss(id);
       dismissed += 1;
@@ -642,7 +652,8 @@ inboxRouter.post('/inbox/bulk-resolve', (req: Request, res: Response) => {
   const resolvedIds: string[] = [];
   for (const id of ids) {
     const row = ctx.inboxStore.get(id);
-    if (!row) continue;
+    // Closing a Today row that isn't a conversation takes it off Today.
+    if (!row) { if (dismissTodayItem(ctx, id)) resolved += 1; continue; }
     try {
       // Operator-driven bulk resolve — leave auto_resolved 0 (this isn't a
       // sua-closed loop). Learning extraction fires per thread like the
