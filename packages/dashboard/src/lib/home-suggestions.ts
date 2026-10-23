@@ -10,7 +10,17 @@ import type { getContext } from '../context.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
-export interface SuggestedAgent { id: string; name: string; description: string; lastRunAt?: string }
+/** One input it runs with as-is: its name in words and its default. */
+export interface SuggestedInput { label: string; value: string }
+export interface SuggestedAgent {
+  id: string; name: string; description: string; lastRunAt?: string;
+  /** Why it's suggested: your go-to, used this week, new to you, a tutorial. */
+  why: 'go-to' | 'recent' | 'new' | 'tutorial';
+  /** What Run uses (its defaults), the main one first. */
+  runsWith: SuggestedInput[];
+  /** A prompt for sua: run it with your own value for what it's about (sua asks you what), or what it's good for. */
+  ownAsk: { label: string; text: string };
+}
 export interface SuggestedAsk { label: string; text: string }
 export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[] }
 
@@ -26,6 +36,38 @@ export function needsInputs(agent: Pick<Agent, 'inputs'>): boolean {
 export function runsAsIs(agent: Pick<Agent, 'inputs'>): boolean {
   if (perItemInputs(agent)) return false;
   return Object.values(agent.inputs ?? {}).every((spec) => spec.default !== undefined && String(spec.default).trim() !== '' && String(spec.default).trim() !== '[]');
+}
+
+/** A tutorial example ("… Teaches flow control."): fine to try, after the rest. */
+const TUTORIAL_RE = /\bTeaches\b/;
+
+/** An input's key in words: TARGET_URL → "target URL". */
+export function inputLabel(key: string): string {
+  return key.toLowerCase().split('_').filter(Boolean).map((w) => (/^(url|api|id|csv|json|rss)$/.test(w) ? w.toUpperCase() : w)).join(' ');
+}
+
+/** Its inputs as Run fills them: string ones first (that's usually what it's about), then the rest. */
+export function runsWithInputs(agent: Pick<Agent, 'inputs'>, max = 2): SuggestedInput[] {
+  const specs = Object.entries(agent.inputs ?? {}).filter(([, spec]) => spec.default !== undefined && String(spec.default).trim() !== '');
+  specs.sort(([, a], [, b]) => Number(b.type === 'string') - Number(a.type === 'string'));
+  return specs.slice(0, max).map(([key, spec]) => {
+    const v = String(spec.default);
+    return { label: inputLabel(key), value: v.length > 90 ? `${v.slice(0, 89)}…` : v };
+  });
+}
+
+/** A setting rather than what it's about: where it writes, how many, how long. */
+const SETTING_RE = /(^|_)(DIR|PATH|FILE|COUNT|LIMIT|MAX|MIN|TIMEOUT|SECONDS|MODEL|FORMAT|MODE|DAYS|HOURS)($|_)/i;
+
+/**
+ * A prompt for sua: run it with your own value for what it's about (its first
+ * string input that isn't a setting), or, with nothing like that, what it's good for.
+ */
+function ownAsk(a: Agent): SuggestedAgent['ownAsk'] {
+  const main = Object.entries(a.inputs ?? {}).find(([key, spec]) => spec.type === 'string' && spec.default !== undefined && !SETTING_RE.test(key));
+  if (!main) return { label: 'Ask sua what it\'s good for', text: `What is ${a.name} (${a.id}) good for, and when would I use it? Suggest a way to try it.` };
+  const what = inputLabel(main[0]);
+  return { label: `Run it with your own ${what}`, text: `Run ${a.name} (${a.id}) with my own ${what}. Ask me for it first.` };
 }
 
 export function pickSuggestions(d: {
@@ -47,15 +89,19 @@ export function pickSuggestions(d: {
   const order = [
     ...shelves.goTo.filter((a) => !ranRecently(a)),
     ...shelves.recent.filter((a) => !ranRecently(a)),
+    ...runnable.filter((a) => !d.lastRunAt.has(a.id) && a.description?.trim() && !TUTORIAL_RE.test(a.description)),
     ...runnable.filter((a) => !d.lastRunAt.has(a.id) && a.description?.trim()),
     ...shelves.goTo, ...shelves.recent,
   ];
+  const goTo = new Set(shelves.goTo.map((a) => a.id));
   const seen = new Set<string>();
   const agents: SuggestedAgent[] = [];
   for (const a of order) {
     if (seen.has(a.id)) continue;
     seen.add(a.id);
-    agents.push({ id: a.id, name: a.name, description: (a.description ?? '').trim(), ...(d.lastRunAt.get(a.id) ? { lastRunAt: d.lastRunAt.get(a.id) } : {}) });
+    const last = d.lastRunAt.get(a.id);
+    const why: SuggestedAgent['why'] = goTo.has(a.id) ? 'go-to' : last ? 'recent' : TUTORIAL_RE.test(a.description ?? '') ? 'tutorial' : 'new';
+    agents.push({ id: a.id, name: a.name, description: (a.description ?? '').trim(), ...(last ? { lastRunAt: last } : {}), why, runsWith: runsWithInputs(a), ownAsk: ownAsk(a) });
     if (agents.length === 3) break;
   }
 
