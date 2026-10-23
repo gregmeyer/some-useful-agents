@@ -25,7 +25,7 @@ export function renderInboxPage(opts: {
   availableDashboards?: Array<{ id: string; name: string }>;
   /** Home's surface goal line (goal surfaces, S3). */
   goalLine?: SafeHtml;
-  /** The Notebooks line under it (G1; no nav item until notebooks prove themselves). */
+  /** The Notebooks control in the header: how many are active, and + for a new one. */
   notebooksLine?: SafeHtml;
   /** Adjust Home ▾: ask sua to change it, and what changed. */
   adjustMenu?: SafeHtml;

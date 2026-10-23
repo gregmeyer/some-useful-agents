@@ -106,7 +106,7 @@ export function renderNotebookOptionPage(args: { nb: Notebook; entry: NotebookEn
   const messages = notebookOptionMessages(nb, data);
   const by = e.by === 'you' ? 'you' : e.by.replace(/^(agent|run):/, '');
   const seenAgain = o.lastSeenAt.slice(0, 16) !== o.firstSeenAt.slice(0, 16);
-  return render(layout({ title: `${o.name} · ${nb.title}`, activeNav: 'inbox', flash: args.flash, wide: true }, html`
+  return render(layout({ title: `${o.name} · ${nb.title}`, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <div class="nbo-top">
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="${nbHref}">${nb.title}</a></p>
       ${optionNav(e, data.nav)}

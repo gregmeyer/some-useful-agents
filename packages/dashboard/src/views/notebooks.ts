@@ -692,7 +692,7 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
 export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   const { nb } = args;
   const id = encodeURIComponent(nb.id);
-  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'inbox', flash: args.flash }, html`
+  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
     <div class="nbe">
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › Edit</p>
       <h1 class="nbe__title">Edit this notebook</h1>
@@ -804,7 +804,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
 }
 
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
-  return render(layout({ title: args.nb.title, activeNav: 'inbox', flash: args.flash, wide: true }, html`
+  return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
@@ -870,7 +870,7 @@ export function renderNotebooksList(args: {
   const empty = q.q || q.status !== 'all'
     ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
     : html``;
-  return render(layout({ title: 'Notebooks', activeNav: 'inbox', flash: args.flash, wide: true }, html`
+  return render(layout({ title: 'Notebooks', activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     ${pageHeader({
       crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks' }],
       title: 'Notebooks',
@@ -973,7 +973,7 @@ export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stag
   </svg>`);
 }
 
-/** The Notebooks line on Home (under the goal): no nav item until they've proven themselves. */
+/** The Notebooks line on Home (under the goal): how many are active, and a way to start one. */
 export function renderHomeNotebooksLine(active: number, total: number): SafeHtml {
   return html`<span class="home-notebooks" title="Notebooks: goals you keep over time">${NOTEBOOK_ICON}<a href="/notebooks">${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New</a></span>`;
 }

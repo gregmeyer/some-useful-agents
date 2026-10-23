@@ -115,7 +115,7 @@ export function renderNotebookNew(opts: {
     : d.state.status === 'ready' ? renderDraftReview(d.id, d.state.draft, d.agents, d.state.error)
     : d.state.status === 'failed' ? html`<p class="flash flash--error">${d.state.error}</p>`
     : html`<p class="nbd-working" role="status"><span class="nbd-working__dot" aria-hidden="true"></span>sua is drafting your notebook… this takes a few seconds.</p>`;
-  return render(layout({ title: 'New notebook', activeNav: 'inbox', flash: opts.flash }, html`
+  return render(layout({ title: 'New notebook', activeNav: 'notebooks', flash: opts.flash }, html`
     <div class="nbd" data-nbd${d ? html` data-nbd-id="${d.id}"` : html``}${d?.state.status === 'working' ? unsafeHtml(' data-nbd-resume') : unsafeHtml('')}>
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › New</p>
       <h1 class="nbd__title">Start a notebook</h1>
