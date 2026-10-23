@@ -1679,6 +1679,33 @@ describe('a notebook page names its conversation', () => {
 });
 
 describe('runs not in the notebook yet', () => {
+  it('Skip stops offering a run that does not belong; Skip all clears the rest', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Guitar' });
+    store.addEntry(nb.id, { kind: 'option', title: 'Redondo CE', by: 'agent:finder', runId: 'run-g0' });
+    const at = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+    for (const [id, ago] of [['run-g0', 90_000], ['run-g1', 60_000], ['run-g2', 50_000], ['run-g3', 40_000]] as const) {
+      runStore.createRun({ id, agentName: 'finder', status: 'completed', startedAt: at(ago), completedAt: at(ago - 1000), triggeredBy: 'dashboard', result: 'done' } as never);
+    }
+    const get = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string) => request(app).post(`/notebooks/${nb.id}/runs/${path}`)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    let page = await get();
+    for (const r of ['run-g1', 'run-g2', 'run-g3']) expect(page.text).toContain(`/runs/${r}/skip`);
+    expect(page.text).toContain(`/notebooks/${nb.id}/runs/skip-all`);
+    expect(decodeURIComponent((await post('run-g1/skip')).headers.location.replace(/\+/g, ' '))).toContain("won't be offered here again");
+    page = await get();
+    expect(page.text).not.toContain('/runs/run-g1/');
+    expect(page.text).toContain('/runs/run-g2/add');
+    // Only runs it offers can be skipped.
+    expect(decodeURIComponent((await post('run-g0/skip')).headers.location.replace(/\+/g, ' '))).toContain("isn't offered here");
+    expect(decodeURIComponent((await post('skip-all')).headers.location.replace(/\+/g, ' '))).toContain('Skipped 2 runs');
+    expect((await get()).text).not.toContain('Runs not in this notebook yet');
+    expect(store.skippedRunIds(nb.id).sort()).toEqual(['run-g1', 'run-g2', 'run-g3']);
+  });
+
   it('lists finished runs of its agents that ran elsewhere, and Add to notebook files one', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
