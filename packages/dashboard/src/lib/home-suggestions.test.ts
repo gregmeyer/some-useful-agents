@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { pickSuggestions, needsInputs } from './home-suggestions.js';
+import { pickSuggestions, needsInputs, runsWithInputs, inputLabel } from './home-suggestions.js';
 
 // Home's Try next: agents you can run in one click, and questions for sua from what happened today.
 
@@ -45,5 +45,27 @@ describe('Try next', () => {
   it('offers to schedule your top go-to when it has no schedule', () => {
     const asks = pick([agent('digest')], { runCounts: new Map([['digest', 4]]), lastRunAt: new Map([['digest', ago(30)]]) }).asks;
     expect(asks[0].label).toBe('Put DIGEST on a schedule');
+  });
+
+  it('says why each is suggested, what Run uses, and offers to run it with your own value', () => {
+    const agents = [
+      agent('router', { description: 'Routes data through different paths. Teaches flow control.' }),
+      agent('monitor', { inputs: { TIMEOUT_SECONDS: { type: 'number', default: 10 }, TARGET_URL: { type: 'string', default: 'https://httpbin.org/get' } } } as Partial<Agent>),
+      agent('digest'),
+      agent('asker', { inputs: { QUESTION: { type: 'string', default: 'Which is lighter, a Kindle or a Kobo?' } } } as Partial<Agent>),
+    ];
+    const got = pick(agents, { runCounts: new Map([['digest', 4]]), lastRunAt: new Map([['digest', ago(30)]]) }).agents;
+    // A tutorial comes after the other new ones.
+    expect(got.map((a) => `${a.id}:${a.why}`)).toEqual(['digest:go-to', 'monitor:new', 'asker:new']);
+    expect(got[1].runsWith).toEqual([{ label: 'target URL', value: 'https://httpbin.org/get' }, { label: 'timeout seconds', value: '10' }]);
+    expect(got[1].ownAsk).toEqual({ label: 'Run it with your own target URL', text: 'Run MONITOR (monitor) with my own target URL. Ask me for it first.' });
+    expect(got[0].runsWith).toEqual([]);
+    expect(got[0].ownAsk.label).toBe("Ask sua what it's good for");
+    // A setting (where it writes, how many) isn't what it's about.
+    const digest = pick([agent('hn', { inputs: { OUTPUT_DIR: { type: 'string', default: '/tmp/hn' }, STORY_COUNT: { type: 'number', default: 5 } } } as Partial<Agent>)]).agents[0];
+    expect(digest.ownAsk.label).toBe("Ask sua what it's good for");
+    expect(pick([agents[0]]).agents[0].why).toBe('tutorial');
+    expect(inputLabel('API_KEY_ID')).toBe('API key ID');
+    expect(runsWithInputs({ inputs: { NOTE: { type: 'string', default: 'x'.repeat(120) } } } as never)[0].value).toHaveLength(90);
   });
 });

@@ -14,7 +14,7 @@ import { renderToday, renderHomeAdjust } from './home-surface.js';
 import { renderAskPills } from './ask-pills.js';
 import { formatAge } from './components.js';
 import type { HomeSurface } from '../lib/home-surface.js';
-import type { HomeSuggestions, SuggestedAsk } from '../lib/home-suggestions.js';
+import type { HomeSuggestions, SuggestedAgent, SuggestedAsk } from '../lib/home-suggestions.js';
 
 /** "2 need you" / "Nothing needs you": the line beside the title. */
 export function homeStatus(today: HomeSurface | undefined): { text: string; needs: number } {
@@ -31,18 +31,33 @@ export function renderHomeToday(today: HomeSurface | undefined, asks: readonly S
 }
 
 /** Try next: agents you can run in one click, then questions to ask sua. */
+/** Why Try next suggests it, with when it last ran. */
+function tryWhy(a: SuggestedAgent): string {
+  const when = a.lastRunAt ? `last ran ${formatAge(a.lastRunAt)}` : 'not run yet';
+  if (a.why === 'go-to') return `Your go-to · ${when}`;
+  if (a.why === 'recent') return `You used it this week · ${when}`;
+  if (a.why === 'tutorial') return 'A tutorial example · not run yet';
+  return 'New to you · not run yet';
+}
+
 function renderTryNext(s: HomeSuggestions, withAsks: boolean): SafeHtml {
   return html`
     <section class="home-try" aria-labelledby="home-try-title">
       <h2 class="home-rail__title" id="home-try-title">Try next</h2>
       ${s.agents.length ? html`<ul class="home-try__agents">${s.agents.map((a) => html`
         <li class="home-try__agent">
-          <a class="home-try__main" href="/agents/${encodeURIComponent(a.id)}">
-            <span class="home-try__name">${a.name}</span>
-            ${a.description ? html`<span class="home-try__desc">${a.description}</span>` : html``}
-            <span class="home-try__when">${a.lastRunAt ? `last ran ${formatAge(a.lastRunAt)}` : 'not run yet'}</span>
-          </a>
-          <form method="POST" action="/agents/${encodeURIComponent(a.id)}/run" class="home-try__run"><button type="submit" class="btn btn--sm">Run</button></form>
+          <div class="home-try__head">
+            <a class="home-try__name" href="/agents/${encodeURIComponent(a.id)}">${a.name}</a>
+            <form method="POST" action="/agents/${encodeURIComponent(a.id)}/run" class="home-try__run"><button type="submit" class="btn btn--sm" aria-label="Run ${a.name}">Run</button></form>
+          </div>
+          ${a.description ? html`<p class="home-try__desc">${a.description}</p>` : html``}
+          ${a.runsWith.length
+            ? html`<dl class="home-try__with" aria-label="Run uses">${a.runsWith.map((i) => html`<div><dt>${i.label}</dt><dd>${i.value}</dd></div>`) as unknown as SafeHtml[]}</dl>`
+            : html`<p class="home-try__none-in">Takes no inputs: Run shows what it does.</p>`}
+          <div class="home-try__foot">
+            <span class="home-try__when">${tryWhy(a)}</span>
+            <button type="button" class="home-try__own" data-ask-send="${a.ownAsk.text}">${a.ownAsk.label} →</button>
+          </div>
         </li>`) as unknown as SafeHtml[]}</ul>`
         : html`<p class="home-try__none">No agents to suggest yet. <a href="/agents/new">Build an agent</a> or ask sua for one.</p>`}
       ${withAsks && s.asks.length ? html`<h3 class="home-try__label">Ask sua</h3>${renderAskPills(s.asks)}` : html``}

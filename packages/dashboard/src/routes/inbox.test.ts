@@ -141,6 +141,10 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     // Two columns: Today, and a rail with Try next (an agent to run, questions for sua while something waits).
     expect(home.text).toContain('class="home-grid"');
     expect(home.text).toContain('action="/agents/weather/run"');
+    // Each says why it's suggested and what Run uses.
+    expect(home.text).toMatch(/New to you · not run yet|Your go-to|You used it this week/);
+    expect(home.text).toMatch(/class="home-try__(with|none-in)/);
+    expect(home.text).toContain('class="home-try__own" data-ask-send=');
     expect(home.text).toContain('data-ask-send=');
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
