@@ -501,7 +501,7 @@ export interface UnfiledRun { id: string; agentId: string; startedAt: string }
 export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
   const s = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const { agents, runIds } = s.runSources(nb.id);
-  const filed = new Set(runIds);
+  const filed = new Set([...runIds, ...s.skippedRunIds(nb.id)]);
   // A run already filed into another notebook belongs there (an agent can feed several).
   const candidates: string[] = [];
   const since = Date.now() - UNFILED_DAYS * 86_400_000;
@@ -517,6 +517,14 @@ export function unfiledRuns(ctx: Ctx, nb: Notebook, limit = 5): UnfiledRun[] {
   }
   const elsewhere = new Set(s.notebooksForRuns(candidates).filter((x) => x.notebookId !== nb.id).map((x) => x.runId));
   return out.filter((r) => !elsewhere.has(r.id)).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+}
+
+/** Stop offering these runs on the notebook (they don't belong in it). Only ones it offers count. */
+export function skipUnfiledRuns(ctx: Ctx, nb: Notebook, runIds: readonly string[] | 'all'): number {
+  const offered = unfiledRuns(ctx, nb, 50).map((r) => r.id);
+  const ids = runIds === 'all' ? offered : offered.filter((id) => runIds.includes(id));
+  NotebookStore.fromHandle(ctx.runStore.databaseHandle()).skipRuns(nb.id, ids);
+  return ids.length;
 }
 
 /** Runs being added to a notebook right now (run id), so a second click doesn't add one twice. */

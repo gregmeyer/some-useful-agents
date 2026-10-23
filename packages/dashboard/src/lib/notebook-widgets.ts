@@ -400,7 +400,7 @@ export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' 
     panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
     { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
     panel('time_panel', 'How we got here', 'timeline', 'newest first'),
-    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true },
+    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true, search: true },
     { id: 'ctx', component: 'Columns', children: ['cov_panel', 'lim_panel'], widths: [1, 1] },
     panel('cov_panel', 'Where sua looked', 'coverage', { path: '/notebook/coverage/when' }),
     { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },

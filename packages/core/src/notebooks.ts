@@ -419,6 +419,13 @@ export class NotebookStore {
         found INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS notebook_searches_by_notebook ON notebook_searches (notebook_id, agent_id, at);
+      -- Runs of its agents you said don't belong here: no longer offered to add.
+      CREATE TABLE IF NOT EXISTS notebook_skipped_runs (
+        notebook_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        at TEXT NOT NULL,
+        PRIMARY KEY (notebook_id, run_id)
+      );
       -- A pass: one go at filling the notebook (a pipeline run of all its agents,
       -- or one run filed from a conversation or Add to notebook), and its runs.
       CREATE TABLE IF NOT EXISTS notebook_passes (
@@ -582,6 +589,18 @@ export class NotebookStore {
     // even ones that only set facts on options it has (a page reader's).
     for (const id of this.passRunIds(notebookId)) runIds.add(id);
     return { agents: [...agents].sort(), runIds: [...runIds] };
+  }
+
+  /** You said these runs don't belong in this notebook: stop offering them. */
+  skipRuns(notebookId: string, runIds: readonly string[]): void {
+    const ins = this.db.prepare('INSERT OR IGNORE INTO notebook_skipped_runs (notebook_id, run_id, at) VALUES (?, ?, ?)');
+    const at = new Date().toISOString();
+    for (const id of runIds) ins.run(notebookId, id, at);
+  }
+
+  /** The runs you skipped for this notebook. */
+  skippedRunIds(notebookId: string): string[] {
+    return (this.db.prepare('SELECT run_id FROM notebook_skipped_runs WHERE notebook_id = ?').all(notebookId) as Array<{ run_id: string }>).map((r) => r.run_id);
   }
 
   /**

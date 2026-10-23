@@ -14,6 +14,7 @@ import {
 } from '/assets/vendor/a2ui-v0_9.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
+import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -880,45 +881,76 @@ const TIMELINE_GROUPS = [
   { id: 'decision', label: 'Decisions and rulings', kinds: ['decision', 'out'] },
   { id: 'move', label: 'Moves', kinds: ['move'] },
 ];
+// Any timeline: same-again events fold into one row ("×7", expand to see
+// each), and a long one gets a search box (`search`, on past 8 events).
 const Timeline = define('Timeline', 'sua-a2ui-timeline',
-  Common.extend({ events: CommonSchemas.DynamicValue, maxItems: z.number().int().min(1).max(50).optional(), filters: z.boolean().optional() }).strict(),
+  Common.extend({ events: CommonSchemas.DynamicValue, maxItems: z.number().int().min(1).max(50).optional(), filters: z.boolean().optional(), search: z.boolean().optional() }).strict(),
   css`
-    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-    .chip { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-surface); }
+    .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 16px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; height: var(--control-h-sm, 28px); font-size: var(--font-size-xs); padding: 0 10px; border-radius: 999px; border: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-surface); }
     .chip[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary); border-color: transparent; font-weight: 600; }
-    .chip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
-    .chip .n { font-family: var(--font-mono); opacity: .7; margin-left: 3px; }
-    ol { list-style: none; margin: 0 0 0 6px; padding: 0 0 0 18px; border-left: 2px solid var(--color-border); display: grid; gap: 14px; }
-    li { position: relative; }
-    li::before { content: ""; position: absolute; left: -25px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--color-surface); border: 2px solid var(--color-primary); }
+    .chip:focus-visible, .find:focus-visible, .more:focus-visible, .fold:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .chip .n { font-variant-numeric: tabular-nums; opacity: .7; margin-left: 4px; }
+    .find { box-sizing: border-box; height: var(--control-h-sm, 28px); min-width: 0; flex: 0 1 220px; margin-left: auto; padding: 0 10px; font: inherit; font-size: var(--font-size-xs); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm, 6px); }
+    .count { font-size: var(--font-size-xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    ol { position: relative; list-style: none; margin: 0; padding: 0 0 0 22px; display: grid; gap: 16px; }
+    ol::before { content: ""; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; background: var(--color-border); border-radius: 1px; }
+    li { position: relative; min-width: 0; }
+    li::before { content: ""; position: absolute; left: -22px; top: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-surface); border: 2px solid var(--color-primary); }
     li.decision::before { border-color: var(--color-ok); } li.search::before { border-color: var(--accent-blue, var(--color-primary)); background: var(--accent-blue, var(--color-primary)); }
-    li.out::before { border-color: var(--color-warn); } li.move::before { border-color: var(--accent-purple, var(--color-primary)); } li.faded::before { border-color: var(--color-border-strong, var(--color-border)); }
-    .when { font: var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
-    .when a { color: var(--color-primary); }
+    li.out::before { border-color: var(--color-warn); } li.move::before { border-color: var(--accent-purple, var(--color-primary)); } li.faded::before { border-color: var(--color-border-strong, var(--color-border)); background: var(--color-surface); }
+    .when { font-size: var(--font-size-xs); line-height: 1.4; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    .when a { color: var(--color-primary); font-family: var(--font-mono); }
     .who { color: var(--color-text); }
-    .t { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); }
-    .b { margin-top: 2px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .t { margin-top: 2px; font-size: var(--font-size-sm); font-weight: 600; line-height: 1.4; color: var(--color-text); }
+    .x { margin-left: 6px; font-weight: 400; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    .b { margin-top: 2px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .faded .t, .faded .b { color: var(--color-text-subtle, var(--color-text-muted)); }
     .tag { margin-left: 6px; font: var(--font-size-xs)/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; border: 1px dashed var(--color-border-strong, var(--color-border)); color: var(--color-text-muted); font-weight: 400; }
-    .more { all: unset; cursor: pointer; margin-top: 12px; font-size: var(--font-size-xs); color: var(--color-primary); }
-    .empty { font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+    .fold { all: unset; cursor: pointer; margin-left: 6px; font-size: var(--font-size-xs); font-weight: 400; color: var(--color-primary); }
+    .runs { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+    .runs::before { display: none; } .runs li::before { display: none; }
+    .more { all: unset; cursor: pointer; margin-top: 16px; font-size: var(--font-size-xs); color: var(--color-primary); }
+    .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
   function (p) {
     const all = Array.isArray(p.events) ? p.events : [];
     if (!all.length) return html`<p class="empty">Nothing yet.</p>`;
     const group = TIMELINE_GROUPS.find((g) => g.id === this._group);
-    const shown = group ? all.filter((e) => group.kinds.includes(e?.kind)) : all;
-    const max = this._all ? shown.length : (p.maxItems ?? 12);
+    const q = this._q ?? '';
+    const shown = all.filter((e) => (!group || group.kinds.includes(e?.kind)) && matchEvent(e, q));
+    const rows = collapseRepeats(shown);
+    const max = this._all ? rows.length : (p.maxItems ?? 12);
+    const open = (this._open ??= new Set());
     const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     const when = (at) => { const d = new Date(at); return Number.isFinite(d.getTime()) ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
     const counts = TIMELINE_GROUPS.map((g) => ({ ...g, n: all.filter((e) => g.kinds.includes(e?.kind)).length })).filter((g) => g.n);
+    const chips = p.filters && counts.length > 1;
+    const searchable = p.search ?? all.length > 8;
+    const link = (e) => (safeUrl(e?.link) ? html` · <a href=${safeUrl(e.link)}>${e.linkText ?? 'run'}</a>` : nothing);
+    const key = (r) => `${r.items[0]?.at ?? ''}|${r.title ?? ''}`;
+    const toggle = (r) => { const k = key(r); if (open.has(k)) open.delete(k); else open.add(k); this.requestUpdate(); };
+    const row = (r) => {
+      const many = r.count > 1;
+      const expanded = many && open.has(key(r));
+      return html`<li class="${r.kind ?? ''} ${r.faded ? 'faded' : ''}">
+        <div class="when">${many ? whenRange(r, when) : when(r.at)}${r.who ? html` · <span class="who">${r.who}</span>` : nothing}${many ? nothing : link(r)}</div>
+        <div class="t">${r.title ?? ''}${many ? html`<span class="x">×${r.count}</span>` : nothing}${r.tag ? html`<span class="tag">${r.tag}</span>` : nothing}${many ? html`<button type="button" class="fold" aria-expanded=${expanded ? 'true' : 'false'} @click=${() => toggle(r)}>${expanded ? 'hide' : `show ${r.count}`}</button>` : nothing}</div>
+        ${r.body ? html`<div class="b" title=${r.body}>${r.body}</div>` : nothing}
+        ${expanded ? html`<ul class="runs">${r.items.map((e) => html`<li class="when">${when(e.at)}${link(e)}</li>`)}</ul>` : nothing}
+      </li>`;
+    };
     return html`
-      ${p.filters && counts.length > 1 ? html`<div class="chips" role="group" aria-label="Show">
-        <button type="button" class="chip" aria-pressed=${!group ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', ''); }}>All<span class="n">${all.length}</span></button>
-        ${counts.map((g) => html`<button type="button" class="chip" aria-pressed=${group?.id === g.id ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', g.id); }}>${g.label}<span class="n">${g.n}</span></button>`)}
+      ${chips || searchable ? html`<div class="bar">
+        ${chips ? html`<div class="chips" role="group" aria-label="Show">
+          <button type="button" class="chip" aria-pressed=${!group ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', ''); }}>All<span class="n">${all.length}</span></button>
+          ${counts.map((g) => html`<button type="button" class="chip" aria-pressed=${group?.id === g.id ? 'true' : 'false'} @click=${() => { this._all = false; set('_group', g.id); }}>${g.label}<span class="n">${g.n}</span></button>`)}
+        </div>` : nothing}
+        ${searchable ? html`<input type="search" class="find" placeholder="Search the history" aria-label="Search the history" .value=${q} @input=${(e) => { this._all = false; set('_q', e.target.value); }}>` : nothing}
+        ${group || q ? html`<span class="count" role="status">${shown.length} of ${all.length}</span>` : nothing}
       </div>` : nothing}
-      <ol>${shown.slice(0, max).map((e) => html`<li class="${e?.kind ?? ''} ${e?.faded ? 'faded' : ''}"><div class="when">${when(e?.at)}${e?.who ? html` · <span class="who">${e.who}</span>` : nothing}${safeUrl(e?.link) ? html` · <a href=${safeUrl(e.link)}>${e.linkText ?? 'run'}</a>` : nothing}</div>
-        <div class="t">${e?.title ?? ''}${e?.tag ? html`<span class="tag">${e.tag}</span>` : nothing}</div>${e?.body ? html`<div class="b">${e.body}</div>` : nothing}</li>`)}</ol>
-      ${shown.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show all ${shown.length}</button>` : nothing}`;
+      ${rows.length ? html`<ol>${rows.slice(0, max).map(row)}</ol>` : html`<p class="empty">No events match.</p>`}
+      ${rows.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show ${rows.length - max} more</button>` : nothing}`;
   });
 
 const ChipList = define('ChipList', 'sua-a2ui-chip-list',

@@ -92,7 +92,7 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Steps` | `steps` (`{text, met, note?}`), `label?` | a progress ring and a path of steps |
 | `Coverage` | `sources` (`{name, found, status: found / none / blocked / skipped, note?}`), `note?` | where a search looked |
 | `Checklist` | `groups` (`{id, title, items: [{text, done}]}`), `actions?` | checkboxes; ticking sends a `notebook-option` check action; a group with an empty title has no heading |
-| `Timeline` | `events` (`{at, title, body?, kind?, faded?, tag?, link?}`), `maxItems?` | events, newest first |
+| `Timeline` | `events` (`{at, title, body?, kind?, who?, faded?, tag?, link?}`), `maxItems?`, `filters?`, `search?` (default on past 8 events) | events, newest first; the same event again in a row folds into one row (×N, expandable) |
 | `ChipList` | `items` (strings or `{text, tone?, title?}`) | short chips; warn chips stand out |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
