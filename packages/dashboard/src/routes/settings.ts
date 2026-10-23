@@ -39,6 +39,8 @@ import {
   type PolicyRule,
   BRAND_ACCENTS,
   BRAND_COLOR_TOKENS,
+  BRAND_PRESETS,
+  type BrandTheme,
   brandThemePath,
   brandThemeVersion,
   loadBrandTheme,
@@ -767,6 +769,7 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const body = renderSettingsAppearance({
     brand: {
       theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme),
+      presets: Object.fromEntries(BRAND_PRESETS.map((id) => [id, resolveBrandTheme({ version: 1, preset: id, dark: {}, light: {}, fonts: {}, radius: {}, accents: {} } as BrandTheme)])),
       saved: listSavedBrands(ctx.dataDir).map((b) => ({ id: b.id, name: b.name, active: isActiveBrand(theme, b.theme), effective: resolveBrandTheme(b.theme) })),
       proposal: brandProposalView(ctx),
     },
@@ -792,14 +795,21 @@ settingsRouter.post('/settings/appearance/brand', (req: Request, res: Response) 
     }
     return out;
   };
+  // Colours the form doesn't show (a made brand's hover and soft shades) stay
+  // as they are while the preset does; a new preset starts from its own.
+  const current = loadBrandTheme(ctx.dataDir);
+  const preset = str('preset') || 'default';
+  const keepHidden = (mode: 'dark' | 'light') => (preset !== current.preset ? {} : Object.fromEntries(
+    Object.entries(current[mode] ?? {}).filter(([k]) => body[`${mode}.${k}`] === undefined),
+  ));
   const doc = body.reset === '1'
     ? { version: 1 }
     : {
       version: 1,
       ...(str('name') ? { name: str('name') } : {}),
-      preset: str('preset') || 'default',
-      dark: group('dark', BRAND_COLOR_TOKENS),
-      light: group('light', BRAND_COLOR_TOKENS),
+      preset,
+      dark: { ...keepHidden('dark'), ...group('dark', BRAND_COLOR_TOKENS) },
+      light: { ...keepHidden('light'), ...group('light', BRAND_COLOR_TOKENS) },
       fonts: group('fonts', ['sans', 'mono', 'display']),
       radius: group('radius', ['sm', 'md', 'lg'], true),
       accents: group('accents', BRAND_ACCENTS),
