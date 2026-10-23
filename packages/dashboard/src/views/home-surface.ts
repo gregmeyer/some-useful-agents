@@ -176,16 +176,27 @@ export function needsBreakdown(entries: readonly CompiledEntry[]): string {
 }
 
 /** The Today tab: Needs you and Happening now as rows, All good as quiet lines. */
-export function renderToday(today: HomeSurface, wide: boolean): SafeHtml {
-  return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide)}${hiddenList(today)}</div>`;
+export function renderToday(today: HomeSurface, wide: boolean, quiet?: SafeHtml): SafeHtml {
+  return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide, quiet)}${hiddenList(today)}</div>`;
 }
 
-function todayBody(today: HomeSurface, wide: boolean): SafeHtml {
+/**
+ * Nothing needs you: on Home (`quiet` given), say so plainly and offer what to do next (ask
+ * sua something); in the panel, the short line as before.
+ */
+function allClear(quiet?: SafeHtml): SafeHtml {
+  return quiet
+    ? html`<div class="today-clear"><p class="today-clear__line"><strong>All clear.</strong> Nothing needs you right now.</p>${quiet}</div>`
+    : html`<p class="panel-home__empty">Nothing needs you right now.</p>`;
+}
+
+function todayBody(today: HomeSurface, wide: boolean, quiet?: SafeHtml): SafeHtml {
   const regions = today.compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.every((r) => r.id === 'all-good')) {
-    return html`<p class="panel-home__empty">Nothing needs you right now.</p>${allGood(regions.find((r) => r.id === 'all-good')?.entries ?? [])}`;
+    return html`${allClear(quiet)}${allGood(regions.find((r) => r.id === 'all-good')?.entries ?? [])}`;
   }
   return html`
+    ${quiet && !regions.some((r) => r.id === 'needs-you') ? allClear(quiet) : html``}
     ${regions.filter((r) => r.id !== 'all-good').map((r) => html`
       <section class="panel-group" data-surface-region="${r.id}">
         <h3 class="panel-group__label">${r.title}</h3>

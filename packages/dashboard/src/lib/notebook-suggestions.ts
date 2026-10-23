@@ -73,6 +73,11 @@ export function recentConversations(ctx: Ctx, limit = 30): string[] {
   return out;
 }
 
+/** What's cached, without starting a refresh (Home shows these; /notebooks keeps them fresh). */
+export function cachedNotebookSuggestions(ctx: Ctx): NotebookSuggestion[] {
+  return read(ctx.dataDir)?.items ?? [];
+}
+
 /** What to show now (possibly stale), and whether a refresh is under way. */
 export function notebookSuggestions(ctx: Ctx): { items: NotebookSuggestion[]; refreshing: boolean } {
   const s = read(ctx.dataDir);

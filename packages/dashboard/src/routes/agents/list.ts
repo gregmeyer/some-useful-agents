@@ -325,7 +325,7 @@ agentListRouter.get('/agents/catalog/sorting', (req: Request, res: Response) => 
 export const DEMO_GROUP = 'Demos & tests';
 
 /** Words in an id, name or tag that mark a demo or a test, not a tool you'd use. */
-const DEMO_RE = /(^|[-_\s])(smoke|demo|test|tests|probe|hello|stub|example)([-_\s]|$)/i;
+export const DEMO_RE = /(^|[-_\s])(smoke|demo|test|tests|probe|hello|stub|example)([-_\s]|$)/i;
 
 /** The shelves for the User tab (pure: the route passes what it already loaded). */
 export function agentShelves(agents: readonly Agent[], d: {

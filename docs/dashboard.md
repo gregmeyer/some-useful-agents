@@ -48,11 +48,16 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 ![Home: how things stand, your notebooks, and Today](images/home.png)
 
-Home is what needs you, on one page:
-- **The header** says how things stand ("2 need you", or "Nothing needs you") beside the title, with a **⋯** menu. The menu holds **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**), and **Open the full inbox**.
-- **Your notebooks**: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with the best option so far, its price and its picture (another option's when the best has none yet), its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**. On a phone the cards are a row you swipe.
-- **Today** fills the page: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.
-- **Ask sua** in the bar at the top; there's no second ask box on Home.
+Home is what needs you, on one page, in two columns (one on a narrow screen):
+- **The header** is the same as every page's: the breadcrumb, then how things stand ("2 need you", or "Nothing needs you") beside the title. On the right: **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**) and **Full inbox**.
+- **Today**, on the left: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change. When nothing needs you it says **All clear** and offers questions to ask sua.
+- **Your notebooks**, on the right: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with the best option so far, its price and its picture (another option's when the best has none yet), its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**.
+- **Try next**, under your notebooks:
+  - **Up to three agents you can run in one click.** These are your go-tos that haven't run today, then ones you used this week, then ones you haven't tried. Each must run as it is: every input already has a value, and it isn't a page reader that notebooks use. Each has its own **Run** button.
+  - **Ask sua pills**, while something needs you: notebook ideas from your conversations, "What failed today?" after a failure, "What did my agents do today?", or putting an agent you run often on a schedule.
+
+  A pill starts the conversation and opens it in the panel in one click.
+- **Ask sua** in the bar at the top, for anything else.
 
 With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
 
