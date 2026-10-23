@@ -111,13 +111,13 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(missing.status).toBe(404);
   });
 
-  it('/inbox is the canvas (list + thread host); / is Home: Today full width, a ⋯ menu, one ask box', async () => {
+  it('/inbox is the canvas (list + thread host); / is Home: the page header, Today beside a rail, one ask box', async () => {
     const app = await makeApp();
     // With no agents yet, Home is onboarding.
     const empty = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(empty.text).toContain('No agents yet');
     expect(empty.text).not.toContain('data-inbox-split');
-    agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    agentStore.createAgent({ id: 'weather', name: 'Weather', description: 'The forecast', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
     const inbox = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(inbox.text).toContain('data-inbox-split data-initial-thread=""');
     expect(inbox.text).toContain('action="/inbox/trust/mode"');
@@ -132,11 +132,16 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toContain('data-surface-region="needs-you"');
     expect(home.text).toContain(`data-panel-thread-id="${t.id}"`);
     expect(home.text).toContain('data-home-status>1 needs you<');
-    // The ⋯ menu: autonomy, Adjust Home, the full inbox.
-    expect(home.text).toContain('class="home-menu"');
+    // The shared page header: breadcrumb, title, autonomy, Adjust Home, the full inbox.
+    expect(home.text).toContain('<header class="page-header">');
+    expect(home.text).toContain('aria-label="Breadcrumb"');
     expect(home.text).toContain('action="/inbox/trust/mode"');
     expect(home.text).toContain('action="/surfaces/home/ask" class="home-change"');
-    expect(home.text).toContain('href="/inbox">Open the full inbox');
+    expect(home.text).toContain('href="/inbox">Full inbox');
+    // Two columns: Today, and a rail with Try next (an agent to run, questions for sua while something waits).
+    expect(home.text).toContain('class="home-grid"');
+    expect(home.text).toContain('action="/agents/weather/run"');
+    expect(home.text).toContain('data-ask-send=');
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
     expect(home.text).not.toContain('Search or ask sua');
@@ -144,6 +149,12 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const today = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(today.body).toMatchObject({ status: '1 needs you', needs: 1 });
     expect(today.body.html).toContain(`data-panel-thread-id="${t.id}"`);
+    // Quiet: Today says all clear and offers questions for sua instead of a bare line.
+    inboxStore.updateStatus(t.id, 'resolved');
+    const quiet = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(quiet.body.html).toContain('All clear.');
+    expect(quiet.body.html).toContain('data-ask-send=');
+    expect(quiet.body.html).not.toContain('panel-home__empty');
   });
 
   it('fragment is inner HTML only (no <html>, no top-nav)', async () => {

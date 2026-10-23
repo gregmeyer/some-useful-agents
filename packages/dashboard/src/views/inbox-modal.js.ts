@@ -1227,6 +1227,27 @@ export const INBOX_MODAL_JS = `
         if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send ↵'; }
       });
   });
+  // An ask pill (Home's Try next, Today's All clear): one click asks sua and opens the answer
+  // in the panel, docked beside the page. Without JS the pill's form posts the question.
+  document.addEventListener('click', function (e) {
+    var pill = e.target.closest && e.target.closest('[data-ask-send]');
+    if (!pill) return;
+    e.preventDefault();
+    if (pill.disabled) return;
+    var label = pill.textContent;
+    pill.disabled = true;
+    pill.textContent = 'Asking…';
+    fetch('/inbox/new', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: new URLSearchParams(withPage({ body: pill.getAttribute('data-ask-send') || '' })).toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+    })
+      .then(function (r) { var id = r.headers.get('X-Inbox-Id'); if (!r.ok || !id) throw new Error('ask ' + r.status); return id; })
+      .then(function (id) { openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' }); })
+      .catch(function (err) { console.error('ask pill failed', err); })
+      .then(function () { pill.disabled = false; pill.textContent = label; });
+  });
   // Enter submits (Shift+Enter = newline); textarea auto-grows with content.
   document.addEventListener('keydown', function (e) {
     var ta = e.target.closest && e.target.closest('[data-home-ask-input]');

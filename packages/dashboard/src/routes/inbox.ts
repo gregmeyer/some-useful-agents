@@ -39,6 +39,7 @@ import { renderHomePage, renderHomeToday, homeStatus } from '../views/home-page.
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
+import { homeSuggestions } from '../lib/home-suggestions.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksButtons } from '../views/notebooks.js';
 import { SessionStore, ItemDismissals } from '@some-useful-agents/core';
@@ -132,7 +133,7 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
@@ -150,7 +151,8 @@ function shelfFor(ctx: ReturnType<typeof getContext>): SafeHtml | undefined {
 inboxRouter.get('/home/today', (req: Request, res: Response) => {
   const today = readHomeSurfaceSafe(getContext(req.app.locals));
   const status = homeStatus(today);
-  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs });
+  const asks = status.needs ? [] : homeSuggestions(getContext(req.app.locals)).asks;
+  res.json({ html: render(renderHomeToday(today, asks)), status: status.text, needs: status.needs });
 });
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
