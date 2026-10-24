@@ -21,6 +21,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
+import { layoutPreset } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -553,7 +554,23 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const nb = store(req).get(String(req.params.id));
   if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
-  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: store(req).layoutUndos(nb.id) }));
+});
+
+/** The notebook's page: back to a preset, or undo the last change (sua draws new ones in its conversation). */
+notebooksRouter.post('/notebooks/:id/layout', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const edit = (msg: string, kind = 'ok') => `/notebooks/${encodeURIComponent(id)}/edit?${kind}=${encodeURIComponent(msg)}`;
+  try {
+    const s = store(req);
+    if (req.body?.undo === '1') { res.redirect(303, edit(s.undoLayout(id) ? 'Put the page back how it was before the last change.' : 'There\'s no page change to undo.', 'info')); return; }
+    const preset = layoutPreset(str(req.body?.preset));
+    if (!preset) throw new Error('No such layout.');
+    s.setLayout(id, preset.id === 'shortlist' ? null : preset.id, 'you');
+    res.redirect(303, edit(`The page is the ${preset.label} again.`));
+  } catch (err) {
+    res.redirect(303, edit(err instanceof Error ? err.message : String(err), 'error'));
+  }
 });
 
 /**

@@ -398,8 +398,9 @@ export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLay
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
 export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): unknown[] | undefined {
-  if (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option')) return undefined;
-  const v = validateViewComponents(notebookWidgetComponents(nb));
+  // The shortlist needs fields and options; a page drawn for this notebook shows what it has.
+  if (!nb.layout && (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option'))) return undefined;
+  const v = validateViewComponents(resolveNotebookLayout(notebookLayoutOf(nb).components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb)));
   if (!v.ok) return undefined;
   return viewToMessages(`notebook-${nb.id}`, v.components, notebookWidgetData(nb, entries, history));
 }

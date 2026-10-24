@@ -837,3 +837,6 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbt__kept dd { margin: 0; min-width: 0; }
 @media (max-width: 560px) { .nbt__kept > div { grid-template-columns: 1fr; gap: 0; } }
 .nbt-form .form-field { margin: 0; }
+.nbe-layout { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.nbe-layout__now { font-size: var(--font-size-sm); }
+.nbe-layout .nbe-more__hint { flex-basis: 100%; }

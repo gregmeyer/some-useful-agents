@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { NotebookStore } from './notebooks.js';
-import { checkNotebookLayout, cleanLayout, notebookLayoutOf, resolveNotebookLayout, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
+import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
 import type { ViewComponent } from './a2ui/view.js';
 
 let dir: string | undefined;
@@ -72,4 +72,43 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });
+
+  it('keep what a change replaced, to undo to', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nb-layout-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a meeting' });
+    expect(s.layoutUndos(nb.id)).toBe(0);
+    expect(s.undoLayout(nb.id)).toBe(false);
+    s.setLayout(nb.id, { components: page }, 'sua');
+    const two = page.map((c) => (c.id === 'head' ? { ...c, label: 'Who they are' } : c));
+    s.setLayout(nb.id, { components: two }, 'sua');
+    s.setLayout(nb.id, { components: two }, 'sua'); // the same again: nothing to undo to
+    expect(s.layoutUndos(nb.id)).toBe(2);
+    expect(s.undoLayout(nb.id)).toBe(true);
+    expect(s.get(nb.id)!.layout).toEqual({ components: page });
+    expect(s.undoLayout(nb.id)).toBe(true);
+    expect(s.get(nb.id)!.layout).toBeUndefined();
+    expect(s.layoutUndos(nb.id)).toBe(0);
+  });
+
+  it('say what a change does, and tell sua how to draw a page', () => {
+    const after = { components: [
+      ...page.filter((c) => c.id !== 'chart').map((c) => (c.id === 'root' ? { ...c, children: ['pair', 'head', 'only_decided', 'who'] } : c.id === 'pair' ? { ...c, children: ['facts', 'map_panel'], widths: [1, 2] } : c)),
+      { id: 'who', component: 'Callout', label: 'Who they are', text: { path: '/notebook/statement' } },
+    ] };
+    expect(describeLayoutChange({ components: page }, after)).toEqual([
+      { what: 'top to bottom', before: 'head → pair → only_decided', after: 'pair → head → only_decided → who' },
+      { what: 'adds', before: '—', after: 'Callout “Who they are”' },
+      { what: 'removes', before: '—', after: 'Funnel' },
+      { what: 'changes', before: '—', after: 'Column, Columns' },
+    ]);
+    expect(describeLayoutChange({ components: page }, { components: page })).toEqual([{ what: 'layout', before: '—', after: 'no change' }]);
+    const guide = notebookLayoutGuide([{ name: 'Callout', summary: 'A highlighted paragraph. More.' }]);
+    expect(guide).toContain('- /notebook/options: Options, best first');
+    expect(guide).toContain('- map: It has a price and a measure');
+    expect(guide).toContain('- sort: The shortlist');
+    expect(guide).toContain('- Callout: A highlighted paragraph.');
+  });
 });
+

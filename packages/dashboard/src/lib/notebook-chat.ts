@@ -7,6 +7,7 @@
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
+  notebookLayoutOf,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -329,6 +330,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       };
     })() } : {}),
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
+    // Its page now: its own A2UI layout, or the preset it uses (notebook-layout).
+    layout: nb.layout ? nb.layout : { preset: 'shortlist', components: notebookLayoutOf(nb).components },
     inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
     link: `/notebooks/${encodeURIComponent(nb.id)}`,
     // Options whose link is a search page, not their own (a source step on the link field finds them).
