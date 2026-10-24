@@ -17,6 +17,7 @@ import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
+import type { NotebookLive, NotebookTalkLive } from '../lib/notebook-live.js';
 
 const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M9 8h6"/></svg>');
 
@@ -305,18 +306,52 @@ function newLink(options: readonly NotebookViewOption[]): SafeHtml {
   return html` · <a class="nb-hero__new" href="?added=new">${String(fresh)} new in the last run →</a>`;
 }
 
-/**
- * The notebook is working: the step or pass that's running and anything sua
- * is doing in the background (photos, filter labels), with a moving dot so
- * it reads as live. The page reloads until it's quiet (renderNotebookPage).
- */
-function workingLine(running: { step: number; of: number } | undefined, busy: readonly string[]): SafeHtml {
-  const parts = [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy];
-  if (parts.length === 0) return html``;
-  return html`<span class="nb-working" data-notebook-running role="status"><span class="nb-working__dot" aria-hidden="true"></span>${parts.join(' · ')}… <span class="nb-working__note">this page updates as it goes</span></span>`;
+/** What a waiting conversation (or your own step) asks of you, as a label and a button. */
+export function waitingWords(kind: 'approve' | 'answer' | 'fail' | 'step', act?: 'decide' | 'narrow'): { label: string; button: string } {
+  if (kind === 'step') return { label: 'Your step', button: act === 'narrow' ? 'Narrow…' : 'Decide…' };
+  if (kind === 'approve') return { label: 'sua needs your OK', button: 'Review and approve' };
+  if (kind === 'fail') return { label: 'Something failed', button: 'See what happened' };
+  return { label: 'sua needs your answer', button: 'Answer sua' };
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = []): SafeHtml {
+/** The button a waiting state is answered with: your step's header control, else the conversation. */
+function waitingButton(talk: Extract<NotebookTalkLive, { state: 'waiting' }>): SafeHtml {
+  const w = waitingWords(talk.kind, talk.kind === 'step' ? talk.act : undefined);
+  return talk.kind === 'step'
+    ? html`<button type="button" class="btn btn--sm btn--primary" data-nb-open-act="${talk.act}">${w.button}</button>${talk.threadId ? html`<button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talk.threadId}">Ask sua</button>` : html``}`
+    : html`<button type="button" class="btn btn--sm btn--primary" data-nb-continue="${talk.threadId}">${w.button}</button>`;
+}
+
+/**
+ * What's live on the notebook, as a bar under its steps: its conversation
+ * waiting on you (amber, with the button that opens it), sua replying there,
+ * and the step or pass running. Each opens the conversation. The page
+ * redraws it as it changes (notebook-page.js.ts, X-Notebook-Live).
+ */
+export function liveBar(live: NotebookLive | undefined): SafeHtml {
+  const talk = live?.talk;
+  const work = live?.work ?? [];
+  if (!talk && work.length === 0) return html`<div class="nb-live" data-nb-live-bar hidden></div>`;
+  const open = (threadId: string, label: string, primary: boolean): SafeHtml => html`<button type="button" class="btn btn--sm${primary ? ' btn--primary' : ' btn--ghost'}" data-nb-continue="${threadId}">${label}</button>`;
+  return html`<div class="nb-live" data-nb-live-bar>
+      ${talk?.state === 'waiting' ? html`<div class="nb-live__row nb-live__row--waiting" role="status">
+        <span class="nb-live__dot" aria-hidden="true"></span>
+        <span class="nb-live__text"><strong>${waitingWords(talk.kind).label}</strong> · ${talk.text}</span>
+        ${waitingButton(talk)}
+      </div>` : html``}
+      ${talk?.state === 'working' ? html`<div class="nb-live__row nb-live__row--working" role="status">
+        <span class="nb-live__dot nb-live__dot--pulse" aria-hidden="true"></span>
+        <span class="nb-live__text"><strong>${talk.text.replace(/…$/, '')}</strong> on a reply in this notebook's conversation…</span>
+        ${open(talk.threadId, 'Watch', false)}
+      </div>` : html``}
+      ${work.length ? html`<div class="nb-live__row nb-live__row--working" role="status" data-notebook-running>
+        <span class="nb-live__dot nb-live__dot--pulse" aria-hidden="true"></span>
+        <span class="nb-live__text"><strong>${work.join(' · ')}…</strong> <span class="nb-live__note">this page updates as it goes</span></span>
+      </div>` : html``}
+    </div>`;
+}
+
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive): SafeHtml {
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -341,15 +376,12 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
-        ${nb.pipeline.length || nb.steps?.length ? html`
+        ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
+        ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
-            ${running || busy.length
-              ? workingLine(running, busy)
-              : nb.status === 'active'
-                ? runButton(nb)
-                : html``}
-            ${nb.lastRunAt && !running && !nb.steps?.length ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
-          </div>` : busy.length ? html`<div class="nb-run">${workingLine(undefined, busy)}</div>` : html``}
+            ${nb.status === 'active' ? runButton(nb) : html``}
+            ${nb.lastRunAt && !nb.steps?.length ? html`<span class="nb-run__last">Last run ${formatAge(nb.lastRunAt)}: ${nb.lastRunNote ?? ''}</span>` : html``}
+          </div>` : html``}
         ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
       </div>
       ${widgets ? html`` : html`<aside class="nb-hero__side" aria-label="Done when">
@@ -614,14 +646,22 @@ function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false):
 /** A finished run of one of the notebook's agents that isn't in it yet. */
 export interface UnfiledRunView { id: string; agentId: string; startedAt: string; adding?: boolean }
 
-function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }, unfiled: readonly UnfiledRunView[] = []): SafeHtml {
+function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: { text: string; at: number }, unfiled: readonly UnfiledRunView[] = [], talkLive?: NotebookTalkLive): SafeHtml {
   const hasEntries = entries.length > 0;
   const id = encodeURIComponent(nb.id);
   return html`
     ${hasEntries || nb.conversationId ? html`
-      <section class="nb-side__card nb-talk" aria-labelledby="nb-talk-title">
+      <section class="nb-side__card nb-talk${talkLive?.state === 'waiting' ? ' is-waiting' : ''}" aria-labelledby="nb-talk-title">
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
-        ${lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
+        ${talkLive?.state === 'waiting'
+          ? html`<div class="nb-talk__waiting" role="status">
+              <span class="nb-talk__waiting-label">${waitingWords(talkLive.kind).label}</span>
+              <span class="nb-talk__waiting-ask">${talkLive.text}</span>
+              <span class="nb-talk__waiting-acts">${waitingButton(talkLive)}</span>
+            </div>`
+          : talkLive?.state === 'working'
+            ? html`<p class="nb-talk__working" role="status"><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>${talkLive.text} <button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talkLive.threadId}">Watch</button></p>`
+            : lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
       </section>` : html``}
@@ -807,16 +847,16 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
     </div>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [])}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live)}
     ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
-      <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled)}</aside>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
+      <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk)}</aside>
     </div>
   `));
 }

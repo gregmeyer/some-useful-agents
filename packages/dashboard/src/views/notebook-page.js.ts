@@ -156,12 +156,25 @@ export const NOTEBOOK_PAGE_JS = `
           var hint = r.headers.get('X-Notebook-Hint');
           var ph = r.headers.get('X-Notebook-Placeholder');
           var st = r.headers.get('X-Notebook-Steps');
-          return r.text().then(function (t) { return { n: n, ch: ch, t: t, hint: hint, ph: ph, st: st }; });
+          var lv = r.headers.get('X-Notebook-Live');
+          var wt = r.headers.get('X-Notebook-Waiting');
+          return r.text().then(function (t) { return { n: n, ch: ch, t: t, hint: hint, ph: ph, st: st, lv: lv, wt: wt }; });
         })
         .then(function (res) {
           // The steps moved (started, paused or waiting on a new card, from here or the
           // conversation): reload, so the header's buttons match the conversation's card.
           if (res.st !== null && res.st !== (main.getAttribute('data-nb-steps') || '') && !document.querySelector('textarea:focus, input:focus')) { window.location.reload(); return; }
+          // The conversation started or stopped waiting on you, or replying: redraw the
+          // live bar and the Talk card, and say so when it's now waiting.
+          if (res.lv !== null) {
+            var lv = decodeURIComponent(res.lv || '');
+            if (lv !== (main.getAttribute('data-nb-live') || '')) {
+              main.setAttribute('data-nb-live', lv);
+              redrawLive();
+              if (res.wt) showWaitingToast(decodeURIComponent(res.wt));
+              else hideWaitingToast();
+            }
+          }
           // The talk box's hint and ghost text follow the notebook's next step.
           try {
             var labels = document.querySelectorAll('.nb-talk__next');
@@ -181,6 +194,55 @@ export const NOTEBOOK_PAGE_JS = `
         .catch(function () { /* keep what's shown */ });
     }
     setInterval(refresh, 5000);
+    // The page's live bar and Talk card from a fresh copy of the page (not while you type in it).
+    function redrawLive() {
+      fetch('/notebooks/' + encodeURIComponent(id), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+        .then(function (t) {
+          var doc = new DOMParser().parseFromString(t, 'text/html');
+          var bar = doc.querySelector('[data-nb-live-bar]');
+          var nowBar = document.querySelector('[data-nb-live-bar]');
+          if (bar && nowBar) nowBar.replaceWith(document.importNode(bar, true));
+          var talk = doc.querySelector('.nb-talk');
+          var nowTalk = document.querySelector('.nb-talk');
+          var ae = document.activeElement;
+          if (talk && nowTalk && !(ae && nowTalk.contains(ae))) nowTalk.replaceWith(document.importNode(talk, true));
+        })
+        .catch(function () { /* keep what's shown */ });
+    }
+    // sua is waiting on you here while the drawer is closed: a toast that opens it.
+    function hideWaitingToast() { var t = document.querySelector('.nb-toast'); if (t) t.remove(); }
+    function showWaitingToast(text) {
+      if (document.body.classList.contains('has-sua-panel')) return; // the drawer is open: it shows it
+      hideWaitingToast();
+      var t = document.createElement('div');
+      t.className = 'nb-toast';
+      t.setAttribute('role', 'status');
+      var msg = document.createElement('span');
+      msg.className = 'nb-toast__text';
+      var b = document.createElement('strong');
+      b.textContent = 'This notebook is waiting on you';
+      msg.appendChild(b);
+      msg.appendChild(document.createTextNode(' ' + text));
+      var open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'btn btn--sm btn--primary';
+      open.textContent = 'Open';
+      // The same as the live bar's button: open the conversation, or your step's Decide / Narrow.
+      open.addEventListener('click', function () {
+        hideWaitingToast();
+        var go = document.querySelector('[data-nb-live-bar] .nb-live__row--waiting .btn--primary');
+        if (go) go.click();
+      });
+      var x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'nb-toast__close';
+      x.setAttribute('aria-label', 'Dismiss');
+      x.textContent = '×';
+      x.addEventListener('click', hideWaitingToast);
+      t.appendChild(msg); t.appendChild(open); t.appendChild(x);
+      document.body.appendChild(t);
+    }
     // Closing the sua panel on this notebook's thread: what was said there shows here now.
     document.addEventListener('sua:panel-closed', function (e) {
       var tid = e.detail && e.detail.threadId;
