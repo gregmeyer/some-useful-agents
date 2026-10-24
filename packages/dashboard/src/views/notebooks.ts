@@ -707,11 +707,10 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
       <section class="nbe-more" aria-labelledby="nbe-more-title">
         <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
         ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
-        <form method="POST" action="/notebooks/${id}/template" class="nb-form nb-template">
-          <label class="nb-label">Save as a template<input type="text" name="name" value="${nb.title}" required maxlength="60" class="form-field" aria-describedby="nb-template-hint-${id}"></label>
-          <span class="nb-template__hint" id="nb-template-hint-${id}">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. Start a new one from it by asking sua.</span>
-          <button type="submit" class="btn btn--sm btn--ghost">Save template</button>
-        </form>
+        <div class="nb-template">
+          <a class="btn btn--sm btn--ghost" href="/notebooks/${id}/template">Save as a template…</a>
+          <span class="nb-template__hint">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. You make its words fit any time and say what changes each time, like who you're meeting.</span>
+        </div>
         <div class="nb-remove">
           ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
           <details class="nb-delete">

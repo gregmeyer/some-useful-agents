@@ -52,6 +52,7 @@ import {
   partialInlineWidget,
   prepareViewForRender,
   viewToMessages,
+  fillSubject,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -1210,8 +1211,13 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
   if (t.archivedAt) return { error: `The template "${t.name}" is archived. Restore it from New notebook → Archived templates first.` };
   const installed = (id: string) => { const a = ctx.agentStore.getAgent(id); return !!a && a.status !== 'archived'; };
   const target = Number(meta.inputs.TARGET);
+  // What changes each time ("Who you're meeting"): filled into every text that says {subject}.
+  const subject = (meta.inputs.SUBJECT ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (t.setup.subject && !subject) return { error: `The template "${t.name}" needs to know ${t.setup.subject.label.replace(/^./, (c) => c.toLowerCase())} (SUBJECT).` };
+  const fill = (x: string) => fillSubject(x, subject);
   const steps = t.setup.steps.map(({ agentId, ...s }) => ({
     ...s,
+    title: fill(s.title),
     ...(agentId && installed(agentId) ? { agentId } : {}),
     ...(s.kind === 'find' && Number.isFinite(target) && target >= 1 ? { target: Math.min(100, Math.round(target)) } : {}),
     status: 'todo' as const, tries: 0,
@@ -1219,15 +1225,15 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
   return {
     template: t,
     setup: {
-      title: (meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || t.name,
-      statement: (meta.inputs.STATEMENT ?? '').trim() || t.setup.statement,
-      params: listInput(meta.inputs.PARAMS, t.setup.params),
-      criteria: listInput(meta.inputs.CRITERIA, t.setup.criteria),
+      title: fill((meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || t.name),
+      statement: fill((meta.inputs.STATEMENT ?? '').trim() || t.setup.statement),
+      params: listInput(meta.inputs.PARAMS, t.setup.params).map(fill),
+      criteria: listInput(meta.inputs.CRITERIA, t.setup.criteria).map(fill),
       pipeline: t.setup.pipeline.filter(installed),
       cadence: t.setup.cadence,
-      fields: t.setup.fields,
+      fields: t.setup.fields.map((f) => ({ ...f, label: fill(f.label) })),
       stages: t.setup.stages,
-      checks: listInput(meta.inputs.CHECKS, t.setup.checks),
+      checks: listInput(meta.inputs.CHECKS, t.setup.checks).map(fill),
       steps,
     },
   };
@@ -1539,6 +1545,7 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
       inputs: { ...action.inputs, TEMPLATE_NAME: t.name },
       surfaceChanges: [
         { what: 'template', before: '—', after: `${t.name} (${t.description})` },
+        ...(t.setup.subject ? [{ what: t.setup.subject.label, before: '—', after: action.inputs.SUBJECT?.trim() || '—' }] : []),
         { what: 'title', before: '—', after: setup.title },
         ...(setup.statement !== t.setup.statement ? [{ what: "what it's for", before: t.setup.statement || '—', after: setup.statement }] : []),
         { what: 'limits', before: changed(setup.params, t.setup.params) ? t.setup.params.join('; ') || '—' : '—', after: setup.params.join('; ') || '(none)' },
@@ -2552,6 +2559,7 @@ export async function runTriageAgent(
               return JSON.stringify(notebooksOf(ctx).listTemplates(20).map((t) => ({
                 id: t.id, name: t.name, for: t.setup.statement, limits: t.setup.params, doneWhen: t.setup.criteria, checks: t.setup.checks,
                 fields: t.setup.fields.map((f) => f.label), steps: t.setup.steps.map((x) => x.title), uses: t.uses,
+                ...(t.setup.subject ? { asks: t.setup.subject.label, example: t.setup.subject.example } : {}),
               })));
             } catch { return '[]'; }
           })(),

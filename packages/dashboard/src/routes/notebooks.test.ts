@@ -2444,7 +2444,7 @@ describe('notebook templates', () => {
     store.archive(nb.id);
 
     // Edit has it (an archived notebook too).
-    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain(`action="/notebooks/${nb.id}/template"`);
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain(`href="/notebooks/${nb.id}/template"`);
     const saved = await post(`/notebooks/${nb.id}/template`, 'name=Job+search');
     expect(saved.status).toBe(303);
     expect(decodeURIComponent(saved.headers.location)).toContain('Saved as the template “Job search” (1 field · 2 steps · 1 limit).');
@@ -2524,6 +2524,62 @@ describe('notebook templates', () => {
     expect(store.getTemplate('job-search')!.uses).toBe(1);
 
     expect(executeNotebookCreate(ctx, { ...card, inputs: { ...card.inputs, TEMPLATE: 'nope' } })).toMatchObject({ status: 'failed', refusalReason: 'There\'s no template "nope". Save a notebook as a template from its Edit panel first.' });
+  });
+
+  it('a template for meeting prep: save it with what changes each time, then start one for someone else', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase, executeNotebookCreate } = await import('./inbox-engine.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const post = (path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const nb = store.create({ title: 'Prepare for meeting with Dana Reyes', statement: 'Help me understand what matters to Dana Reyes before we meet.', params: ['Dana Reyes', 'upcoming meeting', 'focus on what matters to her'], criteria: ['Talking points chosen for the meeting'] });
+    store.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'source_url', label: 'Source', type: 'url', role: 'link' }]);
+    store.setChecks(nb.id, ['Evidence relates to Dana Reyes, not someone with a similar name']);
+    store.setSteps(nb.id, [{ title: 'Find 5 conversation themes', kind: 'find', target: 5 }, { title: 'Choose talking points', kind: 'decide', target: 3 }]);
+
+    // The review page: its name without who, who prefilled, and the texts say {subject}.
+    const page = (await get(`/notebooks/${nb.id}/template`)).text;
+    expect(page).toContain('name="name" value="Prepare for meeting"');
+    expect(page).toContain('name="subject_example" value="Dana Reyes"');
+    expect(page).toContain('Help me understand what matters to {subject} before we meet.');
+    expect(page).toContain('Evidence relates to {subject}, not someone with a similar name');
+    expect(page).toContain('name="field_theme" value="Theme"');
+    expect((await get('/notebooks/nope/template')).status).toBe(303);
+
+    const saved = await post(`/notebooks/${nb.id}/template`, {
+      review: '1', name: 'Prepare for a meeting', subject_label: 'Who you’re meeting (a person or company)', subject_example: 'Dana Reyes',
+      statement: 'Help me understand what matters to {subject} before we meet.',
+      params: '{subject}\nupcoming meeting\nfocus on what matters to them', criteria: 'Talking points chosen for the meeting',
+      checks: 'Evidence relates to Dana Reyes, not someone with a similar name', step_s1: 'Find 5 conversation themes', step_s2: 'Choose talking points',
+      field_theme: 'What matters to {subject}',
+    });
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved as the template “Prepare for a meeting”');
+    const t = store.getTemplate('prepare-for-a-meeting')!;
+    expect(t.setup).toMatchObject({
+      subject: { label: 'Who you’re meeting (a person or company)', example: 'Dana Reyes' },
+      params: ['{subject}', 'upcoming meeting', 'focus on what matters to them'],
+      checks: ['Evidence relates to {subject}, not someone with a similar name'],
+    });
+    expect(t.setup.fields.map((f) => f.label)).toEqual(['What matters to {subject}', 'Source']);
+
+    // New notebook asks who, beside Start.
+    const newPage = (await get('/notebooks/new')).text;
+    expect(newPage).toContain('data-nbt-start="Start a new notebook from my “Prepare for a meeting” template for "');
+    expect(newPage).toContain('placeholder="Who you’re meeting (a person or company)"');
+
+    // Starting one needs who; with it, every text names them.
+    const base = { kind: 'action' as const, status: 'proposed' as const, agentId: 'notebook-create', inputs: { TEMPLATE: 'prepare-for-a-meeting', TITLE: 'Prepare for meeting with {subject}' } };
+    expect(executeNotebookCreate(ctx, base)).toMatchObject({ status: 'failed', refusalReason: 'The template "Prepare for a meeting" needs to know who you’re meeting (a person or company) (SUBJECT).' });
+    const card = withEditorBase(ctx, { ...base, inputs: { ...base.inputs, SUBJECT: 'Acme Corp' } });
+    expect(card.surfaceChanges).toContainEqual({ what: 'Who you’re meeting (a person or company)', before: '—', after: 'Acme Corp' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'title', before: '—', after: 'Prepare for meeting with Acme Corp' });
+    expect(executeNotebookCreate(ctx, card).status).toBe('completed');
+    const made = store.list().find((n) => n.title === 'Prepare for meeting with Acme Corp')!;
+    expect(made.fields.map((f) => f.label)).toEqual(['What matters to Acme Corp', 'Source']);
+    expect(made).toMatchObject({ statement: 'Help me understand what matters to Acme Corp before we meet.', params: ['Acme Corp', 'upcoming meeting', 'focus on what matters to them'], checks: ['Evidence relates to Acme Corp, not someone with a similar name'] });
   });
 });
 
