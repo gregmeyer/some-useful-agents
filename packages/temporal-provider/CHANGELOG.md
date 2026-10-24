@@ -1,5 +1,188 @@
 # @some-useful-agents/temporal-provider
 
+## 0.32.0
+
+### Minor Changes
+
+- aec5eaa: Skills: know-how several agents share, kept in one file.
+  
+  An agent lists `skills: [research-shape, web-search]` and each skill's text (`agents/examples/skills/<name>/SKILL.md`) goes into its llm prompts, beside behaviors and memory. The builder and the analyzer now share the research and web-search rules instead of each keeping its own copy, so a fix to the rule reaches both. A missing skill fails the run before it starts; the agent page shows its skills under "Uses skills", and `sua skill list|show` lists them. See docs/skills.md.
+- c39093e: Settings → Appearance is visual and one click to change.
+  
+  The page opens with the look now, drawn as a light and a dark mini dashboard. A gallery shows your brands and the presets in their own colours; one click uses one, and Undo goes back. Make one with sua is next, and Fine-tune (folded) has colour swatches with Dark/Light tabs, a corners slider and a font list, redrawing the previews as you edit before you save.
+- 119b969: Share what's new: a brief and a CSV of only the last run's new options.
+  
+  A notebook's **Download / share** menu gets **New in the last run** (a CSV, `shortlist.csv?rows=new`), **Open the brief of what's new** and **Save what's new as PDF** (`brief.html?latest=1`). That brief keeps the whole notebook's key findings, then shows only the new options, the ones from that run that were ruled out, and the notes since then.
+- 627a8f0: Home has an Ask sua card under Today, with starters to run, build, fix, or look something up.
+  
+  The card is a roomy box that opens sua's answer in the panel, with starter pills in four rows built from what you use: run one of your go-tos on something, build an agent, ask why something failed today, or look up a notebook idea. A starter fills the box for you to finish. The ask pills that used to sit in Try next and Today's All clear moved here.
+- 1e65bf9: Home's Try next says why, what Run uses, and a prompt to try it your way.
+  
+  Each suggested agent shows why it's there (your go-to, used this week, new to you, a tutorial), the input values Run will use, and a one-click prompt for sua: run it with your own question, URL or topic (sua asks for it), or ask what it's good for. Tutorial examples come after other agents you haven't tried.
+- e1c2cf8: Home is full width in two columns, and a quiet day points you somewhere.
+  
+  Home was a narrow centered column with its own header, and when nothing needed you Today showed one muted line. Now it uses the same header as every page (breadcrumb, status, Autonomy, Adjust Home, Full inbox) and two columns: Today on the left, and on the right your notebooks and **Try next**. Try next suggests up to three agents you can run in one click (your go-tos that haven't run today, then ones used this week, then ones you haven't tried; only agents that run as they are), and **Ask sua** pills built from what happened (a notebook idea, "What failed today?", "What did my agents do today?", scheduling an agent you run often). One click on a pill starts the conversation and opens it in the panel. When nothing needs you, Today says **All clear** and puts the pills there.
+- 3873eb3: "Needs you" means sua asked you something, and each row says what.
+  
+  A thread used to wait on you whenever sua had replied, even when the reply only reported back, so "13 need your reply" opened a list that didn't say why. Now a thread waits on you only for a card to approve, buttons to pick from, a question sua asked, a note asking you to reply, or a failing agent (core `threadAsk`). A report settles as answered: still in Open and Chats, but off Today and out of the count. Existing threads are re-settled on restart.
+  
+  Each waiting row says what it needs ("Choose: Try again · Move on", "Pick one: Rule it out · Keep it", the question itself) instead of the start of sua's message, and a thread waiting on one card gets that card's button and Not now on the row. The top bar's pill now reads "N need you" and counts what Today lists, so the two agree. Home's header controls are one row of matching buttons, with Autonomy as a menu that says what each setting does.
+- ac9e750: A notebook's header follows its steps live, and a restart no longer strands a running step.
+  
+  The notebook page now updates its header when a step starts, pauses or gets a new card from the conversation, so the buttons there always match the card waiting in the conversation. Before, starting a step from the conversation left the header showing Next step until you reloaded. A step that was running when sua restarted is now stopped there ("stopped by a restart"), keeping what it found, with Try again and Move on waiting, instead of reading as running forever.
+- d6dadea: A notebook's shortlist filters by the last run: new, seen again, or earlier.
+  
+  After a re-run, the new options carry a "new" tag. The header links to "N new in the last run", which opens the shortlist showing only those. Previous / Next on an option's page follows the filter. A step or pipeline run of several agents counts as one run. Options get an `added` field (`new` | `again` | `earlier`) in the notebook's view data, and the store gets `lastFindAt`.
+- 0dec92c: A notebook page says when it's waiting on you, or working, without the drawer open.
+  
+  A bar under the notebook's steps and the Talk to sua card turn amber when its conversation asks you something, has a card to approve, or when the next step is yours (Decide or Narrow), with the button that answers it. A toast appears if that happens while you're on the page. While sua is replying or a step is running, the same bar shows it with a moving dot and a Watch button.
+- ebc3f53: Skip runs that don't belong in a notebook; timelines fold repeats and can be searched.
+  
+  "Runs not in this notebook yet" gets **Skip** on each run and **Skip all**, so a run of a shared agent that was for something else stops being offered. The Timeline component (a notebook's "How we got here", an option's history, any view) folds the same event again in a row into one row with ×N and its time range, adds a search box past 8 events, and has calmer type and spacing.
+- 8711b44: A notebook's step buttons and its conversation's step cards are one queue.
+  
+  Pressing Next step, Move on, Try again or Search again on the notebook's page now uses the card that's waiting in the notebook's conversation, so the conversation says what happened ("✓ you, from the notebook") with the same words the page shows. Cards that no longer apply are retired with why ("The notebook has moved on from this."), each pause leaves one card, and a Continue that can't start the next step leaves the step met and says why in both places. sua's own step cards are tied to the step as it is when sua proposes them, a reply no longer clears the step's card, and sua is told which step card is waiting so it describes the steps as the page shows them.
+- f397d7a: Notebooks is in the top bar.
+  
+  Notebooks get their own top-bar item, first after Home (Notebooks · Agents · Pulse · Settings · Help), and it's highlighted on every notebook page: the list, a notebook, an option, Edit, New and How it was made. Before, notebook pages lit up Home and the only ways in were Home's shelf and header.
+- e582988: research-fanout: research a list without one long step timing out.
+  
+  A new shared agent, `research-fanout`, researches a list of things (companies, options, or the angles of one question) by running each as its own small `research-one` run, three at a time, with sources and quotes for every answer. One that runs long or fails is listed as unfinished and the rest still come back. sua's agent builder and the agent analyzer now reach for it instead of one big research step or copies of the same step.
+- c77b780: Shared Python helpers for shell steps.
+  
+  Every shell step now finds `sua_helpers` on PYTHONPATH: `upstream()` (reads the whole result, past 32 KB from its file), `last_json()` (the last top-level JSON object in a model's reply), `upstream_json()`, `as_obj()` and `emit()`. Agents used to keep their own copies, and a fix to one missed the rest; research-one and research-fanout now use the shared ones, and the new `shell-steps` skill teaches the builder and analyzer to. See docs/templating.md.
+- 1ba0f78: The behavior specs ship with sua, and the agents that report facts are held to them.
+  
+  `cite-evidence-before-claiming` and `declare-blind-spots` now ship inside the package (a new `bundled` behavior scope, trusted like project scope and after it in precedence), so a shipped agent can list them on any install. research-one, notebook-checker, starter-research and agent-analyzer are held to both; firmographic-research to cite-evidence-before-claiming. The same spec found in a checkout and its bundled copy counts once.
+- fa7d51e: sua proposes skills when it builds or fixes an agent.
+  
+  When the know-how a build or fix needs would help other agents too, agent-builder and agent-analyzer propose a skill (new, or a change to one the agent lists) with it. It shows on the same card as the agent, under "New skill" or "Changes skill", and one approval saves both. Saved skills keep every version (roll back any time); changing a shipped skill saves your copy, which wins over the shipped file. A skill changed since it was proposed, or an agent listing a skill that doesn't exist, refuses the card with nothing saved. Builders and the analyzer now see every skill in their catalog, so built agents list existing skills instead of copying them. `sua skill list` shows saved skills too.
+- a11ac64: Close or dismiss several things on Home's Today at once, and a quieter "need you" button.
+  
+  Today's rows on Home now have checkboxes like the other tabs. Tick some and the bar offers **Close N** (they move to Done) and **Dismiss N** (off your list), with the count on the button. A row that isn't a conversation (a draft, an agent problem) is taken off Today the way its own Dismiss does. The top bar's "need you" is now an outlined button like Ask sua with the count in a small amber badge, instead of an amber-filled pill with a pulsing dot and an arrow.
+- e700168: Try next's Run happens in a conversation that tells you what it found.
+  
+  Run on Home's Try next used to drop you on a bare run page. It now starts a conversation about the agent ("Try: Research a topic"), opened in the panel: your ask with the inputs it uses, the run as a card, and, when it ends, sua's summary of what it found. Without JavaScript the form lands on the conversation.
+- a5c80aa: One shared web search for agents, and job-board discovery that finds boards.
+  
+  A new example agent, `web-search-links`, runs a live web search and returns the result links as JSON. Agents that need search results now call it instead of scraping DuckDuckGo in a shell node. DuckDuckGo blocks those scrapers, so they often found nothing.
+  
+  - `ashby-discover` and `greenhouse-discover` now use it, and the new `lever-discover` does too. Each finds its job board's pages, takes the company board slugs from the links and keeps the ones the board's public API answers for. In test runs each found 14–15 boards per topic.
+  - `lever-job-agent` (now an example) finds boards with `lever-discover` when `COMPANIES` is blank. `COMPANIES` also takes jobs.lever.co links. When no board turns up or none answers, the run finishes with an empty result that says why, instead of failing on the first step. A ranking answer in a code fence and results over 32 KB no longer break it.
+  - sua's agent builder now uses `web-search-links` for steps that need search results. When an input it could find itself is left blank, it adds a step that finds it instead of failing.
+
+### Patch Changes
+
+- 57d0aed: Every shipped agent's shell steps use the shared sua_helpers.
+  
+  account-research, firmographic-research, lever-job-agent, notebook-checker, notebook-finder and starter-research drop their own copies of upstream(), last_obj(), block() and last_json() for the shared ones (new: `tagged_json()`). lever-job-agent's steps now read a long upstream result from its file instead of the cut-short copy. A test keeps any shipped agent from growing its own copy again.
+- 98f0fce: Picking another preset in Settings → Appearance now takes effect.
+  
+  With a brand that sets its own colours (one sua made, say), picking a different preset and saving changed nothing: the brand's colours still won. Picking a preset now clears your own values in the form and shows the preset's, so saving applies it. Saving the form also keeps the shades it has no field for (hover and soft colours) instead of dropping them.
+- e64ec0c: The ask bar's text lines up with `sua ›` and Send; Home's right rail stays inside the page.
+  
+  The bar's prompt, its first line of text and Send now share one 28px line box, so the placeholder sits on their midline (more lines still grow downward). On Home, notebook cards with long titles no longer push the rail past the page's right edge.
+- f39cc95: A notebook's card shows its best option's picture.
+  
+  On Home and the Notebooks list, a notebook's card now shows the picture of the option it names as best, so the picture and the name match. When the best option has no photo or logo yet (or only a drawing), the card keeps the notebook's usual picture.
+- 2261e73: A check step can finish when options you chose fail a check.
+  
+  A check that fails on an option you've chosen leaves it chosen (with a note), but it was never ticked, so the check step counted that option as unchecked forever and stayed stuck. The failed check is now recorded on the option. It counts as checked, isn't asked again, and shows as ✗ "fails; you kept it". The note is written once per option and check, not once per wording of the quote, and the run note counts these ("2 failed on ones you chose (kept)").
+- 372480c: sua's checker settles checks from an option's own facts first, and researches the rest three at a time.
+  
+  A notebook's check step used one long model step to check every option, searching the web as it went, and on a long list it could time out. Now a quick step with no web settles what each option's own facts and notes show. Only the checks still open go to the web, through research-fanout: one small run per option, three at a time. A check step installs research-fanout and research-one along with the checker. Every quote is still confirmed word for word before anything is ticked or ruled out.
+- 7911905: The checker confirms quotes of an option's own facts, and a check never rules out an option you chose.
+  
+  notebook-checker's word-for-word gate compared a quote of an option's facts against a spaced copy of them (`"Employees": 777`), while the model had been shown them compact (`"Employees":777`), so nearly every check settled from the facts was left open and a check step stalled ("2 of 10 checked"). It now matches both forms and `Employees: 777`, and a rule-out reason quotes the facts that way. A check that fails on an option you've chosen leaves a note instead of ruling it out.
+- 87f3196: Buttons, pills and pickers that sit side by side are one height and one text size.
+  
+  Small buttons were 11px text beside 13px neighbours, and the top bar's "need you" pill, Ask sua and theme toggle were three different heights. Now every button is 32px (small ones 28px) with 13px text, the top bar's controls share one height, the board picker is a small button with a single arrow, and Pulse's Arrange / Suggest a layout / New board buttons are bordered and lined up with the page edge.
+- cc89e8e: A notebook's find step keeps near misses, ruled out with the limit they miss.
+  
+  sua's finder used to drop anything just outside a notebook's limits (a car 62 miles away when the limit is 50), so a thin market showed "0 found" with no sign of what was close. Up to 3 near misses per search are now filed ruled out, with the reason ("Just outside the limits: 62 miles away; the limit is 50"), so you can see them and reinstate one.
+- d34bb38: firmographic-research researches each company on its own, three at a time.
+  
+  It used to research every company in one step, which timed out on ten. Now each company is its own small run through research-fanout, code builds the records from what was found (so the summing-up step can't change a fact), and companies that didn't finish are listed to run again. Ten companies that used to time out finish in under two minutes.
+- b46f5cd: A notebook's header shows its logo again.
+  
+  A square logo in a notebook's header was padded out of sight: its padding was a percentage, which is a share of the whole title row's width, so a 64px logo became a blank white box. It's now a fixed padding (the Decide list's thumbnails too). The header also shows the same picture as the notebook's card (the lead option's), not just the newest one.
+- 60bbdb5: A company logo fills its card cover again.
+  
+  On the home shelf and the notebooks list, a square logo was padded by a share of the cover's width, which in a wide, short cover left it a few pixels tall. Logos are now inset by the cover's own height and width, so an app icon sits at about half the cover's height and a wordmark spans its width.
+- da1538d: The shortlist's "New" filter no longer counts ruled-out options.
+  
+  With ruled-out options shown, the "Last run → New" filter counted the ones you'd since ruled out, so it could say 4 while the header link, the "New in the last run" CSV and the What's-new brief said 2. A ruled-out option now counts under no run, as it already did for the stage filter.
+- 5f829be: Search again: re-run a notebook's find step for new options with one approval.
+  
+  Asking sua to "re-run the search" in a notebook used to produce a card for each job board or search agent, one after another, and none of them knew which results were new. Now sua proposes one **Search again** card that runs the notebook's find step again, even when it's done. It skips the options the notebook has, files what's new, and says how many are new. A finished find step also has a **Search again →** button on the notebook page. The other steps stay where they are.
+- de61798: A list to research is one card in a conversation, not one per part.
+  
+  Asked to check 13 companies, sua split them across two research-fanout cards (it stops at 12 unless told more), so there were two buttons to press for one request. sua is now told to send the whole list in one run and raise `MAX_ITEMS` past the default, and cards it still proposes for parts of one list (same agent, same ask, different items) are merged into one card for up to 20 items.
+- 9c7f816: Every page opens with the same header, Pulse tiles stop repeating their names, and a notebook's logo shows in its conversation.
+  
+  Home, Agents, Pulse, Notebooks, Settings and Help now share one header: a breadcrumb line, the title with its counts beside it and its actions at the right as small buttons, and one line saying what the page is for. Pulse's number tiles no longer show their name twice ("RUNS TODAY" above "RUNS TODAY 96"). The notebook card in a conversation padded its logo by a share of the card's width, which pushed a 56px logo out of sight; it's padded in pixels now.
+- fa5eb71: A ruled-out option's page still has Previous / Next.
+  
+  After you rule an option out from its page, → (and Next, and "next" in its talk box) goes on to the option after where it ranked, instead of leaving you with no way forward.
+- 9483251: starter-research researches its angles three at a time through research-fanout.
+  
+  "Research a topic" used one long step for each side (main and skeptical), and on a broad topic each would run out of turns or time and lose that side entirely. It now splits the topic into 3 to 5 angles, one of them the case against, and research-fanout researches them three at a time, each as its own small run. The brief cites findings by number, and code attaches each finding's page, so a bullet can't cite a page nobody opened. An angle that doesn't finish is named under the brief. The brief keeps the same shape.
+- 5a35dc6: Starter tests match starter-research on research-fanout.
+  
+  The shipped-pack and Start-here tests still described starter-research's old two parallel gather nodes, so main's CI failed after #951. They now check that it hands its angles to research-fanout and that its code step prints the JSON its widget reads.
+- 3673f00: A find or check step given an agent that reads one page at a time uses sua's finder or checker instead.
+  
+  An agent like listing-page-facts can only fill in facts from an option's own page, so on a find or check step it had nothing to read and the step refused to start. Saving steps (Edit, sua's steps card, a draft) now takes such an agent off those steps, and an older step that has one runs with sua's finder or checker. Either way the notebook says what it did.
+- 832f582: A notebook step's own runs no longer show under "Runs not in this notebook yet".
+  
+  A source step that reads each option's page (listing-page-facts) fills in facts on options the notebook already has, so its runs never add an entry. The notebook page listed them as runs to add, each with an **Add to notebook** button. A run that belongs to one of the notebook's passes now counts as in the notebook. A run's own page links those runs back to the notebook as well.
+- ef20ccc: web-search-links finds results on codex too.
+  
+  codex's live search returns nothing for `site:` queries, so the discover agents found no boards whenever codex answered. When a `site:` search finds nothing, web-search-links now searches again with the site's name as an ordinary search term, and still keeps only links on that site. In a test with codex, a search that had returned 0 links returned 15.
+- Updated dependencies [aec5eaa]
+- Updated dependencies [57d0aed]
+- Updated dependencies [98f0fce]
+- Updated dependencies [c39093e]
+- Updated dependencies [e64ec0c]
+- Updated dependencies [119b969]
+- Updated dependencies [f39cc95]
+- Updated dependencies [2261e73]
+- Updated dependencies [372480c]
+- Updated dependencies [7911905]
+- Updated dependencies [87f3196]
+- Updated dependencies [cc89e8e]
+- Updated dependencies [d34bb38]
+- Updated dependencies [b46f5cd]
+- Updated dependencies [627a8f0]
+- Updated dependencies [1e65bf9]
+- Updated dependencies [e1c2cf8]
+- Updated dependencies [60bbdb5]
+- Updated dependencies [3873eb3]
+- Updated dependencies [da1538d]
+- Updated dependencies [ac9e750]
+- Updated dependencies [d6dadea]
+- Updated dependencies [0dec92c]
+- Updated dependencies [5f829be]
+- Updated dependencies [ebc3f53]
+- Updated dependencies [8711b44]
+- Updated dependencies [f397d7a]
+- Updated dependencies [de61798]
+- Updated dependencies [9c7f816]
+- Updated dependencies [e582988]
+- Updated dependencies [fa5eb71]
+- Updated dependencies [c77b780]
+- Updated dependencies [1ba0f78]
+- Updated dependencies [fa7d51e]
+- Updated dependencies [9483251]
+- Updated dependencies [5a35dc6]
+- Updated dependencies [3673f00]
+- Updated dependencies [832f582]
+- Updated dependencies [a11ac64]
+- Updated dependencies [e700168]
+- Updated dependencies [a5c80aa]
+- Updated dependencies [ef20ccc]
+  - @some-useful-agents/core@0.32.0
+
 ## 0.31.0
 
 ### Minor Changes
