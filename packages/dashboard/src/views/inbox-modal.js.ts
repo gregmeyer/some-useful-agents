@@ -1248,6 +1248,22 @@ export const INBOX_MODAL_JS = `
       .catch(function (err) { console.error('ask pill failed', err); })
       .then(function () { pill.disabled = false; pill.textContent = label; });
   });
+  // Home's Ask sua card: a starter fills the box for you to finish (Enter sends).
+  // The starters show only with script on; without it the box still posts.
+  document.querySelectorAll('[data-ask-starters]').forEach(function (el) { el.hidden = false; });
+  document.addEventListener('click', function (e) {
+    var pill = e.target.closest && e.target.closest('[data-ask-fill]');
+    if (!pill) return;
+    e.preventDefault();
+    var form = pill.closest('.home-ask-card') ? pill.closest('.home-ask-card').querySelector('[data-home-ask]') : null;
+    var ta = form ? form.querySelector('[data-home-ask-input]') : null;
+    if (!ta) return;
+    ta.value = pill.getAttribute('data-ask-fill') || '';
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    ta.focus();
+    var end = ta.value.length;
+    try { ta.setSelectionRange(end, end); } catch (_) { /* not every input supports it */ }
+  });
   // Home's Try next Run: the run starts in a conversation about the agent, opened
   // in the panel, where its result comes back. Without JS the form posts and lands on it.
   document.addEventListener('submit', function (e) {

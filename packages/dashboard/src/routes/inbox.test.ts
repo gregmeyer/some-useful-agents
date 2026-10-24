@@ -146,6 +146,11 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toMatch(/class="home-try__(with|none-in)/);
     expect(home.text).toContain('class="home-try__own" data-ask-send=');
     expect(home.text).toContain('data-ask-send=');
+    // Under Today: Ask sua, a box and starters for each verb (a starter fills the box).
+    expect(home.text).toMatch(/class="home-ask-card"[\s\S]*data-home-ask>/);
+    for (const verb of ['Run', 'Build', 'Fix', 'Look up']) expect(home.text).toContain(`<span class="home-ask-card__verb">${verb}</span>`);
+    expect(home.text).toContain('data-ask-fill="Build an agent that checks "');
+    expect(home.text).not.toContain('<h3 class="home-try__label">Ask sua</h3>');
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
     expect(home.text).not.toContain('Search or ask sua');
@@ -153,11 +158,11 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const today = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(today.body).toMatchObject({ status: '1 needs you', needs: 1 });
     expect(today.body.html).toContain(`data-panel-thread-id="${t.id}"`);
-    // Quiet: Today says all clear and offers questions for sua instead of a bare line.
+    // Quiet: Today says all clear (the questions are in the Ask sua card under it).
     inboxStore.updateStatus(t.id, 'resolved');
     const quiet = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(quiet.body.html).toContain('All clear.');
-    expect(quiet.body.html).toContain('data-ask-send=');
+    expect(quiet.body.html).not.toContain('data-ask-send=');
     expect(quiet.body.html).not.toContain('panel-home__empty');
   });
 

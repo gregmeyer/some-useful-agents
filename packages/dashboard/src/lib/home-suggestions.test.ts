@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { pickSuggestions, needsInputs, runsWithInputs, inputLabel } from './home-suggestions.js';
+import { pickSuggestions, needsInputs, runsWithInputs, inputLabel, askStarters } from './home-suggestions.js';
 
 // Home's Try next: agents you can run in one click, and questions for sua from what happened today.
 
@@ -67,5 +67,30 @@ describe('Try next', () => {
     expect(pick([agents[0]]).agents[0].why).toBe('tutorial');
     expect(inputLabel('API_KEY_ID')).toBe('API key ID');
     expect(runsWithInputs({ inputs: { NOTE: { type: 'string', default: 'x'.repeat(120) } } } as never)[0].value).toHaveLength(90);
+  });
+
+  it('gives the Ask sua card starters for every verb, from what you use and what happened', () => {
+    const none = askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [], now: NOW });
+    expect(none.map((r) => r.verb)).toEqual(['Run', 'Build', 'Fix', 'Look up']);
+    expect(none.every((r) => r.pills.length > 0)).toBe(true);
+    expect(none[2].pills.map((p) => p.label)).toEqual(['Check my agents for anything broken']);
+
+    const agents = [
+      agent('research', { name: 'Research a topic', inputs: { TOPIC: { type: 'string', default: 'x' }, DEPTH_DAYS: { type: 'number', default: 3 } } } as Partial<Agent>),
+      agent('digest', { name: 'Daily digest' }),
+      agent('broken', { name: 'Flaky feed' }),
+    ];
+    const got = askStarters({
+      agents, now: NOW,
+      lastRunAt: new Map([['research', ago(30)], ['digest', ago(40)]]), runCounts: new Map([['research', 5], ['digest', 4]]),
+      notebookIdeas: [{ label: 'A used road bike', text: 'Help me find a used road bike under $800' }],
+      failedAgents: ['broken', 'broken'],
+    });
+    const run = got[0].pills;
+    expect(run[0]).toEqual({ label: 'Run Research a topic on …', text: 'Run Research a topic with topic: ' });
+    expect(run.map((p) => p.label)).toContain('Run Daily digest');
+    expect(got[1].pills.map((p) => p.label)).toContain('Put Research a topic on a schedule');
+    expect(got[2].pills[0]).toEqual({ label: 'Why did Flaky feed fail?', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
+    expect(got[3].pills[0]).toEqual({ label: 'Help me find a used road bike', text: 'Help me find a used road bike under $800' });
   });
 });
