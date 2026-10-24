@@ -1,9 +1,10 @@
 /**
- * A notebook's widgets: its default layout as an A2UI view bound to the
- * notebook's data (`/notebook/...`, the same shape for every notebook), so the
- * same components draw a car search, a job hunt or a shopping list, and can
- * later be arranged or placed on a board. The layout follows the "notebook as
- * a story" design (canvas artboard 23):
+ * A notebook's widgets: its layout (core notebook-layout.ts, rows of blocks)
+ * as an A2UI view bound to the notebook's data (`/notebook/...`, the same
+ * shape for every notebook), so the same components draw a car search, a job
+ * hunt or a shopping list, and can be rearranged or placed on a board. The
+ * default, the shortlist, follows the "notebook as a story" design (canvas
+ * artboard 23):
  *
  *   Where it stands + stats (2/3)  | Done when (ring + steps, 1/3)
  *   Where they sit (map, 2/3)      | How far they got (funnel, 1/3)
@@ -12,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { rankBy, rankOptions, isRange,
-  notebookViewData, cleanData, fieldNumber, validateViewComponents, viewToMessages,
+  notebookViewData, notebookLayoutOf, resolveNotebookLayout, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
@@ -355,59 +356,44 @@ export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
   return (nb.steps?.length ?? 0) > 1;
 }
 
-/** The default layout (see the module comment). */
-export function notebookWidgetComponents(nb: Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status'] }): ViewComponent[] {
+type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout };
+
+/** What a layout's `when` tests, for this notebook (core NOTEBOOK_LAYOUT_FLAGS). */
+export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Record<NotebookLayoutFlag, boolean> {
+  return {
+    map: !!(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
+    // With steps the funnel is the steps (notebookViewData); else the stages.
+    funnel: (nb.steps?.length ?? 0) > 1 || nb.stages.length > 1,
+    steps: (nb.steps?.length ?? 0) > 0,
+    options: hasOptions,
+    decided: nb.status === 'decided',
+  };
+}
+
+/** The settings a layout reads from `/notebook/layout/<key>`, for this notebook (core NOTEBOOK_LAYOUT_VALUES). */
+export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<NotebookLayoutValueKey, unknown>> {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
   const scoreF = nb.fields.find((f) => f.role === 'score');
-  const hasMap = !!(priceF && measureF);
-  // With steps the funnel is the steps (notebookViewData); else the stages.
-  const hasFunnel = (nb.steps?.length ?? 0) > 1 || nb.stages.length > 1;
-  const panel = (id: string, title: string, child: string, note?: Record<string, unknown> | string): ViewComponent =>
-    ({ id, component: 'Panel', title, child, ...(note ? { note } : {}) });
-  const c: ViewComponent[] = [
-    { id: 'root', component: 'Column', children: ['top', ...(hasMap || hasFunnel ? ['mid'] : []), 'shortlist_panel', 'low', 'ctx'] },
-    // Where it stands (two thirds), beside done-when (one third).
-    { id: 'top', component: 'Columns', children: ['story', 'steps_panel'], widths: [2, 1] },
-    { id: 'story', component: 'Column', children: ['callout', 'stats'] },
-    { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
-    { id: 'stats', component: 'StatStrip', items: { path: '/notebook/statItems' } },
-    panel('steps_panel', 'Done when', 'steps'),
-    { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
-  ];
-  if (hasMap || hasFunnel) {
-    c.push({ id: 'mid', component: 'Columns', children: [...(hasMap ? ['map_panel'] : []), ...(hasFunnel ? ['funnel_panel'] : [])], widths: hasMap && hasFunnel ? [2, 1] : [1] });
-  }
-  if (hasMap) {
-    c.push(
-      panel('map_panel', 'Where they sit', 'map', `${priceF!.label.toLowerCase()} by ${measureF!.label.toLowerCase()} · your limits shaded`),
-      {
-        id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', label: 'name', href: 'page',
-        xLabel: measureF!.label, yLabel: priceF!.label, xFormat: measureF!.type === 'money' ? 'money' : 'number', yFormat: priceF!.type === 'money' ? 'money' : 'number',
-        xBand: { path: '/notebook/bands/measure' }, yBand: { path: '/notebook/bands/price' },
-        ...(measureF!.better ? { xBetter: measureF!.better } : {}), yBetter: priceF!.better ?? 'lower',
-      },
-    );
-  }
-  if (hasFunnel) {
-    c.push(panel('funnel_panel', 'How far they got', 'funnel', 'hover a stage for why'), { id: 'funnel', component: 'Funnel', stages: { path: '/notebook/funnel' } });
-  }
-  c.push(
-    panel('shortlist_panel', 'Shortlist', 'shortlist', { path: '/notebook/shortlistNote' }),
-    { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' }, layout: 'grid', sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price', actions: true, filters: defaultFilters(nb), ...(handStagesHidden(nb) ? { stageChips: false } : {}), ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}), ...(nb.status === 'decided' ? { onlyChosen: true } : {}) },
-    // The timeline is the longer story: two thirds; the checklist's groups stack in its third.
-    { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
-    panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
-    { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
-    panel('time_panel', 'How we got here', 'timeline', 'newest first'),
-    { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, maxItems: 8, filters: true, search: true },
-    { id: 'ctx', component: 'Columns', children: ['cov_panel', 'lim_panel'], widths: [1, 1] },
-    panel('cov_panel', 'Where sua looked', 'coverage', { path: '/notebook/coverage/when' }),
-    { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' } },
-    panel('lim_panel', 'Limits', 'limits', { path: '/notebook/limitsNote' }),
-    { id: 'limits', component: 'ChipList', items: { path: '/notebook/limitChips' } },
-  );
-  return c;
+  return {
+    ...(priceF && measureF ? { mapNote: `${priceF.label.toLowerCase()} by ${measureF.label.toLowerCase()} · your limits shaded` } : {}),
+    ...(measureF ? { xLabel: measureF.label, xFormat: measureF.type === 'money' ? 'money' : 'number', ...(measureF.better ? { xBetter: measureF.better } : {}) } : {}),
+    ...(priceF ? { yLabel: priceF.label, yFormat: priceF.type === 'money' ? 'money' : 'number', yBetter: priceF.better ?? 'lower' } : {}),
+    sort: scoreF ? `${scoreF.key} ${scoreF.better === 'lower' ? 'asc' : 'desc'}` : 'price',
+    filters: defaultFilters(nb),
+    ...(handStagesHidden(nb) ? { stageChips: false } : {}),
+    ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}),
+    ...(nb.status === 'decided' ? { onlyChosen: true } : {}),
+  };
+}
+
+/**
+ * The notebook's page as plain A2UI: its layout (an A2UI document; the
+ * shortlist when it has none) with its `when`s and `/notebook/layout/`
+ * settings worked out for this notebook (core resolveNotebookLayout).
+ */
+export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLayout = notebookLayoutOf(nb)): ViewComponent[] {
+  return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb));
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */

@@ -1235,6 +1235,7 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       stages: t.setup.stages,
       checks: listInput(meta.inputs.CHECKS, t.setup.checks).map(fill),
       steps,
+      ...(t.setup.layout ? { layout: t.setup.layout } : {}),
     },
   };
 }
