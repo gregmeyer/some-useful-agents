@@ -96,6 +96,26 @@ describe('notebook widgets', () => {
     expect(car.find((c) => c.id === 'top')).toMatchObject({ widths: [2, 1] });
     expect(car.find((c) => c.id === 'mid')).toMatchObject({ widths: [2, 1] });
   });
+
+  it('draws a notebook’s own A2UI layout, with its whens and settings worked out for it', () => {
+    const fields = [{ key: 'company', label: 'Company', type: 'text' as const, role: 'org' as const }];
+    const layout = { components: [
+      { id: 'root', component: 'Column', children: ['time_panel', 'pair'] },
+      { id: 'time_panel', component: 'Panel', title: 'What happened', child: 'timeline' },
+      { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, search: true },
+      { id: 'pair', component: 'Columns', children: ['map', 'shortlist'], widths: [2, 1] },
+      { id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', when: 'map' },
+      { id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, sort: { path: '/notebook/layout/sort' }, csvHref: { path: '/notebook/layout/csvHref' } },
+    ] };
+    const c = notebookWidgetComponents({ id: 'jobs', fields, stages: [], layout });
+    expect(validateViewComponents(c).ok).toBe(true);
+    // No map (no price or measure): the shortlist takes the row; its settings come from the notebook.
+    expect(c.find((x) => x.id === 'pair')).toEqual({ id: 'pair', component: 'Columns', children: ['shortlist'], widths: [1] });
+    expect(c.find((x) => x.id === 'shortlist')).toMatchObject({ sort: 'price', csvHref: '/notebooks/jobs/shortlist.csv' });
+    expect(c.map((x) => x.component)).not.toContain('Checklist');
+    // The same notebook with no layout draws the shortlist.
+    expect(notebookWidgetComponents({ fields, stages: [] }).map((x) => x.component)).toContain('Checklist');
+  });
 });
 
 describe('notebook widget details', () => {

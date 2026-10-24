@@ -2491,6 +2491,8 @@ describe('notebook templates', () => {
     store.setStages(seed.id, ['Found', 'Applied']);
     store.setSteps(seed.id, [{ title: 'Find 5 roles', kind: 'find', target: 5, status: 'done' }, { title: 'Source pay', kind: 'source', agentId: 'gone-agent' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
     store.upsertOption(seed.id, { title: 'Controller, Acme', by: 'you', data: {} });
+    const page = [{ id: 'root', component: 'Column', children: ['t'] }, { id: 't', component: 'Timeline', events: { path: '/notebook/timeline' } }];
+    store.setLayout(seed.id, { components: page });
     store.saveTemplate('Job search', seed.id);
 
     const params = ['Remote or Denver, CO', '$180k minimum comp'];
@@ -2518,6 +2520,8 @@ describe('notebook templates', () => {
     expect(made).toMatchObject({ statement: 'Controller roles, Denver or remote', params, checks: ['Pays at least $180k', 'Remote or based in Denver, CO'], stages: ['Found', 'Applied'] });
     expect(made.criteria.map((c) => `${c.text}:${String(c.met)}`)).toEqual(['At least five open roles that fit:false', 'A decision recorded:false']);
     expect(made.fields.map((f) => f.key)).toEqual(['salary', 'posting_url']);
+    // Its page is laid out like the template's.
+    expect(made.layout).toEqual({ components: page });
     // Steps fresh; the find step wants 8; an agent that's gone is dropped (the step needs one again).
     expect(made.steps!.map((x) => `${x.title}:${x.status}:${x.agentId ?? ''}:${String(x.target ?? '')}`)).toEqual(['Find 5 roles:todo::8', 'Source pay:todo::', 'Pick one:todo::1']);
     expect(store.entries(made.id).filter((e) => e.kind === 'option')).toHaveLength(0);

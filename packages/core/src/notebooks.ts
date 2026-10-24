@@ -8,6 +8,7 @@
  * Its page is drawn from its own surface (`notebook:<id>`, see surfaces/),
  * from items projected out of its entries.
  */
+import { checkNotebookLayout, cleanLayout, type NotebookLayout } from './notebook-layout.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -158,6 +159,8 @@ export interface Notebook {
   facets?: Record<string, NotebookFacet>;
   /** The work in steps, in order (absent: it just runs its pipeline). */
   steps?: NotebookStep[];
+  /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
+  layout?: NotebookLayout;
   createdAt: string;
   updatedAt: string;
 }
@@ -308,6 +311,8 @@ export interface NotebookTemplateSetup {
   steps: NotebookStep[];
   cadence: string;
   pipeline: string[];
+  /** Its page's layout, when it isn't the default. */
+  layout?: NotebookLayout;
   /**
    * What changes each time ("Who you're meeting"): its texts say
    * `{subject}` where it goes, and starting one fills it in (fillSubject).
@@ -367,6 +372,7 @@ export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
     steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top }) => ({ id, title, kind, agentId, target, facts, top, status: 'todo', tries: 0 }))),
     cadence: nb.cadence,
     pipeline: [...nb.pipeline],
+    ...(nb.layout ? { layout: nb.layout } : {}),
   };
 }
 
@@ -596,7 +602,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -824,6 +830,21 @@ export class NotebookStore {
       UNION SELECT notebook_id FROM notebook_entries WHERE by = ?
       UNION SELECT id FROM notebooks WHERE EXISTS (SELECT 1 FROM json_each(COALESCE(pipeline_json, '[]')) WHERE value = ?)`).all(agentId, `agent:${agentId}`, agentId) as Array<{ notebook_id: string }>;
     return rows.map((r) => r.notebook_id);
+  }
+
+  /**
+   * How the notebook's page is laid out: a preset id ("shortlist") or an
+   * A2UI document (notebook-layout.ts). Null: back to the default.
+   */
+  setLayout(id: string, layout: unknown): Notebook {
+    this.mustGet(id);
+    const clean = layout == null ? undefined : cleanLayout(layout);
+    if (layout != null && !clean) {
+      const why = layout && typeof layout === 'object' && 'components' in layout ? checkNotebookLayout((layout as { components: unknown }).components) : undefined;
+      throw new Error(`That layout can't be drawn${why && !why.ok ? `: ${why.errors.slice(0, 3).join('; ')}` : ''}.`);
+    }
+    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
   }
 
   /** What to check on each option before deciding (at most 8). */
@@ -1764,6 +1785,8 @@ export class NotebookStore {
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
+      // Checked when it was set (setLayout); read as stored.
+      ...((): { layout?: NotebookLayout } => { const l = r.layout_json ? parse<NotebookLayout | null>(r.layout_json, null) : null; return l && Array.isArray(l.components) ? { layout: l } : {}; })(),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };

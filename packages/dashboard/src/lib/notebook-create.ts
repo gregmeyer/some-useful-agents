@@ -5,7 +5,7 @@
  * them (setup is then skipped); otherwise sua sets those up and lays out its
  * steps. Then sua says hello in the notebook's conversation.
  */
-import { NotebookStore, type Notebook, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, type Notebook, type NotebookStep, type NotebookLayout } from '@some-useful-agents/core';
 import { fitStepAgents } from './notebook-steps.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
@@ -28,6 +28,8 @@ export interface NewNotebookSetup {
   checks?: string[];
   /** The steps sua takes; without them, sua lays them out once it's set up. */
   steps?: NotebookStep[];
+  /** Its page's layout (a template's); without it, the default. */
+  layout?: NotebookLayout;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -43,6 +45,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   // A page reader can't find or check: those steps go to sua's finder or checker.
   const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
   if (steps) store.setSteps(nb.id, steps);
+  if (input.layout) store.setLayout(nb.id, input.layout);
   if (input.fields?.length) {
     store.setFields(nb.id, input.fields);
     if (input.stages?.length) store.setStages(nb.id, input.stages);
