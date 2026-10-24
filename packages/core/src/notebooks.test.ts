@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName } from './notebooks.js';
+import { readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1062,5 +1062,28 @@ describe('notebook templates', () => {
     expect(s.deleteTemplate('car-search')).toBe(true);
     expect(s.getTemplate('car-search')).toBeUndefined();
     expect(() => s.saveTemplate('  ', nb.id)).toThrow('A template needs a name.');
+  });
+});
+
+describe('template subjects', () => {
+  it('swap the subject for {subject}, fill it back, guess it from the title, and clip on words', () => {
+    expect(subjectOut("Dana Reyes's newsletter, and dana  reyes again; not DanaReyesson", 'Dana Reyes')).toBe("{subject}'s newsletter, and {subject} again; not DanaReyesson");
+    expect(fillSubject('Evidence relates to {subject}, not {subject}’s namesake', 'Acme Corp')).toBe('Evidence relates to Acme Corp, not Acme Corp’s namesake');
+    expect(fillSubject('Who is {subject}?', '  ')).toBe('Who is {subject}?');
+    expect(templateSubjectGuess({ title: 'Prepare for meeting with Dana Reyes', params: ['Dana Reyes', 'LinkedIn profile provided', 'upcoming meeting'] })).toBe('Dana Reyes');
+    expect(templateSubjectGuess({ title: 'Find a used car', params: ['Under $15k'] })).toBe('');
+    expect(clipWords('Evidence relates to Dana Reyes, not someone with a similar name', 60)).toBe('Evidence relates to Dana Reyes, not someone with a similar');
+    expect(clipWords('short one', 60)).toBe('short one');
+  });
+
+  it('keep a check whole up to 120 characters', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for meeting with Dana Reyes' });
+    const check = 'Evidence relates to Dana Reyes, not someone with a similar name';
+    expect(s.setChecks(nb.id, [check]).checks).toEqual([check]);
+    expect(s.setChecks(nb.id, ['word '.repeat(40)]).checks[0].length).toBeLessThanOrEqual(120);
+    expect(s.setChecks(nb.id, ['word '.repeat(40)]).checks[0].endsWith('word')).toBe(true);
   });
 });

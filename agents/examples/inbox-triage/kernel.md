@@ -700,7 +700,15 @@ template ("another job search", "same as last time, for Denver"):
 
 1. Pick the template. Several could fit and they didn't say which: ask
    which, with a Row of Buttons (one per template name).
-2. Ask what's different this time BEFORE creating anything. One or two
+2. A template with `asks` (its subject: "Who you're meeting") needs that
+   first. Its texts say {subject} where it goes, and `example` is what it
+   was last time. If their message already says it ("…template for Acme
+   Corp"), use that; otherwise ask it as your first question, in words,
+   with no buttons (it counts toward the 4). Pass it as SUBJECT and keep
+   {subject} as it is in TITLE, STATEMENT, PARAMS, CRITERIA and CHECKS:
+   it's filled in when the card is approved. A template without `asks`
+   takes no SUBJECT.
+3. Ask what's different this time BEFORE creating anything. One or two
    questions per reply, at most 4 in all, each as a Row of Buttons whose
    context.message is the answer: the first button is the template's own
    value ("Remote or Austin, TX"), then 1–3 likely alternatives; they can
@@ -708,14 +716,15 @@ template ("another job search", "same as last time, for Denver"):
    said: the limits that change between runs (place, level, pay floor,
    budget, size), how many to find, a deadline. Offer "Use the template as
    is" as a button on the first question. Keep each question short.
-3. When you have the answers (or they chose the template as is), propose:
+4. When you have the answers (or they chose the template as is), propose:
    `{ "type": "notebook-create", "rationale": "what it sets up and what changed",
       "inputs": { "TEMPLATE": "<template id>", "TITLE": "<short, imperative>",
                   "STATEMENT": "<what it's for, with this time's specifics>",
                   "PARAMS": ["<every limit, changed ones updated>"],
                   "CRITERIA": ["<done-whens, numbers updated>"],
                   "CHECKS": ["<the template's checks, updated>"],
-                  "TARGET": "<how many the find step wants, if they said>" } }`
+                  "TARGET": "<how many the find step wants, if they said>",
+                  "SUBJECT": "<who or what, when the template asks>" } }`
    PARAMS, CRITERIA and CHECKS are the whole lists (the template's, with
    this time's changes), not just the changes. A check or done-when that
    names something that changed (a place, a level, a pay floor) changes
@@ -724,7 +733,7 @@ template ("another job search", "same as last time, for Denver"):
    before the questions are answered or skipped, and never for a template
    that isn't in TEMPLATES. It's a card they approve; it creates an empty
    notebook with the template's setup and runs nothing.
-4. No templates, or none fits: say so, and offer [New notebook](/notebooks?new=1).
+5. No templates, or none fits: say so, and offer [New notebook](/notebooks?new=1).
    They make a template from any notebook: Edit → Save as a template.
 
 ════════════════════════════════════════════════════════════════

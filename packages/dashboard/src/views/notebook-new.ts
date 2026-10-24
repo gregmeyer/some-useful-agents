@@ -47,7 +47,7 @@ export function renderDraftsStrip(drafts: ReadonlyArray<{ id: string } & DraftSt
     </section>`;
 }
 
-type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>;
+type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'> & { setup?: Pick<NotebookTemplate['setup'], 'subject'> };
 
 /** Remove a template, after asking once. */
 function deleteTemplateControl(t: TemplateRow): SafeHtml {
@@ -77,8 +77,9 @@ function renderTemplateList(templates: readonly TemplateRow[], archived: readonl
       ${templates.map((t) => html`<li class="nbd-tpl__item">
         <span class="nbd-tpl__name">${t.name}</span>
         <span class="nbd-tpl__what">${t.description}${t.uses ? ` · used ${String(t.uses)}×` : ''}</span>
-        <form method="POST" action="/inbox/new" class="nbd-tpl__go">
+        <form method="POST" action="/inbox/new" class="nbd-tpl__go"${t.setup?.subject ? html` data-nbt-start="${`Start a new notebook from my “${t.name}” template for `}"` : html``}>
           <input type="hidden" name="body" value="${`Start a new notebook from my “${t.name}” template.`}">
+          ${t.setup?.subject ? html`<input type="text" name="subject" class="form-field nbd-tpl__subject" maxlength="80" placeholder="${t.setup.subject.label}" aria-label="${t.setup.subject.label}" data-nbt-subject>` : html``}
           <button type="submit" class="btn btn--sm btn--primary" title="sua asks what's different this time, then creates it">Start with sua →</button>
         </form>
         ${archiveForm(t, false)}

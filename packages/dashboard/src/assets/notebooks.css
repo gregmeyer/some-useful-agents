@@ -472,6 +472,8 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-tpl__name { font-weight: var(--weight-semibold); }
 .nbd-tpl__what { flex: 1; min-width: 0; font-size: var(--font-size-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
 .nbd-tpl__go, .nbd-tpl__arch { margin: 0; }
+.nbd-tpl__go { display: flex; align-items: center; gap: var(--space-2); }
+.nbd-tpl__subject { width: 20rem; max-width: 100%; height: var(--control-h-sm); font-size: var(--font-size-sm); }
 .nbd-tpl__archived { margin-top: var(--space-3); }
 .nbd-tpl__archived > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbd-tpl__archived > .nbd-tpl__list { margin-top: var(--space-2); }
@@ -814,3 +816,24 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-toast__close:hover { background: var(--color-surface-raised); color: var(--color-text); }
 .nb-toast__close:focus-visible { outline: 2px solid var(--color-primary); }
 body.has-sua-panel .nb-toast { display: none; }
+
+/* Save as a template (views/notebook-template.ts): the Edit page's form, with what changes each time set apart. */
+.nbt__lede { margin: 0; max-width: 65ch; color: var(--color-text-muted); }
+.nbt-form { gap: var(--space-4); max-width: 720px; }
+.nbt__field textarea { resize: vertical; font-size: var(--font-size-sm); line-height: 1.5; }
+.nbt__hint { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbt code, .nbt__hint code { font-family: var(--font-mono); font-size: 0.92em; color: var(--color-primary); }
+.nbt__subject, .nbt__steps { display: grid; gap: var(--space-2); margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); min-inline-size: 0; }
+.nbt__subject { grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+.nbt__subject > legend, .nbt__steps > legend { padding: 0 var(--space-1); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nbt__subject > .nbt__hint { grid-column: 1 / -1; }
+.nbt__step { flex-direction: row; align-items: center; gap: var(--space-2); }
+.nbt__step input { flex: 1; min-width: 0; }
+.nbt__step-n { width: 1.5rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-subtle); text-align: right; }
+.nbt__step-kind { min-width: 4rem; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbt__kept { display: grid; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); }
+.nbt__kept > div { display: grid; grid-template-columns: 9rem 1fr; gap: var(--space-2); }
+.nbt__kept dt { color: var(--color-text-muted); }
+.nbt__kept dd { margin: 0; min-width: 0; }
+@media (max-width: 560px) { .nbt__kept > div { grid-template-columns: 1fr; gap: 0; } }
+.nbt-form .form-field { margin: 0; }

@@ -308,6 +308,34 @@ export interface NotebookTemplateSetup {
   steps: NotebookStep[];
   cadence: string;
   pipeline: string[];
+  /**
+   * What changes each time ("Who you're meeting"): its texts say
+   * `{subject}` where it goes, and starting one fills it in (fillSubject).
+   */
+  subject?: NotebookTemplateSubject;
+}
+
+export interface NotebookTemplateSubject {
+  /** The question it answers, as a label ("Who you're meeting (a person or company)"). */
+  label: string;
+  /** What it was in the notebook it was saved from ("Dana Reyes"). */
+  example: string;
+}
+
+/** Where a template's subject goes in its texts. */
+export const TEMPLATE_SUBJECT = '{subject}';
+
+/** What you changed before saving a template (Save as a template's page). */
+export interface NotebookTemplateEdits {
+  statement?: string;
+  params?: readonly string[];
+  criteria?: readonly string[];
+  checks?: readonly string[];
+  /** Step titles, by step id. */
+  stepTitles?: Readonly<Record<string, string>>;
+  /** What each option notes, relabelled, by field key. */
+  fieldLabels?: Readonly<Record<string, string>>;
+  subject?: NotebookTemplateSubject;
 }
 
 export interface NotebookTemplate {
@@ -340,6 +368,91 @@ export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
     cadence: nb.cadence,
     pipeline: [...nb.pipeline],
   };
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Swap `example` for `{subject}` in a text, as a whole phrase, any case:
+ * "Dana Reyes's" keeps its "'s". No example: the text as it is.
+ */
+export function subjectOut(text: string, example: string): string {
+  const ex = example.replace(/\s+/g, ' ').trim();
+  if (!ex) return text;
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(ex).replace(/ /g, '\\s+')}(?![\\p{L}\\p{N}])`, 'giu'), TEMPLATE_SUBJECT);
+}
+
+/** Fill a template text's `{subject}` with this time's ("Acme Corp"). Nothing given: it stays. */
+export function fillSubject(text: string, value: string): string {
+  const v = value.replace(/\s+/g, ' ').trim();
+  return v ? text.split(TEMPLATE_SUBJECT).join(v) : text;
+}
+
+/**
+ * A guess at what a notebook is about that would change next time: the
+ * longest of its limits that its title also says, as written ("Dana
+ * Reyes" in "Prepare for meeting with Dana Reyes"). Short, generic ones
+ * (under two words or 4 letters) don't count.
+ */
+export function templateSubjectGuess(nb: Pick<Notebook, 'title' | 'params'>): string {
+  const title = nb.title.toLowerCase();
+  const hits = nb.params
+    .map((p) => p.replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length >= 4 && p.length <= 60 && subjectOut(title, p.toLowerCase()) !== title);
+  return hits.sort((a, b) => b.length - a.length)[0] ?? '';
+}
+
+/**
+ * Clip a text to `max` characters on a word boundary, so a check or limit
+ * never ends mid-word ("…not someone with a simila").
+ */
+export function clipWords(text: string, max: number): string {
+  const s = text.replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max + 1);
+  const at = cut.lastIndexOf(' ');
+  return (at > max / 2 ? cut.slice(0, at) : s.slice(0, max)).replace(/[\s,;:–—-]+$/, '');
+}
+
+/** The longest a check may be. */
+export const CHECK_MAX = 120;
+
+/**
+ * A notebook's setup with what you changed on Save as a template: the edited
+ * texts and fact labels (cleaned like a notebook's own), then the subject
+ * swapped for `{subject}` wherever it's named.
+ */
+export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {}): NotebookTemplateSetup {
+  const base = templateFromNotebook(nb);
+  const list = (given: readonly string[] | undefined, was: string[], max: number, n: number) => {
+    if (!given) return was;
+    const out: string[] = [];
+    for (const g of given) {
+      const t = clipWords(g, max);
+      if (t && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t);
+    }
+    return out.slice(0, n);
+  };
+  const label = edits.subject?.label.replace(/\s+/g, ' ').trim().slice(0, 80) ?? '';
+  const example = edits.subject?.example.replace(/\s+/g, ' ').trim().slice(0, 80) ?? '';
+  const sub = (t: string) => subjectOut(t, example);
+  const setup: NotebookTemplateSetup = {
+    ...base,
+    statement: sub(edits.statement !== undefined ? edits.statement.trim().slice(0, 500) : base.statement),
+    params: list(edits.params, base.params, 200, 20).map(sub),
+    criteria: list(edits.criteria, base.criteria, 200, 10).map(sub),
+    checks: list(edits.checks, base.checks, CHECK_MAX, 8).map(sub),
+    fields: base.fields.map((f) => {
+      const l = edits.fieldLabels?.[f.key]?.replace(/\s+/g, ' ').trim();
+      return l ? { ...f, label: sub(l.slice(0, 40)) } : f;
+    }),
+    steps: base.steps.map((st) => {
+      const t = edits.stepTitles?.[st.id];
+      return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title) };
+    }),
+  };
+  if (label && example) setup.subject = { label, example };
+  return setup;
 }
 
 /** "8 fields · 4 steps · 5 checks": what a template sets up. */
@@ -718,7 +831,7 @@ export class NotebookStore {
     this.mustGet(id);
     const checks: string[] = [];
     for (const c of list) {
-      const s = typeof c === 'string' ? c.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      const s = typeof c === 'string' ? clipWords(c, CHECK_MAX) : '';
       if (s && !checks.some((x) => x.toLowerCase() === s.toLowerCase())) checks.push(s);
       if (checks.length === 8) break;
     }
@@ -1319,12 +1432,12 @@ export class NotebookStore {
    * Keep a notebook's setup as a template named `name` (a slug of it is its
    * id: the same name again replaces it). Its options and history aren't kept.
    */
-  saveTemplate(name: string, notebookId: string, now = new Date().toISOString()): NotebookTemplate {
+  saveTemplate(name: string, notebookId: string, now = new Date().toISOString(), edits?: NotebookTemplateEdits): NotebookTemplate {
     const nb = this.mustGet(notebookId);
     const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60);
     if (!clean) throw new Error('A template needs a name.');
     const id = notebookSlug(clean);
-    const setup = templateFromNotebook(nb);
+    const setup = edits ? templateWithEdits(nb, edits) : templateFromNotebook(nb);
     this.db.prepare(`INSERT INTO notebook_templates (id, name, description, setup_json, from_notebook, uses, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description, setup_json = excluded.setup_json, from_notebook = excluded.from_notebook, updated_at = excluded.updated_at, archived_at = NULL`)
       .run(id, clean, describeTemplateSetup(setup), JSON.stringify(setup), nb.id, now, now);

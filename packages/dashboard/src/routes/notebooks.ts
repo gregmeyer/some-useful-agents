@@ -12,6 +12,7 @@ import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../l
 import { notebookWidgetData } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
+import { renderTemplateSave, templateEditsFrom } from '../views/notebook-template.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
@@ -464,14 +465,30 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
 });
 
 // Archive (hide from lists, Home, Today and schedules; nothing deleted) or restore.
-/** Keep this notebook's setup as a template (its options aren't kept). */
+/** Save as a template: its texts to make fit any time, and what changes each time. */
+notebooksRouter.get('/notebooks/:id/template', (req: Request, res: Response) => {
+  const nb = store(req).get(String(req.params.id));
+  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  res.type('html').send(renderTemplateSave({ nb, flash: parseFlash(req) }));
+});
+
+/**
+ * Keep this notebook's setup as a template (its options aren't kept). From
+ * the review page (`review=1`), with its edited texts and subject.
+ */
 notebooksRouter.post('/notebooks/:id/template', (req: Request, res: Response) => {
   const id = String(req.params.id);
   try {
-    const t = store(req).saveTemplate(str(req.body?.name), id);
-    res.redirect(303, back(id, `Saved as the template “${t.name}” (${t.description}). To start a notebook from it, ask sua: start a notebook from my ${t.name} template.`));
+    const s = store(req);
+    const nb = s.get(id);
+    if (!nb) throw new Error('No such notebook.');
+    const edits = req.body?.review === '1' ? templateEditsFrom(req.body as Record<string, unknown>, nb) : undefined;
+    const t = s.saveTemplate(str(req.body?.name), id, undefined, edits);
+    res.redirect(303, back(id, `Saved as the template “${t.name}” (${t.description}). Start a notebook from it on New notebook, or ask sua: start a notebook from my ${t.name} template.`));
   } catch (err) {
-    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+    const msg = err instanceof Error ? err.message : String(err);
+    if (req.body?.review === '1') res.redirect(303, `/notebooks/${encodeURIComponent(id)}/template?error=${encodeURIComponent(msg)}`);
+    else res.redirect(303, back(id, msg));
   }
 });
 
