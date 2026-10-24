@@ -4,6 +4,7 @@
  * criteria) with a `notebook-add` action, and suggests a pipeline with a
  * `notebook-pipeline` card you approve. Triage sees the notebook it's in.
  */
+import { templateOfNotebook, draftTemplate } from './notebook-template-action.js';
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
@@ -332,6 +333,17 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     fields: nb.fields.map((f) => ({ key: f.key, type: f.type, ...(f.unit ? { unit: f.unit } : {}), ...(f.role ? { role: f.role } : {}) })),
     // Its page now: its own A2UI layout, or the preset it uses (notebook-layout).
     layout: nb.layout ? nb.layout : { preset: 'shortlist', components: notebookLayoutOf(nb).components },
+    // Its template (saved from it), or the first guess at one: for notebook-template.
+    template: ((): Record<string, unknown> => {
+      const saved = templateOfNotebook(ctx, nb);
+      const t = saved ? { name: saved.name, setup: saved.setup } : draftTemplate(nb);
+      return {
+        saved: !!saved, name: t.name, ...(t.setup.subject ? { subject: t.setup.subject } : {}),
+        for: t.setup.statement, limits: t.setup.params, doneWhen: t.setup.criteria, checks: t.setup.checks,
+        steps: Object.fromEntries(t.setup.steps.map((x) => [x.id, x.title])), fieldLabels: Object.fromEntries(t.setup.fields.map((f) => [f.key, f.label])),
+        page: `/notebooks/${encodeURIComponent(nb.id)}/template`,
+      };
+    })(),
     inTheRunning: running.length, ruledOut, entries, ...(all.length > entries.length ? { entriesShown: `${String(entries.length)} of ${String(all.length)}: every option in the running, then the newest of the rest` } : {}),
     link: `/notebooks/${encodeURIComponent(nb.id)}`,
     // Options whose link is a search page, not their own (a source step on the link field finds them).
