@@ -255,6 +255,38 @@ describe('brand theme', () => {
   const form = (app: Parameters<typeof request>[0], p: string, body: Record<string, string>) =>
     request(app).post(p).type('form').send(body).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
+  it('the gallery uses a preset in one click, and Undo puts the look before back', async () => {
+    const app = await setup();
+    const version = async () => /name="version" value="([^"]*)"/.exec((await get(app, '/settings/appearance')).text)![1];
+    const css = async () => (await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`)).text;
+    await form(app, '/settings/appearance/brand', { version: await version(), preset: 'minimal', name: 'Apple', 'dark.primary': '#2997ff' });
+    let page = await get(app, '/settings/appearance');
+    // The look now: its name and a light and a dark preview in its colours.
+    expect(page.text).toMatch(/id="look-now-title">Apple</);
+    expect(page.text).toContain('data-preview-mode="dark" style="--p-bg: ');
+    expect(page.text).toContain('--p-primary: #2997ff');
+    // Presets in the gallery, none in use (Apple is your own look on top of Minimal).
+    expect(page.text).toContain('aria-label="Use Warm"');
+    expect(page.text).not.toMatch(/, in use"/);
+    let res = await form(app, '/settings/appearance/presets/warm/apply', { version: await version() });
+    expect(res.headers.location).toContain('applied=1');
+    expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('Now using Warm everywhere');
+    expect(await css()).not.toContain('#2997ff');
+    expect(await css()).toContain('--color-bg: #1c1917;');
+    page = await get(app, '/settings/appearance?applied=1');
+    expect(page.text).toContain('aria-label="Warm, in use"');
+    expect(page.text).toMatch(/btn btn--sm btn--primary">Undo last change/);
+    // Undo: Apple again.
+    await form(app, '/settings/appearance/brand/undo', { version: await version() });
+    expect(await css()).toContain('--color-primary: #2997ff;');
+    // No such preset; a stale page.
+    expect((await form(app, '/settings/appearance/presets/nope/apply', { version: await version() })).headers.location).toMatch(/error=/);
+    expect((await form(app, '/settings/appearance/presets/neon/apply', { version: 'stale' })).headers.location).toMatch(/error=/);
+    // Saving from Fine-tune comes back to it.
+    res = await form(app, '/settings/appearance/brand', { version: await version(), preset: 'minimal', 'dark.primary': '#3399ff' });
+    expect(res.headers.location).toMatch(/tuned=1#tune$/);
+  });
+
   it("keeps colours the form doesn't show while the preset stays; a new preset starts from its own", async () => {
     const app = await setup();
     const version = async () => /name="version" value="([^"]*)"/.exec((await get(app, '/settings/appearance')).text)![1];
@@ -268,7 +300,7 @@ describe('brand theme', () => {
     expect(await css()).toContain('--color-primary: #3399ff;');
     // Picking another preset: the page knows its values, and the old shades don't carry over.
     const page = await get(app, '/settings/appearance');
-    expect(page.text).toContain('var presets = {"default":');
+    expect(page.text).toContain('action="/settings/appearance/presets/warm/apply"');
     await form(app, '/settings/appearance/brand', { version: await version(), preset: 'warm' });
     expect(await css()).not.toContain('#47a6ff');
     expect(await css()).toContain('--color-bg: #1c1917;');
@@ -290,7 +322,7 @@ describe('brand theme', () => {
       version, preset: 'warm', name: 'Acme', 'dark.primary': '#ff0066', 'light.primary': '', 'fonts.sans': '"Inter", sans-serif', 'radius.md': '4', 'accents.teal': 'rgb(0, 128, 128)',
     });
     expect(res.status).toBe(303);
-    expect(res.headers.location).toMatch(/flash=Brand\+saved/);
+    expect(res.headers.location).toMatch(/flash=Saved\./);
     css = await request(app).get('/assets/theme.css').set('Host', `127.0.0.1:${PORT}`);
     expect(css.text).toContain('--color-primary: #ff0066;');
     expect(css.text).toContain('--color-bg: #1c1917;'); // from the warm preset
@@ -325,16 +357,16 @@ describe('brand theme', () => {
     await form(app, '/settings/appearance/brand', { version: v, reset: '1' });
     expect(await themeCss()).not.toContain('--color-primary');
     page = await get(app, '/settings/appearance');
-    expect(page.text).toContain('<span class="brands__name">Acme</span>');
+    expect(page.text).toContain('aria-label="Use Acme"');
     expect(page.text).toContain('action="/settings/appearance/brands/acme/apply"');
     v = /name="version" value="([^"]*)"/.exec(page.text)![1];
     res = await form(app, '/settings/appearance/brands/acme/apply', { version: v });
     expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('Now using "Acme" everywhere');
     expect(await themeCss()).toContain('--color-primary: #ff0066;');
-    expect((await get(app, '/settings/appearance')).text).toContain('<span class="brands__badge">In use</span>');
+    expect((await get(app, '/settings/appearance')).text).toContain('aria-label="Acme, in use"');
     expect((await form(app, '/settings/appearance/brands/save', { name: '   ' })).headers.location).toMatch(/error=/);
     await form(app, '/settings/appearance/brands/acme/delete', {});
-    expect((await get(app, '/settings/appearance')).text).toContain('No saved brands yet');
+    expect((await get(app, '/settings/appearance')).text).toContain('Presets (your saved brands show here too)');
     expect(await themeCss()).toContain('--color-primary: #ff0066;'); // deleting doesn't change the look in use
   });
 });
@@ -361,7 +393,7 @@ describe('update my brand (sua proposes one)', () => {
     let seen: Record<string, string> = {};
     ctx.brandMakerRun = async (inputs) => { seen = inputs; return proposal(); };
     let page = await get(app, '/settings/appearance');
-    expect(page.text).toContain('Update my brand');
+    expect(page.text).toContain('Make one with sua');
     expect((await form(app, '/settings/appearance/brand/propose', { source: '  ' })).headers.location).toMatch(/error=/);
     const res = await form(app, '/settings/appearance/brand/propose', { source: 'calm navy and coral' });
     expect(res.status).toBe(303);
@@ -382,8 +414,8 @@ describe('update my brand (sua proposes one)', () => {
     const after = (await get(app, '/settings/appearance')).text;
     expect(after).not.toContain('Use this brand');
     // Used, it's kept under Your brands as the one in use, and the page names it.
-    expect(after).toMatch(/<span class="brands__name">Harbor<\/span>\s*<span class="brands__badge">In use<\/span>/);
-    expect(after).toContain('The look in use: Harbor');
+    expect(after).toContain('aria-label="Harbor, in use"');
+    expect(after).toMatch(/id="look-now-title">Harbor</);
   });
 
   it('flags hard-to-read colours, reports a broken proposal, and discards', async () => {

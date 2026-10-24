@@ -1,19 +1,19 @@
 # Brand theme
 
-One theme styles the whole dashboard: every page, every board, and every tile drawn inside a board, in every browser. Set it in **Settings → Appearance → Brand**.
+One theme styles the whole dashboard: every page, every board, and every tile drawn inside a board, in every browser. Set it in **Settings → Appearance**. The page reads top to bottom:
 
-## What you can set
-
-- **Preset**: where the theme starts. *Default* is sua's own look; *Warm*, *Minimal*, *Neon* and *Editorial Paper* are alternatives. (These used to be per-browser "widget themes"; they're now a starting point everyone shares.)
-- **Colours for dark and light mode**: accent, page, surface, raised surface, border, text, muted text, good, warning and error. Leave a field empty to keep the preset's value; the placeholder shows what that is. The light/dark switch in the top bar still chooses the mode.
-- **Picking another preset starts from it.** Your own colours, fonts, corners and accents would win over any preset, so picking a different one clears them in the form (the placeholders show the new preset's values) and **Save brand** applies it. Pick the saved preset again to get them back, or save the current look under **Your brands** first. Shades the form has no field for (a made brand's hover and soft colours) are kept when you save without changing the preset.
-- **Fonts**: the text font, the **heading font** (page titles, card titles and labels; sua's default is its code font, which is most of what makes a page look like sua) and the code font, as family names separated by commas. Use fonts the viewer's computer has (the dashboard loads no web fonts besides its code font).
-- **Corner radius**: small, medium and large, in pixels.
-- **Tile accents**: the six colours a tile's accent edge can be (teal, blue, green, orange, red, purple). The accent tile palettes (accent-teal, accent-red, accent-green) tint from these too.
+- **The look now**: its name and two small dashboards drawn in its colours, light and dark. **Undo last change** puts the previous look back; **Reset to sua's default** clears it. **Save as a brand** keeps the look under a name.
+- **Pick a look**: your saved brands, then the presets (*Default*, sua's own look; *Warm*, *Minimal*, *Neon*, *Editorial Paper*), each drawn in its own colours. **One click uses it** everywhere; Undo goes back. A preset is used as it is: your own colours on top of the old one go (Undo brings them back, or save the look as a brand first). (Presets used to be per-browser "widget themes"; they're now shared.)
+- **Make one with sua**: paste your website or describe the look, and sua proposes one (see below).
+- **Fine-tune** (folded until you open it): change the look you have. The previews at the top follow as you edit; nothing changes until **Save changes**.
+  - **Colours**, per mode (the **Dark mode / Light mode** tabs): accent, background, cards and text, with a swatch to pick from and the value beside it; **More colours** has raised cards, borders, muted text, good, warning and error. An empty value keeps the preset's (shown in grey); **×** goes back to it. Shades Fine-tune has no field for (a made brand's hover and soft colours) are kept when you save.
+  - **Corners**: one slider from sharp to round (sets the small, medium and large radius together).
+  - **Fonts**: the text font and the **heading font** (page titles, card titles and labels; sua's default is its code font, which is most of what makes a page look like sua), from a short list or **Custom…** (family names separated by commas); the code font is under **More**. Use fonts the viewer's computer has (the dashboard loads no web fonts besides its code font).
+  - **Tile accents**: the six colours a tile's accent edge can be (teal, blue, green, orange, red, purple). The accent tile palettes (accent-teal, accent-red, accent-green) tint from these too.
 
 Colours can be `#rrggbb` (or `#rgb`, `#rrggbbaa`), `rgb(…)`, `rgba(…)`, `hsl(…)`, `hsla(…)` or `transparent`. Anything else is refused, so a theme can't break the page's styles.
 
-**Save brand** applies it everywhere at once. **Undo last change** puts the previous theme back; **Reset to sua's default** clears it. A save from a page that's out of date (someone else changed the theme meanwhile) is refused rather than overwriting their change.
+Every change applies everywhere at once. A save from a page that's out of date (someone else changed the theme meanwhile) is refused rather than overwriting their change.
 
 ## Your brands
 

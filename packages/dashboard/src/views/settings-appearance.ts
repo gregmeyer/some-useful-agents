@@ -1,6 +1,7 @@
 /**
- * Settings > Appearance: the brand theme (docs/brand.md), your saved brands,
- * and Update my brand.
+ * Settings > Appearance (docs/brand.md): the look now (a light and a dark
+ * preview), a gallery of your brands and the presets (one click uses one),
+ * Make one with sua, and Fine-tune with colour pickers.
  */
 
 import { html, unsafeHtml, type SafeHtml } from './html.js';
@@ -13,7 +14,7 @@ export interface BrandFormInput {
   hasBackup: boolean;
   /** Effective (preset + overrides) colours, to show what each field currently is. */
   effective: ReturnType<typeof resolveBrandTheme>;
-  /** Each preset's own values (no overrides), so picking one shows it before you save. */
+  /** Each preset's own values (no overrides): its gallery card, and Fine-tune's "the preset's" hints. */
   presets?: Record<string, ReturnType<typeof resolveBrandTheme>>;
   /** Saved brands, with their effective colours and whether each is the one in use. */
   saved?: Array<{ id: string; name: string; active: boolean; effective: ReturnType<typeof resolveBrandTheme> }>;
@@ -21,74 +22,53 @@ export interface BrandFormInput {
   proposal?: BrandProposalView;
 }
 
-/** A saved brand's colours as a strip: accent, page, surface, text (light), then accent (dark). */
-function brandStrip(e: ReturnType<typeof resolveBrandTheme>): SafeHtml {
-  // A theme stores only what differs from sua's own tokens (tokens.css); fill the rest from them.
-  const BASE: Record<'dark' | 'light', Partial<Record<BrandColorToken, string>>> = {
-    light: { primary: '#0f766e', bg: '#faf9f7', surface: '#ffffff', text: '#1c1917' },
-    dark: { primary: '#2dd4bf', bg: '#1a1918', surface: '#242220', text: '#e7e5e4' },
-  };
-  const c = (mode: 'dark' | 'light', k: BrandColorToken) => (e[mode] as Record<string, string | undefined>)[k] ?? BASE[mode][k] ?? '';
-  const sw = [c('light', 'primary'), c('light', 'bg'), c('light', 'surface'), c('light', 'text'), c('dark', 'bg'), c('dark', 'primary')].filter(Boolean);
-  return html`<span class="brand-strip" aria-hidden="true">${sw.map((s) => html`<span style="background: ${s};"></span>`) as unknown as SafeHtml[]}</span>`;
-}
-
-/** Your saved brands: switch with one click, keep the current look under a name. */
-function renderSavedBrands(brand: BrandFormInput): SafeHtml {
-  const saved = brand.saved ?? [];
-  return html`
-    <section class="brands" aria-labelledby="brands-title">
-      <div class="brands__head">
-        <h3 id="brands-title" class="brands__title">Your brands</h3>
-        <form method="POST" action="/settings/appearance/brands/save" class="brands__save">
-          <label class="sr-only" for="brand-save-name">Brand name</label>
-          <input id="brand-save-name" type="text" name="name" required maxlength="60" value="${brand.theme.name ?? ''}" placeholder="Name this look, e.g. Acme">
-          <button type="submit" class="btn btn--sm">Save as a brand</button>
-        </form>
-      </div>
-      ${saved.length === 0
-        ? html`<p class="brands__empty">No saved brands yet. Set the look below, then <strong>Save as a brand</strong> to keep it, and switch between brands here.</p>`
-        : html`<ul class="brands__list">${saved.map((b) => html`
-          <li class="brands__item${b.active ? ' is-active' : ''}">
-            ${brandStrip(b.effective)}
-            <span class="brands__name">${b.name}</span>
-            ${b.active ? html`<span class="brands__badge">In use</span>` : html`
-              <form method="POST" action="/settings/appearance/brands/${encodeURIComponent(b.id)}/apply">
-                <input type="hidden" name="version" value="${brand.version}">
-                <button type="submit" class="btn btn--sm btn--primary">Use this</button>
-              </form>`}
-            <form method="POST" action="/settings/appearance/brands/${encodeURIComponent(b.id)}/delete">
-              <button type="submit" class="btn btn--sm btn--ghost" aria-label="Delete the ${b.name} brand">Delete</button>
-            </form>
-          </li>`) as unknown as SafeHtml[]}</ul>`}
-    </section>`;
-}
-
 export type BrandProposalView =
   | { status: 'working'; source: string }
   | { status: 'failed'; source: string; error: string }
   | { status: 'ready'; source: string; why?: string; issues: string[]; name?: string; effective: ReturnType<typeof resolveBrandTheme> };
 
-/** A small page drawn in the proposed colours, for one mode. Colours are schema-checked. */
-function brandPreview(e: ReturnType<typeof resolveBrandTheme>, mode: 'dark' | 'light'): SafeHtml {
-  const base = mode === 'dark'
-    ? { bg: '#1a1918', surface: '#242220', border: '#3a3633', text: '#e7e5e4', 'text-muted': '#a8a29e', primary: '#2dd4bf', 'primary-soft': '#134e4a' }
-    : { bg: '#faf9f7', surface: '#ffffff', border: '#e7e5e4', text: '#1c1917', 'text-muted': '#78716c', primary: '#0f766e', 'primary-soft': '#ccfbf1' };
-  const t = { ...base, ...(e[mode] as Record<string, string | undefined>) } as Record<string, string>;
-  const font = e.fonts.sans ?? 'system-ui, sans-serif';
-  const r = e.radius.md ?? 10;
-  const accents = Object.values(e.accents).slice(0, 4);
-  return html`<div class="brand-preview" style="background: ${t.bg}; color: ${t.text}; font-family: ${font};">
-      <span class="brand-preview__mode" style="color: ${t['text-muted']};">${mode === 'dark' ? 'Dark' : 'Light'}</span>
-      <div class="brand-preview__card" style="background: ${t.surface}; border: 1px solid ${t.border}; border-radius: ${String(r)}px;">
-        <strong>Weekly digest</strong>
-        <span style="color: ${t['text-muted']};">3 runs today, all fine</span>
-        <span class="brand-preview__row">
-          <span class="brand-preview__btn" style="background: ${t.primary}; color: ${t.bg}; border-radius: ${String(Math.max(2, r - 4))}px;">Run now</span>
-          <span style="color: ${t.primary};">Open</span>
-        </span>
+type Effective = ReturnType<typeof resolveBrandTheme>;
+
+/** sua's own tokens (assets/tokens.css), for whatever a theme leaves to them. */
+const BASE: Record<'dark' | 'light', Record<string, string>> = {
+  dark: { bg: '#1a1918', surface: '#242220', 'surface-raised': '#2e2c2a', border: '#3d3a37', text: '#e7e5e4', 'text-muted': '#a8a29e', primary: '#2dd4bf', ok: '#4ade80', warn: '#fbbf24', err: '#f87171' },
+  light: { bg: '#faf9f7', surface: '#ffffff', 'surface-raised': '#f5f4f2', border: '#e7e5e4', text: '#1c1917', 'text-muted': '#78716c', primary: '#0f766e', ok: '#15803d', warn: '#b45309', err: '#b91c1c' },
+};
+const BASE_FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+const BASE_MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+const BASE_RADIUS = { sm: 6, md: 10, lg: 14 };
+
+/** The preview's CSS variables for one mode: the theme's values, else sua's own (all schema-checked). */
+function previewVars(e: Effective, mode: 'dark' | 'light'): string {
+  const t = { ...BASE[mode], ...(e[mode] as Record<string, string | undefined>) } as Record<string, string>;
+  const vars: Record<string, string> = {
+    '--p-bg': t.bg, '--p-surface': t.surface, '--p-surface-raised': t['surface-raised'], '--p-border': t.border,
+    '--p-text': t.text, '--p-text-muted': t['text-muted'], '--p-primary': t.primary,
+    '--p-ok': t.ok, '--p-warn': t.warn, '--p-err': t.err,
+    '--p-font': e.fonts.sans ?? BASE_FONT, '--p-display': e.fonts.display ?? e.fonts.mono ?? BASE_MONO,
+    '--p-r': `${String(e.radius.md ?? BASE_RADIUS.md)}px`,
+  };
+  for (const [k, v] of Object.entries(e.accents)) vars[`--p-a-${k}`] = v;
+  return Object.entries(vars).map(([k, v]) => `${k}: ${v}`).join('; ');
+}
+
+/**
+ * A small dashboard drawn in a look's colours, for one mode: a top bar, a card
+ * with a status and a button, and the tile accents. `hero` is the big one at
+ * the top (Fine-tune redraws it as you edit); `card` is a gallery thumbnail.
+ */
+function brandPreview(e: Effective, mode: 'dark' | 'light', size: 'hero' | 'card' = 'hero'): SafeHtml {
+  return html`<div class="bp bp--${size}" data-preview-mode="${mode}" style="${previewVars(e, mode)}" aria-hidden="true">
+      <div class="bp__top"><span class="bp__logo">sua</span>${size === 'hero' ? html`<span class="bp__nav">Notebooks · Agents · Pulse</span>` : html``}<span class="bp__mode">${mode === 'dark' ? 'Dark' : 'Light'}</span></div>
+      <div class="bp__body">
+        <div class="bp__card">
+          <span class="bp__title">Weekly digest</span>
+          ${size === 'hero' ? html`<span class="bp__muted">3 runs today · last one 2m ago</span>
+          <span class="bp__chips"><span class="bp__chip bp__chip--ok">All fine</span><span class="bp__chip bp__chip--warn">1 slow</span><span class="bp__chip bp__chip--err">0 failed</span></span>` : html``}
+          <span class="bp__row"><span class="bp__btn">Run now</span>${size === 'hero' ? html`<span class="bp__link">Open</span>` : html``}</span>
+        </div>
+        <span class="bp__accents">${Object.keys(e.accents).map((k) => html`<span style="background: var(--p-a-${k});"></span>`) as unknown as SafeHtml[]}</span>
       </div>
-      <span class="brand-preview__accents">${accents.map((a) => html`<span style="background: ${a};"></span>`) as unknown as SafeHtml[]}</span>
     </div>`;
 }
 
@@ -110,7 +90,7 @@ function renderBrandMaker(brand: BrandFormInput): SafeHtml {
     body = html`
       <div class="brand-maker__result">
         <p class="brand-maker__why"><strong>${p.name ?? 'A brand'}</strong>${p.why ? html` · ${p.why}` : html``}</p>
-        <div class="brand-maker__previews">${brandPreview(p.effective, 'light')}${brandPreview(p.effective, 'dark')}</div>
+        <div class="brand-maker__previews">${brandPreview(p.effective, 'light', 'card')}${brandPreview(p.effective, 'dark', 'card')}</div>
         ${p.issues.length ? html`<ul class="brand-maker__issues">${p.issues.map((i) => html`<li>${i}</li>`) as unknown as SafeHtml[]}</ul>` : html`<p class="brand-maker__ok">Text and accents are readable in both modes.</p>`}
         <div class="brand-maker__actions">
           <form method="POST" action="/settings/appearance/brand/proposal/use"><input type="hidden" name="version" value="${brand.version}">
@@ -121,155 +101,262 @@ function renderBrandMaker(brand: BrandFormInput): SafeHtml {
       </div>`;
   }
   return html`<section class="brand-maker" aria-labelledby="brand-maker-title">
-      <h3 id="brand-maker-title" class="brand-maker__title">Update my brand</h3>
-      <p class="brand-maker__lede">Give sua your website or describe the look, and it proposes colours for both modes, fonts, corners and tile accents. You see it before anything changes.</p>
+      <h3 id="brand-maker-title" class="look-section__title">Make one with sua</h3>
+      <p class="brand-maker__lede">Paste your website or describe the look ("calm navy and coral, rounded"). sua proposes colours for both modes, fonts, corners and accents, and you see it before anything changes.</p>
       ${ask}
       ${body}
     </section>`;
 }
 
 /** The colour tokens the form offers (the rest stay editable in .sua/theme.json). */
-const FORM_TOKENS: Array<[BrandColorToken, string]> = [
-  ['primary', 'Accent'], ['bg', 'Page'], ['surface', 'Surface'], ['surface-raised', 'Raised surface'],
-  ['border', 'Border'], ['text', 'Text'], ['text-muted', 'Muted text'],
+/** Fine-tune's colours: the four that make the look, then the rest under More colours. */
+const KEY_TOKENS: Array<[BrandColorToken, string]> = [['primary', 'Accent'], ['bg', 'Background'], ['surface', 'Cards'], ['text', 'Text']];
+const MORE_TOKENS: Array<[BrandColorToken, string]> = [
+  ['surface-raised', 'Raised cards'], ['border', 'Borders'], ['text-muted', 'Muted text'],
   ['ok', 'Good'], ['warn', 'Warning'], ['err', 'Error'],
 ];
 
-export function renderSettingsAppearance(opts: { brand?: BrandFormInput } = {}): SafeHtml {
-  const brand = opts.brand;
-  const presets = THEMES.filter((t) => t.id !== 'light');
-  const cards = presets.map((t) => html`
-      <label class="theme-card${brand?.theme.preset === t.id ? ' is-active' : ''}" title="${t.description}">
-        <input type="radio" name="preset" value="${t.id}"${unsafeHtml(brand?.theme.preset === t.id ? ' checked' : '')} class="theme-card__radio">
-        <div class="theme-card__preview" style="background: ${t.preview.bg};">
-          <div style="background: ${t.preview.surface}; border-radius: 4px; padding: var(--space-2); margin-bottom: var(--space-1);">
-            <div style="width: 40px; height: 4px; background: ${t.preview.accent}; border-radius: 2px; margin-bottom: 4px;"></div>
-            <div style="width: 60px; height: 3px; background: ${t.preview.text}; border-radius: 2px; opacity: 0.5;"></div>
-          </div>
-          <div style="display: flex; gap: 4px;">
-            <div style="flex: 1; background: ${t.preview.surface}; border-radius: 3px; height: 16px;"></div>
-            <div style="flex: 1; background: ${t.preview.surface}; border-radius: 3px; height: 16px;"></div>
-          </div>
-        </div>
-        <span class="theme-card__name">${t.name}</span>
-      </label>`);
-  const colorField = (mode: 'dark' | 'light', token: BrandColorToken, label: string) => {
-    const own = brand?.theme[mode]?.[token] ?? '';
-    const shown = brand?.effective[mode]?.[token] ?? '';
-    return html`<label class="brand-field">
-        <span class="brand-field__label">${label}</span>
-        <span class="brand-field__row"><span class="brand-swatch" style="background: ${own || shown || `var(--color-${token})`};"></span>
-        <input type="text" name="${mode}.${token}" value="${own}" placeholder="${shown || 'default'}" spellcheck="false" autocomplete="off"></span>
-      </label>`;
-  };
-  const accentField = (name: string) => {
-    const own = (brand?.theme.accents as Record<string, string | undefined> | undefined)?.[name] ?? '';
-    const shown = (brand?.effective.accents as Record<string, string> | undefined)?.[name] ?? '';
-    return html`<label class="brand-field">
-        <span class="brand-field__label">${name}</span>
-        <span class="brand-field__row"><span class="brand-swatch" style="background: ${own || shown};"></span>
-        <input type="text" name="accents.${name}" value="${own}" placeholder="${shown}" spellcheck="false" autocomplete="off"></span>
-      </label>`;
-  };
+/** Font choices for Fine-tune; "" keeps the preset's, anything else typed is Custom. */
+const FONT_CHOICES: Array<[string, string]> = [
+  ['system-ui, -apple-system, "Segoe UI", sans-serif', 'System'],
+  ['"Inter", "Helvetica Neue", Helvetica, Arial, sans-serif', 'Clean sans (Inter, Helvetica)'],
+  ['"Charter", "Iowan Old Style", Georgia, "Times New Roman", serif', 'Serif (Charter, Georgia)'],
+  ['"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', 'Monospace'],
+];
 
-  return html`
-    <div>
-      <h2 style="margin-top: 0; margin-bottom: var(--space-2);" id="brand">Brand</h2>
-      <p style="font-size: var(--font-size-sm); color: var(--color-text-muted); margin-bottom: var(--space-4);">
-        One theme for the whole dashboard: every page, board and tile, in every browser. Start from a preset,
-        then change any colour, the fonts, corner radius and tile accents. Leave a field empty to keep the preset's value.
-        The light/dark switch in the top bar still picks the mode; set colours for each.
-        See <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/brand.md">the brand guide</a>.
-      </p>
-      ${brand ? html`
-      ${renderBrandMaker(brand)}
-      ${renderSavedBrands(brand)}
-      <h3 class="brands__title" style="margin: var(--space-6) 0 var(--space-3);">The look in use${brand.theme.name ? html`: ${brand.theme.name}` : html``}</h3>
-      <form method="POST" action="/settings/appearance/brand" class="brand-form">
-        <input type="hidden" name="version" value="${brand.version}">
-        <div class="theme-grid">${cards as unknown as SafeHtml[]}</div>
-        <label class="brand-field brand-field--wide"><span class="brand-field__label">Name</span>
-          <input type="text" name="name" value="${brand.theme.name ?? ''}" placeholder="Your brand" maxlength="60"></label>
-        <div class="brand-columns">
-          <fieldset class="brand-fieldset"><legend>Dark mode colours</legend>${FORM_TOKENS.map(([t, l]) => colorField('dark', t, l)) as unknown as SafeHtml[]}</fieldset>
-          <fieldset class="brand-fieldset"><legend>Light mode colours</legend>${FORM_TOKENS.map(([t, l]) => colorField('light', t, l)) as unknown as SafeHtml[]}</fieldset>
+/** A theme that only names a preset (nothing of its own on top). */
+function plainPreset(t: BrandTheme): boolean {
+  const own = (o: object | undefined) => !!o && Object.keys(o).length > 0;
+  return !t.name && !own(t.dark) && !own(t.light) && !own(t.fonts) && !own(t.radius) && !own(t.accents);
+}
+
+/** #rrggbb for a colour picker; anything else (rgb(), hsl()) leaves the picker at the fallback. */
+const hex = (v: string | undefined, fallback: string) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v : /^#[0-9a-f]{3}$/i.test(v ?? '') ? `#${v!.slice(1).split('').map((c) => c + c).join('')}` : fallback);
+
+export function renderSettingsAppearance(opts: { brand?: BrandFormInput; applied?: boolean } = {}): SafeHtml {
+  const brand = opts.brand;
+  if (!brand) return html`<div><h2 id="brand">Appearance</h2><p class="dim">The brand theme isn't available.</p></div>`;
+  const t = brand.theme;
+  const presetName = (id: string) => THEMES.find((x) => x.id === id)?.name ?? id;
+  const nowName = t.name ?? (plainPreset(t) ? presetName(t.preset) : `Your own look, from ${presetName(t.preset)}`);
+  const presets = brand.presets ?? {};
+  const saved = brand.saved ?? [];
+  const presetCards = THEMES.filter((x) => x.id !== 'light' && presets[x.id]);
+
+  // ── 1. The look now ──
+  const lookNow = html`
+    <section class="look-now" aria-labelledby="look-now-title">
+      <div class="look-now__head">
+        <div>
+          <span class="look-section__eyebrow">The look now</span>
+          <h3 class="look-now__name" id="look-now-title">${nowName}</h3>
         </div>
-        <fieldset class="brand-fieldset brand-fieldset--inline"><legend>Type and shape</legend>
-          <label class="brand-field brand-field--wide"><span class="brand-field__label">Text font</span>
-            <input type="text" name="fonts.sans" value="${brand.theme.fonts.sans ?? ''}" placeholder="${brand.effective.fonts.sans ?? 'system-ui, sans-serif'}" spellcheck="false"></label>
-          <label class="brand-field brand-field--wide"><span class="brand-field__label">Heading font</span>
-            <input type="text" name="fonts.display" value="${brand.theme.fonts.display ?? ''}" placeholder="${brand.effective.fonts.display ?? 'the code font'}" spellcheck="false"></label>
-          <label class="brand-field brand-field--wide"><span class="brand-field__label">Code font</span>
-            <input type="text" name="fonts.mono" value="${brand.theme.fonts.mono ?? ''}" placeholder="${brand.effective.fonts.mono ?? 'JetBrains Mono, monospace'}" spellcheck="false"></label>
-          ${(['sm', 'md', 'lg'] as const).map((k) => html`<label class="brand-field"><span class="brand-field__label">Corner radius ${k} (px)</span>
-            <input type="number" min="0" max="40" name="radius.${k}" value="${brand.theme.radius[k] !== undefined ? String(brand.theme.radius[k]) : ''}" placeholder="${brand.effective.radius[k] !== undefined ? String(brand.effective.radius[k]) : 'default'}"></label>`) as unknown as SafeHtml[]}
-        </fieldset>
-        <fieldset class="brand-fieldset brand-fieldset--inline"><legend>Tile accents</legend>
-          ${(['teal', 'blue', 'green', 'orange', 'red', 'purple']).map(accentField) as unknown as SafeHtml[]}
-        </fieldset>
-        <p class="dim" style="font-size: var(--font-size-xs);">Colours: <code>#rrggbb</code>, <code>rgb(…)</code>, <code>rgba(…)</code>, <code>hsl(…)</code> or <code>transparent</code>. Fonts: family names separated by commas (fonts already on the viewer's computer).</p>
-        <div style="display: flex; gap: var(--space-2); align-items: center;">
-          <button type="submit" class="btn btn--primary btn--sm">Save brand</button>
-          <button type="submit" class="btn btn--ghost btn--sm" name="reset" value="1">Reset to sua's default</button>
+        <div class="look-now__acts">
+          ${brand.hasBackup ? html`<form method="POST" action="/settings/appearance/brand/undo"><input type="hidden" name="version" value="${brand.version}">
+            <button type="submit" class="btn btn--sm${opts.applied ? ' btn--primary' : ''}">Undo last change</button></form>` : html``}
+          <form method="POST" action="/settings/appearance/brand"><input type="hidden" name="version" value="${brand.version}">
+            <button type="submit" class="btn btn--sm btn--ghost" name="reset" value="1">Reset to sua's default</button></form>
+        </div>
+      </div>
+      <div class="look-now__previews" data-look-previews>${brandPreview(brand.effective, 'light')}${brandPreview(brand.effective, 'dark')}</div>
+      <form method="POST" action="/settings/appearance/brands/save" class="look-now__save">
+        <label for="brand-save-name">Keep this look as a brand</label>
+        <input id="brand-save-name" type="text" name="name" required maxlength="60" value="${t.name ?? ''}" placeholder="Name it, e.g. Acme">
+        <button type="submit" class="btn btn--sm">Save as a brand</button>
+      </form>
+    </section>`;
+
+  // ── 2. Pick a look: your brands, then the presets. One click uses it. ──
+  const card = (name: string, e: Effective, active: boolean, action: string, desc?: string, del?: string) => html`
+    <li class="look-card${active ? ' is-active' : ''}">
+      <form method="POST" action="${action}">
+        <input type="hidden" name="version" value="${brand.version}">
+        <button type="submit" class="look-card__use"${unsafeHtml(active ? ' aria-current="true" disabled' : '')} aria-label="${active ? `${name}, in use` : `Use ${name}`}">
+          <span class="look-card__previews">${brandPreview(e, 'light', 'card')}${brandPreview(e, 'dark', 'card')}</span>
+          <span class="look-card__name">${name}${active ? html`<span class="look-card__badge">In use</span>` : html``}</span>
+          ${desc ? html`<span class="look-card__desc">${desc}</span>` : html``}
+        </button>
+      </form>
+      ${del ? html`<form method="POST" action="${del}" class="look-card__del"><button type="submit" class="btn btn--sm btn--ghost" aria-label="Delete the ${name} brand">Delete</button></form>` : html``}
+    </li>`;
+  const gallery = html`
+    <section class="look-section" aria-labelledby="look-pick-title">
+      <h3 class="look-section__title" id="look-pick-title">Pick a look</h3>
+      <p class="look-section__lede">One click changes every page, board and tile. Undo puts the last one back.</p>
+      ${saved.length ? html`<h4 class="look-section__sub" id="brands-title">Your brands</h4>
+      <ul class="look-gallery">${saved.map((b) => card(b.name, b.effective, b.active, `/settings/appearance/brands/${encodeURIComponent(b.id)}/apply`, undefined, `/settings/appearance/brands/${encodeURIComponent(b.id)}/delete`)) as unknown as SafeHtml[]}</ul>` : html``}
+      <h4 class="look-section__sub"${unsafeHtml(saved.length ? '' : ' id="brands-title"')}>${saved.length ? 'Presets' : 'Presets (your saved brands show here too)'}</h4>
+      <ul class="look-gallery">${presetCards.map((x) => card(x.name, presets[x.id], plainPreset(t) && t.preset === x.id, `/settings/appearance/presets/${encodeURIComponent(x.id)}/apply`, x.description)) as unknown as SafeHtml[]}</ul>
+    </section>`;
+
+  // ── 4. Fine-tune ──
+  const colorField = (mode: 'dark' | 'light', token: BrandColorToken, label: string) => {
+    const own = t[mode]?.[token] ?? '';
+    const base = (presets[t.preset]?.[mode] as Record<string, string | undefined> | undefined)?.[token] ?? BASE[mode][token] ?? '';
+    const id = `tune-${mode}-${token}`;
+    return html`<div class="tune-color">
+        <input type="color" class="tune-color__pick" value="${hex(own || base, '#888888')}" data-pick-for="${id}" aria-label="${label} (${mode}) colour">
+        <label class="tune-color__label" for="${id}">${label}</label>
+        <input id="${id}" type="text" name="${mode}.${token}" value="${own}" placeholder="${base || 'preset'}" data-base="${base}" spellcheck="false" autocomplete="off" class="tune-color__text">
+        <button type="button" class="tune-color__clear" data-clear="${id}" title="Back to the preset's" aria-label="${label}: back to the preset's"${unsafeHtml(own ? '' : ' hidden')}>×</button>
+      </div>`;
+  };
+  const modePanel = (mode: 'dark' | 'light') => html`
+      <div class="tune-mode" data-tune-mode="${mode}"${unsafeHtml(mode === 'light' ? ' hidden' : '')}>
+        <div class="tune-colors">${KEY_TOKENS.map(([k, l]) => colorField(mode, k, l)) as unknown as SafeHtml[]}</div>
+        <details class="tune-more"><summary>More colours</summary>
+          <div class="tune-colors">${MORE_TOKENS.map(([k, l]) => colorField(mode, k, l)) as unknown as SafeHtml[]}</div>
+          <p class="tune-hint">Type a colour as <code>#rrggbb</code>, <code>rgb(…)</code>, <code>hsl(…)</code> or <code>transparent</code>, or use the swatch. × goes back to the preset's.</p>
+        </details>
+      </div>`;
+  const fontField = (key: 'sans' | 'display', label: string) => {
+    const own = t.fonts[key] ?? '';
+    const known = FONT_CHOICES.some(([v]) => v === own);
+    const presetFont = presets[t.preset]?.fonts[key];
+    return html`<div class="tune-font">
+        <label for="tune-font-${key}">${label}</label>
+        <select id="tune-font-${key}" data-font-for="tune-fonts-${key}">
+          <option value=""${unsafeHtml(own ? '' : ' selected')}>The preset's${presetFont ? ` (${presetFont.split(',')[0].replace(/"/g, '')})` : key === 'display' ? ' (the code font)' : ' (System)'}</option>
+          ${FONT_CHOICES.map(([v, l]) => html`<option value="${v}"${unsafeHtml(own === v ? ' selected' : '')}>${l}</option>`) as unknown as SafeHtml[]}
+          <option value="custom"${unsafeHtml(own && !known ? ' selected' : '')}>Custom…</option>
+        </select>
+        <input id="tune-fonts-${key}" type="text" name="fonts.${key}" value="${own}" placeholder="Font families, separated by commas" spellcheck="false"${unsafeHtml(own && !known ? '' : ' hidden')}>
+      </div>`;
+  };
+  const r = t.radius;
+  const eff = brand.effective.radius;
+  const roundness = eff.md ?? BASE_RADIUS.md;
+  const tune = html`
+    <details class="tune" id="tune">
+      <summary class="tune__summary"><span class="look-section__title">Fine-tune</span><span class="tune__lede">Change colours, corners and fonts. The preview above follows as you go.</span></summary>
+      <form method="POST" action="/settings/appearance/brand" class="brand-form tune__form" data-tune>
+        <input type="hidden" name="version" value="${brand.version}">
+        <input type="hidden" name="preset" value="${t.preset}">
+        <input type="hidden" name="name" value="${t.name ?? ''}">
+        <div class="tune__section">
+          <div class="tune__tabs" role="group" aria-label="Which mode to edit">
+            <button type="button" class="tune__tab" aria-pressed="true" data-tune-tab="dark">Dark mode</button>
+            <button type="button" class="tune__tab" aria-pressed="false" data-tune-tab="light">Light mode</button>
+          </div>
+          ${modePanel('dark')}${modePanel('light')}
+        </div>
+        <div class="tune__section tune__shape">
+          <div class="tune-round">
+            <label for="tune-round">Corners <output data-round-out>${String(roundness)}px</output></label>
+            <input id="tune-round" type="range" min="0" max="24" step="1" value="${String(roundness)}" data-round>
+            <span class="tune-round__marks" aria-hidden="true"><span>Sharp</span><span>Soft</span><span>Round</span></span>
+            <input type="hidden" name="radius.sm" value="${r.sm !== undefined ? String(r.sm) : ''}" data-radius="sm">
+            <input type="hidden" name="radius.md" value="${r.md !== undefined ? String(r.md) : ''}" data-radius="md">
+            <input type="hidden" name="radius.lg" value="${r.lg !== undefined ? String(r.lg) : ''}" data-radius="lg">
+          </div>
+          ${fontField('sans', 'Text font')}
+          ${fontField('display', 'Heading font')}
+        </div>
+        <div class="tune__section">
+          <span class="tune__label">Tile accents</span>
+          <div class="tune-accents">${BRAND_ACCENTS_LIST.map((name) => {
+            const own = (t.accents as Record<string, string | undefined>)[name] ?? '';
+            const shown = (brand.effective.accents as Record<string, string>)[name] ?? '';
+            return html`<label class="tune-accent"><input type="color" value="${hex(own || shown, '#888888')}" data-accent="${name}" aria-label="${name} tile accent"><span>${name}</span>
+              <input type="hidden" name="accents.${name}" value="${own}"></label>`;
+          }) as unknown as SafeHtml[]}</div>
+        </div>
+        <details class="tune-more"><summary>More: code font</summary>
+          <div class="tune-font"><label for="tune-fonts-mono">Code font</label>
+            <input id="tune-fonts-mono" type="text" name="fonts.mono" value="${t.fonts.mono ?? ''}" placeholder="${brand.effective.fonts.mono ?? 'JetBrains Mono, monospace'}" spellcheck="false"></div>
+        </details>
+        <div class="tune__save">
+          <button type="submit" class="btn btn--primary btn--sm">Save changes</button>
+          <span class="tune__dirty" data-tune-dirty hidden>Not saved yet</span>
+          <span class="tune__hint">Saves both modes. Undo last change puts the previous look back.</span>
         </div>
       </form>
-      ${brand.hasBackup ? html`<form method="POST" action="/settings/appearance/brand/undo" style="margin-top: var(--space-2);">
-        <input type="hidden" name="version" value="${brand.version}">
-        <button type="submit" class="btn btn--ghost btn--sm">Undo last change</button></form>` : html``}
-      ${unsafeHtml(`<script>
-        (function () {
-          // This browser used one of the old per-browser widget themes: offer it as the brand.
-          var old = null; try { old = localStorage.getItem('sua-widget-theme'); } catch (e) {}
-          var form = document.querySelector('.brand-form');
-          if (form && old && old !== 'default' && old !== 'light' && ${JSON.stringify(brand.theme.preset)} === 'default') {
-            var p = document.createElement('p');
-            p.className = 'flash flash--info';
-            p.textContent = 'This browser used the "' + old + '" theme, which now lives here as a brand preset for everyone. Pick it above and save to keep it.';
-            form.parentNode.insertBefore(p, form);
-          }
-          try { localStorage.removeItem('sua-widget-theme'); } catch (e) {}
-          // Picking another preset starts from it: your own colours, fonts, corners
-          // and accents would otherwise win over it, so nothing would change. They're
-          // cleared (and come back if you pick the saved preset again); the hints show the preset's.
-          var saved = ${JSON.stringify(brand.theme.preset)};
-          var presets = ${JSON.stringify(brand.presets ?? {}).replace(/</g, '\\u003c')};
-          var fields = form ? [].slice.call(form.querySelectorAll('input[name^="dark."], input[name^="light."], input[name^="fonts."], input[name^="radius."], input[name^="accents."], input[name="name"]')) : [];
-          fields.forEach(function (f) { f.dataset.own = f.value; f.dataset.hint = f.placeholder; });
-          var note = null;
-          function presetValue(p, name) {
-            if (name === 'name') return '';
-            var parts = name.split('.'); var g = p && p[parts[0]];
-            return g && g[parts[1]] !== undefined ? String(g[parts[1]]) : '';
-          }
-          function show(id) {
-            var back = id === saved;
-            var hadOwn = false;
-            fields.forEach(function (f) {
-              if (f.dataset.own) hadOwn = true;
-              f.value = back ? f.dataset.own : '';
-              f.placeholder = back ? f.dataset.hint : (presetValue(presets[id], f.name) || (f.name === 'name' ? 'Your brand' : 'default'));
-              var sw = f.parentNode && f.parentNode.querySelector('.brand-swatch');
-              if (sw) sw.style.background = f.value || (back ? f.dataset.hint : presetValue(presets[id], f.name)) || 'transparent';
-            });
-            if (note) { note.remove(); note = null; }
-            if (!back && hadOwn && form) {
-              note = document.createElement('p');
-              note.className = 'flash flash--info';
-              note.setAttribute('role', 'status');
-              note.textContent = 'Your own colours, fonts and corners are cleared so this preset shows. Save brand to use it. To keep the current look, save it under Your brands first, or pick it again to get it back.';
-              form.insertBefore(note, form.firstChild);
-            }
-          }
-          document.querySelectorAll('.theme-card__radio').forEach(function (r) {
-            r.addEventListener('change', function () {
-              document.querySelectorAll('.theme-card').forEach(function (c) { c.classList.remove('is-active'); });
-              r.closest('.theme-card').classList.add('is-active');
-              show(r.value);
-            });
-          });
-        })();
-      </script>`)}` : html``}
-    </div>
+    </details>`;
 
-  `;
+  return html`
+    <div class="appearance" id="brand">
+      <h2 class="appearance__title">Appearance</h2>
+      <p class="appearance__lede">One look for the whole dashboard, in every browser. Pick one, have sua make one, or fine-tune the one you have. The light/dark switch in the top bar picks the mode. <a href="https://github.com/gregmeyer/some-useful-agents/blob/main/docs/brand.md">Brand guide</a></p>
+      ${lookNow}
+      ${gallery}
+      ${renderBrandMaker(brand)}
+      ${tune}
+      ${unsafeHtml(`<script>${TUNE_JS}</script>`)}
+    </div>`;
 }
+
+const BRAND_ACCENTS_LIST = ['teal', 'blue', 'green', 'orange', 'red', 'purple'] as const;
+
+// Fine-tune in the browser: Dark/Light tabs, swatch ↔ text, × back to the
+// preset's, corners from one slider, fonts from a list, and the hero
+// previews redrawn from the form as you edit (only the previews; the page
+// changes when you save).
+const TUNE_JS = `(function () {
+  var form = document.querySelector('[data-tune]');
+  if (!form) return;
+  var details = form.closest('details');
+  if (details && (location.hash === '#tune' || /[?&]tuned=1/.test(location.search))) details.open = true;
+  var dirty = form.querySelector('[data-tune-dirty]');
+  function changed() { if (dirty) dirty.hidden = false; redraw(); }
+  form.querySelectorAll('[data-tune-tab]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var m = b.getAttribute('data-tune-tab');
+      form.querySelectorAll('[data-tune-tab]').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      form.querySelectorAll('[data-tune-mode]').forEach(function (p) { p.hidden = p.getAttribute('data-tune-mode') !== m; });
+    });
+  });
+  form.querySelectorAll('[data-pick-for]').forEach(function (pick) {
+    var text = document.getElementById(pick.getAttribute('data-pick-for'));
+    var clear = form.querySelector('[data-clear="' + text.id + '"]');
+    pick.addEventListener('input', function () { text.value = pick.value; if (clear) clear.hidden = false; changed(); });
+    text.addEventListener('input', function () {
+      if (/^#[0-9a-f]{6}$/i.test(text.value.trim())) pick.value = text.value.trim();
+      if (clear) clear.hidden = !text.value; changed();
+    });
+    if (clear) clear.addEventListener('click', function () {
+      text.value = ''; clear.hidden = true;
+      if (/^#[0-9a-f]{6}$/i.test(text.getAttribute('data-base') || '')) pick.value = text.getAttribute('data-base');
+      changed();
+    });
+  });
+  var round = form.querySelector('[data-round]');
+  var out = form.querySelector('[data-round-out]');
+  if (round) round.addEventListener('input', function () {
+    var r = Number(round.value);
+    var set = function (k, v) { var f = form.querySelector('[data-radius="' + k + '"]'); if (f) f.value = String(Math.round(v)); };
+    set('sm', r * 0.6); set('md', r); set('lg', r * 1.4);
+    if (out) out.textContent = r + 'px';
+    changed();
+  });
+  form.querySelectorAll('[data-font-for]').forEach(function (sel) {
+    var text = document.getElementById(sel.getAttribute('data-font-for'));
+    sel.addEventListener('change', function () {
+      if (sel.value === 'custom') { text.hidden = false; text.focus(); }
+      else { text.hidden = true; text.value = sel.value; }
+      changed();
+    });
+    text.addEventListener('input', changed);
+  });
+  form.querySelectorAll('[data-accent]').forEach(function (pick) {
+    var hidden = form.querySelector('input[name="accents.' + pick.getAttribute('data-accent') + '"]');
+    pick.addEventListener('input', function () { if (hidden) hidden.value = pick.value; changed(); });
+  });
+  var mono = form.querySelector('input[name="fonts.mono"]');
+  if (mono) mono.addEventListener('input', changed);
+  function val(name) { var f = form.querySelector('[name="' + name + '"]'); return f ? f.value.trim() : ''; }
+  function redraw() {
+    document.querySelectorAll('[data-look-previews] [data-preview-mode]').forEach(function (p) {
+      var mode = p.getAttribute('data-preview-mode');
+      form.querySelectorAll('input[name^="' + mode + '."]').forEach(function (f) {
+        var v = f.value.trim() || f.getAttribute('data-base');
+        if (v) p.style.setProperty('--p-' + f.name.slice(mode.length + 1), v);
+      });
+      if (val('fonts.sans')) p.style.setProperty('--p-font', val('fonts.sans'));
+      if (val('fonts.display')) p.style.setProperty('--p-display', val('fonts.display'));
+      if (val('radius.md')) p.style.setProperty('--p-r', val('radius.md') + 'px');
+      form.querySelectorAll('input[name^="accents."]').forEach(function (f) { if (f.value) p.style.setProperty('--p-a-' + f.name.slice(8), f.value); });
+    });
+  }
+  window.addEventListener('beforeunload', function (e) { if (dirty && !dirty.hidden && !form.__sending) { e.preventDefault(); e.returnValue = ''; } });
+  form.addEventListener('submit', function () { form.__sending = true; });
+})();`;
