@@ -48,7 +48,7 @@ function renderTryNext(s: HomeSuggestions, withAsks: boolean): SafeHtml {
         <li class="home-try__agent">
           <div class="home-try__head">
             <a class="home-try__name" href="/agents/${encodeURIComponent(a.id)}">${a.name}</a>
-            <form method="POST" action="/agents/${encodeURIComponent(a.id)}/run" class="home-try__run"><button type="submit" class="btn btn--sm" aria-label="Run ${a.name}">Run</button></form>
+            <form method="POST" action="/home/try/${encodeURIComponent(a.id)}" class="home-try__run" data-try-run><button type="submit" class="btn btn--sm" aria-label="Run ${a.name}" title="Runs it in a conversation with sua, which tells you what it found">Run</button></form>
           </div>
           ${a.description ? html`<p class="home-try__desc">${a.description}</p>` : html``}
           ${a.runsWith.length

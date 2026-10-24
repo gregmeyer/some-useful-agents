@@ -516,6 +516,51 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /home/try/:agentId — Home's Try next Run. Rather than drop you on a
+ * bare run page, it starts a conversation about the agent ("Try: Research a
+ * topic") with the run as a running card, its inputs shown, and opens it in
+ * the panel. When the run ends, sua says what it found there, the same as an
+ * approved card. Only an agent that runs as it is (every input has a value).
+ */
+inboxRouter.post('/home/try/:agentId', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const agent = ctx.agentStore.getAgent(String(req.params.agentId));
+  const fail = (status: number, msg: string) => {
+    if (isAjax(req)) { res.status(status).end(); return; }
+    res.redirect(303, `/?flash=${encodeURIComponent(msg)}`);
+  };
+  if (!ctx.inboxStore) { fail(503, 'Inbox unavailable.'); return; }
+  if (!agent || agent.status !== 'active') { fail(404, 'That agent is not available.'); return; }
+  const inputs: Record<string, string> = {};
+  for (const [k, spec] of Object.entries(agent.inputs ?? {})) {
+    if (spec.default === undefined) { fail(400, `${agent.name} needs ${k} first: run it from its page.`); return; }
+    inputs[k] = String(spec.default);
+  }
+  const shown = Object.entries(inputs).map(([k, v]) => `${k.toLowerCase().replace(/_/g, ' ')}: ${v.length > 80 ? `${v.slice(0, 79)}…` : v}`);
+  const ask = `Run **${agent.name}**${shown.length ? ` with its defaults (${shown.join(' · ')})` : ''}, and tell me what it found.`;
+  const created = ctx.inboxStore.add({
+    priority: 'medium', source: 'manual', title: `Try: ${agent.name}`, body: '(empty)', agentId: agent.id,
+    contextJson: JSON.stringify({ page: { kind: 'agent', id: agent.id, title: agent.name } }),
+  });
+  const user = ctx.inboxStore.addResponse(created.id, 'user', ask);
+  publishInboxEvent(ctx, created.id, 'message:created', { responseId: user.id, role: 'user', body: ask, createdAt: user.createdAt });
+  // The run, as a card you already approved: it shows running, then its result; sua sums it up after.
+  const startedAt = Date.now();
+  const meta: InboxActionMeta = {
+    kind: 'action', status: 'running', agentId: agent.id, inputs, effect: 'read', startedAt, approvedBy: 'operator',
+    rationale: agent.description?.trim() ? agent.description.trim() : `Running ${agent.name} from Try next.`,
+  };
+  const card = ctx.inboxStore.addResponse(created.id, 'action', `Run ${agent.name}`, JSON.stringify(meta));
+  ctx.inboxStore.updateStatus(created.id, 'triaged');
+  publishInboxChanged(ctx, created.id, 'triaged');
+  void runProposedAction(ctx, created.id, card, meta).catch((err) => {
+    process.stderr.write(`[home-try] ${agent.id} crashed: ${(err as Error)?.message ?? err}\n`);
+  });
+  if (isAjax(req)) { res.setHeader('X-Inbox-Id', created.id); res.status(204).end(); return; }
+  res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
+});
+
 inboxRouter.post('/inbox/:id/dismiss', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
