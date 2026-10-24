@@ -140,7 +140,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toContain('href="/inbox">Full inbox');
     // Two columns: Today, and a rail with Try next (an agent to run, questions for sua while something waits).
     expect(home.text).toContain('class="home-grid"');
-    expect(home.text).toContain('action="/agents/weather/run"');
+    expect(home.text).toContain('action="/home/try/weather" class="home-try__run" data-try-run');
     // Each says why it's suggested and what Run uses.
     expect(home.text).toMatch(/New to you · not run yet|Your go-to|You used it this week/);
     expect(home.text).toMatch(/class="home-try__(with|none-in)/);
@@ -159,6 +159,38 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(quiet.body.html).toContain('All clear.');
     expect(quiet.body.html).toContain('data-ask-send=');
     expect(quiet.body.html).not.toContain('panel-home__empty');
+  });
+
+  it("Try next's Run starts a conversation about the agent with its run as a card, and the result comes back there", async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'pinger', name: 'Pinger', description: 'Pings a URL', status: 'active', source: 'local', mcp: false,
+      inputs: { TARGET_URL: { type: 'string', default: 'https://example.com' } },
+      nodes: [{ id: 'n', type: 'shell', command: 'echo pinged-ok' }] } as never, 'cli');
+    const res = await request(app).post('/home/try/pinger').set('X-Requested-With', 'fetch')
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(204);
+    const id = res.headers['x-inbox-id'];
+    const msg = inboxStore.get(id)!;
+    expect(msg).toMatchObject({ title: 'Try: Pinger', agentId: 'pinger', source: 'manual' });
+    const responses = inboxStore.listResponses(id);
+    expect(responses[0]).toMatchObject({ role: 'user', body: 'Run **Pinger** with its defaults (target url: https://example.com), and tell me what it found.' });
+    const card = responses.find((r) => r.role === 'action')!;
+    expect(JSON.parse(card.metaJson!)).toMatchObject({ agentId: 'pinger', inputs: { TARGET_URL: 'https://example.com' }, approvedBy: 'operator' });
+    // The run happens on the card: it ends with its result there.
+    const deadline = Date.now() + 3000;
+    let meta = JSON.parse(card.metaJson!);
+    while (Date.now() < deadline && (meta.status === 'running' || meta.status === 'proposed')) {
+      await new Promise((r) => setTimeout(r, 25));
+      meta = JSON.parse(inboxStore.getResponse(card.id)!.metaJson!);
+    }
+    expect(meta.status).toBe('completed');
+    expect(meta.runId).toBeTruthy();
+    // No JS: lands on the conversation. An agent that needs an input first, or isn't there, isn't started.
+    agentStore.createAgent({ id: 'needs-city', name: 'Needs city', status: 'active', source: 'local', mcp: false, inputs: { CITY: { type: 'string' } }, nodes: [{ id: 'n', type: 'shell', command: 'echo x' }] } as never, 'cli');
+    const plain = await request(app).post('/home/try/pinger').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(plain.headers.location).toMatch(/^\/inbox\//);
+    expect((await request(app).post('/home/try/needs-city').set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE)).status).toBe(400);
+    expect((await request(app).post('/home/try/nope').set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE)).status).toBe(404);
   });
 
   it('fragment is inner HTML only (no <html>, no top-nav)', async () => {
