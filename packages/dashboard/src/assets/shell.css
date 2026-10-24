@@ -43,6 +43,12 @@ body.has-sua-panel .app-ask { display: none; }
   margin: 0 auto;
   padding: var(--space-2) var(--space-6);
 }
+/* One line box for the prompt, the text's first line and Send (the small
+   control height), so they share a midline; more lines grow downward. */
+.app-ask .home-ask--bar { align-items: flex-start; --ask-line: var(--control-h-sm, 28px); }
+.app-ask .home-ask__prompt { padding-top: 0; line-height: var(--ask-line); }
+.app-ask .home-ask__input { box-sizing: border-box; min-height: var(--ask-line); padding-block: calc((var(--ask-line) - 1.5em) / 2); }
+.app-ask .home-ask__send { align-self: flex-start; }
 /* Quiet (inner pages): muted prompt + smaller text. */
 .app-ask .home-ask__prompt { color: var(--color-text-muted); }
 .app-ask .home-ask__input { font-size: var(--font-size-sm); }
