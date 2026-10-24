@@ -22,7 +22,10 @@ export interface SuggestedAgent {
   ownAsk: { label: string; text: string };
 }
 export interface SuggestedAsk { label: string; text: string }
-export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[] }
+/** Home's Ask sua card: starters by verb; a pill fills the box (you finish it). */
+export type StarterVerb = 'Run' | 'Build' | 'Fix' | 'Look up';
+export interface AskStarters { verb: StarterVerb; pills: SuggestedAsk[] }
+export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[]; starters?: AskStarters[] }
 
 /** An input it can't run without: required (the resolver's default) and no default. */
 export function needsInputs(agent: Pick<Agent, 'inputs'>): boolean {
@@ -68,6 +71,62 @@ function ownAsk(a: Agent): SuggestedAgent['ownAsk'] {
   if (!main) return { label: 'Ask sua what it\'s good for', text: `What is ${a.name} (${a.id}) good for, and when would I use it? Suggest a way to try it.` };
   const what = inputLabel(main[0]);
   return { label: `Run it with your own ${what}`, text: `Run ${a.name} (${a.id}) with my own ${what}. Ask me for it first.` };
+}
+
+/**
+ * Starters for Home's Ask sua card, one row per verb, never empty: run one of
+ * yours on something, build one, fix what failed, look something up. Text
+ * ending in "…" is for you to finish.
+ */
+export function askStarters(d: {
+  agents: readonly Agent[];
+  lastRunAt: ReadonlyMap<string, string>;
+  runCounts: ReadonlyMap<string, number>;
+  notebookIdeas: ReadonlyArray<{ label: string; text: string }>;
+  failedAgents: readonly string[];
+  now?: number;
+}): AskStarters[] {
+  const now = d.now ?? Date.now();
+  const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
+  // Not sua's own, demos, or a notebook's helpers (page readers take one item at a time).
+  const yours = d.agents.filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id) && !(DEMO_RE.test(a.id) || DEMO_RE.test(a.name)) && !perItemInputs(a));
+  const shelves = agentShelves(yours, { lastRunAt: d.lastRunAt, runCounts: d.runCounts, feeds: new Map(), weekAgo });
+  const used = [...shelves.goTo, ...shelves.recent.filter((a) => !shelves.goTo.includes(a))];
+  const pill = (label: string, text = label): SuggestedAsk => ({ label, text });
+
+  const run: SuggestedAsk[] = [];
+  for (const a of used) {
+    if (run.length === 2) break;
+    const main = Object.entries(a.inputs ?? {}).find(([key, spec]) => spec.type === 'string' && !SETTING_RE.test(key));
+    if (main) run.push(pill(`Run ${a.name} on …`, `Run ${a.name} with ${inputLabel(main[0])}: `));
+  }
+  const plain = used.find((a) => Object.keys(a.inputs ?? {}).length === 0);
+  if (plain) run.push(pill(`Run ${plain.name}`, `Run ${plain.name} and tell me what it found.`));
+  if (!run.length) run.push(pill('Run my most-used agent', 'Run my most-used agent and tell me what it found.'));
+
+  const build: SuggestedAsk[] = [
+    pill('Build an agent that checks … every morning', 'Build an agent that checks '),
+    pill('Watch a page for changes', 'Build an agent that watches this page for changes and tells me what changed: '),
+  ];
+  const unscheduled = shelves.goTo.find((a) => !a.schedule && (d.runCounts.get(a.id) ?? 0) >= 3);
+  if (unscheduled) build.push(pill(`Put ${unscheduled.name} on a schedule`, `Put ${unscheduled.name} (${unscheduled.id}) on a schedule that suits what it does.`));
+
+  const fix: SuggestedAsk[] = [...new Set(d.failedAgents)].slice(0, 2).map((id) => {
+    const name = d.agents.find((a) => a.id === id)?.name ?? id;
+    return pill(`Why did ${name} fail?`, `Why did ${name} (${id}) fail today, and can you fix it?`);
+  });
+  if (fix.length < 2) fix.push(pill('Check my agents for anything broken', 'Check my agents for anything broken or slow, and fix what you can.'));
+
+  const look: SuggestedAsk[] = d.notebookIdeas.slice(0, 2).map((i) => pill(`Help me find ${i.label.charAt(0).toLowerCase()}${i.label.slice(1)}`, i.text));
+  look.push(pill('What did my agents find today?', 'What did my agents find today? Anything worth a look?'));
+  if (look.length < 3) look.push(pill('Look up …', 'Look up '));
+
+  return [
+    { verb: 'Run', pills: run.slice(0, 3) },
+    { verb: 'Build', pills: build.slice(0, 3) },
+    { verb: 'Fix', pills: fix.slice(0, 3) },
+    { verb: 'Look up', pills: look.slice(0, 3) },
+  ];
 }
 
 export function pickSuggestions(d: {
@@ -121,16 +180,20 @@ export function pickSuggestions(d: {
 export function homeSuggestions(ctx: Ctx, now = Date.now()): HomeSuggestions {
   try {
     const dayAgo = new Date(now - 86_400_000).toISOString();
-    return pickSuggestions({
-      agents: ctx.agentStore.listAgents(),
-      lastRunAt: ctx.runStore.latestRunAtByAgent(),
-      runCounts: ctx.runStore.runCountsByAgent(new Date(now - 30 * 86_400_000).toISOString()),
-      notebookIdeas: cachedNotebookSuggestions(ctx),
-      failedToday: ctx.runStore.queryRuns({ statuses: ['failed'], since: dayAgo, limit: 1 }).total,
+    const agents = ctx.agentStore.listAgents();
+    const lastRunAt = ctx.runStore.latestRunAtByAgent();
+    const runCounts = ctx.runStore.runCountsByAgent(new Date(now - 30 * 86_400_000).toISOString());
+    const notebookIdeas = cachedNotebookSuggestions(ctx);
+    const failed = ctx.runStore.queryRuns({ statuses: ['failed'], since: dayAgo, limit: 5 });
+    const picked = pickSuggestions({
+      agents, lastRunAt, runCounts, notebookIdeas,
+      failedToday: failed.total,
       ranToday: ctx.runStore.queryRuns({ since: dayAgo, limit: 1 }).total,
       now,
     });
+    const failedAgents = failed.rows.map((r) => r.agentName).filter((id) => !SYSTEM_AGENT_IDS.has(id));
+    return { ...picked, starters: askStarters({ agents, lastRunAt, runCounts, notebookIdeas, failedAgents, now }) };
   } catch {
-    return { agents: [], asks: [] };
+    return { agents: [], asks: [], starters: askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [] }) };
   }
 }

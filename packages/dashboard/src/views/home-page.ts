@@ -11,10 +11,9 @@ import { pageIntro } from './page-intro.js';
 import { renderCrumbs } from './page-header.js';
 import { renderAutonomyControl } from './inbox-page.js';
 import { renderToday, renderHomeAdjust } from './home-surface.js';
-import { renderAskPills } from './ask-pills.js';
 import { formatAge } from './components.js';
 import type { HomeSurface } from '../lib/home-surface.js';
-import type { HomeSuggestions, SuggestedAgent, SuggestedAsk } from '../lib/home-suggestions.js';
+import type { AskStarters, HomeSuggestions, SuggestedAgent } from '../lib/home-suggestions.js';
 
 /** "2 need you" / "Nothing needs you": the line beside the title. */
 export function homeStatus(today: HomeSurface | undefined): { text: string; needs: number } {
@@ -23,10 +22,10 @@ export function homeStatus(today: HomeSurface | undefined): { text: string; need
   return { needs: n, text: n ? `${String(n)} need${n === 1 ? 's' : ''} you` : 'Nothing needs you' };
 }
 
-/** Today on its own, for Home's refresh (GET /home/today). Quiet, it offers the ask pills. */
-export function renderHomeToday(today: HomeSurface | undefined, asks: readonly SuggestedAsk[] = []): SafeHtml {
+/** Today on its own, for Home's refresh (GET /home/today). (Questions for sua are in the Ask sua card under it.) */
+export function renderHomeToday(today: HomeSurface | undefined): SafeHtml {
   return today
-    ? renderToday(today, false, asks.length ? renderAskPills(asks) : undefined)
+    ? renderToday(today, false, html``)
     : html`<p class="panel-home__empty">Today couldn't be read just now. <a href="/inbox">Open the inbox</a>.</p>`;
 }
 
@@ -40,7 +39,7 @@ function tryWhy(a: SuggestedAgent): string {
   return 'New to you · not run yet';
 }
 
-function renderTryNext(s: HomeSuggestions, withAsks: boolean): SafeHtml {
+function renderTryNext(s: HomeSuggestions): SafeHtml {
   return html`
     <section class="home-try" aria-labelledby="home-try-title">
       <h2 class="home-rail__title" id="home-try-title">Try next</h2>
@@ -60,7 +59,36 @@ function renderTryNext(s: HomeSuggestions, withAsks: boolean): SafeHtml {
           </div>
         </li>`) as unknown as SafeHtml[]}</ul>`
         : html`<p class="home-try__none">No agents to suggest yet. <a href="/agents/new">Build an agent</a> or ask sua for one.</p>`}
-      ${withAsks && s.asks.length ? html`<h3 class="home-try__label">Ask sua</h3>${renderAskPills(s.asks)}` : html``}
+    </section>`;
+}
+
+/**
+ * Ask sua, under Today: a box to run, build, fix or look something up, and
+ * starters by verb so it's never empty. A starter fills the box for you to
+ * finish (inbox-modal.js.ts [data-ask-fill]); sending opens the answer in
+ * the panel, like the bar at the top (the same form contract).
+ */
+function renderAskCard(starters: readonly AskStarters[]): SafeHtml {
+  return html`
+    <section class="home-ask-card" aria-labelledby="home-ask-card-title">
+      <div class="home-ask-card__head">
+        <h2 class="home-today__title" id="home-ask-card-title">Ask sua</h2>
+        <span class="home-ask-card__lede">Run, build, fix, or look something up.</span>
+      </div>
+      <form class="home-ask-card__form" method="POST" action="/inbox/new" data-home-ask>
+        <textarea class="home-ask-card__input" name="body" rows="3" data-home-ask-input data-no-draft
+          placeholder="e.g. Run Research a topic on local-first databases" aria-label="Ask sua"></textarea>
+        <div class="home-ask-card__send">
+          <span class="home-ask-card__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
+          <button type="submit" class="btn btn--primary btn--sm" data-home-ask-send>Send ↵</button>
+        </div>
+      </form>
+      ${starters.length ? html`<div class="home-ask-card__starters" data-ask-starters hidden>${starters.map((row) => html`
+        <div class="home-ask-card__row">
+          <span class="home-ask-card__verb">${row.verb}</span>
+          <div class="ask-pills" role="group" aria-label="${row.verb}">${row.pills.map((p) => html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`) as unknown as SafeHtml[]}</div>
+        </div>`) as unknown as SafeHtml[]}
+      </div>` : html``}
     </section>`;
 }
 
@@ -94,18 +122,20 @@ export function renderHomePage(opts: {
         actions: [{ href: '/start', label: 'Start here', primary: true }],
       })}
       <div class="home-grid">
-        <section class="home-today" aria-labelledby="home-today-title">
-          <div class="home-today__head">
-            <h2 class="home-today__title" id="home-today-title">Today</h2>
-            <a class="home-today__all" href="/inbox">All conversations →</a>
-          </div>
-          <div data-home-today>${renderHomeToday(opts.today, suggestions.asks)}</div>
-          <div class="home-today__toast" data-surface-toast hidden></div>
-        </section>
+        <div class="home-main">
+          <section class="home-today" aria-labelledby="home-today-title">
+            <div class="home-today__head">
+              <h2 class="home-today__title" id="home-today-title">Today</h2>
+              <a class="home-today__all" href="/inbox">All conversations →</a>
+            </div>
+            <div data-home-today>${renderHomeToday(opts.today)}</div>
+            <div class="home-today__toast" data-surface-toast hidden></div>
+          </section>
+          ${renderAskCard(suggestions.starters ?? [])}
+        </div>
         <aside class="home-rail" aria-label="Notebooks and things to try">
           ${opts.shelf ?? html``}
-          ${/* Quiet, the questions are in Today's All clear instead. */ ''}
-          ${renderTryNext(suggestions, status.needs > 0)}
+          ${renderTryNext(suggestions)}
         </aside>
       </div>
     </div>

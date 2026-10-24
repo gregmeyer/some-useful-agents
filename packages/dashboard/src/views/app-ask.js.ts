@@ -49,6 +49,7 @@ export const APP_ASK_JS = `
     var t = e.target;
     if (!t || !t.hasAttribute || !t.hasAttribute('data-home-ask-input')) return;
     if (t.hasAttribute('data-panel-composer')) return; // the panel's own box keeps no draft
+    if (t.hasAttribute('data-no-draft')) return; // Home's Ask sua card: its draft isn't the bar's
     try { localStorage.setItem(DRAFT_KEY, t.value || ''); } catch (er) {}
   });
 

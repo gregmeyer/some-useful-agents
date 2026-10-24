@@ -151,8 +151,7 @@ function shelfFor(ctx: ReturnType<typeof getContext>): SafeHtml | undefined {
 inboxRouter.get('/home/today', (req: Request, res: Response) => {
   const today = readHomeSurfaceSafe(getContext(req.app.locals));
   const status = homeStatus(today);
-  const asks = status.needs ? [] : homeSuggestions(getContext(req.app.locals)).asks;
-  res.json({ html: render(renderHomeToday(today, asks)), status: status.text, needs: status.needs });
+  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs });
 });
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));
