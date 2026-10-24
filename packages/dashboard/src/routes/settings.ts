@@ -62,6 +62,7 @@ import { renderSettingsVariables } from '../views/settings-variables.js';
 import { renderSettingsMcpServers } from '../views/settings-mcp-servers.js';
 import { renderSettingsGeneral } from '../views/settings-general.js';
 import { renderSettingsAppearance, type BrandProposalView } from '../views/settings-appearance.js';
+import { THEMES } from '../views/themes.js';
 import { readBrandProposal, discardBrandProposal, startBrandProposal, brandProposalRunning } from '../lib/brand-maker.js';
 import { renderSettingsIntegrations } from '../views/settings-integrations.js';
 import { renderSettingsLlm, type ModelServerView } from '../views/settings-llm.js';
@@ -767,6 +768,7 @@ settingsRouter.get('/settings/appearance', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const theme = loadBrandTheme(ctx.dataDir);
   const body = renderSettingsAppearance({
+    applied: req.query.applied === '1',
     brand: {
       theme, version: brandThemeVersion(ctx.dataDir), hasBackup: existsSync(`${brandThemePath(ctx.dataDir)}.bak`), effective: resolveBrandTheme(theme),
       presets: Object.fromEntries(BRAND_PRESETS.map((id) => [id, resolveBrandTheme({ version: 1, preset: id, dark: {}, light: {}, fonts: {}, radius: {}, accents: {} } as BrandTheme)])),
@@ -816,7 +818,8 @@ settingsRouter.post('/settings/appearance/brand', (req: Request, res: Response) 
     };
   try {
     saveBrandTheme(ctx.dataDir, doc, { expectedVersion: str('version') });
-    redirectWith(res, '/settings/appearance#brand', 'flash', body.reset === '1' ? 'Back to sua\'s default theme.' : 'Brand saved. Every page and board uses it now.');
+    if (body.reset === '1') redirectWith(res, '/settings/appearance#brand', 'flash', 'Back to sua\'s default look. Undo last change puts the previous one back.', { applied: '1' });
+    else redirectWith(res, '/settings/appearance#tune', 'flash', 'Saved. Every page and board uses it now.', { tuned: '1' });
   } catch (err) {
     redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
   }
@@ -838,9 +841,23 @@ settingsRouter.post('/settings/appearance/brands/:id/apply', (req: Request, res:
   try {
     const id = String(req.params.id);
     const { theme } = applySavedBrand(ctx.dataDir, id, { expectedVersion: typeof req.body?.version === 'string' ? req.body.version : undefined });
-    redirectWith(res, '/settings/appearance#brands-title', 'flash', `Now using "${theme.name ?? id}" everywhere. Undo last change puts the previous look back.`);
+    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using "${theme.name ?? id}" everywhere. Undo last change puts the previous look back.`, { applied: '1' });
   } catch (err) {
     redirectWith(res, '/settings/appearance#brands-title', 'error', (err as Error).message);
+  }
+});
+
+// A preset from the gallery, used as it is (your own colours on top go; Undo brings them back).
+settingsRouter.post('/settings/appearance/presets/:id/apply', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  if (!(BRAND_PRESETS as readonly string[]).includes(id)) { redirectWith(res, '/settings/appearance#brand', 'error', 'There is no such preset.'); return; }
+  try {
+    saveBrandTheme(ctx.dataDir, { version: 1, preset: id }, { expectedVersion: typeof req.body?.version === 'string' ? req.body.version : undefined });
+    const name = THEMES.find((t) => t.id === id)?.name ?? id;
+    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using ${name} everywhere. Undo last change puts the previous look back.`, { applied: '1' });
+  } catch (err) {
+    redirectWith(res, '/settings/appearance#brand', 'error', (err as Error).message);
   }
 });
 
@@ -887,7 +904,7 @@ settingsRouter.post('/settings/appearance/brand/proposal/use', (req: Request, re
     // Kept under Your brands too, so you can switch back to it later.
     const kept = saveBrandAs(ctx.dataDir, p.theme.name ?? 'Proposed brand', p.theme);
     discardBrandProposal(ctx.dataDir);
-    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using "${kept.name}" everywhere, and it's saved under Your brands. Undo last change puts the previous look back.`);
+    redirectWith(res, '/settings/appearance#brand', 'flash', `Now using "${kept.name}" everywhere, and it's saved under Your brands. Undo last change puts the previous look back.`, { applied: '1' });
   } catch (err) {
     redirectWith(res, '/settings/appearance#brand-maker-title', 'error', (err as Error).message);
   }
