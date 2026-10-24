@@ -227,16 +227,75 @@ describe('filing into a notebook of organizations', () => {
     ctx.notebookPictures.add(nb.id);
     html = await page();
     expect(html).toMatch(/class="nb-step nb-step--running[^"]* is-live"/);
-    expect(html).toContain('Running step 1 of 2 · Finding photos…');
-    expect(html).toContain('nb-working__dot');
+    expect(html).toContain('Working on step 1: Find 5 · Finding photos…');
+    expect(html).toContain('nb-live__dot--pulse');
     expect(html).toContain('location.reload()');
 
     // Only background work: still says so, and still reloads.
     ctx.notebookPipelines.delete(nb.id);
     html = await page();
-    expect(html).toContain('Finding photos… <span class="nb-working__note">');
+    expect(html).toContain('<strong>Finding photos…</strong> <span class="nb-live__note">');
     expect(html).toContain('location.reload()');
     ctx.notebookPictures.delete(nb.id);
+  });
+
+  it("says on the page when its conversation is waiting on you, or sua is replying there", async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Staff PM roles' });
+    store.addEntry(nb.id, { kind: 'note', title: 'Looking at AI platform teams', by: 'user' });
+    const t = inbox.add({ priority: 'medium', source: 'manual', title: 'Staff PM roles', body: 'find roles' });
+    store.setConversation(nb.id, t.id);
+    const get = (path = '') => request(app).get(`/notebooks/${nb.id}${path}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`);
+
+    // Quiet: no live bar, no callout, an empty live header.
+    inbox.addResponse(t.id, 'triage', 'I filed 4 roles.');
+    inbox.updateStatus(t.id, 'triaged');
+    let html = (await get()).text;
+    expect(html).toContain('data-nb-live-bar hidden');
+    expect(html).not.toContain('nb-talk__waiting');
+    expect((await get('/main')).headers['x-notebook-live']).toBe('');
+
+    // You wrote; sua is answering.
+    inbox.addResponse(t.id, 'user', 'Check the two at the top.');
+    html = (await get()).text;
+    expect(html).toContain('nb-live__row--working');
+    expect(html).toContain('<strong>sua is working</strong> on a reply');
+    expect(html).toContain(`data-nb-continue="${t.id}">Watch`);
+    expect(html).toContain('class="nb-talk__working"');
+
+    // sua asks something back: waiting on you, in the header, the Talk card and the poll.
+    inbox.addResponse(t.id, 'triage', 'Both pass. Want me to check comp for them too?');
+    inbox.updateStatus(t.id, 'awaiting_user');
+    html = (await get()).text;
+    expect(html).toContain('nb-live__row--waiting');
+    expect(html).toContain('<strong>sua needs your answer</strong> · Want me to check comp for them too?');
+    expect(html).toContain('nb-talk is-waiting');
+    expect(html).toMatch(new RegExp(`class="nb-talk__waiting"[\\s\\S]*data-nb-continue="${t.id}">Answer sua`));
+    const main = await get('/main');
+    expect(decodeURIComponent(main.headers['x-notebook-live'])).toBe('waiting:Want me to check comp for them too?');
+    expect(decodeURIComponent(main.headers['x-notebook-waiting'])).toBe('Want me to check comp for them too?');
+    expect(html).toContain('data-nb-live="waiting:Want me to check comp for them too?"');
+
+    // A card to approve reads as an OK.
+    inbox.addResponse(t.id, 'action', 'Run comp check', JSON.stringify({ kind: 'action', status: 'proposed', agentId: 'comp-check', inputs: {} }));
+    html = (await get()).text;
+    expect(html).toContain('<strong>sua needs your OK</strong> · Run comp-check');
+    expect(html).toContain('>Review and approve</button>');
+
+    // Nothing asked in the conversation, but the next step is yours: that's what waits on you.
+    inbox.updateStatus(t.id, 'triaged');
+    store.setSteps(nb.id, [{ title: 'Pick the final 10 roles', kind: 'decide', target: 10 }]);
+    html = (await get()).text;
+    expect(html).toContain('<strong>Your step</strong> · Pick the final 10 roles');
+    expect(html).toContain('data-nb-open-act="decide">Decide…</button>');
+    expect(html).toContain(`data-nb-continue="${t.id}">Ask sua</button>`);
+    expect(decodeURIComponent((await get('/main')).headers['x-notebook-waiting'])).toBe('Your step: Pick the final 10 roles');
+    // Decided: nothing waits.
+    store.setStatus(nb.id, 'decided');
+    expect((await get('/main')).headers['x-notebook-waiting']).toBe('');
   });
 
   it("a decided notebook drawn as widgets: actions beside the title, its steps on one quiet row, its picks as a list", async () => {

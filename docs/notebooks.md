@@ -84,6 +84,11 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, use **+ Add entry** in the notebook's header.
 
 - **A conversation that turns to a notebook** sees it too. Ask "which notebook should I work on next?" anywhere, pick one, and once sua's reply links just that notebook, sua has its options, steps and fields for the rest of the conversation, as if you'd asked on its page. sua sees every option still in the running, however long the notebook's history, so its count matches the page's. Results of searches you run there still go into the notebook only from its own conversation.
+- **When something waits on you, the page says so,** with the drawer closed too. A bar under the notebook's steps and the top of **Talk to sua** turn amber:
+  - **sua needs your answer** (a question), **sua needs your OK** (a card to approve) or **Something failed**, with the ask and a button that opens the conversation;
+  - or **Your step**, when nothing is asked there but the next step is yours (Decide or Narrow), with **Decide…** / **Narrow…** and **Ask sua**.
+
+  If it starts waiting while you're on the page, a toast says so, and **Open** goes to it. While sua is replying there, or a step or pass is running, the same bar says so with a moving dot, and **Watch** opens the conversation.
 - **With the sua panel open,** the page's **Talk to sua** box is hidden, so there's one place to type, and the notebook widens into the space it leaves. Closing the panel on the notebook's conversation refreshes the talk box and the notebook, so sua's latest reply shows.
 - **Enter sends** what you type in **Tell sua** (as in the drawer); **Shift+Enter** starts a new line, and **Cmd/Ctrl+Enter** sends too.
 

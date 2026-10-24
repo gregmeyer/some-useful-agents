@@ -264,11 +264,7 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-run__form { margin: 0; }
 .nb-run__now { font-size: var(--font-size-sm); color: var(--color-primary); }
 /* The notebook is working (views/notebooks.ts workingLine): a pulsing dot so it reads as live. */
-.nb-working { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-primary); }
-.nb-working__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); animation: nb-working-pulse 1.4s ease-in-out infinite; }
-.nb-working__note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 @keyframes nb-working-pulse { 0%, 100% { opacity: .3; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
-@media (prefers-reduced-motion: reduce) { .nb-working__dot { animation: none; } }
 .nb-run__last { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 .nb-pipe__node--running circle { stroke: var(--color-primary); stroke-dasharray: 4 3; animation: nb-spin 1.6s linear infinite; transform-box: fill-box; transform-origin: center; }
 .nb-pipe__node--running .nb-pipe__glyph { fill: var(--color-primary); }
@@ -780,3 +776,41 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-decide__thumb.is-logo { padding: 6px; box-sizing: border-box; }
 .nb-hero__cover.is-logo.is-wide, .nb-decide__thumb.is-logo.is-wide { padding: 2px; }
 .nb-hero__cover.is-logo.is-wide { width: 128px; padding: 6px 8px; }
+
+/* What's live on the notebook (views/notebooks.ts liveBar): its conversation
+   waiting on you (amber, the needs-you colour), sua replying there, and the
+   step or pass running. Each row opens the conversation. */
+.nb-live { display: grid; gap: var(--space-2); }
+.nb-live[hidden] { display: none; }
+.nb-live__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); border: 1px solid transparent; font-size: var(--font-size-sm); color: var(--color-text); }
+.nb-live__row--waiting { background: var(--color-warn-soft); border-color: var(--color-warn-border, var(--color-warn)); }
+.nb-live__row--working { background: var(--color-primary-soft); border-color: color-mix(in srgb, var(--color-primary) 35%, transparent); }
+.nb-live__text { flex: 1; min-width: 12rem; }
+.nb-live__row--waiting strong { color: var(--color-warn); }
+.nb-live__row--working strong { color: var(--color-primary); font-weight: var(--weight-semibold); }
+.nb-live__note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.nb-live__dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--color-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warn) 25%, transparent); }
+.nb-live__row--working .nb-live__dot { background: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
+.nb-live__dot--pulse { animation: nb-working-pulse 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .nb-live__dot--pulse { animation: none; } }
+
+/* The Talk card when sua is waiting on you, or replying. */
+.nb-talk.is-waiting { border-color: var(--color-warn); box-shadow: 0 0 0 1px var(--color-warn); }
+.nb-talk__waiting { display: grid; gap: var(--space-2); justify-items: start; margin: 0 0 var(--space-3); padding: var(--space-3); border-left: 3px solid var(--color-warn); border-radius: var(--radius-sm); background: var(--color-warn-soft); }
+.nb-talk__waiting-label { font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: .05em; color: var(--color-warn); }
+.nb-talk__waiting-ask { font-size: var(--font-size-sm); color: var(--color-text); }
+.nb-talk__waiting-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nb-talk__working { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); font-size: var(--font-size-sm); color: var(--color-primary); }
+.nb-talk__dots { display: inline-flex; gap: 3px; }
+.nb-talk__dots span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: nb-working-pulse 1.2s ease-in-out infinite; }
+.nb-talk__dots span:nth-child(2) { animation-delay: .2s; } .nb-talk__dots span:nth-child(3) { animation-delay: .4s; }
+@media (prefers-reduced-motion: reduce) { .nb-talk__dots span { animation: none; } }
+
+/* sua started waiting on you while you're on the page, with the drawer closed. */
+.nb-toast { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 60; display: flex; align-items: center; gap: var(--space-3); max-width: min(440px, calc(100vw - 2 * var(--space-4))); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-warn); border-left-width: 4px; border-radius: var(--radius-md); box-shadow: var(--shadow-md); font-size: var(--font-size-sm); color: var(--color-text); }
+.nb-toast__text { flex: 1; min-width: 0; }
+.nb-toast__text strong { display: block; color: var(--color-warn); }
+.nb-toast__close { all: unset; cursor: pointer; width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--color-text-muted); }
+.nb-toast__close:hover { background: var(--color-surface-raised); color: var(--color-text); }
+.nb-toast__close:focus-visible { outline: 2px solid var(--color-primary); }
+body.has-sua-panel .nb-toast { display: none; }
