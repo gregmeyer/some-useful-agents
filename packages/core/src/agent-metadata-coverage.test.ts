@@ -69,6 +69,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'notebook-facets': 'notebook only: groups long facts into short filter labels, never proposed',
+  'notebook-page': 'notebook only: decides a new notebook\'s page from what it\'s for, never proposed',
   'notebook-checker': 'notebook only: checks options against the notebook\'s checks in a check step, never proposed',
   'notebook-finder': 'notebook only: a find step without its own agent, several narrow searches at once, never proposed',
   'notebook-find-one': 'notebook-finder only: one of its searches, never proposed',

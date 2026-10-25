@@ -1,0 +1,90 @@
+# Notebook Page — a new notebook decides its own page. From what it's for,
+# what it notes and its steps, this keeps a ready-made page (the shortlist,
+# for choosing among many options) or draws one that fits the outcome (a
+# briefing before a meeting, an answer to a question, a plan) as an A2UI
+# document bound to the notebook's data. Route-dispatched only, in the
+# background once a new notebook is set up (dashboard lib/notebook-page.ts);
+# never proposed in triage. Undo is on the notebook's Edit page.
+
+id: notebook-page
+name: Notebook Page
+description: >
+  Decides a notebook's page from what it's for: keeps the shortlist for a
+  choice among many, or draws a page that fits another outcome.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: "JSON: the notebook's title, what it's for, limits, done-whens, the facts each option notes (with roles), its steps and checks."
+  PRESETS:
+    type: string
+    required: true
+    description: The ready-made pages, one per line (id, then when it fits).
+  GUIDE:
+    type: string
+    required: true
+    description: How to draw a page (its data, settings, flags and components).
+  ERRORS:
+    type: string
+    required: false
+    default: ""
+    description: Why the last page drawn couldn't be used (when trying again).
+
+nodes:
+  - id: page
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<page>[\s\S]*?</page>'
+      description: a <page> JSON block
+    prompt: |
+      A "notebook" is a goal someone keeps over time while sua (an
+      assistant) finds options, notes their facts and works through steps.
+      Decide what its page shows, from what the notebook is for.
+
+      The notebook (JSON):
+      {{inputs.NOTEBOOK}}
+
+      Ready-made pages (id: when it fits):
+      {{inputs.PRESETS}}
+
+      First decide the outcome the person is after:
+        - choosing one or a few among many options (a car, a job, a flat,
+          accounts to call): use the ready-made "shortlist";
+        - getting ready for something (a meeting, a call, an interview):
+          a briefing: who they are, what they said or care about (quotes),
+          what to talk about and ask, then where it came from;
+        - an answer to a question (find out, understand, compare, research):
+          the answer first, then the findings with their evidence, then
+          what's still open;
+        - a plan or itinerary, or keeping watch on something: lead with
+          the plan or what changed, then the detail.
+      Use a ready-made page whenever it fits; draw one only when none does.
+
+      Drawing a page:
+      {{inputs.GUIDE}}
+
+      Draw for THIS notebook: lead with what it's for, bind only data it
+      will have (its fields and roles above: a quote or ask role feeds
+      /notebook/quotes, /notebook/talkingPoints and /notebook/questions;
+      a price and a measure, the map), use Panel to title parts and
+      Columns for side by side, and keep the timeline and "where sua
+      looked" low. 8–30 components. Don't add a ProfileCard or FactSheet:
+      notebooks don't keep facts about a person or company yet.
+
+      The last page you drew couldn't be used, because (may be empty):
+      {{inputs.ERRORS}}
+      If there's a reason, fix that and keep the rest.
+
+      Reply with only one of these, as valid JSON:
+      <page>
+      {"preset": "shortlist", "about": "a shortlist: choosing among many"}
+      </page>
+      or
+      <page>
+      {"about": "what the page is, in a few words (a briefing: who they are, what they said, what to ask)", "components": [{"id": "root", "component": "Column", "children": ["..."]}]}
+      </page>

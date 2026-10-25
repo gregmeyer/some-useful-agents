@@ -269,6 +269,10 @@ export interface DashboardContext {
   notebookLogoDeps?: import('./lib/notebook-logos.js').LogoDeps;
   /** Notebooks whose long facts are being labelled right now (lib/notebook-facets.ts). */
   notebookFacets?: Set<string>;
+  /** Notebooks deciding their page right now (lib/notebook-page.ts). */
+  notebookPages?: Set<string>;
+  /** Tests only: answer for the notebook-page agent instead of running it. */
+  notebookPageRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */
   agentFinds?: Map<string, import('./lib/agent-find.js').AgentFind>;
   /** True while sua sorts the catalog's agents into groups (lib/agent-catalog-sort.ts). */
