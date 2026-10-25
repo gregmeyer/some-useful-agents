@@ -25,6 +25,8 @@ export interface NotebookWidgetHistory extends NotebookViewHistory {
   recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
   /** Who it's about that has a picture kept (a person's photo, a company's logo). */
   aboutPhotos?(notebookId: string): Set<string>;
+  /** That picture, with the page it's on and why it's taken to be them. */
+  aboutPhoto?(notebookId: string, who: 'person' | 'company'): { page?: string; why?: string } | undefined;
   /** The notebook's passes (its pipeline, steps and conversation runs), to tell its own failed runs from others. */
   passes?(notebookId: string, limit?: number): Array<{ runIds: string[] }>;
   /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
@@ -315,7 +317,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
   const { quotes, talkingPoints, questions } = whatTheySaid(nb, active);
-  const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set());
+  const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined);
 
   return {
     notebook: {
@@ -365,7 +367,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
 }
 
 /** A person or company as ProfileCard shows it. */
-export interface NotebookProfileView { name: string; role?: string; org?: string; about?: string; image?: string; links: Array<{ label: string; url: string }>; asOf: string }
+export interface NotebookProfileView { name: string; role?: string; org?: string; about?: string; image?: string; imageFrom?: string; imageWhy?: string; rejectHref?: string; links: Array<{ label: string; url: string }>; asOf: string }
 
 /** Where a kept picture of who a notebook is about is served. */
 export function notebookAboutPhotoPath(notebookId: string, who: string): string {
@@ -373,7 +375,7 @@ export function notebookAboutPhotoPath(notebookId: string, who: string): string 
 }
 
 /** Who the notebook is about, for ProfileCard and FactSheet. Pure but for the pictures it's told about. */
-function aboutViews(nb: Notebook, photos: ReadonlySet<string>): Pick<NotebookWidgetData['notebook'], 'person' | 'company' | 'facts' | 'notFound'> {
+function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who: 'person' | 'company') => { page?: string; why?: string } | undefined): Pick<NotebookWidgetData['notebook'], 'person' | 'company' | 'facts' | 'notFound'> {
   const fact = (who: 'person' | 'company', key: string) => nb.about?.[who]?.facts.find((f) => f.key === key)?.value;
   const asOf = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const link = (label: string, url: string | undefined) => (url && /^https?:\/\//i.test(url) ? [{ label, url }] : []);
@@ -385,7 +387,11 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>): Pick<NotebookWid
     ...(fact('person', 'role') ? { role: fact('person', 'role') } : {}),
     ...(c?.name || fact('person', 'organization') ? { org: c?.name || fact('person', 'organization') } : {}),
     ...(p.summary || fact('person', 'known_for') ? { about: p.summary || fact('person', 'known_for') } : {}),
-    ...(photos.has('person') ? { image: notebookAboutPhotoPath(nb.id, 'person') } : {}),
+    ...(photos.has('person') ? ((): Partial<NotebookProfileView> => {
+      // Where their photo came from, and Not them, so you can check it's them.
+      const from = photoFrom?.('person');
+      return { image: notebookAboutPhotoPath(nb.id, 'person'), rejectHref: `${notebookAboutPhotoPath(nb.id, 'person')}/reject`, ...(from?.page ? { imageFrom: from.page } : {}), ...(from?.why ? { imageWhy: from.why } : {}) };
+    })() : {}),
     links: [...link('LinkedIn', fact('person', 'linkedin')), ...link(siteName(fact('person', 'website')) || 'Their site', fact('person', 'website'))],
     asOf: asOf(p.updatedAt),
   } : undefined;

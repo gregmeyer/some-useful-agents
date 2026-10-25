@@ -285,6 +285,8 @@ export interface DashboardContext {
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
   notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: check a page for a person's photo without the network (core findPersonPhoto). */
+  notebookPersonPhotoCheck?: (page: string, name: string, want?: string) => Promise<import('@some-useful-agents/core').PersonPhotoFound | { why: string }>;
   /** Tests only: answer for research-one in a profile step (lib/notebook-profile.ts) instead of running it. */
   notebookResearchRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-finder agent (a find step without its own agent) instead of running it. */

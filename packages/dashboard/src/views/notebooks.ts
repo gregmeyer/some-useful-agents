@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { layoutPreset, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -737,6 +737,7 @@ function notebookMoreActions(nb: Notebook, layoutUndos = 0, pagePicking = false)
             : html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="decide" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="sua looks at what the notebook is for, what it notes and its steps, and keeps the shortlist or draws a page that fits. Undo puts this one back.">Pick a page for what it's for</button></form>`}
           ${layoutUndos ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="undo" value="1"><button type="submit" class="btn btn--sm btn--ghost">Undo the last page change</button></form>` : html``}
           ${nb.layout ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="shortlist"><button type="submit" class="btn btn--sm btn--ghost">Back to Shortlist</button></form>` : html``}
+          ${NOTEBOOK_LAYOUT_PRESETS.filter((p) => p.id !== 'shortlist' && nb.layout?.preset !== p.id).map((p) => html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="${p.id}"><button type="submit" class="btn btn--sm btn--ghost" title="${p.when}">Use ${p.label}</button></form>`) as unknown as SafeHtml[]}
           <span class="nbe-more__hint">To change what the page shows, ask sua in the notebook's conversation: "put who they are at the top", "a table of the themes".</span>
         </div>
         ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}

@@ -104,6 +104,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Nor a real finder: tests set finderReply.
     notebookFinderRun: async (inputs) => finderReply?.(inputs),
     notebookResearchRun: async (inputs) => { researchAsked.push(inputs); return researchReply?.(inputs); },
+    notebookPersonPhotoCheck: async () => ({ why: 'no network in tests' }),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     // Laying out a new notebook's steps: tests set stepsReply.
@@ -2666,11 +2667,14 @@ describe('a profile step', () => {
     const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
     const fetched: string[] = [];
     ctx.notebookLogoDeps = { fetchImage: async (u) => { fetched.push(u); return { bytes: png, contentType: 'image/png' }; }, siteIcons: async (u) => [`${u}apple-touch-icon.png`] };
+    // Only the team page shows the research's photo as hers.
+    const checked: string[] = [];
+    ctx.notebookPersonPhotoCheck = async (page, name, want) => { checked.push(`${page}|${want ?? ''}`); return page === 'https://northwind.example/team' && want ? { image: want, page, why: 'captioned with their name on a page about them' } : { why: 'no' }; };
     researchReply = (inputs) => JSON.stringify(inputs.SUBJECT === 'Dana Reyes'
       ? { subject: 'Dana Reyes', summary: 'Dana runs operations at Northwind.', not_found: ['location'], found: {
         kind: { value: 'person' }, role: { value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' },
         organization: { value: 'Northwind' }, company_website: { value: 'https://northwind.example' }, linkedin: { value: 'https://www.linkedin.com/in/dana' },
-        known_for: { value: 'Writes about scaling ops teams' }, photo_url: { value: 'https://northwind.example/dana.png' } } }
+        known_for: { value: 'Writes about scaling ops teams' }, photo_url: { value: 'https://northwind.example/dana.png', source: 'https://northwind.example/team' } } }
       : { subject: 'Northwind', found: { what_they_do: { value: 'Freight software' }, website: { value: 'https://northwind.example' }, size: { value: 'about 200', source: 'https://northwind.example/about' } }, not_found: ['stage'] });
     const store = NotebookStore.fromHandle(runStore.databaseHandle());
     const nb = store.create({ title: 'Prepare for a call with Dana Reyes', statement: 'What matters to Dana' });
@@ -2687,9 +2691,15 @@ describe('a profile step', () => {
     expect(after.about!.person!.notFound).toEqual(['Based in']);
     expect(after.about!.company).toMatchObject({ name: 'Northwind', notFound: ['Stage'] });
     expect(fetched).toEqual(['https://northwind.example/dana.png', 'https://northwind.example/apple-touch-icon.png']);
+    expect(checked[0]).toBe('https://northwind.example/team|https://northwind.example/dana.png');
+    expect(store.aboutPhoto(nb.id, 'person')).toMatchObject({ page: 'https://northwind.example/team', why: 'captioned with their name on a page about them' });
 
     const d = notebookWidgetData(after, [], store).notebook;
-    expect(d.person).toEqual({ name: 'Dana Reyes', role: 'VP Operations', org: 'Northwind', about: 'Dana runs operations at Northwind.', image: `/notebooks/${nb.id}/about/person/photo`, links: [{ label: 'LinkedIn', url: 'https://www.linkedin.com/in/dana' }], asOf: expect.any(String) });
+    expect(d.person).toEqual({
+      name: 'Dana Reyes', role: 'VP Operations', org: 'Northwind', about: 'Dana runs operations at Northwind.', image: `/notebooks/${nb.id}/about/person/photo`,
+      imageFrom: 'https://northwind.example/team', imageWhy: 'captioned with their name on a page about them', rejectHref: `/notebooks/${nb.id}/about/person/photo/reject`,
+      links: [{ label: 'LinkedIn', url: 'https://www.linkedin.com/in/dana' }], asOf: expect.any(String),
+    });
     expect(d.company).toMatchObject({ name: 'Northwind', role: 'Freight software', image: `/notebooks/${nb.id}/about/company/photo`, links: [{ label: 'northwind.example', url: 'https://northwind.example' }] });
     expect(d.facts.map((f) => `${f.group}: ${f.label}`)).toEqual(['Dana Reyes: Role', 'Dana Reyes: Company', 'Dana Reyes: Known for', 'Northwind: What they do', 'Northwind: Size']);
     expect(d.notFound).toEqual(['Based in', 'Stage']);
@@ -2710,6 +2720,28 @@ describe('a profile step', () => {
     const html = (await get(`/notebooks/${nb.id}`)).text;
     expect(html).toContain('"component":"ProfileCard"');
     expect(html).toContain('VP Operations');
+
+    // Not them: the photo goes, and that picture isn't kept for her again.
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const res = await post(`/notebooks/${nb.id}/about/person/photo/reject`);
+    expect(decodeURIComponent(res.headers.location)).toContain('Removed that photo');
+    expect(store.aboutPhoto(nb.id, 'person')).toBeUndefined();
+    expect(store.get(nb.id)!.about!.person!.rejectedPhotos).toEqual(['https://northwind.example/dana.png']);
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain(`src="/notebooks/${nb.id}/about/person/photo"`);
+    // Learning again doesn't bring it back, and keeps what you said.
+    store.updateStep(nb.id, store.get(nb.id)!.steps![0].id, { status: 'todo', tries: 0 });
+    startNotebookStep(ctx, nb.id);
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(store.aboutPhoto(nb.id, 'person')).toBeUndefined();
+    expect(store.get(nb.id)!.about!.person!.rejectedPhotos).toEqual(['https://northwind.example/dana.png']);
+
+    // Edit offers the Meeting briefing page by name.
+    const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(edit).toContain('Use Meeting briefing');
+    const used = await post(`/notebooks/${nb.id}/layout`, { preset: 'dossier' });
+    expect(decodeURIComponent(used.headers.location)).toContain('The page is now the Meeting briefing');
+    expect(store.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).not.toContain('Use Meeting briefing');
   });
 
   it('decides its page again once its first step is done, unless you changed the page', async () => {
