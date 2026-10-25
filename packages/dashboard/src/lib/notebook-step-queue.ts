@@ -97,7 +97,8 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
   const step = currentStep(nb);
   if (!step) return live;
   const p = step.status === 'met' ? { have: 0, want: 0, met: true } : stepProgress(nb, stores(ctx).entries(nb.id, 1000), step);
-  const want = stepCards(nb, step.id, { ...p, met: step.status === 'met' });
+  // Only a card that would do what it says: one the check above would retire at once would come back every time it's checked.
+  const want = stepCards(nb, step.id, { ...p, met: step.status === 'met' }).filter((a) => stepCardLive(nb, a, running));
   if (!want.length) return live;
   // Being acted on now, refused, or skipped by you: the header says why; no new card each time the page loads.
   // (One that ran to the end doesn't count: the step came back to the same place, so it's asked again.)
