@@ -1,0 +1,43 @@
+{
+  "_about": "What the page agent answered for each example notebook (lib/notebook-page-examples.ts), one reply per try. Hand-written to start; `node scripts/notebook-pages/eval.mjs --record` replaces them with the real agent's.",
+  "car": {
+    "replies": [
+      "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing among many\"}\n</page>"
+    ]
+  },
+  "job": {
+    "replies": [
+      "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing a few roles to apply to\"}\n</page>"
+    ]
+  },
+  "accounts": {
+    "replies": [
+      "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing among many\"}\n</page>"
+    ]
+  },
+  "product": {
+    "replies": [
+      "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing among many\"}\n</page>"
+    ]
+  },
+  "meet-person": {
+    "replies": [
+      "<page>\n{\"preset\": \"dossier\", \"about\": \"a briefing: who Dana is, what she said, what to talk about and ask\"}\n</page>"
+    ]
+  },
+  "meet-company": {
+    "replies": [
+      "<page>\n{\"preset\": \"dossier\", \"about\": \"a briefing: who Acme Robotics is, what they've announced and said, what to ask on the call\"}\n</page>"
+    ]
+  },
+  "question": {
+    "replies": [
+      "<page>\n{\"about\": \"an answer to a question: the payback verdict first, then the studies' evidence, then where it came from\", \"components\": [\n{\"id\": \"root\", \"component\": \"Column\", \"children\": [\"header\", \"top_row\", \"said_p\", \"more\"]},\n{\"id\": \"header\", \"component\": \"NotebookHeader\", \"subtitle\": \"Research answer\", \"cover\": \"none\", \"side\": \"limits\"},\n{\"id\": \"limits\", \"component\": \"ChipList\", \"items\": {\"path\": \"/notebook/limitChips\"}},\n{\"id\": \"top_row\", \"component\": \"Columns\", \"children\": [\"answer_p\", \"funnel_p\"], \"widths\": [2, 1], \"align\": \"start\"},\n{\"id\": \"answer_p\", \"component\": \"Panel\", \"title\": \"The answer\", \"child\": \"answer\", \"treatment\": \"lede\", \"when\": \"decided\"},\n{\"id\": \"answer\", \"component\": \"Callout\", \"label\": \"Payback\", \"text\": {\"path\": \"/notebook/decision\"}},\n{\"id\": \"funnel_p\", \"component\": \"Panel\", \"title\": \"Studies checked\", \"child\": \"funnel\", \"note\": \"found → cold climate\", \"treatment\": \"aside\", \"when\": \"funnel\"},\n{\"id\": \"funnel\", \"component\": \"Funnel\", \"stages\": {\"path\": \"/notebook/funnel\"}},\n{\"id\": \"said_p\", \"component\": \"Panel\", \"title\": \"What the studies found\", \"child\": \"quotes\", \"note\": \"evidence, with its source\", \"treatment\": \"feature\", \"when\": \"options\"},\n{\"id\": \"quotes\", \"component\": \"QuoteList\", \"items\": {\"path\": \"/notebook/quotes\"}, \"maxItems\": 6, \"lead\": true},\n{\"id\": \"more\", \"component\": \"Columns\", \"children\": [\"table_d\", \"time_d\", \"cov_d\"], \"widths\": [1, 1, 1], \"align\": \"start\"},\n{\"id\": \"table_d\", \"component\": \"Disclosure\", \"label\": \"All studies and reports\", \"child\": \"table\"},\n{\"id\": \"table\", \"component\": \"Table\", \"rows\": {\"path\": \"/notebook/options\"}, \"columns\": [{\"key\": \"link\", \"label\": \"Study\", \"format\": \"link\", \"linkText\": \"title\"}, {\"key\": \"body\", \"label\": \"Finding\"}, {\"key\": \"when\", \"label\": \"Published\"}]},\n{\"id\": \"time_d\", \"component\": \"Disclosure\", \"label\": \"Research activity\", \"child\": \"timeline\"},\n{\"id\": \"timeline\", \"component\": \"Timeline\", \"events\": {\"path\": \"/notebook/timeline\"}, \"filters\": true},\n{\"id\": \"cov_d\", \"component\": \"Disclosure\", \"label\": \"Where sua looked\", \"child\": \"coverage\"},\n{\"id\": \"coverage\", \"component\": \"Coverage\", \"sources\": {\"path\": \"/notebook/coverage/sources\"}, \"note\": {\"path\": \"/notebook/coverage/when\"}}\n]}\n</page>"
+    ]
+  },
+  "trip": {
+    "replies": [
+      "<page>\n{\"about\": \"a trip plan: the day-by-day plan first, then what's been decided, the notes and where sua looked\", \"components\": [\n{\"id\": \"root\", \"component\": \"Column\", \"children\": [\"header\", \"plan_p\", \"mid\", \"more\"]},\n{\"id\": \"header\", \"component\": \"NotebookHeader\", \"subtitle\": \"Trip plan\", \"cover\": \"none\", \"side\": \"limits\"},\n{\"id\": \"limits\", \"component\": \"ChipList\", \"items\": {\"path\": \"/notebook/limitChips\"}},\n{\"id\": \"plan_p\", \"component\": \"Panel\", \"title\": \"Day by day\", \"child\": \"plan\", \"note\": {\"path\": \"/notebook/limitsNote\"}, \"treatment\": \"feature\", \"when\": \"options\"},\n{\"id\": \"plan\", \"component\": \"OptionGrid\", \"options\": {\"path\": \"/notebook/options\"}, \"fields\": {\"path\": \"/notebook/fields\"}, \"stages\": {\"path\": \"/notebook/stages\"}, \"layout\": \"table\", \"sort\": {\"path\": \"/notebook/layout/sort\"}},\n{\"id\": \"mid\", \"component\": \"Columns\", \"children\": [\"decided_p\", \"notes_p\"], \"widths\": [3, 2], \"align\": \"start\"},\n{\"id\": \"decided_p\", \"component\": \"Panel\", \"title\": \"Picked and booked\", \"child\": \"decided\", \"treatment\": \"feature\"},\n{\"id\": \"decided\", \"component\": \"Timeline\", \"events\": {\"path\": \"/notebook/decisions\"}},\n{\"id\": \"notes_p\", \"component\": \"Panel\", \"title\": \"Notes\", \"child\": \"notes\", \"treatment\": \"feature\"},\n{\"id\": \"notes\", \"component\": \"Timeline\", \"events\": {\"path\": \"/notebook/notes\"}},\n{\"id\": \"more\", \"component\": \"Columns\", \"children\": [\"time_d\", \"cov_d\"], \"widths\": [1, 1], \"align\": \"start\"},\n{\"id\": \"time_d\", \"component\": \"Disclosure\", \"label\": \"Research activity\", \"child\": \"timeline\"},\n{\"id\": \"timeline\", \"component\": \"Timeline\", \"events\": {\"path\": \"/notebook/timeline\"}, \"filters\": true},\n{\"id\": \"cov_d\", \"component\": \"Disclosure\", \"label\": \"Where sua looked\", \"child\": \"coverage\"},\n{\"id\": \"coverage\", \"component\": \"Coverage\", \"sources\": {\"path\": \"/notebook/coverage/sources\"}, \"note\": {\"path\": \"/notebook/coverage/when\"}}\n]}\n</page>"
+    ]
+  }
+}

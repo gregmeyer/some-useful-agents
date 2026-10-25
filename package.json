@@ -10,6 +10,8 @@
     "build": "tsc --build && node packages/core/scripts/copy-examples.mjs && node packages/dashboard/scripts/copy-assets.mjs && node packages/dashboard/scripts/gen-build-info.mjs && chmod +x packages/cli/dist/index.js",
     "clean": "tsc --build --clean",
     "test": "vitest run",
+    "notebook-pages:eval": "node scripts/notebook-pages/eval.mjs",
+    "notebook-pages:layout": "node scripts/notebook-pages/layout.mjs",
     "outcome:fixture": "SUA_WRITE_OUTCOME_FIXTURE=1 vitest run packages/core/src/outcome/e2e.test.ts",
     "test:watch": "vitest",
     "lint": "tsc --build"

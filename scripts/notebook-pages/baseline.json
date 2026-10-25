@@ -1,0 +1,125 @@
+{
+  "at": "2026-10-25T22:09:23.137Z",
+  "runs": 2,
+  "totals": {
+    "right": 1,
+    "first": 0.94,
+    "usable": 1,
+    "parts": 1,
+    "same": 1
+  },
+  "rows": [
+    {
+      "id": "car",
+      "job": "buy a used car",
+      "expect": "shortlist",
+      "got": [
+        "shortlist",
+        "shortlist"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "job",
+      "job": "find a job",
+      "expect": "shortlist",
+      "got": [
+        "shortlist",
+        "shortlist"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "accounts",
+      "job": "find accounts that fit",
+      "expect": "shortlist",
+      "got": [
+        "shortlist",
+        "shortlist"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "product",
+      "job": "buy a product",
+      "expect": "shortlist",
+      "got": [
+        "shortlist",
+        "shortlist"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "meet-person",
+      "job": "prepare to meet a person",
+      "expect": "dossier",
+      "got": [
+        "dossier",
+        "dossier"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "meet-company",
+      "job": "prepare for a call with a company",
+      "expect": "dossier",
+      "got": [
+        "dossier",
+        "dossier"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "question",
+      "job": "answer a question",
+      "expect": "drawn",
+      "got": [
+        "drawn",
+        "drawn"
+      ],
+      "right": 1,
+      "first": 0.5,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    },
+    {
+      "id": "trip",
+      "job": "plan a trip",
+      "expect": "drawn",
+      "got": [
+        "drawn",
+        "drawn"
+      ],
+      "right": 1,
+      "first": 1,
+      "usable": 1,
+      "parts": 1,
+      "same": 1
+    }
+  ]
+}

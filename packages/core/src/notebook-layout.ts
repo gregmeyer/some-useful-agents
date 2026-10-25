@@ -17,7 +17,7 @@
  *   filters, CSV link…), or dropped when the notebook has none. Settings a
  *   component takes only as a plain value can still come from the notebook.
  */
-import { validateViewComponents, type ViewComponent } from './a2ui/view.js';
+import { validateViewComponents, resolvePointer, type ViewComponent } from './a2ui/view.js';
 
 /** What `when` can test. */
 export const NOTEBOOK_LAYOUT_FLAGS = {
@@ -219,22 +219,57 @@ function capLength(c: ViewComponent): ViewComponent {
   return cap.default !== undefined ? { ...c, [cap.prop]: cap.default } : c;
 }
 
+/** Whether a data value has something to show. */
+const hasSomething = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : typeof v === 'string' ? v.trim() !== '' : v !== undefined && v !== null);
+
+/**
+ * A part with nothing to show: every data path the parts under it are bound
+ * to (not its own title or note, nor the page's settings) is empty. A part
+ * bound to nothing is never empty (it says what it says).
+ */
+function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data: unknown): boolean {
+  const paths: string[] = [];
+  const collect = (v: unknown) => {
+    if (Array.isArray(v)) { v.forEach(collect); return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (typeof o.path === 'string' && Object.keys(o).length === 1) { if (!LAYOUT_PATH.test(o.path)) paths.push(o.path); return; }
+    Object.values(o).forEach(collect);
+  };
+  const walk = (cid: string, own: boolean, seen: Set<string>) => {
+    const c = byId.get(cid);
+    if (!c || seen.has(cid)) return;
+    seen.add(cid);
+    const { id: _i, component: _c, children, child, title: _t, note: _n, label: _l, ...props } = c;
+    collect(own ? props : { ...props, title: c.title, note: c.note, label: c.label });
+    for (const k of Array.isArray(children) ? children as string[] : typeof child === 'string' ? [child] : []) walk(k, false, seen);
+  };
+  walk(id, true, new Set());
+  return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
+}
+
 /**
  * A layout as plain A2UI for one notebook: components whose `when` doesn't
  * hold are left out (with everything under them), parents lose them (a
  * Columns its width too; one left takes the whole row), containers left
- * empty go, and `/notebook/layout/<key>` values are filled in.
+ * empty go, and `/notebook/layout/<key>` values are filled in. With `data`
+ * (the notebook's data model), a panel or fold with nothing in it yet (every
+ * part under it bound to data that's empty) goes the same way, so a drawn
+ * page has no empty boxes: its notes before there are any, its decision
+ * before it's decided.
  */
 export function resolveNotebookLayout(
   components: readonly ViewComponent[],
   flags: Partial<Record<NotebookLayoutFlag, boolean>>,
   values: Partial<Record<NotebookLayoutValueKey, unknown>>,
+  opts: { data?: unknown } = {},
 ): ViewComponent[] {
   const byId = new Map(components.map((c) => [c.id, c]));
   const out = new Map<string, ViewComponent>();
   const visit = (id: string): boolean => {
     const c = byId.get(id);
     if (!c || !whenHolds(c.when, flags)) return false;
+    if (opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) return false;
     const { when: _w, ...rest } = c;
     const next = capLength(resolveValues(rest, values) as ViewComponent);
     if (Array.isArray(c.children)) {
@@ -418,6 +453,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/limits': 'Its limits, as text.',
   '/notebook/limitChips': 'Limits as chips, disagreeing ones flagged (ChipList).',
   '/notebook/fields': 'The facts each option notes: [{key, label, type, role?}].',
+  '/notebook/stages': 'The stages options move through by hand, in order, as text (OptionGrid stages).',
   '/notebook/options': 'Options, best first then ruled out: {id, name, title, body, fields: {<key>: value}, price?, measure?, score?, org?, place?, link?, image?, when?, stage?, ruledOut?, chosen?, page, facets?}. Rows for OptionGrid, Table, Scatter.',
   '/notebook/funnel': 'How far options got, per step or stage (Funnel).',
   '/notebook/checklist': 'Checks on the top two (Checklist).',

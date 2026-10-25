@@ -10,7 +10,7 @@
  */
 import { resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, type Notebook, type NotebookEntry, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
+import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 
@@ -31,6 +31,21 @@ const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const items = (v: unknown): Array<Record<string, unknown> & { text: string }> => list(v)
   .map((x) => (typeof x === 'string' ? { text: x } : x && typeof x === 'object' ? { ...(x as Record<string, unknown>), text: text((x as { text?: unknown; label?: unknown }).text ?? (x as { label?: unknown }).label) } : { text: '' }))
   .filter((x) => x.text);
+
+/** Up to `n` quotes, in their order, one per theme (group) before a second from any. Pure. */
+export function briefQuotes<T extends { group?: unknown }>(all: readonly T[], n: number): T[] {
+  const picked = new Set<number>();
+  for (let round = 0; picked.size < Math.min(n, all.length); round++) {
+    const seen = new Map<string, number>();
+    all.forEach((q, i) => {
+      const g = typeof q.group === 'string' ? q.group : '';
+      const k = (seen.get(g) ?? 0) + 1;
+      seen.set(g, k);
+      if (picked.size < n && k === round + 1) picked.add(i);
+    });
+  }
+  return all.filter((_, i) => picked.has(i));
+}
 
 interface Printing {
   byId: Map<string, ViewComponent>;
@@ -115,8 +130,8 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     }
     case 'QuoteList': {
       const all = list(v('items')) as Array<{ quote?: unknown; title?: unknown; source?: unknown; at?: unknown; ask?: unknown; group?: unknown }>;
-      // The brief carries a few more than the page shows; the extended brief has every one (below).
-      const shown = all.slice(0, 8);
+      // A few, not every one: 3 to 5 (as many as the page shows), one per theme before a second from any; the extended brief has every one (below).
+      const shown = briefQuotes(all, Math.min(5, Math.max(3, typeof c.maxItems === 'number' ? c.maxItems : 4)));
       return html`<div class="quotes">${shown.map((q, i) => html`<figure class="${c.lead && i === 0 ? 'lead' : ''}">
           <blockquote>${text(q.quote)}</blockquote>
           <figcaption>${text(q.group) ? html`<span class="tag">${text(q.group)}</span> ` : html``}${text(q.title)}${isUrl(q.source) ? html` · <a href="${q.source}">${site(q.source)}</a>` : html``}${text(q.at) ? html` · ${text(q.at)}` : html``}</figcaption>
@@ -162,9 +177,11 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const { nb } = args;
   const now = args.now ?? new Date();
   const data = notebookWidgetData(nb, args.entries, args.history);
-  const resolved = resolveNotebookLayout(notebookLayoutOf(nb).components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb));
+  const layout = notebookLayoutOf(nb);
+  const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), emptyPartsGo(layout, data));
   const { header, side, rest } = splitNotebookHeader(resolved);
-  const byId = new Map([...rest, ...(side ?? [])].map((c) => [c.id, c]));
+  // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
+  const byId = new Map([...(side ?? []).slice(1), ...rest].map((c) => [c.id, c]));
   const p: Printing = { byId, data, full: !!args.full, about: args.aboutPicture ?? ((src) => src) };
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
