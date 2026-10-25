@@ -242,10 +242,11 @@ Money of a million and up reads short ("$18M–$22M"). Companies get a monogram 
 
 A notebook you run again and again (a job search, a car search, a comp set) can be kept as a template, and new ones started from it by asking sua.
 
-- **Save one:** on the notebook, **Edit** → **Save as a template…** opens a page to make it fit any time you'd use it:
-  - **Template name:** the notebook's title without who or what it was about ("Prepare for meeting").
-  - **What changes each time:** for a template that's about someone or something new each time (meeting prep for a person or company, research on one account), say what to ask ("Who you're meeting (a person or company)") and what it was in this notebook ("Dana Reyes"; sua guesses it from the title and limits). Everywhere the texts name it, they say `{subject}` instead. Leave both empty for a template that's the same every time (a job search).
-  - **The texts:** what it's for, limits, done-whens, checks, step titles and the facts each option notes, to edit first: drop a limit that only fit this time, change "him" to "them".
+- **Save one:** on the notebook, **Edit** → **Save as a template…** opens **Make a template from this notebook**:
+  - **The template:** a preview of what a notebook from it starts with: its name, what it asks each time (highlighted wherever it goes), what it's for, limits, done-whens, checks, steps and the facts each option notes. Before you save, it's sua's first guess, which takes the name in the title as what changes each time.
+  - **Talk to sua about the template:** say what you want ("make it work for anyone I'm meeting, a person or a company", "call it Prepare for a meeting", "drop the third check"), or click a starter. sua drafts the whole template and offers a **Save the template** card listing its words. It drops limits that only fit this time, makes the wording fit anyone ("him" → "them") and finishes text that was cut off. Approving saves it, and the preview updates on its own. Ask again to change it; saving the same name replaces it.
+  - **Its page:** the notebook's page, drawn with this notebook's findings, as notebooks from the template will look once they fill. Ask sua on the notebook to change the page; the template keeps it.
+  - **Edit the words yourself:** the same template as boxes, folded away: the name, what changes each time (what to ask, and what it was here), what it's for, limits, done-whens, checks, step titles and fact labels. Wherever the subject is named, the texts say `{subject}`.
 
   Archived notebooks can be saved too, so you can archive a finished one and keep its template. Saving the same name again replaces it.
 - **What it keeps:** the notebook's setup, not its content:

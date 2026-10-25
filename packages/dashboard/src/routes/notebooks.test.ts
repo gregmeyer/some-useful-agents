@@ -2645,6 +2645,63 @@ describe('a notebook\'s page, drawn by sua', () => {
   });
 });
 
+describe('making a template with sua', () => {
+  it('the page previews sua\'s first guess; sua\'s card saves the template; the preview follows it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase } = await import('./inbox-engine.js');
+    const { executeNotebookTemplate } = await import('../lib/notebook-template-action.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const nb = store.create({ title: 'Prepare for meeting with Dana Reyes', statement: 'Help me understand what matters to Dana Reyes before we meet.', params: ['Dana Reyes', 'LinkedIn profile provided', 'focus on what matters to her'], criteria: ['Talking points chosen'] });
+    store.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'What suggests it matters to her', type: 'text' }]);
+    store.setSteps(nb.id, [{ title: 'Find 5 conversation themes', kind: 'find', target: 5 }, { title: 'Choose talking points', kind: 'decide', target: 3 }]);
+
+    // Before anything is saved: sua's first guess, with what changes each time marked.
+    let page = (await get(`/notebooks/${nb.id}/template`)).text;
+    expect(page).toContain('Make a template from this notebook');
+    expect(page).toContain('Not saved yet: this is sua');
+    expect(page).toContain('Help me understand what matters to <mark class="nbt-subj" title="Filled in each time">Who or what it’s about</mark> before we meet.');
+    expect(page).toContain('name="template" value="1"');
+    expect(page).toContain('Edit the words yourself');
+
+    const inputs = {
+      NOTEBOOK: nb.id, NAME: 'Prepare for a meeting', SUBJECT_LABEL: 'Who you’re meeting (a person or company)', SUBJECT_EXAMPLE: 'Dana Reyes',
+      STATEMENT: 'Help me understand what matters to Dana Reyes before we meet.',
+      PARAMS: ['Dana Reyes', 'focus on what matters to them'], CRITERIA: ['Talking points chosen'],
+      STEP_TITLES: { s1: 'Find 5 things Dana Reyes cares about' }, FIELD_LABELS: { evidence: 'What suggests it matters to them' },
+    };
+    const { accepted, rejected } = parseProposedActions([{ type: 'notebook-template', rationale: 'Works for anyone', inputs }, { type: 'notebook-template', inputs: { NOTEBOOK: nb.id } }], [], []);
+    expect(rejected[0].reason).toBe('notebook-template needs inputs.NOTEBOOK and inputs.NAME');
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-template', ctaLabel: 'Save the template', inputs: { PARAMS: JSON.stringify(inputs.PARAMS) } });
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.surfaceChanges).toContainEqual({ what: 'asks each time', before: '—', after: 'Who you’re meeting (a person or company) (this time: Dana Reyes)' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'limits', before: '—', after: '{subject}; focus on what matters to them' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'steps', before: '—', after: '1. Find 5 things {subject} cares about; 2. Choose talking points' });
+    expect(executeNotebookTemplate(ctx, card)).toMatchObject({ status: 'completed' });
+    expect(store.getTemplate('prepare-for-a-meeting')!.setup).toMatchObject({
+      statement: 'Help me understand what matters to {subject} before we meet.', params: ['{subject}', 'focus on what matters to them'],
+      subject: { label: 'Who you’re meeting (a person or company)', example: 'Dana Reyes' },
+    });
+
+    // The page and its live preview show the saved one.
+    page = (await get(`/notebooks/${nb.id}/template`)).text;
+    expect(page).toContain('Saved as a template.');
+    const pv = (await get(`/notebooks/${nb.id}/template/preview`)).text;
+    expect(pv).toMatch(/^<div class="nbt-pv" data-nbt-preview-body>/);
+    expect(pv).toContain('<h2 class="nbt-pv__name">Prepare for a meeting</h2>');
+    expect(pv).toContain('What suggests it matters to them');
+    // A change from the template page reaches sua as being about the template.
+    const sent = await request(app).post(`/notebooks/${nb.id}/ask`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send('template=1&text=call+it+Meeting+prep');
+    expect(sent.status).toBe(204);
+    const thread = store.get(nb.id)!.conversationId!;
+    expect(ctx.inboxStore!.listResponses(thread).some((r) => r.role === 'user' && r.body === "About this notebook's template: call it Meeting prep")).toBe(true);
+  });
+});
+
 describe('download the shortlist', () => {
   it('sends a CSV attachment best first, and the header links to it once there are options', async () => {
     const app = await makeApp();

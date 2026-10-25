@@ -575,6 +575,23 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: inputs.UNDO === '1' ? 'Undo' : 'Change the page' });
       continue;
     }
+    // `notebook-template` saves a notebook's setup as a template, its words made
+    // to fit any time (what changes each time as SUBJECT_*). A card to approve.
+    if (type === 'notebook-template') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.NOTEBOOK || !inputs.NAME) {
+        rejected.push({ agentId: type, reason: 'notebook-template needs inputs.NOTEBOOK and inputs.NAME' });
+        continue;
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Save the template' });
+      continue;
+    }
     // `arrange-board` rearranges the board the operator is on: inputs.BOARD (id)
     // + inputs.OPS (board-place ops). Shape here; the card previews, Apply saves.
     if (type === 'arrange-board') {

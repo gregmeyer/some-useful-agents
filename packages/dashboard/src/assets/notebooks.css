@@ -840,3 +840,37 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbe-layout { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .nbe-layout__now { font-size: var(--font-size-sm); }
 .nbe-layout .nbe-more__hint { flex-basis: 100%; }
+
+/* Make a template (views/notebook-template.ts): the template beside a talk with sua, its page below. */
+.nbt--talk { max-width: 1120px; margin: 0 auto; display: grid; gap: var(--space-4); }
+.nbt--talk .nb-crumbs, .nbt--talk .nbe__title { margin: 0; }
+.nbt-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+@media (max-width: 860px) { .nbt-grid { grid-template-columns: 1fr; } }
+.nbt-sec { margin: 0 0 var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nbt-sec__note { margin-left: var(--space-2); font-family: var(--font-sans); text-transform: none; letter-spacing: 0; font-weight: normal; color: var(--color-text-subtle); }
+.nbt-pv { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbt-pv.is-new { animation: nbt-pv-flash 1.2s ease-out; }
+@keyframes nbt-pv-flash { from { border-color: var(--color-primary); } to { border-color: var(--color-border); } }
+.nbt-pv__status { margin: 0; font-size: var(--font-size-xs); color: var(--color-warn); }
+.nbt-pv__status.is-saved { color: var(--color-ok); }
+.nbt-pv__name { margin: 0; font-size: var(--font-size-xl); }
+.nbt-pv__asks { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); font-size: var(--font-size-sm); }
+.nbt-pv__k, .nbt-pv__h { font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nbt-pv__h { margin: 0 0 var(--space-1); font-weight: var(--weight-semibold); }
+.nbt-pv__was { color: var(--color-text-subtle); font-size: var(--font-size-xs); }
+.nbt-pv__for { margin: 0; max-width: 65ch; }
+.nbt-pv__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: var(--space-3) var(--space-4); }
+.nbt-pv__grid > section { min-width: 0; }
+.nbt-pv__list { margin: 0; padding-left: var(--space-4); display: grid; gap: var(--space-1); font-size: var(--font-size-sm); }
+.nbt-pv__kind { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
+.nbt-pv__facts { margin: 0; font-size: var(--font-size-sm); }
+.nbt-subj { padding: 0 var(--space-1); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-text); }
+.nbt-talk { position: sticky; top: var(--space-4); display: grid; gap: var(--space-3); }
+.nbt-talk__working { margin: 0; font-size: var(--font-size-sm); color: var(--color-primary); }
+.nbt-talk__starters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nbt-talk__starters .ask-pill { text-align: left; height: auto; min-height: var(--control-h-sm); white-space: normal; }
+.nbt-talk__open { font-size: var(--font-size-sm); }
+.nbt-page { display: grid; gap: var(--space-2); }
+.nbt-hand { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.nbt-hand > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nbt-hand[open] > summary { margin-bottom: var(--space-3); }

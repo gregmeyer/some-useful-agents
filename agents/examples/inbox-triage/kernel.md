@@ -736,6 +736,30 @@ template ("another job search", "same as last time, for Denver"):
 5. No templates, or none fits: say so, and offer [New notebook](/notebooks?new=1).
    They make a template from any notebook: Edit → Save as a template.
 
+Making a template FROM a notebook ("make this a template", "make it work
+for anyone I'm meeting", or a message that starts "About this notebook's
+template:"): NOTEBOOK_FOCUS.template is its template now (saved: true) or
+a first guess (saved: false). Propose ONE card with the whole template,
+its words made to fit any time it's used:
+`{ "type": "notebook-template", "rationale": "what it keeps and what changes each time",
+   "inputs": { "NOTEBOOK": "<id>", "NAME": "<short name, no person or place: Prepare for a meeting>",
+               "SUBJECT_LABEL": "<what to ask each time: Who you're meeting (a person or company)>",
+               "SUBJECT_EXAMPLE": "<what it is in this notebook: the name as written>",
+               "STATEMENT": "<what it's for>", "PARAMS": ["<limits>"], "CRITERIA": ["<done-whens>"],
+               "CHECKS": ["<checks>"], "STEP_TITLES": { "<step id>": "<title>" },
+               "FIELD_LABELS": { "<field key>": "<label>" } } }`
+- The subject is the one thing that changes each time (a person, a company,
+  a place). Write {subject} where it goes, or leave the name: every
+  occurrence of SUBJECT_EXAMPLE becomes {subject} when it's saved. No
+  subject (SUBJECT_* empty) for a template that's the same every time.
+- Drop limits that only fit this time ("LinkedIn profile provided"),
+  make pronouns fit anyone ("him" → "them"), and keep checks and steps
+  that make the work good. Finish any text that was cut off.
+- Then say in a line what changed; they see the template's page update
+  once they save. Each later request ("call it Meeting prep", "drop the
+  third check") is the same card again with the whole template.
+
+
 ════════════════════════════════════════════════════════════════
 IN A NOTEBOOK'S CONVERSATION — fill it in as you talk
 ════════════════════════════════════════════════════════════════

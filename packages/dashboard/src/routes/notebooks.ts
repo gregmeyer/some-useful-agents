@@ -9,10 +9,13 @@ import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
 import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
-import { notebookWidgetData } from '../lib/notebook-widgets.js';
+import { notebookWidgetData, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
 import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
-import { renderTemplateSave, templateEditsFrom } from '../views/notebook-template.js';
+import { renderTemplateSave, renderTemplatePreview, templateEditsFrom, type TemplatePreview } from '../views/notebook-template.js';
+import { templateOfNotebook, draftTemplate } from '../lib/notebook-template-action.js';
+import { conversationWorking } from '../lib/conversation-working.js';
+import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
 import {
@@ -466,11 +469,33 @@ notebooksRouter.post('/notebooks/:id/entries/:entry/reinstate', (req: Request, r
 });
 
 // Archive (hide from lists, Home, Today and schedules; nothing deleted) or restore.
-/** Save as a template: its texts to make fit any time, and what changes each time. */
+/** The template a notebook's template page shows: the one saved from it, else sua's first guess. */
+function templatePreviewFor(ctx: ReturnType<typeof getContext>, nb: Notebook): TemplatePreview {
+  const t = templateOfNotebook(ctx, nb);
+  return t ? { name: t.name, setup: t.setup, saved: true, uses: t.uses, updatedAt: t.updatedAt } : { ...draftTemplate(nb), saved: false };
+}
+
+/** Make a template: a preview of it, a conversation with sua that drafts it, and the words by hand. */
 notebooksRouter.get('/notebooks/:id/template', (req: Request, res: Response) => {
   const nb = store(req).get(String(req.params.id));
   if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
-  res.type('html').send(renderTemplateSave({ nb, flash: parseFlash(req) }));
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const entries = s.entries(nb.id, 1000);
+  const widgets = notebookWidgetMessages(nb, entries, widgetHistory(ctx, s));
+  const msg = nb.conversationId ? ctx.inboxStore?.get(nb.conversationId) : undefined;
+  res.type('html').send(renderTemplateSave({
+    nb, preview: templatePreviewFor(ctx, nb), flash: parseFlash(req),
+    ...(widgets ? { page: renderSurfaceHost(`notebook-${nb.id}`, widgets, { label: `${nb.title}: its page` }) } : {}),
+    ...(msg && conversationWorking(ctx, msg) ? { working: true } : {}),
+  }));
+});
+
+/** The template's preview alone, so the page can redraw it as sua saves new versions. */
+notebooksRouter.get('/notebooks/:id/template/preview', (req: Request, res: Response) => {
+  const nb = store(req).get(String(req.params.id));
+  if (!nb) { res.status(404).end(); return; }
+  res.type('html').send(render(renderTemplatePreview(templatePreviewFor(getContext(req.app.locals), nb))));
 });
 
 /**
@@ -798,7 +823,8 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const optionId = str(req.body?.option);
   const option = optionId ? s.entries(nb.id, 1000).find((e) => e.id === optionId && e.kind === 'option') : undefined;
   setThreadOptionFocus(ctx, threadId, option?.id);
-  const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${text}` : text);
+  // From its template page: sua drafts the template (notebook-template).
+  const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${text}` : str(req.body?.template) === '1' ? `About this notebook's template: ${text}` : text);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
   void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
   publishInboxChanged(ctx, threadId, 'open');
