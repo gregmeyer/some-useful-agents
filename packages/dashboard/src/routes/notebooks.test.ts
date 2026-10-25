@@ -2786,6 +2786,46 @@ describe('a profile step', () => {
   });
 });
 
+describe('a step added in front of done ones', () => {
+  it('offers the next step still to do, and never posts a card it would retire (no card after card)', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { postStepCard, stepCards } = await import('../lib/notebook-steps.js');
+    const { reconcileStepCards } = await import('../lib/notebook-step-queue.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Prepare for a call' });
+    store.setSteps(nb0.id, [
+      { title: 'Learn about Dana', kind: 'profile' },
+      { title: 'Find 5 themes', kind: 'find', target: 5, status: 'done' },
+      { title: 'Check them', kind: 'check', status: 'done' },
+      { title: 'Choose talking points', kind: 'decide', target: 3 },
+    ]);
+    const s1 = store.get(nb0.id)!.steps![0].id;
+    let nb = store.updateStep(nb0.id, s1, { status: 'met' });
+    const { greetNotebook } = await import('../lib/notebook-chat.js');
+    greetNotebook(ctx, nb.id);
+    nb = store.get(nb.id)!;
+    // Next after it is yours (Decide): no Continue card for a step that's done.
+    expect(stepCards(nb, s1, { have: 4, want: 4, met: true })).toEqual([]);
+    postStepCard(ctx, nb, s1, { have: 4, want: 4, met: true, missing: [] });
+    const thread = nb.conversationId!;
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).map((r) => r.body).join('\n');
+    expect(said).toContain('Next is **Choose talking points**');
+    expect(said).not.toContain('Next is **Find 5 themes**');
+    const cards = () => InboxStore.fromHandle(runStore.databaseHandle()).listResponses(thread).filter((r) => r.role === 'action' && r.body.startsWith('Start step')).length;
+    const before = cards();
+    for (let i = 0; i < 5; i++) reconcileStepCards(ctx, nb.id);
+    expect(cards()).toBe(before);
+
+    // With a step of sua's still to do after done ones, Continue names it.
+    store.setSteps(nb.id, [...store.get(nb.id)!.steps!.slice(0, 3), { title: 'Source evidence', kind: 'source' }, { title: 'Choose talking points', kind: 'decide', target: 3 }]);
+    nb = store.get(nb.id)!;
+    expect(stepCards(nb, s1, { have: 4, want: 4, met: true }).map((c) => c.rationale)).toEqual(['Start step 4: Source evidence.']);
+  });
+});
+
 describe('a drawn page\'s header', () => {
   it('follows the layout\'s NotebookHeader: subtitle, no statement, folded steps, a drawn side part; without one, the usual header', async () => {
     const app = await makeApp();

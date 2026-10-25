@@ -544,7 +544,7 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   if (!inbox || !step) return undefined;
   const threadId = notebookThread(ctx, nb);
   if (!threadId) return undefined;
-  const next = steps[i + 1];
+  const next = steps.slice(i + 1).find((s) => s.status !== 'done');
   const words = progressWords(step, p);
   const missing = `${p.missing.slice(0, 6).map((m) => `- ${m}`).join('\n')}${p.missing.length > 6 ? `\n- and ${String(p.missing.length - 6)} more` : ''}`;
   const stalled = !p.met && !!step.stalled;
@@ -579,11 +579,13 @@ export function stepCards(nb: Notebook, stepId: string, p: Pick<NotebookStepProg
   const i = steps.findIndex((s) => s.id === stepId);
   const step = steps[i];
   if (!step) return [];
-  const next = steps[i + 1];
+  // The next step still to do (one added in front leaves done ones after it): what Continue starts.
+  const next = steps.slice(i + 1).find((s) => s.status !== 'done');
+  const nextNo = next ? steps.indexOf(next) + 1 : 0;
   const base = { kind: 'action' as const, status: 'proposed' as const, agentId: NOTEBOOK_STEP_ACTION, effect: 'write' as const };
   if (p.met) {
     if (!next || isYourStep(next)) return [];
-    return [{ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'met' }, rationale: `Start step ${String(i + 2)}: ${next.title}.`, ctaLabel: 'Continue' }];
+    return [{ ...base, inputs: { NOTEBOOK: nb.id, STEP: step.id, WAS: 'met' }, rationale: `Start step ${String(nextNo)}: ${next.title}.`, ctaLabel: 'Continue' }];
   }
   if (isYourStep(step)) return [];
   if (step.status !== 'stuck') {
