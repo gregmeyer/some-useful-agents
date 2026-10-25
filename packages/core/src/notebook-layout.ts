@@ -27,6 +27,8 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   options: 'It has options.',
   decided: 'It has a decision.',
   about: 'It knows who it\'s about: a profile step learned about a person or company.',
+  person: 'It knows the person it\'s about.',
+  company: 'It knows their company (or the company it\'s about).',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -105,12 +107,54 @@ const SHORTLIST: ViewComponent[] = [
   { id: 'limits', component: 'ChipList', items: { path: '/notebook/limitChips' } },
 ];
 
+/**
+ * A briefing before meeting someone, as a magazine spread (DESIGN.md
+ * "Notebook pages"): who they are as a cover beside what's known, what to
+ * talk about as the feature beside their company, what they said, and the
+ * research folded at the end. Each part waits for what it shows.
+ */
+const DOSSIER: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'cover_row', 'talk_row', 'said_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Meeting briefing', steps: 'fold', cover: 'none' },
+  { id: 'cover_row', component: 'Columns', children: ['who_p', 'facts_p'], widths: [2, 1], align: 'start' },
+  { ...panel('who_p', 'Who they are', 'who'), treatment: 'lede', when: 'person' },
+  {
+    id: 'who', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/person/name' }, role: { path: '/notebook/person/role' }, org: { path: '/notebook/person/org' },
+    about: { path: '/notebook/person/about' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' }, quote: { path: '/notebook/leadQuote' },
+  },
+  { ...panel('facts_p', 'What we know', 'facts'), treatment: 'aside', when: 'person' },
+  { id: 'facts', component: 'FactSheet', facts: { path: '/notebook/personFacts' }, missing: { path: '/notebook/notFound' }, variant: 'ruled' },
+  { id: 'talk_row', component: 'Columns', children: ['company_p', 'agenda_p'], widths: [1, 2], align: 'start' },
+  { ...panel('company_p', 'Their company', 'company_col'), treatment: 'aside', when: 'company' },
+  { id: 'company_col', component: 'Column', children: ['company', 'company_facts'] },
+  { id: 'company_facts', component: 'FactSheet', facts: { path: '/notebook/companyFacts' }, variant: 'ruled' },
+  {
+    id: 'company', component: 'ProfileCard', name: { path: '/notebook/company/name' }, role: { path: '/notebook/company/role' }, org: { path: '/notebook/company/org' },
+    about: { path: '/notebook/company/about' }, image: { path: '/notebook/company/image' }, links: { path: '/notebook/company/links' },
+  },
+  { ...panel('agenda_p', 'What to talk about', 'agenda'), treatment: 'feature' },
+  { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, variant: 'numerals' },
+  { ...panel('said_p', 'In their words', 'quotes', 'grouped by theme'), treatment: 'feature', when: 'options' },
+  { id: 'quotes', component: 'QuoteList', items: { path: '/notebook/otherQuotes' }, maxItems: 4 },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
     label: 'Shortlist',
     when: 'Choosing among many options (a car, a job, a place, accounts to call): ranks them, maps them, narrows them to a pick.',
     layout: { preset: 'shortlist', components: SHORTLIST },
+  },
+  {
+    id: 'dossier',
+    label: 'Meeting briefing',
+    when: 'Getting ready to meet or work with a person or company: who they are, what\'s known, what they said, what to talk about.',
+    layout: { preset: 'dossier', components: DOSSIER },
   },
 ];
 
@@ -241,6 +285,56 @@ export function splitNotebookHeader(components: readonly ViewComponent[]): { hea
   return { header, ...(side ? { side } : {}), rest };
 }
 
+/** Row shapes a drawn page may use (DESIGN.md "Notebook pages"): full width, or these Columns widths. */
+const ROW_SHAPES = new Set(['2:1', '1:2', '3:2', '2:3', '1:1', '1:1:1']);
+const LONG_LISTS = new Set(['QuoteList', 'Table', 'Timeline', 'OptionGrid']);
+
+/**
+ * Where a drawn page breaks the editorial rhythm (DESIGN.md "Notebook
+ * pages"): too many framed parts, more than one lede, a long list in an
+ * aside, a row shape off the list, or two rows in a row with the same shape.
+ * Empty when it reads well. Advice for whoever draws it, not a check every
+ * page must pass (the shortlist is all frames).
+ */
+export function pageRhythm(components: readonly ViewComponent[]): string[] {
+  const byId = new Map(components.map((c) => [c.id, c]));
+  const out: string[] = [];
+  const panels = components.filter((c) => c.component === 'Panel');
+  const framed = panels.filter((c) => !c.treatment || c.treatment === 'plain');
+  if (framed.length > 3) out.push(`${String(framed.length)} parts are framed (plain); at most 3. Give the others a treatment: lede, feature, aside or band.`);
+  const ledes = panels.filter((c) => c.treatment === 'lede');
+  if (ledes.length > 1) out.push(`${String(ledes.length)} ledes (${ledes.map((c) => c.id).join(', ')}); a page has one.`);
+  const holds = (id: unknown, seen = new Set<string>()): string | undefined => {
+    const c = typeof id === 'string' ? byId.get(id) : undefined;
+    if (!c || seen.has(c.id)) return undefined;
+    seen.add(c.id);
+    if (LONG_LISTS.has(c.component)) return c.component;
+    for (const k of [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])]) {
+      const found = holds(k, seen);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  for (const a of panels.filter((c) => c.treatment === 'aside')) {
+    const list = holds(a.child);
+    if (list) out.push(`${a.id} is an aside holding a ${list}; long lists go in a feature or a fold.`);
+  }
+  const ratio = (w: unknown[]) => {
+    const n = w.map((x) => Number(x) || 1);
+    const g = n.reduce((a, b) => { let x = a; let y = b; while (y) [x, y] = [y, x % y]; return x; });
+    return n.map((x) => String(x / g)).join(':');
+  };
+  const rows = ((byId.get('root')?.children as string[] | undefined) ?? []).map((id) => byId.get(id)).filter((c): c is ViewComponent => !!c && c.component !== 'NotebookHeader');
+  let last = '';
+  for (const r of rows) {
+    const shape = r.component === 'Columns' ? ratio(Array.isArray(r.widths) ? r.widths as unknown[] : (r.children as unknown[]).map(() => 1)) : 'full';
+    if (shape !== 'full' && !ROW_SHAPES.has(shape)) out.push(`${r.id} is ${shape}; rows are full width, 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1.`);
+    if (shape !== 'full' && shape === last) out.push(`${r.id} has the same shape (${shape}) as the row before it; vary them.`);
+    last = shape;
+  }
+  return out;
+}
+
 const SAMPLE_FLAGS = Object.fromEntries(Object.keys(NOTEBOOK_LAYOUT_FLAGS).map((k) => [k, true])) as Record<NotebookLayoutFlag, boolean>;
 const SAMPLE_VALUES: Record<NotebookLayoutValueKey, unknown> = {
   mapNote: 'price by measure', xLabel: 'Measure', yLabel: 'Price', xFormat: 'number', yFormat: 'money',
@@ -322,6 +416,10 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
   '/notebook/notFound': 'What was looked for about them and not found (FactSheet missing).',
+  '/notebook/leadQuote': 'The first thing they said (the top quote), as text: a cover\'s pull quote.',
+  '/notebook/otherQuotes': 'The quotes after that one (QuoteList items, when the pull quote is shown).',
+  '/notebook/personFacts': 'What was learned about the person only (FactSheet facts beside their cover).',
+  '/notebook/companyFacts': 'What was learned about their company only (FactSheet facts beside its card).',
   '/notebook/shortlistNote': 'How the shortlist is ranked.',
   '/notebook/limitsNote': 'How many limits disagree.',
 };
@@ -355,6 +453,7 @@ ${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0] + props(
 
 Rules:
 - The header (title, status, buttons, steps) is always drawn by the page. To shape it, put a NotebookHeader first in root's children: a subtitle that says what the page is ("Meeting briefing"), cover "none" when the lead option's picture isn't what the notebook is about, steps "fold" once the work is mostly done, and a short \`side\` part (a StatStrip, a short Agenda, a Callout) for what matters at a glance. Don't repeat its title, what it's for, its steps or its done-whens elsewhere.
+- Draw it like a magazine page, not a grid of boxes: give each Panel a treatment. One lede opens it (no frame, a teal eyebrow), a feature carries the main story (a rule above), asides hold facts and context beside it (a hairline on the left), a band is a full-width strip; plain (a frame) is for tools, at most 3. Rows are full width or Columns of 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1, and two rows in a row never share a shape. Long lists go in a feature or a fold, never an aside. For a person: ProfileCard variant "cover" with a pull quote (/notebook/leadQuote); Agenda variant "numerals"; FactSheet variant "ruled" in an aside; QuoteList lead: true when its first quote should be set large.
 - Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
 - Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.

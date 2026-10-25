@@ -81,6 +81,14 @@ describe('browser components match the core catalog', () => {
     expect(suaComponentDocs().map((d) => d.name)).not.toContain('AgentTile');
   });
 
+  it('has no backslash-number escape in a component\'s styles (it empties the whole stylesheet: a template literal can\'t hold one)', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf8');
+    const styles = [...js.matchAll(/css`([^`]*)`/g)].map((m) => m[1]);
+    expect(styles.length).toBeGreaterThan(20);
+    expect(styles.filter((c) => /\\[0-9]/.test(c)).map((c) => c.slice(0, 60))).toEqual([]);
+  });
+
   it("accepts every prop the server's schema does (a prop it doesn't know fails the whole widget)", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf8');

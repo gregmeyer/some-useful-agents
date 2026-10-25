@@ -63,7 +63,9 @@ nodes:
           what's still open;
         - a plan or itinerary, or keeping watch on something: lead with
           the plan or what changed, then the detail.
-      Use a ready-made page whenever it fits; draw one only when none does.
+      Use a ready-made page whenever it fits ({"preset": "dossier"} for
+      getting ready to meet someone); start from its page and change it
+      when it nearly fits; draw one only when none does.
 
       Drawing a page:
       {{inputs.GUIDE}}

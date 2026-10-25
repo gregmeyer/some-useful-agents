@@ -176,9 +176,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Panel',
-    summary: 'A titled frame for a widget: a mono title, an optional note on the right, and its child.',
-    example: { id: 'p', component: 'Panel', title: 'Shortlist', note: 'ranked by price', child: 'p_body' },
-    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId }).strict(),
+    summary: 'A titled part of a page: a mono title, an optional note on the right, and its child. `treatment` sets how it reads: plain (a frame, the default), lede (no frame, a teal eyebrow: the opening part), feature (no frame, a rule above: the main story), aside (a hairline rule on its left: facts and context), band (full width, tinted: a strip).',
+    example: { id: 'p', component: 'Panel', title: 'Shortlist', note: 'ranked by price', child: 'p_body', treatment: 'plain' },
+    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional() }).strict(),
   },
   {
     name: 'Callout',
@@ -228,13 +228,17 @@ const SUA_COMPONENTS = [
       image: Str.optional(),
       links: CS.DynamicValue.optional(),
       asOf: Str.optional(),
+      /** cover: a large portrait and the name in display type, for the lead of a briefing. */
+      variant: z.enum(['card', 'cover']).optional(),
+      /** A pull quote under them (cover). */
+      quote: Str.optional(),
     }).strict(),
   },
   {
     name: 'FactSheet',
     summary: 'What is known, from an array of {label, value, url?, at?, estimate?, group?}: rows under their group, each with its source ↗ and date, estimates marked ≈; `missing` (an array of strings) lists what wasn\'t found.',
     example: { id: 'facts', component: 'FactSheet', facts: { path: '/outputs/facts' }, missing: { path: '/outputs/not_found' } },
-    schema: Common.extend({ facts: CS.DynamicValue, missing: CS.DynamicValue.optional() }).strict(),
+    schema: Common.extend({ facts: CS.DynamicValue, missing: CS.DynamicValue.optional(), variant: z.enum(['grid', 'ruled']).optional() }).strict(),
   },
   {
     name: 'QuoteList',
@@ -245,6 +249,8 @@ const SUA_COMPONENTS = [
       grouped: z.boolean().optional(),
       maxItems: z.number().int().min(1).max(50).optional(),
       search: z.boolean().optional(),
+      /** Set its first quote large, as a pull quote. */
+      lead: z.boolean().optional(),
     }).strict(),
   },
   {
@@ -260,6 +266,8 @@ const SUA_COMPONENTS = [
       title: Str.optional(),
       check: z.boolean().optional(),
       copy: z.boolean().optional(),
+      /** numerals: large teal numbers instead of small circles. */
+      variant: z.enum(['list', 'numerals']).optional(),
     }).strict(),
   },
   {

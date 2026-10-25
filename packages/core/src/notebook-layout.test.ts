@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { NotebookStore } from './notebooks.js';
-import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
+import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, pageRhythm, layoutPreset, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
 import type { ViewComponent } from './a2ui/view.js';
 
 let dir: string | undefined;
@@ -47,7 +47,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(checkNotebookLayout(page).ok).toBe(true);
     expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }]))
-      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about (or !one).'] });
+      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company (or !one).'] });
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }]).ok).toBe(false);
     expect(checkNotebookLayout('no').ok).toBe(false);
     expect(cleanLayout('shortlist')).toBe(DEFAULT_NOTEBOOK_LAYOUT);
@@ -55,7 +55,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(cleanLayout('nope')).toBeUndefined();
     expect(cleanLayout({ preset: 'shortlist', components: page })).toEqual({ preset: 'shortlist', components: page });
     expect(notebookLayoutOf({})).toBe(DEFAULT_NOTEBOOK_LAYOUT);
-    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist']);
+    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier']);
   });
 
   it('a notebook keeps its layout, can go back to the default, and a template carries it', () => {
@@ -68,7 +68,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.get(nb.id)!.layout).toEqual({ components: page });
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toEqual({ components: page });
     expect(() => s.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }] }))
-      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about (or !one).');
+      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company (or !one).');
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });
@@ -162,5 +162,41 @@ describe('a page\'s length and header', () => {
     expect(g).toContain('never two long lists stacked at the top');
     expect(g).toContain('put a NotebookHeader first in root\'s children');
     expect(g).toContain('- QuoteList: Quotes. Props, e.g. {"items":{"path":"/notebook/quotes"},"maxItems":4}');
+  });
+});
+
+describe('editorial pages', () => {
+  it('a meeting briefing (dossier) reads well, and its parts wait for what they show', () => {
+    const dossier = layoutPreset('dossier')!.layout.components;
+    expect(checkNotebookLayout(dossier).ok).toBe(true);
+    expect(pageRhythm(dossier)).toEqual([]);
+    // Before anything is learned: no cover row, no company aside; what to talk about takes the row.
+    const early = new Map(resolveNotebookLayout(dossier, { options: true }, {}).map((c) => [c.id, c]));
+    expect(early.has('cover_row')).toBe(false);
+    expect(early.get('talk_row')).toMatchObject({ children: ['agenda_p'], widths: [1] });
+    // Once the person and company are known, both rows are there.
+    const known = new Map(resolveNotebookLayout(dossier, { options: true, about: true, person: true, company: true }, {}).map((c) => [c.id, c]));
+    expect(known.get('cover_row')!.children).toEqual(['who_p', 'facts_p']);
+    expect(known.get('who')).toMatchObject({ variant: 'cover', quote: { path: '/notebook/leadQuote' } });
+  });
+
+  it('says where a drawn page reads like a grid', () => {
+    const frame = (id: string, child: string, treatment?: string) => ({ id, component: 'Panel', title: id, child, ...(treatment ? { treatment } : {}) });
+    const grid = [
+      { id: 'root', component: 'Column', children: ['r1', 'r2', 'r3', 'g'] },
+      { id: 'r1', component: 'Columns', children: ['a', 'b'], widths: [1, 1] },
+      { id: 'r2', component: 'Columns', children: ['c', 'd'], widths: [2, 2] },
+      { id: 'r3', component: 'Columns', children: ['e', 'f'], widths: [5, 1] },
+      frame('a', 'ta'), frame('b', 'tb'), frame('c', 'tc'), frame('d', 'td', 'lede'), frame('e', 'q', 'aside'), frame('f', 'tf', 'lede'), frame('g', 'tg'),
+      ...['ta', 'tb', 'tc', 'td', 'tf', 'tg'].map((id) => ({ id, component: 'Text', text: 'x' })),
+      { id: 'q', component: 'QuoteList', items: [] },
+    ];
+    expect(pageRhythm(grid)).toEqual([
+      '4 parts are framed (plain); at most 3. Give the others a treatment: lede, feature, aside or band.',
+      '2 ledes (d, f); a page has one.',
+      'e is an aside holding a QuoteList; long lists go in a feature or a fold.',
+      'r2 has the same shape (1:1) as the row before it; vary them.',
+      'r3 is 5:1; rows are full width, 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1.',
+    ]);
   });
 });
