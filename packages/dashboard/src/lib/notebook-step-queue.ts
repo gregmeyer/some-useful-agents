@@ -175,11 +175,11 @@ export async function actOnStep(ctx: Ctx, notebookId: string, op: StepOp, opts: 
     const target = op === 'again' ? nb.steps?.find((s) => s.id === opts.stepId) : cur;
     const i = target ? (nb.steps ?? []).indexOf(target) : -1;
     const next = i >= 0 ? nb.steps![i + 1] : undefined;
-    const rationale = op === 'again' ? `Search again: ${target?.title ?? 'the find step'}.`
+    const rationale = op === 'again' ? `${target?.kind === 'profile' ? 'Look again' : 'Search again'}: ${target?.title ?? 'the find step'}.`
       : op === 'move' ? `Keep what ${cur?.title ?? 'the step'} found and ${next ? `go on to ${next.title}` : 'finish'}.`
       : cur?.status === 'met' && next ? `Start step ${String(i + 2)}: ${next.title}.`
       : `${cur?.status === 'stuck' ? 'Run' : 'Start'} step ${String(i + 1)}: ${cur?.title ?? ''}${cur?.status === 'stuck' ? ' again' : ''}.`;
-    meta = { kind: 'action', status: 'proposed', agentId: NOTEBOOK_STEP_ACTION, effect: 'write', inputs, rationale, ctaLabel: op === 'again' ? 'Search again' : op === 'move' ? 'Move on' : cur?.status === 'met' ? 'Continue' : cur?.status === 'stuck' ? 'Try again' : 'Start' };
+    meta = { kind: 'action', status: 'proposed', agentId: NOTEBOOK_STEP_ACTION, effect: 'write', inputs, rationale, ctaLabel: op === 'again' ? (target?.kind === 'profile' ? 'Look again' : 'Search again') : op === 'move' ? 'Move on' : cur?.status === 'met' ? 'Continue' : cur?.status === 'stuck' ? 'Try again' : 'Start' };
   }
   const threadId = nb.conversationId && ctx.inboxStore?.get(nb.conversationId) ? nb.conversationId : undefined;
   // No conversation yet: act directly, as before.

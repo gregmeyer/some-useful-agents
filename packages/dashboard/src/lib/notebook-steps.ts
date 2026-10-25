@@ -277,9 +277,22 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     ? nb.steps?.find((s) => s.id === opts.stepId || s.title.toLowerCase() === want)
     : nb.steps?.find((s) => s.kind === 'find');
   if (!step) return { started: false, reason: want ? 'The notebook has no such step.' : 'The notebook has no find step to run again.' };
-  if (step.kind !== 'find') return { started: false, reason: `${step.title} isn't a find step, so there's nothing to search again.`, step };
+  if (step.kind !== 'find' && step.kind !== 'profile') return { started: false, reason: `${step.title} isn't a find step, so there's nothing to search again.`, step };
   // Not there yet: that's the step's own run.
   if (step === currentStep(nb) && step.status !== 'met') return startNotebookStep(ctx, nb.id, { stepId: step.id });
+  // Look again: learn about them once more (new facts, a photo that's clearly them), leaving the steps where they are.
+  if (step.kind === 'profile') {
+    const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
+    ctx.notebookPipelines ??= new Map();
+    ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_RESEARCHER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
+    void lookAgain(ctx, store, nb.id, step).catch((err: unknown) => {
+      try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
+    }).finally(() => {
+      ctx.notebookPipelines?.delete(notebookId);
+      reconcileStepCards(ctx, notebookId);
+    });
+    return { started: true, step };
+  }
   const resolved = stepAgent(ctx, step, nb.id);
   if (!resolved.agentId) return { started: false, reason: resolved.reason, step };
   const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
@@ -294,6 +307,20 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     reconcileStepCards(ctx, notebookId);
   });
   return { started: true, step };
+}
+
+/** A done profile step, once more: what it learned this time, said in the conversation. */
+async function lookAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<void> {
+  const notes = await learnAbout(ctx, store, notebookId, step);
+  const words = notes.length ? `Looked again (**${step.title}**): ${notes.join('; ')}.` : `Looked again (**${step.title}**): sua's researcher didn't answer. Nothing changed.`;
+  store.noteRun(notebookId, `${step.title}, again: ${words.replace(/\*\*/g, '')}`);
+  const nb = store.get(notebookId);
+  const threadId = nb && ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  if (threadId) {
+    const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
+    publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+    reopenForStepNews(ctx, threadId);
+  }
 }
 
 /** One more run of a met or done find step's agent, for as many new ones as its goal; then say what's new. */
