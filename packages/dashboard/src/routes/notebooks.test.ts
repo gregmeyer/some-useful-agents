@@ -2712,6 +2712,48 @@ describe('a profile step', () => {
     expect(html).toContain('VP Operations');
   });
 
+  it('decides its page again once its first step is done, unless you changed the page', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const ctx = getContext(app.locals);
+    ctx.notebookLogoDeps = { fetchImage: async () => { throw new Error('offline'); }, siteIcons: async () => [] };
+    researchReply = () => JSON.stringify({ found: { kind: { value: 'person' }, role: { value: 'COO' }, location: { value: 'Austin' }, background: { value: 'Ops' }, known_for: { value: 'Scaling' } } });
+    const page = [
+      { id: 'root', component: 'Column', children: ['who'] },
+      { id: 'who', component: 'ProfileCard', name: { path: '/notebook/person/name' }, when: 'about' },
+    ];
+    pageAsked.length = 0;
+    pageReply = () => `<page>${JSON.stringify({ about: 'a briefing: who they are', components: page })}</page>`;
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const run = async (title: string, layoutBy?: 'you') => {
+      const nb = store.create({ title });
+      store.setSteps(nb.id, [{ title: 'Learn about them', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Find 5 themes', kind: 'find', target: 5 }]);
+      if (layoutBy) store.setLayout(nb.id, null, layoutBy);
+      startNotebookStep(ctx, nb.id);
+      for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < 100 && ctx.notebookPages?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 50));
+      return store.get(nb.id)!;
+    };
+    const own = await run('Prepare for a call with Dana');
+    expect(own.steps![0].status).toBe('met');
+    expect(pageAsked).toHaveLength(1);
+    expect(JSON.parse(pageAsked[0].NOTEBOOK).steps[0]).toMatchObject({ kind: 'profile' });
+    expect(own).toMatchObject({ layoutBy: 'notebook', layout: { about: 'a briefing: who they are' } });
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(own.conversationId!).map((r) => r.body).join('\n');
+    expect(said).toContain('Now that it knows more, I redrew its page: a briefing: who they are.');
+
+    // You went back to the shortlist: that stands.
+    pageAsked.length = 0;
+    const yours = await run('Prepare for a call with Sam', 'you');
+    expect(yours.steps![0].status).toBe('met');
+    expect(pageAsked).toHaveLength(0);
+    expect(yours.layout).toBeUndefined();
+    pageReply = undefined;
+  });
+
   it('looks up a company alone as a company, and is stuck without an answer', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

@@ -1140,3 +1140,24 @@ describe('who a notebook is about', () => {
     expect(s.aboutPhotos(nb.id).size).toBe(0);
   });
 });
+
+describe('a notebook\'s steps and page, changed later', () => {
+  it('adds a step in front without renumbering the others, and says who set the page last', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call' });
+    s.setSteps(nb.id, [{ title: 'Find 5 themes', kind: 'find', target: 5 }, { title: 'Choose', kind: 'decide', target: 2 }]);
+    s.updateStep(nb.id, 's1', { status: 'done' });
+    s.setSteps(nb.id, [{ title: 'Learn about Dana', kind: 'profile' }, ...s.get(nb.id)!.steps!]);
+    expect(s.get(nb.id)!.steps!.map((x) => `${x.id}:${x.kind}:${x.status}`)).toEqual(['s3:profile:todo', 's1:find:done', 's2:decide:todo']);
+
+    const page = { components: [{ id: 'root', component: 'Column', children: ['c'] }, { id: 'c', component: 'Callout', text: 'x' }] };
+    expect(s.get(nb.id)!.layoutBy).toBeUndefined();
+    s.setLayout(nb.id, page, 'notebook');
+    expect(s.get(nb.id)!.layoutBy).toBe('notebook');
+    s.undoLayout(nb.id);
+    expect(s.get(nb.id)).toMatchObject({ layoutBy: 'you' });
+    expect(s.get(nb.id)!.layout).toBeUndefined();
+  });
+});
