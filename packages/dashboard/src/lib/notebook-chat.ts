@@ -449,6 +449,8 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   const now = store.get(notebookId) ?? nb;
   const first = startableFirstStep(now);
   ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option'))
+    // The page it decided on (lib/notebook-page.ts), when it isn't the shortlist.
+    + (now.layout?.about ? `\n\nIts page is drawn for what it's for: ${now.layout.about}. Ask me to change it, or undo it on **Edit**.` : '')
     + (first ? `\n\nPress **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
   // Its first step, one press away (the same card as a step's Continue).
   if (first) {

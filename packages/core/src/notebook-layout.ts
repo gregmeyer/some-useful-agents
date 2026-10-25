@@ -48,6 +48,8 @@ export interface NotebookLayout {
   preset?: string;
   /** An A2UI component list with a `root`, plus the `when` and `/notebook/layout/` extensions. */
   components: ViewComponent[];
+  /** Why the page looks like this, when sua drew it ("a briefing: who they are, what they said, what to ask"). */
+  about?: string;
 }
 
 export interface NotebookLayoutPreset {
@@ -220,12 +222,13 @@ export function checkNotebookLayout(components: unknown): { ok: true; components
 export function cleanLayout(raw: unknown): NotebookLayout | undefined {
   if (typeof raw === 'string') return layoutPreset(raw.trim())?.layout;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const r = raw as { preset?: unknown; components?: unknown };
+  const r = raw as { preset?: unknown; components?: unknown; about?: unknown };
   const preset = typeof r.preset === 'string' ? layoutPreset(r.preset) : undefined;
   if (r.components === undefined) return preset?.layout;
   const v = checkNotebookLayout(r.components);
   if (!v.ok) return undefined;
-  return { ...(preset ? { preset: preset.id } : {}), components: v.components };
+  const about = typeof r.about === 'string' ? r.about.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  return { ...(preset ? { preset: preset.id } : {}), components: v.components, ...(about ? { about } : {}) };
 }
 
 /** What a layout can bind to under `/notebook/...` (the page's data; add paths, never rename them). */
@@ -234,9 +237,9 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/statement': 'What it\'s for.',
   '/notebook/status': 'active | decided | stopped.',
   '/notebook/decision': 'The decision, once decided.',
-  '/notebook/summary': 'Where it stands, a paragraph (markdown).',
-  '/notebook/next': 'The next thing to do, one line.',
-  '/notebook/statItems': 'Stats as [{label, value, sub?}] (StatStrip, KeyValue).',
+  '/notebook/summary': 'Where it stands, a paragraph (markdown), written for a shortlist (in the running, the best lead).',
+  '/notebook/next': 'The next thing to do, one line, written for a shortlist.',
+  '/notebook/statItems': 'A shortlist\'s stats (in the running, best price or fit, furthest along, ruled out) as [{label, value, sub?}] (StatStrip, KeyValue).',
   '/notebook/stats': '{active, best, bestLabel, furthest, ruledOut} as text.',
   '/notebook/steps': 'Done-whens as [{text, met}] (Steps).',
   '/notebook/progress': '{met, total} done-whens.',
@@ -265,8 +268,14 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
  * How to draw a notebook's page, for sua: the shape, what it can bind to,
  * the `when` flags and `/notebook/layout/` settings, and the components.
  */
-export function notebookLayoutGuide(components: ReadonlyArray<{ name: string; summary: string }>): string {
+export function notebookLayoutGuide(components: ReadonlyArray<{ name: string; summary: string; example?: Record<string, unknown> }>): string {
   const line = (k: string, v: string) => `- ${k}: ${v}`;
+  // Each component's own example shows its props by name: a guessed name ("items" for Steps) fails the check.
+  const props = (c: { example?: Record<string, unknown> }) => {
+    if (!c.example) return '';
+    const { id: _id, component: _c, ...rest } = c.example;
+    return ` Props, e.g. ${JSON.stringify(rest)}`;
+  };
   return `## A notebook's page (its layout): an A2UI document
 A flat list of components; \`root\` is the top; children/child name other ids. Each prop is a literal or { "path": "/notebook/..." }.
 
@@ -280,12 +289,14 @@ ${Object.entries(NOTEBOOK_LAYOUT_VALUES).map(([k, v]) => line(k, v)).join('\n')}
 ${Object.entries(NOTEBOOK_LAYOUT_FLAGS).map(([k, v]) => line(k, v)).join('\n')}
 
 Components: Text (text, variant: h3 / body / caption), Row, Column, Card (child), Tabs (tabs: [{ title, child }]), Divider, Image (url), plus sua's:
-${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0])).join('\n')}
+${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0] + props(c))).join('\n')}
 
 Rules:
-- Lead with what the notebook is for (a briefing leads with who; a shortlist with where it stands), then the detail.
+- The page sits under the notebook's header, which already shows its title, what it's for, its steps and its done-whens: don't repeat them.
+- Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
 - Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.
+- Use each component's props exactly as named above; a prop it doesn't have fails the whole page. "when" takes only the flags above.
 - Keep every id unique (short word characters), at most about 60 components.`;
 }
 

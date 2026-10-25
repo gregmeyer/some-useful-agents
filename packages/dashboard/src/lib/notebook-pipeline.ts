@@ -484,8 +484,9 @@ export function startNotebookSetup(ctx: Ctx, notebookId: string, opts: { onDone?
   return true;
 }
 
+/** Being set up: what it tracks, or (just after) the page it decides on (lib/notebook-page.ts). */
 export function setupRunning(ctx: Ctx, notebookId: string): boolean {
-  return !!ctx.notebookSetups?.has(notebookId);
+  return !!ctx.notebookSetups?.has(notebookId) || !!ctx.notebookPages?.has(notebookId);
 }
 
 // ── Runs not in the notebook yet ──

@@ -3,7 +3,8 @@
  * not) and for sua starting one from a template. It's created with what it's
  * for and its limits; given its steps, fields, stages and checks when it has
  * them (setup is then skipped); otherwise sua sets those up and lays out its
- * steps. Then sua says hello in the notebook's conversation.
+ * steps. Then it decides its page (unless it came with one, a template's),
+ * and sua says hello in the notebook's conversation.
  */
 import { NotebookStore, type Notebook, type NotebookStep, type NotebookLayout } from '@some-useful-agents/core';
 import { fitStepAgents } from './notebook-steps.js';
@@ -11,6 +12,7 @@ import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
 import { greetNotebook } from './notebook-chat.js';
+import { decideNotebookPage } from './notebook-page.js';
 import { publishInboxChanged } from '../routes/inbox-shared.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -60,10 +62,15 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     const threadId = greetNotebook(ctx, nb.id);
     if (threadId) { publishInboxChanged(ctx, threadId, 'awaiting_user'); store.touch(nb.id); }
   };
-  // No steps given: sua lays them out once it's set up, then says hello.
+  // Set up with its steps: it decides its page from what it's for, then sua says hello.
+  const pageThenGreet = () => {
+    if (input.layout) { greet(); return; }
+    void decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet);
+  };
+  // No steps given: sua lays them out once it's set up first.
   const stepsThenGreet = () => {
-    if (steps) { greet(); return; }
-    void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(greet);
+    if (steps) { pageThenGreet(); return; }
+    void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(pageThenGreet);
   };
   if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
   return store.get(nb.id)!;

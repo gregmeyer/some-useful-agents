@@ -548,7 +548,7 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
 
 function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): SafeHtml {
   const note = settingUp
-    ? html`<p class="nb-setup" role="status"><span class="nb-setup__dot" aria-hidden="true"></span>sua is setting up what to track for this notebook (what each option records, and the stages they go through). This page updates when it's done.</p>`
+    ? html`<p class="nb-setup" role="status"><span class="nb-setup__dot" aria-hidden="true"></span>sua is setting up this notebook: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
     : html``;
   return html`${note}${surfaceColumnBody(nb, compiled, entries, history)}`;
 }
@@ -702,14 +702,17 @@ function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml
 }
 
 /** The rest of a notebook's own actions, under its Edit page: stop it, keep it as a template, archive or delete it. */
-function notebookMoreActions(nb: Notebook, layoutUndos = 0): SafeHtml {
+function notebookMoreActions(nb: Notebook, layoutUndos = 0, pagePicking = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const preset = nb.layout?.preset ? layoutPreset(nb.layout.preset) : undefined;
   return html`
       <section class="nbe-more" aria-labelledby="nbe-more-title">
         <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
         <div class="nb-form nbe-more__row nbe-layout">
-          <span class="nbe-layout__now">Page: <b>${nb.layout ? (preset && JSON.stringify(preset.layout.components) === JSON.stringify(nb.layout.components) ? preset.label : 'Drawn for this notebook') : 'Shortlist'}</b></span>
+          <span class="nbe-layout__now">Page: <b>${nb.layout ? (preset && JSON.stringify(preset.layout.components) === JSON.stringify(nb.layout.components) ? preset.label : 'Drawn for this notebook') : 'Shortlist'}</b>${nb.layout?.about ? html` <span class="nbe-layout__about">(${nb.layout.about})</span>` : html``}</span>
+          ${pagePicking
+            ? html`<span class="nbe-layout__working" role="status">sua is picking a page for what it's for…</span>`
+            : html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="decide" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="sua looks at what the notebook is for, what it notes and its steps, and keeps the shortlist or draws a page that fits. Undo puts this one back.">Pick a page for what it's for</button></form>`}
           ${layoutUndos ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="undo" value="1"><button type="submit" class="btn btn--sm btn--ghost">Undo the last page change</button></form>` : html``}
           ${nb.layout ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="shortlist"><button type="submit" class="btn btn--sm btn--ghost">Back to Shortlist</button></form>` : html``}
           <span class="nbe-more__hint">To change what the page shows, ask sua in the notebook's conversation: "put who they are at the top", "a table of the themes".</span>
@@ -740,7 +743,7 @@ function notebookMoreActions(nb: Notebook, layoutUndos = 0): SafeHtml {
  * checks as rows, steps with their agents, searches by name, the schedule in
  * words), then Save; its other actions below.
  */
-export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string }; layoutUndos?: number }): string {
+export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string }; layoutUndos?: number; pagePicking?: boolean }): string {
   const { nb } = args;
   const id = encodeURIComponent(nb.id);
   return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
@@ -760,7 +763,7 @@ export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{
           <a class="btn btn--ghost" href="/notebooks/${id}">Cancel</a>
         </div>
       </form>
-      ${notebookMoreActions(nb, args.layoutUndos)}
+      ${notebookMoreActions(nb, args.layoutUndos, args.pagePicking)}
     </div>
   `));
 }

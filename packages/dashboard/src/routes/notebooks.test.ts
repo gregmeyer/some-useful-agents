@@ -34,6 +34,9 @@ let finderReply: ((inputs: Record<string, string>) => string | undefined) | unde
 /** The drafter's answer when sua lays out a new notebook's steps (unset: none). */
 let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
+/** The notebook-page agent's answer (none: the shortlist stays), and what it was asked. */
+let pageReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+const pageAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
 let dashboardsStore: DashboardsStore;
@@ -92,6 +95,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookPictureRun: async () => undefined,
     // Nor a real facet-labelling model: tests set facetsReply (and see what it was asked).
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
+    notebookPageRun: async (inputs) => { pageAsked.push(inputs); return pageReply?.(inputs); },
     // Nor a real checker: tests set checkerReply.
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // Nor a real finder: tests set finderReply.
@@ -2642,6 +2646,79 @@ describe('a notebook\'s page, drawn by sua', () => {
     await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
     expect(store.get(nb.id)!.layout).toBeUndefined();
     expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('Page: <b>Shortlist</b>');
+  });
+});
+
+describe('a new notebook decides its page', () => {
+  afterEach(() => { pageReply = undefined; pageAsked.length = 0; });
+  const BRIEFING = [
+    { id: 'root', component: 'Column', children: ['agenda_panel', 'said_panel'] },
+    { id: 'agenda_panel', component: 'Panel', title: 'What to talk about', child: 'agenda' },
+    { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' } },
+    { id: 'said_panel', component: 'Panel', title: 'What they care about', child: 'said' },
+    { id: 'said', component: 'QuoteList', items: { path: '/notebook/quotes' } },
+  ];
+
+  it('draws one that fits once it\'s set up (one more try when the first doesn\'t check out), says so, and Undo puts the shortlist back', async () => {
+    const app = await makeApp();
+    pageAsked.length = 0;
+    pageReply = (inputs) => (inputs.ERRORS
+      ? `<page>${JSON.stringify({ about: 'a briefing: what to talk about, what they said', components: BRIEFING })}</page>`
+      : `<page>${JSON.stringify({ components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }] })}</page>`);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    await post('/notebooks', { title: 'Prepare for a meeting with Dana Reyes', statement: 'What matters to Dana before we meet' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const id = 'prepare-for-a-meeting-with-dana-reyes';
+    for (let i = 0; i < 200 && !store.get(id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 25));
+    const nb = store.get(id)!;
+    expect(pageAsked).toHaveLength(2);
+    expect(JSON.parse(pageAsked[0].NOTEBOOK)).toMatchObject({ title: nb.title, for: 'What matters to Dana before we meet' });
+    expect(pageAsked[0].PRESETS).toContain('shortlist: ');
+    expect(pageAsked[0].GUIDE).toContain('/notebook/quotes');
+    expect(pageAsked[1].ERRORS).not.toBe('');
+    expect(nb.layout).toEqual({ components: BRIEFING, about: 'a briefing: what to talk about, what they said' });
+    const { InboxStore } = await import('@some-useful-agents/core');
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(nb.conversationId!).map((r) => r.body).join('\n');
+    expect(said).toContain("Its page is drawn for what it's for: a briefing: what to talk about, what they said.");
+    const edit = (await request(app).get(`/notebooks/${id}/edit`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(edit).toContain('Page: <b>Drawn for this notebook</b> <span class="nbe-layout__about">(a briefing: what to talk about, what they said)</span>');
+    expect(edit).toMatch(/Pick a page for what it(&#39;|')s for/);
+    await post(`/notebooks/${id}/layout`, { undo: '1' });
+    expect(store.get(id)!.layout).toBeUndefined();
+
+    // Picked again from Edit: this time it keeps the shortlist.
+    pageReply = () => `<page>${JSON.stringify({ preset: 'shortlist' })}</page>`;
+    store.setLayout(id, { components: BRIEFING }, 'you');
+    const res = await post(`/notebooks/${id}/layout`, { decide: '1' });
+    expect(decodeURIComponent(res.headers.location)).toContain('sua is picking a page');
+    for (let i = 0; i < 200 && store.get(id)!.layout; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(store.get(id)!.layout).toBeUndefined();
+  });
+
+  it('keeps the shortlist when sua says so or can\'t draw one, and never replaces a page it came with', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { createNotebookFrom } = await import('../lib/notebook-create.js');
+    const { decideNotebookPage } = await import('../lib/notebook-page.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Buy a used car' });
+    pageReply = () => `<page>${JSON.stringify({ preset: 'shortlist', about: 'choosing among many' })}</page>`;
+    expect(await decideNotebookPage(ctx, nb.id)).toBe('kept');
+    pageReply = () => 'no page';
+    expect(await decideNotebookPage(ctx, nb.id)).toBe('failed');
+    expect(store.get(nb.id)!.layout).toBeUndefined();
+
+    // A template's page stands: the agent isn't asked.
+    pageAsked.length = 0;
+    const made = createNotebookFrom(ctx, { title: 'Prepare for a call', statement: 'x', params: [], criteria: [], fields: [{ key: 'theme', label: 'Theme', type: 'text' }], layout: { components: BRIEFING } });
+    for (let i = 0; i < 200 && !store.get(made.id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(pageAsked).toHaveLength(0);
+    expect(store.get(made.id)!.layout?.components).toEqual(BRIEFING);
+    expect(await decideNotebookPage(ctx, made.id)).toBe('skipped');
   });
 });
 

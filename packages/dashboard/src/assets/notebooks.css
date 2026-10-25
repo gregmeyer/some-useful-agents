@@ -874,3 +874,5 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbt-hand { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
 .nbt-hand > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbt-hand[open] > summary { margin-bottom: var(--space-3); }
+.nbe-layout__about { color: var(--color-text-muted); }
+.nbe-layout__working { font-size: var(--font-size-sm); color: var(--color-primary); }

@@ -27,6 +27,7 @@ import {
 import { layoutPreset } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
+import { decideNotebookPage } from '../lib/notebook-page.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
@@ -579,7 +580,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const nb = store(req).get(String(req.params.id));
   if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
-  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: store(req).layoutUndos(nb.id) }));
+  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: store(req).layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id) }));
 });
 
 /** The notebook's page: back to a preset, or undo the last change (sua draws new ones in its conversation). */
@@ -589,6 +590,13 @@ notebooksRouter.post('/notebooks/:id/layout', (req: Request, res: Response) => {
   try {
     const s = store(req);
     if (req.body?.undo === '1') { res.redirect(303, edit(s.undoLayout(id) ? 'Put the page back how it was before the last change.' : 'There\'s no page change to undo.', 'info')); return; }
+    // The notebook picks its page again, in the background (lib/notebook-page.ts).
+    if (req.body?.decide === '1') {
+      if (!s.get(id)) throw new Error('That notebook is gone.');
+      void decideNotebookPage(getContext(req.app.locals), id, { again: true });
+      res.redirect(303, edit('sua is picking a page for what this notebook is for. Open the notebook in a minute to see it; Undo puts the old one back.', 'info'));
+      return;
+    }
     const preset = layoutPreset(str(req.body?.preset));
     if (!preset) throw new Error('No such layout.');
     s.setLayout(id, preset.id === 'shortlist' ? null : preset.id, 'you');
