@@ -101,7 +101,11 @@ nodes:
         marked [already fills: …] have filled notebooks before: prefer one
         of those when it fits this goal, over one that never has.
       - "steps": the work in order, as 2–5 steps sua takes one at a time,
-        each {"title", "kind", "agent", "target"?, "facts"?}. Kinds:
+        each {"title", "kind", "agent", "target"?, "facts"?, "subject"?}. Kinds:
+        "profile" (learn about who the notebook is about when it prepares
+        them to meet or work with a person or a company: who they are,
+        their role, their company, with sources and a photo or logo;
+        "subject": who, e.g. "Dana Reyes"; "agent": ""; first, before find),
         "find" (search for options; "target": how many they want in the
         running, else 10 for companies or leads, 5 otherwise),
         "source" (look up facts a search won't give, e.g. headcount,
@@ -112,7 +116,7 @@ nodes:
         "narrow" (they keep the ones that stay in the running and rule out
         the rest, without deciding; "target": about how many to keep),
         "decide" (they pick the final set or the one; "target": how many).
-        Start with find; end with decide. Add narrow before decide only when
+        Start with find (after profile, when there is one); end with decide. Add narrow before decide only when
         the goal says to cut the list down first ("a shortlist to test
         drive", "which stay in the running"). Add source only when the facts to
         note need their own lookup, and check only when there are checks

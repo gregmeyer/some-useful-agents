@@ -18,7 +18,8 @@ import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.j
 import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from './notebook-pipeline.js';
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
-import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
+import { learnAbout } from './notebook-profile.js';
+import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
 
@@ -63,7 +64,7 @@ function yoursReason(step: Pick<NotebookStep, 'kind'>): string {
 /** "8 of 10 found" — a step's progress in a few words. */
 export function progressWords(step: Pick<NotebookStep, 'kind'>, p: Pick<NotebookStepProgress, 'have' | 'want'>): string {
   if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} found`;
-  const unit = step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
+  const unit = step.kind === 'profile' ? 'facts learned' : step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
 }
 
@@ -203,8 +204,8 @@ function stepAgent(ctx: Ctx, step: NotebookStep, notebookId?: string): { agentId
     return { ...sua, note: misfitWords(step, misfit) };
   }
   const agentId = step.agentId ?? suaStepAgent(step.kind);
-  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID;
-  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
+  const sua = agentId === NOTEBOOK_CHECKER_ID || agentId === NOTEBOOK_FINDER_ID || agentId === NOTEBOOK_RESEARCHER_ID;
+  const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : agentId === NOTEBOOK_RESEARCHER_ID ? ctx.notebookResearchRun : undefined;
   if (sua && !fake && !(ensureSystemAgentCurrent(ctx, agentId, `a notebook ${step.kind} step`)
     && stepAgentHelpers(agentId).every((id) => ensureSystemAgentCurrent(ctx, id, `a notebook ${step.kind} step`)))) {
     return { reason: `${suaStepAgentName(step.kind) ?? 'sua’s agent'} isn’t available.` };
@@ -352,6 +353,15 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   let before = stepProgress(nb, store.entries(nb.id, 1000), step);
   // Already there (a search earlier found enough): no run needed.
   if (before.met) return finish(ctx, store, notebookId, step, before, ['its goal was already met']);
+  // A profile step: sua's researcher learns about who the notebook is about (lib/notebook-profile.ts).
+  if (step.kind === 'profile') {
+    const tries = step.tries + 1;
+    const learned = await learnAbout(ctx, store, notebookId, step);
+    nb = store.get(notebookId)!;
+    const now = stepProgress(nb, store.entries(nb.id, 1000), step);
+    store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
+    return finish(ctx, store, notebookId, { ...step, tries }, now, learned, now.have <= before.have);
+  }
   // A source step whose agent reads one item's page a run: once per option.
   const installed = ctx.agentStore.getAgent(agentId);
   const perItem = step.kind === 'source' && installed ? perItemInputs(installed) : undefined;

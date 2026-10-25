@@ -23,6 +23,8 @@ export interface NotebookWidgetHistory extends NotebookViewHistory {
   searches?(notebookId: string, limit?: number): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }>;
   /** Recent runs of an agent (to show the ones that failed, which leave nothing in the notebook). */
   recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
+  /** Who it's about that has a picture kept (a person's photo, a company's logo). */
+  aboutPhotos?(notebookId: string): Set<string>;
   /** The notebook's passes (its pipeline, steps and conversation runs), to tell its own failed runs from others. */
   passes?(notebookId: string, limit?: number): Array<{ runIds: string[] }>;
   /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
@@ -139,6 +141,13 @@ export interface NotebookWidgetData extends NotebookViewData {
     talkingPoints: Array<{ text: string; note?: string; refs: Array<{ label: string; href: string }> }>;
     /** The other options' questions (their `ask` field) (Agenda questions). */
     questions: Array<{ text: string; label: string; href: string }>;
+    /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
+    person?: NotebookProfileView;
+    company?: NotebookProfileView;
+    /** What was learned about them, each with its source, for FactSheet. */
+    facts: Array<{ label: string; value: string; url?: string; group: string }>;
+    /** What was looked for about them and not found. */
+    notFound: string[];
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -299,6 +308,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
   const { quotes, talkingPoints, questions } = whatTheySaid(nb, active);
+  const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set());
 
   return {
     notebook: {
@@ -306,6 +316,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       quotes,
       talkingPoints,
       questions,
+      ...about,
       options: v.options.map((o) => {
         const facets = optionFacets(nb, o);
         return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
@@ -339,6 +350,51 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
         ruledOut: String(v.ruledOutCount),
       },
     },
+  };
+}
+
+/** A person or company as ProfileCard shows it. */
+export interface NotebookProfileView { name: string; role?: string; org?: string; about?: string; image?: string; links: Array<{ label: string; url: string }>; asOf: string }
+
+/** Where a kept picture of who a notebook is about is served. */
+export function notebookAboutPhotoPath(notebookId: string, who: string): string {
+  return `/notebooks/${encodeURIComponent(notebookId)}/about/${encodeURIComponent(who)}/photo`;
+}
+
+/** Who the notebook is about, for ProfileCard and FactSheet. Pure but for the pictures it's told about. */
+function aboutViews(nb: Notebook, photos: ReadonlySet<string>): Pick<NotebookWidgetData['notebook'], 'person' | 'company' | 'facts' | 'notFound'> {
+  const fact = (who: 'person' | 'company', key: string) => nb.about?.[who]?.facts.find((f) => f.key === key)?.value;
+  const asOf = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const link = (label: string, url: string | undefined) => (url && /^https?:\/\//i.test(url) ? [{ label, url }] : []);
+  const siteName = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '') : ''; } catch { return ''; } };
+  const p = nb.about?.person;
+  const c = nb.about?.company;
+  const person: NotebookProfileView | undefined = p ? {
+    name: p.name,
+    ...(fact('person', 'role') ? { role: fact('person', 'role') } : {}),
+    ...(c?.name || fact('person', 'organization') ? { org: c?.name || fact('person', 'organization') } : {}),
+    ...(p.summary || fact('person', 'known_for') ? { about: p.summary || fact('person', 'known_for') } : {}),
+    ...(photos.has('person') ? { image: notebookAboutPhotoPath(nb.id, 'person') } : {}),
+    links: [...link('LinkedIn', fact('person', 'linkedin')), ...link(siteName(fact('person', 'website')) || 'Their site', fact('person', 'website'))],
+    asOf: asOf(p.updatedAt),
+  } : undefined;
+  const company: NotebookProfileView | undefined = c ? {
+    name: c.name,
+    ...(fact('company', 'what_they_do') ? { role: fact('company', 'what_they_do') } : {}),
+    ...(fact('company', 'headquarters') ? { org: fact('company', 'headquarters') } : {}),
+    ...(c.summary ? { about: c.summary } : {}),
+    ...(photos.has('company') ? { image: notebookAboutPhotoPath(nb.id, 'company') } : {}),
+    links: link(siteName(fact('company', 'website')) || 'Website', fact('company', 'website')),
+    asOf: asOf(c.updatedAt),
+  } : undefined;
+  // Links show on the card, so the sheet leaves them out.
+  const linkKeys = new Set(['linkedin', 'website', 'company_website']);
+  const rows = (one: typeof p) => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => ({ label: f.label, value: f.value, ...(f.source ? { url: f.source } : {}), group: one.name })) : []);
+  return {
+    ...(person ? { person } : {}),
+    ...(company ? { company } : {}),
+    facts: [...rows(p), ...rows(c)],
+    notFound: [...new Set([...(p?.notFound ?? []), ...(c?.notFound ?? [])])],
   };
 }
 
@@ -400,7 +456,7 @@ export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
   return (nb.steps?.length ?? 0) > 1;
 }
 
-type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout };
+type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about'] };
 
 /** What a layout's `when` tests, for this notebook (core NOTEBOOK_LAYOUT_FLAGS). */
 export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Record<NotebookLayoutFlag, boolean> {
@@ -411,6 +467,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     steps: (nb.steps?.length ?? 0) > 0,
     options: hasOptions,
     decided: nb.status === 'decided',
+    about: !!(nb.about?.person || nb.about?.company),
   };
 }
 

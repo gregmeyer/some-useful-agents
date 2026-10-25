@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { layoutPreset, nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { layoutPreset, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -74,7 +74,7 @@ function pipelineDiagram(stages: PipelineStage[]): SafeHtml {
  */
 export function decisionLeads(nb: Notebook, entries: readonly NotebookEntry[], limit = 3, history?: NotebookViewHistory): NotebookViewOption[] {
   // With steps, how many it got through (a checked option missing one fact still counts its check); else the stage it was moved to (none comes last).
-  const steps = nb.steps ?? [];
+  const steps = optionSteps(nb.steps ?? []);
   const at = (o: NotebookViewOption) => (steps.length > 1 ? steps.filter((s) => optionPassesStep(nb, o, s)).length : o.stage ? nb.stages.indexOf(o.stage) : -1);
   // Best first by score (or price), then the furthest stage wins (a stable sort keeps the ranking within a stage).
   const ranked = rankOptions(nb, notebookViewData(nb, [...entries], history).notebook.options);
@@ -169,7 +169,7 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
   </form>`;
 }
 
-const STEP_UNIT: Record<NotebookStep['kind'], string> = { find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen' };
+const STEP_UNIT: Record<NotebookStep['kind'], string> = { profile: 'facts', find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen' };
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**

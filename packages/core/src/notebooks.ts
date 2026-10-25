@@ -84,6 +84,66 @@ export function cleanSources(list: unknown): NotebookSearchSource[] {
   return out;
 }
 
+/** Who a notebook is about: a person, their company (or a company alone). */
+export type NotebookAboutWho = 'person' | 'company';
+export const NOTEBOOK_ABOUT_WHO: readonly NotebookAboutWho[] = ['person', 'company'];
+
+/** One thing learned about them, with where it came from. */
+export interface NotebookAboutFact {
+  /** lowercase_snake: role, organization, location, what_they_do… */
+  key: string;
+  label: string;
+  value: string;
+  /** The page it came from (http/https). */
+  source?: string;
+  /** The words on that page that say it. */
+  quote?: string;
+  /** When it was learned. */
+  at: string;
+}
+
+export interface NotebookAboutOne {
+  name: string;
+  facts: NotebookAboutFact[];
+  /** What was looked for and not found (labels). */
+  notFound?: string[];
+  /** A sentence on who they are. */
+  summary?: string;
+  updatedAt: string;
+}
+
+export type NotebookAbout = Partial<Record<NotebookAboutWho, NotebookAboutOne>>;
+
+const ABOUT_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+/**
+ * Facts about someone, merged: a later sighting of a fact wins (its value
+ * and source), facts not seen again stay, and what's found leaves "not
+ * found". Pure.
+ */
+export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown }, now: string): NotebookAboutOne {
+  const facts = [...(was?.facts ?? [])];
+  for (const raw of next.facts ?? []) {
+    const f = (raw ?? {}) as Partial<Record<keyof NotebookAboutFact, unknown>>;
+    const key = typeof f.key === 'string' ? f.key.trim().toLowerCase() : '';
+    const value = typeof f.value === 'string' || typeof f.value === 'number' ? String(f.value).replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+    if (!ABOUT_KEY_RE.test(key) || !value) continue;
+    const source = typeof f.source === 'string' && /^https?:\/\//i.test(f.source.trim()) ? f.source.trim().slice(0, 500) : undefined;
+    const quote = typeof f.quote === 'string' && f.quote.trim() ? f.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : undefined;
+    const label = typeof f.label === 'string' && f.label.trim() ? f.label.trim().slice(0, 40) : key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+    const fact: NotebookAboutFact = { key, label, value, ...(source ? { source } : {}), ...(quote ? { quote } : {}), at: now };
+    const i = facts.findIndex((x) => x.key === key);
+    if (i >= 0) facts[i] = fact; else facts.push(fact);
+  }
+  const have = new Set(facts.map((f) => f.label.toLowerCase()).concat(facts.map((f) => f.key)));
+  const notFound = [...new Set([...(was?.notFound ?? []), ...(next.notFound ?? []).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean)])]
+    .filter((x) => !have.has(x.toLowerCase()) && !have.has(x.toLowerCase().replace(/\s+/g, '_')))
+    .slice(0, 12);
+  const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
+  const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
+  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), updatedAt: now };
+}
+
 /** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
 export interface NotebookField {
   /** lowercase_snake, e.g. `price`, `miles`, `listing_url`. */
@@ -166,6 +226,8 @@ export interface Notebook {
   steps?: NotebookStep[];
   /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
   layout?: NotebookLayout;
+  /** Who it's about, when it's about someone (a profile step learns it): the person, their company. */
+  about?: NotebookAbout;
   createdAt: string;
   updatedAt: string;
 }
@@ -179,8 +241,9 @@ export interface NotebookFacet { labels: Record<string, string>; at: string; fai
  * notebook can check without a model (stepProgress), and the agent that
  * works toward it; it's given the job in its inputs, never edited for it.
  */
-export type NotebookStepKind = 'find' | 'source' | 'check' | 'narrow' | 'decide';
-export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['find', 'source', 'check', 'narrow', 'decide'];
+/** profile: learn about who the notebook is about (a person, their company), not its options. */
+export type NotebookStepKind = 'profile' | 'find' | 'source' | 'check' | 'narrow' | 'decide';
+export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['profile', 'find', 'source', 'check', 'narrow', 'decide'];
 /** todo → running → met (waits for Continue) → done; stuck when it ran out of tries short of its goal. */
 export type NotebookStepStatus = 'todo' | 'running' | 'met' | 'stuck' | 'done';
 export interface NotebookStep {
@@ -200,6 +263,8 @@ export interface NotebookStep {
   facts?: string[];
   /** source / check: only the best `top` options in the running count (and get worked on). None: all of them. */
   top?: number;
+  /** profile: who to learn about ("Brendan Short", "Acme Robotics"). None: from what the notebook is for. */
+  subject?: string;
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -592,6 +657,17 @@ export class NotebookStore {
         by TEXT
       );
       CREATE INDEX IF NOT EXISTS notebook_layout_history_nb ON notebook_layout_history(notebook_id, id);
+      -- A copy of the picture of who a notebook is about (a person's photo, a company's logo).
+      CREATE TABLE IF NOT EXISTS notebook_about_photos (
+        notebook_id TEXT NOT NULL,
+        who TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        bytes BLOB NOT NULL,
+        kind TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (notebook_id, who)
+      );
       -- A notebook's setup, kept to start new ones like it (NotebookTemplate).
       CREATE TABLE IF NOT EXISTS notebook_templates (
         id TEXT PRIMARY KEY,
@@ -616,7 +692,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -850,6 +926,32 @@ export class NotebookStore {
    * How the notebook's page is laid out: a preset id ("shortlist") or an
    * A2UI document (notebook-layout.ts). Null: back to the default.
    */
+  /** Learned about who it's about (a profile step): merged with what's known (mergeAbout). */
+  setAbout(id: string, who: NotebookAboutWho, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown }, now = new Date().toISOString()): Notebook {
+    const nb = this.get(id);
+    if (!nb) throw new Error(`No notebook "${id}".`);
+    const about: NotebookAbout = { ...(nb.about ?? {}), [who]: mergeAbout(nb.about?.[who], next, now) };
+    this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
+    return this.get(id)!;
+  }
+
+  /** Keep a copy of their picture (a person's photo, a company's logo). */
+  saveAboutPhoto(id: string, who: NotebookAboutWho, sourceUrl: string, image: { contentType: string; bytes: Uint8Array }, kind: 'photo' | 'logo'): void {
+    this.db.prepare(`INSERT INTO notebook_about_photos (notebook_id, who, source_url, content_type, bytes, kind, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(notebook_id, who) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, kind = excluded.kind, fetched_at = excluded.fetched_at`)
+      .run(id, who, sourceUrl, image.contentType, image.bytes, kind, new Date().toISOString());
+  }
+
+  aboutPhoto(id: string, who: NotebookAboutWho): { contentType: string; bytes: Uint8Array; kind: 'photo' | 'logo'; sourceUrl: string } | undefined {
+    const r = this.db.prepare('SELECT content_type, bytes, kind, source_url FROM notebook_about_photos WHERE notebook_id = ? AND who = ?').get(id, who) as { content_type: string; bytes: Uint8Array; kind: string; source_url: string } | undefined;
+    return r ? { contentType: r.content_type, bytes: r.bytes, kind: r.kind === 'logo' ? 'logo' : 'photo', sourceUrl: r.source_url } : undefined;
+  }
+
+  /** Which of them have a picture kept. */
+  aboutPhotos(id: string): Set<NotebookAboutWho> {
+    return new Set((this.db.prepare('SELECT who FROM notebook_about_photos WHERE notebook_id = ?').all(id) as Array<{ who: string }>).map((r) => r.who as NotebookAboutWho));
+  }
+
   setLayout(id: string, layout: unknown, by?: string): Notebook {
     const was = this.mustGet(id);
     const clean = layout == null ? undefined : cleanLayout(layout);
@@ -1578,7 +1680,7 @@ export class NotebookStore {
     const entries = (this.db.prepare('SELECT COUNT(*) AS n FROM notebook_entries WHERE notebook_id = ?').get(id) as { n: number }).n;
     this.db.exec('BEGIN');
     try {
-      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries', 'notebook_layout_history']) {
+      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries', 'notebook_layout_history', 'notebook_about_photos']) {
         this.db.prepare(`DELETE FROM ${table} WHERE notebook_id = ?`).run(id);
       }
       this.db.prepare('DELETE FROM notebooks WHERE id = ?').run(id);
@@ -1822,6 +1924,7 @@ export class NotebookStore {
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       // Checked when it was set (setLayout); read as stored.
       ...((): { layout?: NotebookLayout } => { const l = r.layout_json ? parse<NotebookLayout | null>(r.layout_json, null) : null; return l && Array.isArray(l.components) ? { layout: l } : {}; })(),
+      ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -2241,7 +2344,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
   }
   // With steps, the funnel is the steps: how far each option got through them
   // (found, facts sourced, checked, chosen), not the stages it was moved to by hand.
-  const steps = nb.steps ?? [];
+  const steps = optionSteps(nb.steps ?? []);
   const funnelStages = steps.length > 1 ? stepFunnelLabels(steps) : nb.stages;
   if (steps.length > 1) {
     for (const o of options) {
@@ -2532,6 +2635,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...((kind === 'find' || kind === 'narrow' || kind === 'decide') && target !== undefined ? { target } : {}),
       ...(facts.length ? { facts } : {}),
       ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
+      ...(kind === 'profile' && typeof x.subject === 'string' && x.subject.trim() ? { subject: x.subject.replace(/\s+/g, ' ').trim().slice(0, 80) } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
       ...(status === 'done' && movedOn ? { movedOn: true } : {}),
@@ -2564,10 +2668,21 @@ export interface NotebookStepProgress { met: boolean; have: number; want: number
  * step looks up (counted fact by fact); check, every one has each check ticked (a failed one is ruled out,
  * so it's no longer in the running); decide, only when you've confirmed it.
  */
+/** A profile step is met with this many facts learned about who the notebook is about. */
+export const PROFILE_FACTS_WANTED = 4;
+
 export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'>): NotebookStepProgress {
   const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   // A source or check step on the top N counts only those.
   const options = (step.kind === 'source' || step.kind === 'check') && step.top ? ranked.slice(0, step.top) : ranked;
+  if (step.kind === 'profile') {
+    // About who it's about, not its options: a few facts learned about them (person and company together).
+    const facts = [...(nb.about?.person?.facts ?? []), ...(nb.about?.company?.facts ?? [])];
+    const want = PROFILE_FACTS_WANTED;
+    const have = Math.min(want, facts.length);
+    const missing = have >= want ? [] : [...new Set([...(nb.about?.person?.notFound ?? []), ...(nb.about?.company?.notFound ?? [])])].slice(0, 6);
+    return { met: have >= want, have, want, missing: have >= want ? [] : missing.length ? missing : ['who they are'] };
+  }
   if (step.kind === 'find') {
     const want = step.target ?? 5;
     const have = options.length;
@@ -2633,6 +2748,7 @@ export function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOpt
  */
 export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut' | 'linkIsList'> & { failed?: string[] }, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
   if (step.kind === 'find') return true;
+  if (step.kind === 'profile') return true;
   // Kept when you narrowed (a narrow step not done yet has kept nothing).
   if (step.kind === 'narrow') return step.status === 'done' && !o.ruledOut;
   if (step.kind === 'source') return stepFacts(nb, step).length > 0 && missingFacts(nb, o, step).length === 0;
@@ -2640,7 +2756,12 @@ export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pic
   return !!o.chosen;
 }
 
-const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { find: 'Found', source: 'Facts sourced', check: 'Checked', narrow: 'Kept', decide: 'Chosen' };
+/** The steps options go through (a profile step is about who the notebook is about, not its options). */
+export function optionSteps<T extends Pick<NotebookStep, 'kind'>>(steps: readonly T[]): T[] {
+  return steps.filter((s) => s.kind !== 'profile');
+}
+
+const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { profile: 'Learned', find: 'Found', source: 'Facts sourced', check: 'Checked', narrow: 'Kept', decide: 'Chosen' };
 
 /** The funnel's stage names for a notebook's steps: "Found", "Checked"…; a kind used twice goes by its steps' titles. */
 export function stepFunnelLabels(steps: readonly Pick<NotebookStep, 'kind' | 'title'>[]): string[] {
@@ -2729,8 +2850,9 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
   const withOut = rows === 'all' && pool.some((o) => o.ruledOut);
   const anyChosen = pool.some((o) => o.chosen && !o.ruledOut);
   // With steps, the stage is how far it got through them (the funnel's words), not one moved to by hand.
-  const stepLabels = (nb.steps?.length ?? 0) > 1 ? stepFunnelLabels(nb.steps!) : undefined;
-  const decideAt = nb.steps?.findIndex((x) => x.kind === 'decide') ?? -1;
+  const osteps = optionSteps(nb.steps ?? []);
+  const stepLabels = osteps.length > 1 ? stepFunnelLabels(osteps) : undefined;
+  const decideAt = osteps.findIndex((x) => x.kind === 'decide');
   const cell = (v: unknown): string => {
     if (v === undefined || v === null) return '';
     let s = typeof v === 'number' ? String(v) : String(v);

@@ -870,7 +870,11 @@ next, say it was the last one in the running.
   `{ "type": "notebook-steps", "rationale": "why these steps",
      "inputs": { "NOTEBOOK": "<id>", "STEPS": "[{\"title\": \"Find 10 companies\", \"kind\": \"find\", \"agent\": \"account-research\", \"target\": 10}, {\"title\": \"Source headcount and revenue\", \"kind\": \"source\", \"agent\": \"firmographic-research\", \"facts\": [\"employees\", \"revenue\", \"founded\"]}, {\"title\": \"Check value to customers\", \"kind\": \"check\"}, {\"title\": \"Pick the final comp set\", \"kind\": \"decide\", \"target\": 10}]",
                  "RUN": "1" (start step 1 now, optional) } }`
-  Kinds: find (options; target = how many; no agent = sua's finder, which
+  Kinds: profile (learn about who the notebook is about, a person and
+  their company, or a company: who they are, their role, their company,
+  with sources, and their photo or logo; "subject" = who, e.g. "Brendan
+  Short"; no agent = sua's researcher; first, when the notebook prepares
+  them to meet someone), find (options; target = how many; no agent = sua's finder, which
   splits the search into a few narrow ones, one per site or source, and runs
   them at once), source (facts the options are
   missing; "facts" = the notebook's fact keys its agent looks up, when it
@@ -880,7 +884,8 @@ next, say it was the last one in the running.
   agent = sua's checker, which needs the notebook to have checks), narrow
   (they keep the ones that stay in the running, the rest are ruled out, the
   notebook stays open; target = about how many to keep; done with Narrow…),
-  decide (they pick; target = how many). 2–6 steps, find first, decide last.
+  decide (they pick; target = how many). 2–6 steps, find first (after a
+  profile step, if any), decide last.
   Agents: only installed ones whose description fits that step's job, from
   AGENT_CATALOG (one agent may serve several steps). Steps never change an
   agent: each gets its step's job in its inputs. If no installed agent fits
