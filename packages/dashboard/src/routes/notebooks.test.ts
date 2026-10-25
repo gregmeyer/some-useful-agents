@@ -2887,6 +2887,42 @@ describe('a step added in front of done ones', () => {
   });
 });
 
+describe('a drawn page\'s brief', () => {
+  it('prints the notebook\'s own page (its parts, in order), the extended brief adds everything behind it, and a saved one carries its pictures', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a call with Dana Reyes', statement: 'What matters to Dana' });
+    store.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'Evidence', type: 'text' }, { key: 'source_url', label: 'Source', type: 'url', role: 'link' }, { key: 'conversation_question', label: 'Question', type: 'text' }]);
+    for (let i = 1; i <= 10; i++) store.upsertOption(nb.id, { title: `Theme ${String(i)}`, by: 'agent:x', data: { theme: `t${String(i)}`, evidence: `She said thing ${String(i)}.`, source_url: `https://example.com/${String(i)}`, conversation_question: `Question ${String(i)}?` } });
+    store.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://northwind.example/team' }] });
+    store.saveAboutPhoto(nb.id, 'person', 'https://northwind.example/dana.png', { contentType: 'image/png', bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, 'photo', { page: 'https://northwind.example/team', why: 'captioned' });
+    store.setLayout(nb.id, 'dossier', 'you');
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('Meeting briefing · ');
+    expect(brief).toContain('class="profile profile--cover"');
+    expect(brief).toContain(`src="/notebooks/${nb.id}/about/person/photo"`);
+    expect(brief).toContain('Photo: <a href="https://northwind.example/team">northwind.example</a>');
+    // In the page's order: who they are, what we know, what to talk about, in their words.
+    const at = (s: string) => brief.indexOf(s);
+    expect(at('Who they are')).toBeGreaterThan(0);
+    expect(at('Who they are')).toBeLessThan(at('What we know'));
+    expect(at('What we know')).toBeLessThan(at('What to talk about'));
+    expect(at('What to talk about')).toBeLessThan(at('In their words'));
+    expect(brief).toContain('And 1 more in the extended brief.');
+    expect(brief).not.toContain('The shortlist');
+    const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
+    for (const s2 of ['Everything they said', 'Every fact, with its page', 'Each one in full', 'She said thing 10.', 'https://northwind.example/team']) expect(full).toContain(s2);
+    const saved = (await get(`/notebooks/${nb.id}/brief.html?download=1`)).text;
+    expect(saved).toContain('src="data:image/png;base64,');
+    expect(saved).not.toContain('/about/person/photo"');
+    // A shortlist keeps the shortlist brief.
+    store.setLayout(nb.id, null, 'you');
+    expect((await get(`/notebooks/${nb.id}/brief.html`)).text).toContain('Key findings');
+  });
+});
+
 describe('a drawn page\'s header', () => {
   it('follows the layout\'s NotebookHeader: subtitle, no statement, folded steps, a drawn side part; without one, the usual header', async () => {
     const app = await makeApp();

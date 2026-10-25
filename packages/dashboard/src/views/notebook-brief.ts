@@ -232,7 +232,7 @@ function notes(entries: readonly NotebookEntry[]): NotebookEntry[] {
  * checks (ticked or not), and what happened to it. Each starts a new page
  * when printed.
  */
-function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>, pic?: BriefPicture): SafeHtml {
+export function optionInFull(nb: Notebook, o: NotebookViewOption, n: number, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>, pic?: BriefPicture): SafeHtml {
   const e = entries.find((x) => x.id === o.id);
   const facts = optionFacts(nb.fields, o);
   const checks = checksFor(nb);

@@ -34,6 +34,7 @@ import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
+import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -305,6 +306,15 @@ function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly Note
     }
     cache.set(o.id, uri);
     return uri;
+  };
+}
+
+/** A saved brief carries its person's photo and company logo inside it (dashboard addresses wouldn't open elsewhere). */
+function embeddedAboutPicture(s: NotebookStore, nb: Notebook): (src: string) => string | undefined {
+  return (src) => {
+    const who = /\/about\/(person|company)\/photo$/.exec(src)?.[1] as 'person' | 'company' | undefined;
+    const photo = who ? s.aboutPhoto(nb.id, who) : undefined;
+    return photo && photo.bytes.length <= BRIEF_PICTURE_MAX ? `data:${photo.contentType};base64,${Buffer.from(photo.bytes).toString('base64')}` : undefined;
   };
 }
 
@@ -882,7 +892,10 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const download = req.query.download === '1';
   // ?latest=1: only the options the last run found for the first time.
   const latest = req.query.latest === '1';
-  const page = renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+  // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
+  const page = briefIsPage(nb) && !latest
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
