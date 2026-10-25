@@ -19,6 +19,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
+import { decideNotebookPage, pageIsItsOwn } from './notebook-page.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
@@ -507,6 +508,26 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries, ...(!p.met && stalled ? { stalled: true } : {}) });
   store.noteRun(notebookId, `${step.title}: ${words}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
   postStepCard(ctx, nb, step.id, p);
+  if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
+}
+
+/**
+ * Its first step reached its goal: the notebook knows more than when it
+ * picked its page (who it's about, its first options), so it decides again,
+ * unless you changed the page (ADR-0058). A new page is said in its conversation.
+ */
+async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
+  const nb = store.get(notebookId);
+  if (!nb || !pageIsItsOwn(nb)) return;
+  const was = JSON.stringify(nb.layout ?? null);
+  const outcome = await decideNotebookPage(ctx, notebookId, { again: true }).catch(() => 'failed' as const);
+  const now = store.get(notebookId);
+  if (outcome !== 'drawn' || !now?.layout || JSON.stringify(now.layout) === was || !ctx.inboxStore) return;
+  const threadId = notebookThread(ctx, now);
+  if (!threadId) return;
+  const msg = ctx.inboxStore.addResponse(threadId, 'triage', `Now that it knows more, I redrew its page: ${now.layout.about ?? 'one that fits what it found'}. Undo puts the old one back, on **Edit**.`);
+  publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+  store.touch(notebookId);
 }
 
 /**

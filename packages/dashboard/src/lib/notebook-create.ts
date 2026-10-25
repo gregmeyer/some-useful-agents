@@ -47,7 +47,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   // A page reader can't find or check: those steps go to sua's finder or checker.
   const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
   if (steps) store.setSteps(nb.id, steps);
-  if (input.layout) store.setLayout(nb.id, input.layout);
+  if (input.layout) store.setLayout(nb.id, input.layout, 'template');
   if (input.fields?.length) {
     store.setFields(nb.id, input.fields);
     if (input.stages?.length) store.setStages(nb.id, input.stages);
