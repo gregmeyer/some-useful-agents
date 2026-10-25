@@ -226,6 +226,13 @@ export interface Notebook {
   steps?: NotebookStep[];
   /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
   layout?: NotebookLayout;
+  /**
+   * Who set its page last: `notebook` (it decided itself, from what it's
+   * for), `sua` (a card you approved), `you` (Edit: undo, back to the
+   * shortlist), `template`. None: never set. Only a page it decided itself is
+   * decided again.
+   */
+  layoutBy?: string;
   /** Who it's about, when it's about someone (a profile step learns it): the person, their company. */
   about?: NotebookAbout;
   createdAt: string;
@@ -692,7 +699,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -965,7 +972,7 @@ export class NotebookStore {
       this.db.prepare('INSERT INTO notebook_layout_history (notebook_id, layout_json, replaced_at, by) VALUES (?, ?, ?, ?)').run(id, was.layout ? JSON.stringify(was.layout) : null, now, by ?? null);
       this.db.prepare('DELETE FROM notebook_layout_history WHERE notebook_id = ? AND id NOT IN (SELECT id FROM notebook_layout_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 20)').run(id, id);
     }
-    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, now, id);
+    this.db.prepare('UPDATE notebooks SET layout_json = ?, layout_by = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, by ?? null, now, id);
     return this.mustGet(id);
   }
 
@@ -979,7 +986,8 @@ export class NotebookStore {
     this.mustGet(id);
     const r = this.db.prepare('SELECT id, layout_json FROM notebook_layout_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 1').get(id) as { id: number; layout_json: string | null } | undefined;
     if (!r) return false;
-    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(r.layout_json, new Date().toISOString(), id);
+    // Undone by you: the notebook doesn't decide it again.
+    this.db.prepare('UPDATE notebooks SET layout_json = ?, layout_by = ?, updated_at = ? WHERE id = ?').run(r.layout_json, 'you', new Date().toISOString(), id);
     this.db.prepare('DELETE FROM notebook_layout_history WHERE id = ?').run(r.id);
     return true;
   }
@@ -1925,6 +1933,7 @@ export class NotebookStore {
       // Checked when it was set (setLayout); read as stored.
       ...((): { layout?: NotebookLayout } => { const l = r.layout_json ? parse<NotebookLayout | null>(r.layout_json, null) : null; return l && Array.isArray(l.components) ? { layout: l } : {}; })(),
       ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
+      ...(r.layout_by ? { layoutBy: String(r.layout_by) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -2609,6 +2618,7 @@ export function rankBy(nb: Pick<Notebook, 'fields'>): { field?: NotebookField; b
  */
 export function cleanSteps(list: readonly unknown[], prior: readonly NotebookStep[] = []): NotebookStep[] {
   const out: NotebookStep[] = [];
+  const given = new Set((Array.isArray(list) ? list : []).map((x) => (x && typeof x === 'object' && typeof (x as { id?: unknown }).id === 'string' ? (x as { id: string }).id : '')).filter(Boolean));
   for (const raw of Array.isArray(list) ? list : []) {
     if (!raw || typeof raw !== 'object') continue;
     const x = raw as Record<string, unknown>;
@@ -2616,7 +2626,8 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     const title = typeof x.title === 'string' ? x.title.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
     if (!kind || !title) continue;
     let id = typeof x.id === 'string' && ID_RE.test(x.id) ? x.id : '';
-    if (!id || out.some((s) => s.id === id)) { let n = out.length + 1; while (out.some((s) => s.id === `s${String(n)}`)) n++; id = `s${String(n)}`; }
+    // A new step never takes an id another step in the list already has (a step added in front doesn't renumber the rest).
+    if (!id || out.some((s) => s.id === id)) { let n = out.length + 1; while (out.some((s) => s.id === `s${String(n)}`) || given.has(`s${String(n)}`)) n++; id = `s${String(n)}`; }
     const was = prior.find((s) => s.id === id && s.kind === kind);
     const status = STEP_STATUSES.find((v) => v === x.status) ?? was?.status ?? 'todo';
     const target = typeof x.target === 'number' && Number.isFinite(x.target) ? Math.min(100, Math.max(1, Math.round(x.target))) : undefined;

@@ -107,14 +107,23 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';
     if ('error' in answer) return 'failed';
     if ('keep' in answer) {
-      if (now.layout) store.setLayout(notebookId, undefined, 'sua');
+      if (now.layout) store.setLayout(notebookId, undefined, 'notebook');
       return 'kept';
     }
-    store.setLayout(notebookId, answer.layout, 'sua');
+    store.setLayout(notebookId, answer.layout, 'notebook');
     return 'drawn';
   } catch {
     return 'failed';
   } finally {
     ctx.notebookPages.delete(notebookId);
   }
+}
+
+/**
+ * Its page is still the notebook's own pick (or the shortlist it started
+ * with), not one you changed, approved on a card, or a template brought:
+ * the notebook may decide it again. Pure.
+ */
+export function pageIsItsOwn(nb: Pick<Notebook, 'layout' | 'layoutBy'>): boolean {
+  return nb.layoutBy === 'notebook' || (!nb.layout && !nb.layoutBy);
 }
