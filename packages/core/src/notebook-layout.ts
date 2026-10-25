@@ -152,6 +152,28 @@ function resolveValues(v: unknown, values: Partial<Record<NotebookLayoutValueKey
 }
 
 /**
+ * How long a list part may run, so no one part takes over the page: a
+ * default when the layout doesn't say, and a most it may show before "Show N
+ * more". (The shortlist's own grid isn't capped: it's the page.)
+ */
+export const NOTEBOOK_LIST_CAPS: Readonly<Record<string, { prop: string; default?: number; max: number }>> = {
+  QuoteList: { prop: 'maxItems', default: 4, max: 6 },
+  Agenda: { prop: 'maxQuestions', default: 3, max: 5 },
+  Timeline: { prop: 'maxItems', default: 6, max: 8 },
+  Table: { prop: 'maxRows', default: 8, max: 12 },
+};
+
+function capLength(c: ViewComponent): ViewComponent {
+  const cap = NOTEBOOK_LIST_CAPS[c.component];
+  if (!cap) return c;
+  const v = c[cap.prop];
+  // A table that pages is already short.
+  if (c.component === 'Table' && c.pageSize !== undefined) return c;
+  if (typeof v === 'number') return v > cap.max ? { ...c, [cap.prop]: cap.max } : c;
+  return cap.default !== undefined ? { ...c, [cap.prop]: cap.default } : c;
+}
+
+/**
  * A layout as plain A2UI for one notebook: components whose `when` doesn't
  * hold are left out (with everything under them), parents lose them (a
  * Columns its width too; one left takes the whole row), containers left
@@ -168,7 +190,7 @@ export function resolveNotebookLayout(
     const c = byId.get(id);
     if (!c || !whenHolds(c.when, flags)) return false;
     const { when: _w, ...rest } = c;
-    const next = resolveValues(rest, values) as ViewComponent;
+    const next = capLength(resolveValues(rest, values) as ViewComponent);
     if (Array.isArray(c.children)) {
       const kids = c.children as string[];
       const kept = kids.filter((k) => visit(k));
@@ -180,12 +202,42 @@ export function resolveNotebookLayout(
     } else if (typeof c.child === 'string' && !visit(c.child)) {
       return false;
     }
+    // The header's side part: drawn if it holds, else the header goes without it.
+    if (c.component === 'NotebookHeader' && typeof c.side === 'string' && !visit(c.side)) delete next.side;
     out.set(id, next);
     return true;
   };
   visit('root');
   // In the document's own order.
   return components.filter((c) => out.has(c.id)).map((c) => out.get(c.id)!);
+}
+
+/**
+ * A drawn page's header, taken out of its layout: the page draws the header
+ * itself (its buttons are forms), as the `NotebookHeader` says, with its
+ * `side` part as a small layout of its own. `rest` is the page without them.
+ * No header: the page's usual one.
+ */
+export function splitNotebookHeader(components: readonly ViewComponent[]): { header?: ViewComponent; side?: ViewComponent[]; rest: ViewComponent[] } {
+  const header = components.find((c) => c.component === 'NotebookHeader');
+  if (!header) return { rest: [...components] };
+  const byId = new Map(components.map((c) => [c.id, c]));
+  const under = (id: string, into: Set<string>) => {
+    const c = byId.get(id);
+    if (!c || into.has(id)) return;
+    into.add(id);
+    for (const k of Array.isArray(c.children) ? c.children as string[] : []) under(k, into);
+    if (typeof c.child === 'string') under(c.child, into);
+  };
+  const sideIds = new Set<string>();
+  if (typeof header.side === 'string') under(header.side, sideIds);
+  const rest = components
+    .filter((c) => c.id !== header.id && !sideIds.has(c.id))
+    .map((c) => (Array.isArray(c.children) && (c.children as string[]).includes(header.id) ? { ...c, children: (c.children as string[]).filter((k) => k !== header.id) } : c));
+  const side = typeof header.side === 'string' && sideIds.size
+    ? [{ id: 'root', component: 'Column', children: [header.side] }, ...components.filter((c) => sideIds.has(c.id))]
+    : undefined;
+  return { header, ...(side ? { side } : {}), rest };
 }
 
 const SAMPLE_FLAGS = Object.fromEntries(Object.keys(NOTEBOOK_LAYOUT_FLAGS).map((k) => [k, true])) as Record<NotebookLayoutFlag, boolean>;
@@ -208,6 +260,11 @@ export function checkNotebookLayout(components: unknown): { ok: true; components
       const w = typeof c.when === 'string' ? c.when.replace(/^!/, '') : '';
       if (!(w in NOTEBOOK_LAYOUT_FLAGS)) errors.push(`${String(c.id)}: "when" must be one of ${Object.keys(NOTEBOOK_LAYOUT_FLAGS).join(', ')} (or !one).`);
     }
+  }
+  const headers = (components as Array<Record<string, unknown>>).filter((c) => c && c.component === 'NotebookHeader');
+  if (headers.length > 1) errors.push('A page has at most one NotebookHeader.');
+  for (const h of headers) {
+    if (h.side !== undefined && !(components as Array<Record<string, unknown>>).some((c) => c && c.id === h.side)) errors.push(`${String(h.id)}: its side "${String(h.side)}" isn't a component of the page.`);
   }
   if (errors.length) return { ok: false, errors };
   const v = validateViewComponents(resolveNotebookLayout(components as ViewComponent[], SAMPLE_FLAGS, SAMPLE_VALUES));
@@ -292,7 +349,8 @@ Components: Text (text, variant: h3 / body / caption), Row, Column, Card (child)
 ${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0] + props(c))).join('\n')}
 
 Rules:
-- The page sits under the notebook's header, which already shows its title, what it's for, its steps and its done-whens: don't repeat them.
+- The header (title, status, buttons, steps) is always drawn by the page. To shape it, put a NotebookHeader first in root's children: a subtitle that says what the page is ("Meeting briefing"), cover "none" when the lead option's picture isn't what the notebook is about, steps "fold" once the work is mostly done, and a short \`side\` part (a StatStrip, a short Agenda, a Callout) for what matters at a glance. Don't repeat its title, what it's for, its steps or its done-whens elsewhere.
+- Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
 - Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
 - Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.

@@ -22,6 +22,15 @@
 /* A notebook drawn as widgets: "Done when" lives in the widgets, so the header is one column with its actions beside the title. */
 .nb-hero--wide { grid-template-columns: minmax(0, 1fr); }
 .nb-hero__titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+/* A drawn page's header (its layout's NotebookHeader): a subtitle under the title, a drawn side part, steps that fold. */
+.nb-hero--side { grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); }
+@media (max-width: 900px) { .nb-hero--side { grid-template-columns: minmax(0, 1fr); } }
+.nb-hero__names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nb-hero__subtitle { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
+.nb-hero__side--drawn { min-width: 0; }
+.nb-hero__steps > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nb-hero__steps > summary b { color: var(--color-text); font-weight: 600; }
+.nb-hero__steps[open] > summary { margin-bottom: var(--space-3); }
 .nb-hero__acts { margin-left: auto; }
 .nb-hero__acts .nb-acts { align-items: center; }
 .nb-hero__icon {
@@ -876,3 +885,5 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbt-hand[open] > summary { margin-bottom: var(--space-3); }
 .nbe-layout__about { color: var(--color-text-muted); }
 .nbe-layout__working { font-size: var(--font-size-sm); color: var(--color-primary); }
+/* Beside a drawn side part the title row is narrow: the buttons take their own row, under the title. */
+.nb-hero--side .nb-hero__acts { margin-left: 0; flex-basis: 100%; }

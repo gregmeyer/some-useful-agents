@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { NotebookStore } from './notebooks.js';
-import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
+import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
 import type { ViewComponent } from './a2ui/view.js';
 
 let dir: string | undefined;
@@ -112,3 +112,55 @@ describe('notebook layouts (A2UI documents)', () => {
   });
 });
 
+
+describe('a page\'s length and header', () => {
+  const page: ViewComponent[] = [
+    { id: 'root', component: 'Column', children: ['header', 'top', 'said'] },
+    { id: 'header', component: 'NotebookHeader', subtitle: 'Meeting briefing', steps: 'fold', side: 'glance' },
+    { id: 'glance', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, maxQuestions: 9 },
+    { id: 'top', component: 'Columns', children: ['said_short', 'time'], widths: [2, 1] },
+    { id: 'said_short', component: 'QuoteList', items: { path: '/notebook/quotes' }, maxItems: 30 },
+    { id: 'time', component: 'Timeline', events: { path: '/notebook/timeline' } },
+    { id: 'said', component: 'QuoteList', items: { path: '/notebook/quotes' }, when: 'options' },
+  ];
+
+  it('cuts every list part to a few rows: a default when the page doesn\'t say, at most a cap when it does', () => {
+    const r = new Map(resolveNotebookLayout(page, { options: true }, {}).map((c) => [c.id, c]));
+    expect(r.get('said_short')!.maxItems).toBe(6);
+    expect(r.get('said')!.maxItems).toBe(4);
+    expect(r.get('time')!.maxItems).toBe(6);
+    expect(r.get('glance')!.maxQuestions).toBe(5);
+    // The shortlist is drawn as before: its timeline already says 8, and its grid isn't cut.
+    const short = new Map(resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { options: true }, {}).map((c) => [c.id, c]));
+    expect(short.get('timeline')!.maxItems).toBe(8);
+    expect(short.get('shortlist')!.maxItems).toBeUndefined();
+  });
+
+  it('takes the header and its side part out of the page; the side is a small page of its own', () => {
+    expect(checkNotebookLayout(page).ok).toBe(true);
+    const { header, side, rest } = splitNotebookHeader(resolveNotebookLayout(page, { options: true }, {}));
+    expect(header).toMatchObject({ id: 'header', subtitle: 'Meeting briefing', steps: 'fold', side: 'glance' });
+    expect(side!.map((c) => c.id)).toEqual(['root', 'glance']);
+    expect(side![0]).toEqual({ id: 'root', component: 'Column', children: ['glance'] });
+    expect(rest.map((c) => c.id)).toEqual(['root', 'top', 'said_short', 'time', 'said']);
+    expect(rest[0].children).toEqual(['top', 'said']);
+    // No header: the page as it is.
+    expect(splitNotebookHeader(DEFAULT_NOTEBOOK_LAYOUT.components).header).toBeUndefined();
+    // A side part whose `when` doesn't hold: the header goes without it.
+    const gated = page.map((c) => (c.id === 'glance' ? { ...c, when: 'decided' } : c));
+    expect(splitNotebookHeader(resolveNotebookLayout(gated, { options: true }, {})).header!.side).toBeUndefined();
+  });
+
+  it('refuses two headers, and a side that isn\'t on the page', () => {
+    expect(checkNotebookLayout([...page, { id: 'h2', component: 'NotebookHeader' }])).toEqual({ ok: false, errors: ['A page has at most one NotebookHeader.'] });
+    const v = checkNotebookLayout(page.map((c) => (c.id === 'header' ? { ...c, side: 'nope' } : c)));
+    expect(v).toEqual({ ok: false, errors: ['header: its side "nope" isn\'t a component of the page.'] });
+  });
+
+  it('tells sua to vary the page and how to shape the header', () => {
+    const g = notebookLayoutGuide([{ name: 'QuoteList', summary: 'Quotes.', example: { id: 'q', component: 'QuoteList', items: { path: '/notebook/quotes' }, maxItems: 4 } }]);
+    expect(g).toContain('never two long lists stacked at the top');
+    expect(g).toContain('put a NotebookHeader first in root\'s children');
+    expect(g).toContain('- QuoteList: Quotes. Props, e.g. {"items":{"path":"/notebook/quotes"},"maxItems":4}');
+  });
+});

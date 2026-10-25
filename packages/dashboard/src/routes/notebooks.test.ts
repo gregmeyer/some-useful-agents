@@ -2649,6 +2649,40 @@ describe('a notebook\'s page, drawn by sua', () => {
   });
 });
 
+describe('a drawn page\'s header', () => {
+  it('follows the layout\'s NotebookHeader: subtitle, no statement, folded steps, a drawn side part; without one, the usual header', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a call with Dana', statement: 'What matters to Dana before we talk' });
+    store.setSteps(nb.id, [{ title: 'Find 5 themes', kind: 'find', target: 5 }, { title: 'Choose talking points', kind: 'decide', target: 3 }]);
+    const get = () => request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    let html = (await get()).text;
+    expect(html).toContain('What matters to Dana before we talk');
+    expect(html).not.toContain('nb-hero__subtitle');
+
+    store.setLayout(nb.id, { components: [
+      { id: 'root', component: 'Column', children: ['header', 'note'] },
+      { id: 'header', component: 'NotebookHeader', subtitle: 'Meeting briefing', statement: false, steps: 'fold', cover: 'none', side: 'glance' },
+      { id: 'glance', component: 'Callout', label: 'At a glance', text: 'Three themes to raise' },
+      { id: 'note', component: 'Callout', label: 'The page', text: { path: '/notebook/title' } },
+    ] });
+    html = (await get()).text;
+    expect(html).toContain('<p class="nb-hero__subtitle">Meeting briefing</p>');
+    expect(html).not.toContain('<p class="nb-hero__statement">What matters to Dana before we talk</p>');
+    expect(html).toContain('<details class="nb-hero__steps">');
+    expect(html).toMatch(/Steps: 0 of 2 done · now: <b>Find 5 themes<\/b>/);
+    expect(html).toContain('data-a2ui-surface');
+    expect(html).toContain(`notebook-${nb.id}-header`);
+    expect(html).toContain('Three themes to raise');
+    // The header and its side part aren't drawn again in the page below it.
+    const main = html.slice(html.indexOf('data-nb-main'));
+    expect(main).not.toContain('NotebookHeader');
+    expect(main).not.toContain('Three themes to raise');
+    expect(main).toContain('The page');
+  });
+});
+
 describe('a new notebook decides its page', () => {
   afterEach(() => { pageReply = undefined; pageAsked.length = 0; });
   const BRIEFING = [

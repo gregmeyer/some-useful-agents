@@ -8,7 +8,7 @@ import { suaComponentDocs } from './catalog.js';
 import type { ViewComponent } from './view.js';
 
 // Not listed for agent views (they still validate there): the notebook's own parts, and the briefing ones a notebook feeds.
-const NOTEBOOK_ONLY = new Set(['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'QuoteList', 'Agenda']);
+const NOTEBOOK_ONLY = new Set(['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'QuoteList', 'Agenda', 'NotebookHeader']);
 
 function firstSentence(text: string): string {
   const m = /^(.*?[.!?])(\s|$)/.exec(text);
