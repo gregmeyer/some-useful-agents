@@ -1048,7 +1048,7 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
     if (!all.length) return html`<p class="empty">Nothing yet.</p>`;
     const q = this._q ?? '';
     const shown = all.filter((it) => matchQuote(it, q));
-    const max = this._all ? shown.length : (p.maxItems ?? 8);
+    const max = this._all ? shown.length : (p.maxItems ?? 4);
     const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     // Show N more counts quotes, across groups.
     let left = max;
@@ -1079,7 +1079,7 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
-  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional() }).strict(),
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional() }).strict(),
   css`${sectionHead}
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .top .h { margin: 0; }
@@ -1104,7 +1104,9 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     .refs a { text-decoration: none; }
     ul { margin: 0 0 16px; padding-left: 18px; display: grid; gap: 6px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
     ul:last-child, ol:last-child { margin-bottom: 0; }
-    .watch li::marker { color: var(--color-warn); }`,
+    .watch li::marker { color: var(--color-warn); }
+    .more { all: unset; cursor: pointer; display: block; margin: -8px 0 16px; font-size: var(--font-size-xs); color: var(--color-primary); }
+    .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }`,
   function (p) {
     const points = textItems(p.points);
     const questions = textItems(p.questions);
@@ -1124,6 +1126,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
       setTimeout(() => { this._copied = ''; this.requestUpdate(); }, 2500);
     };
     const checkable = p.check !== false;
+    const maxQ = p.maxQuestions ?? 3;
     const refs = (pt) => (Array.isArray(pt.refs) ? pt.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
     return html`
       <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</div>
@@ -1134,9 +1137,17 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
         ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
         ${refs(pt).length ? html`<div class="refs">${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
       </li>`)}</ol>` : nothing}
-      ${questions.length ? html`<h4 class="h">Questions to ask</h4><ul>${questions.map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>` : nothing}
+      ${questions.length ? html`<h4 class="h">Questions to ask</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
+        ${!this._allQ && questions.length > maxQ ? html`<button type="button" class="more" @click=${() => { this._allQ = true; this.requestUpdate(); }}>Show ${questions.length - maxQ} more</button>` : nothing}` : nothing}
       ${watch.length ? html`<h4 class="h">Watch out for</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}`;
   });
+
+// A notebook page's header is drawn by the page itself (its buttons are forms
+// the page's scripts handle); in the layout it only says how. Nothing here.
+const NotebookHeader = define('NotebookHeader', 'sua-a2ui-notebook-header',
+  Common.extend({ cover: z.enum(['lead', 'none']).optional(), subtitle: Str.optional(), statement: z.boolean().optional(), steps: z.enum(['show', 'fold']).optional(), side: CommonSchemas.ComponentId.optional() }).strict(),
+  css`:host { display: none; }`,
+  () => nothing);
 
 const ChipList = define('ChipList', 'sua-a2ui-chip-list',
   Common.extend({ items: CommonSchemas.DynamicValue }).strict(),
@@ -1377,7 +1388,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

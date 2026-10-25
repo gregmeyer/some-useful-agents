@@ -26,7 +26,7 @@ describe('sua catalog', () => {
       expect(names).toContain(n);
     }
     for (const d of suaComponentDocs()) {
-      const kids = [...(typeof d.example.child === 'string' ? [d.example.child] : []), ...(Array.isArray(d.example.children) ? d.example.children as string[] : [])];
+      const kids = [...(typeof d.example.child === 'string' ? [d.example.child] : []), ...(typeof d.example.side === 'string' ? [d.example.side] : []), ...(Array.isArray(d.example.children) ? d.example.children as string[] : [])];
       const child = kids.map((id) => ({ id, component: 'Text', text: 'x' }));
       const v = validateViewComponents([{ ...d.example, id: 'root' }, ...child]);
       expect(v, `${d.name} example`).toMatchObject({ ok: true });

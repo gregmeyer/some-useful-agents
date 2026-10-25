@@ -182,6 +182,10 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 - `"when": "map"` on a component draws it only when the notebook has it. The flags are `map` (a price and a measure), `funnel` (2+ steps or stages), `steps`, `options` and `decided`, and `"!decided"` negates one. A part left out leaves its row, and the row's other parts share the space.
 - `{"path": "/notebook/layout/sort"}` as a value fills in a setting from the notebook. The settings are the map's labels, formats and note, and the shortlist's sort, filters, CSV link, stage chips and chosen-first.
 
+**The header is part of the page.** A page can begin with a `NotebookHeader`, which shapes the header above it: a subtitle ("Meeting briefing"), no cover when the lead option's picture isn't what the notebook is about, what it's for shown or not, the steps strip folded to one line ("Steps: 3 of 4 done · now: Choose talking points"), and a small part drawn on its right (a short agenda, a few stats). The header's buttons, steps and "Your step" work as always. A page without one has the usual header. See [ADR-0059](adr/0059-notebook-header-in-layout.md).
+
+**No part runs on.** Lists on a drawn page show a few rows, then "Show N more": what they said (QuoteList) 4, at most 6; the agenda's questions 3, at most 5; the timeline 6, at most 8; a table 8, at most 12. Pages are drawn to open with a row of short parts side by side, with long lists lower or folded.
+
 **Briefing parts.** Four components fit a notebook that prepares you for something (a meeting) rather than a choice: **Agenda** (what to talk about), **QuoteList** (what they said), **ProfileCard** (who they are) and **FactSheet** (what's known, with sources). A notebook gives the first two their data:
 - `/notebook/quotes`: each option's quote (a field with the role `quote`: the evidence, what they said), with its source, date and question, grouped by the short label of the notebook's first labelled fact (a theme). Chosen options come first; ruled-out ones aren't listed.
 - `/notebook/talkingPoints`: the chosen options, else the first 5 in the running, each with its question (a field with the role `ask`).

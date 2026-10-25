@@ -14,7 +14,7 @@ import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
-import { handStagesHidden, notebookWidgetMessages } from '../lib/notebook-widgets.js';
+import { handStagesHidden, notebookWidgetMessages, notebookHeaderView, type NotebookHeaderView, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
 import type { NotebookLive, NotebookTalkLive } from '../lib/notebook-live.js';
@@ -351,7 +351,23 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
     </div>`;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgets = false, cover?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive): SafeHtml {
+/**
+ * Steps folded away (a drawn page's header says so, once the work is mostly
+ * done): one line saying how far it got and what's now, opening to the strip.
+ */
+function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], strip: SafeHtml): SafeHtml {
+  const done = steps.filter((x) => x.status === 'done' || x.status === 'met').length;
+  const now = steps.find((x) => x.status !== 'done' && x.status !== 'met');
+  return html`<details class="nb-hero__steps">
+      <summary>Steps: ${String(done)} of ${String(steps.length)} done${now ? html` · now: <b>${now.title}</b>` : html``}</summary>
+      ${strip}
+    </details>`;
+}
+
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView): SafeHtml {
+  // A drawn page's NotebookHeader shapes this header; its page has its own parts, so the side box goes.
+  const widgets = widgetsIn || !!head;
+  const cover = head?.cover === 'none' ? undefined : coverIn;
   const { met, total } = notebookProgress(nb);
   const id = encodeURIComponent(nb.id);
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
@@ -360,22 +376,27 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   const idle = human && nb.status === 'active' && nb.pipeline.length === 0 ? ' once it has a search (add one under Edit)' : '';
   const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
   return html`
-    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}" aria-labelledby="nb-title">
+    <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}${head?.side ? ' nb-hero--side' : ''}" aria-labelledby="nb-title">
       <div class="nb-hero__main">
         <div class="nb-hero__titlerow">
           ${cover
             ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind, cover.shape)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
-          <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
+          <div class="nb-hero__names">
+            <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
+            ${head?.subtitle ? html`<p class="nb-hero__subtitle">${head.subtitle}</p>` : html``}
+          </div>
           ${statusChip(nb)}
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running)}</div>` : html``}
         </div>
-        ${nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
+        ${head?.statement === false ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
         </div>
-        ${nb.steps?.length ? stepsStrip(nb, nb.steps, entries, !!running) : pipelineDiagram(stages)}
+        ${nb.steps?.length
+          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, stepsStrip(nb, nb.steps, entries, !!running)) : stepsStrip(nb, nb.steps, entries, !!running))
+          : pipelineDiagram(stages)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
@@ -384,6 +405,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           </div>` : html``}
         ${nb.status === 'decided' && nb.decision ? decidedBox(nb, entries) : html``}
       </div>
+      ${head?.side ? html`<aside class="nb-hero__side nb-hero__side--drawn" aria-label="At a glance">${renderSurfaceHost(`notebook-${nb.id}-header`, head.side, { label: `${nb.title}: at a glance` })}</aside>` : html``}
       ${widgets ? html`` : html`<aside class="nb-hero__side" aria-label="Done when">
         <div class="nb-progress">
           ${progressRing(met, total)}
@@ -862,7 +884,7 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined))}
     ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>

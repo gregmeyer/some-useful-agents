@@ -13,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { rankBy, rankOptions, isRange,
-  notebookViewData, notebookLayoutOf, resolveNotebookLayout, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
+  notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
 } from '@some-useful-agents/core';
@@ -440,13 +440,49 @@ export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLay
   return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb));
 }
 
+/** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
+function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[]): ReturnType<typeof splitNotebookHeader> {
+  return splitNotebookHeader(resolveNotebookLayout(notebookLayoutOf(nb).components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb)));
+}
+
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
 export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): unknown[] | undefined {
   // The shortlist needs fields and options; a page drawn for this notebook shows what it has.
   if (!nb.layout && (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option'))) return undefined;
-  const v = validateViewComponents(resolveNotebookLayout(notebookLayoutOf(nb).components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb)));
+  const v = validateViewComponents(resolvedPage(nb, entries).rest);
   if (!v.ok) return undefined;
   return viewToMessages(`notebook-${nb.id}`, v.components, notebookWidgetData(nb, entries, history));
+}
+
+/** How a drawn page wants its header (the layout's NotebookHeader), with its side part as A2UI messages. */
+export interface NotebookHeaderView {
+  cover: 'lead' | 'none';
+  subtitle?: string;
+  statement: boolean;
+  steps: 'show' | 'fold';
+  side?: unknown[];
+}
+
+/** The layout's say on the header, or undefined (no NotebookHeader: the usual header). */
+export function notebookHeaderView(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): NotebookHeaderView | undefined {
+  if (!nb.layout) return undefined;
+  const { header, side } = resolvedPage(nb, entries);
+  if (!header) return undefined;
+  const needsData = side || (header.subtitle && typeof header.subtitle === 'object');
+  const data = needsData ? notebookWidgetData(nb, entries, history) : undefined;
+  // A subtitle may be bound to the notebook's data; anything not text reads as none.
+  const raw = header.subtitle && typeof header.subtitle === 'object' && typeof (header.subtitle as { path?: unknown }).path === 'string'
+    ? resolvePointer(data, (header.subtitle as { path: string }).path)
+    : header.subtitle;
+  const subtitle = typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 140) : undefined;
+  const sideView = side ? validateViewComponents(side) : undefined;
+  return {
+    cover: header.cover === 'none' ? 'none' : 'lead',
+    ...(subtitle ? { subtitle } : {}),
+    statement: header.statement !== false,
+    steps: header.steps === 'fold' ? 'fold' : 'show',
+    ...(sideView?.ok ? { side: viewToMessages(`notebook-${nb.id}-header`, sideView.components, data) } : {}),
+  };
 }
 
 export { fieldNumber };

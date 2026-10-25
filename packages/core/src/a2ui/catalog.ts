@@ -238,8 +238,8 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'QuoteList',
-    summary: 'What someone said or wrote, from an array of {quote, title?, href?, source?, sourceText?, at?, ask?, group?, chosen?}: grouped by `group` (grouped: false for one list), each with its source ↗, date and an "Ask:" line; a search box past 8, Show N more past `maxItems`.',
-    example: { id: 'said', component: 'QuoteList', items: { path: '/notebook/quotes' }, maxItems: 8 },
+    summary: 'What someone said or wrote, from an array of {quote, title?, href?, source?, sourceText?, at?, ask?, group?, chosen?}: grouped by `group` (grouped: false for one list), each with its source ↗, date and an "Ask:" line; a search box past 8, Show N more past `maxItems` (default 4).',
+    example: { id: 'said', component: 'QuoteList', items: { path: '/notebook/quotes' }, maxItems: 4 },
     schema: Common.extend({
       items: CS.DynamicValue,
       grouped: z.boolean().optional(),
@@ -250,14 +250,28 @@ const SUA_COMPONENTS = [
   {
     name: 'Agenda',
     summary: 'What to talk about: numbered `points` (strings or {text, note?, refs?: [{label, href}]}) to tick off as you go (kept in this browser), then `questions` to ask and things to `watch` for (strings or {text}), with Copy as text.',
-    example: { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' } },
+    example: { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, maxQuestions: 3 },
     schema: Common.extend({
       points: CS.DynamicValue,
       questions: CS.DynamicValue.optional(),
+      /** Questions shown before "Show N more" (default 3). */
+      maxQuestions: z.number().int().min(1).max(20).optional(),
       watch: CS.DynamicValue.optional(),
       title: Str.optional(),
       check: z.boolean().optional(),
       copy: z.boolean().optional(),
+    }).strict(),
+  },
+  {
+    name: 'NotebookHeader',
+    summary: 'A notebook page\'s header (notebook pages only, first in root): its title, status and buttons, drawn by the page; the layout says its cover (lead: the lead option\'s picture; none), a subtitle, whether it shows what it\'s for, whether its steps are shown or folded, and a `side` component drawn on its right.',
+    example: { id: 'header', component: 'NotebookHeader', subtitle: 'Meeting briefing', steps: 'fold', side: 'glance' },
+    schema: Common.extend({
+      cover: z.enum(['lead', 'none']).optional(),
+      subtitle: Str.optional(),
+      statement: z.boolean().optional(),
+      steps: z.enum(['show', 'fold']).optional(),
+      side: CS.ComponentId.optional(),
     }).strict(),
   },
   {
