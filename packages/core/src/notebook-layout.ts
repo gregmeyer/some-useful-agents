@@ -254,6 +254,9 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/coverage/when': 'When that was.',
   '/notebook/bands/price': 'The price limits as {min, max} (Scatter yBand).',
   '/notebook/bands/measure': 'The measure limits as {min, max} (Scatter xBand).',
+  '/notebook/quotes': 'What each option says (its quote field: evidence, what they said), chosen first, grouped by its short label (QuoteList items).',
+  '/notebook/talkingPoints': 'The chosen options (else the first 5) as points to raise, each with its question (Agenda points).',
+  '/notebook/questions': 'The other options\' questions (their ask field) (Agenda questions).',
   '/notebook/shortlistNote': 'How the shortlist is ranked.',
   '/notebook/limitsNote': 'How many limits disagree.',
 };

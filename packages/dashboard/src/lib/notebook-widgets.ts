@@ -133,6 +133,12 @@ export interface NotebookWidgetData extends NotebookViewData {
     checklist: Array<{ id: string; title: string; items: Array<{ text: string; done: boolean }> }>;
     timeline: Array<{ at: string; title: string; body?: string; kind?: string; who?: string; tag?: string; link?: string; linkText?: string; faded?: boolean }>;
     shortlistNote: string;
+    /** What each option says (its `quote` field), chosen first, grouped by its short label (QuoteList). */
+    quotes: Array<{ title: string; quote: string; href: string; source?: string; at?: string; ask?: string; group?: string; chosen?: boolean }>;
+    /** The chosen options (else the first 5 in the running) as points to raise, each with its question (Agenda). */
+    talkingPoints: Array<{ text: string; note?: string; refs: Array<{ label: string; href: string }> }>;
+    /** The other options' questions (their `ask` field) (Agenda questions). */
+    questions: Array<{ text: string; label: string; href: string }>;
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -292,9 +298,14 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.push({ at: nb.createdAt, kind: 'decision', title: 'Notebook started', ...(nb.statement ? { body: nb.statement } : {}) });
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
+  const { quotes, talkingPoints, questions } = whatTheySaid(nb, active);
+
   return {
     notebook: {
       ...v,
+      quotes,
+      talkingPoints,
+      questions,
       options: v.options.map((o) => {
         const facets = optionFacets(nb, o);
         return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
@@ -332,6 +343,39 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
 }
 
 const shortOf = (title: string) => title.split(',')[0].trim();
+
+/**
+ * The options as a briefing reads them: what each says (its `quote` field),
+ * the points to raise (the chosen ones, else the first 5) with their questions
+ * (`ask`), and the rest's questions. Grouped by the short label of the
+ * notebook's first labelled fact (a theme). Ruled-out options aren't in it.
+ */
+function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick<NotebookWidgetData['notebook'], 'quotes' | 'talkingPoints' | 'questions'> {
+  const quoteF = nb.fields.find((f) => f.role === 'quote');
+  const askF = nb.fields.find((f) => f.role === 'ask');
+  const groupKey = nb.fields.find((f) => !f.role && f.type === 'text' && Object.keys(nb.facets?.[f.key]?.labels ?? {}).length)?.key;
+  const text = (o: NotebookViewOption, key: string | undefined) => (key && typeof o.fields[key] === 'string' ? (o.fields[key] as string).trim() : '');
+  const ordered = [...active.filter((o) => o.chosen), ...active.filter((o) => !o.chosen)];
+  const page = (o: NotebookViewOption) => notebookOptionPath(nb.id, o.id);
+  const quotes = quoteF ? ordered.filter((o) => text(o, quoteF.key)).map((o) => {
+    const group = groupKey ? (nb.facets?.[groupKey]?.labels[facetValueKey(o.fields[groupKey])] || text(o, groupKey)) : '';
+    const ask = text(o, askF?.key);
+    return {
+      title: o.name, quote: text(o, quoteF.key), href: page(o),
+      ...(o.link ? { source: o.link } : {}), ...(o.when ? { at: o.when } : {}), ...(ask ? { ask } : {}), ...(group ? { group } : {}), ...(o.chosen ? { chosen: true } : {}),
+    };
+  }) : [];
+  if (!quoteF && !askF) return { quotes, talkingPoints: [], questions: [] };
+  const chosen = ordered.filter((o) => o.chosen);
+  const points = (chosen.length ? chosen : ordered.slice(0, 5)).slice(0, 8);
+  const talkingPoints = points.map((o) => {
+    const ask = text(o, askF?.key);
+    return { text: o.name, ...(ask ? { note: ask } : {}), refs: [{ label: quoteF ? 'what they said' : 'open', href: page(o) }] };
+  });
+  const inPoints = new Set(points.map((o) => o.id));
+  const questions = askF ? ordered.filter((o) => !inPoints.has(o.id) && text(o, askF.key)).slice(0, 8).map((o) => ({ text: text(o, askF.key), label: o.name, href: page(o) })) : [];
+  return { quotes, talkingPoints, questions };
+}
 
 /** At most `n` characters, cut at a word, with "…". */
 function clip(text: string, n: number): string {

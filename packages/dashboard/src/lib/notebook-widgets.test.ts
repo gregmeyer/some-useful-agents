@@ -250,3 +250,56 @@ describe('a notebook ranked by fit', () => {
   });
 });
 
+
+describe('a briefing from a notebook\'s options', () => {
+  it('gives quotes with their theme (chosen first, none ruled out), points to raise with their questions, and the rest\'s questions', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb0 = s.create({ title: 'Prepare for meeting with Dana Reyes' });
+    // Fields as the meeting notebook has them: no roles given; evidence and conversation_question get quote and ask by name.
+    s.setFields(nb0.id, [
+      { key: 'theme', label: 'Theme', type: 'text' },
+      { key: 'evidence', label: 'What suggests it matters to her', type: 'text' },
+      { key: 'source_url', label: 'Source', type: 'url', role: 'link' },
+      { key: 'conversation_question', label: 'Question to ask', type: 'text' },
+    ]);
+    expect(s.get(nb0.id)!.fields.map((f) => f.role ?? '')).toEqual(['', 'quote', 'link', 'ask']);
+    const add = (title: string, theme: string, evidence: string, q: string) => s.upsertOption(nb0.id, { title, by: 'agent:x', data: { theme, evidence, source_url: `https://example.com/${title.length}`, conversation_question: q } }).entry;
+    const a = add('Signals over lists', 'Targeting buyers when signals show intent', 'She prefers the right 50 accounts to a big list.', 'Which signals do you trust most?');
+    const b = add('Human work', 'Where human work beats AI', 'She writes her first drafts herself.', 'What do you never hand to AI?');
+    const c = add('Small campaigns', 'Small, targeted outbound', 'She ran a masterclass on micro-campaigns.', 'How small is too small?');
+    const out = add('Old news', 'Something stale', 'An old quote.', 'Skip this?');
+    s.setFacetLabels(nb0.id, 'theme', { 'Targeting buyers when signals show intent': 'Buying signals', 'Small, targeted outbound': 'Buying signals', 'Where human work beats AI': 'Human work' });
+    s.ruleOut(nb0.id, out.id, 'stale');
+    s.choose(nb0.id, b.id);
+    const nb = s.get(nb0.id)!;
+    const d = notebookWidgetData(nb, s.entries(nb.id)).notebook;
+
+    expect(d.quotes.map((x) => [x.title, x.group, !!x.chosen])).toEqual([['Human work', 'Human work', true], ['Small campaigns', 'Buying signals', false], ['Signals over lists', 'Buying signals', false]]);
+    expect(d.quotes[0]).toMatchObject({ quote: 'She writes her first drafts herself.', ask: 'What do you never hand to AI?', href: `/notebooks/${nb.id}/entries/${b.id}`, source: expect.stringContaining('https://example.com/') });
+    // The chosen one is the point to raise; the others' questions are asked, each once.
+    expect(d.talkingPoints).toEqual([{ text: 'Human work', note: 'What do you never hand to AI?', refs: [{ label: 'what they said', href: `/notebooks/${nb.id}/entries/${b.id}` }] }]);
+    expect(d.questions.map((q) => q.text)).toEqual(['How small is too small?', 'Which signals do you trust most?']);
+    expect(d.questions[0]).toMatchObject({ label: 'Small campaigns', href: `/notebooks/${nb.id}/entries/${c.id}` });
+    expect(d.questions[1].href).toBe(`/notebooks/${nb.id}/entries/${a.id}`);
+
+    // Drawn with the briefing components, it's a valid page.
+    const page = [
+      { id: 'root', component: 'Column', children: ['agenda', 'said'] },
+      { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' } },
+      { id: 'said', component: 'QuoteList', items: { path: '/notebook/quotes' } },
+    ];
+    expect(validateViewComponents(notebookWidgetComponents({ ...nb, layout: { components: page } })).ok).toBe(true);
+  });
+
+  it('has nothing to brief from a shortlist (no quote or question fields)', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.setFields(s.create({ title: 'Car' }).id, CAR);
+    s.upsertOption(nb.id, { title: '2010 RAV4', by: 'agent:x', data: { price: 4023, miles: 149652 } });
+    const d = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook;
+    expect([d.quotes, d.talkingPoints, d.questions]).toEqual([[], [], []]);
+  });
+});

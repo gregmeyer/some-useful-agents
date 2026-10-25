@@ -131,6 +131,18 @@ describe('notebook option fields', () => {
     ]);
   });
 
+  it('reads a briefing\'s quote and question fields from their names, and leaves other text alone', () => {
+    expect(cleanFields([
+      { key: 'theme', type: 'text' },
+      { key: 'evidence', type: 'text' },
+      { key: 'conversation_question', type: 'text' },
+      { key: 'notes', type: 'text' },
+    ]).map((f) => `${f.key}:${f.role ?? ''}`)).toEqual(['theme:', 'evidence:quote', 'conversation_question:ask', 'notes:']);
+    expect(cleanFields([{ key: 'what_they_said', type: 'text' }, { key: 'question_to_ask', type: 'text' }]).map((f) => f.role)).toEqual(['quote', 'ask']);
+    // A role given wins; only text fields are guessed.
+    expect(cleanFields([{ key: 'quote', type: 'money', role: 'price' }, { key: 'questions', type: 'number' }]).map((f) => f.role ?? '')).toEqual(['price', '']);
+  });
+
   it('knows which way is better, takes ranges, and picks out the org (a job search)', () => {
     const JOB_FIELDS = cleanFields([
       { key: 'salary', label: 'Salary', type: 'money', role: 'price', better: 'higher', range: true },

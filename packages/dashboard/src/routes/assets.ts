@@ -751,6 +751,13 @@ assetsRouter.get('/assets/timeline-events.js', (_req: Request, res: Response) =>
   res.type('application/javascript').send(TIMELINE_EVENTS_JS);
 });
 
+// The briefing components' groups, search, monogram and copy text, imported by a2ui-sua.js.
+const BRIEFING_JS = readAsset('briefing.js');
+assetsRouter.get('/assets/briefing.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(BRIEFING_JS);
+});
+
 // Previous / Next on an option's page, narrowed to the grid's filters.
 const OPTION_NAV_JS = readAsset('option-nav.js');
 assetsRouter.get('/assets/option-nav.js', (_req: Request, res: Response) => {
