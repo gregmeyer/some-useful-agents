@@ -2786,6 +2786,35 @@ describe('a profile step', () => {
     pageReply = undefined;
   });
 
+  it('looks again from a done profile step (Look again): new facts and a photo, the steps where they were', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    ctx.notebookLogoDeps = { fetchImage: async () => ({ bytes: png, contentType: 'image/png' }), siteIcons: async () => [] };
+    ctx.notebookPersonPhotoCheck = async (page, _name, want) => (page === 'https://conf.example/speakers/dana-reyes' ? { image: want ?? 'https://conf.example/dana.png', page, why: 'captioned with their name on a page about them' } : { why: 'no' });
+    researchReply = () => JSON.stringify({ found: { kind: { value: 'person' }, role: { value: 'COO' }, photo_url: { value: 'https://conf.example/dana.png', source: 'https://conf.example/speakers/dana-reyes' } } });
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a call with Dana Reyes' });
+    store.setSteps(nb.id, [{ title: 'Learn about Dana', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Choose', kind: 'decide', target: 2 }]);
+    const s1 = store.get(nb.id)!.steps![0].id;
+    store.updateStep(nb.id, s1, { status: 'done' });
+    const { greetNotebook } = await import('../lib/notebook-chat.js');
+    greetNotebook(ctx, nb.id);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain('Look again →');
+    const res = await request(app).post(`/notebooks/${nb.id}/steps/${s1}/again`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(res.status).toBe(303);
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    const after = store.get(nb.id)!;
+    expect(after.steps!.map((x) => x.status)).toEqual(['done', 'todo']);
+    expect(after.about!.person!.facts.map((f) => f.key)).toEqual(['role']);
+    expect(store.aboutPhoto(nb.id, 'person')).toMatchObject({ page: 'https://conf.example/speakers/dana-reyes' });
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(after.conversationId!).map((r) => r.body).join('\n');
+    expect(said).toContain('Looked again (**Learn about Dana**): learned 1 about Dana Reyes; kept a photo (captioned with their name on a page about them)');
+  });
+
   it('looks up a company alone as a company, and is stuck without an answer', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

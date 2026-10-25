@@ -214,6 +214,9 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           ${!running && nb.status === 'active' && step.kind === 'find' && (step.status === 'done' || step.status === 'met')
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Run this step's search once more for new ones; the notebook keeps the ones it has">Search again →</button></form>`
             : html``}
+          ${!running && nb.status === 'active' && step.kind === 'profile' && (step.status === 'done' || step.status === 'met')
+            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
+            : html``}
           ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
             ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
             : html``}
