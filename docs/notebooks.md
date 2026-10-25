@@ -132,7 +132,9 @@ Options record their facts as data, not only as text, so they can be compared, s
   - `link`: the listing;
   - `image`;
   - `when`;
-  - `org`: the company or seller, to group by.
+  - `org`: the company or seller, to group by;
+  - `quote`: what someone said, or what suggests it (a briefing's evidence);
+  - `ask`: a question to raise about it.
 - **Money and number fields say which way is better.** A price is better lower, a salary or a rating higher. Ranking and charts use it, and a `price` field is better lower unless the notebook says otherwise.
 - **Ranges:** a money or number field can take a span ("$150k–$180k", shown as $150,000–$180,000). Sorting and charts use its midpoint.
 - **Any kind of search fits.** For a car: price, miles, year, location, listing. For a job: salary (a range, better higher), company (`org`), commute, posted date, posting. For a product: price, rating (better higher), store (`org`), photo.
@@ -180,13 +182,20 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 - `"when": "map"` on a component draws it only when the notebook has it. The flags are `map` (a price and a measure), `funnel` (2+ steps or stages), `steps`, `options` and `decided`, and `"!decided"` negates one. A part left out leaves its row, and the row's other parts share the space.
 - `{"path": "/notebook/layout/sort"}` as a value fills in a setting from the notebook. The settings are the map's labels, formats and note, and the shortlist's sort, filters, CSV link, stage chips and chosen-first.
 
+**Briefing parts.** Four components fit a notebook that prepares you for something (a meeting) rather than a choice: **Agenda** (what to talk about), **QuoteList** (what they said), **ProfileCard** (who they are) and **FactSheet** (what's known, with sources). A notebook gives the first two their data:
+- `/notebook/quotes`: each option's quote (a field with the role `quote`: the evidence, what they said), with its source, date and question, grouped by the short label of the notebook's first labelled fact (a theme). Chosen options come first; ruled-out ones aren't listed.
+- `/notebook/talkingPoints`: the chosen options, else the first 5 in the running, each with its question (a field with the role `ask`).
+- `/notebook/questions`: the other options' questions, each once.
+
+A shortlist has no quote or question fields, so these are empty there. Facts about the person or company (for ProfileCard and FactSheet) aren't kept by notebooks yet.
+
 **Ask sua to change the page.** In the notebook's conversation, say what you want it to show or how ("put who they are at the top", "make this a briefing, not a shortlist", "a table of the themes with their sources"). sua draws the whole page and offers a **Change the page** card that lists what it adds, removes and changes. Only the page changes, never what the notebook has, and a page drawn for a notebook shows even before it has options. If the page changed after the card was offered, the card refuses. On **Edit** → **More**, the notebook says which page it has, with **Undo the last page change** (the last 20 changes are kept) and **Back to Shortlist**.
 
 A notebook with no layout of its own uses the Shortlist, drawn exactly as before. A layout is checked when it's set: as a notebook with everything would draw it, it must be a valid A2UI view. A template keeps its notebook's layout, and a notebook started from it gets it. Layouts for other outcomes (a briefing before a meeting, a report) are coming; see [ADR-0056](adr/0056-notebook-layouts.md).
 
 **No longer available** is not a ruling: the option leaves the running and reads "No longer available", not your reason. Tell sua too ("the RAV4 sold", "they filled the Stripe role").
 
-**Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. That text describes the option when it was filed, though: when a later search finds the same option again (by its link) and sees a newer price or measure, the newer facts win over the text. Facts stored before this check are repaired when you open the notebook. A span in the text ("$150k–$160k") is a range for a range field (a salary), and a single figure agrees with a range it falls in ("from $170k" with $170k–$200k, which keeps the range). Options whose facts an earlier version cut down to a salary's first number, wrongly read as a contradiction, get their facts back from when they were filed the next time you open the notebook. Only numbers count: a link in the text (a source, the post a quote came from) never counts as a mix-up and never replaces the option's own link; it fills in only when the option has none. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`).
+**Facts are checked against the option's own text.** If a fact sua records for an option contradicts the year, price or measure its text states (a model can mix up two options), the text wins. That text describes the option when it was filed, though: when a later search finds the same option again (by its link) and sees a newer price or measure, the newer facts win over the text. Facts stored before this check are repaired when you open the notebook. A span in the text ("$150k–$160k") is a range for a range field (a salary), and a single figure agrees with a range it falls in ("from $170k" with $170k–$200k, which keeps the range). Options whose facts an earlier version cut down to a salary's first number, wrongly read as a contradiction, get their facts back from when they were filed the next time you open the notebook. Only numbers count: a link in the text (a source, the post a quote came from) never counts as a mix-up and never replaces the option's own link; it fills in only when the option has none. Fields without a role get the one their name implies (`price`, `miles` in mi, `listing_url`, `photo`, `location`, `seller`, and for text, `evidence` or `quote` as `quote`, `conversation_question` or `question_to_ask` as `ask`).
 
 **Deciding** (**Decide…** in the header) lists every option still in the running to pick from: with steps, the ones that got through the most steps first, then the best fit (or price); without, the furthest stage first. Each row opens its option's page (↗). The count ("3 of 10 picked") follows the decide step's target. Recording the decision closes the notebook.
 

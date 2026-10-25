@@ -15,6 +15,7 @@ import {
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
+import { groupBy, matchQuote, monogram, sourceName, textItems, agendaText } from '/assets/briefing.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -953,6 +954,190 @@ const Timeline = define('Timeline', 'sua-a2ui-timeline',
       ${rows.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show ${rows.length - max} more</button>` : nothing}`;
   });
 
+// ── Briefing components: who someone is, what's known, what they said, what to talk about.
+// Generic (any data in these shapes), so boards and agent views can use them too.
+const sectionHead = css`
+  .h { margin: 0 0 8px; font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+  .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`;
+const outLink = (u, text) => (safeUrl(u) ? html`<a href=${safeUrl(u)} target=${u.startsWith('/') ? nothing : '_blank'} rel="noopener noreferrer">${text}</a>` : text);
+
+const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
+  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional() }).strict(),
+  css`
+    .card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; align-items: start; }
+    .pic { width: 72px; height: 72px; border-radius: var(--radius-md, 10px); object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
+    .mono { display: grid; place-items: center; font: 700 24px/1 var(--font-mono); color: var(--color-primary); background: var(--color-primary-soft); border-color: transparent; }
+    .name { margin: 0; font-size: var(--font-size-xl, 22px); line-height: 1.2; color: var(--color-text); text-wrap: balance; }
+    .line { margin: 4px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    .line b { font-weight: 600; color: var(--color-text); }
+    .about { margin: 8px 0 0; max-width: 65ch; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    .links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .links a { font: var(--font-size-xs)/1.8 var(--font-mono); padding: 0 8px; border-radius: 6px; border: 1px solid var(--color-border); text-decoration: none; }
+    .links a:hover { border-color: var(--color-primary); }
+    .asof { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-subtle, var(--color-text-muted)); }
+    @media (max-width: 420px) { .card { grid-template-columns: 1fr; } }`,
+  (p) => {
+    const links = (Array.isArray(p.links) ? p.links : []).map((l) => (typeof l === 'string' ? { url: l } : l ?? {})).filter((l) => safeUrl(l.url)).slice(0, 6);
+    const img = safeUrl(p.image);
+    return html`<div class="card">
+      ${img ? html`<img class="pic" src=${img} alt="">` : html`<div class="pic mono" aria-hidden="true">${monogram(p.name) || '?'}</div>`}
+      <div>
+        <h3 class="name">${p.name ?? ''}</h3>
+        ${p.role || p.org ? html`<p class="line">${p.role ?? ''}${p.role && p.org ? ' · ' : ''}${p.org ? html`<b>${p.org}</b>` : nothing}</p>` : nothing}
+        ${p.about ? html`<p class="about">${p.about}</p>` : nothing}
+        ${links.length ? html`<div class="links">${links.map((l) => html`<a href=${safeUrl(l.url)} target="_blank" rel="noopener noreferrer">${l.label || sourceName(l.url) || 'link'} ↗</a>`)}</div>` : nothing}
+        ${p.asOf ? html`<p class="asof">As of ${p.asOf}</p>` : nothing}
+      </div>
+    </div>`;
+  });
+
+const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
+  Common.extend({ facts: CommonSchemas.DynamicValue, missing: CommonSchemas.DynamicValue.optional() }).strict(),
+  css`${sectionHead}
+    .groups { display: grid; gap: 16px; }
+    dl { display: grid; grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: var(--font-size-sm); }
+    dt { color: var(--color-text-muted); }
+    dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--color-text); }
+    .est { border-bottom: 1px dashed var(--color-border-strong, var(--color-border)); cursor: help; }
+    .src { margin-left: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
+    .src a { text-decoration: none; }
+    .miss { margin: 12px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .miss b { font-weight: 600; color: var(--color-warn); }`,
+  (p) => {
+    const facts = (Array.isArray(p.facts) ? p.facts : []).filter((f) => f && typeof f === 'object' && String(f.label ?? '').trim());
+    const missing = textItems(p.missing).map((m) => m.text);
+    if (!facts.length && !missing.length) return html`<p class="empty">Nothing found yet.</p>`;
+    const value = (f) => {
+      const v = typeof f.value === 'object' && f.value ? JSON.stringify(f.value) : String(f.value ?? '');
+      return f.estimate ? html`<span class="est" title="An estimate">≈ ${v}</span>` : v;
+    };
+    const source = (f) => {
+      const u = safeUrl(f.url ?? f.source);
+      if (!u && !f.at) return nothing;
+      return html`<span class="src">${u ? html`<a href=${u} target="_blank" rel="noopener noreferrer" title=${u}>${sourceName(u) || 'source'} ↗</a>` : nothing}${u && f.at ? ' · ' : ''}${f.at ?? ''}</span>`;
+    };
+    return html`<div class="groups">${groupBy(facts).map((g) => html`<section>
+        ${g.group ? html`<h4 class="h">${g.group}</h4>` : nothing}
+        <dl>${g.items.map((f) => html`<dt>${f.label}</dt><dd>${value(f)}${source(f)}</dd>`)}</dl>
+      </section>`)}</div>
+      ${missing.length ? html`<p class="miss"><b>Not found:</b> ${missing.join(', ')}</p>` : nothing}`;
+  });
+
+const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
+  Common.extend({ items: CommonSchemas.DynamicValue, grouped: z.boolean().optional(), maxItems: z.number().int().min(1).max(50).optional(), search: z.boolean().optional() }).strict(),
+  css`${sectionHead}
+    .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .find { box-sizing: border-box; height: var(--control-h-sm, 28px); min-width: 0; flex: 0 1 240px; padding: 0 10px; font: inherit; font-size: var(--font-size-xs); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm, 6px); }
+    .find:focus-visible, .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .count { font-size: var(--font-size-xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    .groups { display: grid; gap: 18px; }
+    .h .n { margin-left: 6px; font-weight: 400; opacity: .7; }
+    ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+    li { min-width: 0; padding-left: 12px; border-left: 2px solid var(--color-border); }
+    li.chosen { border-left-color: var(--color-primary); }
+    blockquote { margin: 0; font-size: var(--font-size-sm); line-height: 1.55; color: var(--color-text); }
+    .meta { margin-top: 4px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .meta a { text-decoration: none; }
+    .meta .t { color: var(--color-text); font-weight: 600; }
+    .tag { margin-left: 6px; font: var(--font-size-xs)/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; background: var(--color-primary-soft); color: var(--color-primary); }
+    .ask { margin: 6px 0 0; font-size: var(--font-size-sm); color: var(--color-text); }
+    .ask b { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--color-primary); margin-right: 4px; }
+    .more { all: unset; cursor: pointer; margin-top: 14px; font-size: var(--font-size-xs); color: var(--color-primary); }`,
+  function (p) {
+    const all = (Array.isArray(p.items) ? p.items : []).filter((it) => it && typeof it === 'object' && String(it.quote ?? it.title ?? '').trim());
+    if (!all.length) return html`<p class="empty">Nothing yet.</p>`;
+    const q = this._q ?? '';
+    const shown = all.filter((it) => matchQuote(it, q));
+    const max = this._all ? shown.length : (p.maxItems ?? 8);
+    const set = (k, v) => { this[k] = v; this.requestUpdate(); };
+    // Show N more counts quotes, across groups.
+    let left = max;
+    const groups = (p.grouped === false ? [{ group: '', items: shown }] : groupBy(shown))
+      .map((g) => { const items = g.items.slice(0, Math.max(0, left)); left -= items.length; return { ...g, total: g.items.length, items }; })
+      .filter((g) => g.items.length);
+    const item = (it) => {
+      const src = safeUrl(it.source);
+      return html`<li class="${it.chosen ? 'chosen' : ''}">
+        ${it.quote ? html`<blockquote>${it.quote}</blockquote>` : nothing}
+        <div class="meta">${it.title ? html`<span class="t">${safeUrl(it.href) ? outLink(it.href, it.title) : it.title}</span>` : nothing}${it.chosen ? html`<span class="tag">chosen</span>` : nothing}${src ? html`${it.title ? ' · ' : ''}<a href=${src} target="_blank" rel="noopener noreferrer" title=${src}>${it.sourceText || sourceName(src)} ↗</a>` : nothing}${it.at ? html` · ${it.at}` : nothing}</div>
+        ${it.ask ? html`<p class="ask"><b>Ask</b>${it.ask}</p>` : nothing}
+      </li>`;
+    };
+    const searchable = p.search ?? all.length > 8;
+    return html`
+      ${searchable ? html`<div class="bar">
+        <input type="search" class="find" placeholder="Search what they said" aria-label="Search what they said" .value=${q} @input=${(e) => { this._all = false; set('_q', e.target.value); }}>
+        ${q ? html`<span class="count" role="status">${shown.length} of ${all.length}</span>` : nothing}
+      </div>` : nothing}
+      ${groups.length ? html`<div class="groups">${groups.map((g) => html`<section>
+        ${g.group ? html`<h4 class="h">${g.group}<span class="n">${g.total}</span></h4>` : nothing}
+        <ul>${g.items.map(item)}</ul>
+      </section>`)}</div>` : html`<p class="empty">Nothing matches.</p>`}
+      ${shown.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show ${shown.length - max} more</button>` : nothing}`;
+  });
+
+// Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
+const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
+const Agenda = define('Agenda', 'sua-a2ui-agenda',
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional() }).strict(),
+  css`${sectionHead}
+    .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .top .h { margin: 0; }
+    .copy { all: unset; cursor: pointer; margin-left: auto; font-size: var(--font-size-xs); padding: 0 10px; height: var(--control-h-sm, 28px); display: inline-flex; align-items: center; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); color: var(--color-text-muted); }
+    .copy:hover { border-color: var(--color-primary); color: var(--color-primary); }
+    .copy:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .status { font-size: var(--font-size-xs); color: var(--color-ok); }
+    ol { margin: 0 0 16px; padding: 0; list-style: none; display: grid; gap: 10px; }
+    ol li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 10px; }
+    ol li > :not(.pt) { grid-column: 2; }
+    .pt { display: contents; font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
+    .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--font-mono); color: var(--color-primary); background: var(--color-primary-soft); }
+    .pt .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); padding-top: 2px; }
+    label.pt { cursor: pointer; }
+    label.pt:hover .num { box-shadow: 0 0 0 2px var(--color-primary); }
+    .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+    .sr:focus-visible + .num { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+    .done .num { color: var(--color-bg); background: var(--color-ok); }
+    .done .pt .t { color: var(--color-text-muted); text-decoration: line-through; }
+    .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
+    .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
+    .refs a { text-decoration: none; }
+    ul { margin: 0 0 16px; padding-left: 18px; display: grid; gap: 6px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ul:last-child, ol:last-child { margin-bottom: 0; }
+    .watch li::marker { color: var(--color-warn); }`,
+  function (p) {
+    const points = textItems(p.points);
+    const questions = textItems(p.questions);
+    const watch = textItems(p.watch);
+    if (!points.length && !questions.length && !watch.length) return html`<p class="empty">Nothing to talk about yet.</p>`;
+    if (!this._done) { try { this._done = new Set(JSON.parse(localStorage.getItem(agendaKey(this)) ?? '[]')); } catch { this._done = new Set(); } }
+    const done = this._done;
+    const tick = (text, on) => {
+      if (on) done.add(text); else done.delete(text);
+      try { localStorage.setItem(agendaKey(this), JSON.stringify([...done])); } catch { /* ticks just aren't kept */ }
+      this.requestUpdate();
+    };
+    const copy = async () => {
+      const text = agendaText({ title: p.title, points, questions, watch });
+      try { await navigator.clipboard.writeText(text); this._copied = 'Copied'; } catch { this._copied = 'Couldn’t copy here'; }
+      this.requestUpdate();
+      setTimeout(() => { this._copied = ''; this.requestUpdate(); }, 2500);
+    };
+    const checkable = p.check !== false;
+    const refs = (pt) => (Array.isArray(pt.refs) ? pt.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
+    return html`
+      <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</div>
+      ${points.length ? html`<ol>${points.map((pt, i) => html`<li class="${checkable && done.has(pt.text) ? 'done' : ''}">
+        ${checkable
+          ? html`<label class="pt"><input class="sr" type="checkbox" .checked=${done.has(pt.text)} @change=${(e) => tick(pt.text, e.target.checked)}><span class="num" title="Tick it off">${done.has(pt.text) ? '✓' : i + 1}</span><span class="t">${pt.text}</span></label>`
+          : html`<div class="pt"><span class="num">${i + 1}</span><span class="t">${pt.text}</span></div>`}
+        ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
+        ${refs(pt).length ? html`<div class="refs">${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
+      </li>`)}</ol>` : nothing}
+      ${questions.length ? html`<h4 class="h">Questions to ask</h4><ul>${questions.map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>` : nothing}
+      ${watch.length ? html`<h4 class="h">Watch out for</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}`;
+  });
+
 const ChipList = define('ChipList', 'sua-a2ui-chip-list',
   Common.extend({ items: CommonSchemas.DynamicValue }).strict(),
   css`
@@ -1192,7 +1377,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

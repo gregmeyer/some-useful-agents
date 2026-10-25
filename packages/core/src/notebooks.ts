@@ -32,7 +32,12 @@ export type NotebookFieldType = typeof NOTEBOOK_FIELD_TYPES[number];
  * What a field means. `score` is how well an option fits (an ICP fit, a match
  * score): when a notebook has one, options rank by it instead of by price.
  */
-export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org', 'score'] as const;
+/**
+ * What a field means, so one widget works for any notebook: `quote` is what
+ * someone said or what suggests it (a briefing's evidence), `ask` a question
+ * to raise about the option (a talking point's question).
+ */
+export const NOTEBOOK_FIELD_ROLES = ['price', 'measure', 'place', 'link', 'image', 'when', 'org', 'score', 'quote', 'ask'] as const;
 export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 
 /** Where a kept picture came from: the listing, a representative one found for it, or a drawing. */
@@ -1889,6 +1894,8 @@ function inferRole(key: string, type: NotebookFieldType): NotebookFieldRole | un
   if (/^(location|city|place|neighborhood|area)$/.test(key)) return 'place';
   if (/^(seller|dealer|company|employer|store|retailer|org)$/.test(key)) return 'org';
   if (type === 'date' && /^(posted|listed|date|when|deadline)/.test(key)) return 'when';
+  if (type === 'text' && /^(evidence|quotes?|excerpt|(what_)?(they|he|she)_said|in_their_words)$|_(quote|evidence)$/.test(key)) return 'quote';
+  if (type === 'text' && /(^|_)(questions?|ask|to_ask)(_|$)/.test(key)) return 'ask';
   return undefined;
 }
 

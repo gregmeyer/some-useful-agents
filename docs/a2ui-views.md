@@ -93,6 +93,10 @@ The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Ima
 | `Coverage` | `sources` (`{name, found, status: found / none / blocked / skipped, note?}`), `note?` | where a search looked |
 | `Checklist` | `groups` (`{id, title, items: [{text, done}]}`), `actions?` | checkboxes; ticking sends a `notebook-option` check action; a group with an empty title has no heading |
 | `Timeline` | `events` (`{at, title, body?, kind?, who?, faded?, tag?, link?}`), `maxItems?`, `filters?`, `search?` (default on past 8 events) | events, newest first; the same event again in a row folds into one row (×N, expandable) |
+| `ProfileCard` | `name`, `role?`, `org?`, `about?`, `image?`, `links?` (web addresses or `{label, url}`), `asOf?` | who a person or company is: picture or initials, a role and org line, a one-liner, link chips |
+| `FactSheet` | `facts` (`{label, value, url?, at?, estimate?, group?}`), `missing?` (strings) | facts under their groups, each with its source ↗ and date; estimates marked ≈; "Not found:" lists the rest |
+| `QuoteList` | `items` (`{quote, title?, href?, source?, sourceText?, at?, ask?, group?, chosen?}`), `grouped?` (default on), `maxItems?` (default 8), `search?` (default on past 8) | what someone said, grouped, each with its source, date and an "Ask" line; Show N more |
+| `Agenda` | `points` (strings or `{text, note?, refs?: [{label, href}]}`), `questions?`, `watch?` (strings or `{text}`), `title?`, `check?`, `copy?` | numbered talking points you tick off (ticks kept in this browser), questions to ask, things to watch for, and Copy as text |
 | `ChipList` | `items` (strings or `{text, tone?, title?}`) | short chips; warn chips stand out |
 | `SanitizedHtml` | `html` | agent-written HTML, through sua's allowlist sanitizer |
 
