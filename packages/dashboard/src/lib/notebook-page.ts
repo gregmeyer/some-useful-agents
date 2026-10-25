@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs,
+  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, pageRhythm, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs,
   type Notebook, type NotebookLayout,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -97,11 +97,17 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   try {
     const base = {
       NOTEBOOK: JSON.stringify(notebookForPage(nb)),
-      PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}`).join('\n'),
+      // The shortlist by name; the others with their documents, to use as they are or start from.
+      PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'shortlist' ? '' : `\n  its page: ${JSON.stringify(p.layout.components)}`}`).join('\n'),
       GUIDE: notebookLayoutGuide(suaComponentDocs()),
     };
     let answer = parsePageAnswer(await runPageAgent(ctx, { ...base, ERRORS: '' }));
-    if ('error' in answer) answer = parsePageAnswer(await runPageAgent(ctx, { ...base, ERRORS: answer.error }));
+    // A page drawn for it that breaks the editorial rhythm (a grid of frames, one shape after another) gets one more try; if that try can't be drawn, the first stands.
+    const rhythm = 'layout' in answer && !answer.layout.preset ? pageRhythm(answer.layout.components) : [];
+    if ('error' in answer || rhythm.length) {
+      const again = parsePageAnswer(await runPageAgent(ctx, { ...base, ERRORS: 'error' in answer ? answer.error : `It can be drawn, but it reads like a grid: ${rhythm.join(' ')}` }));
+      if (!('error' in again) || 'error' in answer) answer = again;
+    }
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';

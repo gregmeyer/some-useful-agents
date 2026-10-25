@@ -763,15 +763,26 @@ const Columns = define('Columns', 'sua-a2ui-columns',
     return html`<div class="cols ${p.align === 'start' ? 'start' : ''}" style="grid-template-columns: ${w.map((n) => `minmax(0, ${n}fr)`).join(' ')}">${kids.map((c) => this.renderNode(c))}</div>`;
   });
 
+// A part of a page, in one of a few treatments (DESIGN.md "Notebook pages"):
+// plain is a frame; lede, feature and aside are unframed and set apart by
+// type and rules; band is a full-width tinted strip.
 const Panel = define('Panel', 'sua-a2ui-panel',
-  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId }).strict(),
+  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional() }).strict(),
   css`
     :host { display: block; min-width: 0; height: 100%; }
     .frame { box-sizing: border-box; height: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 14px); padding: var(--space-4, 16px); }
     .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-3, 12px); }
     h3 { margin: 0; font: 700 15px/1.2 var(--font-mono); color: var(--color-text); }
-    .note { margin-left: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); text-align: right; }`,
-  function (p) { return html`<section class="frame"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
+    .note { margin-left: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); text-align: right; }
+    .lede, .feature, .aside { background: none; border: 0; border-radius: 0; padding: 0; }
+    .lede h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--color-primary); }
+    .feature { border-top: 2px solid var(--color-text); padding-top: var(--space-3, 12px); }
+    .feature h3 { font: 700 var(--font-size-lg, 17px)/1.2 var(--font-mono); }
+    .aside { border-left: 1px solid var(--color-border-strong, var(--color-border)); padding-left: var(--space-4, 16px); }
+    .aside h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    .band { border: 0; border-radius: var(--radius-md, 10px); background: var(--color-surface-raised); padding: var(--space-3, 12px) var(--space-4, 16px); }
+    .band h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }`,
+  function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
 
 // **bold** only; everything else escaped (same rule as Text's markdown).
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
@@ -962,7 +973,7 @@ const sectionHead = css`
 const outLink = (u, text) => (safeUrl(u) ? html`<a href=${safeUrl(u)} target=${u.startsWith('/') ? nothing : '_blank'} rel="noopener noreferrer">${text}</a>` : text);
 
 const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
-  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional() }).strict(),
+  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional() }).strict(),
   css`
     .card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; align-items: start; }
     .pic { width: 72px; height: 72px; border-radius: var(--radius-md, 10px); object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
@@ -975,11 +986,21 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
     .links a { font: var(--font-size-xs)/1.8 var(--font-mono); padding: 0 8px; border-radius: 6px; border: 1px solid var(--color-border); text-decoration: none; }
     .links a:hover { border-color: var(--color-primary); }
     .asof { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-subtle, var(--color-text-muted)); }
+    /* cover: the lead of a briefing (a large portrait, the name in display type, a pull quote). */
+    .cover { grid-template-columns: 160px minmax(0, 1fr); gap: 16px 24px; }
+    .cover .pic { width: 160px; height: 160px; }
+    .cover .mono { font-size: 56px; }
+    .cover .name { font: 700 var(--font-size-2xl, 28px)/1.15 var(--font-display, var(--font-mono)); letter-spacing: -.01em; }
+    .cover .line { font-size: var(--font-size-md, 14px); }
+    .cover .about { -webkit-line-clamp: 5; font-size: var(--font-size-md, 14px); }
+    .pull { grid-column: 1 / -1; margin: 4px 0 0; padding: 0 0 0 20px; position: relative; font: 500 var(--font-size-lg, 17px)/1.45 var(--font-display, var(--font-sans)); color: var(--color-text); text-wrap: balance; }
+    .pull::before { content: "“"; position: absolute; left: -4px; top: -10px; font: 700 44px/1 var(--font-display, var(--font-mono)); color: var(--color-primary); }
+    @media (max-width: 560px) { .cover { grid-template-columns: 96px minmax(0, 1fr); } .cover .pic { width: 96px; height: 96px; } .cover .mono { font-size: 32px; } }
     @media (max-width: 420px) { .card { grid-template-columns: 1fr; } }`,
   (p) => {
     const links = (Array.isArray(p.links) ? p.links : []).map((l) => (typeof l === 'string' ? { url: l } : l ?? {})).filter((l) => safeUrl(l.url)).slice(0, 6);
     const img = safeUrl(p.image);
-    return html`<div class="card">
+    return html`<div class="card ${p.variant === 'cover' ? 'cover' : ''}">
       ${img ? html`<img class="pic" src=${img} alt="">` : html`<div class="pic mono" aria-hidden="true">${monogram(p.name) || '?'}</div>`}
       <div>
         <h3 class="name">${p.name ?? ''}</h3>
@@ -988,11 +1009,12 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
         ${links.length ? html`<div class="links">${links.map((l) => html`<a href=${safeUrl(l.url)} target="_blank" rel="noopener noreferrer">${l.label || sourceName(l.url) || 'link'} ↗</a>`)}</div>` : nothing}
         ${p.asOf ? html`<p class="asof">As of ${p.asOf}</p>` : nothing}
       </div>
+      ${p.quote ? html`<blockquote class="pull">${p.quote}</blockquote>` : nothing}
     </div>`;
   });
 
 const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
-  Common.extend({ facts: CommonSchemas.DynamicValue, missing: CommonSchemas.DynamicValue.optional() }).strict(),
+  Common.extend({ facts: CommonSchemas.DynamicValue, missing: CommonSchemas.DynamicValue.optional(), variant: z.enum(['grid', 'ruled']).optional() }).strict(),
   css`${sectionHead}
     .groups { display: grid; gap: 16px; }
     dl { display: grid; grid-template-columns: minmax(6rem, max-content) minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: var(--font-size-sm); }
@@ -1002,7 +1024,12 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
     .src { margin-left: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
     .src a { text-decoration: none; }
     .miss { margin: 12px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
-    .miss b { font-weight: 600; color: var(--color-warn); }`,
+    .miss b { font-weight: 600; color: var(--color-warn); }
+    /* ruled: each fact on its own line under a hairline, its label in small caps above (an aside). */
+    .ruled dl { display: block; }
+    .ruled dt { margin: 0; padding-top: 8px; border-top: 1px solid var(--color-border); font: 600 10px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
+    .ruled dd { margin: 3px 0 8px; }
+    .ruled .src { display: block; margin: 2px 0 0; }`,
   (p) => {
     const facts = (Array.isArray(p.facts) ? p.facts : []).filter((f) => f && typeof f === 'object' && String(f.label ?? '').trim());
     const missing = textItems(p.missing).map((m) => m.text);
@@ -1016,7 +1043,7 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
       if (!u && !f.at) return nothing;
       return html`<span class="src">${u ? html`<a href=${u} target="_blank" rel="noopener noreferrer" title=${u}>${sourceName(u) || 'source'} ↗</a>` : nothing}${u && f.at ? ' · ' : ''}${f.at ?? ''}</span>`;
     };
-    return html`<div class="groups">${groupBy(facts).map((g) => html`<section>
+    return html`<div class="groups ${p.variant === 'ruled' ? 'ruled' : ''}">${groupBy(facts).map((g) => html`<section>
         ${g.group ? html`<h4 class="h">${g.group}</h4>` : nothing}
         <dl>${g.items.map((f) => html`<dt>${f.label}</dt><dd>${value(f)}${source(f)}</dd>`)}</dl>
       </section>`)}</div>
@@ -1024,7 +1051,7 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
   });
 
 const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
-  Common.extend({ items: CommonSchemas.DynamicValue, grouped: z.boolean().optional(), maxItems: z.number().int().min(1).max(50).optional(), search: z.boolean().optional() }).strict(),
+  Common.extend({ items: CommonSchemas.DynamicValue, grouped: z.boolean().optional(), maxItems: z.number().int().min(1).max(50).optional(), search: z.boolean().optional(), lead: z.boolean().optional() }).strict(),
   css`${sectionHead}
     .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
     .find { box-sizing: border-box; height: var(--control-h-sm, 28px); min-width: 0; flex: 0 1 240px; padding: 0 10px; font: inherit; font-size: var(--font-size-xs); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm, 6px); }
@@ -1042,12 +1069,18 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
     .tag { margin-left: 6px; font: var(--font-size-xs)/1 var(--font-mono); padding: 1px 5px; border-radius: 4px; background: var(--color-primary-soft); color: var(--color-primary); }
     .ask { margin: 6px 0 0; font-size: var(--font-size-sm); color: var(--color-text); }
     .ask b { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--color-primary); margin-right: 4px; }
-    .more { all: unset; cursor: pointer; margin-top: 14px; font-size: var(--font-size-xs); color: var(--color-primary); }`,
+    .more { all: unset; cursor: pointer; margin-top: 14px; font-size: var(--font-size-xs); color: var(--color-primary); }
+    /* lead: the first quote as a pull quote, above the rest. */
+    .lead { margin: 0 0 20px; padding: 0 0 16px 22px; position: relative; border-bottom: 1px solid var(--color-border); }
+    .lead blockquote { font: 500 var(--font-size-xl, 22px)/1.35 var(--font-display, var(--font-sans)); text-wrap: balance; }
+    .lead::before { content: "“"; position: absolute; left: -2px; top: -8px; font: 700 48px/1 var(--font-display, var(--font-mono)); color: var(--color-primary); }`,
   function (p) {
     const all = (Array.isArray(p.items) ? p.items : []).filter((it) => it && typeof it === 'object' && String(it.quote ?? it.title ?? '').trim());
     if (!all.length) return html`<p class="empty">Nothing yet.</p>`;
     const q = this._q ?? '';
-    const shown = all.filter((it) => matchQuote(it, q));
+    // Led by its first quote (unless searching): that one is set large, the rest follow.
+    const leadItem = p.lead && !q ? all[0] : undefined;
+    const shown = all.filter((it) => it !== leadItem && matchQuote(it, q));
     const max = this._all ? shown.length : (p.maxItems ?? 4);
     const set = (k, v) => { this[k] = v; this.requestUpdate(); };
     // Show N more counts quotes, across groups.
@@ -1069,17 +1102,18 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
         <input type="search" class="find" placeholder="Search what they said" aria-label="Search what they said" .value=${q} @input=${(e) => { this._all = false; set('_q', e.target.value); }}>
         ${q ? html`<span class="count" role="status">${shown.length} of ${all.length}</span>` : nothing}
       </div>` : nothing}
+      ${leadItem ? html`<div class="lead">${leadItem.quote ? html`<blockquote>${leadItem.quote}</blockquote>` : nothing}<div class="meta">${leadItem.title ? html`<span class="t">${safeUrl(leadItem.href) ? outLink(leadItem.href, leadItem.title) : leadItem.title}</span>` : nothing}${safeUrl(leadItem.source) ? html` · <a href=${safeUrl(leadItem.source)} target="_blank" rel="noopener noreferrer">${leadItem.sourceText || sourceName(leadItem.source)} ↗</a>` : nothing}${leadItem.at ? html` · ${leadItem.at}` : nothing}</div></div>` : nothing}
       ${groups.length ? html`<div class="groups">${groups.map((g) => html`<section>
         ${g.group ? html`<h4 class="h">${g.group}<span class="n">${g.total}</span></h4>` : nothing}
         <ul>${g.items.map(item)}</ul>
-      </section>`)}</div>` : html`<p class="empty">Nothing matches.</p>`}
+      </section>`)}</div>` : leadItem ? nothing : html`<p class="empty">Nothing matches.</p>`}
       ${shown.length > max ? html`<button type="button" class="more" @click=${() => set('_all', true)}>Show ${shown.length - max} more</button>` : nothing}`;
   });
 
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
-  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional() }).strict(),
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), variant: z.enum(['list', 'numerals']).optional() }).strict(),
   css`${sectionHead}
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .top .h { margin: 0; }
@@ -1106,7 +1140,13 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     ul:last-child, ol:last-child { margin-bottom: 0; }
     .watch li::marker { color: var(--color-warn); }
     .more { all: unset; cursor: pointer; display: block; margin: -8px 0 16px; font-size: var(--font-size-xs); color: var(--color-primary); }
-    .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }`,
+    .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    /* numerals: large teal numbers, the points as headlines. */
+    .numerals ol { gap: 16px; }
+    .numerals ol li { grid-template-columns: 44px minmax(0, 1fr); }
+    .numerals .num { width: auto; height: auto; border-radius: 0; background: none; place-items: start; font: 700 var(--font-size-2xl, 28px)/1 var(--font-mono); color: var(--color-primary); }
+    .numerals .done .num { background: none; color: var(--color-ok); }
+    .numerals .pt .t { font-size: var(--font-size-md, 14px); padding-top: 4px; }`,
   function (p) {
     const points = textItems(p.points);
     const questions = textItems(p.questions);
@@ -1128,7 +1168,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     const checkable = p.check !== false;
     const maxQ = p.maxQuestions ?? 3;
     const refs = (pt) => (Array.isArray(pt.refs) ? pt.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
-    return html`
+    return html`<div class="${p.variant === 'numerals' ? 'numerals' : ''}">
       <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</div>
       ${points.length ? html`<ol>${points.map((pt, i) => html`<li class="${checkable && done.has(pt.text) ? 'done' : ''}">
         ${checkable
@@ -1139,7 +1179,8 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
       </li>`)}</ol>` : nothing}
       ${questions.length ? html`<h4 class="h">Questions to ask</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
         ${!this._allQ && questions.length > maxQ ? html`<button type="button" class="more" @click=${() => { this._allQ = true; this.requestUpdate(); }}>Show ${questions.length - maxQ} more</button>` : nothing}` : nothing}
-      ${watch.length ? html`<h4 class="h">Watch out for</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}`;
+      ${watch.length ? html`<h4 class="h">Watch out for</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}
+    </div>`;
   });
 
 // A notebook page's header is drawn by the page itself (its buttons are forms

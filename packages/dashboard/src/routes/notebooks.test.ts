@@ -2868,6 +2868,37 @@ describe('a new notebook decides its page', () => {
     expect(store.get(id)!.layout).toBeUndefined();
   });
 
+  it('gives a page that reads like a grid one more try, and keeps it when that try can\'t be drawn', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { decideNotebookPage } = await import('../lib/notebook-page.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const grid = [
+      { id: 'root', component: 'Column', children: ['r1', 'r2'] },
+      { id: 'r1', component: 'Columns', children: ['a', 'b'], widths: [1, 1] },
+      { id: 'r2', component: 'Columns', children: ['c', 'd'], widths: [1, 1] },
+      ...['a', 'b', 'c', 'd'].map((id) => ({ id, component: 'Panel', title: id, child: `t${id}` })),
+      ...['a', 'b', 'c', 'd'].map((id) => ({ id: `t${id}`, component: 'Text', text: 'x' })),
+    ];
+    const nb = store.create({ title: 'Prepare for a call with Dana' });
+    pageAsked.length = 0;
+    pageReply = (inputs) => (inputs.ERRORS ? `<page>${JSON.stringify({ preset: 'dossier', about: 'a meeting briefing' })}</page>` : `<page>${JSON.stringify({ components: grid })}</page>`);
+    expect(await decideNotebookPage(ctx, nb.id)).toBe('drawn');
+    expect(pageAsked).toHaveLength(2);
+    expect(pageAsked[0].PRESETS).toContain('dossier: Getting ready to meet');
+    expect(pageAsked[1].ERRORS).toContain('It can be drawn, but it reads like a grid: 4 parts are framed');
+    expect(store.get(nb.id)!.layout).toMatchObject({ preset: 'dossier', about: 'a meeting briefing' });
+
+    // The second try can't be drawn: the first, readable if grid-like, stands.
+    const nb2 = store.create({ title: 'Prepare for a call with Sam' });
+    pageReply = (inputs) => (inputs.ERRORS ? 'no page' : `<page>${JSON.stringify({ components: grid })}</page>`);
+    expect(await decideNotebookPage(ctx, nb2.id)).toBe('drawn');
+    expect(store.get(nb2.id)!.layout!.components).toEqual(grid);
+    pageReply = undefined;
+  });
+
   it('keeps the shortlist when sua says so or can\'t draw one, and never replaces a page it came with', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');

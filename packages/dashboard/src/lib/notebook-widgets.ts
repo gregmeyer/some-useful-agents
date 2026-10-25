@@ -148,6 +148,13 @@ export interface NotebookWidgetData extends NotebookViewData {
     facts: Array<{ label: string; value: string; url?: string; group: string }>;
     /** What was looked for about them and not found. */
     notFound: string[];
+    /** The first thing they said (the top quote), for a cover's pull quote. */
+    leadQuote?: string;
+    /** The quotes after that one (so a page with the pull quote doesn't repeat it). */
+    otherQuotes: NotebookWidgetData['notebook']['quotes'];
+    /** What was learned about the person, and about their company, apart (FactSheet beside each). */
+    personFacts: NotebookWidgetData['notebook']['facts'];
+    companyFacts: NotebookWidgetData['notebook']['facts'];
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -317,6 +324,10 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       talkingPoints,
       questions,
       ...about,
+      ...(quotes[0]?.quote ? { leadQuote: quotes[0].quote } : {}),
+      otherQuotes: quotes.slice(1),
+      personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
+      companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
       options: v.options.map((o) => {
         const facets = optionFacets(nb, o);
         return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
@@ -468,6 +479,8 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     options: hasOptions,
     decided: nb.status === 'decided',
     about: !!(nb.about?.person || nb.about?.company),
+    person: !!nb.about?.person,
+    company: !!nb.about?.company,
   };
 }
 
