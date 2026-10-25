@@ -8,7 +8,7 @@
  * company's logo from its own site. Those feed ProfileCard and FactSheet
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
-import { NotebookStore, fetchImage, type Notebook, type NotebookAboutWho, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, fetchImage, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { defaultLogoDeps, findLogo } from './notebook-logos.js';
@@ -31,7 +31,7 @@ export const PERSON_ASK: readonly Ask[] = [
   { key: 'known_for', label: 'Known for', hint: 'one sentence: what they write, talk or post about' },
   { key: 'website', label: 'Their site', hint: 'their own site or newsletter, https://…' },
   { key: 'linkedin', label: 'LinkedIn', hint: 'their LinkedIn profile address' },
-  { key: 'photo_url', label: 'Photo', hint: 'a direct image address (.jpg, .png or .webp) of a photo of them: their own site, a speaker or podcast page; not LinkedIn' },
+  { key: 'photo_url', label: 'Photo', hint: 'a direct image address (.jpg, .png or .webp) of a photo of them alone, from a page about them (their own site, an author, speaker or guest page; not LinkedIn); its source is that page, which must name them' },
 ];
 
 /** What's looked up about a company. */
@@ -104,14 +104,50 @@ async function research(ctx: Ctx, inputs: Record<string, string>): Promise<{ run
   return run.status === 'completed' ? { runId: run.id, result: run.result } : { runId: run.id, error: run.error ?? run.status };
 }
 
-/** Keep a copy of a picture of them; a failed fetch just leaves their initials. */
-async function keepPicture(ctx: Ctx, store: NotebookStore, nb: Notebook, who: NotebookAboutWho, how: { photo?: string; site?: string }): Promise<string | undefined> {
+/** At most this many pages are read looking for a picture of them. */
+const PHOTO_PAGES = 5;
+
+/**
+ * A picture that's them: the research's own (only when the page it came
+ * from shows it as theirs), else one on a page about them among those their
+ * facts came from (core personPhotoOnPage). Pictures you said aren't them
+ * are skipped. Never LinkedIn: it isn't read.
+ */
+async function personPhoto(ctx: Ctx, nb: Notebook, name: string, research: Found): Promise<PersonPhotoFound | undefined> {
+  const check = ctx.notebookPersonPhotoCheck ?? findPersonPhoto;
+  const rejected = new Set(nb.about?.person?.rejectedPhotos ?? []);
+  const readable = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u) && !/linkedin\.com|licdn\.com/i.test(u);
+  const tries: Array<{ page: string; want?: string }> = [];
+  const want = text(research, 'photo_url');
+  const from = research.found.photo_url?.source;
+  if (readable(want) && readable(from)) tries.push({ page: from, want });
+  for (const f of Object.values(research.found)) if (readable(f?.source)) tries.push({ page: f.source });
+  for (const k of ['website']) { const u = text(research, k); if (readable(u)) tries.push({ page: u }); }
+  const seen = new Set<string>();
+  for (const t of tries) {
+    const key = `${t.page}|${t.want ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if ([...seen].length > PHOTO_PAGES) break;
+    const found = await check(t.page, name, t.want);
+    if ('image' in found && !rejected.has(found.image)) return found;
+  }
+  return undefined;
+}
+
+/** Keep a copy of a picture of them; none that checks out just leaves their initials. */
+async function keepPicture(ctx: Ctx, store: NotebookStore, nb: Notebook, who: NotebookAboutWho, how: { photo?: PersonPhotoFound; site?: string }): Promise<string | undefined> {
   const deps = ctx.notebookLogoDeps ?? defaultLogoDeps;
   try {
-    if (how.photo && /^https?:\/\//i.test(how.photo) && !/linkedin\.com|licdn\.com/i.test(how.photo)) {
-      const img = ctx.notebookLogoDeps ? await deps.fetchImage(how.photo) : await fetchImage(how.photo, { maxBytes: 3 * 1024 * 1024 });
-      store.saveAboutPhoto(nb.id, who, how.photo, { contentType: img.contentType, bytes: img.bytes }, 'photo');
-      return 'photo';
+    if (how.photo) {
+      const img = ctx.notebookLogoDeps ? await deps.fetchImage(how.photo.image) : await fetchImage(how.photo.image, { maxBytes: 3 * 1024 * 1024 });
+      // A portrait, not a banner or an icon: roughly square to tall, and big enough to see.
+      const size = imageSize(img.bytes);
+      const fits = !size || (Math.min(size.width, size.height) >= 96 && size.width / size.height <= 1.6 && size.height / size.width <= 2.2);
+      if (fits) {
+        store.saveAboutPhoto(nb.id, who, how.photo.image, { contentType: img.contentType, bytes: img.bytes }, 'photo', { page: how.photo.page, why: how.photo.why });
+        return 'photo';
+      }
     }
     const h = how.site ? host(how.site) : undefined;
     if (h) {
@@ -146,8 +182,9 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     const { facts, notFound } = aboutFrom(person, PERSON_ASK);
     store.setAbout(nb.id, 'person', { name: subject, facts, notFound, ...(person.summary ? { summary: person.summary } : {}) });
     notes.push(`learned ${String(facts.length)} about ${subject}`);
-    const pic = await keepPicture(ctx, store, nb, 'person', { photo: text(person, 'photo_url') });
-    if (pic) notes.push(`kept a ${pic}`);
+    const photo = await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);
+    const pic = photo ? await keepPicture(ctx, store, nb, 'person', { photo }) : undefined;
+    notes.push(pic ? `kept a photo (${photo!.why})` : 'no photo that is clearly them');
     const org = text(person, 'organization');
     if (org) company = { name: org, ...(text(person, 'company_website') ? { site: text(person, 'company_website') } : {}) };
   }

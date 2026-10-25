@@ -352,8 +352,8 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   const notes: string[] = [];
   let nb = store.get(notebookId)!;
   let before = stepProgress(nb, store.entries(nb.id, 1000), step);
-  // Already there (a search earlier found enough): no run needed.
-  if (before.met) return finish(ctx, store, notebookId, step, before, ['its goal was already met']);
+  // Already there (a search earlier found enough): no run needed. A profile step runs whenever it's started (to learn more, or find their photo).
+  if (before.met && step.kind !== 'profile') return finish(ctx, store, notebookId, step, before, ['its goal was already met']);
   // A profile step: sua's researcher learns about who the notebook is about (lib/notebook-profile.ts).
   if (step.kind === 'profile') {
     const tries = step.tries + 1;

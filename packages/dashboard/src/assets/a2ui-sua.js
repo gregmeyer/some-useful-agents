@@ -973,7 +973,7 @@ const sectionHead = css`
 const outLink = (u, text) => (safeUrl(u) ? html`<a href=${safeUrl(u)} target=${u.startsWith('/') ? nothing : '_blank'} rel="noopener noreferrer">${text}</a>` : text);
 
 const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
-  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional() }).strict(),
+  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), imageFrom: Str.optional(), imageWhy: Str.optional(), rejectHref: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional() }).strict(),
   css`
     .card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; align-items: start; }
     .pic { width: 72px; height: 72px; border-radius: var(--radius-md, 10px); object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
@@ -996,12 +996,22 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
     .pull { grid-column: 1 / -1; margin: 4px 0 0; padding: 0 0 0 20px; position: relative; font: 500 var(--font-size-lg, 17px)/1.45 var(--font-display, var(--font-sans)); color: var(--color-text); text-wrap: balance; }
     .pull::before { content: "“"; position: absolute; left: -4px; top: -10px; font: 700 44px/1 var(--font-display, var(--font-mono)); color: var(--color-primary); }
     @media (max-width: 560px) { .cover { grid-template-columns: 96px minmax(0, 1fr); } .cover .pic { width: 96px; height: 96px; } .cover .mono { font-size: 32px; } }
-    @media (max-width: 420px) { .card { grid-template-columns: 1fr; } }`,
+    @media (max-width: 420px) { .card { grid-template-columns: 1fr; } }
+    /* Where their photo came from, and Not them: a person can check it's them. */
+    .picbox { display: grid; gap: 4px; justify-items: start; }
+    .from { max-width: 160px; font-size: var(--font-size-xs); line-height: 1.35; color: var(--color-text-muted); overflow-wrap: anywhere; }
+    .from a { text-decoration: none; }
+    .notthem { margin: 0; }
+    .notthem button { all: unset; cursor: pointer; font-size: var(--font-size-xs); color: var(--color-text-muted); text-decoration: underline; text-underline-offset: 2px; }
+    .notthem button:hover { color: var(--color-err); }`,
   (p) => {
     const links = (Array.isArray(p.links) ? p.links : []).map((l) => (typeof l === 'string' ? { url: l } : l ?? {})).filter((l) => safeUrl(l.url)).slice(0, 6);
     const img = safeUrl(p.image);
     return html`<div class="card ${p.variant === 'cover' ? 'cover' : ''}">
-      ${img ? html`<img class="pic" src=${img} alt="">` : html`<div class="pic mono" aria-hidden="true">${monogram(p.name) || '?'}</div>`}
+      ${img ? html`<div class="picbox"><img class="pic" src=${img} alt=${p.name ? `Photo of ${p.name}` : ''}>
+          ${safeUrl(p.imageFrom) ? html`<span class="from" title=${p.imageWhy ?? nothing}>Photo: <a href=${safeUrl(p.imageFrom)} target="_blank" rel="noopener noreferrer">${sourceName(p.imageFrom)} ↗</a></span>` : nothing}
+          ${p.rejectHref && /^\/(?!\/)/.test(p.rejectHref) ? html`<form class="notthem" method="POST" action=${p.rejectHref}><button type="submit" title="Not a photo of them: remove it, and don't use it again">Not them</button></form>` : nothing}
+        </div>` : html`<div class="pic mono" aria-hidden="true">${monogram(p.name) || '?'}</div>`}
       <div>
         <h3 class="name">${p.name ?? ''}</h3>
         ${p.role || p.org ? html`<p class="line">${p.role ?? ''}${p.role && p.org ? ' · ' : ''}${p.org ? html`<b>${p.org}</b>` : nothing}</p>` : nothing}

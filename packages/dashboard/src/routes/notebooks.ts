@@ -308,6 +308,14 @@ function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly Note
   };
 }
 
+// Not them: the photo goes, and isn't used for them again (the page they're on is kept as it is).
+notebooksRouter.post('/notebooks/:id/about/:who/photo/reject', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const who = String(req.params.who);
+  const done = (who === 'person' || who === 'company') && store(req).rejectAboutPhoto(id, who);
+  res.redirect(303, `/notebooks/${encodeURIComponent(id)}?${done ? 'ok' : 'info'}=${encodeURIComponent(done ? 'Removed that photo; it won\u2019t be used again. Search again on the Learn about step to look for another.' : 'There was no photo to remove.')}`);
+});
+
 // A kept picture of who a notebook is about (a profile step): a person's photo, a company's logo.
 notebooksRouter.get('/notebooks/:id/about/:who/photo', (req: Request, res: Response) => {
   const who = String(req.params.who);
@@ -611,7 +619,7 @@ notebooksRouter.post('/notebooks/:id/layout', (req: Request, res: Response) => {
     const preset = layoutPreset(str(req.body?.preset));
     if (!preset) throw new Error('No such layout.');
     s.setLayout(id, preset.id === 'shortlist' ? null : preset.id, 'you');
-    res.redirect(303, edit(`The page is the ${preset.label} again.`));
+    res.redirect(303, edit(preset.id === 'shortlist' ? `The page is the ${preset.label} again.` : `The page is now the ${preset.label}. Undo puts the last one back.`));
   } catch (err) {
     res.redirect(303, edit(err instanceof Error ? err.message : String(err), 'error'));
   }
