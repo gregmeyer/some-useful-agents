@@ -34,7 +34,7 @@ import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
-import { notebookCard, notebookCover, notebookLead } from '../lib/notebook-card.js';
+import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
 import { optionIllustration, illustrationKind } from '../lib/notebook-illustrations.js';
@@ -245,7 +245,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   const last = nb.conversationId ? ctx.inboxStore?.listResponses(nb.conversationId).filter((r) => r.role === 'triage').pop() : undefined;
   const lastWord = last ? { text: markdownToText(last.body.replace(/<plan>[\s\S]*?<\/plan>/g, ' ')).replace(/\s+/g, ' ').trim().slice(0, 240) + (last.body.length > 240 ? '…' : ''), at: last.createdAt } : undefined;
   // The same picture as the notebook's card: the lead option's, else the cover.
-  const coverPhoto = notebookCover(s, nb, notebookLead(nb, entries));
+  const coverPhoto = notebookCoverSrc(s, nb, notebookLead(nb, entries));
   // What sua is doing for this notebook in the background (shown as working in the header).
   const unfiled = unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) }));
   const busy = [
@@ -256,7 +256,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   ];
   // What's live: the conversation waiting on you or replying, and the notebook's own work.
   const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of } : undefined, busy);
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: { src: notebookPhotoPath(nb.id, coverPhoto.entryId), kind: coverPhoto.kind, ...(coverPhoto.shape ? { shape: coverPhoto.shape } : {}) } } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -307,6 +307,17 @@ function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly Note
     return uri;
   };
 }
+
+// A kept picture of who a notebook is about (a profile step): a person's photo, a company's logo.
+notebooksRouter.get('/notebooks/:id/about/:who/photo', (req: Request, res: Response) => {
+  const who = String(req.params.who);
+  const photo = who === 'person' || who === 'company' ? store(req).aboutPhoto(String(req.params.id), who) : undefined;
+  if (!photo || !/^image\/(jpeg|png|gif|webp)$/.test(photo.contentType)) { res.status(404).end(); return; }
+  res.setHeader('Content-Type', photo.contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-cache');
+  res.end(Buffer.from(photo.bytes));
+});
 
 notebooksRouter.get('/notebooks/:id/entries/:entry/photo', (req: Request, res: Response) => {
   const s = store(req);

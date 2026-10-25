@@ -1099,3 +1099,44 @@ describe('template subjects', () => {
     expect(s.setChecks(nb.id, ['word '.repeat(40)]).checks[0].endsWith('word')).toBe(true);
   });
 });
+
+describe('who a notebook is about', () => {
+  it('merges what\'s learned: a later sighting of a fact wins, others stay, and what\'s found leaves "not found"', async () => {
+    const { mergeAbout } = await import('./notebooks.js');
+    const a = mergeAbout(undefined, { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://example.com/a' }, { key: 'Bad Key', value: 'x' }, { key: 'location', value: '' }], notFound: ['Based in', 'Company'] }, '2026-10-01T00:00:00Z');
+    expect(a).toEqual({ name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://example.com/a', at: '2026-10-01T00:00:00Z' }], notFound: ['Based in', 'Company'], updatedAt: '2026-10-01T00:00:00Z' });
+    const b = mergeAbout(a, { facts: [{ key: 'role', label: 'Role', value: 'COO', source: 'javascript:alert(1)' }, { key: 'location', label: 'Based in', value: 'Austin' }] }, '2026-10-02T00:00:00Z');
+    expect(b.name).toBe('Dana Reyes');
+    expect(b.facts.map((f) => [f.key, f.value, f.source ?? ''])).toEqual([['role', 'COO', ''], ['location', 'Austin', '']]);
+    expect(b.notFound).toEqual(['Company']);
+  });
+
+  it('keeps it with the notebook, gives a profile step its subject and progress, and leaves it out of the options\' funnel', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call with Dana Reyes' });
+    s.setSteps(nb.id, [
+      { title: 'Learn about Dana Reyes', kind: 'profile', subject: '  Dana   Reyes ', target: 9 },
+      { title: 'Find 5 themes', kind: 'find', target: 5, subject: 'ignored' },
+      { title: 'Choose', kind: 'decide', target: 2 },
+    ]);
+    const steps = s.get(nb.id)!.steps!;
+    expect(steps.map((x) => [x.kind, x.subject ?? '', x.target ?? ''])).toEqual([['profile', 'Dana Reyes', ''], ['find', '', 5], ['decide', '', 2]]);
+    expect(stepProgress(s.get(nb.id)!, [], steps[0])).toEqual({ met: false, have: 0, want: 4, missing: ['who they are'] });
+    s.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'role', value: 'VP Ops' }, { key: 'location', value: 'Austin' }], notFound: ['Company'] });
+    expect(stepProgress(s.get(nb.id)!, [], steps[0])).toMatchObject({ met: false, have: 2, missing: ['Company'] });
+    s.setAbout(nb.id, 'company', { name: 'Northwind', facts: [{ key: 'size', value: '200' }, { key: 'founded', value: '2015' }] });
+    expect(stepProgress(s.get(nb.id)!, [], steps[0])).toMatchObject({ met: true, have: 4, want: 4 });
+    // The funnel is the options' steps only.
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }]);
+    s.upsertOption(nb.id, { title: 'Ops at scale', by: 'agent:x', data: { theme: 'ops' } });
+    expect(notebookViewData(s.get(nb.id)!, s.entries(nb.id)).notebook.funnel.map((f) => f.stage)).toEqual(['Found', 'Chosen']);
+    // Its picture, kept and cleared with it.
+    s.saveAboutPhoto(nb.id, 'person', 'https://example.com/dana.jpg', { contentType: 'image/jpeg', bytes: new Uint8Array([1, 2, 3]) }, 'photo');
+    expect(s.aboutPhotos(nb.id)).toEqual(new Set(['person']));
+    expect(s.aboutPhoto(nb.id, 'person')).toMatchObject({ contentType: 'image/jpeg', kind: 'photo', sourceUrl: 'https://example.com/dana.jpg' });
+    s.delete(nb.id);
+    expect(s.aboutPhotos(nb.id).size).toBe(0);
+  });
+});

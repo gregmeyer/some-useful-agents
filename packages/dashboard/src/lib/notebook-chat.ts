@@ -233,7 +233,7 @@ export function parseNotebookSteps(ctx: Ctx, raw: string): { steps?: NotebookSte
   // An agent that can't do its step (a page reader on a find or check step) comes off it: sua's finder or checker does it.
   const fit = fitStepAgents(ctx, list);
   const { steps } = draftSteps(fit.steps, new Set(named));
-  return steps ? { steps, ...(fit.notes.length ? { notes: fit.notes } : {}) } : { error: 'None of those were steps (each needs a title and a kind: find, source, check or decide).' };
+  return steps ? { steps, ...(fit.notes.length ? { notes: fit.notes } : {}) } : { error: 'None of those were steps (each needs a title and a kind: profile, find, source, check, narrow or decide).' };
 }
 
 /** The steps card's preview: each step, its agent, and what it replaces. */

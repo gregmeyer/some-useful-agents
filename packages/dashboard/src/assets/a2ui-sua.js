@@ -970,7 +970,7 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
     .name { margin: 0; font-size: var(--font-size-xl, 22px); line-height: 1.2; color: var(--color-text); text-wrap: balance; }
     .line { margin: 4px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .line b { font-weight: 600; color: var(--color-text); }
-    .about { margin: 8px 0 0; max-width: 65ch; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    .about { margin: 8px 0 0; max-width: 65ch; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
     .links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .links a { font: var(--font-size-xs)/1.8 var(--font-mono); padding: 0 8px; border-radius: 6px; border: 1px solid var(--color-border); text-decoration: none; }
     .links a:hover { border-color: var(--color-primary); }
@@ -984,7 +984,7 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
       <div>
         <h3 class="name">${p.name ?? ''}</h3>
         ${p.role || p.org ? html`<p class="line">${p.role ?? ''}${p.role && p.org ? ' · ' : ''}${p.org ? html`<b>${p.org}</b>` : nothing}</p>` : nothing}
-        ${p.about ? html`<p class="about">${p.about}</p>` : nothing}
+        ${p.about ? html`<p class="about" title=${p.about}>${p.about}</p>` : nothing}
         ${links.length ? html`<div class="links">${links.map((l) => html`<a href=${safeUrl(l.url)} target="_blank" rel="noopener noreferrer">${l.label || sourceName(l.url) || 'link'} ↗</a>`)}</div>` : nothing}
         ${p.asOf ? html`<p class="asof">As of ${p.asOf}</p>` : nothing}
       </div>

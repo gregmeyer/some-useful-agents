@@ -34,6 +34,9 @@ let finderReply: ((inputs: Record<string, string>) => string | undefined) | unde
 /** The drafter's answer when sua lays out a new notebook's steps (unset: none). */
 let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const facetsAsked: Array<Record<string, string>> = [];
+/** research-one's answer in a profile step, and what it was asked. */
+let researchReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+const researchAsked: Array<Record<string, string>> = [];
 /** The notebook-page agent's answer (none: the shortlist stays), and what it was asked. */
 let pageReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const pageAsked: Array<Record<string, string>> = [];
@@ -100,6 +103,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // Nor a real finder: tests set finderReply.
     notebookFinderRun: async (inputs) => finderReply?.(inputs),
+    notebookResearchRun: async (inputs) => { researchAsked.push(inputs); return researchReply?.(inputs); },
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
     // Laying out a new notebook's steps: tests set stepsReply.
@@ -2646,6 +2650,97 @@ describe('a notebook\'s page, drawn by sua', () => {
     await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
     expect(store.get(nb.id)!.layout).toBeUndefined();
     expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('Page: <b>Shortlist</b>');
+  });
+});
+
+describe('a profile step', () => {
+  afterEach(() => { researchReply = undefined; researchAsked.length = 0; });
+
+  it('learns about the person, then their company, keeps their photo and logo, and the page, card and cover show them', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const ctx = getContext(app.locals);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const fetched: string[] = [];
+    ctx.notebookLogoDeps = { fetchImage: async (u) => { fetched.push(u); return { bytes: png, contentType: 'image/png' }; }, siteIcons: async (u) => [`${u}apple-touch-icon.png`] };
+    researchReply = (inputs) => JSON.stringify(inputs.SUBJECT === 'Dana Reyes'
+      ? { subject: 'Dana Reyes', summary: 'Dana runs operations at Northwind.', not_found: ['location'], found: {
+        kind: { value: 'person' }, role: { value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' },
+        organization: { value: 'Northwind' }, company_website: { value: 'https://northwind.example' }, linkedin: { value: 'https://www.linkedin.com/in/dana' },
+        known_for: { value: 'Writes about scaling ops teams' }, photo_url: { value: 'https://northwind.example/dana.png' } } }
+      : { subject: 'Northwind', found: { what_they_do: { value: 'Freight software' }, website: { value: 'https://northwind.example' }, size: { value: 'about 200', source: 'https://northwind.example/about' } }, not_found: ['stage'] });
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a call with Dana Reyes', statement: 'What matters to Dana' });
+    store.setSteps(nb.id, [{ title: 'Learn about Dana Reyes', kind: 'profile' }, { title: 'Find 5 themes', kind: 'find', target: 5 }]);
+    expect(startNotebookStep(ctx, nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+
+    const after = store.get(nb.id)!;
+    expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Dana Reyes', 'Northwind']);
+    expect(JSON.parse(researchAsked[0].ASK).map((a: { key: string }) => a.key)).toContain('photo_url');
+    expect(after.steps![0]).toMatchObject({ status: 'met', note: '4 of 4 facts learned' });
+    expect(after.about!.person!.facts.map((f) => f.key)).toEqual(['role', 'organization', 'company_website', 'known_for', 'linkedin']);
+    expect(after.about!.person!.facts[0]).toMatchObject({ value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' });
+    expect(after.about!.person!.notFound).toEqual(['Based in']);
+    expect(after.about!.company).toMatchObject({ name: 'Northwind', notFound: ['Stage'] });
+    expect(fetched).toEqual(['https://northwind.example/dana.png', 'https://northwind.example/apple-touch-icon.png']);
+
+    const d = notebookWidgetData(after, [], store).notebook;
+    expect(d.person).toEqual({ name: 'Dana Reyes', role: 'VP Operations', org: 'Northwind', about: 'Dana runs operations at Northwind.', image: `/notebooks/${nb.id}/about/person/photo`, links: [{ label: 'LinkedIn', url: 'https://www.linkedin.com/in/dana' }], asOf: expect.any(String) });
+    expect(d.company).toMatchObject({ name: 'Northwind', role: 'Freight software', image: `/notebooks/${nb.id}/about/company/photo`, links: [{ label: 'northwind.example', url: 'https://northwind.example' }] });
+    expect(d.facts.map((f) => `${f.group}: ${f.label}`)).toEqual(['Dana Reyes: Role', 'Dana Reyes: Company', 'Dana Reyes: Known for', 'Northwind: What they do', 'Northwind: Size']);
+    expect(d.notFound).toEqual(['Based in', 'Stage']);
+
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const photo = await get(`/notebooks/${nb.id}/about/person/photo`);
+    expect(photo.status).toBe(200);
+    expect(photo.headers['content-type']).toBe('image/png');
+    expect((await get(`/notebooks/${nb.id}/about/nobody/photo`)).status).toBe(404);
+    // The header's cover is their photo.
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`src="/notebooks/${nb.id}/about/person/photo"`);
+    // A page drawn with who they are shows them once learned.
+    store.setLayout(nb.id, { components: [
+      { id: 'root', component: 'Column', children: ['who', 'facts'] },
+      { id: 'who', component: 'ProfileCard', name: { path: '/notebook/person/name' }, role: { path: '/notebook/person/role' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' }, when: 'about' },
+      { id: 'facts', component: 'FactSheet', facts: { path: '/notebook/facts' }, missing: { path: '/notebook/notFound' }, when: 'about' },
+    ] });
+    const html = (await get(`/notebooks/${nb.id}`)).text;
+    expect(html).toContain('"component":"ProfileCard"');
+    expect(html).toContain('VP Operations');
+  });
+
+  it('looks up a company alone as a company, and is stuck without an answer', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const ctx = getContext(app.locals);
+    ctx.notebookLogoDeps = { fetchImage: async () => { throw new Error('offline'); }, siteIcons: async () => [] };
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a meeting with Acme Robotics' });
+    store.setSteps(nb.id, [{ title: 'Learn about Acme', kind: 'profile' }, { title: 'Find 5 themes', kind: 'find', target: 5 }]);
+    researchReply = () => undefined;
+    startNotebookStep(ctx, nb.id);
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Acme Robotics']);
+    expect(store.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', stalled: true });
+
+    researchReply = (inputs) => JSON.stringify(inputs.ASK.includes('photo_url')
+      ? { found: { kind: { value: 'company' }, website: { value: 'https://acme.example' } } }
+      : { found: { what_they_do: { value: 'Warehouse robots' }, website: { value: 'https://acme.example' }, size: { value: '80' }, founded: { value: '2019' }, headquarters: { value: 'Austin' } } });
+    researchAsked.length = 0;
+    startNotebookStep(ctx, nb.id);
+    for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
+    const after = store.get(nb.id)!;
+    expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Acme Robotics', 'Acme Robotics']);
+    expect(after.about!.person).toBeUndefined();
+    expect(after.about!.company!.facts.map((f) => f.key)).toEqual(['what_they_do', 'website', 'size', 'founded', 'headquarters']);
+    expect(after.steps![0].status).toBe('met');
+    // No picture could be fetched: their initials stand in.
+    expect(store.aboutPhotos(nb.id).size).toBe(0);
   });
 });
 

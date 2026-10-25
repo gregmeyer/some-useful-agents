@@ -26,6 +26,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   steps: 'Its work is in steps.',
   options: 'It has options.',
   decided: 'It has a decision.',
+  about: 'It knows who it\'s about: a profile step learned about a person or company.',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -317,6 +318,10 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/quotes': 'What each option says (its quote field: evidence, what they said), chosen first, grouped by its short label (QuoteList items).',
   '/notebook/talkingPoints': 'The chosen options (else the first 5) as points to raise, each with its question (Agenda points).',
   '/notebook/questions': 'The other options\' questions (their ask field) (Agenda questions).',
+  '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…).',
+  '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
+  '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
+  '/notebook/notFound': 'What was looked for about them and not found (FactSheet missing).',
   '/notebook/shortlistNote': 'How the shortlist is ranked.',
   '/notebook/limitsNote': 'How many limits disagree.',
 };

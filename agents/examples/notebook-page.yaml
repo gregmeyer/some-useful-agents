@@ -73,8 +73,12 @@ nodes:
       /notebook/quotes, /notebook/talkingPoints and /notebook/questions;
       a price and a measure, the map), use Panel to title parts and
       Columns for side by side, and keep the timeline and "where sua
-      looked" low. 8–30 components. Don't add a ProfileCard or FactSheet:
-      notebooks don't keep facts about a person or company yet.
+      looked" low. 8–30 components. When it has a profile step (it learns
+      about a person or company), lead with who they are: a ProfileCard
+      for /notebook/person (and one for /notebook/company), each prop
+      bound to its own path, and a FactSheet of /notebook/facts with
+      missing /notebook/notFound, each with "when": "about" so they wait
+      until something is learned.
 
       The last page you drew couldn't be used, because (may be empty):
       {{inputs.ERRORS}}

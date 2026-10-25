@@ -5,6 +5,7 @@
  */
 import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type NotebookViewOption, type InboxMessage } from '@some-useful-agents/core';
 import { formatFieldValue, type NotebookCard } from '../views/notebooks.js';
+import { notebookAboutPhotoPath } from './notebook-widgets.js';
 
 /** Best first by the score field (how well it fits) when there is one, else by price; only those it can rank. */
 function ranked(nb: Notebook, active: NotebookViewOption[]): NotebookViewOption[] {
@@ -26,6 +27,21 @@ export function notebookCover(s: NotebookStore, nb: Notebook, lead?: { id: strin
   return s.coverPhoto(nb.id);
 }
 
+/**
+ * The cover to show, as an address: for a notebook about someone, their
+ * photo (or their company's logo) once a profile step kept one; else the
+ * lead option's picture, else the notebook's cover.
+ */
+export function notebookCoverSrc(s: NotebookStore, nb: Notebook, lead?: { id: string }): { src: string; kind: string; shape?: string } | undefined {
+  if (nb.about) {
+    const kept = s.aboutPhotos(nb.id);
+    const who = kept.has('person') ? 'person' : kept.has('company') ? 'company' : undefined;
+    if (who) return { src: notebookAboutPhotoPath(nb.id, who), kind: s.aboutPhoto(nb.id, who)?.kind === 'logo' ? 'logo' : 'listing' };
+  }
+  const cover = notebookCover(s, nb, lead);
+  return cover ? { src: notebookPhotoPath(nb.id, cover.entryId), kind: cover.kind, ...(cover.shape ? { shape: cover.shape } : {}) } : undefined;
+}
+
 /** The lead option of a notebook's entries, as its card and header rank it. */
 export function notebookLead(nb: Notebook, entries: Parameters<typeof notebookViewData>[1]): { id: string } | undefined {
   const active = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
@@ -40,7 +56,7 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
   const active = v.options.filter((o) => !o.ruledOut);
   const priced = ranked(nb, active);
   const furthest = [...v.funnel].reverse().find((f) => f.here > 0)?.stage;
-  const cover = notebookCover(s, nb, priced[0]);
+  const cover = notebookCoverSrc(s, nb, priced[0]);
   return {
     nb,
     entries: entries.length,
@@ -52,7 +68,7 @@ export function notebookCard(s: NotebookStore, nb: Notebook): NotebookCard {
     ...(nb.criteria.length ? { checks: nb.criteria.map((c) => ({ text: c.text, met: c.met })) } : {}),
     ...(nb.criteria.length ? { done: `${String(nb.criteria.filter((c) => c.met).length)} of ${String(nb.criteria.length)} done` } : {}),
     ...(furthest && furthest !== nb.stages[0] ? { furthest } : {}),
-    ...(cover ? { cover: notebookPhotoPath(nb.id, cover.entryId), coverKind: cover.kind, ...(cover.shape ? { coverShape: cover.shape } : {}) } : {}),
+    ...(cover ? { cover: cover.src, coverKind: cover.kind, ...(cover.shape ? { coverShape: cover.shape } : {}) } : {}),
   };
 }
 

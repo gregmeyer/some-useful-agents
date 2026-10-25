@@ -33,7 +33,7 @@ export interface NotebookDraft {
   checks: string[];
   stages: string[];
   pipeline: string[];
-  /** The work in steps, in order (find, source, check, decide), each with its agent. */
+  /** The work in steps, in order (profile, find, source, check, decide), each with its agent. */
   steps?: NotebookStep[];
   /** The agents sua suggested, so one you unticked is still offered after a reload. */
   suggested?: string[];
@@ -83,7 +83,7 @@ export function draftSteps(raw: unknown, agentIds: ReadonlySet<string>): { steps
     if (!x || typeof x !== 'object') return x;
     const o = x as Record<string, unknown>;
     const agent = typeof o.agentId === 'string' ? o.agentId : typeof o.agent === 'string' ? o.agent : '';
-    return { title: o.title, kind: o.kind, ...(agentIds.has(agent) ? { agentId: agent } : {}), ...(o.target !== undefined && o.target !== '' ? { target: Number(o.target) } : {}), ...(Array.isArray(o.facts) ? { facts: o.facts } : {}) };
+    return { title: o.title, kind: o.kind, ...(agentIds.has(agent) ? { agentId: agent } : {}), ...(o.target !== undefined && o.target !== '' ? { target: Number(o.target) } : {}), ...(Array.isArray(o.facts) ? { facts: o.facts } : {}), ...(typeof o.subject === 'string' ? { subject: o.subject } : {}) };
   });
   const steps = cleanSteps(list).map(({ status: _s, tries: _t, note: _n, doneAt: _d, ...rest }) => ({ ...rest, status: 'todo' as const, tries: 0 }));
   return steps.length ? { steps } : {};
