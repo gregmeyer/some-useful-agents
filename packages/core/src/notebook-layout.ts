@@ -227,3 +227,87 @@ export function cleanLayout(raw: unknown): NotebookLayout | undefined {
   if (!v.ok) return undefined;
   return { ...(preset ? { preset: preset.id } : {}), components: v.components };
 }
+
+/** What a layout can bind to under `/notebook/...` (the page's data; add paths, never rename them). */
+export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
+  '/notebook/title': 'Its title.',
+  '/notebook/statement': 'What it\'s for.',
+  '/notebook/status': 'active | decided | stopped.',
+  '/notebook/decision': 'The decision, once decided.',
+  '/notebook/summary': 'Where it stands, a paragraph (markdown).',
+  '/notebook/next': 'The next thing to do, one line.',
+  '/notebook/statItems': 'Stats as [{label, value, sub?}] (StatStrip, KeyValue).',
+  '/notebook/stats': '{active, best, bestLabel, furthest, ruledOut} as text.',
+  '/notebook/steps': 'Done-whens as [{text, met}] (Steps).',
+  '/notebook/progress': '{met, total} done-whens.',
+  '/notebook/limits': 'Its limits, as text.',
+  '/notebook/limitChips': 'Limits as chips, disagreeing ones flagged (ChipList).',
+  '/notebook/fields': 'The facts each option notes: [{key, label, type, role?}].',
+  '/notebook/options': 'Options, best first then ruled out: {id, name, title, body, fields: {<key>: value}, price?, measure?, score?, org?, place?, link?, image?, when?, stage?, ruledOut?, chosen?, page, facets?}. Rows for OptionGrid, Table, Scatter.',
+  '/notebook/funnel': 'How far options got, per step or stage (Funnel).',
+  '/notebook/checklist': 'Checks on the top two (Checklist).',
+  '/notebook/timeline': 'Searches, runs, rulings, notes, newest first (Timeline).',
+  '/notebook/notes': 'Notes: [{title, body, by, at}].',
+  '/notebook/evidence': 'Evidence entries: [{title, body, by, at}].',
+  '/notebook/decisions': 'Decisions: [{title, body, by, at}].',
+  '/notebook/coverage/sources': 'Where the last search looked (Coverage).',
+  '/notebook/coverage/when': 'When that was.',
+  '/notebook/bands/price': 'The price limits as {min, max} (Scatter yBand).',
+  '/notebook/bands/measure': 'The measure limits as {min, max} (Scatter xBand).',
+  '/notebook/shortlistNote': 'How the shortlist is ranked.',
+  '/notebook/limitsNote': 'How many limits disagree.',
+};
+
+/**
+ * How to draw a notebook's page, for sua: the shape, what it can bind to,
+ * the `when` flags and `/notebook/layout/` settings, and the components.
+ */
+export function notebookLayoutGuide(components: ReadonlyArray<{ name: string; summary: string }>): string {
+  const line = (k: string, v: string) => `- ${k}: ${v}`;
+  return `## A notebook's page (its layout): an A2UI document
+A flat list of components; \`root\` is the top; children/child name other ids. Each prop is a literal or { "path": "/notebook/..." }.
+
+Data (bind with { "path": ... }):
+${Object.entries(NOTEBOOK_LAYOUT_DATA).map(([k, v]) => line(k, v)).join('\n')}
+
+Notebook settings, filled in per notebook: { "path": "/notebook/layout/<key>" }:
+${Object.entries(NOTEBOOK_LAYOUT_VALUES).map(([k, v]) => line(k, v)).join('\n')}
+
+"when" on any component draws it only when the notebook has it ("!flag" for not):
+${Object.entries(NOTEBOOK_LAYOUT_FLAGS).map(([k, v]) => line(k, v)).join('\n')}
+
+Components: Text (text, variant: h3 / body / caption), Row, Column, Card (child), Tabs (tabs: [{ title, child }]), Divider, Image (url), plus sua's:
+${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0])).join('\n')}
+
+Rules:
+- Lead with what the notebook is for (a briefing leads with who; a shortlist with where it stands), then the detail.
+- Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
+- Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.
+- Keep every id unique (short word characters), at most about 60 components.`;
+}
+
+/** One line per component for a change preview: "Panel “Shortlist”", "Timeline". */
+function componentLabel(c: ViewComponent): string {
+  const t = typeof c.title === 'string' ? c.title : typeof c.label === 'string' ? c.label : '';
+  return t ? `${c.component} “${t}”` : c.component;
+}
+
+/**
+ * What a layout change does, for its card: the parts it adds, removes and
+ * changes, by id; and whether the top-level order moved.
+ */
+export function describeLayoutChange(before: NotebookLayout, after: NotebookLayout): Array<{ what: string; before: string; after: string }> {
+  const b = new Map(before.components.map((c) => [c.id, c]));
+  const a = new Map(after.components.map((c) => [c.id, c]));
+  const added = after.components.filter((c) => !b.has(c.id)).map(componentLabel);
+  const removed = before.components.filter((c) => !a.has(c.id)).map(componentLabel);
+  const changed = after.components.filter((c) => b.has(c.id) && JSON.stringify(b.get(c.id)) !== JSON.stringify(c)).map(componentLabel);
+  const order = (l: NotebookLayout) => ((l.components.find((c) => c.id === 'root')?.children as string[] | undefined) ?? []).join(' → ');
+  const out: Array<{ what: string; before: string; after: string }> = [];
+  if (after.preset !== before.preset && after.preset) out.push({ what: 'layout', before: before.preset ?? 'custom', after: after.preset });
+  if (order(before) !== order(after)) out.push({ what: 'top to bottom', before: order(before) || '—', after: order(after) || '—' });
+  if (added.length) out.push({ what: 'adds', before: '—', after: added.slice(0, 12).join(', ') + (added.length > 12 ? ` and ${String(added.length - 12)} more` : '') });
+  if (removed.length) out.push({ what: 'removes', before: '—', after: removed.slice(0, 12).join(', ') + (removed.length > 12 ? ` and ${String(removed.length - 12)} more` : '') });
+  if (changed.length) out.push({ what: 'changes', before: '—', after: changed.slice(0, 12).join(', ') + (changed.length > 12 ? ` and ${String(changed.length - 12)} more` : '') });
+  return out.length ? out : [{ what: 'layout', before: '—', after: 'no change' }];
+}

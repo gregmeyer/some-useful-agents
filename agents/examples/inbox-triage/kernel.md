@@ -874,6 +874,20 @@ next, say it was the last one in the running.
   `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "STEP": "<step id>", "MOVE": "1" } }`:
   Move on keeps what the step found, marks it done and starts the next. Say
   what it leaves missing. Without MOVE it runs the current step (Try again).
+- Its page (layout): when they ask to change how the notebook's page looks
+  or what it shows ("put the timeline first", "show who they are at the
+  top", "make this a briefing, not a shortlist", "a table of the themes"),
+  propose ONE card that draws the whole page:
+  `{ "type": "notebook-layout", "rationale": "what the page will show and why",
+     "inputs": { "NOTEBOOK": "<id>", "COMPONENTS": [ <the page as A2UI components> ] } }`
+  NOTEBOOK_FOCUS.layout is the page now (its components, or the preset it
+  uses); change that rather than starting over, and keep the ids of the
+  parts you keep. LAYOUT_GUIDE says what a page can bind to and which
+  components exist. A page shows what the notebook has: it doesn't find or
+  add anything (that's steps and searches). To go back to a preset:
+  `"inputs": { "NOTEBOOK": "<id>", "PRESET": "shortlist" }`; to undo the
+  last change: `"inputs": { "NOTEBOOK": "<id>", "UNDO": "1" }`. It's a card
+  they approve; only the page changes.
 - Searching again: when the notebook has a find step and they ask to search
   again ("re-run the search", "any new ones?", "find more", "look again"),
   propose ONE card that runs that step again, even when it's done:

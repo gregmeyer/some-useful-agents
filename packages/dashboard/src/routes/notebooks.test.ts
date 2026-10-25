@@ -2587,6 +2587,64 @@ describe('notebook templates', () => {
   });
 });
 
+describe('a notebook\'s page, drawn by sua', () => {
+  it('sua proposes a page; the card previews it, applying draws it, a stale card refuses, and Edit undoes it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { withEditorBase } = await import('./inbox-engine.js');
+    const { executeNotebookLayout } = await import('../lib/notebook-layout-action.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for meeting with Dana Reyes', statement: 'What matters to Dana Reyes' });
+    const page = [
+      { id: 'root', component: 'Column', children: ['who', 'time'] },
+      { id: 'who', component: 'Callout', label: 'Who they are', text: { path: '/notebook/statement' } },
+      { id: 'time', component: 'Timeline', events: { path: '/notebook/timeline' } },
+    ];
+    const { accepted, rejected } = parseProposedActions([
+      { type: 'notebook-layout', rationale: 'A briefing, not a shortlist', inputs: { NOTEBOOK: nb.id, COMPONENTS: page } },
+      { type: 'notebook-layout', inputs: { NOTEBOOK: nb.id, COMPONENTS: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }] } },
+      { type: 'notebook-layout', inputs: { NOTEBOOK: nb.id } },
+    ], [], []);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-layout', ctaLabel: 'Change the page', inputs: { NOTEBOOK: nb.id, COMPONENTS: JSON.stringify(page) } });
+    expect(rejected.map((r) => r.reason)).toEqual([
+      expect.stringContaining("notebook-layout COMPONENTS can't be drawn"),
+      'notebook-layout needs inputs.NOTEBOOK and one of COMPONENTS, PRESET or UNDO "1"',
+    ]);
+
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.inputs.NOTEBOOK_TITLE).toBe(nb.title);
+    expect(card.surfaceChanges).toContainEqual({ what: 'top to bottom', before: 'top → mid → shortlist_panel → low → ctx', after: 'who → time' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'adds', before: '—', after: 'Callout “Who they are”, Timeline' });
+
+    expect(executeNotebookLayout(ctx, card)).toMatchObject({ status: 'completed' });
+    expect(store.get(nb.id)!.layout).toEqual({ components: page });
+    // Drawn even with no fields or options yet: it shows what the notebook has.
+    const html = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(html).toContain('Who they are');
+    expect(html).not.toContain('"OptionGrid"');
+    // The same card again is against a page that changed: refused.
+    expect(executeNotebookLayout(ctx, card)).toMatchObject({ status: 'failed', refusalReason: expect.stringContaining('changed since this was proposed') });
+
+    // Edit: what the page is, undo, back to the shortlist.
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(edit).toContain('Page: <b>Drawn for this notebook</b>');
+    expect(edit).toContain('Undo the last page change');
+    const undone = await post(`/notebooks/${nb.id}/layout`, 'undo=1');
+    expect(decodeURIComponent(undone.headers.location)).toContain('Put the page back how it was before the last change.');
+    expect(store.get(nb.id)!.layout).toBeUndefined();
+    store.setLayout(nb.id, { components: page });
+    await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
+    expect(store.get(nb.id)!.layout).toBeUndefined();
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('Page: <b>Shortlist</b>');
+  });
+});
+
 describe('download the shortlist', () => {
   it('sends a CSV attachment best first, and the header links to it once there are options', async () => {
     const app = await makeApp();

@@ -122,6 +122,14 @@ inputs:
       When this conversation belongs to a notebook: that notebook as JSON
       (what it's for, parameters, criteria, pipeline, its entries). Empty
       otherwise.
+  LAYOUT_GUIDE:
+    type: string
+    required: false
+    default: ""
+    description: >
+      In a notebook's conversation: how to draw its page as A2UI (what it
+      can bind to, the components), for a notebook-layout action. Empty
+      otherwise.
   BOARD_OUTLINE:
     type: string
     required: false
@@ -377,6 +385,9 @@ nodes:
 
       The notebook this conversation belongs to (see IN A NOTEBOOK'S CONVERSATION):
       {{inputs.NOTEBOOK_FOCUS}}
+
+      How to draw a notebook's page, for notebook-layout:
+      {{inputs.LAYOUT_GUIDE}}
 
       ────────────────────────────────────────────────────────────────
       Now respond with a single <plan>…</plan> block exactly as

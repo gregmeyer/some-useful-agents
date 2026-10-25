@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
+import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
@@ -53,6 +54,8 @@ import {
   prepareViewForRender,
   viewToMessages,
   fillSubject,
+  notebookLayoutGuide,
+  suaComponentDocs,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -200,7 +203,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -896,6 +899,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'notebook-steps') {
     return executeNotebookSteps(ctx, meta);
   }
+  if (meta.agentId === 'notebook-layout') {
+    return executeNotebookLayout(ctx, meta);
+  }
   if (meta.agentId === 'notebook-create') {
     return executeNotebookCreate(ctx, meta);
   }
@@ -1589,6 +1595,9 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
     } catch {
       return action;
     }
+  }
+  if (action.agentId === 'notebook-layout' && !action.surfaceChanges) {
+    return previewNotebookLayout(ctx, action);
   }
   if (action.agentId === 'arrange-board' && !action.base) {
     try {
@@ -2554,6 +2563,8 @@ export async function runTriageAgent(
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
           NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
+          // How to draw a notebook's page (notebook-layout), only in a notebook's conversation.
+          LAYOUT_GUIDE: threadNotebook ? notebookLayoutGuide(suaComponentDocs()) : '',
           // Their templates: start a notebook like one they've done (NOTEBOOK TEMPLATES).
           TEMPLATES: (() => {
             try {
@@ -2775,7 +2786,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-layout'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

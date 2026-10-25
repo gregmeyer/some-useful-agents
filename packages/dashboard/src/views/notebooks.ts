@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
+import { layoutPreset, nextFireTime, optionLink, optionPassesStep, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -558,7 +558,8 @@ function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: Not
   const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
   const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link') || entries.some((e) => e.kind === 'option' && optionLink(nb.fields, e.data));
   const regions = compiled.regions.filter((r) => r.entries.length > 0);
-  if (regions.length === 0) {
+  // A page drawn for this notebook shows what it has, even before it has entries.
+  if (regions.length === 0 && !nb.layout) {
     return html`
       <section class="nb-start" aria-labelledby="nb-start-title">
         <h2 class="nb-start__title" id="nb-start-title">Tell sua what you're looking for</h2>
@@ -701,11 +702,18 @@ function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml
 }
 
 /** The rest of a notebook's own actions, under its Edit page: stop it, keep it as a template, archive or delete it. */
-function notebookMoreActions(nb: Notebook): SafeHtml {
+function notebookMoreActions(nb: Notebook, layoutUndos = 0): SafeHtml {
   const id = encodeURIComponent(nb.id);
+  const preset = nb.layout?.preset ? layoutPreset(nb.layout.preset) : undefined;
   return html`
       <section class="nbe-more" aria-labelledby="nbe-more-title">
         <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
+        <div class="nb-form nbe-more__row nbe-layout">
+          <span class="nbe-layout__now">Page: <b>${nb.layout ? (preset && JSON.stringify(preset.layout.components) === JSON.stringify(nb.layout.components) ? preset.label : 'Drawn for this notebook') : 'Shortlist'}</b></span>
+          ${layoutUndos ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="undo" value="1"><button type="submit" class="btn btn--sm btn--ghost">Undo the last page change</button></form>` : html``}
+          ${nb.layout ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="shortlist"><button type="submit" class="btn btn--sm btn--ghost">Back to Shortlist</button></form>` : html``}
+          <span class="nbe-more__hint">To change what the page shows, ask sua in the notebook's conversation: "put who they are at the top", "a table of the themes".</span>
+        </div>
         ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
         <div class="nb-template">
           <a class="btn btn--sm btn--ghost" href="/notebooks/${id}/template">Save as a template…</a>
@@ -732,7 +740,7 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
  * checks as rows, steps with their agents, searches by name, the schedule in
  * words), then Save; its other actions below.
  */
-export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string }; layoutUndos?: number }): string {
   const { nb } = args;
   const id = encodeURIComponent(nb.id);
   return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
@@ -752,7 +760,7 @@ export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{
           <a class="btn btn--ghost" href="/notebooks/${id}">Cancel</a>
         </div>
       </form>
-      ${notebookMoreActions(nb)}
+      ${notebookMoreActions(nb, args.layoutUndos)}
     </div>
   `));
 }

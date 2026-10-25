@@ -1,4 +1,4 @@
-import { parseInlineWidget } from '@some-useful-agents/core';
+import { parseInlineWidget, checkNotebookLayout } from '@some-useful-agents/core';
 import {
   isSafeUrl,
   type InboxActionMeta,
@@ -547,6 +547,32 @@ export function parseProposedActions(
         rationale: rationaleRaw || undefined,
         ctaLabel: move ? 'Move on' : again ? 'Search again' : 'Run the step',
       });
+      continue;
+    }
+    // `notebook-layout` draws a notebook's page: inputs.NOTEBOOK plus COMPONENTS
+    // (the page as A2UI, checked here), PRESET, or UNDO "1". A card to approve.
+    if (type === 'notebook-layout') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) {
+          if (typeof v === 'string') inputs[k] = v;
+          else if (k === 'COMPONENTS' && v && typeof v === 'object') inputs[k] = JSON.stringify(v);
+        }
+      }
+      if (!inputs.NOTEBOOK || !(inputs.COMPONENTS || inputs.PRESET || inputs.UNDO === '1')) {
+        rejected.push({ agentId: type, reason: 'notebook-layout needs inputs.NOTEBOOK and one of COMPONENTS, PRESET or UNDO "1"' });
+        continue;
+      }
+      if (inputs.COMPONENTS) {
+        let list: unknown;
+        try { list = JSON.parse(inputs.COMPONENTS); } catch { list = undefined; }
+        const v = checkNotebookLayout(list && typeof list === 'object' && !Array.isArray(list) ? (list as { components?: unknown }).components : list);
+        if (!v.ok) {
+          rejected.push({ agentId: type, reason: `notebook-layout COMPONENTS can't be drawn: ${v.errors.slice(0, 4).join('; ')}` });
+          continue;
+        }
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: inputs.UNDO === '1' ? 'Undo' : 'Change the page' });
       continue;
     }
     // `arrange-board` rearranges the board the operator is on: inputs.BOARD (id)

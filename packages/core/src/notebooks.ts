@@ -578,6 +578,15 @@ export class NotebookStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      -- Layouts a change replaced, newest last, to undo to (setLayout).
+      CREATE TABLE IF NOT EXISTS notebook_layout_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notebook_id TEXT NOT NULL,
+        layout_json TEXT,
+        replaced_at TEXT NOT NULL,
+        by TEXT
+      );
+      CREATE INDEX IF NOT EXISTS notebook_layout_history_nb ON notebook_layout_history(notebook_id, id);
       -- A notebook's setup, kept to start new ones like it (NotebookTemplate).
       CREATE TABLE IF NOT EXISTS notebook_templates (
         id TEXT PRIMARY KEY,
@@ -836,15 +845,36 @@ export class NotebookStore {
    * How the notebook's page is laid out: a preset id ("shortlist") or an
    * A2UI document (notebook-layout.ts). Null: back to the default.
    */
-  setLayout(id: string, layout: unknown): Notebook {
-    this.mustGet(id);
+  setLayout(id: string, layout: unknown, by?: string): Notebook {
+    const was = this.mustGet(id);
     const clean = layout == null ? undefined : cleanLayout(layout);
     if (layout != null && !clean) {
       const why = layout && typeof layout === 'object' && 'components' in layout ? checkNotebookLayout((layout as { components: unknown }).components) : undefined;
       throw new Error(`That layout can't be drawn${why && !why.ok ? `: ${why.errors.slice(0, 3).join('; ')}` : ''}.`);
     }
-    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, new Date().toISOString(), id);
+    const now = new Date().toISOString();
+    // The one it replaces, to undo to (the last 20).
+    if (JSON.stringify(was.layout ?? null) !== JSON.stringify(clean ?? null)) {
+      this.db.prepare('INSERT INTO notebook_layout_history (notebook_id, layout_json, replaced_at, by) VALUES (?, ?, ?, ?)').run(id, was.layout ? JSON.stringify(was.layout) : null, now, by ?? null);
+      this.db.prepare('DELETE FROM notebook_layout_history WHERE notebook_id = ? AND id NOT IN (SELECT id FROM notebook_layout_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 20)').run(id, id);
+    }
+    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, now, id);
     return this.mustGet(id);
+  }
+
+  /** How many layout changes can be undone. */
+  layoutUndos(id: string): number {
+    return Number((this.db.prepare('SELECT COUNT(*) AS n FROM notebook_layout_history WHERE notebook_id = ?').get(id) as { n: number }).n);
+  }
+
+  /** Put back the layout the last change replaced; false when there's nothing to undo. */
+  undoLayout(id: string): boolean {
+    this.mustGet(id);
+    const r = this.db.prepare('SELECT id, layout_json FROM notebook_layout_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 1').get(id) as { id: number; layout_json: string | null } | undefined;
+    if (!r) return false;
+    this.db.prepare('UPDATE notebooks SET layout_json = ?, updated_at = ? WHERE id = ?').run(r.layout_json, new Date().toISOString(), id);
+    this.db.prepare('DELETE FROM notebook_layout_history WHERE id = ?').run(r.id);
+    return true;
   }
 
   /** What to check on each option before deciding (at most 8). */
@@ -1543,7 +1573,7 @@ export class NotebookStore {
     const entries = (this.db.prepare('SELECT COUNT(*) AS n FROM notebook_entries WHERE notebook_id = ?').get(id) as { n: number }).n;
     this.db.exec('BEGIN');
     try {
-      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries']) {
+      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries', 'notebook_layout_history']) {
         this.db.prepare(`DELETE FROM ${table} WHERE notebook_id = ?`).run(id);
       }
       this.db.prepare('DELETE FROM notebooks WHERE id = ?').run(id);
