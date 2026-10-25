@@ -121,6 +121,7 @@ const DOSSIER: ViewComponent[] = [
   {
     id: 'who', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/person/name' }, role: { path: '/notebook/person/role' }, org: { path: '/notebook/person/org' },
     about: { path: '/notebook/person/about' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' }, quote: { path: '/notebook/leadQuote' },
+    imageFrom: { path: '/notebook/person/imageFrom' }, imageWhy: { path: '/notebook/person/imageWhy' }, rejectHref: { path: '/notebook/person/rejectHref' },
   },
   { ...panel('facts_p', 'What we know', 'facts'), treatment: 'aside', when: 'person' },
   { id: 'facts', component: 'FactSheet', facts: { path: '/notebook/personFacts' }, missing: { path: '/notebook/notFound' }, variant: 'ruled' },
@@ -324,6 +325,25 @@ export function pageRhythm(components: readonly ViewComponent[]): string[] {
     const g = n.reduce((a, b) => { let x = a; let y = b; while (y) [x, y] = [y, x % y]; return x; });
     return n.map((x) => String(x / g)).join(':');
   };
+  // A short part beside a long one leaves a hole under the short one (a cover beside a long agenda).
+  const SHORT = new Set(['ProfileCard', 'Callout', 'StatStrip', 'ChipList', 'Metric', 'Badge', 'KeyValue', 'Text', 'Image', 'Link']);
+  const kinds = (id: unknown, seen = new Set<string>()): Set<string> => {
+    const c = typeof id === 'string' ? byId.get(id) : undefined;
+    const out = new Set<string>();
+    if (!c || seen.has(c.id)) return out;
+    seen.add(c.id);
+    out.add(c.component);
+    for (const k of [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])]) for (const x of kinds(k, seen)) out.add(x);
+    return out;
+  };
+  const isLong = (id: string) => [...kinds(id)].some((k) => LONG_LISTS.has(k) || k === 'Agenda' || k === 'Checklist');
+  const isShort = (id: string) => { const k = [...kinds(id)].filter((x) => !['Panel', 'Column', 'Row', 'Card'].includes(x)); return k.length > 0 && k.every((x) => SHORT.has(x)); };
+  for (const c of components.filter((x) => x.component === 'Columns' && Array.isArray(x.children))) {
+    const kids = c.children as string[];
+    const short = kids.find(isShort);
+    const long = kids.find(isLong);
+    if (short && long) out.push(`${c.id} puts a short part (${short}) beside a long one (${long}), which leaves a hole under ${short}. Pair ${short} with facts or other short parts, and give ${long} a row or a column of its own.`);
+  }
   const rows = ((byId.get('root')?.children as string[] | undefined) ?? []).map((id) => byId.get(id)).filter((c): c is ViewComponent => !!c && c.component !== 'NotebookHeader');
   let last = '';
   for (const r of rows) {
@@ -412,7 +432,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/quotes': 'What each option says (its quote field: evidence, what they said), chosen first, grouped by its short label (QuoteList items).',
   '/notebook/talkingPoints': 'The chosen options (else the first 5) as points to raise, each with its question (Agenda points).',
   '/notebook/questions': 'The other options\' questions (their ask field) (Agenda questions).',
-  '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…).',
+  '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
   '/notebook/notFound': 'What was looked for about them and not found (FactSheet missing).',
@@ -454,7 +474,7 @@ ${components.map((c) => line(c.name, c.summary.split(/(?<=[.!?])\s/)[0] + props(
 Rules:
 - The header (title, status, buttons, steps) is always drawn by the page. To shape it, put a NotebookHeader first in root's children: a subtitle that says what the page is ("Meeting briefing"), cover "none" when the lead option's picture isn't what the notebook is about, steps "fold" once the work is mostly done, and a short \`side\` part (a StatStrip, a short Agenda, a Callout) for what matters at a glance. Don't repeat its title, what it's for, its steps or its done-whens elsewhere.
 - Draw it like a magazine page, not a grid of boxes: give each Panel a treatment. One lede opens it (no frame, a teal eyebrow), a feature carries the main story (a rule above), asides hold facts and context beside it (a hairline on the left), a band is a full-width strip; plain (a frame) is for tools, at most 3. Rows are full width or Columns of 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1, and two rows in a row never share a shape. Long lists go in a feature or a fold, never an aside. For a person: ProfileCard variant "cover" with a pull quote (/notebook/leadQuote); Agenda variant "numerals"; FactSheet variant "ruled" in an aside; QuoteList lead: true when its first quote should be set large.
-- Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
+- Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. Never put a short part (a cover, a callout, a few stats) beside a long one (an agenda, quotes, a table): it leaves a hole. Pair a cover with the facts about them. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
 - Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
 - Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.

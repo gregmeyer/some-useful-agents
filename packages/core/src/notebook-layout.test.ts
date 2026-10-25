@@ -195,8 +195,24 @@ describe('editorial pages', () => {
       '4 parts are framed (plain); at most 3. Give the others a treatment: lede, feature, aside or band.',
       '2 ledes (d, f); a page has one.',
       'e is an aside holding a QuoteList; long lists go in a feature or a fold.',
+      'r3 puts a short part (f) beside a long one (e), which leaves a hole under f. Pair f with facts or other short parts, and give e a row or a column of its own.',
       'r2 has the same shape (1:1) as the row before it; vary them.',
       'r3 is 5:1; rows are full width, 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1.',
     ]);
+  });
+});
+
+describe('balance', () => {
+  it('says when a short part sits beside a long one, and the Meeting briefing is balanced', () => {
+    const page = [
+      { id: 'root', component: 'Column', children: ['row'] },
+      { id: 'row', component: 'Columns', children: ['who_p', 'talk_p'], widths: [3, 2] },
+      { id: 'who_p', component: 'Panel', title: 'Who', child: 'who', treatment: 'lede' },
+      { id: 'who', component: 'ProfileCard', name: 'Dana' },
+      { id: 'talk_p', component: 'Panel', title: 'Talk', child: 'talk', treatment: 'feature' },
+      { id: 'talk', component: 'Agenda', points: [] },
+    ];
+    expect(pageRhythm(page)).toEqual(['row puts a short part (who_p) beside a long one (talk_p), which leaves a hole under who_p. Pair who_p with facts or other short parts, and give talk_p a row or a column of its own.']);
+    expect(pageRhythm(layoutPreset('dossier')!.layout.components)).toEqual([]);
   });
 });

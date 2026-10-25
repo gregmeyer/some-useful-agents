@@ -109,6 +109,8 @@ export interface NotebookAboutOne {
   notFound?: string[];
   /** A sentence on who they are. */
   summary?: string;
+  /** Pictures you said aren't them (Not them): never kept again. */
+  rejectedPhotos?: string[];
   updatedAt: string;
 }
 
@@ -141,7 +143,7 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     .slice(0, 12);
   const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
   const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
-  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), updatedAt: now };
+  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), updatedAt: now };
 }
 
 /** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
@@ -699,7 +701,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -943,15 +945,30 @@ export class NotebookStore {
   }
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */
-  saveAboutPhoto(id: string, who: NotebookAboutWho, sourceUrl: string, image: { contentType: string; bytes: Uint8Array }, kind: 'photo' | 'logo'): void {
-    this.db.prepare(`INSERT INTO notebook_about_photos (notebook_id, who, source_url, content_type, bytes, kind, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(notebook_id, who) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, kind = excluded.kind, fetched_at = excluded.fetched_at`)
-      .run(id, who, sourceUrl, image.contentType, image.bytes, kind, new Date().toISOString());
+  /** `from`: the page it's on and why it's taken to be them (a person's photo). */
+  saveAboutPhoto(id: string, who: NotebookAboutWho, sourceUrl: string, image: { contentType: string; bytes: Uint8Array }, kind: 'photo' | 'logo', from?: { page?: string; why?: string }): void {
+    this.db.prepare(`INSERT INTO notebook_about_photos (notebook_id, who, source_url, content_type, bytes, kind, fetched_at, page_url, why) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(notebook_id, who) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, kind = excluded.kind, fetched_at = excluded.fetched_at, page_url = excluded.page_url, why = excluded.why`)
+      .run(id, who, sourceUrl, image.contentType, image.bytes, kind, new Date().toISOString(), from?.page ?? null, from?.why ?? null);
   }
 
-  aboutPhoto(id: string, who: NotebookAboutWho): { contentType: string; bytes: Uint8Array; kind: 'photo' | 'logo'; sourceUrl: string } | undefined {
-    const r = this.db.prepare('SELECT content_type, bytes, kind, source_url FROM notebook_about_photos WHERE notebook_id = ? AND who = ?').get(id, who) as { content_type: string; bytes: Uint8Array; kind: string; source_url: string } | undefined;
-    return r ? { contentType: r.content_type, bytes: r.bytes, kind: r.kind === 'logo' ? 'logo' : 'photo', sourceUrl: r.source_url } : undefined;
+  aboutPhoto(id: string, who: NotebookAboutWho): { contentType: string; bytes: Uint8Array; kind: 'photo' | 'logo'; sourceUrl: string; page?: string; why?: string } | undefined {
+    const r = this.db.prepare('SELECT content_type, bytes, kind, source_url, page_url, why FROM notebook_about_photos WHERE notebook_id = ? AND who = ?').get(id, who) as { content_type: string; bytes: Uint8Array; kind: string; source_url: string; page_url: string | null; why: string | null } | undefined;
+    return r ? { contentType: r.content_type, bytes: r.bytes, kind: r.kind === 'logo' ? 'logo' : 'photo', sourceUrl: r.source_url, ...(r.page_url ? { page: r.page_url } : {}), ...(r.why ? { why: r.why } : {}) } : undefined;
+  }
+
+  /** Not them: the picture goes, and is never kept for them again. */
+  rejectAboutPhoto(id: string, who: NotebookAboutWho): boolean {
+    const nb = this.get(id);
+    const photo = this.aboutPhoto(id, who);
+    if (!nb || !photo) return false;
+    const one = nb.about?.[who];
+    if (one) {
+      const about: NotebookAbout = { ...nb.about, [who]: { ...one, rejectedPhotos: [...new Set([...(one.rejectedPhotos ?? []), photo.sourceUrl])].slice(-20) } };
+      this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), new Date().toISOString(), id);
+    }
+    this.db.prepare('DELETE FROM notebook_about_photos WHERE notebook_id = ? AND who = ?').run(id, who);
+    return true;
   }
 
   /** Which of them have a picture kept. */

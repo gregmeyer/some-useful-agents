@@ -226,6 +226,11 @@ const SUA_COMPONENTS = [
       org: Str.optional(),
       about: Str.optional(),
       image: Str.optional(),
+      /** The page their photo is on, and why it's taken to be them (shown under it). */
+      imageFrom: Str.optional(),
+      imageWhy: Str.optional(),
+      /** A same-site path a "Not them" button posts to. */
+      rejectHref: Str.optional(),
       links: CS.DynamicValue.optional(),
       asOf: Str.optional(),
       /** cover: a large portrait and the name in display type, for the lead of a briefing. */
