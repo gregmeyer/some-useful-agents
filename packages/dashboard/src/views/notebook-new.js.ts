@@ -30,14 +30,19 @@ export const NOTEBOOK_NEW_JS = `
       try { if (text.value.trim()) localStorage.setItem(TEXT_KEY, text.value); else localStorage.removeItem(TEXT_KEY); } catch (_) {}
     });
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'; }); }
-    function working(msg) {
-      result.innerHTML = '<p class="nbd-working" role="status"><span class="nbd-working__dot" aria-hidden="true"></span>' + esc(msg) + '</p>';
+    // sua heard you: the button says so, and a panel right under the box says what it's doing, with what you asked and how long it's been.
+    function working(w) {
+      w.size = 'panel';
+      w.since = new Date().toISOString();
+      result.innerHTML = window.suaWorking ? window.suaWorking(w) : '<p role="status">' + esc(w.text) + '</p>';
+      var r = result.getBoundingClientRect();
+      if (r.bottom > window.innerHeight || r.top < 0) result.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
-    function draft(body, msg) {
+    function draft(body, w) {
       if (busy) return;
       busy = true;
-      if (go) go.disabled = true;
-      working(msg);
+      if (go) { go.disabled = true; go.innerHTML = window.suaWorking ? window.suaWorking({ text: 'Drafting\u2026' }) : 'Drafting\u2026'; }
+      working(w);
       fetch('/notebooks/draft', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
@@ -61,8 +66,11 @@ export const NOTEBOOK_NEW_JS = `
             done();
             if (j.status === 'ready') {
               result.innerHTML = j.html;
+              // It's ready: bring its top (ready, with Start) into view; the bar at the bottom stays in view as you check it.
+              var head = result.querySelector('[data-nbd-ready]');
+              if (head) head.scrollIntoView({ block: 'start', behavior: 'smooth' });
               var t = result.querySelector('.nbd-draft__titleinput');
-              if (t) t.focus();
+              if (t) t.focus({ preventScroll: true });
             } else result.innerHTML = '<p class="flash flash--error">' + esc(j.error || 'sua couldn\\u2019t draft it.') + '</p>';
           })
           .catch(function () { poll(id, n + 1); });
@@ -95,7 +103,7 @@ export const NOTEBOOK_NEW_JS = `
       // Drafting the sentence again replaces the draft you're on, rather than leaving it behind.
       var body = { text: text.value };
       if (root.getAttribute('data-nbd-id')) body.replace = root.getAttribute('data-nbd-id');
-      draft(body, 'sua is drafting your notebook\\u2026 this takes a few seconds.');
+      draft(body, { title: 'sua heard you and is drafting your notebook', said: text.value.trim(), text: 'Working out what it\\u2019s for, the facts each option notes, its steps and its page. Usually about a minute. You can leave this page: the draft is kept.' });
     });
     // Enter drafts; Shift+Enter is a new line.
     text.addEventListener('keydown', function (e) {
@@ -108,7 +116,7 @@ export const NOTEBOOK_NEW_JS = `
         var form = ch.closest('[data-nbd-draft]');
         var what = root.querySelector('[data-nbd-change-text]');
         if (!form || !what || !what.value.trim()) { if (what) what.focus(); return; }
-        draft({ text: text.value, from: form.getAttribute('data-nbd-draft'), change: what.value }, 'sua is changing the draft\\u2026');
+        draft({ text: text.value, from: form.getAttribute('data-nbd-draft'), change: what.value }, { title: 'sua is changing the draft', said: what.value.trim(), text: 'The rest of the draft stays as it is.' });
       }
     });
     // Enter in the change box asks for the change rather than starting the notebook.

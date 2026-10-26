@@ -106,7 +106,7 @@ export function notebookLooks(notebookId: string, choice: LookChoice): SafeHtml 
   const own = [choice.now, choice.changed ?? undefined].filter((l, i, all): l is NotebookLayout => !!l && !presetOf(l) && all.findIndex((x) => same(x, l)) === i);
   return html`<section class="nbe-looks" aria-labelledby="nbe-looks-title">
     <h2 class="sr-only" id="nbe-looks-title">How it looks</h2>
-    ${choice.working ? html`<p class="nbe-looks__working" role="status"><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>sua is working on a change. The preview opens when it's done.</p>` : html``}
+    ${choice.working ? html`<p class="nbe-looks__working" role="status"><span class="working__spin" aria-hidden="true"></span>sua is working on a change. The preview opens when it's done.</p>` : html``}
     <p class="look-section__lede">Pick one to see it in the preview; nothing changes until you save. To change one part ("put who they are at the top"), say it in Talk.</p>
     <ul class="look-gallery nbe-looks__gallery">
       ${own.map((l) => card(same(l, choice.now) ? 'now' : 'changed', 'Made for this notebook', l.about ? `${l.about.charAt(0).toUpperCase()}${l.about.slice(1)}.` : 'sua drew it for what this notebook is for.', lookThumb(l.components), l)) as unknown as SafeHtml[]}

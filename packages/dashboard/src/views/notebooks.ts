@@ -353,12 +353,12 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
         ${waitingButton(talk)}
       </div>` : html``}
       ${talk?.state === 'working' ? html`<div class="nb-live__row nb-live__row--working" role="status">
-        <span class="nb-live__dot nb-live__dot--pulse" aria-hidden="true"></span>
+        <span class="working__spin" aria-hidden="true"></span>
         <span class="nb-live__text"><strong>${talk.text.replace(/…$/, '')}</strong> on a reply in this notebook's conversation…</span>
         ${open(talk.threadId, 'Watch', false)}
       </div>` : html``}
       ${work.length ? html`<div class="nb-live__row nb-live__row--working" role="status" data-notebook-running>
-        <span class="nb-live__dot nb-live__dot--pulse" aria-hidden="true"></span>
+        <span class="working__spin" aria-hidden="true"></span>
         <span class="nb-live__text"><strong>${work.join(' · ')}…</strong> <span class="nb-live__note">this page updates as it goes</span></span>
       </div>` : html``}
     </div>`;
@@ -583,7 +583,7 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
 
 function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): SafeHtml {
   const note = settingUp
-    ? html`<p class="nb-setup" role="status"><span class="nb-setup__dot" aria-hidden="true"></span>sua is setting up this notebook: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
+    ? html`<p class="nb-setup" role="status"><span class="working__spin" aria-hidden="true"></span>sua is setting up this notebook: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
     : html``;
   return html`${note}${surfaceColumnBody(nb, compiled, entries, history)}`;
 }
@@ -696,7 +696,7 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
               <span class="nb-talk__waiting-acts">${waitingButton(talkLive)}</span>
             </div>`
           : talkLive?.state === 'working'
-            ? html`<p class="nb-talk__working" role="status"><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>${talkLive.text} <button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talkLive.threadId}">Watch</button></p>`
+            ? html`<p class="nb-talk__working" role="status"><span class="working__spin" aria-hidden="true"></span>${talkLive.text} <button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talkLive.threadId}">Watch</button></p>`
             : lastWord ? html`<blockquote class="nb-talk__last"><span class="nb-talk__who">sua · ${formatAge(new Date(lastWord.at).toISOString())}</span>${lastWord.text}</blockquote>` : html``}
         ${talkForm(nb, entries)}
         ${nb.conversationId ? html`<button type="button" class="btn btn--sm btn--ghost nb-talk__continue" data-nb-continue="${nb.conversationId}">Continue the conversation</button>` : html``}
@@ -838,7 +838,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
     <section class="nbe-talk" aria-label="Say what to change">
       ${editSummary(proposed)}
       ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
-        ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
+        ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="working__spin" aria-hidden="true"></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
         <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. sua changes it and shows you a preview before anything is saved.</p>`}
       <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
         ${args.turns.length ? html`` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}

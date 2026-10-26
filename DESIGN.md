@@ -93,6 +93,19 @@ A notebook's page is drawn for its job (a briefing, a shortlist, a report), so i
 - **Duration:** micro(50-100ms) — hover states. short(150-200ms) — modal open/close, tab switch.
 - **No bounce, no spring.** Fade + slide only. Keep transitions under 200ms.
 
+## Working
+When you ask sua for something that takes more than a moment, the page shows **at once** that it heard you and has started, in one standard way (`working()` in `views/working.ts`, `window.suaWorking` in scripts, `.working` in `components.css`). No new dots, pulses or spinners of a page's own.
+- **The ring:** a spinning ring in the primary colour, the one motion allowed to loop. With reduced motion it stands still, dotted.
+- **Inline:** a 14px ring and a few words ("Drafting…"). Used in the button you pressed (which is disabled and says what it's doing), and in a page's status line ("sua is setting up this notebook…").
+- **Panel:** a 32px ring, then:
+  - a title that says sua heard you ("sua heard you and is drafting your notebook");
+  - what you asked, in your words, quoted;
+  - what it's doing and roughly how long it takes;
+  - an elapsed time counted on the page, never a made-up progress bar or fake stages.
+
+  Put it right where you acted (under the box you typed in), never below other content.
+- **Done:** say so where you'll see it. When what you're waiting for is long (a draft to check), bring its top into view with a ✓ and the next button there ("Looks right, start it"), and keep that button in view (a sticky bar) while you read.
+
 ## Voice and Vocabulary
 
 Words are part of the design system. This section is authoritative for user-facing copy in
@@ -170,6 +183,7 @@ user-facing verb. Use `sua agent run` / `sua agent list` in help, empty states, 
 | 2026-10-25 | Notebook pages get editorial treatments (lede, feature, aside, band, plain), expressive briefing variants, fixed row shapes and rhythm rules | Drawn notebook pages read as grids of equal boxes; a briefing and a car search had the same rhythm. Treatments keep them disciplined (no free placement) while letting each job read like itself. User-approved. |
 | 2026-08-24 | Added a **Voice and Vocabulary** section; swept the jargon it retires out of primary UI | Colour, type and spacing were governed; words were not, so jargon regrew after every sweep. The audit that prompted this found `DAG`, `v1`/`v2`, `executor`, `waterfall` and `planner/drafter/designer` in page headers, form subtitles and option labels — plus in-product help still promising features "in v0.15" at v0.27. A table of preferred terms is the only thing that makes a sweep stick past the next feature. |
 | 2026-06-29 | Full token sweep: every hardcoded `font-size` + off-grid padding/margin in `*.css` and view templates remapped onto tokens | The dashboard read as "disjointed" — a 7-12px label soup and off-4px-grid spacing bypassed the otherwise-solid token layer. All raw sizes/spacing now consume `--font-size-*` / `--space-*`. Intentional exceptions: the 16px rem anchor, optical 1px nudges, relative `em` units. (Known remaining: a few hardcoded accent hexes in `.pulse-tile[data-accent]` duplicate `--color-*` — color, not sizing; deferred.) |
+| 2026-10-26 | One "working" component: a spinning ring, inline or as a panel (title, what you asked, what it's doing, elapsed time); ready states lead with a ✓ and keep their main button in view | Starting a notebook showed an 8px pulsing dot under the templates, far from the button, so it wasn't clear sua had heard or started; once the draft was ready, Start was at the bottom of a long form. About ten pages had their own pulse or spinner. |
 
 ## Runtime brand theme
 

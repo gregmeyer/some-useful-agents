@@ -362,9 +362,6 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 
 /* Setting a notebook up (fields and stages) */
 .nb-setup { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px dashed var(--color-primary); border-radius: var(--radius-md); background: var(--color-primary-soft); font-size: var(--font-size-sm); color: var(--color-text); }
-.nb-setup__dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--color-primary); animation: nb-setup-pulse 1.2s ease-in-out infinite; }
-@keyframes nb-setup-pulse { 50% { opacity: 0.3; } }
-@media (prefers-reduced-motion: reduce) { .nb-setup__dot { animation: none; } }
 .nb-talk__send { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .nb-talk__keys { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-talk__keys kbd { font-family: var(--font-mono); font-size: var(--font-size-xs); padding: 0 4px; border: 1px solid var(--color-border); border-radius: 4px; background: var(--color-surface-raised); }
@@ -495,13 +492,14 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-ask__text { flex: 1; font-size: var(--font-size-md); line-height: 1.5; padding: var(--space-3); resize: vertical; }
 .nbd-ask__go { white-space: nowrap; }
 .nbd-ask__examples { margin: 0; font-size: var(--font-size-xs); color: var(--color-text-subtle); }
-.nbd-working { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
-.nbd-working__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-primary); animation: nbd-pulse 1s ease-in-out infinite alternate; }
-@keyframes nbd-pulse { from { opacity: 0.3; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .nbd-working__dot { animation: none; } }
-.nbd-draft { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; }
-.nbd-draft__head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm); color: var(--color-text-muted); background: var(--color-surface-raised); }
-.nbd-draft__who { flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; background: var(--color-primary-soft); color: var(--color-primary); }
+.nbd-draft { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); overflow: clip; }
+.nbd-draft__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm); color: var(--color-text-muted); background: var(--color-primary-soft); scroll-margin-top: var(--space-4); }
+/* Ready: a check, a line that says so, and Start right there. */
+.nbd-draft__done { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: var(--font-size-sm); font-weight: var(--weight-semibold); background: var(--color-primary); color: var(--color-bg); }
+.nbd-draft__say { flex: 1; min-width: 0; }
+.nbd-draft__ready { color: var(--color-text); font-weight: var(--weight-semibold); }
+.nbd-draft__go { flex: none; }
+@media (max-width: 640px) { .nbd-draft__head { flex-wrap: wrap; } .nbd-draft__go { width: 100%; } }
 .nbd-draft__why { color: var(--color-text-subtle); }
 .nbd-draft__body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-6); padding: var(--space-4); }
 .nbd-draft__main, .nbd-draft__side { display: grid; gap: var(--space-4); align-content: start; min-width: 0; }
@@ -535,7 +533,8 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-agents { display: grid; gap: var(--space-1); }
 .nbd-agent { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); font-family: var(--font-mono); }
 .nbd-cadence { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text-muted); margin-top: var(--space-1); }
-.nbd-draft__foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--color-border); }
+/* Start stays in view while you check the draft (overflow: clip on .nbd-draft lets it stick). */
+.nbd-draft__foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--color-border); background: var(--color-surface); box-shadow: 0 -6px 16px -8px rgba(0, 0, 0, 0.25); }
 .nbd-change { flex: 1; display: flex; gap: var(--space-2); min-width: 260px; }
 .nbd-change input { flex: 1; padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
 .nbd-skip { margin: 0; }
@@ -852,8 +851,6 @@ html:has(.nbe-preview[open]) { overflow: hidden; }
 .nb-live__note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .nb-live__dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--color-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warn) 25%, transparent); }
 .nb-live__row--working .nb-live__dot { background: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
-.nb-live__dot--pulse { animation: nb-working-pulse 1.4s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .nb-live__dot--pulse { animation: none; } }
 
 /* The Talk card when sua is waiting on you, or replying. */
 .nb-talk.is-waiting { border-color: var(--color-warn); box-shadow: 0 0 0 1px var(--color-warn); }
@@ -862,10 +859,6 @@ html:has(.nbe-preview[open]) { overflow: hidden; }
 .nb-talk__waiting-ask { font-size: var(--font-size-sm); color: var(--color-text); }
 .nb-talk__waiting-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nb-talk__working { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3); font-size: var(--font-size-sm); color: var(--color-primary); }
-.nb-talk__dots { display: inline-flex; gap: 3px; }
-.nb-talk__dots span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: nb-working-pulse 1.2s ease-in-out infinite; }
-.nb-talk__dots span:nth-child(2) { animation-delay: .2s; } .nb-talk__dots span:nth-child(3) { animation-delay: .4s; }
-@media (prefers-reduced-motion: reduce) { .nb-talk__dots span { animation: none; } }
 
 /* sua started waiting on you while you're on the page, with the drawer closed. */
 .nb-toast { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 60; display: flex; align-items: center; gap: var(--space-3); max-width: min(440px, calc(100vw - 2 * var(--space-4))); padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-warn); border-left-width: 4px; border-radius: var(--radius-md); box-shadow: var(--shadow-md); font-size: var(--font-size-sm); color: var(--color-text); }
