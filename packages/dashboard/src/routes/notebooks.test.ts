@@ -2910,7 +2910,7 @@ describe('a drawn page\'s brief', () => {
     expect(at('Who they are')).toBeLessThan(at('What we know'));
     expect(at('What we know')).toBeLessThan(at('What to talk about'));
     expect(at('What to talk about')).toBeLessThan(at('In their words'));
-    expect(brief).toContain('And 1 more in the extended brief.');
+    expect(brief).toContain('And 5 more in the extended brief.');
     expect(brief).not.toContain('The shortlist');
     const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
     for (const s2 of ['Everything they said', 'Every fact, with its page', 'Each one in full', 'She said thing 10.', 'https://northwind.example/team']) expect(full).toContain(s2);

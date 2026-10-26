@@ -82,6 +82,41 @@ async function runPageAgent(ctx: Ctx, inputs: Record<string, string>): Promise<s
 
 export type PageOutcome = 'drawn' | 'kept' | 'skipped' | 'failed';
 
+/** What the page agent is given for a notebook: it, the ready-made pages, and how to draw one. Pure. */
+export function pageAgentInputs(nb: Notebook): Record<string, string> {
+  return {
+    NOTEBOOK: JSON.stringify(notebookForPage(nb)),
+    // The shortlist by name; the others with their documents, to use as they are or start from.
+    PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'shortlist' ? '' : `\n  its page: ${JSON.stringify(p.layout.components)}`}`).join('\n'),
+    GUIDE: notebookLayoutGuide(suaComponentDocs()),
+    ERRORS: '',
+  };
+}
+
+export interface DrawnPage {
+  answer: PageAnswer;
+  /** 1, or 2 when the first answer couldn't be used or read like a grid. */
+  tries: number;
+  /** Why the first answer got another try (an error, or the rhythm notes), if it did. */
+  firstNotes?: string;
+}
+
+/**
+ * Ask for a notebook's page with `ask` (the agent, or a recorded answer):
+ * a page drawn for it that can't be used, or breaks the editorial rhythm (a
+ * grid of frames, one shape after another), gets one more try with the
+ * reasons; if that try can't be drawn, the first stands.
+ */
+export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string, string>) => Promise<string | undefined>): Promise<DrawnPage> {
+  const base = pageAgentInputs(nb);
+  const first = parsePageAnswer(await ask(base));
+  const rhythm = 'layout' in first && !first.layout.preset ? pageRhythm(first.layout.components) : [];
+  if (!('error' in first) && !rhythm.length) return { answer: first, tries: 1 };
+  const firstNotes = 'error' in first ? first.error : `It can be drawn, but it reads like a grid: ${rhythm.join(' ')}`;
+  const again = parsePageAnswer(await ask({ ...base, ERRORS: firstNotes }));
+  return { answer: !('error' in again) || 'error' in first ? again : first, tries: 2, firstNotes };
+}
+
 /**
  * Let a notebook decide its page. `again`: decide even though it has a page
  * already (Edit's "Let it pick its page"); otherwise a notebook with a page
@@ -95,19 +130,7 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   if (ctx.notebookPages.has(notebookId)) return 'skipped';
   ctx.notebookPages.add(notebookId);
   try {
-    const base = {
-      NOTEBOOK: JSON.stringify(notebookForPage(nb)),
-      // The shortlist by name; the others with their documents, to use as they are or start from.
-      PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'shortlist' ? '' : `\n  its page: ${JSON.stringify(p.layout.components)}`}`).join('\n'),
-      GUIDE: notebookLayoutGuide(suaComponentDocs()),
-    };
-    let answer = parsePageAnswer(await runPageAgent(ctx, { ...base, ERRORS: '' }));
-    // A page drawn for it that breaks the editorial rhythm (a grid of frames, one shape after another) gets one more try; if that try can't be drawn, the first stands.
-    const rhythm = 'layout' in answer && !answer.layout.preset ? pageRhythm(answer.layout.components) : [];
-    if ('error' in answer || rhythm.length) {
-      const again = parsePageAnswer(await runPageAgent(ctx, { ...base, ERRORS: 'error' in answer ? answer.error : `It can be drawn, but it reads like a grid: ${rhythm.join(' ')}` }));
-      if (!('error' in again) || 'error' in answer) answer = again;
-    }
+    const { answer } = await drawNotebookPage(nb, (inputs) => runPageAgent(ctx, inputs));
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';

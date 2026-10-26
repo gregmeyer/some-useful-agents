@@ -512,22 +512,32 @@ export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<Noteboo
  * shortlist when it has none) with its `when`s and `/notebook/layout/`
  * settings worked out for this notebook (core resolveNotebookLayout).
  */
-export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLayout = notebookLayoutOf(nb)): ViewComponent[] {
-  return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb));
+export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLayout = notebookLayoutOf(nb), data?: NotebookWidgetData): ViewComponent[] {
+  return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb), emptyPartsGo(layout, data));
+}
+
+/**
+ * A drawn page leaves out parts with nothing in them yet (core
+ * resolveNotebookLayout); the shortlist keeps every part, as it always has.
+ */
+export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: unknown } {
+  return data !== undefined && layout.preset !== 'shortlist' ? { data } : {};
 }
 
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
-function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[]): ReturnType<typeof splitNotebookHeader> {
-  return splitNotebookHeader(resolveNotebookLayout(notebookLayoutOf(nb).components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb)));
+function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown): ReturnType<typeof splitNotebookHeader> {
+  const layout = notebookLayoutOf(nb);
+  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), emptyPartsGo(layout, data)));
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
 export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): unknown[] | undefined {
   // The shortlist needs fields and options; a page drawn for this notebook shows what it has.
   if (!nb.layout && (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option'))) return undefined;
-  const v = validateViewComponents(resolvedPage(nb, entries).rest);
+  const data = notebookWidgetData(nb, entries, history);
+  const v = validateViewComponents(resolvedPage(nb, entries, data).rest);
   if (!v.ok) return undefined;
-  return viewToMessages(`notebook-${nb.id}`, v.components, notebookWidgetData(nb, entries, history));
+  return viewToMessages(`notebook-${nb.id}`, v.components, data);
 }
 
 /** How a drawn page wants its header (the layout's NotebookHeader), with its side part as A2UI messages. */
@@ -542,10 +552,10 @@ export interface NotebookHeaderView {
 /** The layout's say on the header, or undefined (no NotebookHeader: the usual header). */
 export function notebookHeaderView(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): NotebookHeaderView | undefined {
   if (!nb.layout) return undefined;
-  const { header, side } = resolvedPage(nb, entries);
+  if (!splitNotebookHeader(notebookLayoutOf(nb).components).header) return undefined;
+  const data = notebookWidgetData(nb, entries, history);
+  const { header, side } = resolvedPage(nb, entries, data);
   if (!header) return undefined;
-  const needsData = side || (header.subtitle && typeof header.subtitle === 'object');
-  const data = needsData ? notebookWidgetData(nb, entries, history) : undefined;
   // A subtitle may be bound to the notebook's data; anything not text reads as none.
   const raw = header.subtitle && typeof header.subtitle === 'object' && typeof (header.subtitle as { path?: unknown }).path === 'string'
     ? resolvePointer(data, (header.subtitle as { path: string }).path)

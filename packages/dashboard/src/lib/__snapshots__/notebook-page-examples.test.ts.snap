@@ -1,0 +1,177 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`a notebook to accounts > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  Columns 2:1
+    Column
+      Callout "Where it stands"
+      StatStrip
+    Panel "Done when"
+      Steps "Progress"
+  Columns 1
+    Panel "How far they got"
+      Funnel
+  Panel "Shortlist"
+    OptionGrid
+  Columns 1:2
+    Panel "Before you decide"
+      Checklist
+    Panel "How we got here"
+      Timeline max=8
+  Columns 1:1
+    Panel "Where sua looked"
+      Coverage
+    Panel "Limits"
+      ChipList"
+`;
+
+exports[`a notebook to car > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  Columns 2:1
+    Column
+      Callout "Where it stands"
+      StatStrip
+    Panel "Done when"
+      Steps "Progress"
+  Columns 2:1
+    Panel "Where they sit"
+      Scatter "name"
+    Panel "How far they got"
+      Funnel
+  Panel "Shortlist"
+    OptionGrid
+  Columns 1:2
+    Panel "Before you decide"
+      Checklist
+    Panel "How we got here"
+      Timeline max=8
+  Columns 1:1
+    Panel "Where sua looked"
+      Coverage
+    Panel "Limits"
+      ChipList"
+`;
+
+exports[`a notebook to job > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  Columns 2:1
+    Column
+      Callout "Where it stands"
+      StatStrip
+    Panel "Done when"
+      Steps "Progress"
+  Columns 1
+    Panel "How far they got"
+      Funnel
+  Panel "Shortlist"
+    OptionGrid
+  Columns 1:2
+    Panel "Before you decide"
+      Checklist
+    Panel "How we got here"
+      Timeline max=8
+  Columns 1:1
+    Panel "Where sua looked"
+      Coverage
+    Panel "Limits"
+      ChipList"
+`;
+
+exports[`a notebook to meet-company > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  NotebookHeader subtitle=Meeting briefing cover=none steps=fold
+  Columns 1:2
+    Panel treatment=aside "Their company"
+      Column
+        ProfileCard
+        FactSheet variant=ruled
+    Panel treatment=feature "What to talk about"
+      Agenda variant=numerals
+  Panel treatment=feature "In their words"
+    QuoteList max=4
+  Columns 1:1
+    Disclosure "Research activity"
+      Timeline max=6
+    Disclosure "Where sua looked"
+      Coverage"
+`;
+
+exports[`a notebook to meet-person > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  NotebookHeader subtitle=Meeting briefing cover=none steps=fold
+  Columns 2:1
+    Panel treatment=lede "Who they are"
+      ProfileCard variant=cover
+    Panel treatment=aside "What we know"
+      FactSheet variant=ruled
+  Columns 1:2
+    Panel treatment=aside "Their company"
+      Column
+        ProfileCard
+        FactSheet variant=ruled
+    Panel treatment=feature "What to talk about"
+      Agenda variant=numerals
+  Panel treatment=feature "In their words"
+    QuoteList max=4
+  Columns 1:1
+    Disclosure "Research activity"
+      Timeline max=6
+    Disclosure "Where sua looked"
+      Coverage"
+`;
+
+exports[`a notebook to product > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  Columns 2:1
+    Column
+      Callout "Where it stands"
+      StatStrip
+    Panel "Done when"
+      Steps "Progress"
+  Columns 2:1
+    Panel "Where they sit"
+      Scatter "name"
+    Panel "How far they got"
+      Funnel
+  Panel "Shortlist"
+    OptionGrid
+  Columns 1:2
+    Panel "Before you decide"
+      Checklist
+    Panel "How we got here"
+      Timeline max=8
+  Columns 1:1
+    Panel "Where sua looked"
+      Coverage
+    Panel "Limits"
+      ChipList"
+`;
+
+exports[`a notebook to question > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  NotebookHeader subtitle=Research answer cover=none
+  Columns 1
+    Panel treatment=aside "Studies checked"
+      Funnel
+  Panel treatment=feature "What the studies found"
+    QuoteList max=6
+  Columns 1:1:1
+    Disclosure "All studies and reports"
+      Table
+    Disclosure "Research activity"
+      Timeline max=6
+    Disclosure "Where sua looked"
+      Coverage"
+`;
+
+exports[`a notebook to trip > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  NotebookHeader subtitle=Trip plan cover=none
+  Panel treatment=feature "Day by day"
+    OptionGrid
+  Columns 1:1
+    Disclosure "Research activity"
+      Timeline max=6
+    Disclosure "Where sua looked"
+      Coverage"
+`;
