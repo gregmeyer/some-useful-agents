@@ -787,7 +787,6 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbe-fold > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbe-fold[open] > summary { margin-bottom: var(--space-3); color: var(--color-text); }
 .nbe-fold__note { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.nbe-fold--more .nbe-more { border-top: 0; padding-top: 0; }
 /* The preview: the notebook's page as it would be, in a dialog over the editor. */
 .nbe-preview { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0; width: min(1240px, 94vw); max-width: none; height: 90vh; max-height: none; background: var(--color-bg); color: var(--color-text); overflow: hidden; box-shadow: 0 8px 32px rgb(0 0 0 / 0.25); }
 .nbe-preview[open] { display: flex; flex-direction: column; }
@@ -807,15 +806,6 @@ html:has(.nbe-preview[open]) { overflow: hidden; }
 .nbe .nb-crumbs { margin: 0; }
 .nbe__title { margin: 0; }
 .nbe-form .nbd-draft__body textarea.form-field { resize: none; overflow: hidden; }
-.nbe-more { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
-.nbe-more__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
-.nbe-more__row.nb-form { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
-.nbe-more__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.nbe-more .nb-template { max-width: 480px; }
-.nbe-more .nb-remove { margin-top: 0; }
-.nbe-more .nb-form { align-items: flex-start; }
-.nbe-more .nb-delete > summary::before { content: none; }
-.nbe-more .nb-template .nb-label { align-self: stretch; }
 @media (max-width: 640px) {
   .nbd-step { flex-wrap: wrap; row-gap: var(--space-1); }
   .nbd-step .nbd-step__title { flex: 1 1 0; min-width: 0; }
@@ -992,3 +982,18 @@ body.has-sua-panel .nb-toast { display: none; }
 .lk-chip { display: block; width: 16px; height: 4px; border-radius: 999px; background: var(--color-primary-soft); border: 1px solid var(--color-border); }
 .nbe-looks .look-card__name { flex-wrap: wrap; row-gap: 2px; }
 .nbe-looks__working { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); color: var(--color-primary); }
+
+/* Manage this notebook (Edit, folded): one action a row, a button and one sentence beside it. */
+.nbe-manage { list-style: none; margin: 0; padding: 0; display: grid; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbe-manage__row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); min-width: 0; }
+.nbe-manage__row + .nbe-manage__row { border-top: 1px solid var(--color-border); }
+.nbe-manage__act { margin: 0; flex: 0 0 10.5rem; }
+.nbe-manage__act .btn, a.nbe-manage__act, .nbe-manage__act.btn { width: 100%; justify-content: center; }
+.nbe-manage__what { min-width: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nbe-manage__delete { flex: 1; min-width: 0; }
+.nbe-manage__delete > summary { display: flex; align-items: center; gap: var(--space-3); cursor: pointer; list-style: none; }
+.nbe-manage__delete > summary::-webkit-details-marker { display: none; }
+.nbe-manage__row--danger .nbe-manage__act { color: var(--color-err); border-color: var(--color-err); }
+.nbe-manage__delete[open] .nb-delete__form { margin-top: var(--space-3); }
+@media (max-width: 560px) { .nbe-manage__row, .nbe-manage__delete > summary { flex-direction: column; align-items: stretch; gap: var(--space-1); } .nbe-manage__act { flex-basis: auto; } }
+.nbe-manage__delete > summary::before { content: none; }

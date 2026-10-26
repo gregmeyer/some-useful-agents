@@ -3499,7 +3499,8 @@ describe('editing a notebook on its own page', () => {
     expect(page).toContain('gone-agent</span> <span class="nbd-agent__note">not installed</span>');
     expect(page).toContain('<option value="" selected>when I ask</option>');
     expect(page).toContain('>Seller<button');
-    expect(page).toContain('Stop this notebook');
+    expect(page).toContain('<summary>Manage this notebook</summary>');
+    expect(page).toMatch(/<button type="submit" class="btn btn--sm">Stop<\/button><\/form><span class="nbe-manage__what">Pause it/);
 
     // Change a limit, drop a check and a field, retitle a step, drop the gone search, run every morning.
     const saved = await post(`/notebooks/${nb.id}/edit`, {
