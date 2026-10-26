@@ -46,10 +46,17 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   const notes = step.shape === 'answer' || step.shape === 'plan'
     ? entries.filter((e) => e.kind === 'note' && !/^Met: /.test(e.title)).slice(0, 12).map((e) => `${e.title}${e.body ? `: ${e.body}` : ''}`.replace(/\s+/g, ' ').slice(0, 400))
     : [];
+  // The meeting it prepares for: when (and how soon), your goal, what you know.
+  const m = nb.meeting;
+  const meeting = m ? {
+    ...(m.when ? { when: m.when, daysAway: Math.round((Date.parse(m.when.split('T')[0]) - Date.parse(new Date().toISOString().slice(0, 10))) / 86_400_000) } : {}),
+    ...(m.goal ? { goal: m.goal } : {}), ...(m.notes ? { notes: m.notes } : {}),
+  } : undefined;
   return {
     NOTEBOOK: JSON.stringify({
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
+      ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
     }),
     THEMES: JSON.stringify(themes.slice(0, 30)),
     COUNT: String(Math.min(8, Math.max(3, step.target ?? 4))),

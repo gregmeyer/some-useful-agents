@@ -3760,6 +3760,83 @@ describe('changing a notebook by saying what to change, or as a document', () =>
   });
 });
 
+describe('the meeting a notebook prepares for', () => {
+  it('asks for it, keeps it, shows when and your goal, and the finder and writer aim at it', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'What matters to Dana' });
+    s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 3 }, { title: 'Write the talking points', kind: 'write', target: 3 }]);
+
+    // No meeting yet: the page asks, and so does sua's greeting.
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('Add the meeting: when it is and what you want from it');
+    const { notebookGreeting } = await import('../lib/notebook-chat.js');
+    expect(notebookGreeting(s.get(nb.id)!)).toContain('When is the meeting, and what do you want out of it?');
+
+    // Saved as you said it.
+    const day = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    const res = await post(`/notebooks/${nb.id}/meeting`, { meeting_date: day, meeting_time: '14:00', meeting_goal: 'Explore a partnership on onboarding', meeting_notes: 'We met at a conference' });
+    expect(decodeURIComponent(res.headers.location)).toContain('Saved the meeting');
+    expect(s.get(nb.id)!.meeting).toEqual({ when: `${day}T14:00`, goal: 'Explore a partnership on onboarding', notes: 'We met at a conference' });
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toMatch(/Meeting <strong>[^<]*2:00 PM<\/strong> · in 3 days/);
+    expect(page).toContain('Your goal: Explore a partnership on onboarding');
+    expect(page).toContain('Edit the meeting');
+    // A date that isn't one is refused, and the meeting stays.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/meeting`, { meeting_date: 'soon' })).headers.location)).toContain("That date didn't read as a date.");
+    expect(s.get(nb.id)!.meeting?.when).toBe(`${day}T14:00`);
+
+    // The finder is told the goal; the writer gets the meeting with how soon it is.
+    const { notebookBrief } = await import('../lib/notebook-pipeline.js');
+    expect(notebookBrief(s.get(nb.id)!)).toContain('The meeting is for: Explore a partnership on onboarding.');
+    const { writerInputs } = await import('../lib/notebook-write.js');
+    expect(JSON.parse(writerInputs(s.get(nb.id)!, [], { target: 3 }).NOTEBOOK).meeting).toEqual({ when: `${day}T14:00`, daysAway: 3, goal: 'Explore a partnership on onboarding', notes: 'We met at a conference' });
+
+    // Talking points written days before the meeting say so, with Write again.
+    s.setBriefing(nb.id, { points: [{ text: 'Ask about onboarding', from: [] }], questions: [], watch: [], at: new Date(Date.now() - 4 * 86_400_000).toISOString(), by: 'notebook-writer' });
+    s.updateStep(nb.id, 's2', { status: 'done' });
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain('The talking points are 4 days old.');
+
+    // In the conversation, sua can set it (merged with what's there).
+    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
+    const { add } = parseNotebookAdd(JSON.stringify({ meeting: { goal: 'Agree on a pilot' } }));
+    applyNotebookAdd(s, nb.id, add!);
+    expect(s.get(nb.id)!.meeting).toMatchObject({ when: `${day}T14:00`, goal: 'Agree on a pilot', notes: 'We met at a conference' });
+
+    // The document has it, and reads it back.
+    const { notebookToMarkdown, notebookFromMarkdown, setupOf } = await import('../lib/notebook-edit.js');
+    const md = notebookToMarkdown(setupOf(s.get(nb.id)!), s.get(nb.id)!.layout);
+    expect(md).toContain(`## The meeting\n- When: ${day} 14:00\n- Goal: Agree on a pilot\n- Notes: We met at a conference`);
+    const back = notebookFromMarkdown(md.replace('Agree on a pilot', 'Sign the pilot'), setupOf(s.get(nb.id)!), undefined, new Set());
+    expect('setup' in back && back.setup.meeting).toEqual({ when: `${day}T14:00`, goal: 'Sign the pilot', notes: 'We met at a conference' });
+    expect(notebookFromMarkdown(md.replace(`${day} 14:00`, 'Thursday'), setupOf(s.get(nb.id)!), undefined, new Set())).toMatchObject({ error: expect.stringContaining("isn't a date") });
+
+    // The brief says it too.
+    expect((await get(`/notebooks/${nb.id}/brief.html`)).text).toContain('Your goal: Agree on a pilot');
+  });
+
+  it('a draft keeps the meeting the drafter heard, and starting it saves it', async () => {
+    const { parseNotebookDraft } = await import('../lib/notebook-draft.js');
+    const d = parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Meet Dana', steps: [{ title: 'Write the talking points', kind: 'write' }], meeting: { when: '2026-11-05T10:00', goal: 'Hire her team', notes: '' } })}</draft>`, new Set());
+    expect('meeting' in d && d.meeting).toEqual({ when: '2026-11-05T10:00', goal: 'Hire her team' });
+    const { renderDraftReview } = await import('../views/notebook-new.js');
+    const { render } = await import('../views/html.js');
+    const html = render(renderDraftReview('d1', d as never, []));
+    expect(html).toContain('name="meeting_date" value="2026-11-05"');
+    expect(html).toContain('>Hire her team</textarea>');
+    const app = await makeApp();
+    await request(app).post('/notebooks').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form')
+      .send({ title: 'Meet Dana', statement: 'Prepare', step_title: 'Write the talking points', step_kind: 'write', step_agent: '', step_target: '', meeting_date: '2026-11-05', meeting_time: '10:00', meeting_goal: 'Hire her team', meeting_notes: '' });
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const nb = NotebookStore.fromHandle(runStore.databaseHandle()).list({}).find((n) => n.title === 'Meet Dana')!;
+    expect(nb.meeting).toEqual({ when: '2026-11-05T10:00', goal: 'Hire her team' });
+  });
+});
+
 describe('enhancing the prompt', () => {
   it('sharpens what is in the box (your edits first), comes back as a change to preview with what it made sharper, and saves nothing', async () => {
     const app = await makeApp();

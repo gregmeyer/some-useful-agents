@@ -157,9 +157,14 @@ nodes:
       - "cadence": a five-field cron schedule if they asked for a rhythm
         ("every morning" → "0 7 * * *"); for a watch with no rhythm given,
         every morning, "0 8 * * *"; else "".
+      - "meeting": for a notebook that prepares them to meet someone,
+        {"when": "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" if they said when
+        (resolve "Thursday at 2" against TODAY), "goal": what they want
+        out of it, in their words, "notes": what they already know}; only
+        what they said, "" for the rest; else omit it.
       - "why": one short sentence on anything you assumed.
 
       Reply with only this, as valid JSON:
       <draft>
-      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "why": ""}
+      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "meeting": {"when": "", "goal": "", "notes": ""}, "why": ""}
       </draft>

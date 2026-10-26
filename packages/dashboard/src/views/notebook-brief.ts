@@ -9,6 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
+import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { decisionPicks, formatFieldValue } from './notebooks.js';
@@ -441,6 +442,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     <div class="eyebrow">${args.latest ? "What's new · " : ''}${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}</div>
     <h1>${nb.title}</h1>
     ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
+    ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
   </header>
   ${decided && nb.decision
     ? html`<section class="decision" aria-label="Decision">

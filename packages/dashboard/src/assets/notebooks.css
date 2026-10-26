@@ -1016,3 +1016,25 @@ body.has-sua-panel .nb-toast { display: none; }
 .tpe-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .tpe-foot__note { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 @media (max-width: 560px) { .tpe-point__head { grid-template-columns: 1.5rem minmax(0, 1fr); } .tpe-point__acts { grid-column: 2; } .tpe-point .tpe-field, .tpe-point__from { margin-left: 0; } }
+
+/* A meeting notebook's meeting, under what it's for (views/notebooks.ts meetingLine). */
+.nb-meeting { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.nb-meeting__line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nb-meeting__when strong { color: var(--color-text); font-weight: var(--weight-semibold); }
+.nb-meeting__goal { color: var(--color-text); }
+.nb-meeting__stale { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-warn); }
+.nb-meeting__edit summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-primary); }
+.nb-meeting__form { margin-top: var(--space-2); display: grid; grid-template-columns: 10rem 8rem minmax(0, 1fr); gap: var(--space-2) var(--space-3); align-items: end; max-width: 56rem; }
+.nb-meeting__form label { display: grid; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 0; }
+.nb-meeting__form .form-field { box-sizing: border-box; width: 100%; height: var(--control-h, 32px); padding: 0 var(--space-2); font-size: var(--font-size-sm); }
+/* The goal sits beside the date and time; notes and Save below. */
+.nb-meeting__wide:first-of-type { grid-column: auto; }
+.nb-meeting__wide { grid-column: 1 / -1; }
+.nb-meeting__form label:nth-of-type(3) { grid-column: 3; }
+.nb-meeting__form label:nth-of-type(4) { grid-column: 1 / 3; }
+.nb-meeting__form button { justify-self: start; align-self: end; height: var(--control-h, 32px); }
+@media (max-width: 640px) { .nb-meeting__form { grid-template-columns: 1fr 1fr; } .nb-meeting__form label:nth-of-type(3), .nb-meeting__form label:nth-of-type(4) { grid-column: 1 / -1; } }
+/* The draft's meeting row. */
+.nbd-meeting { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
+.nbd-meeting__when { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.nbd-meeting label { display: grid; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); }

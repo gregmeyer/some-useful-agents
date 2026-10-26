@@ -9,7 +9,7 @@
  * drafts (id `edit:<notebook>`) until saved, discarded or two weeks old.
  */
 import {
-  NotebookStore, NOTEBOOK_FIELD_ROLES, NOTEBOOK_FIELD_TYPES, NOTEBOOK_LAYOUT_PRESETS, NOTEBOOK_STEP_KINDS, cleanFields, cleanSteps, layoutPreset, validateScheduleInterval,
+  NotebookStore, NOTEBOOK_FIELD_ROLES, NOTEBOOK_FIELD_TYPES, NOTEBOOK_LAYOUT_PRESETS, NOTEBOOK_STEP_KINDS, cleanFields, cleanSteps, layoutPreset, validateScheduleInterval, cleanMeeting, isMeetingNotebook,
   type Notebook, type NotebookField, type NotebookLayout, type NotebookStep,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -56,6 +56,7 @@ export function setupOf(nb: Notebook): NotebookSetup {
     met: Object.fromEntries(nb.criteria.map((c) => [c.text, c.met])),
     fields: nb.fields.map((f) => ({ ...f })), checks: [...nb.checks], stages: [...nb.stages], pipeline: [...nb.pipeline],
     steps: (nb.steps ?? []).map((s) => ({ ...s })), cadence: nb.cadence,
+    ...(nb.meeting ? { meeting: { ...nb.meeting } } : {}),
   };
 }
 
@@ -66,7 +67,7 @@ export function proposedNotebook(nb: Notebook, edit: NotebookEdit | undefined): 
   return {
     ...nb, title: s.title, statement: s.statement, params: s.params,
     criteria: s.criteria.map((text) => ({ text, met: s.met[text] ?? false })),
-    fields: s.fields, checks: s.checks, stages: s.stages, pipeline: s.pipeline, steps: s.steps, cadence: s.cadence,
+    fields: s.fields, checks: s.checks, stages: s.stages, pipeline: s.pipeline, steps: s.steps, cadence: s.cadence, meeting: s.meeting,
     ...(edit.layout === undefined ? {} : edit.layout === null ? { layout: undefined } : { layout: edit.layout }),
   };
 }
@@ -152,6 +153,11 @@ export function describeSetupChange(before: NotebookSetup, after: NotebookSetup,
   }
   out.push(...listChange('the agent', before.pipeline, after.pipeline));
   if (before.cadence !== after.cadence) out.push(after.cadence ? `Runs on a schedule: ${after.cadence}` : 'No longer runs on a schedule');
+  const mb = before.meeting ?? {};
+  const ma = after.meeting ?? {};
+  if ((mb.when ?? '') !== (ma.when ?? '')) out.push(ma.when ? `The meeting: ${meetingWhenWords(ma.when)}` : 'No meeting date');
+  if ((mb.goal ?? '') !== (ma.goal ?? '')) out.push(ma.goal ? `Your goal: “${ma.goal}”` : 'No goal for the meeting');
+  if ((mb.notes ?? '') !== (ma.notes ?? '')) out.push(ma.notes ? 'Notes on the meeting changed' : 'No notes on the meeting');
   if (pageAfter !== undefined && JSON.stringify(pageBefore ?? null) !== JSON.stringify(pageAfter ?? null)) {
     const a = pageName(pageAfter ?? undefined);
     const b = pageName(pageBefore);
@@ -191,7 +197,19 @@ export function keepStepProgress(was: readonly NotebookStep[], next: readonly St
 // ---- The notebook as a document (the Prompt tab) --------------------------------
 
 const PAGE = 'How it looks';
-const SECTIONS = ['Limits', 'Done when', 'Facts each option notes', 'Checks', 'Steps', 'Stages', 'Agents and schedule', PAGE] as const;
+const MEETING = 'The meeting';
+const SECTIONS = ['Limits', 'Done when', MEETING, 'Facts each option notes', 'Checks', 'Steps', 'Stages', 'Agents and schedule', PAGE] as const;
+
+/** "Thu, Oct 29, 2:00 PM" (or the date alone). Pure. */
+export function meetingWhenWords(when: string): string {
+  const [d, t] = when.split('T');
+  const [y, mo, da] = d.split('-').map(Number);
+  const date = new Date(y, mo - 1, da);
+  const day = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (!t) return day;
+  const [h, mi] = t.split(':').map(Number);
+  return `${day}, ${new Date(y, mo - 1, da, h, mi).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
 
 /** A notebook's setup as markdown: a title, what it's for, then a section each. Pure. */
 export function notebookToMarkdown(setup: NotebookSetup, layout: NotebookLayout | undefined): string {
@@ -202,6 +220,10 @@ export function notebookToMarkdown(setup: NotebookSetup, layout: NotebookLayout 
   section('Done when', setup.criteria.map((c) => `- [${setup.met[c] ? 'x' : ' '}] ${c}`));
   section('Facts each option notes', setup.fields.map((f) => `- ${f.label}: ${fieldWords(f)}`));
   section('Checks', setup.checks.map((c) => `- ${c}`));
+  if (setup.meeting || isMeetingNotebook({ steps: setup.steps, layout })) {
+    const m = setup.meeting ?? {};
+    section(MEETING, [`- When: ${m.when ? m.when.replace('T', ' ') : ''}`, `- Goal: ${m.goal ?? ''}`, `- Notes: ${m.notes ?? ''}`]);
+  }
   section('Steps', setup.steps.map((s, i) => `${String(i + 1)}. ${s.title} (${stepWords(s)})`));
   section('Stages', setup.stages.length ? [setup.stages.join(' → ')] : []);
   section('Agents and schedule', [`- Agents: ${setup.pipeline.join(', ') || 'none'}`, `- Schedule: ${setup.cadence || 'when you ask'}`]);
@@ -301,6 +323,14 @@ export function notebookFromMarkdown(md: string, base: NotebookSetup, baseLayout
   if (checks) setup.checks = checks.slice(0, 8);
   const steps = items('Steps');
   if (steps) setup.steps = keepStepProgress(base.steps, steps.map((s) => parseStep(s, agentIds)).filter((s): s is StepIn => !!s));
+  const meeting = items(MEETING);
+  if (meeting) {
+    const pick = (k: string) => meeting.map((l) => new RegExp(`^${k}\\s*:\\s*(.*)$`, 'i').exec(l)?.[1]?.trim()).find((x) => x !== undefined) ?? '';
+    const when = pick('when').replace(' ', 'T');
+    if (when && !cleanMeeting({ when })?.when) return { error: `"${pick('when')}" isn't a date sua understands. Use 2026-10-29, or 2026-10-29 14:00.` };
+    const m = cleanMeeting({ when, goal: pick('goal'), notes: pick('notes') });
+    if (m) setup.meeting = m; else delete setup.meeting;
+  }
   const stages = items('Stages');
   if (stages) setup.stages = stages.flatMap((s) => s.split(/\s*(?:→|->|,)\s*/)).map((s) => s.trim()).filter(Boolean).slice(0, 8);
   for (const line of items('Agents and schedule') ?? []) {
@@ -429,6 +459,7 @@ async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit,
     title: parsed.title, statement: parsed.statement, params: parsed.params, criteria: parsed.criteria,
     met: Object.fromEntries(parsed.criteria.map((c) => [c, base.met[c] ?? false])),
     fields: keepFieldKeys(base.fields, parsed.fields), checks: parsed.checks, stages: parsed.stages, pipeline: parsed.pipeline, cadence: parsed.cadence,
+    ...(parsed.meeting ?? base.meeting ? { meeting: parsed.meeting ?? base.meeting } : {}),
     steps: keepStepProgress(base.steps, parsed.steps ?? base.steps),
   };
   let layout = working.layout;
@@ -538,6 +569,7 @@ export function saveEdit(ctx: Ctx, notebookId: string): { changes: string[]; not
   if (p.cadence) validateScheduleInterval(p.cadence, {});
   const changes = describeSetupChange(before, { ...p, steps }, nb.layout, edit.layout);
   s.update(notebookId, { title: p.title, statement: p.statement, params: p.params, pipeline: p.pipeline, cadence: p.cadence });
+  if (JSON.stringify(p.meeting ?? null) !== JSON.stringify(nb.meeting ?? null)) s.setMeeting(notebookId, p.meeting);
   s.setCriteria(notebookId, p.criteria);
   const now = s.get(notebookId)!;
   now.criteria.forEach((c, i) => { if (p.met[c.text] !== undefined && p.met[c.text] !== c.met) s.markCriterion(notebookId, i, p.met[c.text]); });

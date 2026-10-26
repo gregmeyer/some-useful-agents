@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanPlan, cleanSteps, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1138,6 +1138,25 @@ describe('who a notebook is about', () => {
     expect(s.aboutPhoto(nb.id, 'person')).toMatchObject({ contentType: 'image/jpeg', kind: 'photo', sourceUrl: 'https://example.com/dana.jpg' });
     s.delete(nb.id);
     expect(s.aboutPhotos(nb.id).size).toBe(0);
+  });
+});
+
+describe('the meeting a notebook prepares for', () => {
+  it('keeps a real date (or date and time), your goal and notes; nothing left is nothing', () => {
+    expect(cleanMeeting({ when: '2026-10-29T14:00', goal: '  Explore a partnership  ', notes: 'Met at a conference' })).toEqual({ when: '2026-10-29T14:00', goal: 'Explore a partnership', notes: 'Met at a conference' });
+    expect(cleanMeeting({ when: '2026-10-29 09:30' })).toEqual({ when: '2026-10-29T09:30' });
+    expect(cleanMeeting({ when: 'next Thursday', goal: 'Pitch' })).toEqual({ goal: 'Pitch' });
+    expect(cleanMeeting({ when: '2026-13-40' })).toBeUndefined();
+    expect(cleanMeeting({ goal: '', notes: '  ' })).toBeUndefined();
+    expect(cleanMeeting('nope')).toBeUndefined();
+  });
+
+  it('a meeting notebook: the meeting briefing page, a write step for talking points, or a meeting already', () => {
+    expect(isMeetingNotebook({ layout: { preset: 'dossier', components: [] } })).toBe(true);
+    expect(isMeetingNotebook({ steps: [{ id: 's1', title: 'Write the talking points', kind: 'write', status: 'todo', tries: 0 }] })).toBe(true);
+    expect(isMeetingNotebook({ steps: [{ id: 's1', title: 'Write the answer', kind: 'write', shape: 'answer', status: 'todo', tries: 0 }] })).toBe(false);
+    expect(isMeetingNotebook({ meeting: { goal: 'x' } })).toBe(true);
+    expect(isMeetingNotebook({})).toBe(false);
   });
 });
 

@@ -5,11 +5,11 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
+import { isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
-import { pageName, type NotebookEditTurn } from '../lib/notebook-edit.js';
+import { pageName, meetingWhenWords, type NotebookEditTurn } from '../lib/notebook-edit.js';
 import { notebookLooks } from './notebook-look.js';
 import { layout } from './layout.js';
 import { working } from './working.js';
@@ -174,6 +174,43 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
 }
 
 const STEP_UNIT: Record<NotebookStep['kind'], string> = { profile: 'facts', find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen', write: 'points' };
+/** "today", "tomorrow", "in 3 days", "2 days ago" for a meeting's date. */
+function meetingDays(when: string, now = new Date()): string {
+  const [y, m, d] = when.split('T')[0].split('-').map(Number);
+  const day = Math.round((new Date(y, m - 1, d).getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000);
+  return day === 0 ? 'today' : day === 1 ? 'tomorrow' : day === -1 ? 'yesterday' : day > 0 ? `in ${String(day)} days` : `${String(-day)} days ago`;
+}
+
+/**
+ * A meeting notebook's meeting, under what it's for: when (and how soon) and
+ * your goal; talking points written days before it say so, with Write again.
+ * Without a goal or a date yet, a small form asks (your words, saved as is).
+ */
+export function meetingLine(nb: Notebook, now = new Date()): SafeHtml {
+  if (!isMeetingNotebook(nb)) return html``;
+  const id = encodeURIComponent(nb.id);
+  const m = nb.meeting ?? {};
+  const write = nb.steps?.find((x) => x.kind === 'write' && !x.shape);
+  const ageDays = nb.briefing?.at ? Math.floor((now.getTime() - Date.parse(nb.briefing.at)) / 86_400_000) : 0;
+  const upcoming = !!m.when && !/ago|yesterday/.test(meetingDays(m.when, now));
+  const stale = upcoming && nb.briefing?.points.length && ageDays >= 3 && write && (write.status === 'done' || write.status === 'met');
+  const form = (open: boolean) => html`<details class="nb-meeting__edit"${open ? unsafeHtml(' open') : unsafeHtml('')}>
+      <summary>${m.when || m.goal ? 'Edit the meeting' : 'Add the meeting: when it is and what you want from it'}</summary>
+      <form method="POST" action="/notebooks/${id}/meeting" class="nb-meeting__form">
+        <label><span>Date</span><input type="date" name="meeting_date" value="${(m.when ?? '').split('T')[0]}" class="form-field"></label>
+        <label><span>Time</span><input type="time" name="meeting_time" value="${(m.when ?? '').split('T')[1] ?? ''}" class="form-field"></label>
+        <label class="nb-meeting__wide"><span>Your goal</span><input type="text" name="meeting_goal" value="${m.goal ?? ''}" class="form-field" maxlength="300" placeholder="What you want out of it, e.g. explore a partnership on X"></label>
+        <label class="nb-meeting__wide"><span>Notes <em>optional</em></span><input type="text" name="meeting_notes" value="${m.notes ?? ''}" class="form-field" maxlength="600" placeholder="What you already know, who else is coming"></label>
+        <button type="submit" class="btn btn--primary btn--sm">Save</button>
+      </form>
+    </details>`;
+  return html`<div class="nb-meeting">
+    ${m.when || m.goal ? html`<p class="nb-meeting__line">${m.when ? html`<span class="nb-meeting__when">Meeting <strong>${meetingWhenWords(m.when)}</strong> · ${meetingDays(m.when, now)}</span>` : html``}${m.goal ? html`<span class="nb-meeting__goal">Your goal: ${m.goal}</span>` : html``}</p>` : html``}
+    ${stale ? html`<form method="POST" action="/notebooks/${id}/steps/${write!.id}/again" class="nb-meeting__stale"><span>The talking points are ${String(ageDays)} days old.</span> <button type="submit" class="nb-step__focus-btn">Write again →</button></form>` : html``}
+    ${form(!m.goal && !m.when)}
+  </div>`;
+}
+
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**
@@ -406,6 +443,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running)}</div>` : html``}
         </div>
         ${head?.statement === false ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
+        ${meetingLine(nb)}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
@@ -864,6 +902,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
             criteria: nb.criteria.map((c) => c.text), met: nb.criteria.map((c) => c.met),
             ...(nb.steps?.length ? { steps: nb.steps } : {}),
             fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+            ...(nb.meeting ? { meeting: nb.meeting } : {}),
           }, args.agents, { editing: true, offered: args.agents.map((a) => a.id) })}
           <div class="nbd-draft__foot"><button type="submit" class="btn btn--primary">Save</button></div>
         </form>

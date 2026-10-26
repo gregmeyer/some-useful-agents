@@ -19,7 +19,7 @@ import { templateOfNotebook, draftTemplate } from '../lib/notebook-template-acti
 import { conversationWorking } from '../lib/conversation-working.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
-import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm } from '../lib/notebook-draft.js';
+import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, meetingFromForm } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
@@ -195,6 +195,7 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
       ...(steps ? { steps } : {}),
+      ...(() => { const m = meetingFromForm(req.body ?? {}); return m ? { meeting: m } : {}; })(),
       ...(fields.length ? {
         fields,
         stages: many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean),
@@ -641,6 +642,18 @@ function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'err
   return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
 }
 
+/** The meeting a notebook prepares for: your words, saved as they are (no proposal to check). */
+notebooksRouter.post('/notebooks/:id/meeting', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  const nb = s.get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const m = meetingFromForm(req.body ?? {});
+  if (str(req.body?.meeting_date) && !m?.when) { res.redirect(303, back(id, "That date didn't read as a date.")); return; }
+  s.setMeeting(id, m);
+  res.redirect(303, back(id, m ? 'Saved the meeting. Write again aims the talking points at it.' : 'Cleared the meeting.'));
+});
+
 /** Say what to change: sua changes the proposal in the background (lib/notebook-edit.ts). */
 notebooksRouter.post('/notebooks/:id/edit/talk', (req: Request, res: Response) => {
   const id = String(req.params.id);
@@ -791,6 +804,8 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
       params: many(req.body?.params), pipeline: many(req.body?.pipeline), cadence,
     });
     s.setCriteria(id, many(req.body?.criteria));
+    // The meeting, when the form had its row (a meeting notebook).
+    if (req.body && ('meeting_date' in req.body || 'meeting_goal' in req.body)) s.setMeeting(id, meetingFromForm(req.body));
     if (req.body?.stages !== undefined || full) s.setStages(id, many(req.body?.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).filter(Boolean));
     if (full) {
       s.setChecks(id, many(req.body?.checks));
