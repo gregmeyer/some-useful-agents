@@ -4,6 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
@@ -25,7 +26,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { layoutPreset } from '@some-useful-agents/core';
+import { layoutPreset, cleanBriefing } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
 import { decideNotebookPage } from '../lib/notebook-page.js';
@@ -107,6 +108,9 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
     drafts: listDrafts(ctx),
   }));
 });
+
+/** A form value repeated once a row, empty ones kept, so the rows' fields stay lined up. */
+const rows = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === 'string' ? x : '')) : typeof v === 'string' ? [v] : []);
 
 /** A form value that may repeat (chips) or be one newline-separated text. */
 const many = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : lines(v)).map((x) => x.trim()).filter(Boolean);
@@ -693,6 +697,37 @@ notebooksRouter.post('/notebooks/:id/edit/discard', (req: Request, res: Response
   const id = String(req.params.id);
   discardEdit(getContext(req.app.locals), id);
   res.redirect(303, editBack(id, 'Discarded your changes. The notebook is as it was.', 'info'));
+});
+
+/** Edit the talking points sua wrote (its write step): reword, reorder, remove, add. */
+notebooksRouter.get('/notebooks/:id/talking-points', (req: Request, res: Response) => {
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  res.type('html').send(renderTalkingPointsEdit({ nb, entries: s.entries(nb.id, 1000), flash: parseFlash(req) }));
+});
+
+notebooksRouter.post('/notebooks/:id/talking-points', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  const nb = s.get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  // One value a row, in the order the rows are on the page; a removed row is ticked by its uid; the empty new row adds nothing.
+  const uids = rows(req.body?.point_uid);
+  const texts = rows(req.body?.point_text);
+  const whys = rows(req.body?.point_why);
+  const asks = rows(req.body?.point_ask);
+  const froms = rows(req.body?.point_from);
+  const drop = new Set(many(req.body?.point_drop));
+  const points = uids.map((uid, i) => ({ uid, text: texts[i] ?? '', why: whys[i] ?? '', ask: asks[i] ?? '', from: (froms[i] ?? '').split(',').filter(Boolean) }))
+    .filter((p) => p.text.trim() && !drop.has(p.uid))
+    .map(({ uid: _u, ...p }) => p);
+  const lines = (v: unknown) => str(v).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // The themes a point rests on stay as they were: any option the notebook has.
+  const optionIds = new Set(s.entries(id, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
+  const briefing = cleanBriefing({ points, questions: lines(req.body?.questions), watch: lines(req.body?.watch) }, optionIds, 'you');
+  s.setBriefing(id, briefing);
+  res.redirect(303, back(id, briefing ? `Saved the talking points (${String(briefing.points.length)}).` : 'Removed the talking points.'));
 });
 
 /** The notebook's page: back to a preset, or undo the last change (sua draws new ones in its conversation). */

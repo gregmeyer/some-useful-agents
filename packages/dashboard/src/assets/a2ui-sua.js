@@ -1123,11 +1123,12 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
-  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), variant: z.enum(['list', 'numerals']).optional() }).strict(),
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional() }).strict(),
   css`${sectionHead}
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .top .h { margin: 0; }
-    .copy { all: unset; cursor: pointer; margin-left: auto; font-size: var(--font-size-xs); padding: 0 10px; height: var(--control-h-sm, 28px); display: inline-flex; align-items: center; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); color: var(--color-text-muted); }
+    .acts { margin-left: auto; display: inline-flex; gap: 6px; }
+    .copy { all: unset; cursor: pointer; font-size: var(--font-size-xs); padding: 0 10px; height: var(--control-h-sm, 28px); display: inline-flex; align-items: center; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); color: var(--color-text-muted); }
     .copy:hover { border-color: var(--color-primary); color: var(--color-primary); }
     .copy:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
     .status { font-size: var(--font-size-xs); color: var(--color-ok); }
@@ -1179,7 +1180,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     const maxQ = p.maxQuestions ?? 3;
     const refs = (pt) => (Array.isArray(pt.refs) ? pt.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
     return html`<div class="${p.variant === 'numerals' ? 'numerals' : ''}">
-      <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</div>
+      <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}<span class="acts">${p.editHref && safeUrl(p.editHref) ? html`<a class="copy" href=${p.editHref}>Edit</a>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</span></div>
       ${points.length ? html`<ol>${points.map((pt, i) => html`<li class="${checkable && done.has(pt.text) ? 'done' : ''}">
         ${checkable
           ? html`<label class="pt"><input class="sr" type="checkbox" .checked=${done.has(pt.text)} @change=${(e) => tick(pt.text, e.target.checked)}><span class="num" title="Tick it off">${done.has(pt.text) ? '✓' : i + 1}</span><span class="t">${pt.text}</span></label>`

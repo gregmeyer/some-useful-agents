@@ -260,7 +260,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Agenda',
-    summary: 'What to talk about: numbered `points` (strings or {text, note?, refs?: [{label, href}]}) to tick off as you go (kept in this browser), then `questions` to ask and things to `watch` for (strings or {text}), with Copy as text.',
+    summary: 'What to talk about: numbered `points` (strings or {text, note?, refs?: [{label, href}]}) to tick off as you go (kept in this browser), then `questions` to ask and things to `watch` for (strings or {text}), with Copy as text, and Edit when `editHref` is given.',
     example: { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, maxQuestions: 3 },
     schema: Common.extend({
       points: CS.DynamicValue,
@@ -271,6 +271,8 @@ const SUA_COMPONENTS = [
       title: Str.optional(),
       check: z.boolean().optional(),
       copy: z.boolean().optional(),
+      /** A page to edit the points on (shown as Edit beside Copy as text). */
+      editHref: Str.optional(),
       /** numerals: large teal numbers instead of small circles. */
       variant: z.enum(['list', 'numerals']).optional(),
     }).strict(),

@@ -145,6 +145,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     questions: Array<{ text: string; label?: string; href?: string }>;
     /** What to watch for in the meeting, from what sua wrote (Agenda watch). */
     watch: string[];
+    /** Where to edit the talking points sua wrote (none before there are any) (Agenda editHref). */
+    talkingPointsEdit?: string;
     /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
     person?: NotebookProfileView;
     company?: NotebookProfileView;
@@ -328,6 +330,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       talkingPoints,
       questions,
       watch,
+      ...(nb.briefing?.points.length ? { talkingPointsEdit: `/notebooks/${encodeURIComponent(nb.id)}/talking-points` } : {}),
       ...about,
       ...(quotes[0]?.quote ? { leadQuote: quotes[0].quote } : {}),
       otherQuotes: quotes.slice(1),

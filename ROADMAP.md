@@ -122,7 +122,7 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 ## Now
 
 - **Release v0.32** — everything under Unreleased above.
-- **Notebooks, rough edges** — edit the written talking points in place (today: Write again, or ask in the conversation); fold a notebook conversation's old step cards; say why a step came out the way it did.
+- **Notebooks, rough edges** — fold a notebook conversation's old step cards; say why a step came out the way it did.
 - **Data connectors for notebooks** — company research needs a firmographic source (revenue, headcount) beyond web search; the biggest gap left for account-research notebooks.
 
 ## Then: more kinds of notebook

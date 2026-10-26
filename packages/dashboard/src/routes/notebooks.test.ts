@@ -3862,3 +3862,59 @@ describe('a write step', () => {
     writerReply = undefined;
   });
 });
+
+describe('editing the talking points', () => {
+  it('rewords, reorders, removes and adds points, keeping the themes each rests on; the agenda links to it', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { notebookWidgetData, notebookWidgetComponents } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana Reyes' });
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'What she said', type: 'text' }]);
+    const a = s.upsertOption(nb.id, { title: 'Human work', by: 'agent:x', data: { theme: 'Human work', evidence: 'She writes her drafts.' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'Small campaigns', by: 'agent:x', data: { theme: 'Small campaigns', evidence: 'She teaches micro-campaigns.' } }).entry;
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+
+    // Nothing written yet: no Edit on the agenda.
+    expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.talkingPointsEdit).toBeUndefined();
+    s.setBriefing(nb.id, { points: [{ text: 'Ask what she never hands to AI', why: 'She writes her drafts.', ask: 'Where does AI stop?', from: [a.id] }, { text: 'Talk about small campaigns', from: [b.id] }, { text: 'An old point', from: [] }], questions: ['What would you change?'], watch: ['Don\'t pitch volume'], at: '2026-10-26T12:00:00Z', by: 'notebook-writer' });
+    const data = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id));
+    expect(data.notebook.talkingPointsEdit).toBe(`/notebooks/${nb.id}/talking-points`);
+    expect(notebookWidgetComponents(s.get(nb.id)!).find((c) => c.component === 'Agenda')).toMatchObject({ editHref: { path: '/notebook/talkingPointsEdit' } });
+
+    const page = (await get(`/notebooks/${nb.id}/talking-points`)).text;
+    expect(page).toContain('Edit the talking points');
+    expect(page).toContain('Ask what she never hands to AI');
+    expect(page).toContain('Written by sua on Oct 26. Write again replaces what you save here.');
+    expect(page).toContain(`href="/notebooks/${nb.id}/entries/${a.id}">Human work</a>`);
+
+    // Rows in their new order (the second moved first), the old point removed, one added; the empty new row adds nothing.
+    const row = (uid: string, text: string, why: string, ask: string, from: string) => `point_uid=${uid}&point_text=${encodeURIComponent(text)}&point_why=${encodeURIComponent(why)}&point_ask=${encodeURIComponent(ask)}&point_from=${encodeURIComponent(from)}`;
+    const body = [
+      row('p1', 'Open with her micro-campaigns', '', 'How small is too small?', b.id),
+      row('p0', 'Ask what she never hands to AI', 'She writes her own drafts.', '', a.id),
+      row('p2', 'An old point', '', '', ''),
+      row('new', 'Ask about her next hire', 'Mentioned hiring in a talk.', '', ''),
+      'point_drop=p2',
+      `questions=${encodeURIComponent('What would you change?\n\nWho else should I meet?')}`,
+      'watch=',
+    ].join('&');
+    const saved = await post(`/notebooks/${nb.id}/talking-points`, body);
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved the talking points (3).');
+    const after = s.get(nb.id)!.briefing!;
+    expect(after.points).toEqual([
+      { text: 'Open with her micro-campaigns', ask: 'How small is too small?', from: [b.id] },
+      { text: 'Ask what she never hands to AI', why: 'She writes her own drafts.', from: [a.id] },
+      { text: 'Ask about her next hire', why: 'Mentioned hiring in a talk.', from: [] },
+    ]);
+    expect(after).toMatchObject({ questions: ['What would you change?', 'Who else should I meet?'], watch: [], by: 'you' });
+    expect((await get(`/notebooks/${nb.id}/talking-points`)).text).toContain('You edited these. Write again replaces them.');
+
+    // Every point removed: no talking points (the agenda falls back to the themes).
+    const none = await post(`/notebooks/${nb.id}/talking-points`, [row('p0', 'x', '', '', ''), 'point_drop=p0', row('new', '', '', '', '')].join('&'));
+    expect(decodeURIComponent(none.headers.location)).toContain('Removed the talking points.');
+    expect(s.get(nb.id)!.briefing).toBeUndefined();
+  });
+});

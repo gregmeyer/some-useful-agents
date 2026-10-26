@@ -248,11 +248,16 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
   return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
 }
 
-/** An agenda of the notebook's talking points shows what to watch for too (pages drawn before there was any). */
+/**
+ * An agenda of the notebook's talking points shows what to watch for too,
+ * and an Edit link once sua has written them (pages drawn before there was
+ * either).
+ */
 function withWatch(c: ViewComponent): ViewComponent {
-  if (c.component !== 'Agenda' || c.watch !== undefined) return c;
+  if (c.component !== 'Agenda') return c;
   const points = c.points as { path?: unknown } | undefined;
-  return points?.path === '/notebook/talkingPoints' ? { ...c, watch: { path: '/notebook/watch' } } : c;
+  if (points?.path !== '/notebook/talkingPoints') return c;
+  return { ...c, ...(c.watch === undefined ? { watch: { path: '/notebook/watch' } } : {}), ...(c.editHref === undefined ? { editHref: { path: '/notebook/talkingPointsEdit' } } : {}) };
 }
 
 /**
@@ -476,6 +481,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/talkingPoints': 'The talking points sua wrote (a write step), each with why it matters and what they said it rests on; before then, the chosen options (else the first 5) with their questions (Agenda points).',
   '/notebook/questions': 'Questions to ask: the ones sua wrote, else the other options\' (their ask field) (Agenda questions).',
   '/notebook/watch': 'What to watch for in the meeting, from what sua wrote (Agenda watch).',
+  '/notebook/talkingPointsEdit': 'Where to edit the talking points sua wrote, once there are some (Agenda editHref).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
