@@ -258,11 +258,6 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nb-card__statement { font-size: var(--font-size-sm); color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .nb-card__meta { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
 
-/* Home's Notebooks line. */
-.home-notebooks { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.home-notebooks svg { color: var(--color-primary); }
-.home-notebooks__hint { font-size: var(--font-size-xs); color: var(--color-text-subtle); }
-
 @media (max-width: 900px) {
   .nb-hero, .nb-body { grid-template-columns: 1fr; }
   .nb-body__side { position: static; }

@@ -1,10 +1,8 @@
 /**
  * Routes for the Pulse "Improve layout" wizard.
  *
- *   POST /pulse/layout-plan/suggestions  — fetch pills + agent metadata
  *   POST /pulse/layout-plan              — kick off the layout-planner agent
  *   GET  /pulse/layout-plan/:runId       — poll a planner run
- *   POST /pulse/layout-plan/commit       — telemetry no-op (parity with /agents/build/commit)
  *
  * Mirrors the build-from-goal route shape but skips the critic-retry loop
  * (PlannerLoopRunner is tightly coupled to BuildPlan; layout uses a
@@ -27,7 +25,6 @@ import {
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
-  computeLayoutSuggestions,
   type CurrentLayout,
   type LayoutSuggestionAgent,
 } from '../lib/layout-suggestions.js';
@@ -209,27 +206,6 @@ async function kickoffLayoutPlannerRun(args: {
 // ── Routes ─────────────────────────────────────────────────────────────
 
 /**
- * POST /pulse/layout-plan/suggestions — pill row for the modal.
- * Body: { currentLayout?: string | object }
- * Returns: { ok, suggestions, agentMetadata }
- *
- * `agentMetadata` is also returned so the client can pass it back on the
- * subsequent /pulse/layout-plan POST without the server re-walking the
- * run history. Saves one DB pass per modal open.
- */
-pulseLayoutPlanRouter.post('/pulse/layout-plan/suggestions', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const now = Date.now();
-
-  const agentMetadata = gatherAgentMetadata(ctx, now);
-  const currentLayout = parseCurrentLayout(body);
-  const suggestions = computeLayoutSuggestions(agentMetadata, currentLayout, now);
-
-  res.json({ ok: true, suggestions, agentMetadata });
-});
-
-/**
  * POST /pulse/layout-plan — kick off the layout-planner agent.
  * Body: { focus?: string, currentLayout?: string | object, agentMetadata?: LayoutSuggestionAgent[] }
  * Returns: { ok, runId } or { ok: false, error }
@@ -336,97 +312,3 @@ pulseLayoutPlanRouter.get('/pulse/layout-plan/:runId', (req: Request, res: Respo
   res.json({ ok: true, status: 'done', plan });
 });
 
-/**
- * POST /pulse/layout-plan/commit — apply the visibility side of a
- * LayoutPlan. The CONTAINERS side (which tile lives where) is still
- * persisted client-side in localStorage; this endpoint handles the
- * curation side: any agent NOT referenced by any container has its
- * `pulseVisible` flipped to false; any agent IN a container that was
- * previously hidden has it flipped back to true. System tiles
- * (leading-underscore ids) are skipped — they're synthetic.
- *
- * Body: { containers: Array<{ label, tiles: string[] }> }
- * Returns: { ok, hidden: string[], unhidden: string[] }
- *
- * `unhidden` doubles as the "added to surface" list — Path A surfaces
- * installed-but-hidden agents by flipping pulseVisible:true.
- */
-pulseLayoutPlanRouter.post('/pulse/layout-plan/commit', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const containersRaw = Array.isArray(body.containers) ? body.containers : [];
-  const topAgentsRaw = Array.isArray(body.topAgents) ? body.topAgents : [];
-
-  const surfacedIds = new Set<string>();
-  for (const c of containersRaw) {
-    if (c && Array.isArray((c as { tiles?: unknown }).tiles)) {
-      for (const t of (c as { tiles: unknown[] }).tiles) {
-        if (typeof t === 'string' && !t.startsWith('_')) surfacedIds.add(t);
-      }
-    }
-  }
-
-  const hidden: string[] = [];
-  const unhidden: string[] = [];
-
-  let agents: Agent[];
-  try { agents = ctx.agentStore.listAgents(); } catch { agents = []; }
-  const installedIds = new Set(agents.map((a) => a.id));
-
-  for (const agent of agents) {
-    // Agents without a signal can never render on Pulse — nothing to do.
-    // We deliberately DO NOT skip archived/draft here: the Pulse route's
-    // visibility filter is (signal && pulseVisible), not status, so
-    // curation needs to be able to hide them just like any other tile.
-    if (!agent.signal) continue;
-
-    const currentlyVisible = agent.pulseVisible !== false
-      && !(agent.pulseVisible === undefined && agent.signal.hidden === true);
-    const shouldBeVisible = surfacedIds.has(agent.id);
-
-    if (currentlyVisible && !shouldBeVisible) {
-      try {
-        ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
-        hidden.push(agent.id);
-      } catch { /* swallow — best-effort */ }
-    } else if (!currentlyVisible && shouldBeVisible) {
-      try {
-        ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
-        unhidden.push(agent.id);
-      } catch { /* swallow */ }
-    }
-  }
-
-  // Persist the planner's per-agent layout hints into LayoutHintsStore.
-  // Each topAgents entry may carry suggestedSize / suggestedTileFit /
-  // suggestedHeight. Unknown ids (not in the agent store, or system
-  // tiles) are skipped. The store's setHint is patch-style: undefined
-  // fields are left untouched, so re-running Improve layout only
-  // overwrites what the planner actually emitted this time.
-  const hintsWritten: string[] = [];
-  if (ctx.layoutHintsStore) {
-    for (const entry of topAgentsRaw) {
-      if (!entry || typeof entry !== 'object') continue;
-      const e = entry as Record<string, unknown>;
-      const id = typeof e.id === 'string' ? e.id : '';
-      if (!id || id.startsWith('_') || !installedIds.has(id)) continue;
-      const patch: { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number } = {};
-      if (typeof e.suggestedSize === 'string' && (e.suggestedSize === '1x1' || e.suggestedSize === '2x1' || e.suggestedSize === '1x2' || e.suggestedSize === '2x2')) {
-        patch.size = e.suggestedSize;
-      }
-      if (typeof e.suggestedTileFit === 'string' && (e.suggestedTileFit === 'grow' || e.suggestedTileFit === 'scroll')) {
-        patch.tileFit = e.suggestedTileFit;
-      }
-      if (typeof e.suggestedHeight === 'number' && Number.isInteger(e.suggestedHeight) && e.suggestedHeight >= 80 && e.suggestedHeight <= 1200) {
-        patch.height = e.suggestedHeight;
-      }
-      if (Object.keys(patch).length === 0) continue;
-      try {
-        ctx.layoutHintsStore.setHint(id, patch);
-        hintsWritten.push(id);
-      } catch { /* swallow — best-effort, hints are non-fatal */ }
-    }
-  }
-
-  res.json({ ok: true, hidden, unhidden, hintsWritten });
-});

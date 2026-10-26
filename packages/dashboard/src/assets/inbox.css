@@ -3156,8 +3156,6 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 /* Home's header, compact: title + goal on the left, notebooks / autonomy / Adjust on the right. */
 /* Home's header is the shared page header (components.css .page-header); the goal is its description line. */
 .home-head__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
-.home-head .home-notebooks { margin: 0; font-size: var(--font-size-sm); }
-.home-notebooks__new { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 /* Home's header controls: one size of button each. Notebooks with a joined "+". */
 .home-head__controls { gap: var(--space-2); }
 .home-nbgroup { display: inline-flex; }

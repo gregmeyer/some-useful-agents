@@ -4,8 +4,7 @@ import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentS
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getContext } from '../context.js';
-import { tileWrap, type PulseTile } from '../views/pulse.js';
-import { renderTile } from '../views/pulse-renderers.js';
+import type { PulseTile } from '../views/pulse.js';
 import { buildPulseTile, withTileSignal, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { schedulerTileState } from '../lib/scheduler-tile.js';
@@ -310,22 +309,3 @@ pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
   res.redirect(303, `/pulse?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
 });
 
-pulseRouter.get('/pulse/tile/:id', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-
-  // System tiles.
-  if (id.startsWith('_system-')) {
-    const systemTiles = buildSystemTiles(ctx);
-    const tile = systemTiles.find((t) => t.agent.id === id);
-    if (!tile) { res.status(404).send('Tile not found'); return; }
-    res.type('html').send(renderTile(tile, tileWrap).toString());
-    return;
-  }
-
-  // Agent tiles.
-  const agent = withTileSignal(ctx.agentStore.getAgent(id));
-  if (!agent || !agent.signal) { res.status(404).send('Tile not found'); return; }
-  const tile = buildTile(agent as Agent & { signal: AgentSignal }, ctx);
-  res.type('html').send(renderTile(tile, tileWrap).toString());
-});

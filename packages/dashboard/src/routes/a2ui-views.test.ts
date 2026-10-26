@@ -93,16 +93,16 @@ describe('A2UI views across the dashboard', () => {
       await new Promise((r) => setTimeout(r, 5)); // distinct startedAt
     }
     expect((await get(app, `/runs/${last!.id}`)).text).toContain('"series":{"price":[89,89,89]}');
-    expect((await get(app, '/pulse/tile/trendy')).text).toContain('"series":{"price":[89,89,89]}');
+    expect((await get(app, '/boards/tile/trendy.json?board=pulse')).text).toContain('"series":{"price":[89,89,89]}');
   });
 
-  it('an agent with only a view gets a Pulse tile drawn from it, and the tile refresh returns it too', async () => {
+  it('an agent with only a view gets a Pulse tile drawn from it, and its tile refresh returns it too', async () => {
     const { app } = await setup();
     const pulse = await get(app, '/pulse');
     expect(pulse.text).toContain('"surfaceId":"tile-gauge"'); // the canvas tile registry carries the view
-    const tile = await get(app, '/pulse/tile/gauge');
+    const tile = await get(app, '/boards/tile/gauge.json?board=pulse');
     expect(tile.status).toBe(200);
-    expect(tile.text).toContain('data-surface-id="tile-gauge"');
+    expect(tile.text).toContain('"surfaceId":"tile-gauge"');
   });
 
   it('an inbox action that ran an agent with a view shows the view inline', async () => {
@@ -122,8 +122,8 @@ describe('A2UI is the default widget renderer', () => {
       signal: { title: 'Stars', template: 'metric', mapping: { value: 'price' } } } as never, 'cli');
     const run = await executeAgentDag(ctx.agentStore.getAgent('stars') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
     expect(run.status).toBe('completed');
-    const tile = await get(app, '/pulse/tile/stars');
-    expect(tile.text).toContain('data-surface-id="tile-stars"');
+    const tile = await get(app, '/boards/tile/stars.json?board=pulse');
+    expect(tile.text).toContain('"surfaceId":"tile-stars"');
     expect(tile.text).toContain('"value":"$89"');
     const appearance = (await get(app, '/settings/appearance')).text;
     expect(appearance).not.toContain('/settings/appearance/a2ui');

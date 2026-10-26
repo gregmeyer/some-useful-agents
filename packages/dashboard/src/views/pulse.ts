@@ -1,95 +1,15 @@
 /**
- * Pulse page layout: types, tile chrome (header/footer/wrapper),
- * and auto-palette resolution. Pulse itself is a board (routes/boards.ts).
- *
- * Template renderers live in pulse-renderers.ts.
- * Helpers (markdown, stringify, etc.) live in pulse-helpers.ts.
- * Template registry + extraction live in pulse-templates.ts.
+ * Pulse tile rules shared with the canvas boards (lib/board-canvas.ts): a
+ * tile's automatic palette, and whether its body already offers Run. Pulse
+ * itself is a board (routes/boards.ts); template renderers live in
+ * pulse-renderers.ts, the registry in pulse-templates.ts.
  */
 
-import { html, unsafeHtml, type SafeHtml } from './html.js';
-import { formatAge } from './components.js';
-import { normalizeSignal, TEMPLATE_REGISTRY } from './pulse-templates.js';
-import { esc } from './pulse-helpers.js';
-import { renderTileRunControl } from './output-widgets.js';
+import { normalizeSignal } from './pulse-templates.js';
 export type { PulseTile, PulsePageInput, TileWrapFn } from './pulse-types.js';
 import type { PulseTile } from './pulse-types.js';
 
-// ── Tile chrome ──────────────────────────────────────────────────────────
-
-/**
- * Surface where a tile is being rendered. Determines what the tile's
- * × button does — on Pulse it toggles the agent's pulseVisible flag;
- * on a dashboard it removes the tile from that specific dashboard's
- * section without touching pulseVisible.
- */
-export type TileWrapContext =
-  | { kind: 'pulse' }
-  | { kind: 'dashboard'; dashboardId: string; sectionIdx: number; tileIdx: number };
-
-/** Wraps tile content with header, footer, resize handle, and data attributes. */
-export function tileWrap(
-  tile: PulseTile,
-  content: SafeHtml,
-  ctx: TileWrapContext = { kind: 'pulse' },
-): SafeHtml {
-  const isSystem = tile.agent.id.startsWith('_system-');
-  // Size + tileFit + height all flow through a fallback chain:
-  //   layoutHint (from LayoutHintsStore, written by Improve-layout) →
-  //   the agent's declared signal.size / outputWidget.tileFit →
-  //   the TEMPLATE's own default size →
-  //   hard-coded default ('1x1' / 'grow' / no pinned height).
-  //
-  // The template step used to be missing: this read `signal.size ?? '1x1'`,
-  // so every template's `defaultSize` in TEMPLATE_REGISTRY was dead config —
-  // declared, shown to the build planner via discovery-catalog.ts, and never
-  // applied by the renderer. A `widget` or `table` tile whose author didn't
-  // spell out a size was squeezed into a 1x1 box the registry explicitly says
-  // should be 2x1.
-  const effectiveSize = tile.signal.size
-    ?? TEMPLATE_REGISTRY[normalizeSignal(tile.signal).template]?.defaultSize;
-  const sizeAttr = tile.layoutHint?.size ?? effectiveSize ?? '1x1';
-  const autoPalette = resolveAutoPalette(tile);
-  const paletteAttr = autoPalette && autoPalette !== 'default'
-    ? ` data-auto-palette="${autoPalette}"`
-    : '';
-  const accentAttr = tile.signal.accent
-    ? ` data-accent="${esc(tile.signal.accent)}"`
-    : '';
-  // Tile chrome (header + footer) sits *outside* the scrolling body so
-  // long content (notably interactive-widget forms whose stacked panes
-  // dominate the grid cell height) can't push the agent link below the
-  // visible bottom edge. The `pulse-tile__body` wrapper is the same
-  // class the home widgets already use; the CSS lets it `flex: 1` and
-  // own the overflow.
-  // Tile fit: how a widget taller than its slot behaves. Width is always the
-  // dashboard-defined grid column; tileFit only controls height.
-  //   `grow` (default) — the tile grows vertically to the widget's height.
-  //   `scroll` — cap the tile height and scroll the overflow.
-  const widgetFit = tile.agent.outputWidget ? tile.agent.outputWidget.tileFit : undefined;
-  const fit = tile.layoutHint?.tileFit ?? widgetFit ?? (tile.agent.outputWidget ? 'grow' : null);
-  const fitClass = fit ? ` pulse-tile--fit-${fit}` : '';
-  // Optional pinned height from a layout hint. Applies inline so it
-  // wins over CSS class height; the resize handle still works because
-  // the widget-layout.js.ts code writes localStorage that the hydrator
-  // re-applies. (Hint heights from the planner are the starting point,
-  // not a lock — user resizes still take effect.)
-  const heightAttr = tile.layoutHint?.height
-    ? ` style="height: ${tile.layoutHint.height}px"`
-    : '';
-
-  return unsafeHtml(
-    `<div class="pulse-tile ${sizeClass(sizeAttr)}${fitClass}" data-agent-id="${esc(tile.agent.id)}" data-tile-size="${esc(sizeAttr)}"${paletteAttr}${accentAttr}${heightAttr}>` +
-    tileHeader(tile, isSystem, ctx).toString() +
-    `<div class="pulse-tile__body">` +
-    content.toString() +
-    `</div>` +
-    (isSystem ? '' : tileFooter(tile).toString()) +
-    '<div class="pulse-tile__resize-handle" data-agent-id="' + esc(tile.agent.id) + '"></div>' +
-    '</div>'
-  );
-}
-
+/** A tile's palette from its value: a threshold it crosses, a status, or a metric's accent. */
 export function resolveAutoPalette(tile: PulseTile): string | null {
   const { template } = normalizeSignal(tile.signal);
 
@@ -114,62 +34,6 @@ export function resolveAutoPalette(tile: PulseTile): string | null {
   return null;
 }
 
-function sizeClass(size: string): string {
-  if (size === '2x1') return 'pulse-tile--2x1';
-  if (size === '1x2') return 'pulse-tile--1x2';
-  if (size === '2x2') return 'pulse-tile--2x2';
-  return '';
-}
-
-function tileHeader(tile: PulseTile, isSystem: boolean, ctx: TileWrapContext): SafeHtml {
-  const icon = tile.signal.icon ?? '';
-  const { template, mapping } = normalizeSignal(tile.signal);
-  // Embed signal config as data attributes for the configure modal JS.
-  const signalData = JSON.stringify({
-    template,
-    mapping,
-    title: tile.signal.title,
-    icon: tile.signal.icon ?? '',
-    // Report the size the tile is ACTUALLY rendering at, not just what the
-    // agent spelled out — otherwise the configure modal shows 1x1 for a tile
-    // the template is sizing 2x1, and saving silently shrinks it.
-    size: tile.signal.size ?? TEMPLATE_REGISTRY[template]?.defaultSize ?? '1x1',
-    accent: tile.signal.accent ?? '',
-    refresh: tile.signal.refresh ?? '',
-  });
-  const outputFieldsJson = JSON.stringify(tile.outputFields ?? []);
-
-  return html`
-    <div class="pulse-tile__header"
-      data-signal-config="${signalData}"
-      data-output-fields="${outputFieldsJson}">
-      <button type="button" class="pulse-tile__collapse" data-tile-id="${tile.agent.id}" title="Collapse/expand">\u25BC</button>
-      <div style="display: flex; align-items: center; gap: var(--space-2); flex: 1; cursor: pointer;" data-tile-id="${tile.agent.id}" data-collapse-trigger>
-        ${icon ? html`<span class="pulse-tile__icon">${icon}</span>` : html``}
-        <span class="pulse-tile__title">${tile.signal.title}</span>
-      </div>
-      <div style="display: flex; gap: var(--space-1); align-items: center;">
-        ${isSystem ? html`` : html`
-          <button type="button" class="pulse-tile__configure-btn" data-tile-id="${tile.agent.id}" title="Configure tile">\u2699</button>
-        `}
-        <button type="button" class="pulse-tile__palette-btn" data-tile-id="${tile.agent.id}" title="Change palette">\u25CF</button>
-        ${isSystem ? html`` : (ctx.kind === 'dashboard'
-          ? html`
-              <form method="POST" action="/dashboards/${encodeURIComponent(ctx.dashboardId)}/sections/${String(ctx.sectionIdx)}/tiles/${String(ctx.tileIdx)}/delete" style="margin: 0;" data-confirm-modal="Remove ${tile.signal.title} from this dashboard? You can add it back later from the Add tile button." data-confirm-label="Remove" data-confirm-title="Remove tile?">
-                <input type="hidden" name="returnTo" value="dashboard">
-                <button type="submit" class="pulse-tile__toggle" title="Remove from this dashboard">\u00D7</button>
-              </form>
-            `
-          : html`
-              <form method="POST" action="/agents/${tile.agent.id}/signal/toggle" style="margin: 0;" data-confirm-modal="Hide ${tile.signal.title} from Pulse? You can restore it from the hidden signals section below the grid." data-confirm-label="Hide" data-confirm-title="Hide tile?">
-                <button type="submit" class="pulse-tile__toggle" title="Hide from Pulse">\u00D7</button>
-              </form>
-            `)}
-      </div>
-    </div>
-  `;
-}
-
 /**
  * Does this tile's BODY already render a run control, so the footer must not
  * add a second one?
@@ -185,24 +49,4 @@ export function tileRendersOwnRunControl(tile: PulseTile): boolean {
   if (tile.agent.outputWidget?.interactive) return true;
   const { template } = normalizeSignal(tile.signal);
   return template === 'widget' && Boolean(tile.agent.outputWidget) && Boolean(tile.lastRun?.result);
-}
-
-function tileFooter(tile: PulseTile): SafeHtml {
-  const agentLink = `/agents/${tile.agent.id}`;
-  const runLink = tile.lastRun ? `/runs/${tile.lastRun.id}` : '';
-  const age = tile.lastRun ? formatAge(tile.lastRun.completedAt ?? tile.lastRun.startedAt) : 'never';
-  // Pulse is a run console in practice; a tile you cannot run from is a
-  // dead rectangle. Skipped only when the body already offers one.
-  const runControl = tileRendersOwnRunControl(tile)
-    ? null
-    : renderTileRunControl(tile.agent.id, tile.agent.inputs);
-  return html`
-    <div class="pulse-tile__footer">
-      <a href="${agentLink}" class="pulse-tile__agent">${tile.agent.id}</a>
-      ${runLink
-        ? html`<a href="${runLink}" class="pulse-tile__age">${age}</a>`
-        : html`<span class="pulse-tile__age">${age}</span>`}
-      ${runControl ?? html``}
-    </div>
-  `;
 }

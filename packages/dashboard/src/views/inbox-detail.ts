@@ -85,8 +85,6 @@ export interface InboxDetailOptions {
     currentStatus: string;
     nextStep?: string;
   };
-  /** Installed non-system agents offered as fork/retarget targets. */
-  forkableAgents?: { id: string; name: string }[];
   /**
    * Per-agent trust state (B2), keyed by agentId, for the agents that appear
    * as dispatched actions in this thread. Drives the action-card "auto-run /
@@ -359,10 +357,8 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   // refreshes the fragment and dismisses the menu.
   //   - Summarize: pin a derived goal/status/next-step summary into the thread.
   //   - Reopen (terminal only): move a resolved/dismissed thread back to open.
-  // (The /fork and /retarget routes still exist for the build/diagnose loop,
-  //  but both confused humans — fork hands the thread off to another agent as
-  //  a new thread, retarget re-points this thread's agent — so neither is in
-  //  the human UI anymore.)
+  // (Fork and retarget, which handed a thread to another agent, confused people
+  //  and were taken out; nothing else used them.)
   // Summarize is always available, so the menu always renders.
   const actionsMenu = html`
     <details class="inbox-modal__menu" data-inbox-menu>

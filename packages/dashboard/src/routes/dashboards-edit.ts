@@ -115,12 +115,6 @@ dashboardsEditRouter.post('/dashboards/:id/sections/:idx/tiles', (req: Request, 
     // courtesy run so it populates in place. Skip if it was already in the
     // section (no-op add).
     if (!alreadyPresent) maybeKickoffFirstRun(ctx, agentId);
-    // returnTo=live = in-place add-tile modal on /dashboards/:id; default
-    // is the editor at /dashboards/:id/edit.
-    if (pickString(req.body, 'returnTo') === 'live') {
-      res.redirect(303, `/dashboards/${encodeURIComponent(id)}?ok=${encodeURIComponent(`Added "${agentId}".`)}`);
-      return;
-    }
     redirectOk(res, id, `Added "${agentId}".`);
   });
 });

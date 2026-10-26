@@ -3,11 +3,8 @@
  * (`/dashboards/<id>`). Parallel to the Pulse routes in
  * `pulse-layout-plan.ts` but scoped to a single dashboard:
  *
- *   POST /dashboards/:id/layout-plan/suggestions  — pills + metadata
  *   POST /dashboards/:id/layout-plan              — kick off planner
  *   GET  /dashboards/:id/layout-plan/:runId       — poll
- *   POST /dashboards/:id/layout-plan/commit       — rewrite section
- *                                                   memberships
  *
  * Differences from Pulse:
  * - `agentMetadata` is filtered to the dashboard's current section
@@ -28,7 +25,6 @@ import {
   parseAgent,
   type Agent,
   type Dashboard,
-  type DashboardLayout,
   type LayoutPlan,
   type RunStatus,
   readExampleYaml,
@@ -36,7 +32,6 @@ import {
 import { getContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import {
-  computeLayoutSuggestions,
   type CurrentLayout,
   type LayoutSuggestionAgent,
 } from '../lib/layout-suggestions.js';
@@ -230,20 +225,6 @@ function resolveDashboard(req: Request, res: Response): Dashboard | null {
   return dashboard;
 }
 
-dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/suggestions', (req: Request, res: Response) => {
-  const dashboard = resolveDashboard(req, res);
-  if (!dashboard) return;
-  const ctx = getContext(req.app.locals);
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const now = Date.now();
-
-  const agentMetadata = gatherDashboardAgentMetadata(ctx, dashboard, now);
-  const currentLayout = parseCurrentLayout(body);
-  const suggestions = computeLayoutSuggestions(agentMetadata, currentLayout, now);
-
-  res.json({ ok: true, suggestions, agentMetadata });
-});
-
 dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan', async (req: Request, res: Response) => {
   const dashboard = resolveDashboard(req, res);
   if (!dashboard) return;
@@ -335,157 +316,6 @@ dashboardLayoutPlanRouter.get('/dashboards/:id/layout-plan/:runId', (req: Reques
 
   const plan: LayoutPlan = validated.data;
   res.json({ ok: true, status: 'done', plan });
-});
-
-/**
- * Apply the plan's curation to the dashboard's persisted layout.
- * Unlike Pulse, named dashboards have no per-tile hide flag — agent
- * membership is declared in `dashboard.layout.sections[].agentIds[]`.
- * Curation rewrites that membership: un-surfaced agents are REMOVED
- * from the dashboard config. Section structure (titles, ordering)
- * is replaced by the plan's containers — labels become section titles.
- *
- * Body: { containers: Array<{ label: string; tiles: string[] }> }
- * Returns: { ok, removed: string[], retained: string[] }
- *
- * System tiles (`_system-*`) are ignored — they're Pulse-only.
- */
-dashboardLayoutPlanRouter.post('/dashboards/:id/layout-plan/commit', (req: Request, res: Response) => {
-  const dashboard = resolveDashboard(req, res);
-  if (!dashboard) return;
-  const ctx = getContext(req.app.locals);
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const containersRaw = Array.isArray(body.containers) ? body.containers : [];
-  const topAgentsRaw = Array.isArray(body.topAgents) ? body.topAgents : [];
-
-  // Build a per-agent placement map from the planner's topAgents entries.
-  // These become per-section overrides on the new layout — dashboard-scoped,
-  // unlike LayoutHintsStore which is agent-global. Invalid field values
-  // are silently dropped (the renderer falls through to the next link in
-  // the chain).
-  const placementByAgentId = new Map<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }>();
-  for (const entry of topAgentsRaw) {
-    if (!entry || typeof entry !== 'object') continue;
-    const e = entry as Record<string, unknown>;
-    const id = typeof e.id === 'string' ? e.id : '';
-    if (!id || id.startsWith('_')) continue;
-    const placement: { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number } = {};
-    if (typeof e.suggestedSize === 'string' && (e.suggestedSize === '1x1' || e.suggestedSize === '2x1' || e.suggestedSize === '1x2' || e.suggestedSize === '2x2')) {
-      placement.size = e.suggestedSize;
-    }
-    if (typeof e.suggestedTileFit === 'string' && (e.suggestedTileFit === 'grow' || e.suggestedTileFit === 'scroll')) {
-      placement.tileFit = e.suggestedTileFit;
-    }
-    if (typeof e.suggestedHeight === 'number' && Number.isInteger(e.suggestedHeight) && e.suggestedHeight >= 80 && e.suggestedHeight <= 1200) {
-      placement.height = e.suggestedHeight;
-    }
-    if (Object.keys(placement).length > 0) placementByAgentId.set(id, placement);
-  }
-
-  // Build the new section list from the plan's containers, filtering
-  // out system tiles, de-duplicating ids, and dropping ids that don't
-  // resolve to a real installed agent (phantom suggestions from the LLM).
-  // Section TITLES are also deduped (case-insensitive): if two containers
-  // share a title, their agent ids are merged into a single section. This
-  // prevents the dashboard renderer from drawing two sections with the
-  // same header on top of each other (e.g. after a "Newly drafted" merge
-  // where the planner kept a prior session's container).
-  const seenIds = new Set<string>();
-  const skippedUnknown: string[] = [];
-  const sectionsByTitle = new Map<string, { title: string; agentIds: string[]; placements?: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> }>();
-  const sectionOrder: string[] = [];
-  for (const c of containersRaw) {
-    if (!c || typeof c !== 'object') continue;
-    const label = typeof (c as { label?: unknown }).label === 'string'
-      ? (c as { label: string }).label.trim()
-      : '';
-    if (!label) continue;
-    const titleKey = label.toLowerCase();
-    const tilesRaw = Array.isArray((c as { tiles?: unknown }).tiles)
-      ? (c as { tiles: unknown[] }).tiles
-      : [];
-    const ids: string[] = [];
-    for (const t of tilesRaw) {
-      if (typeof t !== 'string') continue;
-      if (t.startsWith('_')) continue; // skip Pulse system tiles
-      if (seenIds.has(t)) continue;
-      if (!ctx.agentStore.getAgent(t)) {
-        skippedUnknown.push(t);
-        continue;
-      }
-      seenIds.add(t);
-      ids.push(t);
-    }
-    if (ids.length === 0) continue;
-    // Assemble placements for THIS section: only ids that ended up in
-    // this section's agentIds AND had a placement entry from topAgents.
-    const placementsHere: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> = {};
-    let hasPlacement = false;
-    for (const id of ids) {
-      const p = placementByAgentId.get(id);
-      if (p) { placementsHere[id] = p; hasPlacement = true; }
-    }
-
-    const existing = sectionsByTitle.get(titleKey);
-    if (existing) {
-      for (const id of ids) {
-        if (!existing.agentIds.includes(id)) existing.agentIds.push(id);
-      }
-      if (hasPlacement) {
-        existing.placements = { ...(existing.placements ?? {}), ...placementsHere };
-      }
-    } else {
-      const section: { title: string; agentIds: string[]; placements?: Record<string, { size?: '1x1' | '2x1' | '1x2' | '2x2'; tileFit?: 'grow' | 'scroll'; height?: number }> } = { title: label, agentIds: ids };
-      if (hasPlacement) section.placements = placementsHere;
-      sectionsByTitle.set(titleKey, section);
-      sectionOrder.push(titleKey);
-    }
-  }
-  const newSections = sectionOrder.map((k) => sectionsByTitle.get(k)!);
-
-  // Compute removed/retained/added vs the prior membership for the
-  // response. `added` is the newly-surfaced delta (installed agents
-  // that weren't on this dashboard before but are now).
-  const priorIds = new Set<string>();
-  for (const s of dashboard.layout.sections) {
-    for (const id of s.agentIds) priorIds.add(id);
-  }
-  const retained: string[] = [];
-  const removed: string[] = [];
-  const added: string[] = [];
-  for (const id of priorIds) {
-    if (seenIds.has(id)) retained.push(id);
-    else removed.push(id);
-  }
-  for (const id of seenIds) {
-    if (!priorIds.has(id)) added.push(id);
-  }
-
-  if (newSections.length === 0) {
-    res.json({
-      ok: false,
-      error: 'Refusing to commit an empty dashboard — at least one section with agents is required.',
-    });
-    return;
-  }
-
-  const newLayout: DashboardLayout = { sections: newSections };
-  try {
-    ctx.dashboardsStore!.updateLayout(dashboard.id, newLayout);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, error: `Failed to persist dashboard layout: ${msg}` });
-    return;
-  }
-
-  // Count placements written for the response (UI surfaces this as
-  // "Applied N tile sizes" — a signal that the planner's hints landed).
-  let placementsWritten = 0;
-  for (const s of newSections) {
-    if (s.placements) placementsWritten += Object.keys(s.placements).length;
-  }
-
-  res.json({ ok: true, removed, retained, added, skippedUnknown, placementsWritten });
 });
 
 // Reference unused imports defensively to keep tsc-clean if a future
