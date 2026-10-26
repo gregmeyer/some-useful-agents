@@ -12,6 +12,7 @@ import type { DraftState } from '../lib/notebook-draft.js';
 import { pageName, type NotebookEditTurn } from '../lib/notebook-edit.js';
 import { notebookLooks } from './notebook-look.js';
 import { layout } from './layout.js';
+import { working } from './working.js';
 import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
@@ -831,9 +832,27 @@ export function renderNotebookEdit(args: NotebookEditView): string {
   const prompt = html`
     <section class="nbe-prompt" aria-label="The notebook as a document">
       <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>.</p>
+      ${(() => {
+        // Enhance: while sua works, say so; once back, what it made sharper (the preview shows the rest).
+        const lastTurn = args.turns.at(-1);
+        if (args.working && lastTurn?.via === 'enhance') return working({ size: 'panel', title: 'sua is enhancing the prompt', text: 'Making what it\'s for, its limits, done-whens, facts, checks and steps sharper for its goal. The preview opens when it\'s done; nothing is saved until you save.' });
+        if (!args.working && lastTurn?.via === 'enhance') {
+          return lastTurn.error ? html`<p class="flash flash--error">${lastTurn.error}</p>`
+            : html`<div class="nbe-enhanced" role="status"><p class="nbe-enhanced__say"><strong>✦ Enhanced.</strong> ${lastTurn.sua ?? ''}</p>${lastTurn.changes?.length
+              // A few changes show; a long list folds (the preview shows them all).
+              ? lastTurn.changes.length <= 5
+                ? html`<ul class="nbe-turn__changes">${lastTurn.changes.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul>`
+                : html`<details class="nbe-enhanced__all"><summary>${String(lastTurn.changes.length)} changes</summary><ul class="nbe-turn__changes">${lastTurn.changes.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul></details>`
+              : html``}<p class="nbe-enhanced__note">Below is the enhanced prompt. Save it, change it further, or Discard.</p></div>`;
+        }
+        return html``;
+      })()}
       <form method="POST" action="/notebooks/${id}/edit/prompt" class="nbe-prompt__form">
         <textarea name="markdown" class="form-field nbe-prompt__text" rows="26" spellcheck="false" aria-label="The notebook as markdown" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>${args.markdown}</textarea>
-        <div class="nbe-prompt__acts"><button type="submit" class="btn btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Show in the preview</button></div>
+        <div class="nbe-prompt__acts">
+          <button type="submit" class="btn btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Show in the preview</button>
+          <button type="submit" class="btn btn--sm btn--primary" formaction="/notebooks/${id}/edit/enhance" title="sua makes it a sharper prompt for its goal: what it's for, limits, done-whens, facts, checks and steps. You see it in the preview before anything is saved." ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>✦ Enhance this prompt</button>
+        </div>
       </form>
       <details class="nbe-fold">
         <summary>Edit field by field</summary>

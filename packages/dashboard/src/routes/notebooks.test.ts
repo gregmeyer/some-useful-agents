@@ -3749,6 +3749,57 @@ describe('changing a notebook by saying what to change, or as a document', () =>
   });
 });
 
+describe('enhancing the prompt', () => {
+  it('sharpens what is in the box (your edits first), comes back as a change to preview with what it made sharper, and saves nothing', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { ENHANCE_ASK } = await import('../lib/notebook-edit.js');
+    const ctx = getContext(app.locals);
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Buy a WRX wagon', statement: 'a wrx wagon', params: ['cheap'] });
+    s.setSteps(nb.id, [{ title: 'Find wagons', kind: 'find', target: 5 }]);
+    const asked: Array<Record<string, string>> = [];
+    const was = ctx.notebookDrafterRun;
+    ctx.notebookDrafterRun = async (inputs) => { asked.push(inputs); return `<draft>${JSON.stringify({
+      title: 'Buy a WRX wagon', statement: 'Find a 2002–2008 Subaru WRX wagon under $5,000 within 50 miles, by December.',
+      params: ['under $5,000', 'within 50 miles', '2002–2008'], criteria: ['5 wagons found', 'One test-driven', 'One bought'],
+      fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', unit: 'mi', role: 'measure', better: 'lower' }],
+      checks: ['Clean title'], stages: [], pipeline: [], cadence: '',
+      steps: [{ title: 'Find 5 wagons', kind: 'find', agent: '', target: 5 }, { title: 'Pick the wagon', kind: 'decide', target: 1 }],
+      why: 'Made what it\'s for and the limits specific, and added a decide step.',
+    })}</draft>`; };
+    try {
+      // The box, as you edited it: that's what sua enhances.
+      const md = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text.match(/<textarea name="markdown"[^>]*>([\s\S]*?)<\/textarea>/)![1]
+        .replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      expect((await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text).toContain('✦ Enhance this prompt');
+      const res = await post(`/notebooks/${nb.id}/edit/enhance`, { markdown: md.replace('a wrx wagon', 'a wrx wagon for winter') });
+      expect(res.headers.location).toContain('tab=prompt');
+      for (let i = 0; i < 50 && (await get(`/notebooks/${nb.id}/edit/state`)).body.status === 'working'; i++) await new Promise((r) => setTimeout(r, 20));
+      expect(asked).toHaveLength(1);
+      expect(asked[0].CHANGE).toBe(ENHANCE_ASK);
+      expect(JSON.parse(asked[0].CURRENT).statement).toBe('a wrx wagon for winter');
+      const page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
+      expect(page).toContain('<strong>✦ Enhanced.</strong> Made what it&#39;s for and the limits specific, and added a decide step.');
+      expect(page).toContain('Find a 2002–2008 Subaru WRX wagon under $5,000 within 50 miles, by December.');
+      // A proposal: nothing saved until you save.
+      expect(s.get(nb.id)!.statement).toBe('a wrx wagon');
+      // A long list of changes folds (the preview shows them all).
+      expect(page).toMatch(/<details class="nbe-enhanced__all"><summary>\d+ changes<\/summary>/);
+      // sua's word on it ends at a sentence, never mid-word.
+      const { clipSentence } = await import('../lib/notebook-draft.js');
+      expect(clipSentence('Set the limits back. Fixed the cut-off check. Replaced the research step with a check that reads title status straight from each listing.', 60)).toBe('Set the limits back. Fixed the cut-off check.');
+      expect(clipSentence('One long sentence without a stop that runs on and on past the limit', 30)).toBe('One long sentence without a…');
+    } finally {
+      ctx.notebookDrafterRun = was;
+    }
+  });
+});
+
 describe('how a notebook looks, picked from pictures', () => {
   it('a look goes in your changes and opens the preview; sua can pick one; back to how it is drops it', async () => {
     const app = await makeApp();

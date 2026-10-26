@@ -26,7 +26,7 @@ export type NotebookSetup = Omit<NotebookDraft, 'suggested' | 'why'> & { steps: 
 export interface NotebookEditTurn {
   /** What you said, or "You edited the prompt." */
   you: string;
-  via: 'talk' | 'prompt' | 'look';
+  via: 'talk' | 'prompt' | 'look' | 'enhance';
   /** What changed with it, in words. */
   changes?: string[];
   /** sua's word on it, when it has one (why, or that nothing changed). */
@@ -352,6 +352,43 @@ const ABOUT_THE_PAGE = /\b(page|layout|look|looks|show|shows|showing|display|top
  * drafter for the setup; the page agent too when it's about the page) and
  * the Edit page shows it when it's done.
  */
+/**
+ * What Enhance asks of the drafter: the same notebook, sharper for what it's
+ * for, as a careful editor would make it, from what it already says (never
+ * new goals or facts about the world).
+ */
+export const ENHANCE_ASK = `Enhance this notebook: make its definition a better prompt for what it's for, the way a careful editor would, from what it already says.
+- What it's for: one specific sentence (what, for whom, where, by when) from what's there; no new goals.
+- Limits: concrete and checkable (numbers, places, dates), only ones it states or clearly implies; no duplicates.
+- Done when: 2 to 4 outcomes someone could tick off.
+- Facts each option notes: the ones that decide it, each with the right type, unit and role (price, measure, place, link, when, quote…); drop vague or repeated ones.
+- Checks: what to confirm with a source before deciding, each one checkable.
+- Steps: the kinds and order that fit the goal (a choice ends with decide; a question with write, shape answer; a plan with write, shape plan; a meeting with write, talking points; a watch has a schedule and no decide), with fitting targets; keep agents that fit.
+Keep its title unless it's vague. Don't invent facts, places, prices or dates. In "why", say in one sentence what you made sharper.`;
+
+/**
+ * Enhance (the Prompt tab): the document as it is in the box (your edits
+ * first become the proposal), then sua sharpens it in the background; it
+ * comes back as a change to preview, with what it made sharper.
+ */
+export function startEditEnhance(ctx: Ctx, nb: Notebook, md?: string): { ok: true } | { error: string } {
+  const was = readEdit(ctx, nb.id);
+  if (was?.status === 'working') return { error: 'sua is still making your last change.' };
+  // What's in the box, if you changed it, is what sua enhances.
+  if (md !== undefined && md.trim() && md.trim() !== notebookToMarkdown(was?.setup ?? setupOf(nb), was?.layout === undefined ? nb.layout : was.layout ?? undefined).trim()) {
+    const first = proposeFromMarkdown(ctx, nb, md);
+    if ('error' in first) return first;
+  }
+  if (!ctx.notebookDrafterRun && !ensureSystemAgentCurrent(ctx, NOTEBOOK_DRAFTER_ID, 'notebook edits')) return { error: "sua couldn't start the notebook drafter." };
+  const now = readEdit(ctx, nb.id);
+  const base = now?.setup ?? setupOf(nb);
+  const turns = [...(now?.turns ?? []), { you: 'Enhance the prompt.', via: 'enhance' as const, at: new Date().toISOString() }];
+  const working: NotebookEdit = { setup: base, ...(now?.layout !== undefined ? { layout: now.layout } : {}), turns, status: 'working', updatedAt: new Date().toISOString() };
+  writeEdit(ctx, nb.id, working);
+  void talk(ctx, nb, 'Enhance the prompt.', working, ENHANCE_ASK).catch(() => undefined);
+  return { ok: true };
+}
+
 export function startEditTalk(ctx: Ctx, nb: Notebook, text: string): { ok: true } | { error: string } {
   const said = text.replace(/\s+/g, ' ').trim().slice(0, 600);
   if (!said) return { error: 'Say what to change first.' };
@@ -366,7 +403,7 @@ export function startEditTalk(ctx: Ctx, nb: Notebook, text: string): { ok: true 
   return { ok: true };
 }
 
-async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit): Promise<void> {
+async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit, ask?: string): Promise<void> {
   const base = working.setup;
   const baseLayout = working.layout === undefined ? nb.layout : working.layout ?? undefined;
   const agents = searchAgents(ctx);
@@ -377,7 +414,7 @@ async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit)
     TODAY: new Date().toISOString().slice(0, 10),
     AGENTS: agents.length ? agents.map((a) => `${a.id}: ${a.description}`).join('\n') : '(none)',
     CURRENT: JSON.stringify(current),
-    CHANGE: `${said}\n(Change only what this asks for and keep everything else exactly as it is. If it's only about how the notebook's page looks, change nothing.)`,
+    CHANGE: ask ?? `${said}\n(Change only what this asks for and keep everything else exactly as it is. If it's only about how the notebook's page looks, change nothing.)`,
   });
   // Gone meanwhile (saved or discarded while sua worked): leave it.
   const now = readEdit(ctx, nb.id);
@@ -408,7 +445,7 @@ async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit)
   const setupChanged = describeSetupChange(base, setup).length > 0;
   writeEdit(ctx, nb.id, {
     setup, ...(layout !== undefined ? { layout } : {}), status: 'ready', updatedAt: new Date().toISOString(),
-    turns: last({ changes, ...(changes.length ? (parsed.why && setupChanged ? { sua: parsed.why } : {}) : { sua: "That didn't change anything. Say it another way, or edit the prompt." }) }),
+    turns: last({ changes, ...(changes.length ? (parsed.why && setupChanged ? { sua: parsed.why } : {}) : { sua: ask ? 'It already reads well: nothing to sharpen.' : "That didn't change anything. Say it another way, or edit the prompt." }) }),
   });
 }
 

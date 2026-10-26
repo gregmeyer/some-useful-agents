@@ -774,7 +774,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbe-talk__starters { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .nbe-prompt__form { display: grid; gap: var(--space-2); }
 .nbe-prompt__text { font: var(--font-size-sm)/1.55 var(--font-mono); resize: vertical; min-height: 24rem; }
-.nbe-prompt__acts { display: flex; justify-content: flex-end; }
+.nbe-prompt__acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-2); }
 .nbe-prompt__lede code { font-size: var(--font-size-xs); }
 .nbe-pending { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--color-surface-raised); border: 1px solid var(--color-primary); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
 .nbe-pending__what { flex: 1 1 12rem; min-width: 0; }
@@ -973,6 +973,13 @@ body.has-sua-panel .nb-toast { display: none; }
 .lk-g--chips { display: flex; gap: 2px; }
 .lk-chip { display: block; width: 16px; height: 4px; border-radius: 999px; background: var(--color-primary-soft); border: 1px solid var(--color-border); }
 .nbe-looks .look-card__name { flex-wrap: wrap; row-gap: 2px; }
+/* Enhanced: what sua made sharper, above the prompt it wrote. */
+.nbe-enhanced { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-primary-soft); display: grid; gap: var(--space-2); }
+.nbe-enhanced p { margin: 0; font-size: var(--font-size-sm); }
+.nbe-enhanced__note { color: var(--color-text-muted); }
+.nbe-enhanced__all summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-primary); }
+.nbe-enhanced__all[open] summary { margin-bottom: var(--space-2); }
+.nbe-prompt .working--panel { margin: 0 0 var(--space-3); }
 .nbe-looks__working { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); color: var(--color-primary); }
 
 /* Manage this notebook (Edit, folded): one action a row, a button and one sentence beside it. */
