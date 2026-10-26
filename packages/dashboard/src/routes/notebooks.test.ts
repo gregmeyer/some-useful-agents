@@ -2641,7 +2641,7 @@ describe('a notebook\'s page, drawn by sua', () => {
     // Edit: what the page is, undo, back to the shortlist.
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
-    const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
+    const edit = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
     expect(edit).toMatch(/aria-label="Made for this notebook, how it looks">[\s\S]*?<span class="look-card__badge">Now<\/span>/);
     expect(edit).toContain('Undo the last saved change to how it looks');
     const undone = await post(`/notebooks/${nb.id}/layout`, 'undo=1');
@@ -2650,7 +2650,7 @@ describe('a notebook\'s page, drawn by sua', () => {
     store.setLayout(nb.id, { components: page });
     await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
     expect(store.get(nb.id)!.layout).toBeUndefined();
-    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('aria-label="Shortlist, how it looks"');
+    expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Shortlist, how it looks"');
   });
 });
 
@@ -2736,12 +2736,12 @@ describe('a profile step', () => {
     expect(store.get(nb.id)!.about!.person!.rejectedPhotos).toEqual(['https://northwind.example/dana.png']);
 
     // Edit offers the Meeting briefing look, as a picture to pick.
-    const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
+    const edit = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
     expect(edit).toContain('aria-label="Look like: Meeting briefing"');
     const used = await post(`/notebooks/${nb.id}/layout`, { preset: 'dossier' });
     expect(decodeURIComponent(used.headers.location)).toContain('The page is now the Meeting briefing');
     expect(store.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
-    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('aria-label="Meeting briefing, how it looks"');
+    expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Meeting briefing, how it looks"');
   });
 
   it('decides its page again once its first step is done, unless you changed the page', async () => {
@@ -2990,7 +2990,7 @@ describe('a new notebook decides its page', () => {
     const { InboxStore } = await import('@some-useful-agents/core');
     const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(nb.conversationId!).map((r) => r.body).join('\n');
     expect(said).toContain("Its page is drawn for what it's for: a briefing: what to talk about, what they said.");
-    const edit = (await request(app).get(`/notebooks/${id}/edit`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const edit = (await request(app).get(`/notebooks/${id}/edit?tab=looks`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
     expect(edit).toContain('A briefing: what to talk about, what they said.');
     expect(edit).toContain('Let sua pick');
     await post(`/notebooks/${id}/layout`, { undo: '1' });
@@ -3745,14 +3745,16 @@ describe('how a notebook looks, picked from pictures', () => {
     const nb = s.create({ title: 'Meet Dana Reyes', statement: 'Before our call' });
     s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }]);
 
-    let page = (await get(`/notebooks/${nb.id}/edit`)).text;
-    expect(page).toContain('How it looks');
+    // A tab beside Talk and Prompt.
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain(`href="/notebooks/${nb.id}/edit?tab=looks"`);
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).not.toContain('class="lk-thumb"');
+    let page = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
     expect(page).toMatch(/aria-label="Shortlist, how it looks">[\s\S]*?look-card__badge">Now</);
     expect(page).toContain('class="lk-thumb"');
 
     const picked = await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
-    expect(picked.headers.location).toContain('preview=1');
-    page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(picked.headers.location).toContain('tab=looks&preview=1');
+    page = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
     expect(page).toMatch(/aria-label="Meeting briefing, how it looks">[\s\S]*?look-card__badge">In your changes</);
     expect(page).toMatch(/aria-label="Look like: Shortlist">[\s\S]*?look-card__badge">Saved</);
     expect(page).toContain('How it looks: Shortlist → Meeting briefing');

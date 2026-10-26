@@ -623,7 +623,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
   res.type('html').send(renderNotebookEdit({
     nb, proposed, turns: edit?.turns ?? [], working: edit?.status === 'working',
     pending: edit ? describeSetupChange(setupOf(nb), edit.setup, nb.layout, edit.layout) : [],
-    tab: str(req.query.tab) === 'prompt' ? 'prompt' : 'talk',
+    tab: str(req.query.tab) === 'prompt' ? 'prompt' : str(req.query.tab) === 'looks' ? 'looks' : 'talk',
     openPreview: str(req.query.preview) === '1' && !!edit && edit.status !== 'working',
     ...(edit?.layout !== undefined ? { lookChanged: edit.layout } : {}),
     markdown: notebookToMarkdown(edit?.setup ?? setupOf(nb), proposed.layout),
@@ -633,7 +633,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
 });
 
 /** Back to the Edit page, on a tab, with a message (error | info | ok). */
-function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'error', tab?: 'prompt', preview = false): string {
+function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'error', tab?: 'prompt' | 'looks', preview = false): string {
   const qs = [tab ? `tab=${tab}` : '', preview ? 'preview=1' : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
   return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
 }
@@ -672,11 +672,11 @@ notebooksRouter.post('/notebooks/:id/edit/look', (req: Request, res: Response) =
   const look = str(req.body?.look);
   if (look === 'pick') {
     const out = startEditPick(ctx, nb);
-    res.redirect(303, 'error' in out ? editBack(id, out.error) : editBack(id));
+    res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'looks') : editBack(id, undefined, 'info', 'looks'));
     return;
   }
   const out = proposeLook(ctx, nb, look);
-  res.redirect(303, 'error' in out ? editBack(id, out.error) : editBack(id, undefined, 'info', undefined, out.changes.length > 0));
+  res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'looks') : editBack(id, undefined, 'info', 'looks', out.changes.length > 0));
 });
 
 notebooksRouter.post('/notebooks/:id/edit/save', (req: Request, res: Response) => {

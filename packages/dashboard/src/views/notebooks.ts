@@ -763,7 +763,7 @@ export interface NotebookEditView {
   working: boolean;
   /** Every change not saved yet, against the notebook as it is. */
   pending: readonly string[];
-  tab: 'talk' | 'prompt';
+  tab: 'talk' | 'prompt' | 'looks';
   /** Open the preview as the page loads (right after a change was made). */
   openPreview?: boolean;
   /** The look in your changes, when you changed it (null: the shortlist). */
@@ -819,7 +819,7 @@ function editTurn(t: NotebookEditTurn): SafeHtml {
 export function renderNotebookEdit(args: NotebookEditView): string {
   const { nb, proposed } = args;
   const id = encodeURIComponent(nb.id);
-  const tab = (key: 'talk' | 'prompt', label: string) => html`<a class="nb-tabs__tab${args.tab === key ? ' is-on' : ''}" href="/notebooks/${id}/edit${key === 'prompt' ? '?tab=prompt' : ''}"${args.tab === key ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label}</a>`;
+  const tab = (key: 'talk' | 'prompt' | 'looks', label: string) => html`<a class="nb-tabs__tab${args.tab === key ? ' is-on' : ''}" href="/notebooks/${id}/edit${key === 'talk' ? '' : `?tab=${key}`}"${args.tab === key ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label}</a>`;
   const pending = args.pending.length > 0;
   const talk = html`
     <section class="nbe-talk" aria-label="Say what to change">
@@ -869,7 +869,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       })}
       <div class="nbe-work">
         <div class="nbe-tabsrow">
-          <nav class="nb-tabs nbe-tabs" aria-label="How to edit">${tab('talk', 'Talk')}${tab('prompt', 'Prompt')}</nav>
+          <nav class="nb-tabs nbe-tabs" aria-label="How to edit">${tab('talk', 'Talk')}${tab('prompt', 'Prompt')}${tab('looks', 'How it looks')}</nav>
           <button type="button" class="btn btn--sm" data-nbe-preview aria-haspopup="dialog">Preview${pending ? ' changes' : ''}</button>
         </div>
         ${pending ? html`<div class="nbe-pending" role="status">
@@ -878,8 +878,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Save changes</button></form>
           <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
         </div>` : html``}
-        ${args.tab === 'prompt' ? prompt : talk}
-        ${notebookLooks(nb.id, { now: nb.layout, ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 })}
+        ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
         <details class="nbe-fold nbe-fold--more"><summary>More: stop, save as a template, archive or delete</summary>${notebookMoreActions(nb)}</details>
       </div>
       <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>
@@ -897,7 +896,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
         </div>
       </dialog>
-      ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working")location.replace(location.pathname+"?preview=1");else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
+      ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working"){var t0=new URLSearchParams(location.search).get("tab");location.replace(location.pathname+"?"+(t0?"tab="+encodeURIComponent(t0)+"&":"")+"preview=1");}else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
       ${unsafeHtml('<script>(function(){var d=document.getElementById("nbe-preview");if(!d||!d.showModal)return;document.querySelectorAll("[data-nbe-preview]").forEach(function(b){b.addEventListener("click",function(){d.showModal();});});d.querySelector("[data-nbe-close]").addEventListener("click",function(){d.close();});d.addEventListener("click",function(e){if(e.target===d)d.close();});if(d.hasAttribute("data-open")){d.showModal();var u=new URL(location.href);u.searchParams.delete("preview");history.replaceState(null,"",u.pathname+u.search);}})();</script>')}
       ${unsafeHtml('<script>document.querySelectorAll("[data-nbe-start]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById("nbe-say");if(!t)return;t.value=b.getAttribute("data-nbe-start");t.focus();t.setSelectionRange(t.value.length,t.value.length);});});</script>')}
     </div>

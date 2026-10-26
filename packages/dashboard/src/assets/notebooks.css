@@ -988,3 +988,4 @@ body.has-sua-panel .nb-toast { display: none; }
 .lk-g--chips { display: flex; gap: 2px; }
 .lk-chip { display: block; width: 16px; height: 4px; border-radius: 999px; background: var(--color-primary-soft); border: 1px solid var(--color-border); }
 .nbe-looks .look-card__name { flex-wrap: wrap; row-gap: 2px; }
+.nbe-looks__working { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--font-size-sm); color: var(--color-primary); }
