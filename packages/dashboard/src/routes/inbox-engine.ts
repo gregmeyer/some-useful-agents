@@ -1296,7 +1296,10 @@ async function notebookStepOutcome(
   if (meta.inputs.AGAIN === '1') {
     const a = searchAgain(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
     if (!a.started) return { status: 'failed', refusalReason: a.reason ?? 'It could not start.' };
-    return { status: 'completed', summary: `Searching again: **${a.step!.title}**. I'll say here how many are new.` };
+    const doing = a.step!.kind === 'write' ? `Writing again: **${a.step!.title}**. The talking points are replaced when it's done.`
+      : a.step!.kind === 'profile' ? `Looking again: **${a.step!.title}**. I'll say here what's new.`
+      : `Searching again: **${a.step!.title}**. I'll say here how many are new.`;
+    return { status: 'completed', summary: doing };
   }
   // Move on: keep what the step found, mark it done, and start the next.
   if (meta.inputs.MOVE === '1') {

@@ -872,8 +872,8 @@ next, say it was the last one in the running.
                  "RUN": "1" (start step 1 now, optional) } }`
   Kinds: profile (learn about who the notebook is about, a person and
   their company, or a company: who they are, their role, their company,
-  with sources, and their photo or logo; "subject" = who, e.g. "Brendan
-  Short"; no agent = sua's researcher; first, when the notebook prepares
+  with sources, and their photo or logo; "subject" = who, e.g. "Dana
+  Reyes"; no agent = sua's researcher; first, when the notebook prepares
   them to meet someone), find (options; target = how many; no agent = sua's finder, which
   splits the search into a few narrow ones, one per site or source, and runs
   them at once), source (facts the options are
@@ -884,8 +884,12 @@ next, say it was the last one in the running.
   agent = sua's checker, which needs the notebook to have checks), narrow
   (they keep the ones that stay in the running, the rest are ruled out, the
   notebook stays open; target = about how many to keep; done with Narrow…),
-  decide (they pick; target = how many). 2–6 steps, find first (after a
-  profile step, if any), decide last.
+  decide (they pick; target = how many), write (sua writes up what it was
+  for from what it found: for a meeting, the talking points, each with
+  why it matters to them and a question; target = how many points, 3–5;
+  no agent = sua's writer). 2–6 steps, find first (after a profile step,
+  if any), decide last, or write last when it prepares them for a meeting
+  (they don't pick themes; sua writes the points from them).
   Agents: only installed ones whose description fits that step's job, from
   AGENT_CATALOG (one agent may serve several steps). Steps never change an
   agent: each gets its step's job in its inputs. If no installed agent fits

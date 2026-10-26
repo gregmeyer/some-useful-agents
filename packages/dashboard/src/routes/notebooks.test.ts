@@ -39,6 +39,9 @@ let researchReply: ((inputs: Record<string, string>) => string | undefined) | un
 const researchAsked: Array<Record<string, string>> = [];
 /** The notebook-page agent's answer (none: the shortlist stays), and what it was asked. */
 let pageReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+/** sua's writer's answer in a write step (none: no answer), and what it was asked. */
+let writerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+const writerAsked: Array<Record<string, string>> = [];
 const pageAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
@@ -99,6 +102,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Nor a real facet-labelling model: tests set facetsReply (and see what it was asked).
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
     notebookPageRun: async (inputs) => { pageAsked.push(inputs); return pageReply?.(inputs); },
+    notebookWriterRun: async (inputs) => { writerAsked.push(inputs); return writerReply?.(inputs); },
     // Nor a real checker: tests set checkerReply.
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // Nor a real finder: tests set finderReply.
@@ -3779,5 +3783,74 @@ describe('how a notebook looks, picked from pictures', () => {
     pageReply = undefined;
     await post(`/notebooks/${nb.id}/edit/save`, {});
     expect(s.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
+  });
+});
+
+
+describe('a write step', () => {
+  it('writes the talking points from what they said: the agenda and the brief show them, each with the themes it rests on', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'What matters to Dana' });
+    s.setFields(nb.id, [
+      { key: 'theme', label: 'Theme', type: 'text' },
+      { key: 'evidence', label: 'What she said', type: 'text' },
+      { key: 'source_url', label: 'Source', type: 'url', role: 'link' },
+      { key: 'conversation_question', label: 'Question to ask', type: 'text' },
+    ]);
+    const add = (title: string, said: string) => s.upsertOption(nb.id, { title, by: 'agent:x', data: { theme: title, evidence: said, source_url: `https://example.com/${title.length}`, conversation_question: `About ${title}?` } }).entry;
+    const a = add('Human work', 'She writes her first drafts herself.');
+    const b = add('Small campaigns', 'She ran a masterclass on micro-campaigns.');
+    s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 2, status: 'done' }, { title: 'Write the talking points', kind: 'write', target: 2 }]);
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+    writerReply = (inputs) => {
+      const themes = JSON.parse(inputs.THEMES) as Array<{ id: string; said?: string }>;
+      expect(themes.map((t) => t.said)).toEqual(expect.arrayContaining(['She writes her first drafts herself.']));
+      return `<briefing>${JSON.stringify({
+        points: [
+          { text: 'Ask what she never hands to AI', why: 'She writes her first drafts herself.', ask: 'Where does AI stop for you?', from: [a.id] },
+          { text: 'Talk about small, targeted campaigns', why: 'She teaches micro-campaigns.', from: [b.id, 'made-up'] },
+        ],
+        questions: ['What would you change about outbound?'], watch: ['Don\'t pitch volume'],
+      })}</briefing>`;
+    };
+    const started = startNotebookStep(ctxForDrain! as never, nb.id);
+    expect(started).toMatchObject({ started: true, step: { kind: 'write' } });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    const after = s.get(nb.id)!;
+    expect(writerAsked.at(-1)!.COUNT).toBe('3');
+    expect(after.briefing!.points.map((p) => [p.text, p.from])).toEqual([['Ask what she never hands to AI', [a.id]], ['Talk about small, targeted campaigns', [b.id]]]);
+    expect(after.steps![1].status).toBe('met');
+    const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
+    expect(d.talkingPoints[0]).toEqual({ text: 'Ask what she never hands to AI', note: 'She writes her first drafts herself. Ask: Where does AI stop for you?', refs: [{ label: 'Human work', href: `/notebooks/${nb.id}/entries/${a.id}` }] });
+    expect(d.questions).toEqual([{ text: 'What would you change about outbound?' }]);
+    expect(d.watch).toEqual(['Don\'t pitch volume']);
+    // A briefing page saved before agendas had what to watch for shows it too.
+    const { notebookWidgetComponents } = await import('../lib/notebook-widgets.js');
+    const oldAgenda = { components: [{ id: 'root', component: 'Column', children: ['agenda'] }, { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' } }] };
+    expect(notebookWidgetComponents({ ...after, layout: oldAgenda }).find((c) => c.id === 'agenda')).toMatchObject({ watch: { path: '/notebook/watch' } });
+    // A theme ruled out since: its link goes from the point.
+    s.ruleOut(nb.id, b.id, 'old');
+    expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.talkingPoints[1].refs).toEqual([]);
+    // Done, its card offers Write again, which writes them once more.
+    s.updateStep(nb.id, s.get(nb.id)!.steps![1].id, { status: 'done' });
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain('Write again →');
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'A fresh opener', from: [a.id] }] })}</briefing>`;
+    const again = await request(app).post(`/notebooks/${nb.id}/steps/${s.get(nb.id)!.steps![1].id}/again`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(decodeURIComponent(again.headers.location)).toContain('Writing again: Write the talking points.');
+    for (let i = 0; i < 50 && s.get(nb.id)!.briefing!.points[0].text !== 'A fresh opener'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(s.get(nb.id)!.briefing!.points.map((p) => p.text)).toEqual(['A fresh opener']);
+    expect(s.get(nb.id)!.steps![1].status).toBe('done');
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'Ask what she never hands to AI', from: [a.id] }], watch: ['Don\'t pitch volume'] })}</briefing>`;
+    await request(app).post(`/notebooks/${nb.id}/steps/${s.get(nb.id)!.steps![1].id}/again`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    for (let i = 0; i < 50 && s.get(nb.id)!.briefing!.points[0].text !== 'Ask what she never hands to AI'; i++) await new Promise((r) => setTimeout(r, 20));
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('Ask what she never hands to AI');
+    expect(brief).toContain('Don&#39;t pitch volume');
+    writerReply = undefined;
   });
 });

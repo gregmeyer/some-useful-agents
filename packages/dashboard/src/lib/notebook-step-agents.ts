@@ -12,6 +12,8 @@ export const NOTEBOOK_FINDER_ID = 'notebook-finder';
 export const NOTEBOOK_FIND_ONE_ID = 'notebook-find-one';
 /** sua's researcher: a profile step (learn about who the notebook is about) uses it. */
 export const NOTEBOOK_RESEARCHER_ID = 'research-one';
+/** sua's writer: a write step (for a meeting, the talking points) uses it. */
+export const NOTEBOOK_WRITER_ID = 'notebook-writer';
 /** The checker's helpers: research-fanout researches the checks an option's own facts left open, through research-one. */
 export const CHECKER_HELPER_IDS = ['research-fanout', 'research-one'] as const;
 
@@ -20,12 +22,12 @@ export function stepAgentHelpers(agentId: string): readonly string[] {
   return agentId === NOTEBOOK_FINDER_ID ? [NOTEBOOK_FIND_ONE_ID] : agentId === NOTEBOOK_CHECKER_ID ? CHECKER_HELPER_IDS : [];
 }
 
-/** sua's own agent for a step that has none: the checker for a check, the finder for a find, the researcher for a profile. */
+/** sua's own agent for a step that has none: the checker for a check, the finder for a find, the researcher for a profile, the writer for a write. */
 export function suaStepAgent(kind: NotebookStep['kind']): string | undefined {
-  return kind === 'check' ? NOTEBOOK_CHECKER_ID : kind === 'find' ? NOTEBOOK_FINDER_ID : kind === 'profile' ? NOTEBOOK_RESEARCHER_ID : undefined;
+  return kind === 'check' ? NOTEBOOK_CHECKER_ID : kind === 'find' ? NOTEBOOK_FINDER_ID : kind === 'profile' ? NOTEBOOK_RESEARCHER_ID : kind === 'write' ? NOTEBOOK_WRITER_ID : undefined;
 }
 
 /** "sua’s checker" / "sua’s finder": who does a step that has no agent of its own (undefined: it needs one). */
 export function suaStepAgentName(kind: NotebookStep['kind']): string | undefined {
-  return kind === 'check' ? 'sua’s checker' : kind === 'find' ? 'sua’s finder' : kind === 'profile' ? 'sua’s researcher' : undefined;
+  return kind === 'check' ? 'sua’s checker' : kind === 'find' ? 'sua’s finder' : kind === 'profile' ? 'sua’s researcher' : kind === 'write' ? 'sua’s writer' : undefined;
 }

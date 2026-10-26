@@ -271,6 +271,8 @@ export interface DashboardContext {
   notebookFacets?: Set<string>;
   /** Notebooks deciding their page right now (lib/notebook-page.ts). */
   notebookPages?: Set<string>;
+  /** Tests only: answer for the notebook-writer agent (a write step) instead of running it. */
+  notebookWriterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-page agent instead of running it. */
   notebookPageRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */

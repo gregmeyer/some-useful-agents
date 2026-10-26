@@ -139,10 +139,12 @@ export interface NotebookWidgetData extends NotebookViewData {
     shortlistNote: string;
     /** What each option says (its `quote` field), chosen first, grouped by its short label (QuoteList). */
     quotes: Array<{ title: string; quote: string; href: string; source?: string; at?: string; ask?: string; group?: string; chosen?: boolean }>;
-    /** The chosen options (else the first 5 in the running) as points to raise, each with its question (Agenda). */
+    /** The talking points sua wrote (a write step), each with why and what they said it rests on; else the chosen options (else the first 5) with their questions (Agenda). */
     talkingPoints: Array<{ text: string; note?: string; refs: Array<{ label: string; href: string }> }>;
-    /** The other options' questions (their `ask` field) (Agenda questions). */
-    questions: Array<{ text: string; label: string; href: string }>;
+    /** Questions to ask: the ones sua wrote, else the other options' (their `ask` field) (Agenda questions). */
+    questions: Array<{ text: string; label?: string; href?: string }>;
+    /** What to watch for in the meeting, from what sua wrote (Agenda watch). */
+    watch: string[];
     /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
     person?: NotebookProfileView;
     company?: NotebookProfileView;
@@ -316,7 +318,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.push({ at: nb.createdAt, kind: 'decision', title: 'Notebook started', ...(nb.statement ? { body: nb.statement } : {}) });
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
-  const { quotes, talkingPoints, questions } = whatTheySaid(nb, active);
+  const { quotes, talkingPoints, questions, watch } = whatTheySaid(nb, active);
   const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined);
 
   return {
@@ -325,6 +327,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       quotes,
       talkingPoints,
       questions,
+      watch,
       ...about,
       ...(quotes[0]?.quote ? { leadQuote: quotes[0].quote } : {}),
       otherQuotes: quotes.slice(1),
@@ -423,7 +426,7 @@ const shortOf = (title: string) => title.split(',')[0].trim();
  * (`ask`), and the rest's questions. Grouped by the short label of the
  * notebook's first labelled fact (a theme). Ruled-out options aren't in it.
  */
-function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick<NotebookWidgetData['notebook'], 'quotes' | 'talkingPoints' | 'questions'> {
+function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick<NotebookWidgetData['notebook'], 'quotes' | 'talkingPoints' | 'questions' | 'watch'> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
   const askF = nb.fields.find((f) => f.role === 'ask');
   const groupKey = nb.fields.find((f) => !f.role && f.type === 'text' && Object.keys(nb.facets?.[f.key]?.labels ?? {}).length)?.key;
@@ -438,7 +441,20 @@ function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick
       ...(o.link ? { source: o.link } : {}), ...(o.when ? { at: o.when } : {}), ...(ask ? { ask } : {}), ...(group ? { group } : {}), ...(o.chosen ? { chosen: true } : {}),
     };
   }) : [];
-  if (!quoteF && !askF) return { quotes, talkingPoints: [], questions: [] };
+  // Written (a write step): its points, each linked to what they said that it rests on (ones since ruled out drop off).
+  if (nb.briefing?.points.length) {
+    const byId = new Map(active.map((o) => [o.id, o]));
+    return {
+      quotes,
+      talkingPoints: nb.briefing.points.map((p) => {
+        const note = [p.why, p.ask ? `Ask: ${p.ask}` : ''].filter(Boolean).join(' ');
+        return { text: p.text, ...(note ? { note } : {}), refs: p.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: page(o) })) };
+      }),
+      questions: nb.briefing.questions.map((q) => ({ text: q })),
+      watch: nb.briefing.watch,
+    };
+  }
+  if (!quoteF && !askF) return { quotes, talkingPoints: [], questions: [], watch: [] };
   const chosen = ordered.filter((o) => o.chosen);
   const points = (chosen.length ? chosen : ordered.slice(0, 5)).slice(0, 8);
   const talkingPoints = points.map((o) => {
@@ -447,7 +463,7 @@ function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick
   });
   const inPoints = new Set(points.map((o) => o.id));
   const questions = askF ? ordered.filter((o) => !inPoints.has(o.id) && text(o, askF.key)).slice(0, 8).map((o) => ({ text: text(o, askF.key), label: o.name, href: page(o) })) : [];
-  return { quotes, talkingPoints, questions };
+  return { quotes, talkingPoints, questions, watch: [] };
 }
 
 /** At most `n` characters, cut at a word, with "…". */
