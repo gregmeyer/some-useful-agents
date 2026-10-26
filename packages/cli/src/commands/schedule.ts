@@ -329,8 +329,8 @@ scheduleCommand
     const totalCount = entries.length + v2Entries.length;
     if (totalCount === 0) {
       ui.warn(
-        'No agents have a schedule. Idling — restart the scheduler after adding ' +
-          '`schedule: "<cron>"` to an agent YAML.',
+        'No agents have a schedule yet. Idling: one you schedule in the dashboard starts within a minute ' +
+          '(an agent YAML in a folder still needs a restart).',
       );
     }
 
@@ -343,15 +343,26 @@ scheduleCommand
     ui.banner(`Scheduler running (${totalCount} agent${totalCount === 1 ? '' : 's'})`, bannerLines);
     console.log(ui.dim('Press Ctrl+C to stop.\n'));
 
-    // When there are no scheduled entries the scheduler holds no internal
-    // timers, so the event loop would exit immediately. Keep a low-frequency
-    // tick so the supervised process stays alive (and keeps writing the
-    // heartbeat) until the user adds a schedule and restarts it.
-    const idleKeepAlive = totalCount === 0 ? setInterval(() => {}, 60_000) : null;
+    // Schedules changed in the dashboard or by sua (and agents edited) take
+    // effect without a restart: the agents are read again every 30s and the
+    // scheduler brought up to date. This tick also keeps the process alive
+    // when nothing is scheduled yet.
+    const resync = setInterval(() => {
+      try {
+        const now = agentStore.listAgents().filter((a) => a.schedule && a.status === 'active');
+        const { added, removed, changed } = scheduler.syncV2Agents(now);
+        const ts = new Date().toISOString();
+        for (const id of added) console.log(`${ui.dim(ts)} ${chalk.green('scheduled')} ${ui.agent(id)} ${ui.dim(cronToHuman(now.find((a) => a.id === id)!.schedule!))}`);
+        for (const id of changed) console.log(`${ui.dim(ts)} ${chalk.cyan('updated')} ${ui.agent(id)} ${ui.dim(cronToHuman(now.find((a) => a.id === id)!.schedule!))}`);
+        for (const id of removed) console.log(`${ui.dim(ts)} ${chalk.yellow('unscheduled')} ${ui.agent(id)}`);
+      } catch (err) {
+        ui.fail(`Couldn't read the agents' schedules: ${(err as Error).message}`);
+      }
+    }, 30_000);
 
     const shutdown = async () => {
       console.log('\nShutting down scheduler...');
-      if (idleKeepAlive) clearInterval(idleKeepAlive);
+      clearInterval(resync);
       scheduler.stop();
       runStore.close();
       sharedDb.close();

@@ -295,7 +295,7 @@ versionsRouter.post('/agents/:id/schedule', (req: Request, res: Response) => {
 
   try {
     ctx.agentStore.updateAgentMeta(id, { schedule: raw });
-    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule set to "${raw}". Restart the scheduler daemon to pick it up.`)}`);
+    res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule set to "${raw}". The scheduler picks it up within a minute.`)}`);
   } catch (err) {
     const m = err instanceof Error ? err.message : String(err);
     res.redirect(303, `/agents/${encodeURIComponent(id)}/config?flash=${encodeURIComponent(`Schedule update failed: ${m}`)}`);

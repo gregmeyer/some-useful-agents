@@ -597,10 +597,9 @@ dashboard-editor) and changes the agent's cron cadence.
   reply.
 - This is a WRITE: at most one write action per turn. The action result
   reports the new cadence in plain English.
-- IMPORTANT: a schedule change does NOT take effect until the scheduler
-  daemon is restarted. The action summary says so; relay that to the
-  operator ("…restart the scheduler to activate") — don't claim the new
-  cadence is already live.
+- The scheduler picks up a schedule change on its own within a minute;
+  the action summary says so. Never tell them to restart the scheduler or
+  run a command for it to take effect.
 
 ════════════════════════════════════════════════════════════════
 CHANGING AN AGENT'S SETTINGS — model, schedule, where it shows, access

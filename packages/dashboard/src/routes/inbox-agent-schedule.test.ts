@@ -4,7 +4,7 @@
  * `executeAgentSchedule` validates the cron and applies it via
  * `updateAgentMeta` (no version bump). It refuses uninstalled agents and
  * invalid / too-frequent crons, and reports the humanized cadence + the
- * scheduler-restart caveat.
+ * note that the scheduler picks it up within a minute (it reads schedules again every 30s).
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -79,7 +79,7 @@ describe('parseProposedActions — agent-schedule', () => {
 });
 
 describe('executeAgentSchedule', () => {
-  it('applies a valid cron via updateAgentMeta (no version bump) with a humanized, restart-noted summary', () => {
+  it('applies a valid cron via updateAgentMeta (no version bump) with a humanized summary that says it takes effect within a minute (no restart)', () => {
     const ctx = setup();
     mkAgent('news', '0 8 * * *');
     const before = agentStore.getAgent('news')!;
@@ -87,7 +87,8 @@ describe('executeAgentSchedule', () => {
     expect(r.status).toBe('completed');
     expect(r.summary).toContain('Every hour'); // cronToHuman
     expect(r.summary).toContain('0 * * * *');
-    expect(r.summary).toMatch(/restart/i);
+    expect(r.summary).toContain('The scheduler picks it up within a minute.');
+    expect(r.summary).not.toMatch(/restart|sua schedule start/i);
     const after = agentStore.getAgent('news')!;
     expect(after.schedule).toBe('0 * * * *');
     expect(after.version).toBe(before.version); // metadata change, not a new version

@@ -109,7 +109,7 @@ export class LocalScheduler {
   private v2Tasks: Array<{ agent: Agent; task: ScheduledTask }> = [];
   private readonly provider: Provider;
   private readonly agents: Map<string, AgentDefinition>;
-  private readonly v2Agents: Agent[];
+  private v2Agents: Agent[];
   private readonly v2Deps?: V2SchedulerDeps;
   private readonly onFire?: (agent: AgentDefinition | Agent, runId: string) => void;
   private readonly onError?: (agent: AgentDefinition | Agent, error: Error) => void;
@@ -230,14 +230,53 @@ export class LocalScheduler {
     // list so the dashboard's idle-detection sees the full picture.
     if (this.dataDir) {
       this.writeHeartbeatNow(entries, v2Entries);
+      // The v2 list as it is now (syncV2Agents changes it while running).
       this.heartbeatTimer = setInterval(() => {
-        this.writeHeartbeatNow(entries, v2Entries);
+        this.writeHeartbeatNow(entries, this.v2Tasks.map(({ agent }) => ({ agent, schedule: agent.schedule! })));
       }, HEARTBEAT_INTERVAL_MS);
       // Don't let the heartbeat timer prevent process exit.
       if (this.heartbeatTimer.unref) this.heartbeatTimer.unref();
     }
 
     return entries;
+  }
+
+  /**
+   * Bring the scheduled v2 agents up to date with `agents` (the store, read
+   * again), while running: a new or changed schedule is registered, an agent
+   * unscheduled, paused or gone stops, and one that was edited fires as it is
+   * now (a scheduled run used the agent as it was when the scheduler
+   * started). One with a schedule that isn't allowed is skipped, with a
+   * warning, rather than stopping the rest. Returns what changed, by id.
+   */
+  syncV2Agents(agents: readonly Agent[]): { added: string[]; removed: string[]; changed: string[] } {
+    const want = new Map<string, Agent>();
+    for (const a of agents) {
+      if (!a.schedule || a.status !== 'active') continue;
+      try {
+        validateScheduleInterval(a.schedule, { allowHighFrequency: a.allowHighFrequency });
+        want.set(a.id, a);
+      } catch (err) {
+        console.warn(`[schedule] v2 "${a.id}": ${err instanceof Error ? err.message : String(err)}; not scheduled`);
+      }
+    }
+    if (want.size && !this.v2Deps) throw new Error('v2 agents need v2Deps to be scheduled.');
+    const out = { added: [] as string[], removed: [] as string[], changed: [] as string[] };
+    this.v2Tasks = this.v2Tasks.filter(({ agent, task }) => {
+      const next = want.get(agent.id);
+      if (next && JSON.stringify(next) === JSON.stringify(agent)) { want.delete(agent.id); return true; }
+      task.stop();
+      (next ? out.changed : out.removed).push(agent.id);
+      return false;
+    });
+    for (const agent of want.values()) {
+      const schedule = agent.schedule!;
+      const task = cron.schedule(schedule, async () => { await this.fireV2Agent(agent, schedule); });
+      this.v2Tasks.push({ agent, task });
+      if (!out.changed.includes(agent.id)) out.added.push(agent.id);
+    }
+    this.v2Agents = this.v2Tasks.map(({ agent }) => agent);
+    return out;
   }
 
   /** Stop all tasks and release resources. */
