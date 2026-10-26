@@ -4,6 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
@@ -31,7 +32,7 @@ import { decideNotebookPage } from '../lib/notebook-page.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
-import { parseFlash } from './inbox-shared.js';
+import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
@@ -51,6 +52,11 @@ export const notebooksRouter: Router = Router();
 const store = (req: Request) => NotebookStore.fromHandle(getContext(req.app.locals).runStore.databaseHandle());
 const lines = (v: unknown): string[] => (typeof v === 'string' ? v.split(/\r?\n/) : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+/** A page's message: ?ok= / ?error= / ?info=, or the ?flash= notebook actions come back with (said as it is). */
+function parseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
+  return parseQueryFlash(req) ?? (typeof req.query.flash === 'string' && req.query.flash ? { kind: 'info', message: req.query.flash } : undefined);
+}
+
 const back = (id: string, flash: string, hash = '') => `/notebooks/${encodeURIComponent(id)}?flash=${encodeURIComponent(flash)}${hash}`;
 /** Back to the notebook (at the option's card), or to the option's own page when its form says `back=option`. */
 const backFrom = (req: Request, id: string, entryId: string, flash: string) => (req.body?.back === 'option'
@@ -607,9 +613,68 @@ notebooksRouter.post('/notebooks/:id/criteria/:index', (req: Request, res: Respo
 /** Edit this notebook: its whole setup, on its own page. */
 notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
-  const nb = store(req).get(String(req.params.id));
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
-  res.type('html').send(renderNotebookEdit({ nb, agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: store(req).layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id) }));
+  const edit = readEdit(ctx, nb.id);
+  const proposed = proposedNotebook(nb, edit);
+  const entries = s.entries(nb.id);
+  const compiled = compileSurface(SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).current(`notebook:${nb.id}`).doc, notebookEntryItems(proposed, entries));
+  res.type('html').send(renderNotebookEdit({
+    nb, proposed, turns: edit?.turns ?? [], working: edit?.status === 'working',
+    pending: edit ? describeSetupChange(setupOf(nb), edit.setup, nb.layout, edit.layout) : [],
+    tab: str(req.query.tab) === 'prompt' ? 'prompt' : 'talk',
+    markdown: notebookToMarkdown(edit?.setup ?? setupOf(nb), proposed.layout),
+    entries, compiled, history: widgetHistory(ctx, s),
+    agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: s.layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id),
+  }));
+});
+
+/** Back to the Edit page, on a tab, with a message (error | info | ok). */
+function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'error', tab?: 'prompt'): string {
+  const qs = [tab ? `tab=${tab}` : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
+  return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
+}
+
+/** Say what to change: sua changes the proposal in the background (lib/notebook-edit.ts). */
+notebooksRouter.post('/notebooks/:id/edit/talk', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const out = startEditTalk(getContext(req.app.locals), nb, str(req.body?.text));
+  res.redirect(303, 'error' in out ? editBack(id, out.error) : editBack(id));
+});
+
+/** Whether sua is still changing it (the Edit page waits on this). */
+notebooksRouter.get('/notebooks/:id/edit/state', (req: Request, res: Response) => {
+  const edit = readEdit(getContext(req.app.locals), String(req.params.id));
+  res.json({ status: edit?.status ?? 'none' });
+});
+
+/** The Prompt tab: the notebook as a document becomes the proposal. */
+notebooksRouter.post('/notebooks/:id/edit/prompt', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const out = proposeFromMarkdown(getContext(req.app.locals), nb, str(req.body?.markdown));
+  res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'prompt')
+    : editBack(id, out.changes.length ? `${String(out.changes.length)} ${out.changes.length === 1 ? 'change' : 'changes'} in the preview. Save them when it looks right.` : 'Nothing changed.', 'info', 'prompt'));
+});
+
+notebooksRouter.post('/notebooks/:id/edit/save', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const { changes, notes } = saveEdit(getContext(req.app.locals), id);
+    res.redirect(303, back(id, `Saved${changes.length ? ` ${String(changes.length)} ${changes.length === 1 ? 'change' : 'changes'}` : ''}.${notes.length ? ` ${notes.join(' ')}` : ''}`));
+  } catch (err) {
+    res.redirect(303, editBack(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+notebooksRouter.post('/notebooks/:id/edit/discard', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  discardEdit(getContext(req.app.locals), id);
+  res.redirect(303, editBack(id, 'Discarded your changes. The notebook is as it was.', 'info'));
 });
 
 /** The notebook's page: back to a preset, or undo the last change (sua draws new ones in its conversation). */
@@ -691,7 +756,7 @@ notebooksRouter.post('/notebooks/:id/edit', (req: Request, res: Response) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const say = cadence && /cron|schedule|frequen/i.test(msg) ? `"${cadence}" isn't a schedule sua understands. Use five fields, e.g. 0 7 * * *.` : msg;
-    res.redirect(303, req.body?.setup === '1' ? `${editPage}?flash=${encodeURIComponent(say)}` : back(id, say));
+    res.redirect(303, req.body?.setup === "1" ? editBack(id, say, "error", "prompt") : back(id, say));
   }
 });
 

@@ -222,7 +222,7 @@ export function startNotebookDraft(ctx: Ctx, text: string, from?: { id: string; 
 }
 
 /** One drafter run: its answer, or why there isn't one. Never throws. */
-async function runDrafter(ctx: Ctx, agent: ReturnType<Ctx['agentStore']['getAgent']> | undefined, inputs: Record<string, string>): Promise<{ result?: string; error?: string }> {
+export async function runDrafter(ctx: Ctx, agent: ReturnType<Ctx['agentStore']['getAgent']> | undefined, inputs: Record<string, string>): Promise<{ result?: string; error?: string }> {
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);

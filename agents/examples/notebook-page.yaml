@@ -32,6 +32,16 @@ inputs:
     required: false
     default: ""
     description: Why the last page drawn couldn't be used (when trying again).
+  ASK:
+    type: string
+    required: false
+    default: ""
+    description: What the person asked to change about the page (from the notebook's Edit page), if anything.
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: The page they're asking to change, as its components (empty for the shortlist).
 
 nodes:
   - id: page
@@ -81,6 +91,16 @@ nodes:
       bound to its own path, and a FactSheet of /notebook/facts with
       missing /notebook/notFound, each with "when": "about" so they wait
       until something is learned.
+
+      What the person asked to change about the page (may be empty):
+      {{inputs.ASK}}
+      Their page now (may be empty, meaning the shortlist):
+      {{inputs.CURRENT}}
+      When they asked for something, do what they asked to their page
+      now and keep the rest of it as it is (its parts, treatments and
+      order), unless what they asked means a different kind of page
+      ("make it a report"). Answer with the whole page. Asked to go back
+      to the shortlist: {"preset": "shortlist"}.
 
       The last page you drew couldn't be used, because (may be empty):
       {{inputs.ERRORS}}
