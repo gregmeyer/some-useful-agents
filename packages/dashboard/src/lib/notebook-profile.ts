@@ -96,7 +96,7 @@ const host = (u: string): string | undefined => {
   try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('.') ? h : undefined; } catch { return undefined; }
 };
 
-async function research(ctx: Ctx, inputs: Record<string, string>): Promise<{ runId?: string; result?: string; error?: string }> {
+export async function research(ctx: Ctx, inputs: Record<string, string>): Promise<{ runId?: string; result?: string; error?: string }> {
   if (ctx.notebookResearchRun) return { result: await ctx.notebookResearchRun(inputs) };
   const agent = ctx.agentStore.getAgent(RESEARCH_ONE_ID);
   if (!agent) return { error: `${RESEARCH_ONE_ID} isn't installed` };

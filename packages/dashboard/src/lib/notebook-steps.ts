@@ -10,6 +10,7 @@
  * button as a card. The agent is never edited for a step.
  */
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
+import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
 import { NotebookStore, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -574,6 +575,8 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries, ...(!p.met && stalled ? { stalled: true } : {}), ...(!p.met && why ? { why } : {}) });
   store.noteRun(notebookId, `${step.title}: ${words}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
   postStepCard(ctx, nb, step.id, p);
+  // What it found may disagree with who it's about (a new employer, a move): checked in the background.
+  if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') void reconcileAbout(ctx, store, notebookId).catch(() => undefined);
   if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
 }
 

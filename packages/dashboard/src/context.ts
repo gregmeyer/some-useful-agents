@@ -271,6 +271,10 @@ export interface DashboardContext {
   notebookFacets?: Set<string>;
   /** Notebooks deciding their page right now (lib/notebook-page.ts). */
   notebookPages?: Set<string>;
+  /** Tests only: answer for the notebook-reconciler agent instead of running it. */
+  notebookReconcilerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Notebooks with a conflict sua is checking right now, as "<notebook>|<who>|<fact>" (lib/notebook-reconcile.ts). */
+  notebookConflictChecks?: Set<string>;
   /** Tests only: answer for the notebook-writer agent (a write step) instead of running it. */
   notebookWriterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-page agent instead of running it. */

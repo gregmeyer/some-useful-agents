@@ -36,6 +36,7 @@ let stepsReply: ((inputs: Record<string, string>) => string | undefined) | undef
 const facetsAsked: Array<Record<string, string>> = [];
 /** research-one's answer in a profile step, and what it was asked. */
 let researchReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+let reconcilerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const researchAsked: Array<Record<string, string>> = [];
 /** The notebook-page agent's answer (none: the shortlist stays), and what it was asked. */
 let pageReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
@@ -108,6 +109,8 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     // Nor a real finder: tests set finderReply.
     notebookFinderRun: async (inputs) => finderReply?.(inputs),
     notebookResearchRun: async (inputs) => { researchAsked.push(inputs); return researchReply?.(inputs); },
+    // Nor a real reconciler: no conflicts unless a test says so.
+    notebookReconcilerRun: async (inputs) => reconcilerReply?.(inputs) ?? '<conflicts>{"conflicts": []}</conflicts>',
     notebookPersonPhotoCheck: async () => ({ why: 'no network in tests' }),
     // (only "staff role" notebooks get set up, so other tests keep the card layout).
     // The drafter answers with a fixed draft (its CHANGE, when given, lands in the title).
@@ -3757,6 +3760,68 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     // The notebook says it was saved.
     expect((await get(saved.headers.location)).text).toContain('Saved 3 changes.');
     expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('as it is now');
+  });
+});
+
+describe('who they are now, when what was found disagrees', () => {
+  afterEach(() => { reconcilerReply = undefined; researchReply = undefined; researchAsked.length = 0; });
+
+  it('says so at the top; the writer states neither side; you pick one, or sua checks it as of today', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { reconcileAbout } = await import('../lib/notebook-reconcile.js');
+    const { writerInputs } = await import('../lib/notebook-write.js');
+    const ctx = getContext(app.locals);
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call with Dana Reyes', statement: 'What matters to Dana' });
+    s.setFields(nb.id, [{ key: 'said', label: 'What she said', type: 'text' }, { key: 'link', label: 'Source', type: 'url', role: 'link' }, { key: 'when', label: 'Date', type: 'date', role: 'when' }]);
+    s.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'organization', label: 'Company', value: 'Northwind', source: 'https://northwind.example/team' }, { key: 'role', label: 'Role', value: 'Founder' }] });
+    const post1 = s.upsertOption(nb.id, { title: 'Her move to Globex', by: 'agent:x', data: { said: 'I joined Globex to lead their content work.', link: 'https://social.example/dana/1', when: '2026-10-01' } }).entry;
+
+    // What it reads: who she is (with sources) and what was found (with ids).
+    let asked: Record<string, string> | undefined;
+    reconcilerReply = (inputs) => { asked = inputs; return `<conflicts>${JSON.stringify({ conflicts: [{ about: 'person', fact: 'organization', question: 'Is she at Globex now, or still running Northwind?', claims: [{ value: 'Northwind', source: 'https://northwind.example/team' }, { value: 'Globex', source: 'https://social.example/dana/1', when: '2026-10', from: [post1.id] }] }] })}</conflicts>`; };
+    expect(await reconcileAbout(ctx, s, nb.id)).toBe('1 thing found disagrees with who they are');
+    expect(JSON.parse(asked!.PEOPLE).person.facts[0]).toMatchObject({ key: 'organization', value: 'Northwind', source: 'https://northwind.example/team' });
+    expect(JSON.parse(asked!.FOUND)[0]).toMatchObject({ id: post1.id, title: 'Her move to Globex', source: 'https://social.example/dana/1', when: '2026-10-01' });
+
+    // At the top: the question, each side with its source and date, Check it, and a button per side.
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('<span class="nb-conflict__tag">Not settled</span> Is she at Globex now, or still running Northwind?');
+    expect(page).toContain('<strong>Globex</strong> <span class="nb-conflict__src"><a href="https://social.example/dana/1" target="_blank" rel="noopener">social.example ↗</a> · 2026-10</span>');
+    expect(page).toContain('>Check it</button>');
+    expect(page).toContain(">It's Northwind</button>");
+
+    // The writer is told both sides and states neither.
+    const person = JSON.parse(writerInputs(s.get(nb.id)!, s.entries(nb.id), {}).NOTEBOOK).person;
+    expect(person.facts).toEqual(['Role: Founder']);
+    expect(person.unsettled).toEqual([{ fact: 'Company', sides: ['Northwind', 'Globex (2026-10)'], question: 'Is she at Globex now, or still running Northwind?' }]);
+
+    // You pick: the fact takes it, with that side's source; it's gone from the top.
+    const picked = await post(`/notebooks/${nb.id}/about/person/conflicts/organization/settle`, { value: 'Globex' });
+    expect(decodeURIComponent(picked.headers.location)).toContain('Kept: Company is Globex.');
+    expect(s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'organization')).toMatchObject({ value: 'Globex', source: 'https://social.example/dana/1' });
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('Not settled');
+
+    // Check it: sua looks it up as of today with both sides as leads; a sourced answer settles it.
+    s.setAbout(nb.id, 'person', { facts: [{ key: 'role', label: 'Role', value: 'Founder' }] });
+    reconcilerReply = () => `<conflicts>${JSON.stringify({ conflicts: [{ about: 'person', fact: 'role', question: 'Is she still a founder?', claims: [{ value: 'Founder', source: 'https://northwind.example/team' }, { value: 'Head of Content', from: [post1.id] }] }] })}</conflicts>`;
+    await reconcileAbout(ctx, s, nb.id);
+    researchReply = () => JSON.stringify({ subject: 'Dana Reyes', found: { role: { value: 'Head of Content at Globex', source: 'https://globex.example/team', quote: 'Dana Reyes, Head of Content' } } });
+    const checked = await post(`/notebooks/${nb.id}/about/person/conflicts/role/check`);
+    expect(decodeURIComponent(checked.headers.location)).toContain('sua is checking it.');
+    for (let i = 0; i < 50 && ctx.notebookConflictChecks?.size; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(JSON.parse(researchAsked.at(-1)!.ASK)[0].hint).toContain('"Founder" (https://northwind.example/team) vs "Head of Content"');
+    const role = s.get(nb.id)!.about!.person!;
+    expect(role.facts.find((f) => f.key === 'role')).toMatchObject({ value: 'Head of Content', source: 'https://globex.example/team' });
+    expect(role.conflicts!.find((c) => c.fact === 'role')!.settled).toMatchObject({ by: 'research', why: '“Dana Reyes, Head of Content”' });
+    expect(s.entries(nb.id).some((e) => e.title === 'Checked: Role is Head of Content')).toBe(true);
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).not.toContain('Not settled');
   });
 });
 

@@ -9,7 +9,7 @@ import { meetingWhenWords } from './notebook-edit.js';
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
-  notebookLayoutOf, isMeetingNotebook, cleanMeeting, type NotebookMeeting,
+  notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, type NotebookMeeting,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -331,6 +331,12 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}), ...(x.why ? { why: x.why } : {}), ...(x.movedOn ? { movedOn: true } : {}), ...(x.shape ? { shape: x.shape } : {}) })) } : {}),
     // The answer its write step wrote, for "what did it find?".
     ...(nb.meeting ? { meeting: nb.meeting } : {}),
+    // Who it's about, and where what was found disagrees (settled by Check it or by picking, on the page).
+    ...(nb.about?.person || nb.about?.company ? { about: Object.fromEntries((['person', 'company'] as const).filter((w) => nb.about?.[w]).map((w) => {
+      const one = nb.about![w]!;
+      const open = openConflicts(one);
+      return [w, { name: one.name, facts: one.facts.slice(0, 10).map((f) => `${f.label}: ${f.value}`), ...(open.length ? { notSettled: open.map((c) => ({ fact: c.label, question: c.question, sides: c.claims.map((x) => x.value) })) } : {}) }];
+    })) } : {}),
     ...(nb.plan?.items.length ? { plan: { summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open } } : {}),
     ...(nb.answer?.text ? { answer: { text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open } } : {}),
     // Where the steps are now, as the notebook's page shows them: running, or the card waiting on the operator.
