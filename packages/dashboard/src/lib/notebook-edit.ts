@@ -26,7 +26,7 @@ export type NotebookSetup = Omit<NotebookDraft, 'suggested' | 'why'> & { steps: 
 export interface NotebookEditTurn {
   /** What you said, or "You edited the prompt." */
   you: string;
-  via: 'talk' | 'prompt';
+  via: 'talk' | 'prompt' | 'look';
   /** What changed with it, in words. */
   changes?: string[];
   /** sua's word on it, when it has one (why, or that nothing changed). */
@@ -116,7 +116,7 @@ export function pageName(layout: NotebookLayout | undefined): string {
   if (!layout) return 'Shortlist';
   const preset = layout.preset ? layoutPreset(layout.preset) : undefined;
   if (preset && JSON.stringify(preset.layout.components) === JSON.stringify(layout.components)) return preset.label;
-  return layout.about ? `Drawn for this notebook: ${layout.about}` : 'Drawn for this notebook';
+  return 'Made for this notebook';
 }
 
 /** What an edit changes, one line each, in the setup's order. Pure. */
@@ -155,7 +155,8 @@ export function describeSetupChange(before: NotebookSetup, after: NotebookSetup,
   if (pageAfter !== undefined && JSON.stringify(pageBefore ?? null) !== JSON.stringify(pageAfter ?? null)) {
     const a = pageName(pageAfter ?? undefined);
     const b = pageName(pageBefore);
-    out.push(a === b ? `The page: ${a}, redrawn${pageAfter?.about ? ` (${pageAfter.about})` : ''}` : `The page: ${b} → ${a}`);
+    const why = pageAfter?.about && a === 'Made for this notebook' ? ` (${pageAfter.about})` : '';
+    out.push(a === b ? `How it looks: changed${why}` : `How it looks: ${b} → ${a}${why}`);
   }
   return out;
 }
@@ -188,7 +189,7 @@ export function keepStepProgress(was: readonly NotebookStep[], next: readonly St
 
 // ---- The notebook as a document (the Prompt tab) --------------------------------
 
-const PAGE = 'Page';
+const PAGE = 'How it looks';
 const SECTIONS = ['Limits', 'Done when', 'Facts each option notes', 'Checks', 'Steps', 'Stages', 'Agents and schedule', PAGE] as const;
 
 /** A notebook's setup as markdown: a title, what it's for, then a section each. Pure. */
@@ -269,7 +270,8 @@ export function notebookFromMarkdown(md: string, base: NotebookSetup, baseLayout
   for (const l of lines.slice(titleAt + 1)) {
     const h = /^##\s+(.+?)\s*$/.exec(l);
     if (h) {
-      const name = SECTIONS.find((s) => norm(s) === norm(h[1])) ?? h[1];
+      // "Page" is what the section was called before.
+      const name = norm(h[1]) === 'page' ? PAGE : SECTIONS.find((s) => norm(s) === norm(h[1])) ?? h[1];
       cur = [];
       sections.set(name, cur);
       continue;
@@ -418,6 +420,65 @@ function keepFieldKeys(was: readonly NotebookField[], next: readonly NotebookFie
 }
 
 const runPage = (ctx: Ctx, inputs: Record<string, string>) => runNotebookPageAgent(ctx, inputs);
+
+// ---- How it looks --------------------------------------------------------------------
+
+const sameLayout = (a: NotebookLayout | null | undefined, b: NotebookLayout | null | undefined) => JSON.stringify(a?.components ?? null) === JSON.stringify(b?.components ?? null);
+
+/**
+ * Pick a look (Edit's "How it looks"): a ready-made one by id, `shortlist`,
+ * or `now` (back to the look it has). It goes in your changes, like any other.
+ */
+export function proposeLook(ctx: Ctx, nb: Notebook, look: string): { changes: string[] } | { error: string } {
+  const was = readEdit(ctx, nb.id);
+  if (was?.status === 'working') return { error: 'sua is still making your last change. Try again in a moment.' };
+  let layout: NotebookLayout | null | undefined;
+  if (look === 'now') layout = undefined;
+  else if (look === 'shortlist') layout = null;
+  else {
+    const preset = layoutPreset(look);
+    if (!preset) return { error: 'There\'s no such look.' };
+    layout = preset.layout;
+  }
+  // The look it has already: no change to it.
+  if (layout !== undefined && sameLayout(layout, nb.layout)) layout = undefined;
+  const setup = was?.setup ?? setupOf(nb);
+  const before = was?.layout === undefined ? nb.layout : was.layout ?? undefined;
+  const changes = describeSetupChange(setup, setup, before, layout === undefined ? nb.layout ?? null : layout);
+  writeEdit(ctx, nb.id, {
+    setup, ...(layout !== undefined ? { layout } : {}), status: 'ready', updatedAt: new Date().toISOString(),
+    turns: [...(was?.turns ?? []), { you: `Look like: ${look === 'now' ? 'as it is now' : pageName(layout ?? undefined)}.`, via: 'look', changes, ...(changes.length ? {} : { sua: 'That\'s how it looks already.' }), at: new Date().toISOString() }],
+  });
+  return { changes };
+}
+
+/** Let sua pick how it looks: the page agent decides from what it's for (in the background, like Talk). */
+export function startEditPick(ctx: Ctx, nb: Notebook): { ok: true } | { error: string } {
+  const was = readEdit(ctx, nb.id);
+  if (was?.status === 'working') return { error: 'sua is still making your last change.' };
+  const working: NotebookEdit = {
+    setup: was?.setup ?? setupOf(nb), ...(was?.layout !== undefined ? { layout: was.layout } : {}), status: 'working', updatedAt: new Date().toISOString(),
+    turns: [...(was?.turns ?? []), { you: 'Let sua pick how it looks.', via: 'look', at: new Date().toISOString() }],
+  };
+  writeEdit(ctx, nb.id, working);
+  void (async () => {
+    const before = working.layout === undefined ? nb.layout : working.layout ?? undefined;
+    const drawn = await drawNotebookPage(proposedNotebook(nb, working), (inputs) => runPage(ctx, inputs));
+    const now = readEdit(ctx, nb.id);
+    if (!now || now.status !== 'working') return;
+    const last = (patch: Partial<NotebookEditTurn>) => [...working.turns.slice(0, -1), { ...working.turns[working.turns.length - 1], ...patch }];
+    if ('error' in drawn.answer) { writeEdit(ctx, nb.id, { ...working, status: 'ready', turns: last({ error: `sua couldn't draw one: ${drawn.answer.error}` }) }); return; }
+    const picked: NotebookLayout | null = 'layout' in drawn.answer ? drawn.answer.layout : null;
+    const layout = sameLayout(picked, nb.layout) ? undefined : picked;
+    const changes = describeSetupChange(working.setup, working.setup, before, layout === undefined ? nb.layout ?? null : layout);
+    const about = 'layout' in drawn.answer ? drawn.answer.layout.about : drawn.answer.about;
+    writeEdit(ctx, nb.id, {
+      setup: working.setup, ...(layout !== undefined ? { layout } : {}), status: 'ready', updatedAt: new Date().toISOString(),
+      turns: last({ changes, sua: changes.length ? (about ? `It fits as ${about}.` : 'Here\'s a look that fits.') : 'The look it has fits what it\'s for.' }),
+    });
+  })().catch(() => undefined);
+  return { ok: true };
+}
 
 // ---- Save ------------------------------------------------------------------------
 

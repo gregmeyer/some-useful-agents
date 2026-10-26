@@ -2642,15 +2642,15 @@ describe('a notebook\'s page, drawn by sua', () => {
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
     const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
-    expect(edit).toContain('Page: <b>Drawn for this notebook</b>');
-    expect(edit).toContain('Undo the last page change');
+    expect(edit).toMatch(/aria-label="Made for this notebook, how it looks">[\s\S]*?<span class="look-card__badge">Now<\/span>/);
+    expect(edit).toContain('Undo the last saved change to how it looks');
     const undone = await post(`/notebooks/${nb.id}/layout`, 'undo=1');
     expect(decodeURIComponent(undone.headers.location)).toContain('Put the page back how it was before the last change.');
     expect(store.get(nb.id)!.layout).toBeUndefined();
     store.setLayout(nb.id, { components: page });
     await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
     expect(store.get(nb.id)!.layout).toBeUndefined();
-    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('Page: <b>Shortlist</b>');
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('aria-label="Shortlist, how it looks"');
   });
 });
 
@@ -2735,13 +2735,13 @@ describe('a profile step', () => {
     expect(store.aboutPhoto(nb.id, 'person')).toBeUndefined();
     expect(store.get(nb.id)!.about!.person!.rejectedPhotos).toEqual(['https://northwind.example/dana.png']);
 
-    // Edit offers the Meeting briefing page by name.
+    // Edit offers the Meeting briefing look, as a picture to pick.
     const edit = (await get(`/notebooks/${nb.id}/edit`)).text;
-    expect(edit).toContain('Use Meeting briefing');
+    expect(edit).toContain('aria-label="Look like: Meeting briefing"');
     const used = await post(`/notebooks/${nb.id}/layout`, { preset: 'dossier' });
     expect(decodeURIComponent(used.headers.location)).toContain('The page is now the Meeting briefing');
     expect(store.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
-    expect((await get(`/notebooks/${nb.id}/edit`)).text).not.toContain('Use Meeting briefing');
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('aria-label="Meeting briefing, how it looks"');
   });
 
   it('decides its page again once its first step is done, unless you changed the page', async () => {
@@ -2991,8 +2991,8 @@ describe('a new notebook decides its page', () => {
     const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(nb.conversationId!).map((r) => r.body).join('\n');
     expect(said).toContain("Its page is drawn for what it's for: a briefing: what to talk about, what they said.");
     const edit = (await request(app).get(`/notebooks/${id}/edit`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
-    expect(edit).toContain('Page: <b>Drawn for this notebook</b> <span class="nbe-layout__about">(a briefing: what to talk about, what they said)</span>');
-    expect(edit).toMatch(/Pick a page for what it(&#39;|')s for/);
+    expect(edit).toContain('A briefing: what to talk about, what they said.');
+    expect(edit).toContain('Let sua pick');
     await post(`/notebooks/${id}/layout`, { undo: '1' });
     expect(store.get(id)!.layout).toBeUndefined();
 
@@ -3710,7 +3710,7 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     // The document: a page by name, a new done-when; then saved.
     const md = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(md).toContain('## Done when');
-    const doc = `# Prepare for a meeting with Dana Reyes\n\nWhat matters to Dana\n\n## Done when\n- [ ] Talking points chosen\n- [ ] Questions ready\n\n## Steps\n1. Learn about Dana Reyes (profile; about Dana Reyes)\n2. Find what Dana has said (find 5)\n\n## Page\nMeeting briefing\n`;
+    const doc = `# Prepare for a meeting with Dana Reyes\n\nWhat matters to Dana\n\n## Done when\n- [ ] Talking points chosen\n- [ ] Questions ready\n\n## Steps\n1. Learn about Dana Reyes (profile; about Dana Reyes)\n2. Find what Dana has said (find 5)\n\n## How it looks\nMeeting briefing\n`;
     const shown = await post(`/notebooks/${nb.id}/edit/prompt`, { markdown: doc });
     expect(decodeURIComponent(shown.headers.location)).toContain('3 changes in the preview');
     // It opens the preview (a dialog over the editor) once, as the page loads.
@@ -3720,7 +3720,7 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(page).toContain('Added done when “Questions ready”');
     expect(page).toContain('Added step 1: Learn about Dana Reyes (profile; about Dana Reyes)');
-    expect(page).toContain('The page: Shortlist → Meeting briefing');
+    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
     const saved = await post(`/notebooks/${nb.id}/edit/save`, {});
     expect(decodeURIComponent(saved.headers.location)).toContain('Saved 3 changes.');
     const after = s.get(nb.id)!;
@@ -3731,5 +3731,49 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     // The notebook says it was saved.
     expect((await get(saved.headers.location)).text).toContain('Saved 3 changes.');
     expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('as it is now');
+  });
+});
+
+describe('how a notebook looks, picked from pictures', () => {
+  it('a look goes in your changes and opens the preview; sua can pick one; back to how it is drops it', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana Reyes', statement: 'Before our call' });
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }]);
+
+    let page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('How it looks');
+    expect(page).toMatch(/aria-label="Shortlist, how it looks">[\s\S]*?look-card__badge">Now</);
+    expect(page).toContain('class="lk-thumb"');
+
+    const picked = await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
+    expect(picked.headers.location).toContain('preview=1');
+    page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toMatch(/aria-label="Meeting briefing, how it looks">[\s\S]*?look-card__badge">In your changes</);
+    expect(page).toMatch(/aria-label="Look like: Shortlist">[\s\S]*?look-card__badge">Saved</);
+    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
+    expect(s.get(nb.id)!.layout).toBeUndefined();
+
+    // Back to the look it has: nothing to save about it.
+    await post(`/notebooks/${nb.id}/edit/look`, { look: 'shortlist' });
+    page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).not.toContain('not saved yet');
+    expect(page).toContain('Look like: Shortlist.');
+
+    // sua picks (the page agent, as a change to preview).
+    pageReply = () => `<page>${JSON.stringify({ preset: 'dossier', about: 'a briefing before the call' })}</page>`;
+    await post(`/notebooks/${nb.id}/edit/look`, { look: 'pick' });
+    for (let i = 0; i < 50 && (await get(`/notebooks/${nb.id}/edit/state`)).body.status === 'working'; i++) await new Promise((r) => setTimeout(r, 20));
+    page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('Let sua pick how it looks.');
+    expect(page).toContain('It fits as a briefing before the call.');
+    expect(page).toContain('How it looks: Shortlist → Meeting briefing');
+    pageReply = undefined;
+    await post(`/notebooks/${nb.id}/edit/save`, {});
+    expect(s.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
   });
 });
