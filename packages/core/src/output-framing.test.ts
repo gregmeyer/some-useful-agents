@@ -29,8 +29,8 @@ describe('extractFramedOutput', () => {
     expect(result).toEqual([1, 2, 3]);
   });
 
-  it('returns undefined when the last line starts with a non-JSON char', () => {
-    const stdout = 'hello world\n';
+  it('returns undefined when the last line looks like JSON but doesn\'t parse', () => {
+    const stdout = 'some log\n{not json\n';
     expect(extractFramedOutput(stdout)).toBeUndefined();
   });
 

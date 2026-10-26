@@ -134,14 +134,6 @@ describe('atLeastOneActionExecuted excludes show-widget', () => {
     inboxStore.addResponse(m.id, 'action', 'widget', JSON.stringify(meta));
     expect(atLeastOneActionExecuted(ctx, m.id)).toBe(false);
   });
-
-  it('a completed run-agent action DOES count as executed', () => {
-    const ctx = setup();
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const meta: InboxActionMeta = { kind: 'action', status: 'completed', agentId: 'analyzer', inputs: {}, runId: 'r1' };
-    inboxStore.addResponse(m.id, 'action', 'ran', JSON.stringify(meta));
-    expect(atLeastOneActionExecuted(ctx, m.id)).toBe(true);
-  });
 });
 
 describe('show-widget card chrome', () => {

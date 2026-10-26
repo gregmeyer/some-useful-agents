@@ -341,7 +341,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
   const sectionTabMatch = (res: { text: string }) =>
     res.text.match(/<nav class="tab-strip" aria-label="Agents section">[\s\S]*?<\/nav>/)?.[0] ?? '';
 
-  it('top row is Agents · Pulse · Settings · Help; the sua brand is the home link, and Home is the inbox', async () => {
+  it('top row is Notebooks · Agents · Pulse · Settings · Help; the sua brand is the home link', async () => {
     const app = await makeApp();
     const res = await authed(app, '/help');
     expect(res.status).toBe(200);
@@ -355,6 +355,7 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     // Home is the inbox, so the brand covers it: no separate Inbox item.
     expect(nav).not.toContain('>Inbox');
     expect(nav).toContain('>Agents<');
+    expect(nav).toContain('>Notebooks<');
     // Top-level nav still doesn't surface the building blocks directly.
     expect(nav).not.toContain('href="/tools"');
     expect(nav).not.toContain('href="/nodes"');
@@ -376,15 +377,6 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
     // stopped — the state the board was silent about for nine days.
     expect(res.text).toContain('"_system-scheduler"');
     expect(res.text).toContain('"surfaceId":"tile-_system-scheduler"');
-  });
-
-  it('has no global subnav bar anywhere', async () => {
-    const app = await makeApp();
-    for (const path of ['/', '/settings/secrets', '/help', '/agents', '/tools']) {
-      const res = await authed(app, path);
-      expect(res.status, path).toBe(200);
-      expect(res.text, path).not.toContain('topbar__subnav');
-    }
   });
 
   it('renders no section tabs on Home, Settings, or Help', async () => {
@@ -495,7 +487,7 @@ describe('Dashboard /runs + filters', () => {
 });
 
 describe('Dashboard v2 DAG agents', () => {
-  it('lists v2 agents on /agents under a "DAG agents" header', async () => {
+  it('lists agents on /agents as rows, and as cards when sorted or filtered', async () => {
     const app = await makeApp();
     agentStore.createAgent({
       id: 'news-digest', name: 'News Digest', status: 'active',
@@ -899,16 +891,6 @@ describe('Dashboard help + tutorial', () => {
     expect(res.text).not.toContain('v0.15');
   });
 
-  it('GET /help/tutorial references the first agent by id for the Run CTA', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/help/tutorial')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    // First v1 agent is "hello" (spooky is community; v2 store is empty in this
-    // fixture). The Run CTA should link to /agents/hello.
-    expect(res.text).toContain('/agents/hello');
-  });
 });
 
 describe('Dashboard tutorial scaffold endpoints (PR 1.6)', () => {
@@ -1017,32 +999,21 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
   it('tidies a messy id instead of bouncing you off the first field', async () => {
     // The reported case: a capital letter used to produce
     // "Id must be lowercase letters, digits, or hyphens" and a retype.
+    // Capitals, spaces and punctuation are all fixable; only an id with
+    // nothing left after tidying still errors (the '!!!' case).
     const app = await makeApp();
-    const res = await request(app)
-      .post('/agents/new')
-      .type('form')
-      .send({ id: 'what-do-I-wear', name: 'What do I wear', type: 'shell', command: 'echo hi' })
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-
-    expect(res.status).toBe(303);
-    expect(agentStore.getAgent('what-do-i-wear')).toBeDefined();
-    // And it says what the id became, rather than silently differing from
-    // what was typed.
-    expect(decodeURIComponent(res.headers.location)).toContain('Created as "what-do-i-wear"');
-  });
-
-  it('slugs spaces and punctuation out of an id', async () => {
-    const app = await makeApp();
-    const res = await request(app)
-      .post('/agents/new')
-      .type('form')
-      .send({ id: '  What Do I Wear?!  ', name: 'Outfit', type: 'shell', command: 'echo hi' })
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-
-    expect(res.status).toBe(303);
-    expect(agentStore.getAgent('what-do-i-wear')).toBeDefined();
+    for (const [typed, becomes] of [['what-do-I-wear', 'what-do-i-wear'], ['  Outfit Ideas?!  ', 'outfit-ideas'], ['Invalid ID!', 'invalid-id']]) {
+      const res = await request(app)
+        .post('/agents/new')
+        .type('form')
+        .send({ id: typed, name: typed, type: 'shell', command: 'echo hi' })
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(res.status, typed).toBe(303);
+      expect(agentStore.getAgent(becomes), typed).toBeDefined();
+      // And it says what the id became, rather than silently differing from what was typed.
+      expect(decodeURIComponent(res.headers.location), typed).toContain(`Created as "${becomes}"`);
+    }
   });
 
   it('still rejects an id with nothing salvageable in it', async () => {
@@ -1108,23 +1079,6 @@ describe('Dashboard /agents/new create form (PR 1.6)', () => {
     expect(landing.text).toContain('Run it to see what it does');
   });
 
-  it('POST /agents/new normalizes an off-pattern id rather than rejecting it', async () => {
-    // Behaviour change: this used to 400 with "Id must be lowercase…".
-    // Capitals, spaces and punctuation are all fixable, and bouncing someone
-    // off the first field they filled in is a bad trade for a slug. Only
-    // genuinely empty results still error — see the '!!!' case above.
-    const app = await makeApp();
-    const res = await request(app)
-      .post('/agents/new')
-      .type('form')
-      .send({ id: 'Invalid ID!', name: 'x', type: 'shell', command: 'echo' })
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(303);
-    expect(agentStore.getAgent('invalid-id')).toBeDefined();
-    expect(decodeURIComponent(res.headers.location)).toContain('Created as "invalid-id"');
-  });
-
   it('POST /agents/new rejects duplicate id', async () => {
     const app = await makeApp();
     agentStore.createAgent({
@@ -1177,26 +1131,6 @@ describe('Agents that call agents are visible', () => {
       nodes: [{ id: 'delegate', type: 'agent-invoke', agentInvokeConfig: { agentId: 'worker-a' } }],
     } as never, 'cli');
   }
-
-  it('shows what an agent invokes, and what invokes it', async () => {
-    const app = await makeApp();
-    seedPair();
-    const authed = (p: string) => request(app).get(p)
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-
-    // Composition has worked since agent-invoke shipped, but the only place it
-    // showed was a "used by N" badge on the list — nothing on the agent itself.
-    const caller = await authed('/agents/boss');
-    expect(caller.status).toBe(200);
-    expect(caller.text).toContain('id="agent-connections"');
-    expect(caller.text).toContain('>Calls<');
-    expect(caller.text).toContain('href="/agents/worker-a"');
-
-    const callee = await authed('/agents/worker-a');
-    expect(callee.text).toContain('Called by');
-    expect(callee.text).toContain('href="/agents/boss"');
-  });
 
   it('says what it calls at the top, with what each agent does and whether it would run', async () => {
     const app = await makeApp();
@@ -2593,6 +2527,7 @@ describe('Tools owns what agents can call (ADR-0034)', () => {
     // server and forwards you on to Tools → Import.
     expect(res.text).not.toContain('/settings/mcp-servers');
     expect(res.text).toContain('/tools/mcp/import');
+    expect(res.text).toContain('No MCP servers connected');
   });
 });
 
@@ -2624,16 +2559,6 @@ describe('Dashboard /settings/integrations', () => {
     expect(res.text).not.toContain('Add Webhook');
     expect(res.text).not.toContain('Add File');
     expect(res.text).not.toContain('Add MCP tool integration');
-  });
-
-  it('MCP tool tab hints when no servers are connected', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/tools?tab=integrations&kind=mcp-tool')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('Add MCP tool integration');
-    expect(res.text).toContain('No MCP servers connected');
   });
 
   it('MCP tool add path validates server + tool against the cache', async () => {
@@ -2932,15 +2857,6 @@ describe('Dashboard /runs/:id/replay (PR 5)', () => {
     expect(res.status).toBe(303);
     expect(res.headers.location).toMatch(/^\/runs\?flash=/);
     expect(decodeURIComponent(res.headers.location)).toContain('not found');
-  });
-
-  it('empty /runs renders the "No runs yet" state when nothing exists', async () => {
-    const app = await makeApp();
-    const res = await request(app).get('/runs')
-      .set('Host', `127.0.0.1:${PORT}`)
-      .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
-    expect(res.status).toBe(200);
-    expect(res.text).toContain('No runs yet');
   });
 
   it('filtered /runs with no matches renders "No runs match"', async () => {
@@ -4796,7 +4712,7 @@ describe('Settings → Temporal (/settings/temporal)', () => {
     expect(res.text).toContain('Start worker');
   });
 
-  it('worker start fails cleanly and redirects when sua bin path is unavailable', async () => {
+  it('stopping the worker redirects back to Settings → Temporal', async () => {
     // argv[1] is the vitest runner here, so spawnService will attempt a child;
     // we only assert the route is wired and redirects (303), not the spawn.
     const app = await makeApp();

@@ -28,14 +28,19 @@ describe('formatExitCode', () => {
     expect(formatExitCode(127)).toBe('exit 127 (command not found)');
     expect(formatExitCode(126)).toBe('exit 126 (permission denied)');
     expect(formatExitCode(137)).toBe('exit 137 (killed (SIGKILL / out of memory))');
+    expect(formatExitCode(0)).toBe('exit 0 (success)');
+    expect(formatExitCode(2)).toBe('exit 2 (misuse of shell command)');
   });
   it('expands the signal range', () => {
     expect(formatExitCode(131)).toBe('exit 131 (signal 3)');
+    expect(formatExitCode(140)).toBe('exit 140 (signal 12)');
   });
   it('renders a bare unknown code without a parenthetical', () => {
     expect(formatExitCode(42)).toBe('exit 42');
   });
   it('renders nothing for a null/undefined code', () => {
+    // Multi-node runs carry no run-level exit code; the store returns null.
+    // Regression: this used to render the literal "exit null".
     expect(formatExitCode(null)).toBe('');
     expect(formatExitCode(undefined)).toBe('');
   });

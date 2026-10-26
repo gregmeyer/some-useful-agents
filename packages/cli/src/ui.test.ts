@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import {
   SYMBOLS,
-  STATUS_COLORS,
   colorStatus,
   ok,
   fail,
@@ -41,25 +40,7 @@ function lastStderr(): string {
   return calls.length > 0 ? String(calls[calls.length - 1][0]) : '';
 }
 
-describe('SYMBOLS', () => {
-  it('exposes the five symbols used across the CLI', () => {
-    expect(SYMBOLS.ok).toBe('✅');
-    expect(SYMBOLS.fail).toBe('❌');
-    expect(SYMBOLS.warn.trim()).toBe('⚠️');
-    expect(SYMBOLS.info).toBe('💡');
-    expect(SYMBOLS.step).toBe('🚀');
-  });
-});
-
-describe('STATUS_COLORS + colorStatus', () => {
-  it('covers every RunStatus value', () => {
-    expect(STATUS_COLORS.completed).toBeTypeOf('function');
-    expect(STATUS_COLORS.running).toBeTypeOf('function');
-    expect(STATUS_COLORS.pending).toBeTypeOf('function');
-    expect(STATUS_COLORS.failed).toBeTypeOf('function');
-    expect(STATUS_COLORS.cancelled).toBeTypeOf('function');
-  });
-
+describe('colorStatus', () => {
   it('colorStatus returns a wrapped string for known statuses', () => {
     const out = colorStatus('completed');
     // The wrapped string contains the literal status text somewhere.

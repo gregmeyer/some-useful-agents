@@ -4,22 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AgentStore } from '@some-useful-agents/core';
-
-// Re-export the internal `reimportOne` shape via a thin re-export trick:
-// the verb itself wires its own DB; we want to exercise the per-file
-// logic in isolation. Since reimport.ts only exports the Command, we
-// duplicate the helper's contract here using a freshly-opened store.
-// If the helper grows, expose it directly and switch this to a real import.
-import { parseAgent } from '@some-useful-agents/core';
-
-function reimportOne(store: AgentStore, yaml: string, file: string): { status: string; version: number } {
-  const agent = parseAgent(yaml);
-  const before = store.getAgent(agent.id);
-  const after = store.upsertAgent(agent, 'cli', `Reimport from ${file}`);
-  if (!before) return { status: 'created', version: after.version };
-  if (after.version === before.version) return { status: 'unchanged', version: after.version };
-  return { status: 'updated', version: after.version };
-}
+import { reimportOne, collectYamlFiles } from './reimport.js';
 
 const baseYaml = (id: string, extra = '') => `id: ${id}
 name: ${id}
@@ -33,14 +18,15 @@ nodes:
     command: echo hi
 `;
 
-describe('reimport core mechanics', () => {
+// The verb's own per-file logic (reimport.ts), run against files on disk.
+describe('sua agent reimport', () => {
   let dir: string;
   let db: DatabaseSync;
   let store: AgentStore;
+  const file = (name: string, yaml: string) => { const p = join(dir, name); writeFileSync(p, yaml); return p; };
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'sua-reimport-'));
-    mkdirSync(join(dir, 'data'), { recursive: true });
     db = new DatabaseSync(join(dir, 'runs.db'));
     store = AgentStore.fromHandle(db);
   });
@@ -50,57 +36,45 @@ describe('reimport core mechanics', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('creates a new agent on first import', () => {
-    const result = reimportOne(store, baseYaml('alpha'), 'alpha.yaml');
-    expect(result.status).toBe('created');
-    expect(store.getAgent('alpha')!.id).toBe('alpha');
+  it('creates an agent, then reports it unchanged when the YAML matches', () => {
+    const p = file('alpha.yaml', baseYaml('alpha'));
+    expect(reimportOne(store, p)).toMatchObject({ status: 'created', message: 'alpha v1' });
+    expect(reimportOne(store, p)).toMatchObject({ status: 'unchanged' });
   });
 
-  it('returns unchanged when the YAML matches the current DB version', () => {
-    const yaml = baseYaml('beta');
-    reimportOne(store, yaml, 'beta.yaml');
-    const second = reimportOne(store, yaml, 'beta.yaml');
-    expect(second.status).toBe('unchanged');
-  });
-
-  it('returns updated and bumps version when the DAG changes', () => {
-    reimportOne(store, baseYaml('gamma'), 'gamma.yaml');
+  it('updates and bumps the version when the agent changes (an output widget added)', () => {
+    reimportOne(store, file('gamma.yaml', baseYaml('gamma')));
     const v1 = store.getAgent('gamma')!.version;
-    // Different DAG: add an output widget block.
-    const result = reimportOne(store, baseYaml('gamma', `outputWidget:\n  type: raw\n  fields:\n    - name: result\n      type: text`), 'gamma.yaml');
+    const result = reimportOne(store, file('gamma.yaml', baseYaml('gamma', `outputWidget:\n  type: raw\n  fields:\n    - name: result\n      type: text`)));
     expect(result.status).toBe('updated');
-    expect(result.version).toBeGreaterThan(v1);
+    expect(store.getAgent('gamma')!.version).toBeGreaterThan(v1);
     expect(store.getAgent('gamma')!.outputWidget?.type).toBe('raw');
   });
 
   it('handles flipping interactive: true on a re-import (the motivating case)', () => {
-    const before = baseYaml('delta', `outputWidget:\n  type: ai-template\n  template: |\n    <div>x</div>\n`);
-    reimportOne(store, before, 'delta.yaml');
+    reimportOne(store, file('delta.yaml', baseYaml('delta', `outputWidget:\n  type: ai-template\n  template: |\n    <div>x</div>\n`)));
     expect(store.getAgent('delta')!.outputWidget?.interactive).toBeFalsy();
-
-    const after = baseYaml('delta', `outputWidget:\n  type: ai-template\n  interactive: true\n  template: |\n    <div>x</div>\n`);
-    const result = reimportOne(store, after, 'delta.yaml');
+    const result = reimportOne(store, file('delta.yaml', baseYaml('delta', `outputWidget:\n  type: ai-template\n  interactive: true\n  template: |\n    <div>x</div>\n`)));
     expect(result.status).toBe('updated');
     expect(store.getAgent('delta')!.outputWidget?.interactive).toBe(true);
   });
 
-  it('walks YAMLs in a directory (file collection contract)', () => {
+  it('reports a file it can\'t read or parse as failed, without touching the store', () => {
+    expect(reimportOne(store, join(dir, 'missing.yaml'))).toMatchObject({ status: 'failed' });
+    expect(reimportOne(store, file('bad.yaml', 'name: no id or nodes\n'))).toMatchObject({ status: 'failed' });
+    expect(store.listAgents()).toHaveLength(0);
+  });
+
+  it('takes a file, or the YAML files in a folder', () => {
     const root = join(dir, 'agents');
     mkdirSync(root);
     writeFileSync(join(root, 'a.yaml'), baseYaml('walked-a'));
     writeFileSync(join(root, 'b.yml'), baseYaml('walked-b'));
     writeFileSync(join(root, 'README.md'), '# not yaml');
-
-    // Mirror collectYamlFiles inline so this test doesn't need to import
-    // it (the function is private to reimport.ts).
-    const fs = require('node:fs') as typeof import('node:fs');
-    const path = require('node:path') as typeof import('node:path');
-    const files = fs.readdirSync(root)
-      .filter((f) => /\.ya?ml$/i.test(f))
-      .map((f) => path.join(root, f));
-
-    expect(files).toHaveLength(2);
-    for (const f of files) reimportOne(store, fs.readFileSync(f, 'utf-8'), f);
+    const files = collectYamlFiles(root).sort();
+    expect(files.map((f) => f.slice(root.length + 1))).toEqual(['a.yaml', 'b.yml']);
+    expect(collectYamlFiles(files[0])).toEqual([files[0]]);
+    for (const f of files) reimportOne(store, f);
     expect(store.getAgent('walked-a')).not.toBeNull();
     expect(store.getAgent('walked-b')).not.toBeNull();
   });

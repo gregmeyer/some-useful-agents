@@ -79,9 +79,7 @@ outcomeCommand
   .action((runId: string, options: { json?: boolean }) => {
     const store = openStore();
     try {
-      // Accept a prefix — run ids are UUIDs and nobody types those.
-      const exact = store.get(runId);
-      const row = exact ?? store.list({ limit: 500 }).find((r) => r.runId.startsWith(runId));
+      const row = findOutcome(store, runId);
       if (!row) {
         ui.fail(`No outcome record for run "${runId}".`);
         process.exit(1);
@@ -162,4 +160,9 @@ function printRecord(rec: OutcomeRecord): void {
     for (const f of rec.followUp) console.log(`  - ${f}`);
   }
   console.log();
+}
+
+/** The record `show` prints: the run's own, else the newest whose run id starts with what was typed (run ids are UUIDs and nobody types those). */
+export function findOutcome(store: Pick<OutcomeStore, 'get' | 'list'>, runId: string): ReturnType<OutcomeStore['get']> {
+  return store.get(runId) ?? store.list({ limit: 500 }).find((r) => r.runId.startsWith(runId)) ?? null;
 }

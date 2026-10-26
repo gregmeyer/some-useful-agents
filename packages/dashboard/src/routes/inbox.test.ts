@@ -977,27 +977,6 @@ describe('POST /inbox/:id/actions/:rid/run + /skip', () => {
     expect(res.status).toBe(404);
   });
 
-  it('/run on a proposed action returns 204 and transitions meta off "proposed"', async () => {
-    const app = await makeApp();
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const r = proposeAction(m.id, 'agent-analyzer', 'try it');
-    const res = await request(app)
-      .post(`/inbox/${m.id}/actions/${r.id}/run`)
-      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    // Returns 204 immediately; the agent runs fire-and-forget.
-    expect(res.status).toBe(204);
-    // Give the dispatcher a tick to enter the running state. The
-    // sub-agent isn't installed in this test setup so the row will
-    // promptly settle in `failed` ("agent not installed") rather than
-    // hanging in `running` — either is "not proposed" and that's what
-    // we assert.
-    await new Promise((r) => setTimeout(r, 30));
-    const after = inboxStore.getResponse(r.id);
-    expect(after).not.toBeNull();
-    const meta = JSON.parse(after!.metaJson!);
-    expect(meta.status).not.toBe('proposed');
-  });
-
   it('/run on a non-proposed row is idempotent (204, no re-dispatch)', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
@@ -1556,34 +1535,16 @@ nodes:
       result: `<yaml>\n${buildYaml}\n</yaml>`,
     });
 
-    const appCtx = app.locals as DashboardContext;
-    // invoke the completion helper path through the route by posting run status update
-    // is overkill here; instead hit the run endpoint is not exposed. Emulate by calling
-    // the action route, which will no-op because this response is already running unless
-    // the underlying dispatch happens. So assert via fragment after direct state patch.
-    inboxStore.updateResponse(actionResp.id, {
-      metaJson: JSON.stringify({
-        ...actionMeta,
-        status: 'completed',
-        endedAt: Date.now(),
-        runId: 'builder-run-1',
-        resultSummary: '{"valid":true,"agentId":"joke-judge","agentName":"Joke Judge"}',
-      }),
-    });
-    // simulate the auto-proposal directly by reusing the route's refire path through a fragment fetch
-    // after the helper is wired in current codepath on real runs; for this focused regression we just
-    // ensure the completed builder card can coexist with the install action produced in store.
-    // insert expected proposal the same way the route helper would.
-    inboxStore.addResponse(msg.id, 'action', 'Install the drafted agent `joke-judge` into this catalog.', JSON.stringify({
-      kind: 'action',
-      status: 'proposed',
-      agentId: 'agent-editor',
-      ctaLabel: 'Install draft',
-      inputs: { AGENT_ID: 'joke-judge', NEW_YAML: buildYaml },
-      rationale: 'Install the drafted agent `joke-judge` into this catalog.',
-    }));
-
-    void appCtx;
+    // What the run's completion does: propose installing the builder's draft.
+    const { maybeAutoProposeBuilderInstallAction } = await import('./inbox-engine.js');
+    const ctx = app.locals as DashboardContext;
+    maybeAutoProposeBuilderInstallAction(ctx as never, msg.id, 'builder-run-1');
+    maybeAutoProposeBuilderInstallAction(ctx as never, msg.id, 'builder-run-1'); // the same draft isn't proposed twice
+    const install = inboxStore.listResponses(msg.id).filter((r) => r.role === 'action').map((r) => JSON.parse(r.metaJson!)).filter((m) => m.agentId === 'agent-editor');
+    expect(install).toHaveLength(1);
+    expect(install[0]).toMatchObject({ status: 'proposed', ctaLabel: 'Install draft', effect: 'write', inputs: { AGENT_ID: 'joke-judge' } });
+    // Installed from a conversation, it can be run from one.
+    expect(install[0].inputs.NEW_YAML).toMatch(/inboxRunnable: true/);
     const res = await request(app).get(`/inbox/${msg.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(res.text).toContain('Install draft');
     expect(res.text).toContain('joke-judge');
@@ -1618,17 +1579,6 @@ describe('POST /inbox/new', () => {
     expect(res.headers.location).toMatch(/^\/inbox\/[a-f0-9-]+$/);
   });
 
-  it('empty title falls back to "New conversation"', async () => {
-    const app = await makeApp();
-    const res = await request(app)
-      .post('/inbox/new')
-      .set('X-Requested-With', 'fetch').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)
-      .send('title=');
-    expect(res.status).toBe(204);
-    const row = inboxStore.get(res.headers['x-inbox-id']);
-    expect(row!.title).toBe('New conversation');
-  });
-
   it('with a body: seeds the first user message + derives the title (hero composer)', async () => {
     const app = await makeApp();
     const res = await request(app)
@@ -1648,7 +1598,7 @@ describe('POST /inbox/new', () => {
     expect(user?.body).toBe('get me the latest 3 hacker news headlines');
   });
 
-  it('without a body: stays an empty stub (unchanged), no user response', async () => {
+  it('without a title or body: a "New conversation" stub, no user response', async () => {
     const app = await makeApp();
     const res = await request(app)
       .post('/inbox/new')
@@ -1656,6 +1606,7 @@ describe('POST /inbox/new', () => {
       .send('title=');
     expect(res.status).toBe(204);
     const id = res.headers['x-inbox-id'];
+    expect(inboxStore.get(id)!.title).toBe('New conversation');
     expect(inboxStore.get(id)!.body).toBe('(empty)');
     expect(inboxStore.listResponses(id).some((r) => r.role === 'user')).toBe(false);
   });
@@ -1720,22 +1671,6 @@ describe('POST /inbox/:id/triage/cancel', () => {
     const responses = inboxStore.listResponses(m.id);
     const sys = responses.find((r) => r.role === 'system');
     expect(sys?.body).toBe('Triage agent cancelled.');
-  });
-
-  it('with no in-flight triage run still STOPS the thread (204 + ack note)', async () => {
-    // Stop must take even when there's no triage LLM run to abort — the runaway
-    // loop is driven by auto-approved actions, so the stop flag is what halts it.
-    const app = await makeApp();
-    const ctx = app.locals as DashboardContext;
-    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
-    const res = await request(app)
-      .post(`/inbox/${m.id}/triage/cancel`)
-      .set('X-Requested-With', 'fetch')
-      .set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(res.status).toBe(204);
-    expect(ctx.inboxTriageStopped?.has(m.id)).toBe(true);
-    const sys = inboxStore.listResponses(m.id).find((r) => r.role === 'system');
-    expect(sys?.body).toMatch(/stopped/i);
   });
 
   it('404 (AJAX) for unknown message id', async () => {

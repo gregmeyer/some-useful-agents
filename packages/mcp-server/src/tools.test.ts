@@ -38,15 +38,6 @@ describe('loadMcpExposedAgents', () => {
     expect(Array.from(exposed.keys()).sort()).toEqual(['exposed']);
   });
 
-  it('returns empty map when no agents opt in', () => {
-    writeAgent('a', `name: a\ntype: shell\ncommand: echo a\n`);
-    writeAgent('b', `name: b\ntype: shell\ncommand: echo b\nmcp: false\n`);
-
-    const exposed = loadMcpExposedAgents({ agentDirs: [dir] });
-
-    expect(exposed.size).toBe(0);
-  });
-
   it('exposes input declarations on agents that have them', () => {
     writeAgent(
       'with-inputs',

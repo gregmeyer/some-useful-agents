@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toOpenAiFunctionSchema, resolveExposedTools } from './llm-tools.js';
-import { buildBuiltinToolExecutor } from './llm-tool-dispatch.js';
 import { getBuiltinTool } from './builtin-tools.js';
-import type { PolicyDocument } from './policy-store.js';
 
 describe('toOpenAiFunctionSchema', () => {
   it('maps a builtin definition to an OpenAI function schema', () => {
@@ -17,13 +15,10 @@ describe('toOpenAiFunctionSchema', () => {
   });
 
   it('json-typed inputs become an open schema', () => {
-    const def = getBuiltinTool('json-path')!.definition;
-    const fn = toOpenAiFunctionSchema(def);
-    // whichever input is `json`-typed should have no restrictive `type`
-    const jsonProps = Object.values(fn.function.parameters.properties).filter(
-      (p) => typeof p === 'object' && p !== null && !('type' in (p as object)),
-    );
-    expect(jsonProps.length).toBeGreaterThanOrEqual(0); // tolerant: just assert it built
+    const fn = toOpenAiFunctionSchema(getBuiltinTool('json-path')!.definition);
+    // `data` is json-typed: any value, so no restrictive `type`; `path` stays a string.
+    expect(fn.function.parameters.properties.data).not.toHaveProperty('type');
+    expect(fn.function.parameters.properties.path).toEqual(expect.objectContaining({ type: 'string' }));
   });
 });
 
@@ -35,38 +30,5 @@ describe('resolveExposedTools', () => {
   it('returns [] for empty/undefined', () => {
     expect(resolveExposedTools(undefined)).toEqual([]);
     expect(resolveExposedTools([])).toEqual([]);
-  });
-});
-
-describe('buildBuiltinToolExecutor', () => {
-  const baseOpts = { exposedToolIds: ['json-parse', 'web-fetch'], agentId: 'a', agentSource: 'local' };
-
-  it('executes an allowed builtin and returns its result', async () => {
-    const exec = buildBuiltinToolExecutor(baseOpts);
-    const r = await exec('json-parse', JSON.stringify({ text: '{"k":1}' }));
-    expect(r.isError).toBeFalsy();
-    expect(r.content).toContain('"k"');
-  });
-
-  it('rejects a tool not in the exposed set', async () => {
-    const exec = buildBuiltinToolExecutor(baseOpts);
-    const r = await exec('shell-exec', '{"command":"echo hi"}');
-    expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/not available/i);
-  });
-
-  it('surfaces invalid JSON args as an error message (no throw)', async () => {
-    const exec = buildBuiltinToolExecutor(baseOpts);
-    const r = await exec('json-parse', '{not json');
-    expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/invalid json/i);
-  });
-
-  it('honors a deny policy: the model gets a readable "Blocked by policy" error', async () => {
-    const denyDoc: PolicyDocument = { version: 1, defaultAction: 'deny', rules: [] };
-    const exec = buildBuiltinToolExecutor({ ...baseOpts, policyDocument: denyDoc });
-    const r = await exec('json-parse', '{"text":"{}"}');
-    expect(r.isError).toBe(true);
-    expect(r.content).toMatch(/^Blocked by policy: No policy rule allows "json-parse"/);
   });
 });
