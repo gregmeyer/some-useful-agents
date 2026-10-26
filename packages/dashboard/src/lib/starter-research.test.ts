@@ -21,6 +21,8 @@ describe('starter-research', () => {
     expect(research).toMatchObject({ type: 'agent-invoke', optional: true, agentInvokeConfig: { agentId: 'research-fanout' } });
     expect(research.agentInvokeConfig!.inputMapping).toMatchObject({ ITEMS: '$upstream.angles.items_json', ASK: '$upstream.angles.ask_json' });
     expect(agent.nodes.filter((n) => n.type === 'llm-prompt' && n.tools?.length)).toEqual([]);
+    expect(research.dependsOn).toContain('angles');
+    expect(agent.nodes.some((n) => n.dependsOn?.includes(research.id)), 'nothing reads the research').toBe(true);
   });
 
   it("takes the plan's angles up to the depth's cap, always with one skeptical angle", () => {

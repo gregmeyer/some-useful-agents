@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ToolStore } from './tool-store.js';
 import type { ToolDefinition } from './tool-types.js';
+import type { PolicyDocument } from './policy-store.js';
 import { mangleToolName } from './llm-tools.js';
 import { resolveExposedToolDefs, buildToolExecutor } from './llm-tool-dispatch.js';
 
@@ -103,6 +104,14 @@ describe('buildToolExecutor', () => {
     const r = await exec('notion_search', '{"query":"x"}');
     expect(r.isError).toBe(true);
     expect(r.content).toMatch(/disabled/i);
+  });
+
+  it('honors a deny policy: the model gets a readable "Blocked by policy" error', async () => {
+    const denyDoc: PolicyDocument = { version: 1, defaultAction: 'deny', rules: [] };
+    const exec = buildToolExecutor({ ...base, exposedToolIds: ['json-parse'], policyDocument: denyDoc });
+    const r = await exec('json-parse', '{"text":"{}"}');
+    expect(r.isError).toBe(true);
+    expect(r.content).toMatch(/^Blocked by policy: No policy rule allows "json-parse"/);
   });
 
   it('rejects a tool not in the exposed set', async () => {

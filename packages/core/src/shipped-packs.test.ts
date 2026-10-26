@@ -138,19 +138,6 @@ describe('shipped builtin packs', () => {
     }
   });
 
-  it('starter-research researches its angles at the same time, through research-fanout', () => {
-    const { packsStore: store } = freshStores();
-    loadBuiltinPacks(store, PACKS_DIR);
-    const refs = store.getPack('playground-starters')!.manifest.agents ?? [];
-    const agent = parseAgent(refs.find((r) => r.id === 'starter-research')!.yaml!);
-
-    // research-fanout runs the angles three at a time (sibling nodes would run one after another).
-    const research = agent.nodes.find((n) => n.type === 'agent-invoke');
-    expect(research?.agentInvokeConfig?.agentId).toBe('research-fanout');
-    expect(research?.dependsOn).toContain('angles');
-    expect(agent.nodes.some((n) => n.dependsOn?.includes(research!.id)), 'nothing reads the research').toBe(true);
-  });
-
   it('starter-goal is one goal step with tools, a budget, and structured outputs', () => {
     const { packsStore: store } = freshStores();
     loadBuiltinPacks(store, PACKS_DIR);

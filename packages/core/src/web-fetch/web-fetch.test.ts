@@ -173,12 +173,20 @@ describe('webFetch — browser fallback', () => {
     expect(r.title).toBe('SPA');
   });
 
-  it('falls back to the HTTP result when the browser is unavailable', async () => {
-    mockFetchOnce(() => new Response(ARTICLE, { status: 200, headers: { 'content-type': 'text/html' } }));
-    // HTTP content is good, so 'auto' shouldn't even escalate — assert method http.
-    const r = await webFetch('https://example.com/', { browser: 'auto' });
+  it('keeps the thin HTTP result when it tried the browser and none is available', async () => {
+    mockFetchOnce(() => new Response(HTML('Thin', '<p>Loading…</p>'), { status: 200, headers: { 'content-type': 'text/html' } }));
+    const r = await webFetch('https://example.com/app', { browser: 'auto' });
+    expect(mockedRender).toHaveBeenCalledOnce();
     expect(r.method).toBe('http');
-    expect(r.content).toContain('Main Heading');
+    expect(r.status).toBe(200); // the HTTP result, kept
+  });
+
+  it('reports the HTTP error when the page failed and no browser is available', async () => {
+    mockFetchOnce(() => new Response('gone', { status: 404 }));
+    const r = await webFetch('https://example.com/missing', { browser: 'auto' });
+    expect(mockedRender).toHaveBeenCalledOnce();
+    expect(r.content).toBeNull();
+    expect(r.status).toBe(404);
   });
 });
 

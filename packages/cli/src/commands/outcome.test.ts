@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OutcomeStore, type OutcomeRecord, type OutcomeVerdict } from '@some-useful-agents/core';
-import { outcomeCommand } from './outcome.js';
+import { outcomeCommand, findOutcome } from './outcome.js';
 
 function record(runId: string, satisfied: OutcomeVerdict, agentId = 'digest'): OutcomeRecord {
   return {
@@ -60,7 +60,8 @@ describe('outcomeCommand', () => {
   });
 });
 
-describe('the queries the command runs', () => {
+// The listing queries are tested with the store (core outcome-store.test.ts); show's lookup is the command's own.
+describe('show finds a record by run id', () => {
   let dir: string;
   let store: OutcomeStore;
 
@@ -69,29 +70,15 @@ describe('the queries the command runs', () => {
     store = new OutcomeStore(join(dir, 'runs.db'));
     store.record(record('run-aaaa1', 'yes'));
     store.record(record('run-bbbb2', 'no'));
-    store.record(record('run-cccc3', 'undetermined', 'other'));
   });
   afterEach(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('lists newest first', () => {
-    expect(store.list().map((r) => r.runId)).toEqual(['run-cccc3', 'run-bbbb2', 'run-aaaa1']);
-  });
-
-  it('narrows to the records worth looking at', () => {
-    const rows = store.list({ unsatisfiedOnly: true });
-    expect(rows.map((r) => r.runId).sort()).toEqual(['run-bbbb2', 'run-cccc3']);
-  });
-
-  it('narrows by agent', () => {
-    expect(store.list({ agentId: 'other' }).map((r) => r.runId)).toEqual(['run-cccc3']);
-  });
-
-  // `show` accepts a prefix because run ids are UUIDs and nobody types those.
-  it('resolves a run-id prefix the way show does', () => {
-    const match = store.list({ limit: 500 }).find((r) => r.runId.startsWith('run-bb'));
-    expect(match?.runId).toBe('run-bbbb2');
+  it('by its whole id, or the first characters of it', () => {
+    expect(findOutcome(store, 'run-aaaa1')?.runId).toBe('run-aaaa1');
+    expect(findOutcome(store, 'run-bb')?.runId).toBe('run-bbbb2');
+    expect(findOutcome(store, 'nope')).toBeNull();
   });
 });

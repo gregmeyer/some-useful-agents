@@ -26,7 +26,7 @@ import { AgentStore, parseAgent } from '@some-useful-agents/core';
 import { loadConfig, getDbPath } from '../config.js';
 import * as ui from '../ui.js';
 
-interface ReimportResult {
+export interface ReimportResult {
   file: string;
   status: 'created' | 'updated' | 'unchanged' | 'failed';
   message?: string;
@@ -71,7 +71,7 @@ export const reimportCommand = new Command('reimport')
     process.exit(results.some((r) => r.status === 'failed') ? 1 : 0);
   });
 
-function collectYamlFiles(target: string): string[] {
+export function collectYamlFiles(target: string): string[] {
   const stat = statSync(target);
   if (stat.isFile()) return [target];
   if (!stat.isDirectory()) return [];
@@ -83,7 +83,7 @@ function collectYamlFiles(target: string): string[] {
     .map((f) => join(target, f));
 }
 
-function reimportOne(store: AgentStore, file: string): ReimportResult {
+export function reimportOne(store: AgentStore, file: string): ReimportResult {
   let yaml: string;
   try { yaml = readFileSync(file, 'utf-8'); }
   catch (e) { return { file, status: 'failed', message: (e as Error).message }; }

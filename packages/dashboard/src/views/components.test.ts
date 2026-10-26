@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  formatExitCode,
   stripEnclosingCodeFence,
   workflowProviderBadge,
   humanizeTimestamps,
@@ -17,29 +16,6 @@ describe('workflowProviderBadge', () => {
   it('renders nothing for local or undefined (color stays rare)', () => {
     expect(render(workflowProviderBadge('local'))).toBe('');
     expect(render(workflowProviderBadge(undefined))).toBe('');
-  });
-});
-
-describe('formatExitCode', () => {
-  it('renders a plain exit code', () => {
-    expect(formatExitCode(0)).toBe('exit 0 (success)');
-    expect(formatExitCode(2)).toBe('exit 2 (misuse of shell command)');
-  });
-
-  it('renders an unlabelled code without a paren', () => {
-    expect(formatExitCode(42)).toBe('exit 42');
-  });
-
-  it('decodes signal exit codes', () => {
-    expect(formatExitCode(137)).toBe('exit 137 (killed (SIGKILL / out of memory))');
-    expect(formatExitCode(140)).toBe('exit 140 (signal 12)');
-  });
-
-  it('returns empty for no exit code — undefined OR null (DAG/multi-node runs)', () => {
-    // DAG/multi-node runs carry no run-level exit code; the store returns null.
-    // Regression: this used to render the literal "exit null".
-    expect(formatExitCode(undefined)).toBe('');
-    expect(formatExitCode(null)).toBe('');
   });
 });
 

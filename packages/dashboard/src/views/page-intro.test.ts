@@ -21,7 +21,16 @@ describe('pageIntro', () => {
     const out = render(pageIntro({ key: 'home', text: 'hi', learnMore: { href: 'https://example.com/docs' } }));
     expect(out).toContain('href="https://example.com/docs"');
     expect(out).toContain('rel="noopener"');
+    expect(out).toContain('target="_blank"'); // off-site: a new tab
     expect(out).toContain('Learn more');
+  });
+
+  it('keeps the reader in the app for an in-product link', () => {
+    // This used to force target=_blank unconditionally — right for the single
+    // GitHub-docs caller, wrong the moment Home linked to /help.
+    const out = render(pageIntro({ key: 'home', text: 't', learnMore: { href: '/help' } }));
+    expect(out).toContain('href="/help"');
+    expect(out).not.toContain('target="_blank"');
   });
 
   it('honors a custom learnMore label', () => {

@@ -2084,7 +2084,7 @@ export function maybeAutoProposeEditorAction(
   });
 }
 
-function maybeAutoProposeBuilderInstallAction(
+export function maybeAutoProposeBuilderInstallAction(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   builderRunId: string,
