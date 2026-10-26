@@ -93,6 +93,25 @@
   font-weight: var(--weight-semibold);
 }
 
+/* Working: sua heard you and is doing it (views/working.ts, DESIGN.md "Working").
+   inline: a small ring and a line; panel: a large ring, a title, what you asked, what it's doing, how long. */
+.working { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-text); }
+.working__spin { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--color-primary-soft); border-top-color: var(--color-primary); animation: working-spin 0.8s linear infinite; }
+.working--panel { display: flex; align-items: flex-start; gap: var(--space-4); width: 100%; box-sizing: border-box; padding: var(--space-4) var(--space-6); border: 1px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-primary-soft); }
+.working--panel .working__spin { width: 32px; height: 32px; border-width: 3px; margin-top: 2px; border-color: var(--color-border); border-top-color: var(--color-primary); }
+.working__body { min-width: 0; display: grid; gap: var(--space-1); }
+.working__body p { margin: 0; }
+.working__title { font-size: var(--font-size-md); font-weight: var(--weight-semibold); color: var(--color-text); }
+.working__said { font-size: var(--font-size-sm); color: var(--color-text); font-style: italic; overflow-wrap: anywhere; }
+.working--panel .working__text { font-size: var(--font-size-sm); color: var(--color-text-muted); max-width: 65ch; }
+.working__time { font: var(--font-size-xs) var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
+/* In a button: the button's own colours. */
+.btn .working { color: inherit; font-size: inherit; }
+.btn .working__spin { border-color: currentColor; border-top-color: transparent; opacity: 0.9; }
+@keyframes working-spin { to { transform: rotate(360deg); } }
+/* Without motion: a still ring, dotted, so it still reads as "not done". */
+@media (prefers-reduced-motion: reduce) { .working__spin { animation: none; border-style: dotted; border-color: var(--color-primary); } }
+
 /* A gently pulsing attention dot (Home's feed rows); respect reduced-motion. */
 @keyframes sua-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

@@ -6,6 +6,7 @@
  */
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
+import { working } from './working.js';
 import { formatAge } from './components.js';
 import type { NotebookField, NotebookStep, NotebookTemplate } from '@some-useful-agents/core';
 import type { NotebookDraft, DraftState } from '../lib/notebook-draft.js';
@@ -115,7 +116,7 @@ export function renderNotebookNew(opts: {
   const result = !d ? html``
     : d.state.status === 'ready' ? renderDraftReview(d.id, d.state.draft, d.agents, d.state.error)
     : d.state.status === 'failed' ? html`<p class="flash flash--error">${d.state.error}</p>`
-    : html`<p class="nbd-working" role="status"><span class="nbd-working__dot" aria-hidden="true"></span>sua is drafting your notebook… this takes a few seconds.</p>`;
+    : working({ size: 'panel', title: 'sua is drafting your notebook', said: d.state.text, text: 'Working out what it\'s for, the facts each option notes, its steps and its page. Usually about a minute. You can leave this page: the draft is kept.', since: new Date(d.state.at).toISOString() });
   return render(layout({ title: 'New notebook', activeNav: 'notebooks', flash: opts.flash }, html`
     <div class="nbd" data-nbd${d ? html` data-nbd-id="${d.id}"` : html``}${d?.state.status === 'working' ? unsafeHtml(' data-nbd-resume') : unsafeHtml('')}>
       <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › New</p>
@@ -131,8 +132,8 @@ export function renderNotebookNew(opts: {
         <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>
         <p class="nbd-ask__examples">For example: “a remote staff engineer job paying $180k+” · “a quiet 2-bed rental in Fremont under $2,600” · “noise-cancelling headphones under $300”</p>
       </form>
-      ${renderTemplateList(opts.templates ?? [], opts.archivedTemplates ?? [])}
       <div class="nbd-result" data-nbd-result aria-live="polite">${result}</div>
+      ${renderTemplateList(opts.templates ?? [], opts.archivedTemplates ?? [])}
       <form method="POST" action="/notebooks" class="nbd-skip" data-nbd-skip>
         <input type="hidden" name="statement" value="" data-nbd-skip-text>
         <button type="submit" class="nbd-skip__btn">Skip the draft: start it and talk it through with sua →</button>
@@ -260,9 +261,10 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
     ${error ? html`<p class="flash flash--error">${error}</p>` : html``}
     <form method="POST" action="/notebooks" class="nbd-draft" data-nbd-draft="${id}">
       <input type="hidden" name="draft" value="${id}">
-      <div class="nbd-draft__head">
-        <span class="nbd-draft__who" aria-hidden="true">sua</span>
-        <span>Here's a draft from what you said. Change anything, then start it.${draft.why ? html` <span class="nbd-draft__why">${draft.why}</span>` : html``}</span>
+      <div class="nbd-draft__head" data-nbd-ready>
+        <span class="nbd-draft__done" aria-hidden="true">✓</span>
+        <span class="nbd-draft__say"><strong class="nbd-draft__ready">Your notebook draft is ready.</strong> Change anything below, or start it now.${draft.why ? html` <span class="nbd-draft__why">${draft.why}</span>` : html``}</span>
+        <button type="submit" class="btn btn--primary btn--sm nbd-draft__go">Looks right, start it</button>
       </div>
       ${notebookSetupEditor(draft, agents, { offered: draft.suggested ?? draft.pipeline })}
       <div class="nbd-draft__foot">
