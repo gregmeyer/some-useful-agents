@@ -704,6 +704,9 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step__state--stuck { color: var(--color-warn); }
 .nb-step__state--running { color: var(--color-primary); }
 .nb-step__state--moved, .nb-step__state--todo { color: var(--color-text-subtle); }
+.nb-steps__why { margin: var(--space-2) 0 0; max-width: 72ch; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); text-wrap: pretty; }
+.nb-steps__why strong { color: var(--color-text); font-weight: 600; }
+.nb-step__why { font-size: var(--font-size-xs); line-height: 1.4; color: var(--color-text-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; text-wrap: pretty; }
 /* Every step done: one quiet line each, no bars. */
 .nb-steps--done .nb-step { padding: var(--space-1) var(--space-2); align-items: center; opacity: 1; background: transparent; }
 .nb-steps--done .nb-step__n { width: 18px; height: 18px; font-size: 10px; }
@@ -714,6 +717,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-steps--done .nb-step__meta { display: inline; }
 /* A step left short (moved on) still says so. */
 .nb-steps--done .nb-step__state--moved { display: inline; margin-left: var(--space-1); }
+.nb-steps--done .nb-step__why { flex-basis: 100%; -webkit-line-clamp: 1; }
 .nb-step__focus { margin: var(--space-1) 0 0; }
 .nb-step__focus-btn { padding: 0; border: 0; background: none; font: inherit; font-size: var(--font-size-xs); color: var(--color-primary); cursor: pointer; text-align: left; }
 .nb-step__focus-btn:hover, .nb-step__focus-btn:focus-visible { text-decoration: underline; }

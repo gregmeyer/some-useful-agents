@@ -497,6 +497,15 @@ While a notebook has steps left, the main button in its header is **Next step �
    - **Goal met:** the step waits for you. sua says so in the notebook's conversation ("Step 1 of 4 is done: Find 10 companies (12 of 10 found). Next is Source firmographics, with firmographic-research.") with a **Continue** card, and the header's **Next step →** does the same. Either marks the step done and starts the next.
    - **Stuck:** sua lists what's still missing, with two cards: **Move on** and **Try again**. Move on keeps what the step found, marks it done ("3 of 5 found · moved on") and starts the next step (or leaves Decide to you). Try again runs it once more with what's still missing. You can also tell sua what to do differently, for example change the step or its agent, or just say to stop or move on, and it proposes Move on.
    - **When its agent can't do it:** a press in which no run got the step any closer (its runs found nothing new, or failed) stops right away, and sua says the agent couldn't get any further and may not be able to find the rest. **Move on** comes first. A step that was still getting closer when it ran out of tries puts **Try again** first.
+   - **Why it came out short:** a stuck step says why, under it on the page and in sua's message, from what its last try did. For example: "Its last search looked at Craigslist, OfferUp and Facebook Marketplace: none had a match. Autotrader blocked the search." Other reasons it gives:
+     - what it found was already in the notebook, or already ruled out;
+     - the new ones didn't fit, so it ruled them out;
+     - its open checks couldn't be confirmed from a source;
+     - a page blocked the page reader, or an option has no page of its own;
+     - its run failed, timed out or ran out of turns;
+     - you stopped it.
+
+     When the agent said something about it, that's quoted too. The reason stays on a step you moved on from, and goes when the step runs again. Ask sua "why did that step stop?" and it answers from the same reason.
 
      ![An example notebook whose sourcing step couldn't get any further: the header's main button is Move on, with Try again beside it](images/notebook-step-move-on.png)
    - **Already met:** a step whose goal is met by the time it runs (an earlier step or search found enough) is met without a run.

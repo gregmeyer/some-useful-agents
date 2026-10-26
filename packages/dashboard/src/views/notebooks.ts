@@ -210,6 +210,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__by">${by ? (step.agentId ? html`with <span class="nb-step__agent" title="${by}">${by}</span>` : html`with ${by}`) : html`<span class="nb-step__need">needs an agent</span>`}${only ? html` · <span class="nb-step__facts" title="${only}">${String(step.facts!.length)} ${step.facts!.length === 1 ? 'fact' : 'facts'}</span>` : html``}</span>
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
           <span class="nb-step__meta"><span class="nb-step__count">${progress}${step.top ? ` · top ${String(step.top)}` : ''}</span><span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
+          ${step.why && step.movedOn ? html`<span class="nb-step__why" title="${step.why}">${step.why}</span>` : html``}
           ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
             : html``}
@@ -228,7 +229,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
-  </ol>`;
+  </ol>${current?.status === 'stuck' && current.why && !running ? html`<p class="nb-steps__why"><strong>${current.title}</strong> stopped short. ${current.why}</p>` : html``}`;
 }
 
 /**

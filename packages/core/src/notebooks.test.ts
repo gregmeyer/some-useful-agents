@@ -1142,6 +1142,25 @@ describe('who a notebook is about', () => {
 });
 
 describe('a notebook\'s steps and page, changed later', () => {
+  it('keeps why a step came out short while it is stuck or moved on from, and drops it when it runs again', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Buy a wagon' });
+    s.setSteps(nb.id, [{ title: 'Find 5 wagons', kind: 'find', target: 5 }]);
+    const why = 'Its last search looked at Craigslist and OfferUp: neither had a match.';
+    s.updateStep(nb.id, 's1', { status: 'stuck', stalled: true, why });
+    expect(s.get(nb.id)!.steps![0]).toMatchObject({ status: 'stuck', why });
+    // Moving on keeps it (the step says why it was left short).
+    s.updateStep(nb.id, 's1', { status: 'done', movedOn: true });
+    expect(s.get(nb.id)!.steps![0]).toMatchObject({ status: 'done', movedOn: true, why });
+    // Running again drops it, and a step that met its goal never has one.
+    s.updateStep(nb.id, 's1', { status: 'running' });
+    expect(s.get(nb.id)!.steps![0].why).toBeUndefined();
+    s.setSteps(nb.id, [{ ...s.get(nb.id)!.steps![0], status: 'met', why: 'left over' }]);
+    expect(s.get(nb.id)!.steps![0].why).toBeUndefined();
+  });
+
   it('adds a step in front without renumbering the others, and says who set the page last', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));
