@@ -250,7 +250,7 @@ export function applySettings(
   if (Object.keys(patch).length > 0) store.updateAgentMeta(agent.id, patch);
   const lead = read.versioned ? `Saved as v${String(version)}: ${whats.join(', ')}.` : `Saved: ${whats.join(', ')}.`;
   const scheduleNote = read.changes.some((c) => c.field === 'schedule')
-    ? ' The scheduler picks up the new schedule when it restarts (sua daemon restart --service schedule).'
+    ? ' The scheduler picks up the new schedule within a minute.'
     : '';
   return { version, message: lead + scheduleNote };
 }

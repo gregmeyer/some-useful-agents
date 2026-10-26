@@ -132,7 +132,7 @@ scheduledRouter.post('/scheduled/:id/clear', (req, res) => {
   if (!agent.schedule) { back(`"${agent.name}" has no schedule.`); return; }
   try {
     ctx.agentStore.updateAgentMeta(id, { schedule: undefined });
-    back(`Cleared the schedule on "${agent.name}". The scheduler drops it when it restarts (sua daemon restart --service schedule).`);
+    back(`Cleared the schedule on "${agent.name}". The scheduler drops it within a minute.`);
   } catch (err) {
     back(`Clear failed: ${err instanceof Error ? err.message : String(err)}`);
   }

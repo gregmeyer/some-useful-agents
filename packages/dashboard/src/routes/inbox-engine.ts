@@ -1102,7 +1102,8 @@ export function executeAgentSchedule(
 
   const schedule = (meta.inputs.SCHEDULE ?? '').trim();
   const label = agent.name || agentId;
-  const restart = 'Restart the scheduler daemon (`sua schedule start`) to activate.';
+  // The scheduler reads schedules again every 30s (sua schedule start): no restart.
+  const restart = 'The scheduler picks it up within a minute.';
 
   // Clear the schedule.
   if (!schedule) {
