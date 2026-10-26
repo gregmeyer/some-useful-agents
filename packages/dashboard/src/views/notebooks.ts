@@ -894,10 +894,10 @@ export function renderNotebookEdit(args: NotebookEditView): string {
             <button type="button" class="btn btn--sm" data-nbe-close>Close</button>
           </span>
         </div>
-        <div class="nbe-preview__page" inert>
+        <div class="nbe-preview__page" tabindex="0" aria-label="The notebook as it would be"><div class="nbe-preview__inner" inert>
           ${hero(proposed, [], undefined, widgetsIn, undefined, decisionLeads(proposed, args.entries, Infinity, args.history), args.entries, [], undefined, notebookHeaderView(proposed, args.entries, args.history as NotebookWidgetHistory | undefined))}
           <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
-        </div>
+        </div></div>
       </dialog>
       ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working"){var t0=new URLSearchParams(location.search).get("tab");location.replace(location.pathname+"?"+(t0?"tab="+encodeURIComponent(t0)+"&":"")+"preview=1");}else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
       ${unsafeHtml('<script>(function(){var d=document.getElementById("nbe-preview");if(!d||!d.showModal)return;document.querySelectorAll("[data-nbe-preview]").forEach(function(b){b.addEventListener("click",function(){d.showModal();});});d.querySelector("[data-nbe-close]").addEventListener("click",function(){d.close();});d.addEventListener("click",function(e){if(e.target===d)d.close();});if(d.hasAttribute("data-open")){d.showModal();var u=new URL(location.href);u.searchParams.delete("preview");history.replaceState(null,"",u.pathname+u.search);}})();</script>')}
