@@ -18,7 +18,7 @@ export interface NotebookPageExample {
    * Meeting briefing (dossier), or one drawn for it, of a `kind` (a report
    * answering a question, a plan).
    */
-  expect: { page: 'shortlist' | 'dossier' | 'answer' | 'plan' | 'drawn'; kind?: string; needs?: string[] };
+  expect: { page: 'shortlist' | 'dossier' | 'answer' | 'plan' | 'watch' | 'drawn'; kind?: string; needs?: string[] };
   /** Make it in `s` and return its id; with `data`, as its steps would leave it. */
   seed: (s: NotebookStore, opts: { data: boolean }) => string;
 }
@@ -302,6 +302,32 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
           ],
           before: ['Book the fado dinner', 'Buy Sintra palace tickets online'], open: ['Which palace in Sintra?'], at: AT, by: 'notebook-writer',
         });
+      }
+      return nb.id;
+    },
+  },
+  {
+    id: 'watch',
+    job: 'keep watch on prices',
+    expect: { page: 'watch', needs: ['Changes', 'OptionGrid'] },
+    seed(s, { data }) {
+      const nb = s.create({ title: 'Watch for a used Fujifilm X100V under $1,200', statement: 'Tell me when a used X100V in good shape shows up under $1,200 near Seattle', params: ['under $1,200', 'good or better condition'], criteria: ['One I can buy'], cadence: '0 8 * * *' });
+      s.setFields(nb.id, [
+        { key: 'price', label: 'Price', type: 'money', role: 'price', better: 'lower' },
+        { key: 'condition', label: 'Condition', type: 'text' },
+        { key: 'seller', label: 'Seller', type: 'text', role: 'place' },
+        { key: 'listing', label: 'Listing', type: 'url', role: 'link' },
+      ]);
+      s.setSteps(nb.id, [{ title: 'Find X100V listings under $1,200', kind: 'find', target: 5 }]);
+      if (data) {
+        // The search before found one; the latest found two new ones, and not that one.
+        s.recordSearch(nb.id, 'example-finder', 'run-x100-1', 1, '2026-10-19T08:00:00.000Z');
+        options(s, nb.id, [['X100V, silver, box and charger', { price: 1150, condition: 'Excellent', seller: 'Camera shop', listing: src('x100v/1') }]]);
+        s.recordSearch(nb.id, 'example-finder', 'run-x100-2', 2, new Date().toISOString());
+        options(s, nb.id, [
+          ['X100V, black, two batteries', { price: 1090, condition: 'Good', seller: 'Private', listing: src('x100v/2') }],
+          ['X100V with lens hood', { price: 1199, condition: 'Like new', seller: 'Marketplace', listing: src('x100v/3') }],
+        ]);
       }
       return nb.id;
     },

@@ -31,6 +31,8 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
     steps: (nb.steps ?? []).map((s) => ({ title: s.title, kind: s.kind, ...(s.target ? { target: s.target } : {}), ...(s.shape ? { shape: s.shape } : {}) })),
     ...(nb.checks.length ? { checks: nb.checks } : {}),
     ...(nb.stages.length ? { stages: nb.stages } : {}),
+    // A notebook that searches on a schedule is likely keeping watch.
+    ...(nb.cadence ? { searchesOnASchedule: nb.cadence } : {}),
   };
 }
 

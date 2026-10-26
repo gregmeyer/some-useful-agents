@@ -16,6 +16,7 @@ import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
+import { formatMoney, formatFieldValue } from '../lib/field-format.js';
 import { handStagesHidden, notebookWidgetMessages, notebookHeaderView, type NotebookHeaderView, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
 import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
@@ -386,7 +387,8 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
   const human = nb.cadence ? cronToHuman(nb.cadence) : '';
   const next = human && nb.status === 'active' && nb.pipeline.length ? nextFireTime(nb.cadence) : null;
   // A schedule with nothing to run says so, rather than implying it runs.
-  const idle = human && nb.status === 'active' && nb.pipeline.length === 0 ? ' once it has a search (add one under Edit)' : '';
+  // A watch with a find step searches again with it; with neither, there's nothing to run.
+  const idle = human && nb.status === 'active' && nb.pipeline.length === 0 && !nb.steps?.some((x) => x.kind === 'find') ? ' once it has a search (add one under Edit)' : '';
   const cadence = human ? `runs ${human.charAt(0).toLowerCase()}${human.slice(1)}${next ? `, next ${formatWhen(next)}` : idle}` : 'runs when you ask';
   return html`
     <section class="nb-hero${widgets ? ' nb-hero--wide' : ''}${head?.side ? ' nb-hero--side' : ''}" aria-labelledby="nb-title">
@@ -459,31 +461,7 @@ export function bodyWithLinks(text: string): SafeHtml {
   })}`;
 }
 
-/** "$4,023", "149,652 mi", "2010": one field's value as people read it. */
-/** Money: "$4,023", "$150,000"; a million and up "$18M", "$2.5B" (a company's revenue). */
-export function formatMoney(n: number): string {
-  const a = Math.abs(n);
-  if (a >= 1e9) return `$${(n / 1e9).toLocaleString('en-US', { maximumFractionDigits: 1 })}B`;
-  if (a >= 1e6) return `$${(n / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 })}M`;
-  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-}
-
-export function formatFieldValue(f: NotebookField, v: NotebookFieldValue): string {
-  if (isRange(v)) {
-    if (v.min === v.max) return formatFieldValue(f, v.min);
-    // "$150,000–$180,000", "120–150 sq ft": the unit once, at the end.
-    const one = (n: number) => (f.type === 'money' ? formatMoney(n) : n.toLocaleString('en-US', { maximumFractionDigits: 2 }));
-    return `${one(v.min)}–${one(v.max)}${f.unit && f.type !== 'money' ? ` ${f.unit}` : ''}`;
-  }
-  if (typeof v === 'number') {
-    const n = v.toLocaleString('en-US', { maximumFractionDigits: 2 });
-    if (f.type === 'money') return formatMoney(v);
-    // Years and ids read without separators.
-    if (f.type === 'number' && !f.unit && Number.isInteger(v) && v >= 1900 && v <= 2100) return String(v);
-    return f.unit ? `${n} ${f.unit}` : n;
-  }
-  return v;
-}
+export { formatMoney, formatFieldValue } from '../lib/field-format.js';
 
 /** An option's facts as chips, in the notebook's field order; its listing as a link. */
 function optionFacts(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): SafeHtml {

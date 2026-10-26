@@ -857,6 +857,12 @@ export class NotebookStore {
       .run(notebookId, agentId, runId ?? null, at, found, sources?.length ? JSON.stringify(sources) : null);
   }
 
+  /** When the newest search before `before` ran (the one before the latest, for "what changed since"). */
+  searchBefore(notebookId: string, before: string): string | undefined {
+    const r = this.db.prepare('SELECT MAX(at) AS at FROM notebook_searches WHERE notebook_id = ? AND at < ?').get(notebookId, before) as { at: string | null } | undefined;
+    return r?.at ?? undefined;
+  }
+
   /** Searches that went into the notebook, newest first. */
   searches(notebookId: string, limit = 20): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }> {
     return (this.db.prepare('SELECT * FROM notebook_searches WHERE notebook_id = ? ORDER BY at DESC LIMIT ?').all(notebookId, limit) as Array<Record<string, unknown>>).map((r) => ({

@@ -16,10 +16,14 @@ import { rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
+  notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
 } from '@some-useful-agents/core';
+import { formatFieldValue } from './field-format.js';
 
 /** What the widgets read from the store beyond the view data: the searches. */
 export interface NotebookWidgetHistory extends NotebookViewHistory {
+  /** When the search before `before` ran (for what changed since). */
+  searchBefore?(notebookId: string, before: string): string | undefined;
   searches?(notebookId: string, limit?: number): Array<{ agentId: string; runId?: string; at: string; found: number; sources: NotebookSearchSource[] }>;
   /** Recent runs of an agent (to show the ones that failed, which leave nothing in the notebook). */
   recentRuns?(agentId: string): Array<{ id: string; status: string; startedAt: string; error?: string }>;
@@ -160,6 +164,10 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** To book or do first, and what's still open (Itinerary before / open). */
     planBefore: Array<{ text: string }>;
     planOpen: Array<{ text: string }>;
+    /** What changed since the search before the latest, as a Callout (the Watch page). */
+    changesIntro: { label: string; text: string; next?: string };
+    /** Those changes, newest kinds first (Changes items). */
+    changes: Array<{ kind: NotebookChangeKind; title: string; detail?: string; href: string; tone?: 'ok' | 'warn' }>;
     /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
     person?: NotebookProfileView;
     company?: NotebookProfileView;
@@ -358,6 +366,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       next,
       ...answerViews(nb, active, summary, next),
       ...planViews(nb, active, summary, next),
+      ...changesViews(nb, v.options, history, summary, next),
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
         rank.by === 'score'
@@ -521,6 +530,40 @@ function planViews(nb: Notebook, active: readonly NotebookViewOption[], summary:
     day.items.push({ text: it.title, ...(it.detail ? { note: it.detail } : {}), refs: it.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: notebookOptionPath(nb.id, o.id) })) });
   }
   return { planIntro: { label: 'The plan', text: p.summary || `${String(p.items.length)} things, in order.` }, planDays: days, planBefore: p.before.map((text) => ({ text })), planOpen: p.open.map((text) => ({ text })) };
+}
+
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const CHANGE_WORDS: Record<NotebookChangeKind, [string, string]> = { new: ['new', 'new'], price: ['price change', 'price changes'], changed: ['change', 'changes'], gone: ['gone', 'gone'], missing: ['not found this time', 'not found this time'] };
+
+/**
+ * What changed since the search before the latest (core notebookChanges), for
+ * the Watch page: a line saying so ("Since Oct 24: 2 new, 1 price change"),
+ * and each change with its option's page, a price change as better or worse
+ * by the field's direction. Before any search, where it stands.
+ */
+function changesViews(nb: Notebook, options: readonly NotebookViewOption[], history: NotebookWidgetHistory | undefined, summary: string, next: string | undefined): Pick<NotebookWidgetData['notebook'], 'changesIntro' | 'changes'> {
+  const c = notebookChanges(nb, options, history);
+  if (!c.at) return { changesIntro: { label: 'Where it stands', text: summary, ...(next ? { next } : {}) }, changes: [] };
+  if (c.first) return { changesIntro: { label: `First look · ${shortDay(c.at)}`, text: `The first search found ${String(c.seen)}. Next time, this says what changed since.` }, changes: [] };
+  const fmt = (f: NonNullable<NotebookChange['field']>, v: NotebookFieldValue | undefined) => (v === undefined ? '' : formatFieldValue(f as NotebookField, v));
+  const priceF = nb.fields.find((f) => f.role === 'price');
+  const changes = c.changes.map((x): NotebookWidgetData['notebook']['changes'][number] => {
+    const href = notebookOptionPath(nb.id, x.id);
+    if ((x.kind === 'price' || x.kind === 'changed') && x.field) {
+      const a = fieldNumber(x.from);
+      const b = fieldNumber(x.to);
+      const better = x.kind === 'price' && a !== undefined && b !== undefined ? ((b < a) === ((priceF?.better ?? 'lower') === 'lower')) : undefined;
+      return { kind: x.kind, title: x.name, detail: `${x.field.label}: ${fmt(x.field, x.from)} → ${fmt(x.field, x.to)}`, href, ...(better !== undefined ? { tone: better ? 'ok' as const : 'warn' as const } : {}) };
+    }
+    if (x.kind === 'gone') return { kind: x.kind, title: x.name, ...(x.reason ? { detail: x.reason } : {}), href, tone: 'warn' };
+    if (x.kind === 'missing') return { kind: x.kind, title: x.name, detail: 'The latest search found others, not this one. It may be sold or taken down.', href };
+    return { kind: x.kind, title: x.name, href, tone: 'ok' };
+  });
+  const counts = (Object.keys(CHANGE_WORDS) as NotebookChangeKind[]).map((k) => [k, new Set(c.changes.filter((x) => x.kind === k).map((x) => x.id)).size] as const).filter(([, n]) => n > 0);
+  const text = counts.length
+    ? `${counts.map(([k, n]) => `**${String(n)}** ${CHANGE_WORDS[k][n === 1 ? 0 : 1]}`).join(', ')}.`
+    : 'Nothing changed: the same options, at the same prices.';
+  return { changesIntro: { label: `Since ${shortDay(c.since!)} · checked ${shortDay(c.at)}`, text }, changes };
 }
 
 /** How sure an answer is, in plain words. */

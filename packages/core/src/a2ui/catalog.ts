@@ -259,8 +259,19 @@ const SUA_COMPONENTS = [
     }).strict(),
   },
   {
+    name: 'Changes',
+    summary: 'What changed since last time, by kind. `items` [{kind: new|price|changed|gone|missing, title, detail?, href?, tone?: ok|warn}].',
+    example: { id: 'changes', component: 'Changes', items: { path: '/notebook/changes' } },
+    schema: Common.extend({
+      items: CS.DynamicValue,
+      title: Str.optional(),
+      /** What it says when nothing changed. */
+      empty: Str.optional(),
+    }).strict(),
+  },
+  {
     name: 'Itinerary',
-    summary: 'A plan in order: `days` (an array of {when, items: [{text, note?, refs?: [{label, href}]}]}) as a heading per day, week or slot with its items, then `before` (things to book or do first) and `open` (still to decide), strings or {text}, with Copy as text.',
+    summary: 'A plan in order, day by day. `days` [{when, items: [{text, note?, refs?}]}]; `before` (do first) and `open` (to decide) lists; Copy as text.',
     example: { id: 'plan', component: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },
     schema: Common.extend({
       days: CS.DynamicValue,

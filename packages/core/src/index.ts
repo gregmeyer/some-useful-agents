@@ -17,6 +17,7 @@ export * from './spend-limits.js';
 export * from './human-questions.js';
 export * from './notebooks.js';
 export * from './notebook-layout.js';
+export * from './notebook-changes.js';
 export * from './notebook-lineage.js';
 export * from './webhooks.js';
 export * from './run-orphan-reaper.js';

@@ -205,6 +205,33 @@ const PLAN: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * Keeping watch (prices, listings, openings): what changed since the search
+ * before the latest first (new, price changes, gone, not found this time),
+ * beside the steps; then everything it's watching, and the research folded.
+ */
+const WATCH: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'top', 'all_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Watch', steps: 'fold', cover: 'none' },
+  { id: 'top', component: 'Columns', children: ['changes_col', 'steps_panel'], widths: [2, 1], align: 'start' },
+  { id: 'changes_col', component: 'Column', children: ['intro', 'changes_p'] },
+  { id: 'intro', component: 'Callout', label: { path: '/notebook/changesIntro/label' }, text: { path: '/notebook/changesIntro/text' }, next: { path: '/notebook/changesIntro/next' } },
+  { ...panel('changes_p', 'What changed', 'changes'), treatment: 'feature', when: 'options' },
+  { id: 'changes', component: 'Changes', items: { path: '/notebook/changes' }, empty: 'Nothing changed since the search before.' },
+  panel('steps_panel', 'Done when', 'steps'),
+  { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
+  { ...panel('all_p', 'Everything it\'s watching', 'all', { path: '/notebook/shortlistNote' }), treatment: 'feature', when: 'options' },
+  {
+    id: 'all', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: 'grid', sort: L('sort'), actions: true, filters: L('filters'), csvHref: L('csvHref'),
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -229,6 +256,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Plan',
     when: 'Making a plan in order (a trip or itinerary, a week of meals or workouts, a move, a project): the plan day by day or step by step, what to book or do first, what\'s still open, then what it draws on.',
     layout: { preset: 'plan', components: PLAN },
+  },
+  {
+    id: 'watch',
+    label: 'Watch',
+    when: 'Keeping an eye on something over time (prices, new listings or openings, whether something comes back in stock): what changed since the last search first (new, price changes, gone), then everything it\'s watching.',
+    layout: { preset: 'watch', components: WATCH },
   },
 ];
 
@@ -567,6 +600,10 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/planDays': 'The plan by day, week or slot, in order: [{when, items: [{text, note, refs}]}] (Itinerary days).',
   '/notebook/planBefore': 'What to book, buy or do before the plan starts (Itinerary before).',
   '/notebook/planOpen': 'What the plan leaves open, still to decide (Itinerary open).',
+  '/notebook/changesIntro/label': '"Since <the search before> · checked <the latest>"; a first look; before any search, "Where it stands" (Callout label).',
+  '/notebook/changesIntro/text': 'What changed in a line ("2 new, 1 price change"), or that nothing did (Callout text).',
+  '/notebook/changesIntro/next': 'Before any search, what\'s next (Callout next).',
+  '/notebook/changes': 'What changed since the search before the latest: [{kind: new | price | changed | gone | missing, title, detail, href, tone}] (Changes items).',
   '/notebook/talkingPointsEdit': 'Where to edit the talking points sua wrote, once there are some (Agenda editHref).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
