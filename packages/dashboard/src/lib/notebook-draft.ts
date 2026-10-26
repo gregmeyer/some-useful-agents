@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
   type NotebookField, type NotebookStep,
+  clipWords, CHECK_MAX,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -52,7 +53,8 @@ const draftsOf = (ctx: Ctx) => NotebookStore.fromHandle(ctx.runStore.databaseHan
 const phrases = (v: unknown, n: number, len: number): string[] =>
   (Array.isArray(v) ? v : [])
     .filter((x): x is string => typeof x === 'string')
-    .map((x) => x.replace(/\s+/g, ' ').trim().slice(0, len))
+    // Long ones end at a word, never mid-word.
+    .map((x) => clipWords(x, len))
     .filter(Boolean)
     .filter((x, i, a) => a.findIndex((y) => y.toLowerCase() === x.toLowerCase()) === i)
     .slice(0, n);
@@ -105,7 +107,7 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     params: phrases(v.params, 10, 80),
     criteria: phrases(v.criteria, 6, 120),
     fields: cleanFields(Array.isArray(v.fields) ? v.fields : []).slice(0, 10),
-    checks: phrases(v.checks, 5, 60),
+    checks: phrases(v.checks, 5, CHECK_MAX),
     stages: phrases(v.stages, 6, 30),
     pipeline: phrases(v.pipeline, 6, 60).filter((id) => agentIds.has(id)),
     ...draftSteps(v.steps, agentIds),
@@ -147,12 +149,21 @@ export function discardDraft(ctx: Ctx, id: string): boolean {
 }
 
 /** The review form's steps (parallel step_title / step_kind / step_agent / step_target lists). */
-export function stepsFromForm(body: Record<string, unknown>): Array<Record<string, string>> {
+export function stepsFromForm(body: Record<string, unknown>): Array<{ title: string; kind: string; agentId: string; target: string; shape?: string; subject?: string; facts?: string[] }> {
   const titles = formList(body.step_title);
   const kinds = formList(body.step_kind);
   const agents = formList(body.step_agent);
   const targets = formList(body.step_target);
-  return titles.map((title, i) => ({ title, kind: kinds[i] ?? '', agentId: agents[i] ?? '', target: targets[i] ?? '' }));
+  const shapes = formList(body.step_shape);
+  const subjects = formList(body.step_subject);
+  const facts = formList(body.step_facts);
+  return titles.map((title, i) => ({
+    title, kind: kinds[i] ?? '', agentId: agents[i] ?? '', target: targets[i] ?? '',
+    // A write step's shape (answer, plan), a profile step's subject and a source step's facts.
+    ...(shapes[i] ? { shape: shapes[i] } : {}),
+    ...(subjects[i] ? { subject: subjects[i] } : {}),
+    ...(facts[i] ? { facts: facts[i].split(',').map((f) => f.trim()).filter(Boolean) } : {}),
+  }));
 }
 
 const formList = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string');
@@ -175,7 +186,7 @@ export function saveDraftEdits(ctx: Ctx, id: string, body: Record<string, unknow
     params: clean(formList(body.params), 10, 80),
     criteria: clean(formList(body.criteria), 6, 120),
     fields: cleanFields(fields).slice(0, 10),
-    checks: clean(formList(body.checks), 5, 60),
+    checks: clean(formList(body.checks), 5, CHECK_MAX),
     stages: formList(body.stages).flatMap((x) => x.split(/\s*(?:→|->|,)\s*/)).map((x) => x.trim()).filter(Boolean).slice(0, 6),
     pipeline: formList(body.pipeline).filter((a) => suggested.includes(a)),
     ...draftSteps(stepsFromForm(body), new Set(searchAgents(ctx).map((a) => a.id))),

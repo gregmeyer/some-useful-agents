@@ -44,16 +44,17 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     pipeline: input.pipeline ?? [],
     cadence: input.cadence ?? '',
   });
-  // A page reader can't find or check: those steps go to sua's finder or checker.
-  const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
-  if (steps) store.setSteps(nb.id, steps);
-  if (input.layout) store.setLayout(nb.id, input.layout, 'template');
+  // Its fields first: a source step's facts are kept only when they name the notebook's fields.
   if (input.fields?.length) {
     store.setFields(nb.id, input.fields);
     if (input.stages?.length) store.setStages(nb.id, input.stages);
     if (input.checks?.length) store.setChecks(nb.id, input.checks);
     store.markSetup(nb.id);
   }
+  // A page reader can't find or check: those steps go to sua's finder or checker.
+  const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
+  if (steps) store.setSteps(nb.id, steps);
+  if (input.layout) store.setLayout(nb.id, input.layout, 'template');
   // sua sets up what options record and the stages they go through, from the
   // goal (unless that came with it), then says hello in the notebook's
   // conversation with what it set up.
