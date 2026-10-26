@@ -219,6 +219,13 @@ function collectReferencedAgents(message: InboxMessage, responses: InboxResponse
   return out;
 }
 
+/** A card the notebook retired, not one you skipped: nothing to do with it any more. */
+function retiredByNotebook(r: InboxResponse): boolean {
+  if (r.role !== 'action') return false;
+  const m = parseActionMeta(r);
+  return !!m && m.status === 'skipped' && m.skippedBy === 'notebook';
+}
+
 export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const { message, responses, flash, triagePending, agentTurn, currentTargetYaml, inlineActionWidgets, threadSummary, pendingLearnings, agentTrust, runBehaviors } = opts;
   const badgeClass = PRIORITY_BADGE[message.priority] ?? 'badge--muted';
@@ -402,10 +409,23 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
   const agentConversation = message.source === 'conversation' && message.agentId ? message.agentId : undefined;
   // A reply's widget buttons are spent once the person has said something after it.
   const answeredBy = (i: number) => responses.slice(i + 1).find((x) => x.role === 'user')?.body;
-  const timeline = responses.map((r, i) =>
+  const entry = (r: InboxResponse, i: number) =>
     renderConversationEntry(r, currentTargetYaml, inlineActionWidgets, agentTrust,
       isGrouped(responses, i, (x) => (x.role === 'action' ? undefined : x.role)), runBehaviors, agentConversation,
-      { answered: answeredBy(i), imgHosts: opts.imgHosts ?? [] }));
+      { answered: answeredBy(i), imgHosts: opts.imgHosts ?? [] });
+  // Cards a notebook retired (its steps moved on, or a newer card asks the same) fold into one quiet line, open to see them.
+  const timeline: SafeHtml[] = [];
+  for (let i = 0; i < responses.length;) {
+    let j = i;
+    while (j < responses.length && retiredByNotebook(responses[j])) j++;
+    if (j === i) { timeline.push(entry(responses[i], i)); i++; continue; }
+    const n = j - i;
+    timeline.push(html`<details class="thread-fold">
+      <summary class="thread-fold__summary">${n === 1 ? 'A step card the notebook moved past' : `${String(n)} step cards the notebook moved past`}</summary>
+      ${renderThread(responses.slice(i, j).map((r, k) => entry(r, i + k)), { className: 'thread-fold__list' })}
+    </details>`);
+    i = j;
+  }
 
   // Conversation rendered as a vertical timeline. Each `<li>` carries
   // the avatar dot that overlaps the rail line drawn by

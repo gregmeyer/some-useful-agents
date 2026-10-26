@@ -249,6 +249,29 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(res.text).toContain('Skipped by operator.');        // skippedBy: operator AND legacy (absent → operator)
   });
 
+  it('folds a run of cards the notebook retired into one line; cards you skipped stay', async () => {
+    const app = await makeApp();
+    const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 'fold', body: 'b' });
+    const card = (body: string, skippedBy: string) => inboxStore.addResponse(m.id, 'action', body, JSON.stringify({
+      kind: 'action', status: 'skipped', skippedBy, skipReason: 'The notebook has moved on from this.', agentId: 'notebook-step', inputs: {}, rationale: body,
+    }));
+    inboxStore.addResponse(m.id, 'triage', 'Step 1 is done.');
+    for (let i = 0; i < 3; i++) card(`Start step 2 (${String(i)})`, 'notebook');
+    inboxStore.addResponse(m.id, 'triage', 'The notebook already has what this step needs.');
+    card('Start step 3', 'notebook');
+    card('Run it again', 'operator');
+    const res = await request(app).get(`/inbox/${m.id}/fragment`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('3 step cards the notebook moved past');
+    expect(res.text).toContain('A step card the notebook moved past');
+    expect(res.text.match(/class="thread-fold"/g)).toHaveLength(2);
+    // Folded, not gone: the cards are inside; the one you skipped isn't folded.
+    expect(res.text).toContain('Start step 2 (2)');
+    const lastFold = res.text.lastIndexOf('</details>');
+    expect(res.text.indexOf('Run it again')).toBeGreaterThan(lastFold);
+    expect(res.text).toContain('Skipped by operator.');
+  });
+
   it('renders conversation entries with data-msg-id + role avatars', async () => {
     const app = await makeApp();
     const m = inboxStore.add({ priority: 'medium', source: 'manual', title: 't', body: 'b' });
