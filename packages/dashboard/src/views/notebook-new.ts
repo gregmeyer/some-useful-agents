@@ -167,6 +167,7 @@ const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { profile: 'learn a
  * Editing a notebook, each step keeps its id (so it keeps how far it got),
  * a done one says so, and the one running can't be removed.
  */
+// Each row carries what its step writes (shape), who it's about (subject) and the facts it looks up, so Start keeps them.
 function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: string; description: string }>, editing = false): SafeHtml {
   return html`<div class="nbd-field"><span class="nbd-field__label">Steps</span>
     <ol class="nbd-steps">
@@ -174,6 +175,9 @@ function stepRows(steps: readonly NotebookStep[], agents: ReadonlyArray<{ id: st
         ${editing ? html`<input type="hidden" name="step_id" value="${st.id}">` : html``}
         <input type="hidden" name="step_kind" value="${st.kind}">
         <input type="hidden" name="step_target" value="${st.target !== undefined ? String(st.target) : ''}">
+        <input type="hidden" name="step_shape" value="${st.shape ?? ''}">
+        <input type="hidden" name="step_subject" value="${st.subject ?? ''}">
+        <input type="hidden" name="step_facts" value="${(st.facts ?? []).join(',')}">
         <span class="nbd-step__kind">${STEP_KIND_WORD[st.kind]}</span>
         <input name="step_title" value="${st.title}" aria-label="Step" class="nbd-step__title">
         ${st.kind === 'decide' || st.kind === 'narrow'

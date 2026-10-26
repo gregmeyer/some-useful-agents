@@ -1993,6 +1993,17 @@ describe('new notebook: say it, sua drafts it, you check it', () => {
       { id: 's2', title: 'Check comfort', kind: 'check', status: 'todo', tries: 0 },
       { id: 's3', title: 'Pick one', kind: 'decide', target: 1, status: 'todo', tries: 0 },
     ]);
+
+    // What a step writes, who it's about and the facts it looks up survive Start (a question kept writing talking points).
+    expect(page).toContain('name="step_shape"');
+    await form(app, '/notebooks', { title: 'CRM prices', statement: 'What do small teams pay?',
+      step_title: ['Learn about Dana Reyes', 'Find sources', 'Source prices', 'Write the answer'], step_kind: ['profile', 'find', 'source', 'write'],
+      step_agent: ['', '', '', ''], step_target: ['', '5', '', ''], step_shape: ['', '', '', 'answer'], step_subject: ['Dana Reyes', '', '', ''], step_facts: ['', '', 'price, plan', ''],
+      field: [JSON.stringify({ key: 'price', label: 'Price', type: 'money', role: 'price' }), JSON.stringify({ key: 'plan', label: 'Plan', type: 'text' })] });
+    const crm = NotebookStore.fromHandle(runStore.databaseHandle()).list({}).find((n) => n.title === 'CRM prices')!;
+    expect(crm.steps!.map((x) => [x.kind, x.shape, x.subject, x.facts])).toEqual([
+      ['profile', undefined, 'Dana Reyes', undefined], ['find', undefined, undefined, undefined], ['source', undefined, undefined, ['price', 'plan']], ['write', 'answer', undefined, undefined],
+    ]);
   });
 
   it('sua proposes steps in the conversation: a card that previews them, refuses agents that aren\'t installed, and can start step 1', async () => {
