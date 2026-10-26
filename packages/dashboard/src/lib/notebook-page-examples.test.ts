@@ -97,8 +97,8 @@ describe.each(NOTEBOOK_PAGE_EXAMPLES.map((ex) => [ex.id, ex] as const))('a noteb
     if (ex.expect.page === 'shortlist') {
       expect(drawn.answer).toMatchObject({ keep: true });
       expect(nb.layout).toBeUndefined();
-    } else if (ex.expect.page === 'dossier') {
-      expect(nb.layout?.preset).toBe('dossier');
+    } else if (ex.expect.page !== 'drawn') {
+      expect(nb.layout?.preset).toBe(ex.expect.page);
     } else {
       expect(nb.layout?.preset).toBeUndefined();
       expect(nb.layout?.components.length).toBeGreaterThan(2);

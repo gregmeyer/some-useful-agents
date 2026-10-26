@@ -47,18 +47,18 @@ export function textItems(list) {
 }
 
 /** The agenda as plain text, to paste into notes or an email. */
-export function agendaText({ title, points, questions, watch } = {}) {
+export function agendaText({ title, points, questions, watch, pointsLabel, questionsLabel, watchLabel } = {}) {
   const lines = [];
   if (str(title)) lines.push(str(title), '');
   const ps = textItems(points);
   if (ps.length) {
-    lines.push('Talking points');
+    lines.push(str(pointsLabel) || 'Talking points');
     ps.forEach((p, i) => { lines.push(`${i + 1}. ${p.text}`); if (str(p.note)) lines.push(`   ${str(p.note)}`); });
     lines.push('');
   }
   const qs = textItems(questions);
-  if (qs.length) { lines.push('Questions to ask'); qs.forEach((q) => lines.push(`- ${q.text}`)); lines.push(''); }
+  if (qs.length) { lines.push(questionsLabel || 'Questions to ask'); qs.forEach((q) => lines.push(`- ${q.text}`)); lines.push(''); }
   const ws = textItems(watch);
-  if (ws.length) { lines.push('Watch out for'); ws.forEach((w) => lines.push(`- ${w.text}`)); lines.push(''); }
+  if (ws.length) { lines.push(watchLabel || 'Watch out for'); ws.forEach((w) => lines.push(`- ${w.text}`)); lines.push(''); }
   return lines.join('\n').trimEnd();
 }

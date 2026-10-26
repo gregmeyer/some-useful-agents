@@ -5,8 +5,11 @@
  * (by id: the quotes and sources shown with it are the themes' own, never
  * the writer's words), then more questions and what to watch for. Kept on
  * the notebook (Notebook.briefing); the agenda and the brief show it.
+ * For a question (a step with shape "answer"), the answer: how sure and
+ * why, the findings it rests on (by id, the same way), and what's still
+ * open (Notebook.answer); the Answer page and the brief show it.
  */
-import { NotebookStore, cleanBriefing, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, cleanBriefing, cleanAnswer, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -16,7 +19,7 @@ type Ctx = ReturnType<typeof getContext>;
 const text = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : typeof v === 'number' ? String(v) : '');
 
 /** What the writer reads: the notebook (what it's for, who it's about) and its themes (what they said, each with its id). Pure. */
-export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target'>): Record<string, string> {
+export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>): Record<string, string> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
   const askF = nb.fields.find((f) => f.role === 'ask');
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
@@ -37,13 +40,18 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   });
   const person = about('person');
   const company = about('company');
+  // An answer also reads the notes its research left (what a search said it found, or couldn't).
+  const notes = step.shape === 'answer'
+    ? entries.filter((e) => e.kind === 'note' && !/^Met: /.test(e.title)).slice(0, 12).map((e) => `${e.title}${e.body ? `: ${e.body}` : ''}`.replace(/\s+/g, ' ').slice(0, 400))
+    : [];
   return {
     NOTEBOOK: JSON.stringify({
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
-      ...(person ? { person } : {}), ...(company ? { company } : {}),
+      ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
     }),
     THEMES: JSON.stringify(themes.slice(0, 30)),
     COUNT: String(Math.min(8, Math.max(3, step.target ?? 4))),
+    SHAPE: step.shape === 'answer' ? 'answer' : 'talking points',
   };
 }
 
@@ -55,16 +63,25 @@ async function runWriter(ctx: Ctx, inputs: Record<string, string>): Promise<{ re
   return run.status === 'completed' ? { result: run.result } : { error: run.error ?? run.status };
 }
 
-/** Write the notebook's talking points (a write step's run). Returns what happened, a line each; never throws. */
+/** Write what the notebook was for (a write step's run): its talking points, or its answer. Returns what happened, a line each; never throws. */
 export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<string[]> {
   const nb = store.get(notebookId);
   if (!nb) return [];
   const entries = store.entries(nb.id, 1000);
   const ids = new Set(entries.filter((e) => e.kind === 'option' && !e.ruledOut).map((e) => e.id));
-  if (!ids.size) return ['there is nothing to write from yet: no themes in the running'];
+  if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : 'there is nothing to write from yet: no themes in the running'];
   try {
     const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step));
     if (!result) return [`${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
+    if (step.shape === 'answer') {
+      const block = extractTaggedJson(result, 'answer');
+      let raw: unknown;
+      try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
+      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID);
+      if (!answer) return [`${NOTEBOOK_WRITER_ID}: no answer came back`];
+      store.setAnswer(nb.id, answer);
+      return [`wrote the answer (${answer.confidence} confidence) with ${String(answer.findings.length)} finding${answer.findings.length === 1 ? '' : 's'}`];
+    }
     const block = extractTaggedJson(result, 'briefing');
     let raw: unknown;
     try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }

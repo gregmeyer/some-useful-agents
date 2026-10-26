@@ -28,7 +28,7 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
     limits: nb.params,
     doneWhen: nb.criteria.map((c) => c.text),
     facts: nb.fields.map((f) => ({ key: f.key, label: f.label, type: f.type, ...(f.role ? { role: f.role } : {}) })),
-    steps: (nb.steps ?? []).map((s) => ({ title: s.title, kind: s.kind, ...(s.target ? { target: s.target } : {}) })),
+    steps: (nb.steps ?? []).map((s) => ({ title: s.title, kind: s.kind, ...(s.target ? { target: s.target } : {}), ...(s.shape ? { shape: s.shape } : {}) })),
     ...(nb.checks.length ? { checks: nb.checks } : {}),
     ...(nb.stages.length ? { stages: nb.stages } : {}),
   };

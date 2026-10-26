@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanSteps, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1138,6 +1138,22 @@ describe('who a notebook is about', () => {
     expect(s.aboutPhoto(nb.id, 'person')).toMatchObject({ contentType: 'image/jpeg', kind: 'photo', sourceUrl: 'https://example.com/dana.jpg' });
     s.delete(nb.id);
     expect(s.aboutPhotos(nb.id).size).toBe(0);
+  });
+});
+
+describe('an answer a write step wrote', () => {
+  it('keeps an answer with its findings resting only on options the notebook has', () => {
+    const ids = new Set(['o1', 'o2']);
+    const a = cleanAnswer({ answer: '  About **$30** a seat. ', confidence: 'MEDIUM', basis: 'Two sources agree.', findings: [{ text: 'Vendor says $25', from: ['o1', 'ghost'] }, 'Survey says $20–40', { text: '' }], open: ['Annual plans?', ''] }, ids, 'What do teams pay?', 'notebook-writer', '2026-10-26T00:00:00Z');
+    expect(a).toEqual({ question: 'What do teams pay?', text: 'About **$30** a seat.', confidence: 'medium', basis: 'Two sources agree.', findings: [{ text: 'Vendor says $25', from: ['o1'] }, { text: 'Survey says $20–40', from: [] }], open: ['Annual plans?'], at: '2026-10-26T00:00:00Z', by: 'notebook-writer' });
+    // No answer, no keeping; an unknown confidence is low.
+    expect(cleanAnswer({ findings: ['x'] }, ids, 'q', 'w')).toBeUndefined();
+    expect(cleanAnswer({ answer: 'Yes.', confidence: 'certain' }, ids, 'q', 'w')!.confidence).toBe('low');
+  });
+
+  it('a write step keeps shape "answer"; other steps never have one', () => {
+    const steps = cleanSteps([{ title: 'Write the answer', kind: 'write', shape: 'answer' }, { title: 'Find', kind: 'find', shape: 'answer' }, { title: 'Write points', kind: 'write', shape: 'poem' }]);
+    expect(steps.map((x) => x.shape)).toEqual(['answer', undefined, undefined]);
   });
 });
 

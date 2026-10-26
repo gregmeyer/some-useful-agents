@@ -18,7 +18,7 @@ export interface NotebookPageExample {
    * Meeting briefing (dossier), or one drawn for it, of a `kind` (a report
    * answering a question, a plan).
    */
-  expect: { page: 'shortlist' | 'dossier' | 'drawn'; kind?: string; needs?: string[] };
+  expect: { page: 'shortlist' | 'dossier' | 'answer' | 'drawn'; kind?: string; needs?: string[] };
   /** Make it in `s` and return its id; with `data`, as its steps would leave it. */
   seed: (s: NotebookStore, opts: { data: boolean }) => string;
 }
@@ -233,7 +233,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
   {
     id: 'question',
     job: 'answer a question',
-    expect: { page: 'drawn', kind: 'report' },
+    expect: { page: 'answer', needs: ['Callout', 'Agenda', 'OptionGrid'] },
     seed(s, { data }) {
       const nb = s.create({ title: 'Is a heat pump worth it in a cold climate?', statement: 'Find out whether a cold-climate heat pump pays off for a 1,800 sq ft house in Minneapolis', params: ['winters to -20°F', 'gas furnace today'], criteria: ['An answer with the payback in years'] });
       s.setFields(nb.id, [
@@ -245,6 +245,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
       s.setSteps(nb.id, [
         { title: 'Find 6 studies and field reports', kind: 'find', target: 6 },
         { title: 'Check each one is about cold climates', kind: 'check' },
+        { title: 'Write the answer', kind: 'write', shape: 'answer' },
       ]);
       if (data) {
         options(s, nb.id, [
@@ -253,6 +254,13 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
           ['Payback calculator write-up', { finding: 'Payback of 7-12 years against gas at today’s prices', evidence: 'Gas at $1.10/therm, power at $0.14/kWh.', source: src('payback'), published: '2026-06-02' }],
         ]);
         s.recordSearch(nb.id, 'example-finder', 'run-heat-1', 3, AT, [{ name: 'Studies', status: 'found', found: 1 }, { name: 'Utilities', status: 'found', found: 2 }]);
+        const [study, rebates, payback] = s.entries(nb.id, 10).filter((e) => e.kind === 'option').map((e) => e.id).reverse();
+        s.setAnswer(nb.id, {
+          question: 'Find out whether a cold-climate heat pump pays off for a 1,800 sq ft house in Minneapolis', text: 'Yes, in about **7 to 12 years** against gas at today’s prices, and sooner with a rebate.',
+          confidence: 'medium', basis: 'One field study and one calculator; prices change.',
+          findings: [{ text: 'Cold-climate units kept homes warm down to -13°F.', from: [study] }, { text: 'Rebates cover $2,000-$8,000.', from: [rebates] }, { text: 'Payback is 7-12 years against gas.', from: [payback] }],
+          open: ['What does the house’s own gas bill say?'], at: AT, by: 'notebook-writer',
+        });
       }
       return nb.id;
     },

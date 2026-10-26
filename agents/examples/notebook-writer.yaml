@@ -1,15 +1,19 @@
 # Notebook Writer — a notebook's write step. From what the notebook is for,
-# who it's about and the themes its steps found and checked, it writes the
-# talking points for a meeting: each a point to raise, why it matters to
-# them, a question, and the themes it rests on (by id, so the quotes and
-# sources shown with it are the themes' own). Route-dispatched only, by the
-# step runner (dashboard lib/notebook-write.ts); never proposed in triage.
+# who it's about and what its steps found and checked, it writes either the
+# talking points for a meeting (each a point to raise, why it matters to
+# them, a question, and the themes it rests on) or, when the notebook asks a
+# question, the answer (how sure and why, the findings it rests on, what's
+# still open). Either cites what it rests on by id, so the quotes and
+# sources shown with it are the notebook's own. Route-dispatched only, by
+# the step runner (dashboard lib/notebook-write.ts); never proposed in triage.
 
 id: notebook-writer
 name: Notebook Writer
 description: >
-  Writes a notebook's talking points from the themes it found: what to
-  raise, why it matters to them, what to ask, and what to watch for.
+  Writes up what a notebook was for from what it found: the talking points
+  for a meeting (what to raise, why it matters to them, what to ask, what to
+  watch for), or the answer to its question (how sure, the findings it rests
+  on, what's still open).
 status: active
 source: examples
 
@@ -27,6 +31,11 @@ inputs:
     required: false
     default: "4"
     description: How many talking points to write.
+  SHAPE:
+    type: string
+    required: false
+    default: "talking points"
+    description: 'What to write: "talking points" (for a meeting) or "answer" (to the question the notebook is for).'
 
 nodes:
   - id: write
@@ -34,15 +43,41 @@ nodes:
     maxTurns: 1
     timeout: 180
     outputContract:
-      mustMatch: '<briefing>[\s\S]*?</briefing>'
-      description: a <briefing> JSON block
+      mustMatch: '<(briefing|answer)>[\s\S]*?</(briefing|answer)>'
+      description: a <briefing> or <answer> JSON block
     prompt: |
-      Someone is getting ready for a meeting. Their notebook (JSON):
+      What to write: {{inputs.SHAPE}}.
+
+      The notebook (JSON):
       {{inputs.NOTEBOOK}}
 
-      What sua found the person has written or said, as themes (JSON; each
-      has an id):
+      What sua found, each with an id (JSON). For a meeting these are
+      themes: what the person has written or said. For a question they are
+      the sources and findings its steps found and checked:
       {{inputs.THEMES}}
+
+      If what to write is "answer": answer the question the notebook is for
+      ("for", else its title), from what's above only.
+        - "answer": the answer itself, 1 to 4 sentences in plain words,
+          leading with the direct answer; **bold** the key part. If what's
+          above can't settle it, say what it does show and what's missing.
+        - "confidence": "high" (several good sources agree), "medium"
+          (some support, or sources differ) or "low" (thin, old or
+          one-sided);
+        - "basis": one sentence on why that confidence;
+        - "findings": 3 to 6, each {"text": one sentence, a fact or a
+          point the answer rests on, "from": the ids it comes from (one or
+          more, only ids given above)}; most important first;
+        - "open": up to 5 questions it couldn't settle, or what to check or
+          do next, one sentence each.
+      Use only what's above: don't invent facts, numbers, dates or sources.
+      Reply with only this, as valid JSON:
+      <answer>
+      {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"]}
+      </answer>
+
+      Otherwise (talking points), someone is getting ready for a meeting,
+      and the items above are what they've written or said.
 
       Write {{inputs.COUNT}} talking points for the meeting. A talking point
       is something to raise in the conversation, written as a sentence the

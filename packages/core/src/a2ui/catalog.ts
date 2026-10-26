@@ -182,9 +182,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Callout',
-    summary: 'A highlighted paragraph with a small label (e.g. "Where it stands"), and an optional "Next:" line; text may use **bold**.',
+    summary: 'A highlighted paragraph with a small label (e.g. "Where it stands"), and an optional "Next:" line (`nextLabel` renames it, e.g. "How sure:"); text may use **bold**.',
     example: { id: 'c', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
-    schema: Common.extend({ label: Str.optional(), text: Str, next: Str.optional() }).strict(),
+    schema: Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional() }).strict(),
   },
   {
     name: 'StatStrip',
@@ -275,6 +275,10 @@ const SUA_COMPONENTS = [
       editHref: Str.optional(),
       /** numerals: large teal numbers instead of small circles. */
       variant: z.enum(['list', 'numerals']).optional(),
+      /** Headings for the questions and watch lists (default "Questions to ask", "Watch out for"), and what it says with nothing yet. */
+      questionsLabel: Str.optional(),
+      watchLabel: Str.optional(),
+      empty: Str.optional(),
     }).strict(),
   },
   {

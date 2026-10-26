@@ -149,15 +149,17 @@ exports[`a notebook to product > keeps the same outline unless it was changed on
 
 exports[`a notebook to question > keeps the same outline unless it was changed on purpose 1`] = `
 "Column
-  NotebookHeader subtitle=Research answer cover=none
-  Columns 1
-    Panel treatment=aside "Studies checked"
-      Funnel
-  Panel treatment=feature "What the studies found"
-    QuoteList max=6
-  Columns 1:1:1
-    Disclosure "All studies and reports"
-      Table
+  NotebookHeader subtitle=Answer cover=none steps=fold
+  Columns 2:1
+    Column
+      Callout
+      Panel treatment=feature "What it rests on"
+        Agenda "Key findings"
+    Panel "Done when"
+      Steps "Progress"
+  Panel treatment=feature "The evidence"
+    OptionGrid
+  Columns 1:1
     Disclosure "Research activity"
       Timeline max=6
     Disclosure "Where sua looked"

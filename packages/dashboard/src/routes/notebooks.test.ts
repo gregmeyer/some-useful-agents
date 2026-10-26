@@ -3848,6 +3848,71 @@ describe('a write step', () => {
     expect(brief).toContain('Don&#39;t pitch volume');
     writerReply = undefined;
   });
+
+  it('writes the answer for a question: the Answer page shows it, how sure, the findings with their sources, and what is open', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'What do small teams pay for a CRM?', statement: 'What do 10-person sales teams pay for a CRM in 2026?' });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price per seat', type: 'text' }, { key: 'source_url', label: 'Source', type: 'url', role: 'link' }]);
+    const a = s.upsertOption(nb.id, { title: 'Pricing page: Northwind CRM', by: 'agent:x', data: { price: '$25/seat', source_url: 'https://northwind.example/pricing' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'Survey of 200 teams', by: 'agent:x', data: { price: '$20–40/seat', source_url: 'https://survey.example/crm' } }).entry;
+    s.addEntry(nb.id, { kind: 'note', title: 'Searched 3 places at once: vendor pages (2), reviews (1)', by: 'agent:x' });
+    s.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', target: 2, status: 'done' }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    s.setLayout(nb.id, layoutPreset('answer')!.layout, 'notebook');
+
+    // Before the answer: where it stands, and the step says there's none yet.
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"label":"Where it stands"');
+    expect(page).toContain('no answer yet');
+
+    writerReply = (inputs) => `<answer>${JSON.stringify({
+      answer: 'Most pay **$20–40 a seat a month**; a 10-person team spends about $250–400.',
+      confidence: 'medium', basis: 'A vendor page and one survey agree; no invoices.',
+      findings: [{ text: 'Northwind lists $25 a seat.', from: [a.id] }, { text: 'Teams surveyed pay $20–40.', from: [b.id, 'made-up'] }],
+      open: ['Do annual plans cut it further?'],
+    })}</answer>${inputs.SHAPE}`;
+    expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true, step: { kind: 'write', shape: 'answer' } });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    // The writer was asked for an answer, with the notes its research left.
+    expect(writerAsked.at(-1)!.SHAPE).toBe('answer');
+    expect(JSON.parse(writerAsked.at(-1)!.NOTEBOOK).notes).toEqual(['Searched 3 places at once: vendor pages (2), reviews (1)']);
+    const after = s.get(nb.id)!;
+    expect(after.steps![1]).toMatchObject({ status: 'met', note: 'answer written' });
+    expect(after.answer).toMatchObject({ question: 'What do 10-person sales teams pay for a CRM in 2026?', confidence: 'medium', open: ['Do annual plans cut it further?'], by: 'notebook-writer' });
+    expect(after.answer!.findings.map((f) => f.from)).toEqual([[a.id], [b.id]]);
+
+    const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
+    expect(d.answer).toEqual({ question: 'What do 10-person sales teams pay for a CRM in 2026?', label: 'Answer · fairly sure', text: 'Most pay **$20–40 a seat a month**; a 10-person team spends about $250–400.', next: 'A vendor page and one survey agree; no invoices.', nextLabel: 'How sure:' });
+    expect(d.findings[1]).toEqual({ text: 'Teams surveyed pay $20–40.', refs: [{ label: 'Survey of 200 teams', href: `/notebooks/${nb.id}/entries/${b.id}` }] });
+    expect(d.openQuestions).toEqual([{ text: 'Do annual plans cut it further?' }]);
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"label":"Answer · fairly sure"');
+    expect(page).toContain('"component":"Agenda"');
+    // The brief prints the answer, its findings by source, and what's open.
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('<b>How sure:</b> A vendor page and one survey agree; no invoices.');
+    expect(brief).toContain('From Survey of 200 teams');
+    expect(brief).toContain('Still open');
+    // Done, it offers Answer again (not talking-point edits).
+    s.updateStep(nb.id, after.steps![1].id, { status: 'done' });
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('Answer again →');
+    expect(page).not.toContain('Edit the points →');
+    // The document form keeps what the step writes.
+    const { notebookToMarkdown, notebookFromMarkdown, setupOf } = await import('../lib/notebook-edit.js');
+    const md = notebookToMarkdown(setupOf(s.get(nb.id)!), s.get(nb.id)!.layout);
+    expect(md).toContain('2. Write the answer (write; answer)');
+    const back = notebookFromMarkdown(md, setupOf(s.get(nb.id)!), s.get(nb.id)!.layout, new Set());
+    expect('setup' in back && back.setup.steps[1].shape).toBe('answer');
+    // The drafter's steps keep it too.
+    const { draftSteps } = await import('../lib/notebook-draft.js');
+    expect(draftSteps([{ title: 'Find sources', kind: 'find', agent: '' }, { title: 'Write the answer', kind: 'write', agent: '', shape: 'answer' }], new Set()).steps!.map((x) => x.shape)).toEqual([undefined, 'answer']);
+    writerReply = undefined;
+  });
 });
 
 describe('editing the talking points', () => {

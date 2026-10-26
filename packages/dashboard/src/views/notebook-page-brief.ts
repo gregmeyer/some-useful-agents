@@ -82,7 +82,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<section class="part part--${t}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${node(p, c.child as string)}</section>`;
     }
     case 'Disclosure': return html`<section class="part part--aside"><div class="part__head"><h2>${text(v('label'))}</h2></div>${node(p, c.child as string)}</section>`;
-    case 'Callout': return html`<div class="callout">${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>Next:</b> ${text(v('next'))}</p>` : html``}</div>`;
+    case 'Callout': return html`<div class="callout">${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
     case 'Text': return html`<p>${text(v('text'))}</p>`;
     case 'Metric': return html`<p class="metric"><span class="eyebrow">${text(v('label'))}</span> <b>${text(v('value'))}${text(v('unit'))}</b></p>`;
     case 'Badge': return html`<span class="chip">${text(v('text'))}</span>`;
@@ -123,9 +123,13 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const qs = items(v('questions'));
       const watch = items(v('watch'));
       return html`<div class="agenda">
-        ${points.length ? html`<ol class="${c.variant === 'numerals' ? 'numerals' : ''}">${points.map((x) => html`<li><b>${x.text}</b>${text(x.note) ? html`<span class="muted">${text(x.note)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>` : html``}
-        ${qs.length ? html`<div class="eyebrow">Questions to ask</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
-        ${watch.length ? html`<div class="eyebrow">Watch out for</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+        ${points.length ? html`<ol class="${c.variant === 'numerals' ? 'numerals' : ''}">${points.map((x) => {
+          // What a point rests on, by name (an answer's findings name their sources).
+          const from = list(x.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+          return html`<li><b>${x.text}</b>${text(x.note) ? html`<span class="muted">${text(x.note)}</span>` : html``}${c.component === 'Agenda' && from.length && !text(x.note) ? html`<span class="muted">From ${from.join(', ')}</span>` : html``}</li>`;
+        }) as unknown as SafeHtml[]}</ol>` : html``}
+        ${qs.length ? html`<div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+        ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
       </div>`;
     }
     case 'QuoteList': {

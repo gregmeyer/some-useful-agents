@@ -29,6 +29,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   about: 'It knows who it\'s about: a profile step learned about a person or company.',
   person: 'It knows the person it\'s about.',
   company: 'It knows their company (or the company it\'s about).',
+  answered: 'It has a written answer (a write step that answers its question).',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -144,6 +145,37 @@ const DOSSIER: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * An answer to a question (the header says the question): the answer
+ * (until there is one, where it stands), how sure and why, the findings it rests on (each linked to its
+ * sources) with what's still open, beside the steps; then the evidence sua
+ * found as a table, and the research folded at the end.
+ */
+const ANSWER: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'top', 'evidence_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Answer', steps: 'fold', cover: 'none' },
+  { id: 'top', component: 'Columns', children: ['answer_col', 'steps_panel'], widths: [2, 1], align: 'start' },
+  { id: 'answer_col', component: 'Column', children: ['answer', 'findings_p'] },
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' } },
+  { ...panel('findings_p', 'What it rests on', 'findings'), treatment: 'feature', when: 'answered' },
+  {
+    id: 'findings', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
+    questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
+  },
+  panel('steps_panel', 'Done when', 'steps'),
+  { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
+  { ...panel('evidence_p', 'The evidence', 'evidence', 'what sua found and checked'), treatment: 'feature', when: 'options' },
+  {
+    id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: 'table', sort: L('sort'), actions: true, csvHref: L('csvHref'),
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -156,6 +188,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Meeting briefing',
     when: 'Getting ready to meet or work with a person or company: who they are, what\'s known, what they said, what to talk about.',
     layout: { preset: 'dossier', components: DOSSIER },
+  },
+  {
+    id: 'answer',
+    label: 'Answer',
+    when: 'Answering a question or finding something out (what\'s true, what\'s best practice, what it costs, how something works): the answer and how sure, the findings it rests on with their sources, what\'s still open, then the evidence.',
+    layout: { preset: 'answer', components: ANSWER },
   },
 ];
 
@@ -481,6 +519,13 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/talkingPoints': 'The talking points sua wrote (a write step), each with why it matters and what they said it rests on; before then, the chosen options (else the first 5) with their questions (Agenda points).',
   '/notebook/questions': 'Questions to ask: the ones sua wrote, else the other options\' (their ask field) (Agenda questions).',
   '/notebook/watch': 'What to watch for in the meeting, from what sua wrote (Agenda watch).',
+  '/notebook/answer/question': 'The question the notebook answers (what it\'s for) (a Panel note).',
+  '/notebook/answer/label': 'The answer\'s label with how sure ("Answer · fairly sure"); before there is one, "Where it stands" (Callout label).',
+  '/notebook/answer/text': 'The answer a write step wrote; before then, where the notebook stands (Callout text).',
+  '/notebook/answer/next': 'Why that confidence; before an answer, what\'s next (Callout next).',
+  '/notebook/answer/nextLabel': '"How sure:" with an answer, else "Next:" (Callout nextLabel).',
+  '/notebook/findings': 'The findings the answer rests on, each linked to the options (sources) it came from (Agenda points).',
+  '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/talkingPointsEdit': 'Where to edit the talking points sua wrote, once there are some (Agenda editHref).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
