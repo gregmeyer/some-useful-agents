@@ -1602,9 +1602,9 @@ export class NotebookStore {
     return r ? draftRecord(r) : undefined;
   }
 
-  /** Drafts not started yet, newest first. */
+  /** Drafts not started yet, newest first (not changes to a notebook you're making on its Edit page: `edit:<id>`). */
   listDrafts(limit = 10): NotebookDraftRecord[] {
-    return (this.db.prepare('SELECT * FROM notebook_drafts ORDER BY updated_at DESC LIMIT ?').all(limit) as Array<Record<string, unknown>>).map(draftRecord);
+    return (this.db.prepare("SELECT * FROM notebook_drafts WHERE id NOT LIKE 'edit:%' ORDER BY updated_at DESC LIMIT ?").all(limit) as Array<Record<string, unknown>>).map(draftRecord);
   }
 
   deleteDraft(id: string): boolean {

@@ -9,6 +9,7 @@ import { layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, option
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
+import { pageName, type NotebookEditTurn } from '../lib/notebook-edit.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -731,8 +732,7 @@ function notebookMoreActions(nb: Notebook, layoutUndos = 0, pagePicking = false)
   const id = encodeURIComponent(nb.id);
   const preset = nb.layout?.preset ? layoutPreset(nb.layout.preset) : undefined;
   return html`
-      <section class="nbe-more" aria-labelledby="nbe-more-title">
-        <h2 class="nbe-more__title" id="nbe-more-title">More</h2>
+      <section class="nbe-more" aria-label="More">
         <div class="nb-form nbe-more__row nbe-layout">
           <span class="nbe-layout__now">Page: <b>${nb.layout ? (preset && JSON.stringify(preset.layout.components) === JSON.stringify(nb.layout.components) ? preset.label : 'Drawn for this notebook') : 'Shortlist'}</b>${nb.layout?.about ? html` <span class="nbe-layout__about">(${nb.layout.about})</span>` : html``}</span>
           ${pagePicking
@@ -741,7 +741,7 @@ function notebookMoreActions(nb: Notebook, layoutUndos = 0, pagePicking = false)
           ${layoutUndos ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="undo" value="1"><button type="submit" class="btn btn--sm btn--ghost">Undo the last page change</button></form>` : html``}
           ${nb.layout ? html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="shortlist"><button type="submit" class="btn btn--sm btn--ghost">Back to Shortlist</button></form>` : html``}
           ${NOTEBOOK_LAYOUT_PRESETS.filter((p) => p.id !== 'shortlist' && nb.layout?.preset !== p.id).map((p) => html`<form method="POST" action="/notebooks/${id}/layout" class="nb-form"><input type="hidden" name="preset" value="${p.id}"><button type="submit" class="btn btn--sm btn--ghost" title="${p.when}">Use ${p.label}</button></form>`) as unknown as SafeHtml[]}
-          <span class="nbe-more__hint">To change what the page shows, ask sua in the notebook's conversation: "put who they are at the top", "a table of the themes".</span>
+          <span class="nbe-more__hint">To change what the page shows, say it in Talk above: "put who they are at the top", "a table of the themes".</span>
         </div>
         ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
         <div class="nb-template">
@@ -763,33 +763,142 @@ function notebookMoreActions(nb: Notebook, layoutUndos = 0, pagePicking = false)
   `;
 }
 
+/** What the Edit page shows (the header's Edit). */
+export interface NotebookEditView {
+  /** The notebook as it is. */
+  nb: Notebook;
+  /** As your changes would leave it (the notebook itself when there are none). */
+  proposed: Notebook;
+  turns: readonly NotebookEditTurn[];
+  working: boolean;
+  /** Every change not saved yet, against the notebook as it is. */
+  pending: readonly string[];
+  tab: 'talk' | 'prompt';
+  markdown: string;
+  entries: NotebookEntry[];
+  compiled: CompiledSurface;
+  history?: NotebookViewHistory;
+  agents: ReadonlyArray<{ id: string; description: string }>;
+  flash?: { kind: 'error' | 'info' | 'ok'; message: string };
+  layoutUndos?: number;
+  pagePicking?: boolean;
+}
+
+/** Things to say, to start: each fills the box. */
+const EDIT_STARTERS = [
+  'Add a step to ',
+  'Make the page lead with ',
+  'Also note each one\'s ',
+  'It\'s done when ',
+];
+
+/** The notebook in a few lines: what it's for, its limits, done-whens, facts, steps and page. */
+function editSummary(nb: Notebook): SafeHtml {
+  const row = (label: string, body: SafeHtml | string) => html`<div class="nbe-sum__row"><dt>${label}</dt><dd>${body}</dd></div>`;
+  const chips = (xs: readonly string[]) => (xs.length ? html`<span class="nbe-sum__chips">${xs.map((x) => html`<span class="nb-chip">${x}</span>`) as unknown as SafeHtml[]}</span>` : html`<span class="nbe-sum__none">none</span>`);
+  return html`<dl class="nbe-sum">
+    ${row('For', nb.statement || nb.title)}
+    ${row('Limits', chips(nb.params))}
+    ${row('Done when', chips(nb.criteria.map((c) => `${c.met ? '✓ ' : ''}${c.text}`)))}
+    ${row('Notes', chips(nb.fields.map((f) => f.label)))}
+    ${row('Steps', nb.steps?.length ? html`<ol class="nbe-sum__steps">${nb.steps.map((x) => html`<li class="${x.status === 'done' ? 'is-done' : ''}">${x.title}</li>`) as unknown as SafeHtml[]}</ol>` : html`<span class="nbe-sum__none">none</span>`)}
+    ${row('Page', pageName(nb.layout))}
+  </dl>`;
+}
+
+function editTurn(t: NotebookEditTurn): SafeHtml {
+  return html`
+    <li class="nbe-turn nbe-turn--you">${t.you}</li>
+    ${t.error ? html`<li class="nbe-turn nbe-turn--sua is-error"><span class="nbe-turn__who">sua</span>${t.error}</li>`
+      : t.changes || t.sua ? html`<li class="nbe-turn nbe-turn--sua"><span class="nbe-turn__who">sua</span>
+        ${t.sua ? html`<p class="nbe-turn__say">${t.sua}</p>` : html``}
+        ${t.changes?.length ? html`<ul class="nbe-turn__changes">${t.changes.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+      </li>` : html``}`;
+}
+
 /**
- * Edit this notebook (the header's Edit): its whole setup in the same editor
- * a new notebook's draft uses (limits and stages as chips, done-whens and
- * checks as rows, steps with their agents, searches by name, the schedule in
- * words), then Save; its other actions below.
+ * Edit this notebook: say what to change (Talk) or edit it as a document
+ * (Prompt); either way it's a proposal shown in the preview beside it, as
+ * the notebook's page would draw it, until you save it. The setup form and
+ * the notebook's other actions are folded below.
  */
-export function renderNotebookEdit(args: { nb: Notebook; agents: ReadonlyArray<{ id: string; description: string }>; flash?: { kind: 'error' | 'info' | 'ok'; message: string }; layoutUndos?: number; pagePicking?: boolean }): string {
-  const { nb } = args;
+export function renderNotebookEdit(args: NotebookEditView): string {
+  const { nb, proposed } = args;
   const id = encodeURIComponent(nb.id);
-  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash }, html`
-    <div class="nbe">
-      <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a> › <a href="/notebooks/${id}">${nb.title}</a> › Edit</p>
-      <h1 class="nbe__title">Edit this notebook</h1>
-      <form method="POST" action="/notebooks/${id}/edit" class="nbd-draft nbe-form">
-        <input type="hidden" name="setup" value="1">
-        ${notebookSetupEditor({
-          title: nb.title, statement: nb.statement, params: nb.params,
-          criteria: nb.criteria.map((c) => c.text), met: nb.criteria.map((c) => c.met),
-          ...(nb.steps?.length ? { steps: nb.steps } : {}),
-          fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
-        }, args.agents, { editing: true, offered: args.agents.map((a) => a.id) })}
-        <div class="nbd-draft__foot">
-          <button type="submit" class="btn btn--primary">Save</button>
-          <a class="btn btn--ghost" href="/notebooks/${id}">Cancel</a>
+  const tab = (key: 'talk' | 'prompt', label: string) => html`<a class="nb-tabs__tab${args.tab === key ? ' is-on' : ''}" href="/notebooks/${id}/edit${key === 'prompt' ? '?tab=prompt' : ''}"${args.tab === key ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label}</a>`;
+  const pending = args.pending.length > 0;
+  const talk = html`
+    <section class="nbe-talk" aria-label="Say what to change">
+      ${editSummary(proposed)}
+      ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
+        ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>Changing it. The preview updates when it's done.</li>` : html``}</ol>` : html`
+        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. sua changes it, and you see it beside this before anything is saved.</p>`}
+      <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
+        ${args.turns.length ? html`` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
+        <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}
+          placeholder="e.g. “add a step to learn about her company”, “put who she is at the top”, “stop noting the price”"></textarea>
+        <div class="nbe-talk__send">
+          <span class="nb-talk__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
+          <button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Send</button>
         </div>
       </form>
-      ${notebookMoreActions(nb, args.layoutUndos, args.pagePicking)}
+    </section>`;
+  const prompt = html`
+    <section class="nbe-prompt" aria-label="The notebook as a document">
+      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>.</p>
+      <form method="POST" action="/notebooks/${id}/edit/prompt" class="nbe-prompt__form">
+        <textarea name="markdown" class="form-field nbe-prompt__text" rows="26" spellcheck="false" aria-label="The notebook as markdown" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>${args.markdown}</textarea>
+        <div class="nbe-prompt__acts"><button type="submit" class="btn btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Show in the preview</button></div>
+      </form>
+      <details class="nbe-fold">
+        <summary>Edit field by field</summary>
+        <p class="nbe-fold__note">Saves straight away (not through the preview).</p>
+        <form method="POST" action="/notebooks/${id}/edit" class="nbd-draft nbe-form">
+          <input type="hidden" name="setup" value="1">
+          ${notebookSetupEditor({
+            title: nb.title, statement: nb.statement, params: nb.params,
+            criteria: nb.criteria.map((c) => c.text), met: nb.criteria.map((c) => c.met),
+            ...(nb.steps?.length ? { steps: nb.steps } : {}),
+            fields: nb.fields, checks: nb.checks, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
+          }, args.agents, { editing: true, offered: args.agents.map((a) => a.id) })}
+          <div class="nbd-draft__foot"><button type="submit" class="btn btn--primary">Save</button></div>
+        </form>
+      </details>
+    </section>`;
+  const widgetsIn = proposed.fields.length > 0 && args.entries.some((e) => e.kind === 'option');
+  return render(layout({ title: `Edit ${nb.title}`, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
+    <div class="nbe">
+      ${pageHeader({
+        crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Edit' }],
+        title: 'Edit this notebook',
+        description: 'Say what to change, or edit it as a document. The preview shows the notebook as it would be; nothing changes until you save.',
+      })}
+      <div class="nbe-grid">
+        <div class="nbe-work">
+          <nav class="nb-tabs nbe-tabs" aria-label="How to edit">${tab('talk', 'Talk')}${tab('prompt', 'Prompt')}</nav>
+          ${pending ? html`<div class="nbe-pending" role="status">
+            <details class="nbe-pending__what"><summary><b>${String(args.pending.length)} ${args.pending.length === 1 ? 'change' : 'changes'}</b> not saved yet</summary>
+              <ul>${args.pending.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul></details>
+            <form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Save changes</button></form>
+            <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
+          </div>` : html``}
+          ${args.tab === 'prompt' ? prompt : talk}
+          <details class="nbe-fold nbe-fold--more"><summary>More: its page, stop, save as a template, archive or delete</summary>${notebookMoreActions(nb, args.layoutUndos, args.pagePicking)}</details>
+        </div>
+        <aside class="nbe-preview" aria-label="Preview">
+          <div class="nbe-preview__bar">
+            <span class="nbe-preview__label">Preview</span>
+            <span class="nbe-preview__state${pending ? ' is-changed' : ''}">${pending ? 'with your changes, not saved' : 'as it is now'}</span>
+            <a class="nbe-preview__open" href="/notebooks/${id}">Open the notebook →</a>
+          </div>
+          <div class="nbe-preview__page" inert>
+            ${hero(proposed, [], undefined, widgetsIn, undefined, decisionLeads(proposed, args.entries, Infinity, args.history), args.entries, [], undefined, notebookHeaderView(proposed, args.entries, args.history as NotebookWidgetHistory | undefined))}
+            <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
+          </div>
+        </aside>
+      </div>
+      ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working")location.reload();else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
+      ${unsafeHtml('<script>document.querySelectorAll("[data-nbe-start]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById("nbe-say");if(!t)return;t.value=b.getAttribute("data-nbe-start");t.focus();t.setSelectionRange(t.value.length,t.value.length);});});</script>')}
     </div>
   `));
 }

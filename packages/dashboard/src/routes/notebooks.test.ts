@@ -3484,7 +3484,7 @@ describe('editing a notebook on its own page', () => {
 
     // The header's Edit is a link to the page.
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${nb.id}/edit">Edit</a>`);
-    const page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    const page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(page).toContain('Edit this notebook');
     expect(page).toContain('data-nbd-editor');
     expect(page).toContain('<input name="params" value="within 30 miles"');
@@ -3519,7 +3519,7 @@ describe('editing a notebook on its own page', () => {
     const refused = await post(`/notebooks/${nb.id}/edit`, {
       setup: '1', title: 'Buy used speakers', step_id: ['s1'], step_title: ['Find 3 sets'], step_kind: ['find'], step_agent: [''], step_target: ['3'],
     });
-    expect(refused.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/edit\\?flash=`));
+    expect(refused.headers.location).toMatch(new RegExp(`^/notebooks/${nb.id}/edit\\?tab=prompt&error=`));
     expect(decodeURIComponent(refused.headers.location)).toContain('“Check each” is running'.replace(/[“”]/g, '"'));
     expect(s.get(nb.id)!.steps).toHaveLength(3);
   });
@@ -3666,5 +3666,66 @@ describe('notebook steps: one queue for the header and the conversation (ADR-005
     t.ctx.notebookPipelines = new Map([[t.nb.id, { agentId: 'finder', step: 1, of: 2, startedAt: Date.now() }]]);
     expect(pinStepAction(t.ctx, proposed).reason).toContain('already running');
     t.ctx.notebookPipelines.clear();
+  });
+});
+
+describe('changing a notebook by saying what to change, or as a document', () => {
+  it('shows the change in a preview before anything is saved, then saves it or drops it', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string | string[]>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'What matters to Dana', criteria: ['Talking points chosen'] });
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'What she said', type: 'text' }]);
+    s.setSteps(nb.id, [{ title: 'Find what Dana has said', kind: 'find', target: 5 }]);
+    const waitReady = async () => { for (let i = 0; i < 50; i++) { if ((await get(`/notebooks/${nb.id}/edit/state`)).body.status !== 'working') return; await new Promise((r) => setTimeout(r, 20)); } };
+
+    const first = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(first).toContain('>Talk<');
+    expect(first).toContain('>Prompt<');
+    expect(first).toContain('as it is now');
+    expect(first).not.toContain('not saved yet');
+
+    // Said: the drafter changes the setup (the test drafter puts what was said in the title).
+    expect((await post(`/notebooks/${nb.id}/edit/talk`, { text: 'call it a briefing on Dana' })).status).toBe(303);
+    await waitReady();
+    let page = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('call it a briefing on Dana');
+    expect(page).toContain('with your changes, not saved');
+    expect(page).toMatch(/Title: “Prepare for a meeting with Dana Reyes” → “Headphones \(call it a briefing on Dana/);
+    expect(page).toContain('not saved yet');
+    // A request about the page asks the page agent too, with what was said and the page it changes.
+    expect(pageAsked.at(-1)).toMatchObject({ ASK: 'call it a briefing on Dana', CURRENT: '' });
+    // Nothing changed yet.
+    expect(s.get(nb.id)!.title).toBe('Prepare for a meeting with Dana Reyes');
+    // The new-notebook drafts don't list it.
+    expect((await get('/notebooks/new')).text).not.toContain('call it a briefing on Dana');
+
+    // Dropped: as it was.
+    await post(`/notebooks/${nb.id}/edit/discard`, {});
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('as it is now');
+
+    // The document: a page by name, a new done-when; then saved.
+    const md = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
+    expect(md).toContain('## Done when');
+    const doc = `# Prepare for a meeting with Dana Reyes\n\nWhat matters to Dana\n\n## Done when\n- [ ] Talking points chosen\n- [ ] Questions ready\n\n## Steps\n1. Learn about Dana Reyes (profile; about Dana Reyes)\n2. Find what Dana has said (find 5)\n\n## Page\nMeeting briefing\n`;
+    const shown = await post(`/notebooks/${nb.id}/edit/prompt`, { markdown: doc });
+    expect(decodeURIComponent(shown.headers.location)).toContain('3 changes in the preview');
+    page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
+    expect(page).toContain('Added done when “Questions ready”');
+    expect(page).toContain('Added step 1: Learn about Dana Reyes (profile; about Dana Reyes)');
+    expect(page).toContain('The page: Shortlist → Meeting briefing');
+    const saved = await post(`/notebooks/${nb.id}/edit/save`, {});
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved 3 changes.');
+    const after = s.get(nb.id)!;
+    expect(after.criteria.map((c) => c.text)).toEqual(['Talking points chosen', 'Questions ready']);
+    expect(after.steps!.map((x) => [x.id, x.kind])).toEqual([['s2', 'profile'], ['s1', 'find']]);
+    expect(after.layout?.preset).toBe('dossier');
+    expect(after.layoutBy).toBe('you');
+    // The notebook says it was saved.
+    expect((await get(saved.headers.location)).text).toContain('Saved 3 changes.');
+    expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('as it is now');
   });
 });

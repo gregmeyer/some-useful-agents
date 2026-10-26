@@ -57,7 +57,8 @@ export function parsePageAnswer(raw: string | undefined): PageAnswer {
   return { layout: { components: check.components, ...(about ? { about } : {}) } };
 }
 
-async function runPageAgent(ctx: Ctx, inputs: Record<string, string>): Promise<string | undefined> {
+/** One run of the page agent (or the test's stand-in): its answer, or undefined. Never throws. */
+export async function runNotebookPageAgent(ctx: Ctx, inputs: Record<string, string>): Promise<string | undefined> {
   if (ctx.notebookPageRun) return ctx.notebookPageRun(inputs);
   if (!ensureSystemAgentCurrent(ctx, NOTEBOOK_PAGE_ID, 'notebook pages')) return undefined;
   const agent = ctx.agentStore.getAgent(NOTEBOOK_PAGE_ID);
@@ -90,6 +91,8 @@ export function pageAgentInputs(nb: Notebook): Record<string, string> {
     PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'shortlist' ? '' : `\n  its page: ${JSON.stringify(p.layout.components)}`}`).join('\n'),
     GUIDE: notebookLayoutGuide(suaComponentDocs()),
     ERRORS: '',
+    ASK: '',
+    CURRENT: '',
   };
 }
 
@@ -105,10 +108,12 @@ export interface DrawnPage {
  * Ask for a notebook's page with `ask` (the agent, or a recorded answer):
  * a page drawn for it that can't be used, or breaks the editorial rhythm (a
  * grid of frames, one shape after another), gets one more try with the
- * reasons; if that try can't be drawn, the first stands.
+ * reasons; if that try can't be drawn, the first stands. With a `request`
+ * ("put who they are at the top"), it changes `current` to do it.
  */
-export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string, string>) => Promise<string | undefined>): Promise<DrawnPage> {
-  const base = pageAgentInputs(nb);
+export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string, string>) => Promise<string | undefined>, opts: { request?: string; current?: NotebookLayout } = {}): Promise<DrawnPage> {
+  // Asked for a change (the Edit page): what they said, and the page it changes (none: the shortlist).
+  const base = { ...pageAgentInputs(nb), ...(opts.request ? { ASK: opts.request, CURRENT: opts.current ? JSON.stringify(opts.current.components) : '' } : {}) };
   const first = parsePageAnswer(await ask(base));
   const rhythm = 'layout' in first && !first.layout.preset ? pageRhythm(first.layout.components) : [];
   if (!('error' in first) && !rhythm.length) return { answer: first, tries: 1 };
@@ -130,7 +135,7 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   if (ctx.notebookPages.has(notebookId)) return 'skipped';
   ctx.notebookPages.add(notebookId);
   try {
-    const { answer } = await drawNotebookPage(nb, (inputs) => runPageAgent(ctx, inputs));
+    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs));
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';
