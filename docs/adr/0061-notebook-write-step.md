@@ -20,5 +20,5 @@ A meeting-prep notebook ended with a **decide** step, "Choose meeting talking po
 ## Consequences
 
 - One model call each time the step runs.
-- Talking points can't be edited in place yet; say what to change in the notebook's conversation or run the step again.
+- Talking points are edited on their own page (Edit on the agenda): points reworded, reordered, removed or added, keeping the themes each rests on; Write again replaces your edits.
 - Existing meeting notebooks keep their decide step until changed (Edit → Talk: "write the talking points instead of choosing them").
