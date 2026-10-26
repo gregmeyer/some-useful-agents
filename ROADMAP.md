@@ -5,7 +5,27 @@ on direction.
 
 ## Recently shipped
 
-### Unreleased (next: v0.30)
+### Unreleased (next: v0.32)
+A notebook's page fits what it's for, and you change a notebook by saying so:
+
+- **A notebook decides its own page** — a [notebook's page](docs/notebooks.md) is an A2UI document. A new notebook keeps the **Shortlist** for choosing among many, or draws a page that fits its job (a **Meeting briefing**, a report, a plan), and decides again once its first step is done ([ADR-0058](docs/adr/0058-notebook-decides-its-page.md), [ADR-0060](docs/adr/0060-page-decided-again-after-first-step.md)). Pages read like a magazine, not a grid: editorial treatments, a cover portrait, numbered talking points, quotes, ruled facts, and the header as part of the page ([ADR-0059](docs/adr/0059-notebook-header-in-layout.md)). The brief and extended brief print the page it decided on.
+- **Getting ready to meet someone** — a **profile** step learns about who a notebook is about and their company, with sources, their photo (kept only when the page shows it's them, with **Not them**) and the company's logo; a **write** step has sua write the talking points from what they said, each with why it matters, a question and the quotes it rests on, plus what to watch for ([ADR-0061](docs/adr/0061-notebook-write-step.md)).
+- **Edit a notebook by talking** — the Edit page's **Talk**, **Prompt** (the notebook as a document) and **How it looks** (each look as a picture of its page) tabs; every change is previewed before you save it.
+- **Templates with a subject** — save a notebook as a template with what changes each time (who you're meeting), and start one from Home's **Ask sua** (a **Start** row beside Run, Build, Fix and Look up).
+- **Home** — two columns, Today with bulk close and dismiss, Try next that says why and what Run uses, and **Notebooks** in the top bar. **Appearance** is a gallery of looks you use in one click.
+- **Agents** — **skills** (shared know-how in one file) and Python helpers for shell steps; **research-fanout** researches a list without one long step timing out; **web-search-links** is one shared web search.
+- **The scheduler picks up changes** — a schedule changed in the dashboard or by sua, and an edited scheduled agent, take effect within a minute, without a restart.
+
+### v0.31
+Find, view and redesign agents:
+
+- **The agent catalog** — ask what you want to do, or browse your agents grouped by what they do; an agent's Overview leads with its latest result.
+- **Views you can change** — **Redesign this widget** (sua proposes a better view beside the current one), a view editor with a live preview from real output, views that chart earlier runs and run their agent, and new agents built with a view.
+- **Widgets in conversations** — sua's and chat agents' replies can include widgets, drawn as they stream, with buttons that answer.
+- **Model pickers** — pick the Claude or Codex model from what each offers now, and hear from sua when one is retired.
+- **Notebooks** — templates, sua's finder for find steps, company logos, an extended brief with each option in full, and a loop that runs its items at the same time.
+
+### v0.30
 A goal you keep over time, and a calmer place to talk to sua:
 - **Conversations everywhere** — one [conversation](docs/conversations.md) model behind the inbox, agent chat and a sua panel beside every page; ask sua to fix an agent or change its settings, and approve the change on a card before it applies; archive agents and dashboards.
 - **Home, redesigned** — [goal surfaces](docs/surfaces.md): an item index and surface model, a Today tab of only what needs you (pin, move, hide, make it a rule, ask sua to change it, Undo), and a shelf of your notebooks.
@@ -101,13 +121,13 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 
 ## Now
 
-- **Release v0.30** — everything under Unreleased above.
-- **Notebooks, rough edges** — a sweep keeps what its working sources found when one source fails; the explanation of why a step came out the way it did; Home's shelf shows each notebook's lead option.
+- **Release v0.32** — everything under Unreleased above.
+- **Notebooks, rough edges** — edit the written talking points in place (today: Write again, or ask in the conversation); fold a notebook conversation's old step cards; say why a step came out the way it did.
 - **Data connectors for notebooks** — company research needs a firmographic source (revenue, headcount) beyond web search; the biggest gap left for account-research notebooks.
 
-## Then: authoring on the canvas
+## Then: more kinds of notebook
 
-Boards are canvases agents can build (v0.29). Next there: **"Redesign this widget"**, where an agent proposes a better view for a tile from its current one, real data and the brand guide; the build planner writing views; a widget editor with live preview (W6); then actions and run history in views (W5). Streaming widgets in chat (WS3) is queued alongside. Done first: the previous widget renderer and Pulse layout are removed, and the small follow-ups (reaper stats on `/health`, a time limit in agent Settings, Clear on `/scheduled`) shipped.
+Notebooks now decide a page for their job, but only the Shortlist and the Meeting briefing are ready-made. Next: a **report** page (the answer first, the findings with their evidence, what's still open) and a **write** step that writes the answer; a **plan** page (day by day); a **watch** notebook (what changed since last time); and a notebook's page placed on a **board** as a tile. Each is a new page document and, at most, a new widget: the example notebooks and the page checks ([`npm run notebook-pages:eval`](docs/notebooks.md)) say whether each kind still gets the right page.
 
 ## Next (3–6 months)
 
@@ -121,7 +141,7 @@ Boards are canvases agents can build (v0.29). Next there: **"Redesign this widge
 - **n8n provider** — second workflow provider alongside Temporal, for visual pipeline users.
 - **Tutorial resume** — save tutorial progress so re-running `sua tutorial` picks up at the last completed stage rather than restarting the prose from stage 1.
 - **Tutorial "make your own" stage** — `sua tutorial` currently ends after scheduling the dad joke. Add a stage 6 that wraps `sua agent new` so users graduate from "ran examples" to "authored one myself" without leaving the walkthrough.
-- **Parallel agents / swarms** — the chain-executor runs sequentially even for independent DAG nodes. First-class fan-out/fan-in (e.g., `parallel: [A, B, C]`) plus Temporal worker scaling. Separately consider whether inter-agent messaging during execution is in scope or left to chaining.
+- **Parallel agents / swarms** — a loop can run its items at the same time (v0.31) and research-fanout researches a list in parallel; still open: first-class fan-out/fan-in for independent nodes (e.g., `parallel: [A, B, C]`), Temporal worker scaling, and whether agents message each other while they run.
 - **Security audit follow-through** — every original `/cso` finding is now closed (transport lockdown in v0.4, chain trust + MCP scope in v0.5, shell gate + run-store hygiene in v0.6.x, secrets KEK in v0.10). Remaining open work from later audits: real filesystem/network sandbox for shell agents (multi-day cross-platform effort, stays on the long list); a pure-JS keyring alternative to the passphrase env var; `sua secrets rotate-passphrase` as a convenience over `migrate`.
 
 ## Maybe (6–12 months)

@@ -7,12 +7,12 @@ Core library for some-useful-agents. Types, schemas, stores, DAG executor, tool 
 - **Agent types + Zod schemas** — `Agent`, `AgentNode`, `AgentSignal`, `SignalTemplate`, `NodeType` (shell, llm-prompt — with `claude-code` accepted as an alias — goal, ask, conditional, switch, loop, agent-invoke, branch, end, break)
 - **DAG executor** — topological walk with flow control, onlyIf conditional edges, nested agent-invoke, loop iteration (items in parallel with `loopConfig.concurrency`), optional nodes whose failure doesn't stop the run, AbortSignal cancellation, MCP server enable/disable gate
 - **Providers** — Claude and Codex CLIs, OpenAI-compatible endpoints (with a native tool-calling loop), and Apple Foundation Models, in a fallback waterfall; Claude and Codex reach a node's tools over a per-attempt local MCP endpoint; `codexModels()` / `claudeModels()` read the models each CLI offers now
-- **Tool system** — 10 built-in tools + `ToolStore` for user-defined tools + `type: mcp` implementation for MCP-imported tools
+- **Tool system** — built-in tools + `ToolStore` for user-defined tools + `type: mcp` implementation for MCP-imported tools
 - **MCP integration** — `McpServerConfig`, `parseMcpServersBlob` (Claude-Desktop / Cursor / bare-map shapes), pooled MCP client (stdio + streamable-HTTP)
 - **Output widgets** — `OutputWidgetSchema` with 5 types (raw, key-value, diff-apply, dashboard, **ai-template**)
 - **Template generators** — `TemplateGenerator` interface + `claudeTemplateGenerator` + `registerTemplateGenerator()` for codex/gemini/etc.
 - **HTML sanitizer** — `sanitizeHtml` (tag/attr allowlist, zero deps) + `substitutePlaceholders` for safe rendering of AI-generated templates
-- **Stores** — `AgentStore` (versioned DAGs), `RunStore` (paginated queries), `ToolStore` (tools + `mcp_servers` table via `node:sqlite`), `NotebookStore` (notebooks, options, steps, templates), `AgentCatalogStore` (each agent's group and use-for line)
+- **Stores** — `AgentStore` (versioned DAGs), `RunStore` (paginated queries), `ToolStore` (tools + `mcp_servers` table via `node:sqlite`), `NotebookStore` (notebooks, options, steps, page layouts, what they're about, written talking points, templates with a subject), `SkillStore` (skills agents share), `AgentCatalogStore` (each agent's group and use-for line)
 - **Secrets** — `EncryptedFileStore` with AES-256-GCM, scrypt KDF (OWASP 2024 params), passphrase + legacy-fallback modes
 - **Template resolution** — `{{upstream.X.result}}`, `{{inputs.NAME}}`, `{{vars.NAME}}`, `$UPSTREAM_X_RESULT`
 - **Signal system** — `AgentSignal` with 13 display templates including `widget` (mirrors the agent's own outputWidget)

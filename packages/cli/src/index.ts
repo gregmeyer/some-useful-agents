@@ -71,6 +71,7 @@ Examples:
   $ sua usage --days 30                          What runs cost, by agent and provider
   $ sua policy check web-fetch https://x.test    Would this tool call be allowed?
   $ sua schedule start                           Fire scheduled agents on cron
+  $ sua skill list                               Know-how agents share (also: show)
   $ sua daemon start                             Run schedule + dashboard (+ mcp, worker, model) in the background
   $ sua mcp start                                Start the MCP server on 127.0.0.1:3003
   $ sua doctor --security                        Audit security posture

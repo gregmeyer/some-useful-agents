@@ -278,7 +278,7 @@ export const doctorCommand = new Command('doctor')
           }
           if (status === 'idle') {
             return scheduled > 0
-              ? { ok: false, message: `daemon running but registered 0 agents while ${String(scheduled)} are scheduled — restart it: sua daemon start --service schedule` }
+              ? { ok: false, message: `daemon running but registered 0 agents while ${String(scheduled)} are scheduled — it re-reads them every 30s; if this persists, restart it: sua daemon restart --service schedule` }
               : { ok: true, message: 'daemon running, nothing scheduled' };
           }
           if (scheduled === 0) {

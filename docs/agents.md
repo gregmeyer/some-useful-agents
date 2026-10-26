@@ -323,7 +323,7 @@ outputWidget:
 
 ## `schedule`
 
-Standard cron expressions, validated via `cron-parser`. The local cron runner picks up active + scheduled agents.
+Standard cron expressions, validated via `cron-parser`. `sua schedule start` runs active agents that have a schedule. It reads the agents again every 30 seconds, so a schedule you set, change or clear in the dashboard, and an edit to a scheduled agent, applies within a minute without a restart. An agent YAML file in a folder still needs a scheduler restart.
 
 ```yaml
 schedule: "0 9 * * *"         # 9am daily

@@ -169,7 +169,7 @@ function collectInput(value: string, previous: Record<string, string>): Record<s
 
 scheduleCommand
   .command('start')
-  .description('Start the scheduler daemon (foreground)')
+  .description('Start the scheduler (foreground); it picks up schedule changes and agent edits every 30s')
   .option(
     '--allow-untrusted-shell <name>',
     'Permit a community shell agent to fire on schedule (repeatable; per-agent, not global)',
