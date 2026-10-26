@@ -955,6 +955,16 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
 }
 
 /**
+ * Whether the header offers Decide…: a notebook without steps (choosing is
+ * what it's for), or one whose steps have you pick or narrow. One whose
+ * steps end in sua writing something (a meeting's talking points) has
+ * nothing to pick from.
+ */
+export function offersDecide(nb: Pick<Notebook, 'steps'>): boolean {
+  return !nb.steps?.length || nb.steps.some((s) => s.kind === 'decide' || s.kind === 'narrow');
+}
+
+/**
  * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
  * button that opens its form below it; one open at a time (notebook-page.js.ts).
  */
@@ -980,7 +990,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
             ${decideForm(nb, leads, 'narrow')}
           </div>
         </details>` : html``}
-      ${nb.status === 'active' ? html`
+      ${nb.status === 'active' && !offersDecide(nb) ? html`` : nb.status === 'active' ? html`
         <details class="nb-act nb-decide" data-nb-act data-nb-act-name="decide">
           <summary class="btn btn--sm${step || running || narrowing ? '' : ' btn--primary'}">Decide…</summary>
           <div class="nb-act__panel nb-act__panel--decide">

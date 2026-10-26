@@ -3837,6 +3837,10 @@ describe('a write step', () => {
     // A theme ruled out since: its link goes from the point.
     s.ruleOut(nb.id, b.id, 'old');
     expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.talkingPoints[1].refs).toEqual([]);
+    // Nothing to pick from: its steps end in sua writing, so the header has no Decide….
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('Decide…</summary>');
+    const { offersDecide } = await import('../views/notebooks.js');
+    expect([offersDecide({}), offersDecide({ steps: [] }), offersDecide({ steps: [{ kind: 'find' }, { kind: 'decide' }] as never }), offersDecide({ steps: [{ kind: 'find' }, { kind: 'write' }] as never })]).toEqual([true, true, true, false]);
     // Done, its card offers Write again, which writes them once more.
     s.updateStep(nb.id, s.get(nb.id)!.steps![1].id, { status: 'done' });
     expect((await get(`/notebooks/${nb.id}`)).text).toContain('Write again →');
