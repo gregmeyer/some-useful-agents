@@ -16,13 +16,9 @@ import { SUGGEST_IMPROVEMENTS_JS } from './suggest-improvements.js.js';
 import { BUILD_FROM_GOAL_JS } from './build-from-goal.js.js';
 import { OUTPUT_WIDGET_ACTIONS_JS } from './output-widget-actions.js.js';
 import { RUN_DETAIL_FILTER_JS } from './run-detail-filter.js.js';
-import { PULSE_CONFIGURE_JS } from './pulse-configure.js.js';
-import { PULSE_REFRESH_JS } from './pulse-refresh.js.js';
-import { WIDGET_REPLAY_INPLACE_JS } from './widget-replay.js.js';
 import { WIDGET_COPY_JS } from './widget-copy.js.js';
 import { WIDGET_CAPTURE_JS } from './widget-capture.js.js';
 import { PAGE_INTRO_JS } from './page-intro.js.js';
-import { ADD_TILE_MODAL_JS } from './add-tile-modal.js.js';
 import { CSP_ALLOW_JS } from './csp-allow.js.js';
 import { CSP_IMG_REPORT_JS } from './csp-img-report.js.js';
 import { WIDGET_IMG_FALLBACK_JS } from './widget-img-fallback.js.js';
@@ -72,9 +68,9 @@ export const CLIENT_BUNDLE_JS: string =
   // CHAT_SOCKET_JS next: window.suaSocket must exist before any page code
   // (the inbox modal, agent chat) looks for it; THREAD_JS (window.suaThread) likewise.
   SESSION_GUARD_JS + CHAT_SOCKET_JS + THREAD_JS + DASHBOARD_JS + TEMPLATE_PALETTE_JS + SUGGEST_IMPROVEMENTS_JS + BUILD_FROM_GOAL_JS
-  + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS + PULSE_CONFIGURE_JS
-  + PULSE_REFRESH_JS + WIDGET_REPLAY_INPLACE_JS + WIDGET_COPY_JS + WIDGET_CAPTURE_JS
-  + PAGE_INTRO_JS + ADD_TILE_MODAL_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS
+  + OUTPUT_WIDGET_ACTIONS_JS + RUN_DETAIL_FILTER_JS
+  + WIDGET_COPY_JS + WIDGET_CAPTURE_JS
+  + PAGE_INTRO_JS + CSP_ALLOW_JS + CSP_IMG_REPORT_JS
   + WIDGET_IMG_FALLBACK_JS + INSTALL_PACKS_MODAL_JS + INBOX_MODAL_JS + INBOX_BADGE_JS
   + INBOX_STREAM_JS + ALLOWED_SUB_AGENTS_PICKLIST_JS
   + NODE_DISCOVERY_JS + APP_ASK_JS + MINI_DAG_TIP_JS + AGENT_ID_SLUG_JS

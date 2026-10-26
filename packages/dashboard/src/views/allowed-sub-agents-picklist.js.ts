@@ -2,8 +2,7 @@
  * Inline JS for the allowed-sub-agents picklist on /agents/:id/config.
  *
  * Wires the "Add agent…" button on the Allowed sub-agents card to a
- * modal that lets the operator pick from installed agents. Pattern
- * mirrors add-tile-modal.js.ts:
+ * modal that lets the operator pick from installed agents:
  *   - opens via [data-allowed-sub-agents-open]
  *   - reads the catalog from a JSON script tag baked into the page
  *   - renders agent cards with name + description; filters via search

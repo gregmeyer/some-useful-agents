@@ -82,7 +82,6 @@ import {
 } from './inbox-shared.js';
 import {
   buildThreadSummary,
-  listForkableAgents,
   buildInlineActionWidgets,
   exportTargetAgentYaml,
 } from './inbox-widgets.js';
@@ -315,7 +314,6 @@ inboxRouter.get('/inbox/:id/fragment', (req: Request, res: Response) => {
     inlineActionWidgets,
     runBehaviors,
     threadSummary: responses.length >= 3 ? buildThreadSummary(message, responses) : undefined,
-    forkableAgents: listForkableAgents(ctx),
     pendingLearnings: ctx.inboxStore.listLearnings({ messageId: id, status: 'pending' }),
     agentTrust: buildAgentTrustMap(ctx, responses),
   })));
@@ -1237,91 +1235,6 @@ inboxRouter.post('/inbox/:id/summarize', (req: Request, res: Response) => {
   addSystemMessage(ctx, id, body);
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Summary added.')}`);
-});
-
-inboxRouter.post('/inbox/:id/fork', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
-  if (!ctx.inboxStore) {
-    if (isAjax(req)) { res.status(503).end(); return; }
-    res.redirect(303, `/inbox?error=${encodeURIComponent('Inbox unavailable.')}`);
-    return;
-  }
-  const message = ctx.inboxStore.get(id);
-  if (!message) {
-    if (isAjax(req)) { res.status(404).end(); return; }
-    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
-    return;
-  }
-  const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
-  const targetAgent = agentId ? ctx.agentStore.getAgent(agentId) : null;
-  if (!agentId || !targetAgent || SYSTEM_AGENT_IDS.has(agentId)) {
-    if (isAjax(req)) { res.status(400).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Agent "${agentId || '<none>'}" is not available for forking.`)}`);
-    return;
-  }
-  const summary = buildThreadSummary(message, ctx.inboxStore.listResponses(id));
-  const forkBody = [
-    `Forked from thread ${id}.`,
-    `Goal: ${summary.currentGoal}`,
-    summary.latestResult ? `Latest result: ${summary.latestResult}` : '',
-    summary.nextStep ? `Next step: ${summary.nextStep}` : '',
-  ].filter(Boolean).join('\n');
-  try {
-    const forked = ctx.inboxStore.add({
-      priority: message.priority,
-      source: 'manual',
-      title: `${message.title} → ${agentId}`,
-      body: forkBody,
-      agentId,
-      contextJson: JSON.stringify({
-        forkedFromThreadId: id,
-        forkedFromAgentId: message.agentId ?? null,
-        summary,
-      }),
-    });
-    publishInboxChanged(ctx, forked.id, forked.status);
-    addSystemMessage(ctx, id, `Forked this thread to \`${agentId}\` as ${forked.id.slice(0, 8)}.`,
-      JSON.stringify({ links: [{ label: 'Open forked thread', href: `/inbox/${forked.id}` }] }));
-    addSystemMessage(ctx, forked.id, `Forked from thread ${id.slice(0, 8)} into agent \`${agentId}\`.`,
-      JSON.stringify({ links: [{ label: 'Open source thread', href: `/inbox/${id}` }] }));
-    if (isAjax(req)) { res.setHeader('X-Inbox-Id', forked.id); res.status(204).end(); return; }
-    res.redirect(303, `/inbox/${encodeURIComponent(forked.id)}?ok=${encodeURIComponent('Thread forked.')}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (isAjax(req)) { res.status(500).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Fork failed: ${msg}`)}`);
-  }
-});
-
-inboxRouter.post('/inbox/:id/retarget', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  const detailUrl = `/inbox/${encodeURIComponent(id)}`;
-  if (!ctx.inboxStore || !ctx.inboxStore.get(id)) {
-    if (isAjax(req)) { res.status(404).end(); return; }
-    res.redirect(303, `/inbox?error=${encodeURIComponent('Message not found.')}`);
-    return;
-  }
-  const agentId = typeof req.body?.agentId === 'string' ? req.body.agentId.trim() : '';
-  const targetAgent = agentId ? ctx.agentStore.getAgent(agentId) : null;
-  if (!agentId || !targetAgent || SYSTEM_AGENT_IDS.has(agentId)) {
-    if (isAjax(req)) { res.status(400).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Agent "${agentId || '<none>'}" is not available to retarget to.`)}`);
-    return;
-  }
-  try {
-    updateThreadAgentLink(ctx, id, agentId);
-    addSystemMessage(ctx, id, `Retargeted this thread to \`${agentId}\`.`,
-      JSON.stringify({ links: [{ label: `Open ${agentId}`, href: `/agents/${agentId}` }] }));
-    if (isAjax(req)) { res.status(204).end(); return; }
-    res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Thread retargeted.')}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (isAjax(req)) { res.status(500).end(); return; }
-    res.redirect(303, `${detailUrl}?error=${encodeURIComponent(`Retarget failed: ${msg}`)}`);
-  }
 });
 
 /**

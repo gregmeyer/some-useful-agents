@@ -3,7 +3,7 @@ import { markdownToText, stripInlineWidgets } from '@some-useful-agents/core';
  * Inbox view-data + in-thread widget boundary.
  *
  * This is the SINGLE place "what the inbox renders for a thread" is assembled:
- * the thread summary, the fork/retarget target list, and — most relevant for
+ * the thread summary, and — most relevant for
  * future work — the inline rendering of agent OUTPUT WIDGETS inside a
  * conversation (`buildInlineActionWidgets` + `INLINE_INBOX_WIDGET_TYPES`, which
  * already allows the `dashboard` widget type). Routes and the detail views call
@@ -38,18 +38,6 @@ const INLINE_INBOX_WIDGET_TYPES: ReadonlySet<string> = new Set([
   'dashboard',
   'raw',
 ]);
-
-/** Installed non-system agents a thread can be forked/retargeted to. */
-export function listForkableAgents(ctx: ReturnType<typeof getContext>): { id: string; name: string }[] {
-  try {
-    return ctx.agentStore.listAgents()
-      .filter((agent) => !SYSTEM_AGENT_IDS.has(agent.id))
-      .map((agent) => ({ id: agent.id, name: agent.name || agent.id }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  } catch {
-    return [];
-  }
-}
 
 /** One line of plain text for the summary: Markdown stripped first, so shortening never leaves a half-open `**`. */
 function plainSummary(text: string | undefined, max: number): string | undefined {

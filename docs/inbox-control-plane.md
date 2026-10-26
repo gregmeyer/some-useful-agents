@@ -157,8 +157,8 @@ Build next:
 
 - thread summary block for long conversations
 - explicit thread actions:
-  - fork to agent
-  - retarget thread
+  - fork to agent (built, then removed: it confused people)
+  - retarget thread (built, then removed for the same reason)
   - reopen
   - summarize
 - better distinction between:

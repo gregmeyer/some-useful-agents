@@ -26,10 +26,9 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { layoutPreset, cleanBriefing } from '@some-useful-agents/core';
+import { cleanBriefing } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
-import { decideNotebookPage } from '../lib/notebook-page.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
@@ -737,17 +736,7 @@ notebooksRouter.post('/notebooks/:id/layout', (req: Request, res: Response) => {
   try {
     const s = store(req);
     if (req.body?.undo === '1') { res.redirect(303, edit(s.undoLayout(id) ? 'Put the page back how it was before the last change.' : 'There\'s no page change to undo.', 'info')); return; }
-    // The notebook picks its page again, in the background (lib/notebook-page.ts).
-    if (req.body?.decide === '1') {
-      if (!s.get(id)) throw new Error('That notebook is gone.');
-      void decideNotebookPage(getContext(req.app.locals), id, { again: true });
-      res.redirect(303, edit('sua is picking a page for what this notebook is for. Open the notebook in a minute to see it; Undo puts the old one back.', 'info'));
-      return;
-    }
-    const preset = layoutPreset(str(req.body?.preset));
-    if (!preset) throw new Error('No such layout.');
-    s.setLayout(id, preset.id === 'shortlist' ? null : preset.id, 'you');
-    res.redirect(303, edit(preset.id === 'shortlist' ? `The page is the ${preset.label} again.` : `The page is now the ${preset.label}. Undo puts the last one back.`));
+    throw new Error('Pick how it looks on the Edit page.');
   } catch (err) {
     res.redirect(303, edit(err instanceof Error ? err.message : String(err), 'error'));
   }

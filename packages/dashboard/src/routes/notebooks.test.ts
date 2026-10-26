@@ -208,14 +208,6 @@ describe('notebooks pages', () => {
     expect((await get(app, '/notebooks/cabinet')).text).toContain('aria-label="0 of 3 criteria met"');
   });
 
-  it('Home\'s Notebooks line', async () => {
-    await makeApp();
-    const { renderHomeNotebooksLine } = await import('../views/notebooks.js');
-    const { render } = await import('../views/html.js');
-    expect(render(renderHomeNotebooksLine(0, 0))).toContain('>Notebooks</a>');
-    expect(render(renderHomeNotebooksLine(2, 3))).toContain('>2 notebooks</a>');
-    expect(render(renderHomeNotebooksLine(1, 1))).toContain('href="/notebooks/new" class="home-notebooks__new" aria-label="New notebook">+ New');
-  });
 });
 
 describe('filing into a notebook of organizations', () => {
@@ -2652,8 +2644,7 @@ describe('a notebook\'s page, drawn by sua', () => {
     expect(decodeURIComponent(undone.headers.location)).toContain('Put the page back how it was before the last change.');
     expect(store.get(nb.id)!.layout).toBeUndefined();
     store.setLayout(nb.id, { components: page });
-    await post(`/notebooks/${nb.id}/layout`, 'preset=shortlist');
-    expect(store.get(nb.id)!.layout).toBeUndefined();
+    store.setLayout(nb.id, null, 'you');
     expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Shortlist, how it looks"');
   });
 });
@@ -2742,8 +2733,8 @@ describe('a profile step', () => {
     // Edit offers the Meeting briefing look, as a picture to pick.
     const edit = (await get(`/notebooks/${nb.id}/edit?tab=looks`)).text;
     expect(edit).toContain('aria-label="Look like: Meeting briefing"');
-    const used = await post(`/notebooks/${nb.id}/layout`, { preset: 'dossier' });
-    expect(decodeURIComponent(used.headers.location)).toContain('The page is now the Meeting briefing');
+    await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
+    await post(`/notebooks/${nb.id}/edit/save`);
     expect(store.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
     expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Meeting briefing, how it looks"');
   });
@@ -3000,13 +2991,6 @@ describe('a new notebook decides its page', () => {
     await post(`/notebooks/${id}/layout`, { undo: '1' });
     expect(store.get(id)!.layout).toBeUndefined();
 
-    // Picked again from Edit: this time it keeps the shortlist.
-    pageReply = () => `<page>${JSON.stringify({ preset: 'shortlist' })}</page>`;
-    store.setLayout(id, { components: BRIEFING }, 'you');
-    const res = await post(`/notebooks/${id}/layout`, { decide: '1' });
-    expect(decodeURIComponent(res.headers.location)).toContain('sua is picking a page');
-    for (let i = 0; i < 200 && store.get(id)!.layout; i++) await new Promise((r) => setTimeout(r, 25));
-    expect(store.get(id)!.layout).toBeUndefined();
   });
 
   it('gives a page that reads like a grid one more try, and keeps it when that try can\'t be drawn', async () => {
