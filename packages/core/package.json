@@ -9,22 +9,22 @@
     "clean": "rm -rf dist examples"
   },
   "dependencies": {
-    "@a2ui/web_core": "0.13.0",
+    "@a2ui/web_core": "0.14.0",
     "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
     "@mozilla/readability": "0.6.0",
     "cron-parser": "5.10.2",
-    "linkedom": "0.18.13",
+    "linkedom": "0.18.14",
     "node-cron": "4.6.0",
     "pg": "8.23.1",
     "turndown": "7.2.4",
     "uuid": "14.0.3",
     "yaml": "2.9.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "optionalDependencies": {
-    "playwright": "1.64.0"
+    "playwright": "1.64.1"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
