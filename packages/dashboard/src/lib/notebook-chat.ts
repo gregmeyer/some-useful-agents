@@ -139,7 +139,8 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
   for (const p of after.params.slice(before.params)) added.push(`parameter: ${p}`);
   for (const c of after.criteria.slice(before.criteria)) added.push(`done when: ${c.text}`);
   if (add.statement && !nb.statement) { store.update(nb.id, { statement: add.statement }); added.push(`what it's for: ${add.statement}`); }
-  if (add.meeting) {
+  // The meeting: merged with what it has; said only when it changes something.
+  if (add.meeting && JSON.stringify({ ...nb.meeting, ...add.meeting }) !== JSON.stringify(nb.meeting ?? {})) {
     store.setMeeting(nb.id, { ...nb.meeting, ...add.meeting });
     added.push(`the meeting: ${[add.meeting.when ? meetingWhenWords(add.meeting.when) : '', add.meeting.goal ? `goal “${add.meeting.goal}”` : '', add.meeting.notes ? 'notes' : ''].filter(Boolean).join(', ')}`);
   }

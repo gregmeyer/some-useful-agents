@@ -3801,11 +3801,18 @@ describe('the meeting a notebook prepares for', () => {
     s.updateStep(nb.id, 's2', { status: 'done' });
     expect((await get(`/notebooks/${nb.id}`)).text).toContain('The talking points are 4 days old.');
 
-    // In the conversation, sua can set it (merged with what's there).
-    const { parseNotebookAdd, applyNotebookAdd } = await import('../lib/notebook-chat.js');
-    const { add } = parseNotebookAdd(JSON.stringify({ meeting: { goal: 'Agree on a pilot' } }));
-    applyNotebookAdd(s, nb.id, add!);
+    // In the conversation, sua sets it (merged with what's there, saved straight away), and its card says what it set.
+    const { getContext } = await import('../context.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const engine = await import('./inbox-engine.js');
+    const ctx = getContext(app.locals);
+    const parsed = parseProposedActions([{ type: 'notebook-add', rationale: 'the meeting', inputs: { NOTEBOOK: nb.id, CHANGES: { meeting: { goal: 'Agree on a pilot' } } } }], []);
+    const card = engine.withEditorBase(ctx, parsed.accepted[0]);
+    expect(card.surfaceChanges).toEqual([{ what: 'your goal', before: 'Explore a partnership on onboarding', after: 'Agree on a pilot' }]);
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ status: 'completed' });
     expect(s.get(nb.id)!.meeting).toMatchObject({ when: `${day}T14:00`, goal: 'Agree on a pilot', notes: 'We met at a conference' });
+    // The same again changes nothing, and says so.
+    expect(engine.executeNotebookAdd(ctx, card)).toMatchObject({ summary: 'The notebook already has all of that.' });
 
     // The document has it, and reads it back.
     const { notebookToMarkdown, notebookFromMarkdown, setupOf } = await import('../lib/notebook-edit.js');
