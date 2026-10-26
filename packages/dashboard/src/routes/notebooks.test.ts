@@ -3715,6 +3715,8 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     expect(decodeURIComponent(shown.headers.location)).toContain('3 changes in the preview');
     // It opens the preview (a dialog over the editor) once, as the page loads.
     expect(shown.headers.location).toContain('preview=1');
+    // The box around the page scrolls (only the page inside it is inert: an inert box would pass the wheel to the page behind).
+    expect((await get(shown.headers.location)).text).toMatch(/<div class="nbe-preview__page" tabindex="0"[^>]*><div class="nbe-preview__inner" inert>/);
     expect((await get(shown.headers.location)).text).toMatch(/<dialog class="nbe-preview" id="nbe-preview" aria-label="Preview" data-open>/);
     expect((await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text).not.toContain('data-open>');
     page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
