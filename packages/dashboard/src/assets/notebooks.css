@@ -799,8 +799,11 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbe-preview__acts { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
 .nbe-preview__acts form { margin: 0; }
 /* The page at a slightly smaller size; it can't be clicked. */
-.nbe-preview__page { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4) var(--space-6); zoom: 0.85; }
-@media (max-width: 760px) { .nbe-preview { width: 100vw; height: 100vh; border-radius: 0; } .nbe-preview__page { zoom: 1; padding: var(--space-3); } }
+.nbe-preview__page { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--space-4) var(--space-6); }
+/* The page can't be clicked (inert), but the box around it scrolls; the page behind the dialog stays put. */
+.nbe-preview__inner { zoom: 0.85; }
+html:has(.nbe-preview[open]) { overflow: hidden; }
+@media (max-width: 760px) { .nbe-preview { width: 100vw; height: 100vh; border-radius: 0; } .nbe-preview__page { padding: var(--space-3); } .nbe-preview__inner { zoom: 1; } }
 .nbe .nb-crumbs { margin: 0; }
 .nbe__title { margin: 0; }
 .nbe-form .nbd-draft__body textarea.form-field { resize: none; overflow: hidden; }
