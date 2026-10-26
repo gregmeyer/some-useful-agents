@@ -1161,3 +1161,49 @@ describe('a notebook\'s steps and page, changed later', () => {
     expect(s.get(nb.id)!.layout).toBeUndefined();
   });
 });
+
+describe('a write step (the talking points)', () => {
+  it('keeps points that rest on the notebook\'s own options, and is met with enough of them', async () => {
+    const { cleanBriefing, stepProgress, optionSteps, NotebookStore: Store } = await import('./notebooks.js');
+    const ids = new Set(['a', 'b']);
+    const b = cleanBriefing({
+      points: [
+        { text: '  Ask how they decide   what stays human ', why: 'She writes her first drafts herself.', ask: 'What do you never hand to AI?', from: ['a', 'zzz', 'a'] },
+        { point: 'Small campaigns', from: ['b'] },
+        { text: '' },
+        'A plain one',
+      ],
+      questions: ['Which signals do you trust?', 7, ''], watch: ['Don\'t assume they use AI for everything'],
+    }, ids, 'notebook-writer', '2026-10-25T00:00:00Z');
+    expect(b).toEqual({
+      points: [
+        { text: 'Ask how they decide what stays human', why: 'She writes her first drafts herself.', ask: 'What do you never hand to AI?', from: ['a'] },
+        { text: 'Small campaigns', from: ['b'] },
+        { text: 'A plain one', from: [] },
+      ],
+      questions: ['Which signals do you trust?'], watch: ['Don\'t assume they use AI for everything'], at: '2026-10-25T00:00:00Z', by: 'notebook-writer',
+    });
+    const long = cleanBriefing({ points: [{ text: 'x' }], watch: [`${'word '.repeat(80)}end`] }, ids, 'x')!;
+    expect(long.watch[0].endsWith('word…')).toBe(true);
+    expect(long.watch[0].length).toBeLessThanOrEqual(320);
+    expect(cleanBriefing({ points: [] }, ids, 'x')).toBeUndefined();
+    expect(cleanBriefing('nope', ids, 'x')).toBeUndefined();
+
+    const dir = mkdtempSync(join(tmpdir(), 'sua-nb-write-'));
+    const runs = new RunStore(join(dir, 'runs.db'));
+    try {
+      const s = Store.fromHandle(runs.databaseHandle());
+      const nb = s.create({ title: 'Meet Dana' });
+      s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 2 }, { title: 'Write the talking points', kind: 'write', target: 3 }]);
+      const step = s.get(nb.id)!.steps![1];
+      expect(step.target).toBe(3);
+      expect(optionSteps(s.get(nb.id)!.steps!).map((x) => x.kind)).toEqual(['find']);
+      expect(stepProgress(s.get(nb.id)!, [], step)).toEqual({ met: false, have: 0, want: 3, missing: ['the talking points'] });
+      s.setBriefing(nb.id, b);
+      expect(s.get(nb.id)!.briefing!.points).toHaveLength(3);
+      expect(stepProgress(s.get(nb.id)!, [], step)).toMatchObject({ met: true, have: 3, want: 3 });
+      s.setBriefing(nb.id, undefined);
+      expect(s.get(nb.id)!.briefing).toBeUndefined();
+    } finally { runs.close(); rmSync(dir, { recursive: true, force: true }); }
+  });
+});

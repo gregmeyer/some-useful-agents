@@ -153,7 +153,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
       s.setSteps(nb.id, [
         { title: 'Learn about Dana Reyes and her company', kind: 'profile', subject: 'Dana Reyes' },
         { title: 'Find what Dana has written or said', kind: 'find', target: 5 },
-        { title: 'Choose talking points', kind: 'decide', target: 3 },
+        { title: 'Write the talking points', kind: 'write', target: 3 },
       ]);
       if (data) {
         s.setAbout(nb.id, 'person', {
@@ -181,6 +181,14 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
         add('Small campaigns', 'Buying signals', 'She ran a masterclass on micro-campaigns for carriers.', 'How small is too small for a campaign?', 3);
         add('Partner-led growth', 'Partnerships', 'Half of Lumen’s pipeline came through two partners last year.', 'What makes a partner worth the setup?', 4);
         s.choose(nb.id, a);
+        s.setBriefing(nb.id, {
+          points: [
+            { text: 'Ask which buying signals she trusts before reaching out', why: 'She would rather work the right 50 accounts than 5,000.', ask: 'Which signals do you trust most?', from: [a] },
+            { text: 'Talk about where people still beat AI in her team', why: 'She writes her first drafts herself.', from: [] },
+            { text: 'Compare notes on partner-led pipeline', why: 'Half of Lumen\u2019s pipeline came through two partners.', ask: 'What makes a partner worth the setup?', from: [] },
+          ],
+          questions: ['How small is too small for a campaign?'], watch: ['Don\u2019t pitch list volume'], at: AT, by: 'notebook-writer',
+        });
         s.recordSearch(nb.id, 'example-finder', 'run-dana-1', 4, AT, [{ name: 'Her blog', status: 'found', found: 3 }, { name: 'Podcasts', status: 'found', found: 1 }]);
       }
       return nb.id;

@@ -1,0 +1,73 @@
+# Notebook Writer — a notebook's write step. From what the notebook is for,
+# who it's about and the themes its steps found and checked, it writes the
+# talking points for a meeting: each a point to raise, why it matters to
+# them, a question, and the themes it rests on (by id, so the quotes and
+# sources shown with it are the themes' own). Route-dispatched only, by the
+# step runner (dashboard lib/notebook-write.ts); never proposed in triage.
+
+id: notebook-writer
+name: Notebook Writer
+description: >
+  Writes a notebook's talking points from the themes it found: what to
+  raise, why it matters to them, what to ask, and what to watch for.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: "JSON: the notebook's title, what it's for, limits, done-whens, and who it's about (person, company: name, summary, facts)."
+  THEMES:
+    type: string
+    required: true
+    description: "JSON list: each theme's id, title, what they said (said), its question, source, when, whether it was chosen or checked, and its other facts."
+  COUNT:
+    type: string
+    required: false
+    default: "4"
+    description: How many talking points to write.
+
+nodes:
+  - id: write
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<briefing>[\s\S]*?</briefing>'
+      description: a <briefing> JSON block
+    prompt: |
+      Someone is getting ready for a meeting. Their notebook (JSON):
+      {{inputs.NOTEBOOK}}
+
+      What sua found the person has written or said, as themes (JSON; each
+      has an id):
+      {{inputs.THEMES}}
+
+      Write {{inputs.COUNT}} talking points for the meeting. A talking point
+      is something to raise in the conversation, written as a sentence the
+      person could say or steer toward ("Ask how their team decides what to
+      automate and what stays human"), not the title of an article or a
+      theme. For each:
+        - "text": the point, one sentence, in plain words;
+        - "why": why it matters to them, from what they said (one or two
+          sentences; name the source in words if it helps, e.g. "in her
+          newsletter on hiring");
+        - "ask": one open question that gets them talking about it;
+        - "from": the ids of the themes it rests on (one or more, only ids
+          given above).
+      Prefer chosen and checked themes, cover different themes rather than
+      one twice, and order them the way the conversation could flow (an
+      easy opener first). Then up to 5 more "questions" worth asking, and up
+      to 3 things to "watch" for in the conversation with them (a sensitive
+      subject, a view they hold strongly, something not to assume), each
+      one sentence. Watch is about the meeting, not about gaps in the
+      research.
+
+      Use only what's above: don't invent facts, quotes, numbers or
+      dates. If the themes are thin, write fewer, better points.
+
+      Reply with only this, as valid JSON:
+      <briefing>
+      {"points": [{"text": "…", "why": "…", "ask": "…", "from": ["theme id"]}], "questions": ["…"], "watch": ["…"]}
+      </briefing>

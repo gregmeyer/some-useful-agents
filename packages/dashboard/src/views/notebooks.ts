@@ -171,7 +171,7 @@ function decideForm(nb: Notebook, candidates: readonly NotebookViewOption[], mod
   </form>`;
 }
 
-const STEP_UNIT: Record<NotebookStep['kind'], string> = { profile: 'facts', find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen' };
+const STEP_UNIT: Record<NotebookStep['kind'], string> = { profile: 'facts', find: 'found', source: 'facts', check: 'checked', narrow: 'kept', decide: 'chosen', write: 'points' };
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**
@@ -218,6 +218,9 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
             : html``}
           ${!running && nb.status === 'active' && step.kind === 'profile' && (step.status === 'done' || step.status === 'met')
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
+            : html``}
+          ${!running && nb.status === 'active' && step.kind === 'write' && (step.status === 'done' || step.status === 'met')
+            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the talking points once more, from what the notebook has now; these are replaced">Write again →</button></form>`
             : html``}
           ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
             ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`

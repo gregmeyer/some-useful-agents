@@ -4,7 +4,7 @@ import { profileSubject, readResearch, aboutFrom, PERSON_ASK } from './notebook-
 describe('a profile step\'s research', () => {
   it('is about its subject, else the notebook\'s title without "Prepare for a meeting with"', () => {
     expect(profileSubject({ title: 'Anything' }, { subject: 'Dana Reyes' })).toBe('Dana Reyes');
-    expect(profileSubject({ title: 'Prepare for meeting with Brendan Short' }, {})).toBe('Brendan Short');
+    expect(profileSubject({ title: 'Prepare for meeting with Dana Reyes' }, {})).toBe('Dana Reyes');
     expect(profileSubject({ title: 'Get ready for a call with Acme Robotics' }, {})).toBe('Acme Robotics');
     expect(profileSubject({ title: 'Learn about Maya Chen' }, {})).toBe('Maya Chen');
     expect(profileSubject({ title: 'Buy a used car' }, {})).toBe('Buy a used car');

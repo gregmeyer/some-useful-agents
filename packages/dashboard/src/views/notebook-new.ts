@@ -157,7 +157,7 @@ function rows(name: string, values: readonly string[], label: string, met: reado
     </div>`;
 }
 
-const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { profile: 'learn about', find: 'find', source: 'source', check: 'check', narrow: 'narrow', decide: 'decide' };
+const STEP_KIND_WORD: Record<NotebookStep['kind'], string> = { profile: 'learn about', find: 'find', source: 'source', check: 'check', narrow: 'narrow', decide: 'decide', write: 'write up' };
 
 /**
  * The work in steps: each with its title (editable), what kind of step it

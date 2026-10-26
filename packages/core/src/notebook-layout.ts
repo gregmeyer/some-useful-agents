@@ -134,7 +134,7 @@ const DOSSIER: ViewComponent[] = [
     about: { path: '/notebook/company/about' }, image: { path: '/notebook/company/image' }, links: { path: '/notebook/company/links' },
   },
   { ...panel('agenda_p', 'What to talk about', 'agenda'), treatment: 'feature' },
-  { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, variant: 'numerals' },
+  { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, watch: { path: '/notebook/watch' }, variant: 'numerals' },
   { ...panel('said_p', 'In their words', 'quotes', 'grouped by theme'), treatment: 'feature', when: 'options' },
   { id: 'quotes', component: 'QuoteList', items: { path: '/notebook/otherQuotes' }, maxItems: 4 },
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
@@ -248,6 +248,13 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
   return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
 }
 
+/** An agenda of the notebook's talking points shows what to watch for too (pages drawn before there was any). */
+function withWatch(c: ViewComponent): ViewComponent {
+  if (c.component !== 'Agenda' || c.watch !== undefined) return c;
+  const points = c.points as { path?: unknown } | undefined;
+  return points?.path === '/notebook/talkingPoints' ? { ...c, watch: { path: '/notebook/watch' } } : c;
+}
+
 /**
  * A layout as plain A2UI for one notebook: components whose `when` doesn't
  * hold are left out (with everything under them), parents lose them (a
@@ -271,7 +278,7 @@ export function resolveNotebookLayout(
     if (!c || !whenHolds(c.when, flags)) return false;
     if (opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) return false;
     const { when: _w, ...rest } = c;
-    const next = capLength(resolveValues(rest, values) as ViewComponent);
+    const next = withWatch(capLength(resolveValues(rest, values) as ViewComponent));
     if (Array.isArray(c.children)) {
       const kids = c.children as string[];
       const kept = kids.filter((k) => visit(k));
@@ -466,8 +473,9 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/bands/price': 'The price limits as {min, max} (Scatter yBand).',
   '/notebook/bands/measure': 'The measure limits as {min, max} (Scatter xBand).',
   '/notebook/quotes': 'What each option says (its quote field: evidence, what they said), chosen first, grouped by its short label (QuoteList items).',
-  '/notebook/talkingPoints': 'The chosen options (else the first 5) as points to raise, each with its question (Agenda points).',
-  '/notebook/questions': 'The other options\' questions (their ask field) (Agenda questions).',
+  '/notebook/talkingPoints': 'The talking points sua wrote (a write step), each with why it matters and what they said it rests on; before then, the chosen options (else the first 5) with their questions (Agenda points).',
+  '/notebook/questions': 'Questions to ask: the ones sua wrote, else the other options\' (their ask field) (Agenda questions).',
+  '/notebook/watch': 'What to watch for in the meeting, from what sua wrote (Agenda watch).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',

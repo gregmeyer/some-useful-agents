@@ -184,6 +184,28 @@ export interface NotebookCriterion {
   held?: boolean;
 }
 
+/** One talking point sua wrote: what to raise, why it matters to them, and the options it rests on. */
+export interface NotebookBriefingPoint {
+  /** What to raise, as a sentence ("Ask how they decide when to hand work to AI"). */
+  text: string;
+  /** Why it matters to them, from what they said. */
+  why?: string;
+  /** A question to ask about it. */
+  ask?: string;
+  /** The options (what they said) it rests on, by entry id: their quotes and sources are shown as they are. */
+  from: string[];
+}
+
+/** What a write step wrote: the talking points, more questions, what to watch for. */
+export interface NotebookBriefing {
+  points: NotebookBriefingPoint[];
+  questions: string[];
+  watch: string[];
+  at: string;
+  /** The agent that wrote it. */
+  by: string;
+}
+
 export interface Notebook {
   id: string;
   title: string;
@@ -237,6 +259,8 @@ export interface Notebook {
   layoutBy?: string;
   /** Who it's about, when it's about someone (a profile step learns it): the person, their company. */
   about?: NotebookAbout;
+  /** What sua wrote from it (a write step): for a meeting, the talking points. */
+  briefing?: NotebookBriefing;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,8 +275,8 @@ export interface NotebookFacet { labels: Record<string, string>; at: string; fai
  * works toward it; it's given the job in its inputs, never edited for it.
  */
 /** profile: learn about who the notebook is about (a person, their company), not its options. */
-export type NotebookStepKind = 'profile' | 'find' | 'source' | 'check' | 'narrow' | 'decide';
-export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['profile', 'find', 'source', 'check', 'narrow', 'decide'];
+export type NotebookStepKind = 'profile' | 'find' | 'source' | 'check' | 'narrow' | 'decide' | 'write';
+export const NOTEBOOK_STEP_KINDS: readonly NotebookStepKind[] = ['profile', 'find', 'source', 'check', 'narrow', 'decide', 'write'];
 /** todo → running → met (waits for Continue) → done; stuck when it ran out of tries short of its goal. */
 export type NotebookStepStatus = 'todo' | 'running' | 'met' | 'stuck' | 'done';
 export interface NotebookStep {
@@ -272,7 +296,7 @@ export interface NotebookStep {
   facts?: string[];
   /** source / check: only the best `top` options in the running count (and get worked on). None: all of them. */
   top?: number;
-  /** profile: who to learn about ("Brendan Short", "Acme Robotics"). None: from what the notebook is for. */
+  /** profile: who to learn about ("Dana Reyes", "Acme Robotics"). None: from what the notebook is for. */
   subject?: string;
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
@@ -701,7 +725,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -946,6 +970,13 @@ export class NotebookStore {
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */
   /** `from`: the page it's on and why it's taken to be them (a person's photo). */
+  /** Keep what a write step wrote (none: forget it). */
+  setBriefing(id: string, briefing: NotebookBriefing | undefined): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET briefing_json = ?, updated_at = ? WHERE id = ?').run(briefing ? JSON.stringify(briefing) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
   saveAboutPhoto(id: string, who: NotebookAboutWho, sourceUrl: string, image: { contentType: string; bytes: Uint8Array }, kind: 'photo' | 'logo', from?: { page?: string; why?: string }): void {
     this.db.prepare(`INSERT INTO notebook_about_photos (notebook_id, who, source_url, content_type, bytes, kind, fetched_at, page_url, why) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(notebook_id, who) DO UPDATE SET source_url = excluded.source_url, content_type = excluded.content_type, bytes = excluded.bytes, kind = excluded.kind, fetched_at = excluded.fetched_at, page_url = excluded.page_url, why = excluded.why`)
@@ -1951,6 +1982,7 @@ export class NotebookStore {
       ...((): { layout?: NotebookLayout } => { const l = r.layout_json ? parse<NotebookLayout | null>(r.layout_json, null) : null; return l && Array.isArray(l.components) ? { layout: l } : {}; })(),
       ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
       ...(r.layout_by ? { layoutBy: String(r.layout_by) } : {}),
+      ...(r.briefing_json ? { briefing: parse<NotebookBriefing>(r.briefing_json, { points: [], questions: [], watch: [], at: '', by: '' }) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -2660,7 +2692,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
     out.push({
       id, title, kind, status, tries,
       ...(typeof x.agentId === 'string' && ID_RE.test(x.agentId) ? { agentId: x.agentId } : {}),
-      ...((kind === 'find' || kind === 'narrow' || kind === 'decide') && target !== undefined ? { target } : {}),
+      ...((kind === 'find' || kind === 'narrow' || kind === 'decide' || kind === 'write') && target !== undefined ? { target } : {}),
       ...(facts.length ? { facts } : {}),
       ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
       ...(kind === 'profile' && typeof x.subject === 'string' && x.subject.trim() ? { subject: x.subject.replace(/\s+/g, ' ').trim().slice(0, 80) } : {}),
@@ -2698,6 +2730,8 @@ export interface NotebookStepProgress { met: boolean; have: number; want: number
  */
 /** A profile step is met with this many facts learned about who the notebook is about. */
 export const PROFILE_FACTS_WANTED = 4;
+/** A write step with no target is met with this many talking points. */
+export const BRIEFING_POINTS_WANTED = 3;
 
 export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'>): NotebookStepProgress {
   const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
@@ -2710,6 +2744,12 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const have = Math.min(want, facts.length);
     const missing = have >= want ? [] : [...new Set([...(nb.about?.person?.notFound ?? []), ...(nb.about?.company?.notFound ?? [])])].slice(0, 6);
     return { met: have >= want, have, want, missing: have >= want ? [] : missing.length ? missing : ['who they are'] };
+  }
+  if (step.kind === 'write') {
+    // About the notebook, not its options: enough talking points written.
+    const want = step.target ?? BRIEFING_POINTS_WANTED;
+    const have = Math.min(want, nb.briefing?.points.length ?? 0);
+    return { met: have >= want, have, want, missing: have >= want ? [] : ['the talking points'] };
   }
   if (step.kind === 'find') {
     const want = step.target ?? 5;
@@ -2740,6 +2780,36 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
   const want = step.target ?? Math.min(options.length, 5);
   const chosen = options.filter((o) => o.chosen).length;
   return { met: step.status === 'done', have: chosen || (step.status === 'done' ? want : 0), want, missing: [] };
+}
+
+/**
+ * A writer's <briefing> as one to keep, against the options it may cite: each
+ * point's `from` only names options the notebook has (the rest are dropped,
+ * so a quote shown is always one an option has), at most 8 points, 8
+ * questions and 4 things to watch for. Pure.
+ */
+export function cleanBriefing(raw: unknown, optionIds: ReadonlySet<string>, by: string, at = new Date().toISOString()): NotebookBriefing | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  // Long ones end at a word, with "…".
+  const line = (x: unknown, n: number) => {
+    const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : '';
+    if (t.length <= n) return t;
+    const cut = t.slice(0, n - 1);
+    return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 40)).replace(/[\s,;:.—-]+$/, '')}…`;
+  };
+  const points = (Array.isArray(v.points) ? v.points : []).map((p): NotebookBriefingPoint | undefined => {
+    const o = (typeof p === 'string' ? { text: p } : p ?? {}) as Record<string, unknown>;
+    const text = line(o.text ?? o.point, 240);
+    if (!text) return undefined;
+    const from = (Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id));
+    const why = line(o.why, 300);
+    const ask = line(o.ask, 240);
+    return { text, ...(why ? { why } : {}), ...(ask ? { ask } : {}), from: [...new Set(from)].slice(0, 4) };
+  }).filter((p): p is NotebookBriefingPoint => !!p).slice(0, 8);
+  if (!points.length) return undefined;
+  const lines = (x: unknown, n: number) => (Array.isArray(x) ? x : []).map((q) => line(q, 240)).filter(Boolean).slice(0, n);
+  return { points, questions: lines(v.questions, 8), watch: (Array.isArray(v.watch) ? v.watch : []).map((q) => line(q, 320)).filter(Boolean).slice(0, 4), at, by };
 }
 
 /** The facts a source step looks up that an option doesn't have yet. */
@@ -2776,7 +2846,7 @@ export function checksLeft(nb: Pick<Notebook, 'checks'>, o: Pick<NotebookViewOpt
  */
 export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pick<NotebookViewOption, 'fields' | 'checked' | 'chosen' | 'ruledOut' | 'linkIsList'> & { failed?: string[] }, step: Pick<NotebookStep, 'kind' | 'facts'> & { status?: NotebookStep['status'] }): boolean {
   if (step.kind === 'find') return true;
-  if (step.kind === 'profile') return true;
+  if (step.kind === 'profile' || step.kind === 'write') return true;
   // Kept when you narrowed (a narrow step not done yet has kept nothing).
   if (step.kind === 'narrow') return step.status === 'done' && !o.ruledOut;
   if (step.kind === 'source') return stepFacts(nb, step).length > 0 && missingFacts(nb, o, step).length === 0;
@@ -2784,12 +2854,12 @@ export function optionPassesStep(nb: Pick<Notebook, 'fields' | 'checks'>, o: Pic
   return !!o.chosen;
 }
 
-/** The steps options go through (a profile step is about who the notebook is about, not its options). */
+/** The steps options go through (a profile step is about who the notebook is about, a write step about all of it, not its options). */
 export function optionSteps<T extends Pick<NotebookStep, 'kind'>>(steps: readonly T[]): T[] {
-  return steps.filter((s) => s.kind !== 'profile');
+  return steps.filter((s) => s.kind !== 'profile' && s.kind !== 'write');
 }
 
-const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { profile: 'Learned', find: 'Found', source: 'Facts sourced', check: 'Checked', narrow: 'Kept', decide: 'Chosen' };
+const STEP_FUNNEL_WORD: Record<NotebookStepKind, string> = { profile: 'Learned', find: 'Found', source: 'Facts sourced', check: 'Checked', narrow: 'Kept', decide: 'Chosen', write: 'Written' };
 
 /** The funnel's stage names for a notebook's steps: "Found", "Checked"…; a kind used twice goes by its steps' titles. */
 export function stepFunnelLabels(steps: readonly Pick<NotebookStep, 'kind' | 'title'>[]): string[] {
