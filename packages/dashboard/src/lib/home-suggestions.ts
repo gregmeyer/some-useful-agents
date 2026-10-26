@@ -2,7 +2,7 @@
  * Home's Try next: agents you can run in one click, and questions to ask sua, picked from
  * what you use and what happened today. Pure (`pickSuggestions`) with a reader (`homeSuggestions`).
  */
-import { SYSTEM_AGENT_IDS, type Agent } from '@some-useful-agents/core';
+import { NotebookStore, SYSTEM_AGENT_IDS, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
 import { agentShelves, DEMO_RE } from '../routes/agents/list.js';
 import { cachedNotebookSuggestions } from './notebook-suggestions.js';
 import { perItemInputs } from './notebook-pipeline.js';
@@ -21,9 +21,14 @@ export interface SuggestedAgent {
   /** A prompt for sua: run it with your own value for what it's about (sua asks you what), or what it's good for. */
   ownAsk: { label: string; text: string };
 }
-export interface SuggestedAsk { label: string; text: string }
+export interface SuggestedAsk {
+  label: string;
+  text: string;
+  /** A page to open instead of filling the box (New notebook with the sentence started). */
+  href?: string;
+}
 /** Home's Ask sua card: starters by verb; a pill fills the box (you finish it). */
-export type StarterVerb = 'Run' | 'Build' | 'Fix' | 'Look up';
+export type StarterVerb = 'Start' | 'Run' | 'Build' | 'Fix' | 'Look up';
 export interface AskStarters { verb: StarterVerb; pills: SuggestedAsk[] }
 export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[]; starters?: AskStarters[] }
 
@@ -73,6 +78,54 @@ function ownAsk(a: Agent): SuggestedAgent['ownAsk'] {
   return { label: `Run it with your own ${what}`, text: `Run ${a.name} (${a.id}) with my own ${what}. Ask me for it first.` };
 }
 
+/** Kinds of notebook, each a sentence to finish: what they're for, as you'd say it. */
+const NOTEBOOK_KINDS = [
+  { kind: 'meeting', label: 'Prepare for a meeting with …', text: 'Prepare for a meeting with ' },
+  { kind: 'report', label: 'Research a report on …', text: 'Research a report on ' },
+  { kind: 'plan', label: 'Plan …', text: 'Plan ' },
+  { kind: 'choose', label: 'Help me choose …', text: 'Help me choose ' },
+] as const;
+type NotebookKind = typeof NOTEBOOK_KINDS[number]['kind'];
+
+/** What a notebook is for, from its page, steps and title. Pure. */
+export function notebookKind(nb: Pick<Notebook, 'title' | 'layout' | 'steps' | 'statement'>): NotebookKind {
+  const words = `${nb.title} ${nb.statement} ${nb.layout?.about ?? ''}`;
+  if (nb.layout?.preset === 'dossier' || nb.steps?.some((s) => s.kind === 'profile') || /\b(meeting|interview)\b|\b(meet|call) with\b/i.test(words)) return 'meeting';
+  if (/\b(plan|itinerary|trip|schedule for)\b/i.test(words)) return 'plan';
+  if (/\b(report|research|answer|find out|understand|worth it)\b/i.test(words) || /\?\s*$/.test(nb.title) || (nb.layout && !nb.layout.preset && nb.steps?.some((s) => s.kind === 'write'))) return 'report';
+  return 'choose';
+}
+
+/**
+ * Ways to start a notebook, for Home's Ask sua (a Start row): your templates
+ * first (the 2 most used; one that changes each time ends where you say
+ * who or what, and sua starts it from the template), then the kinds of
+ * notebook you've made that no template covers, then a meeting and a
+ * report, up to `max`. A kind opens New notebook with its sentence
+ * started. Pure.
+ */
+export function notebookStartPills(templates: readonly Pick<NotebookTemplate, 'name' | 'setup' | 'uses' | 'archivedAt'>[], notebooks: readonly Pick<Notebook, 'title' | 'layout' | 'steps' | 'statement' | 'archivedAt'>[], max = 4): SuggestedAsk[] {
+  const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, '')}…` : t);
+  const pills: SuggestedAsk[] = [];
+  const covered = new Set<NotebookKind>();
+  for (const t of [...templates].filter((t) => !t.archivedAt).sort((a, b) => b.uses - a.uses).slice(0, 2)) {
+    const kind = notebookKind({ title: t.name, statement: t.setup.statement, layout: t.setup.layout, steps: t.setup.steps });
+    // Choosing only when it ranks its options (a price, a score, a measure): otherwise it says nothing about the kind.
+    if (kind !== 'choose' || (t.setup.fields ?? []).some((f) => f.role === 'price' || f.role === 'score' || f.role === 'measure')) covered.add(kind);
+    pills.push(t.setup.subject
+      ? { label: `${clip(t.name, 40)} for …`, text: `Start a new notebook from my “${t.name}” template for ` }
+      : { label: clip(t.name, 44), text: `Start a new notebook from my “${t.name}” template.` });
+  }
+  const made = [...new Set(notebooks.filter((n) => !n.archivedAt).map(notebookKind))];
+  const kinds = [...made, 'meeting', 'report'].filter((k, i, all): k is NotebookKind => all.indexOf(k) === i && !covered.has(k as NotebookKind));
+  for (const k of kinds) {
+    if (pills.length >= max) break;
+    const spec = NOTEBOOK_KINDS.find((x) => x.kind === k)!;
+    pills.push({ label: spec.label, text: spec.text, href: `/notebooks/new?text=${encodeURIComponent(spec.text)}` });
+  }
+  return pills.slice(0, max);
+}
+
 /**
  * Starters for Home's Ask sua card, one row per verb, never empty: run one of
  * yours on something, build one, fix what failed, look something up. Text
@@ -84,6 +137,8 @@ export function askStarters(d: {
   runCounts: ReadonlyMap<string, number>;
   notebookIdeas: ReadonlyArray<{ label: string; text: string }>;
   failedAgents: readonly string[];
+  /** Ways to start a notebook (notebookStartPills). */
+  notebookStarts?: readonly SuggestedAsk[];
   now?: number;
 }): AskStarters[] {
   const now = d.now ?? Date.now();
@@ -122,6 +177,7 @@ export function askStarters(d: {
   if (look.length < 3) look.push(pill('Look up …', 'Look up '));
 
   return [
+    ...(d.notebookStarts?.length ? [{ verb: 'Start' as const, pills: d.notebookStarts.slice(0, 4) }] : []),
     { verb: 'Run', pills: run.slice(0, 3) },
     { verb: 'Build', pills: build.slice(0, 3) },
     { verb: 'Fix', pills: fix.slice(0, 3) },
@@ -192,7 +248,9 @@ export function homeSuggestions(ctx: Ctx, now = Date.now()): HomeSuggestions {
       now,
     });
     const failedAgents = failed.rows.map((r) => r.agentName).filter((id) => !SYSTEM_AGENT_IDS.has(id));
-    return { ...picked, starters: askStarters({ agents, lastRunAt, runCounts, notebookIdeas, failedAgents, now }) };
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const notebookStarts = notebookStartPills(nbs.listTemplates(), nbs.list());
+    return { ...picked, starters: askStarters({ agents, lastRunAt, runCounts, notebookIdeas, failedAgents, notebookStarts, now }) };
   } catch {
     return { agents: [], asks: [], starters: askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [] }) };
   }
