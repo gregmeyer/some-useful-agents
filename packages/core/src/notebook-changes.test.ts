@@ -37,7 +37,9 @@ describe('what changed since last time', () => {
     const vanished = file('X100V kit', { price: 1150, condition: 'Excellent', listing: 'https://ex.com/3' });
     const sold = file('X100V, box', { price: 1180, condition: 'Good', listing: 'https://ex.com/4' });
 
-    // The latest search: two seen again (one cheaper, one with a new condition), one new; one isn't found; one's page says it's sold.
+    // A search in between that found others, not the kit: one miss isn't news yet.
+    s.recordSearch(nb.id, 'finder', 'r1b', 3, '2026-10-20T20:00:00.000Z');
+    // The latest search: two seen again (one cheaper, one with a new condition), one new; the kit missed again (its second); one's page says it's sold.
     at('2026-10-21T08:00:00Z');
     s.recordSearch(nb.id, 'finder', 'r2', 3, '2026-10-21T08:00:00.000Z');
     at('2026-10-21T08:00:01Z');
@@ -48,7 +50,7 @@ describe('what changed since last time', () => {
 
     const v = notebookViewData(s.get(nb.id)!, s.entries(nb.id), s).notebook;
     const c = notebookChanges(s.get(nb.id)!, v.options, s);
-    expect(c).toMatchObject({ since: '2026-10-20T08:00:00.000Z', first: false });
+    expect(c).toMatchObject({ since: '2026-10-20T20:00:00.000Z', first: false });
     expect(c.changes.map((x) => [x.kind, x.id, x.field?.key, x.from, x.to])).toEqual([
       ['new', fresh, undefined, undefined, undefined],
       ['price', cheaper, 'price', 1200, 1090],

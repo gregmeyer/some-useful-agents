@@ -267,6 +267,8 @@ const SUA_COMPONENTS = [
       title: Str.optional(),
       /** What it says when nothing changed. */
       empty: Str.optional(),
+      /** Items shown per kind before "Show N more" (default 5). */
+      maxItems: z.number().int().min(1).max(50).optional(),
     }).strict(),
   },
   {

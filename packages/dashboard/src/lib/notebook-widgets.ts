@@ -533,7 +533,7 @@ function planViews(nb: Notebook, active: readonly NotebookViewOption[], summary:
 }
 
 const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-const CHANGE_WORDS: Record<NotebookChangeKind, [string, string]> = { new: ['new', 'new'], price: ['price change', 'price changes'], changed: ['change', 'changes'], gone: ['gone', 'gone'], missing: ['not found this time', 'not found this time'] };
+const CHANGE_WORDS: Record<NotebookChangeKind, [string, string]> = { new: ['new', 'new'], price: ['price change', 'price changes'], changed: ['change', 'changes'], gone: ['gone', 'gone'], missing: ['not seen lately', 'not seen lately'] };
 
 /**
  * What changed since the search before the latest (core notebookChanges), for
@@ -547,6 +547,7 @@ function changesViews(nb: Notebook, options: readonly NotebookViewOption[], hist
   if (c.first) return { changesIntro: { label: `First look · ${shortDay(c.at)}`, text: `The first search found ${String(c.seen)}. Next time, this says what changed since.` }, changes: [] };
   const fmt = (f: NonNullable<NotebookChange['field']>, v: NotebookFieldValue | undefined) => (v === undefined ? '' : formatFieldValue(f as NotebookField, v));
   const priceF = nb.fields.find((f) => f.role === 'price');
+  const byId = new Map(options.map((o) => [o.id, o]));
   const changes = c.changes.map((x): NotebookWidgetData['notebook']['changes'][number] => {
     const href = notebookOptionPath(nb.id, x.id);
     if ((x.kind === 'price' || x.kind === 'changed') && x.field) {
@@ -556,8 +557,11 @@ function changesViews(nb: Notebook, options: readonly NotebookViewOption[], hist
       return { kind: x.kind, title: x.name, detail: `${x.field.label}: ${fmt(x.field, x.from)} → ${fmt(x.field, x.to)}`, href, ...(better !== undefined ? { tone: better ? 'ok' as const : 'warn' as const } : {}) };
     }
     if (x.kind === 'gone') return { kind: x.kind, title: x.name, ...(x.reason ? { detail: x.reason } : {}), href, tone: 'warn' };
-    if (x.kind === 'missing') return { kind: x.kind, title: x.name, detail: 'The latest search found others, not this one. It may be sold or taken down.', href };
-    return { kind: x.kind, title: x.name, href, tone: 'ok' };
+    if (x.kind === 'missing') return { kind: x.kind, title: x.name, detail: 'Not in the last 2 searches. It may be sold, filled or taken down.', href };
+    // New: what tells it apart (who, where, what it costs).
+    const o = byId.get(x.id);
+    const what = o ? [o.org, o.place, o.price !== undefined && priceF ? formatFieldValue(priceF, o.price) : undefined].filter((v): v is string => !!v && !x.name.includes(v)).join(' · ') : '';
+    return { kind: x.kind, title: x.name, ...(what ? { detail: what } : {}), href, tone: 'ok' };
   });
   const counts = (Object.keys(CHANGE_WORDS) as NotebookChangeKind[]).map((k) => [k, new Set(c.changes.filter((x) => x.kind === k).map((x) => x.id)).size] as const).filter(([, n]) => n > 0);
   const text = counts.length

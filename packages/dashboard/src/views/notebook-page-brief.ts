@@ -133,7 +133,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       </div>`;
     }
     case 'Changes': {
-      const groups: Array<[string, string]> = [['new', 'New'], ['price', 'Price changes'], ['changed', 'Changed'], ['gone', 'Gone'], ['missing', 'Not found this time']];
+      const groups: Array<[string, string]> = [['new', 'New'], ['price', 'Price changes'], ['changed', 'Changed'], ['gone', 'Gone'], ['missing', 'Not seen lately']];
       const all = list(v('items')) as Array<{ kind?: unknown; title?: unknown; detail?: unknown }>;
       if (!all.length) return html`<p class="muted">${text(v('empty')) || 'Nothing changed since last time.'}</p>`;
       return html`<div class="agenda">${groups.map(([k, label]) => {

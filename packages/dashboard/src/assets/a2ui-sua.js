@@ -1197,10 +1197,12 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
 // What changed since last time (a watch notebook's latest search against the
 // one before, or any agent's list of changes): grouped by kind, each linking
 // to its page, a price change marked better or worse.
-const CHANGE_GROUPS = [['new', 'New', '+'], ['price', 'Price changes', '$'], ['changed', 'Changed', '~'], ['gone', 'Gone', '×'], ['missing', 'Not found this time', '?']];
+const CHANGE_GROUPS = [['new', 'New', '+'], ['price', 'Price changes', '$'], ['changed', 'Changed', '~'], ['gone', 'Gone', '×'], ['missing', 'Not seen lately', '?']];
 const Changes = define('Changes', 'sua-a2ui-changes',
-  Common.extend({ items: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional() }).strict(),
+  Common.extend({ items: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), maxItems: z.number().int().min(1).max(50).optional() }).strict(),
   css`${sectionHead}
+    .more { all: unset; cursor: pointer; margin-top: 6px; display: inline-block; font-size: var(--font-size-xs); color: var(--color-primary); }
+    .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
     .group { margin: 0 0 14px; }
     .group:last-child { margin-bottom: 0; }
     .group .h { display: flex; align-items: center; gap: 6px; }
@@ -1214,18 +1216,24 @@ const Changes = define('Changes', 'sua-a2ui-changes',
     .t a { color: inherit; text-decoration: none; }
     .t a:hover, .t a:focus-visible { color: var(--color-primary); text-decoration: underline; }
     .d { grid-column: 2; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
-    .ok .d { color: var(--color-ok); }`,
-  (p) => {
+    .k-price.ok .d { color: var(--color-ok); }
+    .k-price.warn .d { color: var(--color-warn); }`,
+  function (p) {
     const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && typeof x.title === 'string' && x.title);
     if (!items.length) return html`<p class="empty">${p.empty ?? 'Nothing changed since last time.'}</p>`;
+    // A long group shows its first few, then "Show N more" (a search can bring dozens).
+    const max = p.maxItems ?? 5;
+    this._all ??= new Set();
     return html`<div>${CHANGE_GROUPS.map(([kind, label, mark]) => {
-      const list = items.filter((x) => x.kind === kind);
-      if (!list.length) return nothing;
-      return html`<section class="group"><h4 class="h">${label} <span class="n">${list.length}</span></h4><ul>${list.map((x) => html`<li class="${x.tone === 'ok' || x.tone === 'warn' ? x.tone : ''}">
+      const all = items.filter((x) => x.kind === kind);
+      if (!all.length) return nothing;
+      const open = this._all.has(kind);
+      const list = open ? all : all.slice(0, max);
+      return html`<section class="group"><h4 class="h">${label} <span class="n">${all.length}</span></h4><ul>${list.map((x) => html`<li class="k-${kind}${x.tone === 'ok' || x.tone === 'warn' ? ` ${x.tone}` : ''}">
         <span class="mark" aria-hidden="true">${kind === 'price' && x.tone ? (x.tone === 'ok' ? '↓' : '↑') : mark}</span>
         <span class="t">${x.href && safeUrl(x.href) ? html`<a href=${x.href}>${x.title}</a>` : x.title}</span>
         ${x.detail ? html`<span class="d">${x.detail}</span>` : nothing}
-      </li>`)}</ul></section>`;
+      </li>`)}</ul>${all.length > max ? html`<button type="button" class="more" aria-expanded=${open ? 'true' : 'false'} @click=${() => { if (open) this._all.delete(kind); else this._all.add(kind); this.requestUpdate(); }}>${open ? 'Show fewer' : `Show ${all.length - max} more`}</button>` : nothing}</section>`;
     })}</div>`;
   });
 

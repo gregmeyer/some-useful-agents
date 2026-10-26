@@ -218,7 +218,7 @@ The step is met once there's a plan, and **Plan again →** writes it once more.
   - **price changes:** each marked better or worse by which way the price should go;
   - **other facts that changed:** for example, a condition or a mileage;
   - **gone:** its page said it's sold or removed;
-  - **not found this time:** the latest search found others, not this one.
+  - **not seen lately:** the latest search was the second in a row to find others but not this one (it may be sold or taken down). Said once, when it happens, not on every search after.
 
   A line sums it up ("Since Oct 20 · checked Oct 21: 1 new, 1 price change"), or says nothing changed. The first search is a "first look", not everything new.
 - **Below that:** everything it's watching, then the research folded at the end. The brief prints the same.
