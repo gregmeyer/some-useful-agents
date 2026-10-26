@@ -62,3 +62,24 @@ export function agendaText({ title, points, questions, watch, pointsLabel, quest
   if (ws.length) { lines.push(watchLabel || 'Watch out for'); ws.forEach((w) => lines.push(`- ${w.text}`)); lines.push(''); }
   return lines.join('\n').trimEnd();
 }
+
+/**
+ * A plan as plain text, for Copy as text: each day or slot, its items
+ * (with their notes), then what to do first and what's still open.
+ */
+export function planText({ title, days, before, open, beforeLabel, openLabel } = {}) {
+  const lines = [];
+  if (str(title)) lines.push(str(title), '');
+  for (const d of Array.isArray(days) ? days : []) {
+    const items = textItems(d && d.items);
+    if (!items.length) continue;
+    lines.push(str(d.when) || 'Anytime');
+    items.forEach((it) => { lines.push(`- ${it.text}`); if (str(it.note)) lines.push(`  ${str(it.note)}`); });
+    lines.push('');
+  }
+  const bs = textItems(before);
+  if (bs.length) { lines.push(beforeLabel || 'Before you start'); bs.forEach((b) => lines.push(`- ${b.text}`)); lines.push(''); }
+  const os = textItems(open);
+  if (os.length) { lines.push(openLabel || 'Still open'); os.forEach((o) => lines.push(`- ${o.text}`)); lines.push(''); }
+  return lines.join('\n').trim();
+}

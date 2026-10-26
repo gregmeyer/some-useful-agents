@@ -21,6 +21,7 @@ function glyph(c: ViewComponent | undefined): SafeHtml {
     case 'Scatter': return html`<span class="lk-g lk-g--map">${[[20, 30], [45, 60], [70, 25], [60, 70], [30, 75]].map(([x, y]) => html`<i class="lk-dot" style="left:${String(x)}%;top:${String(y)}%"></i>`) as unknown as SafeHtml[]}</span>`;
     case 'Funnel': return html`<span class="lk-g lk-g--funnel">${[100, 70, 40].map((w) => html`<i class="lk-bar" style="width:${String(w)}%"></i>`) as unknown as SafeHtml[]}</span>`;
     case 'Timeline': return html`<span class="lk-g lk-g--time">${lines(3)}</span>`;
+    case 'Itinerary': return html`<span class="lk-g lk-g--agenda">${['1', '2', '3'].map((n) => html`<span class="lk-pt"><b>${n}</b>${lines(2)}</span>`) as unknown as SafeHtml[]}</span>`;
     case 'Callout': return html`<span class="lk-g lk-g--callout">${lines(2)}</span>`;
     case 'StatStrip': return html`<span class="lk-g lk-g--stats">${Array.from({ length: 4 }, () => html`<i class="lk-box"></i>`) as unknown as SafeHtml[]}</span>`;
     case 'FactSheet': case 'KeyValue': return html`<span class="lk-g lk-g--facts">${lines(3, 'is-ruled')}</span>`;
@@ -66,6 +67,7 @@ const LOOK_FOR: Record<string, string> = {
   shortlist: 'For choosing one among many: ranks them, maps them by price, narrows them to a pick.',
   dossier: 'For getting ready to meet someone: who they are, what they said, what to talk about.',
   answer: 'For a question: the answer and how sure, the findings it rests on with their sources, what\'s still open.',
+  plan: 'For a plan (a trip, a week, a project): the plan day by day, what to book or do first, what\'s still open.',
 };
 
 export interface LookChoice {

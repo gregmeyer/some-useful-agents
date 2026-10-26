@@ -47,7 +47,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(checkNotebookLayout(page).ok).toBe(true);
     expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }]))
-      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, answered (or !one).'] });
+      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, answered, planned (or !one).'] });
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }]).ok).toBe(false);
     expect(checkNotebookLayout('no').ok).toBe(false);
     expect(cleanLayout('shortlist')).toBe(DEFAULT_NOTEBOOK_LAYOUT);
@@ -55,7 +55,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(cleanLayout('nope')).toBeUndefined();
     expect(cleanLayout({ preset: 'shortlist', components: page })).toEqual({ preset: 'shortlist', components: page });
     expect(notebookLayoutOf({})).toBe(DEFAULT_NOTEBOOK_LAYOUT);
-    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'answer']);
+    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'answer', 'plan']);
     // Every ready-made page is a page that checks out.
     for (const p of NOTEBOOK_LAYOUT_PRESETS) expect(checkNotebookLayout(p.layout.components), p.id).toMatchObject({ ok: true });
   });
@@ -70,7 +70,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.get(nb.id)!.layout).toEqual({ components: page });
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toEqual({ components: page });
     expect(() => s.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }] }))
-      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, answered (or !one).');
+      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, answered, planned (or !one).');
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });

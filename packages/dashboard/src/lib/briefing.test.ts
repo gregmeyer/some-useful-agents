@@ -8,12 +8,13 @@ import { assetsRouter } from '../routes/assets.js';
 // A browser module (assets/briefing.js); a computed path keeps tsc from typing it.
 const here = dirname(fileURLToPath(import.meta.url));
 type It = Record<string, unknown>;
-const { groupBy, matchQuote, monogram, sourceName, textItems, agendaText } = await import(join(here, '..', 'assets', 'briefing.js')) as {
+const { groupBy, matchQuote, monogram, sourceName, textItems, agendaText, planText } = await import(join(here, '..', 'assets', 'briefing.js')) as {
   groupBy: (items: It[], key?: string) => Array<{ group: string; items: It[] }>;
   matchQuote: (it: It, q: string) => boolean;
   monogram: (name: string) => string;
   sourceName: (url: string) => string;
   textItems: (list: unknown) => Array<It & { text: string }>;
+  planText: (a: Record<string, unknown>) => string;
   agendaText: (a: { title?: string; points?: unknown; questions?: unknown; watch?: unknown; pointsLabel?: string; questionsLabel?: string; watchLabel?: string }) => string;
 };
 
@@ -49,6 +50,10 @@ describe('briefing components', () => {
       'Watch out for', "- Don't pitch",
     ].join('\n'));
     expect(agendaText({})).toBe('');
+    // A plan copies day by day, then what to do first and what's open.
+    expect(planText({ title: 'Lisbon', days: [{ when: 'Day 1', items: [{ text: 'Castle', note: 'Go early' }, 'Fado'] }, { when: 'Day 2', items: [] }], before: ['Book fado'], open: ['Which palace?'] })).toBe([
+      'Lisbon', '', 'Day 1', '- Castle', '  Go early', '- Fado', '', 'Before you start', '- Book fado', '', 'Still open', '- Which palace?',
+    ].join('\n'));
     // An answer's findings copy under their own headings.
     expect(agendaText({ pointsLabel: 'Key findings', points: ['Prices rose 4%'], questionsLabel: 'Still open', questions: ['Does it hold in 2027?'] })).toBe([
       'Key findings', '1. Prices rose 4%', '', 'Still open', '- Does it hold in 2027?', '',

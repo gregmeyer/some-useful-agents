@@ -132,6 +132,19 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
       </div>`;
     }
+    case 'Itinerary': {
+      const days = list(v('days')).map((d) => ({ when: text((d as { when?: unknown }).when), items: items((d as { items?: unknown }).items) })).filter((d) => d.items.length);
+      const before = items(v('before'));
+      const open = items(v('open'));
+      return html`<div class="agenda">
+        ${days.map((d) => html`<div class="eyebrow">${d.when || 'Anytime'}</div><ul>${d.items.map((x) => {
+          const from = list(x.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+          return html`<li><b>${x.text}</b>${text(x.note) ? html` <span class="muted">${text(x.note)}</span>` : html``}${from.length ? html` <span class="muted">(${from.join(', ')})</span>` : html``}</li>`;
+        }) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}
+        ${before.length ? html`<div class="eyebrow">${text(v('beforeLabel')) || 'Before you start'}</div><ul>${before.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+        ${open.length ? html`<div class="eyebrow">${text(v('openLabel')) || 'Still open'}</div><ul>${open.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+      </div>`;
+    }
     case 'QuoteList': {
       const all = list(v('items')) as Array<{ quote?: unknown; title?: unknown; source?: unknown; at?: unknown; ask?: unknown; group?: unknown }>;
       // A few, not every one: 3 to 5 (as many as the page shows), one per theme before a second from any; the extended brief has every one (below).

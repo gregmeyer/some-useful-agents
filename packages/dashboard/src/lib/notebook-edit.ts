@@ -109,7 +109,7 @@ function listChange(what: string, before: readonly string[], after: readonly str
 
 const fieldWords = (f: NotebookField) => [`${f.type}${f.unit ? ` in ${f.unit}` : ''}`, f.range ? 'range' : '', f.role ?? '', f.better ? `${f.better} is better` : ''].filter(Boolean).join(', ');
 const stepWords = (s: Pick<NotebookStep, 'kind' | 'target' | 'agentId' | 'subject' | 'facts' | 'top' | 'shape'>) =>
-  [`${s.kind}${s.target ? ` ${String(s.target)}` : ''}`, s.shape === 'answer' ? 'answer' : '', s.subject ? `about ${s.subject}` : '', s.facts?.length ? `facts ${s.facts.join(', ')}` : '', s.top ? `top ${String(s.top)}` : '', s.agentId ? `with ${s.agentId}` : ''].filter(Boolean).join('; ');
+  [`${s.kind}${s.target ? ` ${String(s.target)}` : ''}`, s.shape ?? '', s.subject ? `about ${s.subject}` : '', s.facts?.length ? `facts ${s.facts.join(', ')}` : '', s.top ? `top ${String(s.top)}` : '', s.agentId ? `with ${s.agentId}` : ''].filter(Boolean).join('; ');
 
 /** The page's name: a ready-made one's label, the shortlist, or one drawn for it. Pure. */
 export function pageName(layout: NotebookLayout | undefined): string {
@@ -251,7 +251,7 @@ function parseStep(line: string, agentIds: ReadonlySet<string>): StepIn | undefi
     if (facts) out.facts = facts[1].split(',').map((x) => x.trim()).filter(Boolean);
     const top = /^top\s+(\d+)$/i.exec(p);
     if (top) out.top = Number(top[1]);
-    if (/^answer$/i.test(p) && kind === 'write') out.shape = 'answer';
+    if (/^(answer|plan)$/i.test(p) && kind === 'write') out.shape = p.toLowerCase() as 'answer' | 'plan';
   }
   return out;
 }

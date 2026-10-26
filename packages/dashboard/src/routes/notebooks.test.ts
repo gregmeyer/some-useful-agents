@@ -3913,6 +3913,54 @@ describe('a write step', () => {
     expect(draftSteps([{ title: 'Find sources', kind: 'find', agent: '' }, { title: 'Write the answer', kind: 'write', agent: '', shape: 'answer' }], new Set()).steps!.map((x) => x.shape)).toEqual([undefined, 'answer']);
     writerReply = undefined;
   });
+
+  it('writes the plan for a trip: the Plan page shows it day by day with what it uses, what to book first and what is open', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Plan 2 days in Porto', statement: 'Two easy days in Porto for two', params: ['$600'] });
+    s.setFields(nb.id, [{ key: 'area', label: 'Area', type: 'text', role: 'place' }, { key: 'link', label: 'Link', type: 'url', role: 'link' }]);
+    const a = s.upsertOption(nb.id, { title: 'Ribeira walk', by: 'agent:x', data: { area: 'Ribeira', link: 'https://example.com/ribeira' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'Port cellar tour', by: 'agent:x', data: { area: 'Gaia', link: 'https://example.com/cellar' } }).entry;
+    s.setSteps(nb.id, [{ title: 'Find things to do', kind: 'find', target: 2, status: 'done' }, { title: 'Write the plan', kind: 'write', shape: 'plan' }]);
+    s.setLayout(nb.id, layoutPreset('plan')!.layout, 'notebook');
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('no plan yet');
+
+    writerReply = () => `<plan>${JSON.stringify({
+      summary: 'The river first, then **port across the bridge**.',
+      items: [{ when: 'Day 1', title: 'Walk the Ribeira', from: [a.id] }, { when: 'Day 1', title: 'Dinner by the river' }, { when: 'Day 2', title: 'Port cellar tour', detail: 'Book a 3pm slot.', from: [b.id, 'made-up'] }],
+      before: ['Book the cellar tour'], open: ['Rain plan?'],
+    })}</plan>`;
+    expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true, step: { kind: 'write', shape: 'plan' } });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(writerAsked.at(-1)!.SHAPE).toBe('plan');
+    const after = s.get(nb.id)!;
+    expect(after.steps![1]).toMatchObject({ status: 'met', note: 'plan written' });
+    const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
+    expect(d.planIntro).toEqual({ label: 'The plan', text: 'The river first, then **port across the bridge**.' });
+    expect(d.planDays).toEqual([
+      { when: 'Day 1', items: [{ text: 'Walk the Ribeira', refs: [{ label: 'Ribeira walk', href: `/notebooks/${nb.id}/entries/${a.id}` }] }, { text: 'Dinner by the river', refs: [] }] },
+      { when: 'Day 2', items: [{ text: 'Port cellar tour', note: 'Book a 3pm slot.', refs: [{ label: 'Port cellar tour', href: `/notebooks/${nb.id}/entries/${b.id}` }] }] },
+    ]);
+    expect(d.planBefore).toEqual([{ text: 'Book the cellar tour' }]);
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"component":"Itinerary"');
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('<b>Port cellar tour</b> <span class="muted">Book a 3pm slot.</span> <span class="muted">(Port cellar tour)</span>');
+    expect(brief).toContain('Before you start');
+    s.updateStep(nb.id, after.steps![1].id, { status: 'done' });
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain('Plan again →');
+    const { notebookToMarkdown, notebookFromMarkdown, setupOf } = await import('../lib/notebook-edit.js');
+    const md = notebookToMarkdown(setupOf(s.get(nb.id)!), s.get(nb.id)!.layout);
+    expect(md).toContain('2. Write the plan (write; plan)');
+    const back = notebookFromMarkdown(md, setupOf(s.get(nb.id)!), s.get(nb.id)!.layout, new Set());
+    expect('setup' in back && back.setup.steps[1].shape).toBe('plan');
+    writerReply = undefined;
+  });
 });
 
 describe('editing the talking points', () => {

@@ -15,7 +15,7 @@ import {
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
-import { groupBy, matchQuote, monogram, sourceName, textItems, agendaText } from '/assets/briefing.js';
+import { groupBy, matchQuote, monogram, sourceName, textItems, agendaText, planText } from '/assets/briefing.js';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 
@@ -1194,6 +1194,54 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     </div>`;
   });
 
+// A plan in order (a notebook's write step with shape "plan", or any agent's):
+// a heading per day, week or slot with its items (each with its note and
+// the options it uses), then what to do first and what's still open.
+const Itinerary = define('Itinerary', 'sua-a2ui-itinerary',
+  Common.extend({ days: CommonSchemas.DynamicValue, before: CommonSchemas.DynamicValue.optional(), open: CommonSchemas.DynamicValue.optional(), title: Str.optional(), beforeLabel: Str.optional(), openLabel: Str.optional(), empty: Str.optional(), copy: z.boolean().optional() }).strict(),
+  css`${sectionHead}
+    .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .top .h { margin: 0; }
+    .copy { all: unset; cursor: pointer; margin-left: auto; font-size: var(--font-size-xs); padding: 0 10px; height: var(--control-h-sm, 28px); display: inline-flex; align-items: center; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border); color: var(--color-text-muted); }
+    .copy:hover { border-color: var(--color-primary); color: var(--color-primary); }
+    .copy:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+    .status { font-size: var(--font-size-xs); color: var(--color-ok); }
+    .days { margin: 0 0 16px; padding: 0; list-style: none; display: grid; gap: 14px; }
+    .day { display: grid; grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr); gap: 4px 16px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+    .day:first-child { border-top: 0; padding-top: 0; }
+    .when { font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); overflow-wrap: anywhere; }
+    .items { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; min-width: 0; }
+    .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
+    .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
+    .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
+    .refs a { text-decoration: none; }
+    ul.plain { margin: 0 0 16px; padding-left: 18px; display: grid; gap: 6px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ul.plain:last-child { margin-bottom: 0; }
+    @media (max-width: 560px) { .day { grid-template-columns: minmax(0, 1fr); } }`,
+  function (p) {
+    const days = (Array.isArray(p.days) ? p.days : []).map((d) => ({ when: typeof d?.when === 'string' ? d.when : '', items: textItems(d?.items) })).filter((d) => d.items.length);
+    const before = textItems(p.before);
+    const open = textItems(p.open);
+    if (!days.length && !before.length && !open.length) return html`<p class="empty">${p.empty ?? 'No plan yet.'}</p>`;
+    const copy = async () => {
+      const text = planText({ title: p.title, days: p.days, before: p.before, open: p.open, beforeLabel: p.beforeLabel, openLabel: p.openLabel });
+      try { await navigator.clipboard.writeText(text); this._copied = 'Copied'; } catch { this._copied = 'Couldn’t copy here'; }
+      this.requestUpdate();
+      setTimeout(() => { this._copied = ''; this.requestUpdate(); }, 2500);
+    };
+    const refs = (it) => (Array.isArray(it.refs) ? it.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
+    return html`<div>
+      <div class="top"><h4 class="h">${p.title ?? 'The plan'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</div>
+      ${days.length ? html`<ol class="days">${days.map((d) => html`<li class="day"><div class="when">${d.when || 'Anytime'}</div><ul class="items">${d.items.map((it) => html`<li>
+        <div class="t">${it.text}</div>
+        ${it.note ? html`<div class="note">${it.note}</div>` : nothing}
+        ${refs(it).length ? html`<div class="refs">${refs(it).map((r) => outLink(r.href, r.label))}</div>` : nothing}
+      </li>`)}</ul></li>`)}</ol>` : nothing}
+      ${before.length ? html`<h4 class="h">${p.beforeLabel ?? 'Before you start'}</h4><ul class="plain">${before.map((b) => html`<li>${b.text}</li>`)}</ul>` : nothing}
+      ${open.length ? html`<h4 class="h">${p.openLabel ?? 'Still open'}</h4><ul class="plain">${open.map((o) => html`<li>${o.text}</li>`)}</ul>` : nothing}
+    </div>`;
+  });
+
 // A notebook page's header is drawn by the page itself (its buttons are forms
 // the page's scripts handle); in the layout it only says how. Nothing here.
 const NotebookHeader = define('NotebookHeader', 'sua-a2ui-notebook-header',
@@ -1440,7 +1488,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

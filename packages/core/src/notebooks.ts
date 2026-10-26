@@ -228,6 +228,27 @@ export interface NotebookAnswer {
   by: string;
 }
 
+/** One thing in a plan: when, what, and the options (places, things found) it uses, by entry id. */
+export interface NotebookPlanItem {
+  /** Its day or slot, as the plan groups them ("Day 1", "Sat Oct 31", "Week 2", "Morning"). */
+  when: string;
+  title: string;
+  detail?: string;
+  from: string[];
+}
+
+/** What a write step wrote when the notebook makes a plan (a trip, a week, a project): the plan in order, what to do first, what's open. */
+export interface NotebookPlan {
+  /** The plan in a sentence or two (may use **bold**). */
+  summary: string;
+  items: NotebookPlanItem[];
+  /** To book, buy or do before it starts. */
+  before: string[];
+  open: string[];
+  at: string;
+  by: string;
+}
+
 export interface Notebook {
   id: string;
   title: string;
@@ -285,6 +306,8 @@ export interface Notebook {
   briefing?: NotebookBriefing;
   /** The answer a write step wrote (a notebook that answers a question). */
   answer?: NotebookAnswer;
+  /** The plan a write step wrote (a notebook that makes a plan). */
+  plan?: NotebookPlan;
   createdAt: string;
   updatedAt: string;
 }
@@ -322,8 +345,8 @@ export interface NotebookStep {
   top?: number;
   /** profile: who to learn about ("Dana Reyes", "Acme Robotics"). None: from what the notebook is for. */
   subject?: string;
-  /** write: what it writes. "answer": the answer to the question the notebook is for; else talking points for a meeting. */
-  shape?: 'answer';
+  /** write: what it writes. "answer": the answer to the question the notebook is for; "plan": a plan in order (a trip, a week); else talking points for a meeting. */
+  shape?: 'answer' | 'plan';
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -757,7 +780,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -1002,6 +1025,13 @@ export class NotebookStore {
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */
   /** `from`: the page it's on and why it's taken to be them (a person's photo). */
+  /** Keep the plan a write step wrote (none: forget it). */
+  setPlan(id: string, plan: NotebookPlan | undefined): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET plan_json = ?, updated_at = ? WHERE id = ?').run(plan ? JSON.stringify(plan) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
   /** Keep the answer a write step wrote (none: forget it). */
   setAnswer(id: string, answer: NotebookAnswer | undefined): Notebook {
     this.mustGet(id);
@@ -2024,6 +2054,7 @@ export class NotebookStore {
       ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
       ...(r.layout_by ? { layoutBy: String(r.layout_by) } : {}),
       ...(r.briefing_json ? { briefing: parse<NotebookBriefing>(r.briefing_json, { points: [], questions: [], watch: [], at: '', by: '' }) } : {}),
+      ...(r.plan_json ? { plan: parse<NotebookPlan>(r.plan_json, { summary: '', items: [], before: [], open: [], at: '', by: '' }) } : {}),
       ...(r.answer_json ? { answer: parse<NotebookAnswer>(r.answer_json, { question: '', text: '', confidence: 'low', findings: [], open: [], at: '', by: '' }) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
@@ -2739,7 +2770,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...(facts.length ? { facts } : {}),
       ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
       ...(kind === 'profile' && typeof x.subject === 'string' && x.subject.trim() ? { subject: x.subject.replace(/\s+/g, ' ').trim().slice(0, 80) } : {}),
-      ...(kind === 'write' && x.shape === 'answer' ? { shape: 'answer' as const } : {}),
+      ...(kind === 'write' && (x.shape === 'answer' || x.shape === 'plan') ? { shape: x.shape } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
       ...(status === 'done' && movedOn ? { movedOn: true } : {}),
@@ -2789,6 +2820,11 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const have = Math.min(want, facts.length);
     const missing = have >= want ? [] : [...new Set([...(nb.about?.person?.notFound ?? []), ...(nb.about?.company?.notFound ?? [])])].slice(0, 6);
     return { met: have >= want, have, want, missing: have >= want ? [] : missing.length ? missing : ['who they are'] };
+  }
+  if (step.kind === 'write' && step.shape === 'plan') {
+    // About the notebook, not its options: the plan written.
+    const have = nb.plan?.items.length ? 1 : 0;
+    return { met: have === 1, have, want: 1, missing: have ? [] : ['the plan'] };
   }
   if (step.kind === 'write' && step.shape === 'answer') {
     // About the notebook, not its options: the answer written.
@@ -2890,6 +2926,35 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
   return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, at, by };
+}
+
+/**
+ * A writer's <plan> as one to keep, against the options it may use: items
+ * need a title (a missing "when" joins the one before it, else "Anytime");
+ * `from` only names options the notebook has; at most 40 items, 8 things to
+ * do before and 5 open questions. Pure.
+ */
+export function cleanPlan(raw: unknown, optionIds: ReadonlySet<string>, by: string, at = new Date().toISOString()): NotebookPlan | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const line = (x: unknown, n: number) => {
+    const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : '';
+    return t.length <= n ? t : `${t.slice(0, n - 1).replace(/[\s,;:.—-]+$/, '')}…`;
+  };
+  let last = 'Anytime';
+  const items = (Array.isArray(v.items) ? v.items : []).map((it): NotebookPlanItem | undefined => {
+    const o = (it ?? {}) as Record<string, unknown>;
+    const title = line(o.title ?? o.what, 200);
+    if (!title) return undefined;
+    const when = line(o.when ?? o.day, 40) || last;
+    last = when;
+    const detail = line(o.detail ?? o.note, 300);
+    const from = (Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id));
+    return { when, title, ...(detail ? { detail } : {}), from: [...new Set(from)].slice(0, 4) };
+  }).filter((i): i is NotebookPlanItem => !!i).slice(0, 40);
+  if (!items.length) return undefined;
+  const lines = (x: unknown, n: number) => (Array.isArray(x) ? x : []).map((q) => line(q, 240)).filter(Boolean).slice(0, n);
+  return { summary: line(v.summary, 600), items, before: lines(v.before, 8), open: lines(v.open, 5), at, by };
 }
 
 /** The facts a source step looks up that an option doesn't have yet. */

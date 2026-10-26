@@ -18,7 +18,7 @@ export interface NotebookPageExample {
    * Meeting briefing (dossier), or one drawn for it, of a `kind` (a report
    * answering a question, a plan).
    */
-  expect: { page: 'shortlist' | 'dossier' | 'answer' | 'drawn'; kind?: string; needs?: string[] };
+  expect: { page: 'shortlist' | 'dossier' | 'answer' | 'plan' | 'drawn'; kind?: string; needs?: string[] };
   /** Make it in `s` and return its id; with `data`, as its steps would leave it. */
   seed: (s: NotebookStore, opts: { data: boolean }) => string;
 }
@@ -268,7 +268,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
   {
     id: 'trip',
     job: 'plan a trip',
-    expect: { page: 'drawn', kind: 'plan' },
+    expect: { page: 'plan', needs: ['Itinerary', 'OptionGrid'] },
     seed(s, { data }) {
       const nb = s.create({ title: 'Plan 4 days in Lisbon', statement: 'A 4-day Lisbon trip in March for two, food and walking', params: ['March', '$1,500 for two, not counting flights'], criteria: ['A day-by-day plan', 'Dinners booked'] });
       s.setFields(nb.id, [
@@ -280,7 +280,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
       ]);
       s.setSteps(nb.id, [
         { title: 'Find 12 things to do and eat', kind: 'find', target: 12 },
-        { title: 'Pick a plan for each day', kind: 'decide', target: 8 },
+        { title: 'Write the plan', kind: 'write', shape: 'plan' },
       ]);
       if (data) {
         options(s, nb.id, [
@@ -290,6 +290,18 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
           ['Day trip to Sintra', { day: 3, what: 'Train to Sintra, palaces', cost: 80, area: 'Sintra', link: src('lisbon/sintra') }],
         ]);
         s.recordSearch(nb.id, 'example-finder', 'run-lisbon-1', 4, AT, [{ name: 'Guides', status: 'found', found: 3 }, { name: 'Restaurants', status: 'found', found: 1 }]);
+        const [alfama, fado, belem, sintra] = s.entries(nb.id, 10).filter((e) => e.kind === 'option').map((e) => e.id).reverse();
+        s.setPlan(nb.id, {
+          summary: 'Old Lisbon first, then **Belém and Sintra**, keeping the last day loose. About $280 for two before meals.',
+          items: [
+            { when: 'Day 1', title: 'Walk up through Alfama to the castle', detail: 'Mornings are cooler; about 3 hours.', from: [alfama] },
+            { when: 'Day 1', title: 'Fado and dinner', detail: 'Book ahead; about $120 for two.', from: [fado] },
+            { when: 'Day 2', title: 'Belém: the monastery, tarts and the tile museum', from: [belem] },
+            { when: 'Day 3', title: 'Train to Sintra for the palaces', detail: 'Leave early; about $80 for two.', from: [sintra] },
+            { when: 'Day 4', title: 'Free day: markets and a last walk', from: [] },
+          ],
+          before: ['Book the fado dinner', 'Buy Sintra palace tickets online'], open: ['Which palace in Sintra?'], at: AT, by: 'notebook-writer',
+        });
       }
       return nb.id;
     },

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanSteps, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanPlan, cleanSteps, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1151,9 +1151,15 @@ describe('an answer a write step wrote', () => {
     expect(cleanAnswer({ answer: 'Yes.', confidence: 'certain' }, ids, 'q', 'w')!.confidence).toBe('low');
   });
 
-  it('a write step keeps shape "answer"; other steps never have one', () => {
-    const steps = cleanSteps([{ title: 'Write the answer', kind: 'write', shape: 'answer' }, { title: 'Find', kind: 'find', shape: 'answer' }, { title: 'Write points', kind: 'write', shape: 'poem' }]);
-    expect(steps.map((x) => x.shape)).toEqual(['answer', undefined, undefined]);
+  it('a write step keeps shape "answer" or "plan"; other steps never have one', () => {
+    const steps = cleanSteps([{ title: 'Write the answer', kind: 'write', shape: 'answer' }, { title: 'Find', kind: 'find', shape: 'answer' }, { title: 'Write points', kind: 'write', shape: 'poem' }, { title: 'Write the plan', kind: 'write', shape: 'plan' }]);
+    expect(steps.map((x) => x.shape)).toEqual(['answer', undefined, undefined, 'plan']);
+  });
+
+  it('keeps a plan in its order, a missing day joining the one before, using only options the notebook has', () => {
+    const p = cleanPlan({ summary: ' Two easy days. ', items: [{ when: 'Day 1', title: 'Castle', from: ['o1', 'ghost'] }, { title: 'Dinner', detail: 'Book ahead' }, { when: 'Day 2', title: '' }, { when: 'Day 2', what: 'Sintra' }], before: ['Book dinner', ''], open: ['Which palace?'] }, new Set(['o1']), 'notebook-writer', '2026-10-26T00:00:00Z');
+    expect(p).toEqual({ summary: 'Two easy days.', items: [{ when: 'Day 1', title: 'Castle', from: ['o1'] }, { when: 'Day 1', title: 'Dinner', detail: 'Book ahead', from: [] }, { when: 'Day 2', title: 'Sintra', from: [] }], before: ['Book dinner'], open: ['Which palace?'], at: '2026-10-26T00:00:00Z', by: 'notebook-writer' });
+    expect(cleanPlan({ summary: 'Nothing in it', items: [] }, new Set(), 'w')).toBeUndefined();
   });
 });
 

@@ -3,7 +3,8 @@
 # talking points for a meeting (each a point to raise, why it matters to
 # them, a question, and the themes it rests on) or, when the notebook asks a
 # question, the answer (how sure and why, the findings it rests on, what's
-# still open). Either cites what it rests on by id, so the quotes and
+# still open), or, when it makes a plan, the plan in order (a day or slot
+# each, what to book or do first, what's still open). Either cites what it rests on by id, so the quotes and
 # sources shown with it are the notebook's own. Route-dispatched only, by
 # the step runner (dashboard lib/notebook-write.ts); never proposed in triage.
 
@@ -13,7 +14,7 @@ description: >
   Writes up what a notebook was for from what it found: the talking points
   for a meeting (what to raise, why it matters to them, what to ask, what to
   watch for), or the answer to its question (how sure, the findings it rests
-  on, what's still open).
+  on, what's still open), or a plan in order (a trip, a week, a project).
 status: active
 source: examples
 
@@ -35,7 +36,7 @@ inputs:
     type: string
     required: false
     default: "talking points"
-    description: 'What to write: "talking points" (for a meeting) or "answer" (to the question the notebook is for).'
+    description: 'What to write: "talking points" (for a meeting), "answer" (to the question the notebook is for) or "plan" (a plan in order).'
 
 nodes:
   - id: write
@@ -43,8 +44,8 @@ nodes:
     maxTurns: 1
     timeout: 180
     outputContract:
-      mustMatch: '<(briefing|answer)>[\s\S]*?</(briefing|answer)>'
-      description: a <briefing> or <answer> JSON block
+      mustMatch: '<(briefing|answer|plan)>[\s\S]*?</(briefing|answer|plan)>'
+      description: a <briefing>, <answer> or <plan> JSON block
     prompt: |
       What to write: {{inputs.SHAPE}}.
 
@@ -75,6 +76,27 @@ nodes:
       <answer>
       {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"]}
       </answer>
+
+      If what to write is "plan": make the plan the notebook is for
+      ("for", within its limits: dates, budget, where, who), from the
+      places, things and options above only, in the order it happens.
+        - "summary": the plan in one or two sentences (**bold** the key
+          part);
+        - "items": each {"when": its day, date, week or slot as the plan
+          groups them ("Day 1", "Sat Oct 31", "Week 2", "Morning"),
+          "title": what to do, one short line, "detail": optional, one
+          sentence (when, how long, cost, why), "from": the ids it uses
+          (only ids given above; none for travel or rest)}; keep items of
+          the same "when" together and in order; a realistic amount per
+          day, nothing that breaks the limits;
+        - "before": up to 8 things to book, buy or do before it starts;
+        - "open": up to 5 things still to decide.
+      Use only what's above: don't invent places, prices, hours or dates
+      the items don't give; leave out what you can't place.
+      Reply with only this, as valid JSON:
+      <plan>
+      {"summary": "…", "items": [{"when": "Day 1", "title": "…", "detail": "…", "from": ["id"]}], "before": ["…"], "open": ["…"]}
+      </plan>
 
       Otherwise (talking points), someone is getting ready for a meeting,
       and the items above are what they've written or said.

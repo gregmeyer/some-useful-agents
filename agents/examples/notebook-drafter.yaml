@@ -120,6 +120,7 @@ nodes:
         found: for a meeting, the talking points, each with why it matters
         to them and a question to ask; "target": how many points, 3 to 5;
         for a question, the answer: "shape": "answer", no target;
+        for a plan, the plan in order: "shape": "plan", no target;
         "agent": ""; last).
         Start with find (after profile, when there is one); end with decide,
         or, when it prepares them for a meeting or a call, with write
@@ -129,7 +130,10 @@ nodes:
         ("what do teams pay for X", "is it worth upgrading to Y", "how do
         others handle Z", "find out whether…"), find gathers sources, and
         it ends with write, "shape": "answer" ("Write the answer"), not
-        decide. Add narrow before decide only when
+        decide. When the goal is to make a plan (a trip or itinerary, a
+        week of meals or workouts, a move, an event, a project), find
+        gathers the places, things or options it could use, and it ends
+        with write, "shape": "plan" ("Write the plan"), not decide. Add narrow before decide only when
         the goal says to cut the list down first ("a shortlist to test
         drive", "which stay in the running"). Add source only when the facts to
         note need their own lookup, and check only when there are checks
