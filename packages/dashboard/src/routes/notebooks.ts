@@ -5,7 +5,7 @@
  * with a flash.
  */
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
-import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
+import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
@@ -664,6 +664,16 @@ notebooksRouter.post('/notebooks/:id/edit/prompt', (req: Request, res: Response)
   const out = proposeFromMarkdown(getContext(req.app.locals), nb, str(req.body?.markdown));
   res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'prompt')
     : editBack(id, out.changes.length ? `${String(out.changes.length)} ${out.changes.length === 1 ? 'change' : 'changes'} in the preview. Save them when it looks right.` : 'Nothing changed.', 'info', 'prompt', out.changes.length > 0));
+});
+
+/** Enhance (the Prompt tab): what's in the box, made sharper by sua for what it's for; it comes back as a change to preview. */
+notebooksRouter.post('/notebooks/:id/edit/enhance', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const md = typeof req.body?.markdown === 'string' ? String(req.body.markdown) : undefined;
+  const out = startEditEnhance(getContext(req.app.locals), nb, md);
+  res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'prompt') : editBack(id, undefined, 'info', 'prompt'));
 });
 
 /** How it looks: a ready-made look, back to the one it has, or let sua pick; then the preview. */
