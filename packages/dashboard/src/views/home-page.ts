@@ -86,7 +86,9 @@ function renderAskCard(starters: readonly AskStarters[]): SafeHtml {
       ${starters.length ? html`<div class="home-ask-card__starters" data-ask-starters hidden>${starters.map((row) => html`
         <div class="home-ask-card__row">
           <span class="home-ask-card__verb">${row.verb}</span>
-          <div class="ask-pills" role="group" aria-label="${row.verb}">${row.pills.map((p) => html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`) as unknown as SafeHtml[]}</div>
+          <div class="ask-pills" role="group" aria-label="${row.verb}">${row.pills.map((p) => (p.href
+            ? html`<a class="ask-pill" href="${p.href}" title="New notebook: ${p.text}…">${p.label}</a>`
+            : html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`)) as unknown as SafeHtml[]}</div>
         </div>`) as unknown as SafeHtml[]}
       </div>` : html``}
     </section>`;

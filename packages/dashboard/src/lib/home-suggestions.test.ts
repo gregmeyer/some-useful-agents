@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { pickSuggestions, needsInputs, runsWithInputs, inputLabel, askStarters } from './home-suggestions.js';
+import { pickSuggestions, needsInputs, runsWithInputs, inputLabel, askStarters, notebookKind, notebookStartPills } from './home-suggestions.js';
 
 // Home's Try next: agents you can run in one click, and questions for sua from what happened today.
 
@@ -92,5 +92,32 @@ describe('Try next', () => {
     expect(got[1].pills.map((p) => p.label)).toContain('Put Research a topic on a schedule');
     expect(got[2].pills[0]).toEqual({ label: 'Why did Flaky feed fail?', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
     expect(got[3].pills[0]).toEqual({ label: 'Help me find a used road bike', text: 'Help me find a used road bike under $800' });
+  });
+});
+
+describe('ways to start a notebook (Home, Ask sua)', () => {
+  const nb = (title: string, extra: Record<string, unknown> = {}) => ({ title, statement: '', ...extra }) as never;
+  it('tells what a notebook is for: a meeting, a report, a plan, or choosing', () => {
+    expect(notebookKind(nb('Prepare for a meeting with Dana Reyes'))).toBe('meeting');
+    expect(notebookKind(nb('Acme', { layout: { preset: 'dossier', components: [] } }))).toBe('meeting');
+    expect(notebookKind(nb('Know Acme', { steps: [{ kind: 'profile' }] }))).toBe('meeting');
+    expect(notebookKind(nb('Is a heat pump worth it in a cold climate?'))).toBe('report');
+    expect(notebookKind(nb('Plan 4 days in Lisbon'))).toBe('plan');
+    expect(notebookKind(nb('Buy a used AWD wagon'))).toBe('choose');
+  });
+
+  it('offers your templates first, then the kinds you made, then a meeting and a report, to make three', () => {
+    const tpl = (name: string, uses: number, subject?: boolean) => ({ name, uses, setup: { statement: '', steps: [], ...(subject ? { subject: { label: 'Who you\'re meeting', example: 'Dana Reyes' } } : {}) } }) as never;
+    // Nothing yet: the two everyone has.
+    expect(notebookStartPills([], []).map((p) => p.label)).toEqual(['Prepare for a meeting with …', 'Research a report on …']);
+    // A meeting and shortlists made, one template that changes each time.
+    const pills = notebookStartPills([tpl('Meeting prep', 3, true), tpl('Old one', 0)], [nb('Prepare for a meeting with Dana Reyes'), nb('Buy a used AWD wagon'), nb('Pick a standing desk'), nb('Gone', { archivedAt: 'x' })]);
+    expect(pills.map((p) => p.label)).toEqual(['Meeting prep for …', 'Old one', 'Help me choose …', 'Research a report on …']);
+    // A template fills the box for sua (ends where you say who); a kind opens New notebook with its sentence started.
+    expect(pills[0]).toEqual({ label: 'Meeting prep for …', text: 'Start a new notebook from my “Meeting prep” template for ' });
+    expect(pills[1].text).toBe('Start a new notebook from my “Old one” template.');
+    expect(pills[2]).toEqual({ label: 'Help me choose …', text: 'Help me choose ', href: '/notebooks/new?text=Help%20me%20choose%20' });
+    // As a row on Home's Ask sua, first.
+    expect(askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [], notebookStarts: pills })[0]).toMatchObject({ verb: 'Start' });
   });
 });
