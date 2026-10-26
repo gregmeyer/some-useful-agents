@@ -110,7 +110,8 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     pipeline: phrases(v.pipeline, 6, 60).filter((id) => agentIds.has(id)),
     ...draftSteps(v.steps, agentIds),
     cadence,
-    ...(typeof v.why === 'string' && v.why.trim() ? { why: v.why.trim().slice(0, 240) } : {}),
+    // A long one ends at a sentence (else a word) with "…", never mid-word.
+    ...(typeof v.why === 'string' && v.why.trim() ? { why: clipSentence(v.why.replace(/\s+/g, ' ').trim(), 400) } : {}),
   };
 }
 
@@ -275,4 +276,13 @@ export async function layOutNotebookSteps(ctx: Ctx, notebookId: string): Promise
   if (store.get(notebookId)?.steps?.length) return undefined;
   store.setSteps(notebookId, fitStepAgents(ctx, steps).steps);
   return store.get(notebookId)?.steps;
+}
+
+/** Text up to `n` characters: whole when it fits, else to the last full sentence, else the last word, with "…". Pure. */
+export function clipSentence(t: string, n: number): string {
+  if (t.length <= n) return t;
+  const cut = t.slice(0, n);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('; '));
+  if (end > n * 0.5) return cut.slice(0, end + 1);
+  return `${cut.slice(0, cut.lastIndexOf(' ')).replace(/[\s,;:—-]+$/, '')}…`;
 }
