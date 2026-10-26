@@ -35,7 +35,7 @@ describe("a watch notebook's page says what changed", () => {
     d = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook;
     expect(d.changesIntro).toEqual({ label: 'Since Oct 20 · checked Oct 21', text: '**1** new, **1** price change.' });
     expect(d.changes).toEqual([
-      { kind: 'new', title: 'Black X100V', href: `/notebooks/${nb.id}/entries/${b}`, tone: 'ok' },
+      { kind: 'new', title: 'Black X100V', detail: '$1,100', href: `/notebooks/${nb.id}/entries/${b}`, tone: 'ok' },
       { kind: 'price', title: 'Silver X100V', detail: 'Price: $1,200 → $1,090', href: `/notebooks/${nb.id}/entries/${a}`, tone: 'ok' },
     ]);
   });

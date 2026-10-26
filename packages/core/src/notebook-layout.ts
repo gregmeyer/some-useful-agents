@@ -207,7 +207,7 @@ const PLAN: ViewComponent[] = [
 
 /**
  * Keeping watch (prices, listings, openings): what changed since the search
- * before the latest first (new, price changes, gone, not found this time),
+ * before the latest first (new, price changes, gone, not seen lately),
  * beside the steps; then everything it's watching, and the research folded.
  */
 const WATCH: ViewComponent[] = [

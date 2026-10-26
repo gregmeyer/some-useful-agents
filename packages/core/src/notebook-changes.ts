@@ -2,11 +2,12 @@
  * What changed in a notebook since last time: its latest search against the
  * one before it. New options (first found by it), price and fact changes (an
  * option's latest sighting against the one before), options whose page said
- * they're gone, and ones the latest search didn't find again. Worked out from
+ * they're gone, and ones the latest search made the second it missed in a
+ * row (the notebook's "not seen lately", said once, when it starts). Worked out from
  * what the notebook keeps, never by a model, so it says only what happened.
  * The Watch page leads with it. Pure.
  */
-import type { Notebook, NotebookField, NotebookFieldValue, NotebookViewOption } from './notebooks.js';
+import { NOT_SEEN_AFTER_MISSES, type Notebook, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from './notebooks.js';
 
 export type NotebookChangeKind = 'new' | 'price' | 'changed' | 'gone' | 'missing';
 
@@ -62,9 +63,10 @@ export function notebookChanges(nb: Pick<Notebook, 'id' | 'fields'>, options: re
     if (o.ruledOut?.gone && o.ruledOut.at >= since) { changes.push({ kind: 'gone', id: o.id, name: o.name, ...(o.ruledOut.reason ? { reason: o.ruledOut.reason } : {}) }); continue; }
     if (o.ruledOut) continue;
     if (o.added === 'new' || o.firstSeenAt >= at) { changes.push({ kind: 'new', id: o.id, name: o.name }); continue; }
-    // Not found this time: the latest search found others, and not this one.
+    // Not seen lately, as of this search: it just missed its second search in a row
+    // (one miss is often just a different search; said once, not every time after).
     if (o.lastSeenAt < at) {
-      if (o.missedSearches > 0) changes.push({ kind: 'missing', id: o.id, name: o.name });
+      if (o.missedSearches === NOT_SEEN_AFTER_MISSES) changes.push({ kind: 'missing', id: o.id, name: o.name });
       continue;
     }
     // Seen again: what its latest sighting says against the one before.
