@@ -259,6 +259,22 @@ const SUA_COMPONENTS = [
     }).strict(),
   },
   {
+    name: 'Itinerary',
+    summary: 'A plan in order: `days` (an array of {when, items: [{text, note?, refs?: [{label, href}]}]}) as a heading per day, week or slot with its items, then `before` (things to book or do first) and `open` (still to decide), strings or {text}, with Copy as text.',
+    example: { id: 'plan', component: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },
+    schema: Common.extend({
+      days: CS.DynamicValue,
+      before: CS.DynamicValue.optional(),
+      open: CS.DynamicValue.optional(),
+      title: Str.optional(),
+      /** Headings for the before and open lists (default "Before you start", "Still open"), and what it says with nothing yet. */
+      beforeLabel: Str.optional(),
+      openLabel: Str.optional(),
+      empty: Str.optional(),
+      copy: z.boolean().optional(),
+    }).strict(),
+  },
+  {
     name: 'Agenda',
     summary: 'What to talk about: numbered `points` (strings or {text, note?, refs?: [{label, href}]}) to tick off as you go (kept in this browser), then `questions` to ask and things to `watch` for (strings or {text}), with Copy as text, and Edit when `editHref` is given.',
     example: { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, maxQuestions: 3 },

@@ -30,6 +30,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   person: 'It knows the person it\'s about.',
   company: 'It knows their company (or the company it\'s about).',
   answered: 'It has a written answer (a write step that answers its question).',
+  planned: 'It has a written plan (a write step that makes its plan).',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -176,6 +177,34 @@ const ANSWER: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * A plan (a trip, a week, a project; the header says what for): the plan in
+ * a sentence (until there is one, where it stands), then the plan day by
+ * day with what to do first and what's open, beside the steps; then what
+ * it draws on (the places and things found) and the research, folded.
+ */
+const PLAN: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'top', 'found_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Plan', steps: 'fold', cover: 'none' },
+  { id: 'top', component: 'Columns', children: ['plan_col', 'steps_panel'], widths: [2, 1], align: 'start' },
+  { id: 'plan_col', component: 'Column', children: ['intro', 'days_p'] },
+  { id: 'intro', component: 'Callout', label: { path: '/notebook/planIntro/label' }, text: { path: '/notebook/planIntro/text' }, next: { path: '/notebook/planIntro/next' } },
+  { ...panel('days_p', 'Day by day', 'days'), treatment: 'feature', when: 'planned' },
+  { id: 'days', component: 'Itinerary', title: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },
+  panel('steps_panel', 'Done when', 'steps'),
+  { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
+  { ...panel('found_p', 'What it draws on', 'found', 'places and things sua found'), treatment: 'feature', when: 'options' },
+  {
+    id: 'found', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: 'grid', sort: L('sort'), actions: true,
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -194,6 +223,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Answer',
     when: 'Answering a question or finding something out (what\'s true, what\'s best practice, what it costs, how something works): the answer and how sure, the findings it rests on with their sources, what\'s still open, then the evidence.',
     layout: { preset: 'answer', components: ANSWER },
+  },
+  {
+    id: 'plan',
+    label: 'Plan',
+    when: 'Making a plan in order (a trip or itinerary, a week of meals or workouts, a move, a project): the plan day by day or step by step, what to book or do first, what\'s still open, then what it draws on.',
+    layout: { preset: 'plan', components: PLAN },
   },
 ];
 
@@ -526,6 +561,12 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/nextLabel': '"How sure:" with an answer, else "Next:" (Callout nextLabel).',
   '/notebook/findings': 'The findings the answer rests on, each linked to the options (sources) it came from (Agenda points).',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
+  '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
+  '/notebook/planIntro/text': 'The plan in a sentence or two; before then, where the notebook stands (Callout text).',
+  '/notebook/planIntro/next': 'Before a plan, what\'s next (Callout next).',
+  '/notebook/planDays': 'The plan by day, week or slot, in order: [{when, items: [{text, note, refs}]}] (Itinerary days).',
+  '/notebook/planBefore': 'What to book, buy or do before the plan starts (Itinerary before).',
+  '/notebook/planOpen': 'What the plan leaves open, still to decide (Itinerary open).',
   '/notebook/talkingPointsEdit': 'Where to edit the talking points sua wrote, once there are some (Agenda editHref).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',

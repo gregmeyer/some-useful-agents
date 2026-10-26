@@ -153,6 +153,13 @@ export interface NotebookWidgetData extends NotebookViewData {
     findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
+    /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
+    planIntro: { label: string; text: string; next?: string };
+    /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
+    planDays: Array<{ when: string; items: Array<{ text: string; note?: string; refs: Array<{ label: string; href: string }> }> }>;
+    /** To book or do first, and what's still open (Itinerary before / open). */
+    planBefore: Array<{ text: string }>;
+    planOpen: Array<{ text: string }>;
     /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
     person?: NotebookProfileView;
     company?: NotebookProfileView;
@@ -350,6 +357,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       summary,
       next,
       ...answerViews(nb, active, summary, next),
+      ...planViews(nb, active, summary, next),
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
         rank.by === 'score'
@@ -499,7 +507,21 @@ export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
   return (nb.steps?.length ?? 0) > 1;
 }
 
-type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about']; answer?: Notebook['answer'] };
+type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about']; answer?: Notebook['answer']; plan?: Notebook['plan'] };
+
+/** The plan for the Plan page: what sua wrote, in its order, grouped by day or slot, each item linked to the options it uses; before then, where it stands. */
+function planViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined): Pick<NotebookWidgetData['notebook'], 'planIntro' | 'planDays' | 'planBefore' | 'planOpen'> {
+  const p = nb.plan;
+  if (!p?.items.length) return { planIntro: { label: 'Where it stands', text: summary, ...(next ? { next } : {}) }, planDays: [], planBefore: [], planOpen: [] };
+  const byId = new Map(active.map((o) => [o.id, o]));
+  const days: NotebookWidgetData['notebook']['planDays'] = [];
+  for (const it of p.items) {
+    // Items keep the writer's order; one day's run of items is one group.
+    const day = days.at(-1)?.when === it.when ? days.at(-1)! : (days.push({ when: it.when, items: [] }), days.at(-1)!);
+    day.items.push({ text: it.title, ...(it.detail ? { note: it.detail } : {}), refs: it.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: notebookOptionPath(nb.id, o.id) })) });
+  }
+  return { planIntro: { label: 'The plan', text: p.summary || `${String(p.items.length)} things, in order.` }, planDays: days, planBefore: p.before.map((text) => ({ text })), planOpen: p.open.map((text) => ({ text })) };
+}
 
 /** How sure an answer is, in plain words. */
 const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
@@ -530,6 +552,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     person: !!nb.about?.person,
     company: !!nb.about?.company,
     answered: !!nb.answer?.text,
+    planned: !!nb.plan?.items.length,
   };
 }
 

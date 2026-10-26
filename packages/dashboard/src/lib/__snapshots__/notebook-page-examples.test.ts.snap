@@ -168,8 +168,15 @@ exports[`a notebook to question > keeps the same outline unless it was changed o
 
 exports[`a notebook to trip > keeps the same outline unless it was changed on purpose 1`] = `
 "Column
-  NotebookHeader subtitle=Trip plan cover=none
-  Panel treatment=feature "Day by day"
+  NotebookHeader subtitle=Plan cover=none steps=fold
+  Columns 2:1
+    Column
+      Callout
+      Panel treatment=feature "Day by day"
+        Itinerary "Itinerary"
+    Panel "Done when"
+      Steps "Progress"
+  Panel treatment=feature "What it draws on"
     OptionGrid
   Columns 1:1
     Disclosure "Research activity"

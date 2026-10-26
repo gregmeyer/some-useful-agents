@@ -199,6 +199,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : step.kind === 'write' && step.shape === 'answer' ? (p.have ? 'answer written' : 'no answer yet')
+          : step.kind === 'write' && step.shape === 'plan' ? (p.have ? 'plan written' : 'no plan yet')
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
       const state = step.movedOn ? 'moved on' : STEP_STATUS[step.status];
       const stateKind = step.movedOn ? 'moved' : step.status;
@@ -222,8 +223,8 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
             ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
             : html``}
           ${!running && nb.status === 'active' && step.kind === 'write' && (step.status === 'done' || step.status === 'met')
-            ? step.shape === 'answer'
-              ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the answer once more, from what the notebook has now; this one is replaced">Answer again →</button></form>`
+            ? step.shape === 'answer' || step.shape === 'plan'
+              ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the ${step.shape} once more, from what the notebook has now; this one is replaced">${step.shape === 'plan' ? 'Plan again' : 'Answer again'} →</button></form>`
               : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="${nb.briefing?.by === 'you' ? 'Write the talking points once more, from what the notebook has now; your edits are replaced' : 'Write the talking points once more, from what the notebook has now; these are replaced'}">Write again →</button></form>${nb.briefing?.points.length ? html`<a class="nb-step__focus-btn" href="/notebooks/${encodeURIComponent(nb.id)}/talking-points" title="Reword, reorder, remove or add talking points">Edit the points →</a>` : html``}`
             : html``}
           ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
@@ -851,7 +852,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
     </section>`;
   const prompt = html`
     <section class="nbe-prompt" aria-label="The notebook as a document">
-      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>.</p>
+      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>.</p>
       <form method="POST" action="/notebooks/${id}/edit/prompt" class="nbe-prompt__form">
         <textarea name="markdown" class="form-field nbe-prompt__text" rows="26" spellcheck="false" aria-label="The notebook as markdown" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>${args.markdown}</textarea>
         <div class="nbe-prompt__acts"><button type="submit" class="btn btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Show in the preview</button></div>

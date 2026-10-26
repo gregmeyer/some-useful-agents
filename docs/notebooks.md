@@ -201,6 +201,15 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
 
 The step is met once there's an answer, and **Answer again →** writes it once more from what the notebook has now. sua picks the ready-made **Answer** page for these notebooks, and you can pick it under Edit → How it looks. The page shows the question and the answer, or where it stands until there is one. Under that it shows what the answer rests on (the findings, each linking to its sources, then **Still open**) beside the steps, then the evidence as a table, and the research folded at the end. The brief prints the same, each finding with the sources it came from. Ask sua "what did it find?" and it answers from the same answer. The data paths are `/notebook/answer/*`, `/notebook/findings` and `/notebook/openQuestions`, and a page part can wait for an answer with `"when": "answered"`.
 
+**Writing the plan.** A notebook that makes a plan ("4 days in Lisbon in March", "a week of dinners", "move house by June") ends with a write step that writes the plan: `"shape": "plan"`, written `Write the plan (write; plan)` in the Prompt tab. The drafter lays it out for a goal that's a plan rather than a choice or a question. Its find step gathers the places, things or options the plan could use, and it ends with this step instead of decide. sua's writer reads what it's for, its limits (dates, budget, where, who), what's in the running and the notes its research left. From those it writes:
+
+- **The plan in a sentence or two.**
+- **The items in order:** each with its day, date, week or slot ("Day 1", "Week 2", "Morning"), what to do, an optional line on when, how long or cost, and the options it uses (an id the notebook doesn't have is dropped). An item with no day joins the one before it.
+- **Up to 8 things to book or do before it starts.**
+- **What's still open.**
+
+The step is met once there's a plan, and **Plan again →** writes it once more. sua picks the ready-made **Plan** page for these notebooks, and you can pick it under Edit → How it looks. The page shows the plan in a sentence (or where it stands until there is one), then **Day by day** (the new **Itinerary** widget, with Copy as text) beside the steps, then what it draws on, and the research folded at the end. The brief prints the same. The data paths are `/notebook/planIntro/*`, `/notebook/planDays`, `/notebook/planBefore` and `/notebook/planOpen`, and a part can wait for a plan with `"when": "planned"`. Itinerary is in the catalog like any widget, so a board or an agent's view can use it too: `days` as `[{when, items: [{text, note?, refs?}]}]`, with `before` and `open`.
+
 **A short part never sits beside a long one.** A cover, a callout or a few stats beside an agenda, quotes or a table leaves a hole under the short one; a drawn page that does gets one more try, and the Meeting briefing pairs the cover with the facts about them. **Edit** → **How it looks** offers the Meeting briefing (and any other ready-made look) as a picture to pick.
 
 **A drawn page has no empty boxes.** A part of a drawn page with nothing in it yet (notes before there are any, a decision before it's made) is left out until it has something, and its row closes up; the brief does the same. The shortlist keeps every part, as it always has.
@@ -560,5 +569,5 @@ On the job notebook it found 6 new roles in about 3 minutes on the first try, wh
 
 ## Coming next
 
-- **More kinds of notebook:** a **plan** page, and **watch** notebooks that lead with what changed since last time.
+- **More kinds of notebook:** **watch** notebooks that lead with what changed since last time.
 - **Start any notebook from sua:** sua starts one from a template today; "start a notebook to research X" without one still opens **New notebook**.
