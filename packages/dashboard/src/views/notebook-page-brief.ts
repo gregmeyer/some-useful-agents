@@ -275,7 +275,16 @@ th { font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: up
 .full__facts div { display: contents; } .full__facts dt { color: var(--muted); } .full__facts dd { margin: 0; overflow-wrap: anywhere; }
 .full h4 { margin: 0.25rem 0; font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .full ul { margin: 0; padding-left: 1.1rem; font-size: 0.875rem; } .full p { margin: 0 0 0.5rem; font-size: 0.875rem; }
-.pic { max-width: 100%; border-radius: 8px; } .pic--thumb { width: 3rem; } .pic--hero { max-width: 14rem; }
+/* A picture sits in its frame, whole (never cropped), however big the file. */
+.pic { flex: none; display: block; position: relative; overflow: hidden; max-width: 100%; border-radius: 8px; background: var(--raised); }
+.pic img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.pic.is-tile { background: #fff; border: 1px solid var(--line); }
+.pic.is-tile img { padding: 3px; }
+.pic.is-logo img { padding: 4px; }
+.pic.is-empty { background: transparent; }
+.pic--thumb { width: 3rem; height: 2.25rem; }
+.pic--hero { width: 100%; max-width: 18rem; aspect-ratio: 4 / 3; border-radius: 10px; }
+.pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
 @media print {
   :root, :root[data-theme="dark"] { --bg: #ffffff; --surface: #ffffff; --raised: #f5f4f2; --line: #e7e5e4; --line-strong: #d6d3d1; --text: #1c1917; --muted: #57534e; --subtle: #78716c; --accent: #0f766e; --accent-soft: #ccfbf1; color-scheme: light; }

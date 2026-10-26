@@ -3855,6 +3855,9 @@ describe('a write step', () => {
     for (let i = 0; i < 50 && s.get(nb.id)!.briefing!.points[0].text !== 'Ask what she never hands to AI'; i++) await new Promise((r) => setTimeout(r, 20));
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
     expect(brief).toContain('Ask what she never hands to AI');
+    // Its pictures sit in a frame, whole, however big the file (the extended brief shows each theme's).
+    expect(brief).toMatch(/\.pic img \{[^}]*width: 100%; height: 100%; object-fit: contain;/);
+    expect(brief).toMatch(/\.pic--hero \{[^}]*max-width: 18rem; aspect-ratio: 4 \/ 3;/);
     expect(brief).toContain('Don&#39;t pitch volume');
     writerReply = undefined;
   });
