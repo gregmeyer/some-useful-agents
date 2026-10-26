@@ -233,7 +233,7 @@ describe('filing into a notebook of organizations', () => {
     html = await page();
     expect(html).toMatch(/class="nb-step nb-step--running[^"]* is-live"/);
     expect(html).toContain('Working on step 1: Find 5 · Finding photos…');
-    expect(html).toContain('nb-live__dot--pulse');
+    expect(html).toMatch(/data-notebook-running>\s*<span class="working__spin"/);
     expect(html).toContain('location.reload()');
 
     // Only background work: still says so, and still reloads.
