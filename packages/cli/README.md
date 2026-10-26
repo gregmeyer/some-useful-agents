@@ -41,6 +41,15 @@ sua dashboard start              # open the web dashboard
 - `sua planner smoke` — check the layout planner end to end
 - `sua init`, `sua doctor`, `sua tutorial`
 
+## What's new in 0.32
+
+- **A notebook picks its own page** — a **Shortlist** to choose from, a **Meeting briefing**, or one drawn for its job; the brief prints that page.
+- **Getting ready to meet someone** — a **Learn about** step finds who they are and their company (with sources, and a photo only when it's clearly them); a **Write** step has sua write the talking points.
+- **Edit a notebook by talking** — **Talk**, **Prompt** (the notebook as text) and **How it looks** (looks as pictures of their pages), with a preview before you save.
+- **Home** — an **Ask sua** card with starters to start a notebook, run, build, fix or look something up; **Try next**; **Notebooks** in the top bar. **Appearance** is a gallery of looks you use in one click.
+- **Skills** — know-how several agents share, kept in one file (`sua skill list`); shell nodes share Python helpers.
+- **The scheduler picks up changes** — a schedule you change, and an agent you edit, reach the next scheduled run within a minute, without a restart.
+
 ## What's new in 0.31
 
 - **Notebooks work in steps** — find → source → check → decide, pausing after each; a find step with no agent of its own uses sua's finder (several narrow searches at once). Save a notebook as a **template**, share a **brief** that prints as a PDF, and change its setup on its own **Edit** page.

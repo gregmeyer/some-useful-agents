@@ -9,7 +9,7 @@ This document is the implementation plan for that shift. It is intentionally con
 > threads awaiting a reply, and a global **Inbox badge** (count from
 > `/inbox/needs-you-count`) shows on every page. So the inbox is no longer a
 > quiet nav link — it's surfaced at the front door. See
-> [dashboard.md § `/` — Mission Control home](dashboard.md).
+> [dashboard.md § `/` — Home](dashboard.md#--home).
 
 ## Current baseline
 

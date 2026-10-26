@@ -70,7 +70,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
   {
     title: 'Scheduling',
     commands: [
-      { cmd: 'sua schedule start', desc: 'Fire scheduled agents on their cron expressions.' },
+      { cmd: 'sua schedule start', desc: 'Fire scheduled agents on their cron expressions; picks up schedule changes and agent edits within a minute.' },
       { cmd: 'sua schedule list', desc: 'Show configured schedules.' },
     ],
   },
@@ -87,7 +87,7 @@ const CLI_GROUPS: Array<{ title: string; commands: CliCommand[] }> = [
         desc: 'List declared secret names. Values are never shown.',
         inDashboard: { label: 'Settings → Secrets', href: '/settings/secrets' },
       },
-      { cmd: 'sua secrets migrate', desc: 'Upgrade legacy v1 secrets file to v2 passphrase-protected form.' },
+      { cmd: 'sua secrets migrate', desc: 'Upgrade an older-format secrets file to the passphrase-protected form.' },
     ],
   },
   {
@@ -209,7 +209,8 @@ export function renderHelp(): string {
           <a href="/settings/secrets">Secrets</a> (non-secret config in <a href="/settings/variables">Variables</a>).
         </li>
         <li>
-          <strong>Trigger it.</strong> Set a cron schedule (run <code>sua schedule start</code> or <code>sua daemon start</code>),
+          <strong>Trigger it.</strong> Set a cron schedule (run <code>sua schedule start</code> or <code>sua daemon start</code>;
+          a schedule you set or change in the dashboard takes effect within a minute),
           or let another service start it with a webhook (<code>POST /hooks/&lt;id&gt;</code>). When it needs
           you, it asks in the <a href="/inbox">inbox</a>.
         </li>
@@ -221,10 +222,16 @@ export function renderHelp(): string {
           <a href="/settings/appearance#brand">Settings \u2192 Appearance \u2192 Brand</a>.
         </li>
         <li>
+          <strong>Start from Home.</strong> The <em>Ask sua</em> card under Today has starters to start a notebook,
+          run, build, fix or look something up; <em>Try next</em> suggests agents you can run in one click.
+        </li>
+        <li>
           <strong>Keep a goal in a notebook.</strong> <a href="/notebooks/new">Start a notebook</a> with a sentence
-          (a car to buy, a job to find): sua drafts its steps (find, source, check, decide), runs them one at a time,
-          files options with their facts, and keeps a shortlist to a decision. Share its brief (it prints as a PDF);
-          save its setup as a template from <em>Edit</em> and start the next one by asking sua.
+          (a car to buy, a meeting to prepare for): sua lays out its steps (learn about who it's about, find, source,
+          check, then decide or write the talking points), runs them one at a time, and picks a page that fits: a
+          shortlist for a choice, a briefing for a meeting. Change it from <em>Edit</em>: <em>Talk</em> (say what to
+          change), <em>Prompt</em> (the whole notebook as text) or <em>How it looks</em>, with a preview before you
+          save. Share its brief (it prints its page, as a PDF); save it as a template under <em>Manage this notebook</em>.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:

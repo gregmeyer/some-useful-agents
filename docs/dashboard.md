@@ -30,7 +30,7 @@ The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which bui
 
 ## Navigation
 
-The top bar: `sua · Agents · Pulse · Settings · Help`. The `sua` brand is Home, which is your inbox (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. An amber **"N need your reply →"** toast in the top bar (every page) appears when inbox threads are waiting for you. The **Ask sua** bar under the top bar starts a conversation with the triage agent from anywhere.
+The top bar: `sua · Notebooks · Agents · Pulse · Settings · Help`. The `sua` brand is Home (`/`). **Agents** groups the building blocks; its pages share an in-page tab strip (**Start here · Agents · Behaviors · Tools · Runs · Packs · Scheduled**) under the page header. On the right, **N need you** (every page) counts what Today lists as waiting for you, and **Ask sua** (or **Cmd/Ctrl+K**) starts a conversation with sua from anywhere.
 
 ### The conversation panel
 
@@ -50,7 +50,7 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 Home is what needs you, on one page, in two columns (one on a narrow screen):
 - **The header** is the same as every page's: the breadcrumb, then how things stand ("2 need you", or "Nothing needs you") beside the title. On the right: **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**) and **Full inbox**.
-- **Today**, on the left: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change. When nothing needs you it says **All clear**.
+- **Today**, on the left: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change. Tick rows and press **Close N** (they move to Done) or **Dismiss N** (off your list) to clear several at once. When nothing needs you it says **All clear**.
 - **Your notebooks**, on the right: a card for each active notebook (the four changed most recently; **All notebooks** for the rest) with the best option so far, its price and its picture (another option's when the best has none yet), its done-when criteria as dots, how many options are in the running, and **sua asked you** when sua is waiting on your reply there. Then **+ New notebook**.
 - **Ask sua**, under Today: a box to run, build, fix, or look something up, with starters for each (**Start** a notebook, **Run** one of your go-tos on something, **Build** an agent, **Fix** what failed today, **Look up** a notebook idea or what your agents found). A starter fills the box for you to finish; **Enter** sends, and the answer opens in the panel. **Start** offers your notebook templates first (one that changes each time ends where you say who or what, and sua starts it from the template), then the kinds of notebook you've made that no template covers, then "Prepare for a meeting with …" and "Research a report on …", up to four. A kind ("Help me choose …", "Plan …") opens **New notebook** with its sentence started for you to finish.
 - **Try next**, under your notebooks:
@@ -117,7 +117,7 @@ Sibling tab in the Agents strip (Start here · Agents · Behaviors · Tools · R
 | Row status | Button | What it does |
 |---|---|---|
 | `active` | **Pause** | Sets status=`paused`. Cron stays declared so Resume restores firing one click later. Reversible. |
-| `paused` | **Resume** | Sets status=`active`. Scheduler starts firing the next cron tick. |
+| `paused` | **Resume** | Sets status=`active`. The scheduler picks it up within a minute and fires at its next scheduled time. |
 | `draft` | **Activate** | Sets status=`active`. First-time activation for an agent that was authored but never turned on. Same semantic as Resume but different copy ("Activated" vs "Resumed"). |
 | `archived` | — | No row action. Use Edit. |
 

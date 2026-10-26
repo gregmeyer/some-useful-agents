@@ -329,7 +329,7 @@ export function schedulerItem(status: SchedulerStatus, scheduledAgents: number, 
       : down
         ? `${String(scheduledAgents)} scheduled agent${scheduledAgents === 1 ? '' : 's'} won't run until it restarts (sua daemon restart --service schedule)`
         : warn
-          ? `${String(scheduledAgents)} agent${scheduledAgents === 1 ? ' is' : 's are'} scheduled, but it loaded none; restart it to pick them up`
+          ? `${String(scheduledAgents)} agent${scheduledAgents === 1 ? ' is' : 's are'} scheduled, but it hasn't picked them up yet; it checks every 30 seconds, and if this stays, restart it (sua daemon restart --service schedule)`
           : `Running ${String(scheduledAgents)} scheduled agent${scheduledAgents === 1 ? '' : 's'}`,
     urgency: down ? 'high' : warn ? 'normal' : 'low',
     state: down || warn ? 'open' : 'ok',
