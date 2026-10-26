@@ -132,6 +132,15 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
       </div>`;
     }
+    case 'Changes': {
+      const groups: Array<[string, string]> = [['new', 'New'], ['price', 'Price changes'], ['changed', 'Changed'], ['gone', 'Gone'], ['missing', 'Not found this time']];
+      const all = list(v('items')) as Array<{ kind?: unknown; title?: unknown; detail?: unknown }>;
+      if (!all.length) return html`<p class="muted">${text(v('empty')) || 'Nothing changed since last time.'}</p>`;
+      return html`<div class="agenda">${groups.map(([k, label]) => {
+        const xs = all.filter((x) => x.kind === k);
+        return xs.length ? html`<div class="eyebrow">${label}</div><ul>${xs.map((x) => html`<li><b>${text(x.title)}</b>${text(x.detail) ? html` <span class="muted">${text(x.detail)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``;
+      }) as unknown as SafeHtml[]}</div>`;
+    }
     case 'Itinerary': {
       const days = list(v('days')).map((d) => ({ when: text((d as { when?: unknown }).when), items: items((d as { items?: unknown }).items) })).filter((d) => d.items.length);
       const before = items(v('before'));

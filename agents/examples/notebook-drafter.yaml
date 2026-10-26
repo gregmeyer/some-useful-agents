@@ -133,7 +133,13 @@ nodes:
         decide. When the goal is to make a plan (a trip or itinerary, a
         week of meals or workouts, a move, an event, a project), find
         gathers the places, things or options it could use, and it ends
-        with write, "shape": "plan" ("Write the plan"), not decide. Add narrow before decide only when
+        with write, "shape": "plan" ("Write the plan"), not decide. When
+        the goal is to keep an eye on something over time ("watch",
+        "track", "keep an eye on", "tell me when", "let me know if",
+        prices to drop, new listings or openings, back in stock), it's a
+        watch: a find step (with source or check only if a fact needs its
+        own lookup), no decide or write, so it keeps searching and its
+        page says what changed each time. Add narrow before decide only when
         the goal says to cut the list down first ("a shortlist to test
         drive", "which stay in the running"). Add source only when the facts to
         note need their own lookup, and check only when there are checks
@@ -148,8 +154,9 @@ nodes:
         a listings sweep for cars, and never give a find step a general
         research or brief agent). Never invent ids. A simple goal (one product) can be
         just find + decide.
-      - "cadence": a five-field cron schedule ONLY if they asked for a
-        rhythm ("every morning" → "0 7 * * *"); else "".
+      - "cadence": a five-field cron schedule if they asked for a rhythm
+        ("every morning" → "0 7 * * *"); for a watch with no rhythm given,
+        every morning, "0 8 * * *"; else "".
       - "why": one short sentence on anything you assumed.
 
       Reply with only this, as valid JSON:

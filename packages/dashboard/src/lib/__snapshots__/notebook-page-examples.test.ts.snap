@@ -184,3 +184,20 @@ exports[`a notebook to trip > keeps the same outline unless it was changed on pu
     Disclosure "Where sua looked"
       Coverage"
 `;
+
+exports[`a notebook to watch > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  NotebookHeader subtitle=Watch cover=none steps=fold
+  Columns 2:1
+    Column
+      Callout
+      Panel treatment=feature "What changed"
+        Changes
+    Panel "Done when"
+      Steps "Progress"
+  Panel treatment=feature "Everything it's watching"
+    OptionGrid
+  Columns 1
+    Disclosure "Research activity"
+      Timeline max=6"
+`;

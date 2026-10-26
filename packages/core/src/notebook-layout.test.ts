@@ -55,7 +55,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(cleanLayout('nope')).toBeUndefined();
     expect(cleanLayout({ preset: 'shortlist', components: page })).toEqual({ preset: 'shortlist', components: page });
     expect(notebookLayoutOf({})).toBe(DEFAULT_NOTEBOOK_LAYOUT);
-    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'answer', 'plan']);
+    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'answer', 'plan', 'watch']);
     // Every ready-made page is a page that checks out.
     for (const p of NOTEBOOK_LAYOUT_PRESETS) expect(checkNotebookLayout(p.layout.components), p.id).toMatchObject({ ok: true });
   });

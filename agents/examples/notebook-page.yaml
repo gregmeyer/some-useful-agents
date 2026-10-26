@@ -75,11 +75,14 @@ nodes:
         - a plan or itinerary (a trip, a week, a project): use the
           ready-made "plan": the plan day by day, what to do first, what's
           still open, then what it draws on;
-        - keeping watch on something: lead with what changed, then the
-          detail.
+        - keeping watch on something over time (prices, listings,
+          openings, back in stock): use the ready-made "watch": what
+          changed since the last search first, then everything it's
+          watching.
       Use a ready-made page whenever it fits ({"preset": "dossier"} for
       getting ready to meet someone, {"preset": "answer"} for a question,
-      {"preset": "plan"} for a plan, above all when a write step writes
+      {"preset": "plan"} for a plan, {"preset": "watch"} for keeping
+      watch, above all when a write step writes
       the answer or the plan); start from its page and change it
       when it nearly fits; draw one only when none does.
 

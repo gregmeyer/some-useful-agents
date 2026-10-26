@@ -210,6 +210,20 @@ The step is met once there's an answer, and **Answer again →** writes it once 
 
 The step is met once there's a plan, and **Plan again →** writes it once more. sua picks the ready-made **Plan** page for these notebooks, and you can pick it under Edit → How it looks. The page shows the plan in a sentence (or where it stands until there is one), then **Day by day** (the new **Itinerary** widget, with Copy as text) beside the steps, then what it draws on, and the research folded at the end. The brief prints the same. The data paths are `/notebook/planIntro/*`, `/notebook/planDays`, `/notebook/planBefore` and `/notebook/planOpen`, and a part can wait for a plan with `"when": "planned"`. Itinerary is in the catalog like any widget, so a board or an agent's view can use it too: `days` as `[{when, items: [{text, note?, refs?}]}]`, with `before` and `open`.
 
+**Keeping watch.** A notebook that keeps an eye on something over time ("tell me when a used X100V under $1,200 shows up", "watch flights to Lisbon in March", "track this price") is a **watch**:
+
+- **What sua drafts:** a find step (source or check only when a fact needs its own lookup), no decide or write step, and a schedule. It searches every morning unless you said another rhythm, and you can change that on the draft.
+- **The page:** sua picks the ready-made **Watch** page, and you can pick it under Edit → How it looks. It leads with **what changed since the search before the latest**, worked out from what the notebook keeps (never by a model):
+  - **new:** listings or options the latest search found first;
+  - **price changes:** each marked better or worse by which way the price should go;
+  - **other facts that changed:** for example, a condition or a mileage;
+  - **gone:** its page said it's sold or removed;
+  - **not found this time:** the latest search found others, not this one.
+
+  A line sums it up ("Since Oct 20 · checked Oct 21: 1 new, 1 price change"), or says nothing changed. The first search is a "first look", not everything new.
+- **Below that:** everything it's watching, then the research folded at the end. The brief prints the same.
+- **For other pages:** the **Changes** widget is in the catalog (`items` as `[{kind, title, detail?, href?, tone?}]`), and the data paths are `/notebook/changes` and `/notebook/changesIntro/*`.
+
 **A short part never sits beside a long one.** A cover, a callout or a few stats beside an agenda, quotes or a table leaves a hole under the short one; a drawn page that does gets one more try, and the Meeting briefing pairs the cover with the facts about them. **Edit** → **How it looks** offers the Meeting briefing (and any other ready-made look) as a picture to pick.
 
 **A drawn page has no empty boxes.** A part of a drawn page with nothing in it yet (notes before there are any, a decision before it's made) is left out until it has something, and its row closes up; the brief does the same. The shortlist keeps every part, as it always has.
@@ -569,5 +583,4 @@ On the job notebook it found 6 new roles in about 3 minutes on the first try, wh
 
 ## Coming next
 
-- **More kinds of notebook:** **watch** notebooks that lead with what changed since last time.
 - **Start any notebook from sua:** sua starts one from a template today; "start a notebook to research X" without one still opens **New notebook**.

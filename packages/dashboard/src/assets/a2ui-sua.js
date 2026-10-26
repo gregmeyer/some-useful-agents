@@ -1194,6 +1194,41 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     </div>`;
   });
 
+// What changed since last time (a watch notebook's latest search against the
+// one before, or any agent's list of changes): grouped by kind, each linking
+// to its page, a price change marked better or worse.
+const CHANGE_GROUPS = [['new', 'New', '+'], ['price', 'Price changes', '$'], ['changed', 'Changed', '~'], ['gone', 'Gone', '×'], ['missing', 'Not found this time', '?']];
+const Changes = define('Changes', 'sua-a2ui-changes',
+  Common.extend({ items: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional() }).strict(),
+  css`${sectionHead}
+    .group { margin: 0 0 14px; }
+    .group:last-child { margin-bottom: 0; }
+    .group .h { display: flex; align-items: center; gap: 6px; }
+    .n { font: 600 var(--font-size-xs)/1 var(--font-mono); color: var(--color-text-muted); }
+    ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+    li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 10px; align-items: start; }
+    .mark { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font: 700 12px/1 var(--font-mono); background: var(--color-surface-raised, var(--color-surface)); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+    .ok .mark { color: var(--color-ok); border-color: var(--color-ok); }
+    .warn .mark { color: var(--color-warn); border-color: var(--color-warn); }
+    .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); overflow-wrap: anywhere; }
+    .t a { color: inherit; text-decoration: none; }
+    .t a:hover, .t a:focus-visible { color: var(--color-primary); text-decoration: underline; }
+    .d { grid-column: 2; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    .ok .d { color: var(--color-ok); }`,
+  (p) => {
+    const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && typeof x.title === 'string' && x.title);
+    if (!items.length) return html`<p class="empty">${p.empty ?? 'Nothing changed since last time.'}</p>`;
+    return html`<div>${CHANGE_GROUPS.map(([kind, label, mark]) => {
+      const list = items.filter((x) => x.kind === kind);
+      if (!list.length) return nothing;
+      return html`<section class="group"><h4 class="h">${label} <span class="n">${list.length}</span></h4><ul>${list.map((x) => html`<li class="${x.tone === 'ok' || x.tone === 'warn' ? x.tone : ''}">
+        <span class="mark" aria-hidden="true">${kind === 'price' && x.tone ? (x.tone === 'ok' ? '↓' : '↑') : mark}</span>
+        <span class="t">${x.href && safeUrl(x.href) ? html`<a href=${x.href}>${x.title}</a>` : x.title}</span>
+        ${x.detail ? html`<span class="d">${x.detail}</span>` : nothing}
+      </li>`)}</ul></section>`;
+    })}</div>`;
+  });
+
 // A plan in order (a notebook's write step with shape "plan", or any agent's):
 // a heading per day, week or slot with its items (each with its note and
 // the options it uses), then what to do first and what's still open.
@@ -1488,7 +1523,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

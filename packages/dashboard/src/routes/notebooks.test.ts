@@ -3224,6 +3224,27 @@ describe("a notebook's schedule", () => {
     expect(runNotebookCadenceOnce(ctx, at('2026-10-20T10:00:00')).has(nb.id)).toBe(false);
   });
 
+  it('a watch with no pipeline searches again with its find step on its schedule, and the header says it runs', async () => {
+    const app = await makeApp();
+    const ctx = app.locals as never as Parameters<typeof import('../lib/notebook-cadence.js')['runNotebookCadenceOnce']>[0];
+    const { runNotebookCadenceOnce } = await import('../lib/notebook-cadence.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Watch for an X100V', cadence: '0 8 * * *' });
+    store.setSteps(nb.id, [{ title: 'Find X100V listings', kind: 'find', target: 1, status: 'done' }]);
+    const asked: string[] = [];
+    finderReply = (inputs) => { asked.push(inputs.NOTEBOOK ?? 'asked'); return `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'X100V, silver', data: {} }] })}</notebook>`; };
+    const at = (x: string) => new Date(x);
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-07T09:00:00')).get(nb.id)).toBe('first-seen');
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-08T08:01:00')).get(nb.id)).toBe('started');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.size; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(asked).toHaveLength(1);
+    expect(store.entries(nb.id).some((e) => e.title === 'X100V, silver')).toBe(true);
+    finderReply = undefined;
+    const page = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(page).not.toContain('once it has a search');
+  });
+
   it('says when it runs next in the header', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

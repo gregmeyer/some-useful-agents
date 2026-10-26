@@ -1,5 +1,7 @@
 /**
- * Runs each notebook's pipeline on its schedule (its `cadence`, a cron).
+ * Runs each notebook's pipeline on its schedule (its `cadence`, a cron);
+ * a notebook with no pipeline but a find step (a watch) searches again with
+ * that step instead, the way Search again does.
  * The scheduler daemon runs agents; a notebook's pipeline needs the
  * dashboard (pipeline inputs, the keeper, passes), so its schedule lives
  * here, on the same footing as the daily digest: a tick at boot (catch-up
@@ -13,6 +15,7 @@
 import { NotebookStore, lastFireTime, validateScheduleInterval } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { startNotebookPipeline } from './notebook-pipeline.js';
+import { searchAgain } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -25,7 +28,8 @@ export function runNotebookCadenceOnce(ctx: Ctx, now: Date = new Date()): Map<st
   const out = new Map<string, CadenceOutcome>();
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   for (const nb of store.list({ status: 'active' })) {
-    if (!nb.cadence || nb.pipeline.length === 0) continue;
+    const viaStep = nb.pipeline.length === 0 && !!nb.steps?.some((x) => x.kind === 'find');
+    if (!nb.cadence || (nb.pipeline.length === 0 && !viaStep)) continue;
     try { validateScheduleInterval(nb.cadence, {}); } catch { continue; }
     const slot = lastFireTime(nb.cadence, now);
     if (!slot) continue;
@@ -36,9 +40,9 @@ export function runNotebookCadenceOnce(ctx: Ctx, now: Date = new Date()): Map<st
       continue;
     }
     if (Date.parse(nb.cadenceFiredAt) >= Date.parse(slot)) { out.set(nb.id, 'waiting'); continue; }
-    const r = startNotebookPipeline(ctx, nb.id, { scheduled: true });
-    // Already running (someone pressed Run): try again next tick. Anything else is settled for this slot.
-    if (!r.started && r.reason === 'Its pipeline is already running.') { out.set(nb.id, 'busy'); continue; }
+    const r = viaStep ? searchAgain(ctx, nb.id) : startNotebookPipeline(ctx, nb.id, { scheduled: true });
+    // Already running (someone pressed Run, or a step is working): try again next tick. Anything else is settled for this slot.
+    if (!r.started && (r.reason === 'Its pipeline is already running.' || r.reason === 'It’s already running.')) { out.set(nb.id, 'busy'); continue; }
     store.markCadenceFired(nb.id, slot);
     out.set(nb.id, r.started ? 'started' : 'skipped');
   }

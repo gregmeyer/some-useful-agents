@@ -39,5 +39,10 @@
     "replies": [
       "<page>\n{\"preset\": \"plan\", \"about\": \"a trip plan: day by day first, what to book, then the places it draws on\"}\n</page>"
     ]
+  },
+  "watch": {
+    "replies": [
+      "<page>\n{\"preset\": \"watch\", \"about\": \"keeping watch: what changed since the last search first, then every listing it's watching\"}\n</page>"
+    ]
   }
 }
