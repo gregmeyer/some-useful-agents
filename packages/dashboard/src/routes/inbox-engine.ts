@@ -5,11 +5,12 @@
  * executor, the auto-propose / auto-commit helpers, and the learning
  * extractor. The D↔E call cycle (runTriageAgent ↔ runProposedAction /
  * maybeRefireTriage) lives entirely in this one file so no cross-file
-import cycle is created — the route handlers in inbox.ts call into the
+ * import cycle is created — the route handlers in inbox.ts call into the
  * exported entry points only.
  */
 
 import { randomUUID } from 'node:crypto';
+import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
@@ -1594,6 +1595,10 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
           ...add.gone.map((r) => ({ what: 'no longer available', before: '—', after: r })),
           ...add.met.map((c) => ({ what: 'done when, met', before: '—', after: c })),
           ...add.update.map((u) => ({ what: 'correct', before: u.option, after: describeCorrection(nb?.fields ?? [], u.data) })),
+          // The meeting, each part it sets, against what it had.
+          ...(add.meeting?.when ? [{ what: 'meeting', before: nb?.meeting?.when ? meetingWhenWords(nb.meeting.when) : '—', after: meetingWhenWords(add.meeting.when) }] : []),
+          ...(add.meeting?.goal ? [{ what: 'your goal', before: nb?.meeting?.goal || '—', after: add.meeting.goal }] : []),
+          ...(add.meeting?.notes ? [{ what: 'meeting notes', before: nb?.meeting?.notes || '—', after: add.meeting.notes }] : []),
         ];
         return { ...action, inputs: named, surfaceChanges: changes };
       }

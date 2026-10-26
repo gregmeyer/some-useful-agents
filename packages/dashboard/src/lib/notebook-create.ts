@@ -6,7 +6,7 @@
  * steps. Then it decides its page (unless it came with one, a template's),
  * and sua says hello in the notebook's conversation.
  */
-import { NotebookStore, type Notebook, type NotebookStep, type NotebookLayout } from '@some-useful-agents/core';
+import { NotebookStore, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
 import { fitStepAgents } from './notebook-steps.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
@@ -32,6 +32,8 @@ export interface NewNotebookSetup {
   steps?: NotebookStep[];
   /** Its page's layout (a template's); without it, the default. */
   layout?: NotebookLayout;
+  /** The meeting it prepares for. */
+  meeting?: NotebookMeeting;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -55,6 +57,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
   if (steps) store.setSteps(nb.id, steps);
   if (input.layout) store.setLayout(nb.id, input.layout, 'template');
+  if (input.meeting) store.setMeeting(nb.id, input.meeting);
   // sua sets up what options record and the stages they go through, from the
   // goal (unless that came with it), then says hello in the notebook's
   // conversation with what it set up.

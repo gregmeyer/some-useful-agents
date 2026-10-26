@@ -806,6 +806,11 @@ next, say it was the last one in the running.
   - "params": bounds to add ("under $8,000", "AWD").
   - "criteria": "done when" lines to add ("A pre-purchase inspection booked").
   - "statement": what it's for, only if the notebook has none.
+  - "meeting": {"when": "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM", "goal", "notes"}
+    for a meeting notebook, when they tell you when the meeting is, what
+    they want out of it, or what they already know (only what they said;
+    resolve "Thursday at 2" against today). It's merged with what's
+    there.
   - "replaceParams": true, with "params" as the WHOLE new list, when what
     they said contradicts limits it already has (new budget, mileage, years,
     places): the old ones go. Otherwise params are added.

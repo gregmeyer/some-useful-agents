@@ -249,6 +249,16 @@ export interface NotebookPlan {
   by: string;
 }
 
+/** The meeting a notebook prepares for: when, what you want out of it, what you already know. */
+export interface NotebookMeeting {
+  /** "2026-10-29" or "2026-10-29T14:00" (local time). */
+  when?: string;
+  /** What you want out of it, in your words. */
+  goal?: string;
+  /** What you already know, who else is coming. */
+  notes?: string;
+}
+
 export interface Notebook {
   id: string;
   title: string;
@@ -308,6 +318,8 @@ export interface Notebook {
   answer?: NotebookAnswer;
   /** The plan a write step wrote (a notebook that makes a plan). */
   plan?: NotebookPlan;
+  /** The meeting it prepares for (a meeting notebook). */
+  meeting?: NotebookMeeting;
   createdAt: string;
   updatedAt: string;
 }
@@ -780,7 +792,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -1031,6 +1043,14 @@ export class NotebookStore {
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */
   /** `from`: the page it's on and why it's taken to be them (a person's photo). */
+  /** Keep the meeting it prepares for (none: forget it). */
+  setMeeting(id: string, meeting: NotebookMeeting | undefined): Notebook {
+    this.mustGet(id);
+    const m = cleanMeeting(meeting);
+    this.db.prepare('UPDATE notebooks SET meeting_json = ?, updated_at = ? WHERE id = ?').run(m ? JSON.stringify(m) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
   /** Keep the plan a write step wrote (none: forget it). */
   setPlan(id: string, plan: NotebookPlan | undefined): Notebook {
     this.mustGet(id);
@@ -2060,6 +2080,7 @@ export class NotebookStore {
       ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
       ...(r.layout_by ? { layoutBy: String(r.layout_by) } : {}),
       ...(r.briefing_json ? { briefing: parse<NotebookBriefing>(r.briefing_json, { points: [], questions: [], watch: [], at: '', by: '' }) } : {}),
+      ...(r.meeting_json ? (() => { const m = cleanMeeting(parse<unknown>(r.meeting_json, undefined)); return m ? { meeting: m } : {}; })() : {}),
       ...(r.plan_json ? { plan: parse<NotebookPlan>(r.plan_json, { summary: '', items: [], before: [], open: [], at: '', by: '' }) } : {}),
       ...(r.answer_json ? { answer: parse<NotebookAnswer>(r.answer_json, { question: '', text: '', confidence: 'low', findings: [], open: [], at: '', by: '' }) } : {}),
       createdAt: String(r.created_at),
@@ -2932,6 +2953,30 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
   return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, at, by };
+}
+
+const MEETING_WHEN = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/;
+
+/**
+ * A meeting as one to keep: `when` a real date ("2026-10-29") or date and
+ * time ("2026-10-29T14:00", local); goal and notes trimmed and capped.
+ * Undefined when nothing's left. Pure.
+ */
+export function cleanMeeting(raw: unknown): NotebookMeeting | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const line = (x: unknown, n: number) => (typeof x === 'string' ? x.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+  const m = MEETING_WHEN.exec(line(v.when, 20));
+  const okDate = m && Number(m[2]) >= 1 && Number(m[2]) <= 12 && Number(m[3]) >= 1 && Number(m[3]) <= 31 && (!m[4] || (Number(m[4]) < 24 && Number(m[5]) < 60));
+  const when = okDate ? `${m![1]}-${m![2]}-${m![3]}${m![4] ? `T${m![4]}:${m![5]}` : ''}` : '';
+  const goal = line(v.goal, 300);
+  const notes = line(v.notes, 600);
+  return when || goal || notes ? { ...(when ? { when } : {}), ...(goal ? { goal } : {}), ...(notes ? { notes } : {}) } : undefined;
+}
+
+/** Whether a notebook prepares for a meeting: the meeting briefing page, or a write step that writes talking points. */
+export function isMeetingNotebook(nb: Pick<Notebook, 'layout' | 'steps' | 'meeting'>): boolean {
+  return !!nb.meeting || nb.layout?.preset === 'dossier' || !!nb.steps?.some((s) => s.kind === 'write' && !s.shape);
 }
 
 /**

@@ -5,10 +5,11 @@
  * `notebook-pipeline` card you approve. Triage sees the notebook it's in.
  */
 import { templateOfNotebook, draftTemplate } from './notebook-template-action.js';
+import { meetingWhenWords } from './notebook-edit.js';
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
-  notebookLayoutOf,
+  notebookLayoutOf, isMeetingNotebook, cleanMeeting, type NotebookMeeting,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -32,6 +33,8 @@ export interface NotebookAdd {
   statement?: string;
   /** The params given are the whole new list (they replace limits they contradict). */
   replaceParams?: boolean;
+  /** The meeting (when, goal, notes), merged with what it has. */
+  meeting?: NotebookMeeting;
   /** The steps options go through (replaces the list). */
   stages?: string[];
   /** Options to move to a stage, named by title (or part of it), fingerprint or id. */
@@ -79,6 +82,7 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
     criteria: strList(o.criteria, 10),
     ...(typeof o.statement === 'string' && o.statement.trim() ? { statement: o.statement.trim().slice(0, 500) } : {}),
     ...((o as { replaceParams?: unknown }).replaceParams === true ? { replaceParams: true } : {}),
+    ...(() => { const m = cleanMeeting((o as { meeting?: unknown }).meeting); return m ? { meeting: m } : {}; })(),
     ...(Array.isArray(o.stages) && strList(o.stages, 8).length ? { stages: strList(o.stages, 8) } : {}),
     moves: refs(o.moves, 'stage'),
     ruleOut: refs(o.ruleOut, 'reason'),
@@ -98,7 +102,7 @@ export function parseNotebookAdd(raw: string): { add?: NotebookAdd; error?: stri
       .filter((x) => typeof x.option === 'string' && x.option.trim() && x.data && typeof x.data === 'object' && !Array.isArray(x.data) && Object.keys(x.data).length)
       .map((x) => ({ option: String(x.option).trim(), data: x.data as Record<string, unknown> })),
   };
-  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length && !add.picks?.length && !add.merge?.length) return { error: 'Nothing to add.' };
+  if (!add.entries.length && !add.params.length && !add.criteria.length && !add.statement && !add.stages && !add.moves.length && !add.ruleOut.length && !add.reinstate.length && !add.met.length && !add.gone.length && !add.update.length && !add.picks?.length && !add.merge?.length && !add.meeting) return { error: 'Nothing to add.' };
   return { add };
 }
 
@@ -135,6 +139,11 @@ export function applyNotebookAdd(store: NotebookStore, notebookId: string, add: 
   for (const p of after.params.slice(before.params)) added.push(`parameter: ${p}`);
   for (const c of after.criteria.slice(before.criteria)) added.push(`done when: ${c.text}`);
   if (add.statement && !nb.statement) { store.update(nb.id, { statement: add.statement }); added.push(`what it's for: ${add.statement}`); }
+  // The meeting: merged with what it has; said only when it changes something.
+  if (add.meeting && JSON.stringify({ ...nb.meeting, ...add.meeting }) !== JSON.stringify(nb.meeting ?? {})) {
+    store.setMeeting(nb.id, { ...nb.meeting, ...add.meeting });
+    added.push(`the meeting: ${[add.meeting.when ? meetingWhenWords(add.meeting.when) : '', add.meeting.goal ? `goal “${add.meeting.goal}”` : '', add.meeting.notes ? 'notes' : ''].filter(Boolean).join(', ')}`);
+  }
   if (add.stages) { store.setStages(nb.id, add.stages); added.push(`stages: ${add.stages.join(' → ')}`); }
   // Moves and rulings name an option; one that matches nothing (or several) is reported, not guessed.
   const option = (ref: string) => {
@@ -321,6 +330,7 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}), ...(x.why ? { why: x.why } : {}), ...(x.movedOn ? { movedOn: true } : {}), ...(x.shape ? { shape: x.shape } : {}) })) } : {}),
     // The answer its write step wrote, for "what did it find?".
+    ...(nb.meeting ? { meeting: nb.meeting } : {}),
     ...(nb.plan?.items.length ? { plan: { summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open } } : {}),
     ...(nb.answer?.text ? { answer: { text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open } } : {}),
     // Where the steps are now, as the notebook's page shows them: running, or the card waiting on the operator.
@@ -413,6 +423,9 @@ export function notebookGreeting(nb: Notebook, hasOptions = false): string {
   // The one most useful thing to say first, in sua's own words.
   const first = !nb.statement
     ? "What's this notebook for? A sentence is enough."
+    // A meeting notebook without the meeting: when it is and what you want, so the talking points aim at it.
+    : isMeetingNotebook(nb) && !nb.meeting?.goal
+      ? `When is the meeting, and what do you want out of it? Tell me here, or add it under **Add the meeting** at the top of the page; the talking points aim at your goal.`
     : nb.params.length === 0
       ? 'What are your limits? Budget, must-haves, deal-breakers, and where to look.'
       : !hasOptions

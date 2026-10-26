@@ -97,6 +97,8 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
   return [
     job ? stepLine(nb, job) : '',
     nb.statement || nb.title,
+    // A meeting notebook finds for what you want out of the meeting.
+    nb.meeting?.goal ? `The meeting is for: ${nb.meeting.goal}. Find what bears on that.` : '',
     nb.params.length ? `Parameters: ${nb.params.join('; ')}` : '',
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
     entries ? notebookGaps(nb, entries) : '',

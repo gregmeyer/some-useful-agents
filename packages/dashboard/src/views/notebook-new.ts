@@ -8,7 +8,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { working } from './working.js';
 import { formatAge } from './components.js';
-import type { NotebookField, NotebookStep, NotebookTemplate } from '@some-useful-agents/core';
+import { isMeetingNotebook, type NotebookField, type NotebookMeeting, type NotebookStep, type NotebookTemplate } from '@some-useful-agents/core';
 import type { NotebookDraft, DraftState } from '../lib/notebook-draft.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 
@@ -201,6 +201,22 @@ export interface SetupValues {
   met?: readonly boolean[];
   steps?: readonly NotebookStep[]; fields: readonly NotebookField[]; checks: readonly string[]; stages: readonly string[];
   pipeline: readonly string[]; cadence: string;
+  /** The meeting it prepares for (shown for a meeting notebook). */
+  meeting?: NotebookMeeting;
+}
+
+/** When, your goal and what you know, for a meeting notebook: the date and time apart, so either can be left out. */
+function meetingRow(m: NotebookMeeting | undefined): SafeHtml {
+  const [date, time] = (m?.when ?? '').split('T');
+  return html`<fieldset class="nbd-field nbd-meeting"><legend class="nbd-field__label">The meeting</legend>
+    <div class="nbd-meeting__when">
+      <label><span class="sr-only">Date</span><input type="date" name="meeting_date" value="${date ?? ''}" class="form-field"></label>
+      <label><span class="sr-only">Time</span><input type="time" name="meeting_time" value="${time ?? ''}" class="form-field"></label>
+    </div>
+    <label class="nbd-meeting__goal"><span>Your goal</span><textarea name="meeting_goal" rows="2" class="form-field" data-nbd-autosize placeholder="What you want out of it, e.g. explore a partnership on X">${m?.goal ?? ''}</textarea></label>
+    <label class="nbd-meeting__notes"><span>Notes <em>optional</em></span><textarea name="meeting_notes" rows="1" class="form-field" data-nbd-autosize placeholder="What you already know, who else is coming">${m?.notes ?? ''}</textarea></label>
+    <span class="nbd-field__hint">sua finds and writes for this: the talking points aim at your goal.</span>
+  </fieldset>`;
 }
 
 /**
@@ -230,6 +246,7 @@ export function notebookSetupEditor(v: SetupValues, agents: ReadonlyArray<{ id: 
             <textarea name="statement" rows="2" class="form-field" data-nbd-autosize>${v.statement}</textarea></label>
           <div class="nbd-field"><span class="nbd-field__label">Limits</span>${chips('params', v.params, 'Limit')}</div>
           <div class="nbd-field"><span class="nbd-field__label">Done when</span>${rows('criteria', v.criteria, 'Done when', v.met)}</div>
+          ${isMeetingNotebook({ steps: v.steps as NotebookStep[] | undefined, meeting: v.meeting }) ? meetingRow(v.meeting) : html``}
           ${v.steps?.length ? stepRows(v.steps, agents, editing) : html``}
         </div>
         <div class="nbd-draft__side">

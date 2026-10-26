@@ -8,6 +8,7 @@
  * every fact with its page, each option in full. A shortlist keeps the
  * shortlist brief (notebook-brief.ts).
  */
+import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, type Notebook, type NotebookEntry, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -329,6 +330,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
       <div class="eyebrow">${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}</div>
       <h1>${nb.title}</h1>
       ${nb.statement && !(header && header.statement === false) ? html`<p class="goal">${nb.statement}</p>` : html``}
+      ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
     </div>
     ${sideId ? html`<aside>${node(p, sideId)}</aside>` : html``}
   </header>

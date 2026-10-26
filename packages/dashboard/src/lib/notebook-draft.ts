@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
-  type NotebookField, type NotebookStep,
+  type NotebookField, type NotebookStep, type NotebookMeeting, cleanMeeting,
   clipWords, CHECK_MAX,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -39,6 +39,8 @@ export interface NotebookDraft {
   /** The agents sua suggested, so one you unticked is still offered after a reload. */
   suggested?: string[];
   cadence: string;
+  /** The meeting it prepares for (a meeting notebook): when, your goal, what you know. */
+  meeting?: NotebookMeeting;
   why?: string;
 }
 
@@ -112,6 +114,7 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     pipeline: phrases(v.pipeline, 6, 60).filter((id) => agentIds.has(id)),
     ...draftSteps(v.steps, agentIds),
     cadence,
+    ...(() => { const m = cleanMeeting(v.meeting); return m ? { meeting: m } : {}; })(),
     // A long one ends at a sentence (else a word) with "…", never mid-word.
     ...(typeof v.why === 'string' && v.why.trim() ? { why: clipSentence(v.why.replace(/\s+/g, ' ').trim(), 400) } : {}),
   };
@@ -166,6 +169,14 @@ export function stepsFromForm(body: Record<string, unknown>): Array<{ title: str
   }));
 }
 
+/** The meeting from a form (date, time, goal, notes). Undefined when it's all empty. */
+export function meetingFromForm(body: Record<string, unknown>): NotebookMeeting | undefined {
+  const one = (k: string) => (typeof body[k] === 'string' ? String(body[k]).trim() : '');
+  const date = one('meeting_date');
+  const time = one('meeting_time');
+  return cleanMeeting({ when: date ? `${date}${time ? `T${time}` : ''}` : '', goal: one('meeting_goal'), notes: one('meeting_notes') });
+}
+
 const formList = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string');
 
 /**
@@ -192,6 +203,7 @@ export function saveDraftEdits(ctx: Ctx, id: string, body: Record<string, unknow
     ...draftSteps(stepsFromForm(body), new Set(searchAgents(ctx).map((a) => a.id))),
     suggested,
     cadence,
+    ...(() => { const m = 'meeting_goal' in body || 'meeting_date' in body ? meetingFromForm(body) : cur.draft.meeting; return m ? { meeting: m } : {}; })(),
     ...(cur.draft.why ? { why: cur.draft.why } : {}),
   };
   draftsOf(ctx).saveDraft(id, { status: 'ready', text: cur.text, draft });
