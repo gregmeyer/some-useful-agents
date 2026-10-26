@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS,
+  NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS, type NotebookSearchSource,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
@@ -167,7 +167,16 @@ export function readItemAnswer(raw: string, fields: readonly NotebookField[]): {
 }
 
 export interface KeeperOutcome {
+  /** New entries: options, notes and decisions. */
   added: number;
+  /** Of them, new options (a note isn't something found). */
+  options?: number;
+  /** Found again, but already ruled out. */
+  ruledOutSeen?: number;
+  /** New ones the agent ruled out itself ("Unfit: …"). */
+  ruledOutNew?: number;
+  /** Where its search looked and what each place gave (a search's own sources). */
+  sources?: NotebookSearchSource[];
   /** Options the notebook already had, found again and refreshed. */
   refreshed?: number;
   /** Setup: options given their facts. */
@@ -262,6 +271,8 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let refreshed = 0;
   let skipped = 0;
   let ruledOutSeen = 0;
+  let options = 0;
+  let ruledOutNew = 0;
   for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, opts.maxEntries ?? MAX_ENTRIES_PER_RUN)) {
     const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown; ruleOut?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
@@ -278,12 +289,12 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       // The agent rules it out itself ("Unfit: …"): kept, so the next search doesn't bring it back.
       if (!r.ruledOut && typeof x.ruleOut === 'string' && x.ruleOut.trim()) {
         store.ruleOut(nb.id, r.entry.id, x.ruleOut.replace(/\s+/g, ' ').trim().slice(0, 300), `agent:${agentId}`);
-        if (!r.seenAgain) added++; else refreshed++;
+        if (!r.seenAgain) { added++; options++; ruledOutNew++; } else refreshed++;
         continue;
       }
       if (r.ruledOut) { skipped++; ruledOutSeen++; }
       else if (r.seenAgain) refreshed++;
-      else { added++; seen.add(key); }
+      else { added++; options++; seen.add(key); }
       continue;
     }
     if (!key || seen.has(key)) { skipped++; continue; }
@@ -297,7 +308,8 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   }
   // The search counts even when everything it found was known: that's how a
   // later "not in the last 2 searches" knows someone looked.
-  if (agentId !== NOTEBOOK_SETUP) store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt, cleanSources(parsed.sources));
+  const sources = cleanSources(parsed.sources);
+  if (agentId !== NOTEBOOK_SETUP) store.recordSearch(nb.id, agentId, runId, added + refreshed + ruledOutSeen, searchAt, sources);
   let criteriaMet = 0;
   for (const c of Array.isArray(parsed.criteriaMet) ? parsed.criteriaMet : []) {
     const x = c as { index?: unknown; why?: unknown };
@@ -308,7 +320,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     store.addEntry(nb.id, { kind: 'note', title: `Met: ${cur.criteria[i].text}`, body: typeof x.why === 'string' ? x.why : '', by: `agent:${agentId}`, runId });
     criteriaMet++;
   }
-  return { added, ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(checksKept ? { checksKept } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  return { added, options, ...(ruledOutSeen ? { ruledOutSeen } : {}), ...(ruledOutNew ? { ruledOutNew } : {}), ...(sources.length ? { sources } : {}), ...(refreshed ? { refreshed } : {}), ...(factsSet ? { factsSet } : {}), ...(checksMet ? { checksMet } : {}), ...(checksFailed ? { checksFailed } : {}), ...(checksKept ? { checksKept } : {}), ...(factsDropped ? { factsDropped } : {}), skipped, criteriaMet, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
 }
 
 /** A "Ruled out: <name>, …" title naming an option the notebook already has (by title, or its organization's name). */
@@ -339,7 +351,9 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 
 /** "car-sweep: 3 new, 2 seen again" (or what went wrong). */
 export function passNote(agentId: string, out: KeeperOutcome): string {
-  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(out.added)} new${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.checksKept ? `, ${String(out.checksKept)} failed on ones you chose (kept)` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
+  const opts = out.options ?? out.added;
+  const notes = out.added - opts;
+  return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(opts)} new${notes > 0 ? `, ${String(notes)} note${notes === 1 ? '' : 's'}` : ''}${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.checksKept ? `, ${String(out.checksKept)} failed on ones you chose (kept)` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
 /**

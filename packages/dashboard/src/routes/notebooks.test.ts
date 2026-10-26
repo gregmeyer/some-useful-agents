@@ -525,7 +525,7 @@ describe('notebook pipeline (G2–G3)', () => {
       summary: 'One new option and its history.',
     })}</notebook>`;
     const out = applyKeeperResult(store, nb, 'listings-search', 'run-abc', raw);
-    expect(out).toEqual({ added: 2, skipped: 2, criteriaMet: 1, summary: 'One new option and its history.' });
+    expect(out).toEqual({ added: 2, options: 1, skipped: 2, criteriaMet: 1, summary: 'One new option and its history.' });
     const entries = store.entries(nb.id);
     expect(entries.find((e) => e.title.startsWith('2020 Mazda'))).toMatchObject({ by: 'agent:listings-search', runId: 'run-abc' });
     expect(entries.find((e) => e.title === 'Met: One fits')).toMatchObject({ kind: 'note', body: 'The CX-5 fits every parameter.' });
@@ -799,11 +799,14 @@ describe('notebook pipeline (G2–G3)', () => {
     // Its agent found nothing new: the step stalled, and Move on comes first.
     expect(steps[1]).toMatchObject({ status: 'stuck', stalled: true, tries: 1, note: '3 of 5 found' });
     said = thread();
-    expect(said.some((r) => r.body.includes("**Find 5 companies** couldn't get any further (3 of 5 found): its last run found nothing new, so its agent may not be able to find the rest. Still needed:\n- 2 more\n\n**Move on** keeps what it found and goes on to **Pick the final set**. **Try again** runs it once more."))).toBe(true);
+    // It says why, on the step and in its card.
+    expect(steps[1].why).toBe('Its last search found no new ones.');
+    expect(said.some((r) => r.body.includes(`**Find 5 companies** couldn't get any further (3 of 5 found). ${steps[1].why!} Its agent may not be able to do the rest. Still needed:\n- 2 more\n\n**Move on** keeps what it found and goes on to **Pick the final set**. **Try again** runs it once more.`))).toBe(true);
     const cards = said.filter((r) => r.role === 'action').slice(-2).map((r) => JSON.parse(r.metaJson!) as { ctaLabel: string; inputs: Record<string, string> });
     expect(cards.map((c) => c.ctaLabel)).toEqual(['Move on', 'Try again']);
     expect(cards[0].inputs).toMatchObject({ STEP: 's2', WAS: 'stuck', MOVE: '1' });
     p0 = await page();
+    expect(p0).toContain('<p class="nb-steps__why"><strong>Find 5 companies</strong> stopped short. Its last search found no new ones.</p>');
     expect(p0).toContain('>Move on →</button>');
     expect(p0).toContain('<input type="hidden" name="step" value="s2"><button type="submit" class="btn btn--primary btn--sm nb-next"');
     expect(p0).toContain('class="btn btn--sm nb-next" title="Step 2 of 3, Find 5 companies, stopped short. Run it again." aria-label="Try again: Step 2 of 3, Find 5 companies, stopped short. Run it again.">Try again</button>');
@@ -898,7 +901,7 @@ describe('notebook pipeline (G2–G3)', () => {
     expect(asked[0].NOTEBOOK).toContain('This step: Find 2 roles.');
     expect(JSON.parse(asked[0].OPTIONS)).toEqual([expect.objectContaining({ name: 'Controller, Old Co', sources: ['https://jobs.lever.co/oldco/9'] })]);
     expect(JSON.parse(asked[0].FIELDS).map((f: { key: string }) => f.key)).toEqual(['salary', 'posting_url']);
-    expect(store.get(nb.id)!.lastRunNote).toContain('notebook-finder: 2 new (filed directly)');
+    expect(store.get(nb.id)!.lastRunNote).toContain('notebook-finder: 1 new, 1 note (filed directly)');
     finderReply = undefined;
   });
 

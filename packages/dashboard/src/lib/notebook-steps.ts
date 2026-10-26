@@ -9,6 +9,7 @@
  * its agent got no further. sua says so in the notebook's conversation, with the
  * button as a card. The agent is never edited for a step.
  */
+import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { randomUUID } from 'node:crypto';
 import { NotebookStore, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -402,7 +403,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
-    return finish(ctx, store, notebookId, { ...step, tries }, now, wrote, !now.met);
+    return finish(ctx, store, notebookId, { ...step, tries }, now, wrote, !now.met, sentenceOf(wrote));
   }
   // A profile step: sua's researcher learns about who the notebook is about (lib/notebook-profile.ts).
   if (step.kind === 'profile') {
@@ -411,7 +412,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
-    return finish(ctx, store, notebookId, { ...step, tries }, now, learned, now.have <= before.have);
+    return finish(ctx, store, notebookId, { ...step, tries }, now, learned, now.have <= before.have, sentenceOf(learned));
   }
   // A source step whose agent reads one item's page a run: once per option.
   const installed = ctx.agentStore.getAgent(agentId);
@@ -422,6 +423,9 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   // new, failed, or you stopped one) means its agent may not be able to.
   let gained = false;
   let stopped = false;
+  let last: StepTry | undefined;
+  // Its last try got it no closer (else it ran out of tries this press while still getting closer).
+  let noCloser = false;
   for (let i = 0; i < MAX_TRIES; i++) {
     tries++;
     const passId = store.startPass(nb.id, 'pipeline');
@@ -436,6 +440,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
       notes.push('you stopped it');
       store.updateStep(nb.id, step.id, { tries });
       stopped = true;
+      last = { status: 'stopped' };
       break;
     }
     if (run.status !== 'completed') {
@@ -443,6 +448,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
       store.finishPass(passId, why);
       notes.push(why);
       store.updateStep(nb.id, step.id, { tries });
+      last = { status: 'failed', error: run.error ?? run.status };
       continue;
     }
     const out = await keep(ctx, store, nb, agent.id, run.id, run.result ?? '');
@@ -451,6 +457,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const note = `${passNote(agent.id, out)}${short ? ` (${short})` : ''}`;
     store.finishPass(passId, note);
     notes.push(note);
+    last = { status: 'completed', out, ...(short ? { short } : {}) };
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
@@ -459,11 +466,12 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     // Closer: more done, or anything still needed changed (a fact found, a check ticked, an option ruled out).
     const closer = now.have > before.have || now.missing.join('\n') !== before.missing.join('\n');
     before = now;
-    if (!closer) break;
+    if (!closer) { noCloser = true; break; }
     gained = true;
   }
   // You stopped it, or no run got it closer: Move on comes first.
-  return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stopped || !gained);
+  const stalled = stopped || !gained;
+  return finish(ctx, store, notebookId, { ...step, tries }, before, notes, stalled, stepWhy(step, last, { stalled: noCloser || last?.status !== 'completed', tries }));
 }
 
 /** At most this many pages a press: the step can be pressed again for the rest. */
@@ -485,7 +493,7 @@ async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, st
   const noPage = jobs.filter((j) => !j.link).length;
   const tries = step.tries + 1;
   if (!withPage.length) {
-    return finish(ctx, store, notebookId, { ...step, tries }, before, [`${agentId} reads an option's own page, and none of the options missing facts has one`], true);
+    return finish(ctx, store, notebookId, { ...step, tries }, before, [`${agentId} reads an option's own page, and none of the options missing facts has one`], true, "Its agent reads each option's own page, and none of the options still missing facts has one.");
   }
   const passId = store.startPass(nb.id, 'pipeline');
   const running = ctx.notebookPipelines?.get(notebookId);
@@ -531,7 +539,13 @@ async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, st
   if (now.met) return finish(ctx, store, notebookId, { ...step, tries }, now, [words]);
   // Nothing got closer (every page blocked, or nothing new on them): Move on comes first.
   const closer = now.have > before.have || gone.length > 0;
-  return finish(ctx, store, notebookId, { ...step, tries }, now, [words], stopped || !closer);
+  return finish(ctx, store, notebookId, { ...step, tries }, now, [words], stopped || !closer, perItemWhy({ read, pages: withPage.length, factsSet, blocked: [...blocked], failed: failed.length, noPage, stopped }));
+}
+
+/** A profile or write step's notes, as the sentence that says why it came out short. */
+function sentenceOf(notes: readonly string[]): string | undefined {
+  const s = notes.join('; ').replace(/\s+/g, ' ').trim();
+  return s ? `${s.charAt(0).toUpperCase()}${s.slice(1)}.` : undefined;
 }
 
 function hostOf(url: string): string {
@@ -553,9 +567,9 @@ export function shortSteps(execs: ReadonlyArray<{ nodeId: string; status: string
 }
 
 /** Mark the step met or stuck, note the run, and say so in the conversation with the next button. */
-function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, p: NotebookStepProgress, notes: readonly string[], stalled = false): void {
+function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, p: NotebookStepProgress, notes: readonly string[], stalled = false, why?: string): void {
   const words = progressWords(step, p);
-  const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries, ...(!p.met && stalled ? { stalled: true } : {}) });
+  const nb = store.updateStep(notebookId, step.id, { status: p.met ? 'met' : 'stuck', note: words, tries: step.tries, ...(!p.met && stalled ? { stalled: true } : {}), ...(!p.met && why ? { why } : {}) });
   store.noteRun(notebookId, `${step.title}: ${words}${notes.length ? ` · ${notes.join(' · ')}` : ''}`);
   postStepCard(ctx, nb, step.id, p);
   if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
@@ -602,8 +616,8 @@ export function postStepCard(ctx: Ctx, nb: Notebook, stepId: string, p: Notebook
   const body = p.met
     ? `Step ${String(i + 1)} of ${String(steps.length)} is done: **${step.title}** (${words}).${next ? ` Next is **${next.title}**${next.agentId ? `, with ${next.agentId}` : ''}.` : ' That was the last step.'}`
     : stalled
-      ? `**${step.title}** couldn't get any further (${words}): its last run found nothing new, so its agent may not be able to find the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`
-      : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words}), still getting closer. Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
+      ? `**${step.title}** couldn't get any further (${words}). ${step.why ?? 'Its last run found nothing new.'} Its agent may not be able to do the rest. Still needed:\n${missing}\n\n**Move on** keeps what it found and ${onward}. **Try again** runs it once more. Or tell me what to do differently, for example a different agent for this step.`
+      : `**${step.title}** stopped short after ${String(step.tries)} ${step.tries === 1 ? 'try' : 'tries'} (${words})${step.why && !/^It was still getting closer/.test(step.why) ? `. ${step.why}` : ', still getting closer.'} Still needed:\n${missing}\n\n**Try again** keeps going. **Move on** keeps what it found and ${onward}.`;
   const msg = inbox.addResponse(threadId, 'triage', body);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   reopenForStepNews(ctx, threadId);
