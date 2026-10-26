@@ -4,7 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
-import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
+import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
@@ -625,6 +625,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
     pending: edit ? describeSetupChange(setupOf(nb), edit.setup, nb.layout, edit.layout) : [],
     tab: str(req.query.tab) === 'prompt' ? 'prompt' : 'talk',
     openPreview: str(req.query.preview) === '1' && !!edit && edit.status !== 'working',
+    ...(edit?.layout !== undefined ? { lookChanged: edit.layout } : {}),
     markdown: notebookToMarkdown(edit?.setup ?? setupOf(nb), proposed.layout),
     entries, compiled, history: widgetHistory(ctx, s),
     agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: s.layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id),
@@ -660,6 +661,22 @@ notebooksRouter.post('/notebooks/:id/edit/prompt', (req: Request, res: Response)
   const out = proposeFromMarkdown(getContext(req.app.locals), nb, str(req.body?.markdown));
   res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'prompt')
     : editBack(id, out.changes.length ? `${String(out.changes.length)} ${out.changes.length === 1 ? 'change' : 'changes'} in the preview. Save them when it looks right.` : 'Nothing changed.', 'info', 'prompt', out.changes.length > 0));
+});
+
+/** How it looks: a ready-made look, back to the one it has, or let sua pick; then the preview. */
+notebooksRouter.post('/notebooks/:id/edit/look', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const nb = store(req).get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const ctx = getContext(req.app.locals);
+  const look = str(req.body?.look);
+  if (look === 'pick') {
+    const out = startEditPick(ctx, nb);
+    res.redirect(303, 'error' in out ? editBack(id, out.error) : editBack(id));
+    return;
+  }
+  const out = proposeLook(ctx, nb, look);
+  res.redirect(303, 'error' in out ? editBack(id, out.error) : editBack(id, undefined, 'info', undefined, out.changes.length > 0));
 });
 
 notebooksRouter.post('/notebooks/:id/edit/save', (req: Request, res: Response) => {

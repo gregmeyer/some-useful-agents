@@ -31,7 +31,7 @@ describe('a notebook as a document', () => {
     expect(md).toContain('2. Find what Dana has said (find 5; with research-one)');
     expect(md).toContain('3. Source the facts (source; facts evidence, theme; top 5)');
     expect(md).toContain('Found → Checked');
-    expect(md).toContain('## Page\nShortlist');
+    expect(md).toContain('## How it looks\nShortlist');
     const back = notebookFromMarkdown(md, SETUP, undefined, AGENTS);
     expect('error' in back ? back.error : back.setup).toEqual(SETUP);
     expect('layout' in back).toBe(false);
@@ -45,7 +45,7 @@ describe('a notebook as a document', () => {
       .replace('- Fee: money in usd, price, lower is better\n', '- Company: text, org\n')
       .replace('3. Source the facts (source; facts evidence, theme; top 5)', '3. Write the talking points (decide 3)\n4. Source the facts (source; facts evidence, theme; top 5)')
       .replace(/## Checks\n[^#]*/, '')
-      .replace('## Page\nShortlist', '## Page\nMeeting briefing');
+      .replace('## How it looks\nShortlist', '## How it looks\nMeeting briefing');
     const back = notebookFromMarkdown(md, SETUP, undefined, AGENTS);
     if ('error' in back) throw new Error(back.error);
     expect(back.setup.title).toBe('Meet Dana Reyes');
@@ -57,12 +57,15 @@ describe('a notebook as a document', () => {
       ['s1', 'Learn about Dana Reyes', 'done'], ['s2', 'Find what Dana has said', 'running'], ['s4', 'Write the talking points', 'todo'], ['s3', 'Source the facts', 'todo'],
     ]);
     expect(back.layout).toEqual(layoutPreset('dossier')!.layout);
+    // A document from before, with "## Page", reads the same.
+    const older = notebookFromMarkdown(md.replace('## How it looks', '## Page'), SETUP, undefined, AGENTS);
+    expect('layout' in older && older.layout).toEqual(layoutPreset('dossier')!.layout);
     expect(describeSetupChange(SETUP, back.setup, undefined, back.layout)).toEqual([
       'Title: “Prepare for a meeting with Dana Reyes” → “Meet Dana Reyes”',
       'Added the limit “45 minutes”', 'Added the limit “over video”', 'Removed the limit “30 minutes”',
       'Notes a new fact: Company (text, org)', 'No longer notes Fee',
       'Added step 3: Write the talking points (decide 3)',
-      'The page: Shortlist → Meeting briefing',
+      'How it looks: Shortlist → Meeting briefing',
     ]);
   });
 
@@ -88,7 +91,7 @@ describe('what an edit changes', () => {
   it('names the page: a ready-made one, the shortlist, or one drawn for it', () => {
     expect(pageName(undefined)).toBe('Shortlist');
     expect(pageName(layoutPreset('dossier')!.layout)).toBe('Meeting briefing');
-    expect(pageName({ components: [], about: 'a report' })).toBe('Drawn for this notebook: a report');
+    expect(pageName({ components: [], about: 'a report' })).toBe('Made for this notebook');
   });
 
   it('knows a request about the page from one about the work', () => {
