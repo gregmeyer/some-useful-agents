@@ -101,7 +101,7 @@ nodes:
         marked [already fills: …] have filled notebooks before: prefer one
         of those when it fits this goal, over one that never has.
       - "steps": the work in order, as 2–5 steps sua takes one at a time,
-        each {"title", "kind", "agent", "target"?, "facts"?, "subject"?}. Kinds:
+        each {"title", "kind", "agent", "target"?, "facts"?, "subject"?, "shape"?}. Kinds:
         "profile" (learn about who the notebook is about when it prepares
         them to meet or work with a person or a company: who they are,
         their role, their company, with sources and a photo or logo;
@@ -119,11 +119,17 @@ nodes:
         "write" (sua writes up what the notebook was for from what it
         found: for a meeting, the talking points, each with why it matters
         to them and a question to ask; "target": how many points, 3 to 5;
+        for a question, the answer: "shape": "answer", no target;
         "agent": ""; last).
         Start with find (after profile, when there is one); end with decide,
         or, when it prepares them for a meeting or a call, with write
         ("Write the talking points"): they don't pick from what was found,
-        sua writes the points from it. Add narrow before decide only when
+        sua writes the points from it. When the goal is a question to
+        answer or something to find out rather than something to pick
+        ("what do teams pay for X", "is it worth upgrading to Y", "how do
+        others handle Z", "find out whether…"), find gathers sources, and
+        it ends with write, "shape": "answer" ("Write the answer"), not
+        decide. Add narrow before decide only when
         the goal says to cut the list down first ("a shortlist to test
         drive", "which stay in the running"). Add source only when the facts to
         note need their own lookup, and check only when there are checks

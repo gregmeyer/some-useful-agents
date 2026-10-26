@@ -787,7 +787,7 @@ const Panel = define('Panel', 'sua-a2ui-panel',
 // **bold** only; everything else escaped (same rule as Text's markdown).
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
 const Callout = define('Callout', 'sua-a2ui-callout',
-  Common.extend({ label: Str.optional(), text: Str, next: Str.optional() }).strict(),
+  Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional() }).strict(),
   css`
     :host { display: block; }
     .box { padding: var(--space-4, 16px); background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md, 10px); }
@@ -796,7 +796,7 @@ const Callout = define('Callout', 'sua-a2ui-callout',
     .text strong { font-weight: 600; }
     .next { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .next b { color: var(--color-text); }`,
-  function () { return html`<div class="box">${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>Next:</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
+  function () { return html`<div class="box">${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>${this.controller.props.nextLabel ?? 'Next:'}</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
   { updated() { const el = this.renderRoot.querySelector('.text'); const v = this.controller?.props?.text ?? ''; if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
 
 const StatStrip = define('StatStrip', 'sua-a2ui-stat-strip',
@@ -1123,7 +1123,7 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
-  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional() }).strict(),
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional(), questionsLabel: Str.optional(), watchLabel: Str.optional(), empty: Str.optional() }).strict(),
   css`${sectionHead}
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .top .h { margin: 0; }
@@ -1162,7 +1162,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     const points = textItems(p.points);
     const questions = textItems(p.questions);
     const watch = textItems(p.watch);
-    if (!points.length && !questions.length && !watch.length) return html`<p class="empty">Nothing to talk about yet.</p>`;
+    if (!points.length && !questions.length && !watch.length) return html`<p class="empty">${p.empty ?? 'Nothing to talk about yet.'}</p>`;
     if (!this._done) { try { this._done = new Set(JSON.parse(localStorage.getItem(agendaKey(this)) ?? '[]')); } catch { this._done = new Set(); } }
     const done = this._done;
     const tick = (text, on) => {
@@ -1171,7 +1171,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
       this.requestUpdate();
     };
     const copy = async () => {
-      const text = agendaText({ title: p.title, points, questions, watch });
+      const text = agendaText({ pointsLabel: p.title, points, questions, watch, questionsLabel: p.questionsLabel, watchLabel: p.watchLabel });
       try { await navigator.clipboard.writeText(text); this._copied = 'Copied'; } catch { this._copied = 'Couldn’t copy here'; }
       this.requestUpdate();
       setTimeout(() => { this._copied = ''; this.requestUpdate(); }, 2500);
@@ -1188,9 +1188,9 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
         ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
         ${refs(pt).length ? html`<div class="refs">${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
       </li>`)}</ol>` : nothing}
-      ${questions.length ? html`<h4 class="h">Questions to ask</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
+      ${questions.length ? html`<h4 class="h">${p.questionsLabel ?? 'Questions to ask'}</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
         ${!this._allQ && questions.length > maxQ ? html`<button type="button" class="more" @click=${() => { this._allQ = true; this.requestUpdate(); }}>Show ${questions.length - maxQ} more</button>` : nothing}` : nothing}
-      ${watch.length ? html`<h4 class="h">Watch out for</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}
+      ${watch.length ? html`<h4 class="h">${p.watchLabel ?? 'Watch out for'}</h4><ul class="watch">${watch.map((w) => html`<li>${w.text}</li>`)}</ul>` : nothing}
     </div>`;
   });
 

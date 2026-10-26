@@ -206,6 +206,28 @@ export interface NotebookBriefing {
   by: string;
 }
 
+/** One finding behind an answer, resting on the options (sources) it came from, by entry id. */
+export interface NotebookAnswerFinding {
+  text: string;
+  from: string[];
+}
+
+/** What a write step wrote when the notebook answers a question: the answer, how sure, what it rests on, what's still open. */
+export interface NotebookAnswer {
+  /** The question, as the notebook asks it. */
+  question: string;
+  /** The answer, 1–4 sentences (may use **bold**). */
+  text: string;
+  confidence: 'high' | 'medium' | 'low';
+  /** Why that confidence, in a sentence. */
+  basis?: string;
+  findings: NotebookAnswerFinding[];
+  /** What's still open: questions it couldn't settle, or what to do next. */
+  open: string[];
+  at: string;
+  by: string;
+}
+
 export interface Notebook {
   id: string;
   title: string;
@@ -261,6 +283,8 @@ export interface Notebook {
   about?: NotebookAbout;
   /** What sua wrote from it (a write step): for a meeting, the talking points. */
   briefing?: NotebookBriefing;
+  /** The answer a write step wrote (a notebook that answers a question). */
+  answer?: NotebookAnswer;
   createdAt: string;
   updatedAt: string;
 }
@@ -298,6 +322,8 @@ export interface NotebookStep {
   top?: number;
   /** profile: who to learn about ("Dana Reyes", "Acme Robotics"). None: from what the notebook is for. */
   subject?: string;
+  /** write: what it writes. "answer": the answer to the question the notebook is for; else talking points for a meeting. */
+  shape?: 'answer';
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -731,7 +757,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -976,6 +1002,13 @@ export class NotebookStore {
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */
   /** `from`: the page it's on and why it's taken to be them (a person's photo). */
+  /** Keep the answer a write step wrote (none: forget it). */
+  setAnswer(id: string, answer: NotebookAnswer | undefined): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET answer_json = ?, updated_at = ? WHERE id = ?').run(answer ? JSON.stringify(answer) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
   /** Keep what a write step wrote (none: forget it). */
   setBriefing(id: string, briefing: NotebookBriefing | undefined): Notebook {
     this.mustGet(id);
@@ -1991,6 +2024,7 @@ export class NotebookStore {
       ...(r.about_json ? { about: parse<NotebookAbout>(r.about_json, {}) } : {}),
       ...(r.layout_by ? { layoutBy: String(r.layout_by) } : {}),
       ...(r.briefing_json ? { briefing: parse<NotebookBriefing>(r.briefing_json, { points: [], questions: [], watch: [], at: '', by: '' }) } : {}),
+      ...(r.answer_json ? { answer: parse<NotebookAnswer>(r.answer_json, { question: '', text: '', confidence: 'low', findings: [], open: [], at: '', by: '' }) } : {}),
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     };
@@ -2705,6 +2739,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...(facts.length ? { facts } : {}),
       ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
       ...(kind === 'profile' && typeof x.subject === 'string' && x.subject.trim() ? { subject: x.subject.replace(/\s+/g, ' ').trim().slice(0, 80) } : {}),
+      ...(kind === 'write' && x.shape === 'answer' ? { shape: 'answer' as const } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
       ...(status === 'done' && movedOn ? { movedOn: true } : {}),
@@ -2743,7 +2778,7 @@ export const PROFILE_FACTS_WANTED = 4;
 /** A write step with no target is met with this many talking points. */
 export const BRIEFING_POINTS_WANTED = 3;
 
-export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'>): NotebookStepProgress {
+export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'kind' | 'target' | 'status' | 'facts' | 'top'> & { shape?: NotebookStep['shape'] }): NotebookStepProgress {
   const ranked = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
   // A source or check step on the top N counts only those.
   const options = (step.kind === 'source' || step.kind === 'check') && step.top ? ranked.slice(0, step.top) : ranked;
@@ -2754,6 +2789,11 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const have = Math.min(want, facts.length);
     const missing = have >= want ? [] : [...new Set([...(nb.about?.person?.notFound ?? []), ...(nb.about?.company?.notFound ?? [])])].slice(0, 6);
     return { met: have >= want, have, want, missing: have >= want ? [] : missing.length ? missing : ['who they are'] };
+  }
+  if (step.kind === 'write' && step.shape === 'answer') {
+    // About the notebook, not its options: the answer written.
+    const have = nb.answer?.text ? 1 : 0;
+    return { met: have === 1, have, want: 1, missing: have ? [] : ['the answer'] };
   }
   if (step.kind === 'write') {
     // About the notebook, not its options: enough talking points written.
@@ -2820,6 +2860,36 @@ export function cleanBriefing(raw: unknown, optionIds: ReadonlySet<string>, by: 
   if (!points.length) return undefined;
   const lines = (x: unknown, n: number) => (Array.isArray(x) ? x : []).map((q) => line(q, 240)).filter(Boolean).slice(0, n);
   return { points, questions: lines(v.questions, 8), watch: (Array.isArray(v.watch) ? v.watch : []).map((q) => line(q, 320)).filter(Boolean).slice(0, 4), at, by };
+}
+
+/**
+ * A writer's <answer> as one to keep, against the options it may cite: an
+ * answer is required; each finding's `from` only names options the notebook
+ * has; at most 6 findings and 5 open questions; confidence is high, medium
+ * or low (else low). Pure.
+ */
+export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString()): NotebookAnswer | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const v = raw as Record<string, unknown>;
+  const line = (x: unknown, n: number) => {
+    const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : '';
+    if (t.length <= n) return t;
+    const cut = t.slice(0, n - 1);
+    return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), n - 40)).replace(/[\s,;:.—-]+$/, '')}…`;
+  };
+  const text = line(v.answer ?? v.text, 900);
+  if (!text) return undefined;
+  const confidence = (['high', 'medium', 'low'] as const).find((c) => c === String(v.confidence ?? '').toLowerCase()) ?? 'low';
+  const basis = line(v.basis ?? v.why, 300);
+  const findings = (Array.isArray(v.findings) ? v.findings : []).map((f): NotebookAnswerFinding | undefined => {
+    const o = (typeof f === 'string' ? { text: f } : f ?? {}) as Record<string, unknown>;
+    const t = line(o.text ?? o.finding, 320);
+    if (!t) return undefined;
+    const from = (Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id));
+    return { text: t, from: [...new Set(from)].slice(0, 4) };
+  }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
+  const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
+  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, at, by };
 }
 
 /** The facts a source step looks up that an option doesn't have yet. */

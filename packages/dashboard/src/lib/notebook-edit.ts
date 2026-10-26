@@ -108,8 +108,8 @@ function listChange(what: string, before: readonly string[], after: readonly str
 }
 
 const fieldWords = (f: NotebookField) => [`${f.type}${f.unit ? ` in ${f.unit}` : ''}`, f.range ? 'range' : '', f.role ?? '', f.better ? `${f.better} is better` : ''].filter(Boolean).join(', ');
-const stepWords = (s: Pick<NotebookStep, 'kind' | 'target' | 'agentId' | 'subject' | 'facts' | 'top'>) =>
-  [`${s.kind}${s.target ? ` ${String(s.target)}` : ''}`, s.subject ? `about ${s.subject}` : '', s.facts?.length ? `facts ${s.facts.join(', ')}` : '', s.top ? `top ${String(s.top)}` : '', s.agentId ? `with ${s.agentId}` : ''].filter(Boolean).join('; ');
+const stepWords = (s: Pick<NotebookStep, 'kind' | 'target' | 'agentId' | 'subject' | 'facts' | 'top' | 'shape'>) =>
+  [`${s.kind}${s.target ? ` ${String(s.target)}` : ''}`, s.shape === 'answer' ? 'answer' : '', s.subject ? `about ${s.subject}` : '', s.facts?.length ? `facts ${s.facts.join(', ')}` : '', s.top ? `top ${String(s.top)}` : '', s.agentId ? `with ${s.agentId}` : ''].filter(Boolean).join('; ');
 
 /** The page's name: a ready-made one's label, the shortlist, or one drawn for it. Pure. */
 export function pageName(layout: NotebookLayout | undefined): string {
@@ -163,7 +163,7 @@ export function describeSetupChange(before: NotebookSetup, after: NotebookSetup,
 
 // ---- Steps keep how far they got ----------------------------------------------
 
-type StepIn = Pick<NotebookStep, 'title' | 'kind'> & Partial<Pick<NotebookStep, 'target' | 'agentId' | 'facts' | 'subject' | 'top'>>;
+type StepIn = Pick<NotebookStep, 'title' | 'kind'> & Partial<Pick<NotebookStep, 'target' | 'agentId' | 'facts' | 'subject' | 'top' | 'shape'>>;
 
 /**
  * New steps against the ones it had: a step with the same title (else the
@@ -176,11 +176,12 @@ export function keepStepProgress(was: readonly NotebookStep[], next: readonly St
     const same = was.find((w) => !used.has(w.id) && norm(w.title) === norm(s.title))
       ?? (was[i] && !used.has(was[i].id) && was[i].kind === s.kind ? was[i] : undefined);
     if (same) used.add(same.id);
-    const { target: _t, agentId: _a, facts: _f, subject: _s, top: _p, ...base } = same ?? { id: '', status: 'todo' as const, tries: 0 };
+    const { target: _t, agentId: _a, facts: _f, subject: _s, top: _p, shape: _h, ...base } = same ?? { id: '', status: 'todo' as const, tries: 0 };
     return {
       ...base, title: s.title, kind: s.kind,
       ...(s.target !== undefined ? { target: s.target } : {}), ...(s.agentId ? { agentId: s.agentId } : {}),
       ...(s.facts?.length ? { facts: s.facts } : {}), ...(s.subject ? { subject: s.subject } : {}), ...(s.top ? { top: s.top } : {}),
+      ...(s.shape ? { shape: s.shape } : {}),
     } as NotebookStep;
   });
   // New ones get their ids from cleanSteps, after the kept ones' (which it keeps).
@@ -250,6 +251,7 @@ function parseStep(line: string, agentIds: ReadonlySet<string>): StepIn | undefi
     if (facts) out.facts = facts[1].split(',').map((x) => x.trim()).filter(Boolean);
     const top = /^top\s+(\d+)$/i.exec(p);
     if (top) out.top = Number(top[1]);
+    if (/^answer$/i.test(p) && kind === 'write') out.shape = 'answer';
   }
   return out;
 }

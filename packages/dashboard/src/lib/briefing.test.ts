@@ -14,7 +14,7 @@ const { groupBy, matchQuote, monogram, sourceName, textItems, agendaText } = awa
   monogram: (name: string) => string;
   sourceName: (url: string) => string;
   textItems: (list: unknown) => Array<It & { text: string }>;
-  agendaText: (a: { title?: string; points?: unknown; questions?: unknown; watch?: unknown }) => string;
+  agendaText: (a: { title?: string; points?: unknown; questions?: unknown; watch?: unknown; pointsLabel?: string; questionsLabel?: string; watchLabel?: string }) => string;
 };
 
 describe('briefing components', () => {
@@ -49,6 +49,10 @@ describe('briefing components', () => {
       'Watch out for', "- Don't pitch",
     ].join('\n'));
     expect(agendaText({})).toBe('');
+    // An answer's findings copy under their own headings.
+    expect(agendaText({ pointsLabel: 'Key findings', points: ['Prices rose 4%'], questionsLabel: 'Still open', questions: ['Does it hold in 2027?'] })).toBe([
+      'Key findings', '1. Prices rose 4%', '', 'Still open', '- Does it hold in 2027?', '',
+    ].join('\n').replace(/\n$/, ''));
   });
 
   it('is served for a2ui-sua.js to import', async () => {

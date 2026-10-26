@@ -319,7 +319,9 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
   return JSON.stringify({
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
-    ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}), ...(x.why ? { why: x.why } : {}), ...(x.movedOn ? { movedOn: true } : {}) })) } : {}),
+    ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}), ...(x.why ? { why: x.why } : {}), ...(x.movedOn ? { movedOn: true } : {}), ...(x.shape ? { shape: x.shape } : {}) })) } : {}),
+    // The answer its write step wrote, for "what did it find?".
+    ...(nb.answer?.text ? { answer: { text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open } } : {}),
     // Where the steps are now, as the notebook's page shows them: running, or the card waiting on the operator.
     ...(nb.steps?.length ? { stepNow: ((): Record<string, unknown> => {
       const cur = nb.steps.find((x) => x.status !== 'done');

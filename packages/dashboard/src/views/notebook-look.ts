@@ -65,6 +65,7 @@ export function lookThumb(components: readonly ViewComponent[]): SafeHtml {
 const LOOK_FOR: Record<string, string> = {
   shortlist: 'For choosing one among many: ranks them, maps them by price, narrows them to a pick.',
   dossier: 'For getting ready to meet someone: who they are, what they said, what to talk about.',
+  answer: 'For a question: the answer and how sure, the findings it rests on with their sources, what\'s still open.',
 };
 
 export interface LookChoice {

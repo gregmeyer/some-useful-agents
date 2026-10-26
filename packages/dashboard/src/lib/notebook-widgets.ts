@@ -147,6 +147,12 @@ export interface NotebookWidgetData extends NotebookViewData {
     watch: string[];
     /** Where to edit the talking points sua wrote (none before there are any) (Agenda editHref). */
     talkingPointsEdit?: string;
+    /** The answer a write step wrote, as a Callout; before then, where it stands (the Answer page). */
+    answer: { question: string; label: string; text: string; next?: string; nextLabel: string };
+    /** The findings the answer rests on, each linked to its sources (Agenda points). */
+    findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
+    /** What the answer leaves open (Agenda questions). */
+    openQuestions: Array<{ text: string }>;
     /** Who it's about (a profile step learned it), for ProfileCard: the person and their company. */
     person?: NotebookProfileView;
     company?: NotebookProfileView;
@@ -343,6 +349,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       bands: limitBands(nb),
       summary,
       next,
+      ...answerViews(nb, active, summary, next),
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
         rank.by === 'score'
@@ -492,7 +499,23 @@ export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
   return (nb.steps?.length ?? 0) > 1;
 }
 
-type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about'] };
+type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about']; answer?: Notebook['answer'] };
+
+/** How sure an answer is, in plain words. */
+const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
+
+/** The answer for the Answer page: what sua wrote, each finding linked to the options it rests on; before then, where it stands. */
+function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions'> {
+  const a = nb.answer;
+  const question = nb.statement || nb.title;
+  if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [] };
+  const byId = new Map(active.map((o) => [o.id, o]));
+  return {
+    answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:' },
+    findings: a.findings.map((f) => ({ text: f.text, refs: f.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: notebookOptionPath(nb.id, o.id) })) })),
+    openQuestions: a.open.map((text) => ({ text })),
+  };
+}
 
 /** What a layout's `when` tests, for this notebook (core NOTEBOOK_LAYOUT_FLAGS). */
 export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Record<NotebookLayoutFlag, boolean> {
@@ -506,6 +529,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     about: !!(nb.about?.person || nb.about?.company),
     person: !!nb.about?.person,
     company: !!nb.about?.company,
+    answered: !!nb.answer?.text,
   };
 }
 
