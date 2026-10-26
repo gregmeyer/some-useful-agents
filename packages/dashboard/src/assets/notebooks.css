@@ -745,9 +745,9 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 /* Edit: talk or the prompt on the left, the notebook as it would be on the right. */
 .nbe { display: grid; gap: var(--space-4); }
 .nbe .page-header { margin-bottom: 0; }
-.nbe-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-6); align-items: start; }
-@media (max-width: 1100px) { .nbe-grid { grid-template-columns: minmax(0, 1fr); } }
-.nbe-work { display: grid; gap: var(--space-4); min-width: 0; align-content: start; }
+.nbe-work { display: grid; gap: var(--space-4); min-width: 0; max-width: 760px; align-content: start; }
+.nbe-tabsrow { display: flex; align-items: center; gap: var(--space-2); }
+.nbe-tabsrow > .btn { margin-left: auto; }
 .nbe-tabs { justify-self: start; }
 .nbe-sum { margin: 0; display: grid; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
 .nbe-sum__row { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: var(--space-3); align-items: baseline; }
@@ -788,15 +788,19 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbe-fold[open] > summary { margin-bottom: var(--space-3); color: var(--color-text); }
 .nbe-fold__note { margin: 0 0 var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbe-fold--more .nbe-more { border-top: 0; padding-top: 0; }
-.nbe-preview { position: sticky; top: var(--space-3); min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); overflow: hidden; }
-.nbe-preview__bar { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); background: var(--color-surface); font-size: var(--font-size-sm); }
+/* The preview: the notebook's page as it would be, in a dialog over the editor. */
+.nbe-preview { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0; width: min(1240px, 94vw); max-width: none; height: 90vh; max-height: none; background: var(--color-bg); color: var(--color-text); overflow: hidden; box-shadow: 0 8px 32px rgb(0 0 0 / 0.25); }
+.nbe-preview[open] { display: flex; flex-direction: column; }
+.nbe-preview::backdrop { background: rgb(15 23 42 / 0.55); backdrop-filter: blur(2px); }
+.nbe-preview__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--color-border); background: var(--color-surface); font-size: var(--font-size-sm); }
 .nbe-preview__label { font: var(--weight-semibold) var(--font-size-xs)/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
 .nbe-preview__state { color: var(--color-text-muted); }
 .nbe-preview__state.is-changed { color: var(--color-primary); font-weight: var(--weight-semibold); }
-.nbe-preview__open { margin-left: auto; }
-/* The page at a smaller size, as a picture of it: it can't be clicked. */
-.nbe-preview__page { zoom: 0.72; padding: var(--space-4); max-height: calc((100vh - 6rem) / 0.72); overflow: auto; }
-@media (max-width: 1100px) { .nbe-preview { position: static; } .nbe-preview__page { max-height: none; } }
+.nbe-preview__acts { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.nbe-preview__acts form { margin: 0; }
+/* The page at a slightly smaller size; it can't be clicked. */
+.nbe-preview__page { flex: 1; min-height: 0; overflow: auto; padding: var(--space-4) var(--space-6); zoom: 0.85; }
+@media (max-width: 760px) { .nbe-preview { width: 100vw; height: 100vh; border-radius: 0; } .nbe-preview__page { zoom: 1; padding: var(--space-3); } }
 .nbe .nb-crumbs { margin: 0; }
 .nbe__title { margin: 0; }
 .nbe-form .nbd-draft__body textarea.form-field { resize: none; overflow: hidden; }

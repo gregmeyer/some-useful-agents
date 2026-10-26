@@ -3713,6 +3713,10 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     const doc = `# Prepare for a meeting with Dana Reyes\n\nWhat matters to Dana\n\n## Done when\n- [ ] Talking points chosen\n- [ ] Questions ready\n\n## Steps\n1. Learn about Dana Reyes (profile; about Dana Reyes)\n2. Find what Dana has said (find 5)\n\n## Page\nMeeting briefing\n`;
     const shown = await post(`/notebooks/${nb.id}/edit/prompt`, { markdown: doc });
     expect(decodeURIComponent(shown.headers.location)).toContain('3 changes in the preview');
+    // It opens the preview (a dialog over the editor) once, as the page loads.
+    expect(shown.headers.location).toContain('preview=1');
+    expect((await get(shown.headers.location)).text).toMatch(/<dialog class="nbe-preview" id="nbe-preview" aria-label="Preview" data-open>/);
+    expect((await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text).not.toContain('data-open>');
     page = (await get(`/notebooks/${nb.id}/edit?tab=prompt`)).text;
     expect(page).toContain('Added done when “Questions ready”');
     expect(page).toContain('Added step 1: Learn about Dana Reyes (profile; about Dana Reyes)');

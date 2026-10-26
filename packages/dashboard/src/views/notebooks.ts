@@ -774,6 +774,8 @@ export interface NotebookEditView {
   /** Every change not saved yet, against the notebook as it is. */
   pending: readonly string[];
   tab: 'talk' | 'prompt';
+  /** Open the preview as the page loads (right after a change was made). */
+  openPreview?: boolean;
   markdown: string;
   entries: NotebookEntry[];
   compiled: CompiledSurface;
@@ -831,8 +833,8 @@ export function renderNotebookEdit(args: NotebookEditView): string {
     <section class="nbe-talk" aria-label="Say what to change">
       ${editSummary(proposed)}
       ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
-        ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>Changing it. The preview updates when it's done.</li>` : html``}</ol>` : html`
-        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. sua changes it, and you see it beside this before anything is saved.</p>`}
+        ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="nb-talk__dots" aria-hidden="true"><span></span><span></span><span></span></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
+        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. sua changes it and shows you a preview before anything is saved.</p>`}
       <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
         ${args.turns.length ? html`` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
         <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}
@@ -871,33 +873,39 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       ${pageHeader({
         crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Edit' }],
         title: 'Edit this notebook',
-        description: 'Say what to change, or edit it as a document. The preview shows the notebook as it would be; nothing changes until you save.',
+        description: 'Say what to change, or edit it as a document. Preview shows the notebook as it would be; nothing changes until you save.',
       })}
-      <div class="nbe-grid">
-        <div class="nbe-work">
+      <div class="nbe-work">
+        <div class="nbe-tabsrow">
           <nav class="nb-tabs nbe-tabs" aria-label="How to edit">${tab('talk', 'Talk')}${tab('prompt', 'Prompt')}</nav>
-          ${pending ? html`<div class="nbe-pending" role="status">
-            <details class="nbe-pending__what"><summary><b>${String(args.pending.length)} ${args.pending.length === 1 ? 'change' : 'changes'}</b> not saved yet</summary>
-              <ul>${args.pending.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul></details>
-            <form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Save changes</button></form>
-            <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
-          </div>` : html``}
-          ${args.tab === 'prompt' ? prompt : talk}
-          <details class="nbe-fold nbe-fold--more"><summary>More: its page, stop, save as a template, archive or delete</summary>${notebookMoreActions(nb, args.layoutUndos, args.pagePicking)}</details>
+          <button type="button" class="btn btn--sm" data-nbe-preview aria-haspopup="dialog">Preview${pending ? ' changes' : ''}</button>
         </div>
-        <aside class="nbe-preview" aria-label="Preview">
-          <div class="nbe-preview__bar">
-            <span class="nbe-preview__label">Preview</span>
-            <span class="nbe-preview__state${pending ? ' is-changed' : ''}">${pending ? 'with your changes, not saved' : 'as it is now'}</span>
-            <a class="nbe-preview__open" href="/notebooks/${id}">Open the notebook →</a>
-          </div>
-          <div class="nbe-preview__page" inert>
-            ${hero(proposed, [], undefined, widgetsIn, undefined, decisionLeads(proposed, args.entries, Infinity, args.history), args.entries, [], undefined, notebookHeaderView(proposed, args.entries, args.history as NotebookWidgetHistory | undefined))}
-            <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
-          </div>
-        </aside>
+        ${pending ? html`<div class="nbe-pending" role="status">
+          <details class="nbe-pending__what"><summary><b>${String(args.pending.length)} ${args.pending.length === 1 ? 'change' : 'changes'}</b> not saved yet</summary>
+            <ul>${args.pending.map((c) => html`<li>${c}</li>`) as unknown as SafeHtml[]}</ul></details>
+          <form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Save changes</button></form>
+          <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
+        </div>` : html``}
+        ${args.tab === 'prompt' ? prompt : talk}
+        <details class="nbe-fold nbe-fold--more"><summary>More: its page, stop, save as a template, archive or delete</summary>${notebookMoreActions(nb, args.layoutUndos, args.pagePicking)}</details>
       </div>
-      ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working")location.reload();else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
+      <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>
+        <div class="nbe-preview__bar">
+          <span class="nbe-preview__label">Preview</span>
+          <span class="nbe-preview__state${pending ? ' is-changed' : ''}">${pending ? 'with your changes, not saved' : 'as it is now'}</span>
+          <span class="nbe-preview__acts">
+            ${pending && !args.working ? html`<form method="POST" action="/notebooks/${id}/edit/save"><button type="submit" class="btn btn--primary btn--sm">Save changes</button></form>` : html``}
+            <a class="btn btn--sm btn--ghost" href="/notebooks/${id}">Open the notebook</a>
+            <button type="button" class="btn btn--sm" data-nbe-close>Close</button>
+          </span>
+        </div>
+        <div class="nbe-preview__page" inert>
+          ${hero(proposed, [], undefined, widgetsIn, undefined, decisionLeads(proposed, args.entries, Infinity, args.history), args.entries, [], undefined, notebookHeaderView(proposed, args.entries, args.history as NotebookWidgetHistory | undefined))}
+          <div class="nb-body__main">${surfaceColumnBody(proposed, args.compiled, args.entries, args.history)}</div>
+        </div>
+      </dialog>
+      ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working")location.replace(location.pathname+"?preview=1");else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
+      ${unsafeHtml('<script>(function(){var d=document.getElementById("nbe-preview");if(!d||!d.showModal)return;document.querySelectorAll("[data-nbe-preview]").forEach(function(b){b.addEventListener("click",function(){d.showModal();});});d.querySelector("[data-nbe-close]").addEventListener("click",function(){d.close();});d.addEventListener("click",function(e){if(e.target===d)d.close();});if(d.hasAttribute("data-open")){d.showModal();var u=new URL(location.href);u.searchParams.delete("preview");history.replaceState(null,"",u.pathname+u.search);}})();</script>')}
       ${unsafeHtml('<script>document.querySelectorAll("[data-nbe-start]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById("nbe-say");if(!t)return;t.value=b.getAttribute("data-nbe-start");t.focus();t.setSelectionRange(t.value.length,t.value.length);});});</script>')}
     </div>
   `));

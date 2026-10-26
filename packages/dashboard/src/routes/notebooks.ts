@@ -624,6 +624,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
     nb, proposed, turns: edit?.turns ?? [], working: edit?.status === 'working',
     pending: edit ? describeSetupChange(setupOf(nb), edit.setup, nb.layout, edit.layout) : [],
     tab: str(req.query.tab) === 'prompt' ? 'prompt' : 'talk',
+    openPreview: str(req.query.preview) === '1' && !!edit && edit.status !== 'working',
     markdown: notebookToMarkdown(edit?.setup ?? setupOf(nb), proposed.layout),
     entries, compiled, history: widgetHistory(ctx, s),
     agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: s.layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id),
@@ -631,8 +632,8 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
 });
 
 /** Back to the Edit page, on a tab, with a message (error | info | ok). */
-function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'error', tab?: 'prompt'): string {
-  const qs = [tab ? `tab=${tab}` : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
+function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'error', tab?: 'prompt', preview = false): string {
+  const qs = [tab ? `tab=${tab}` : '', preview ? 'preview=1' : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
   return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
 }
 
@@ -658,7 +659,7 @@ notebooksRouter.post('/notebooks/:id/edit/prompt', (req: Request, res: Response)
   if (!nb) { res.redirect(303, '/notebooks'); return; }
   const out = proposeFromMarkdown(getContext(req.app.locals), nb, str(req.body?.markdown));
   res.redirect(303, 'error' in out ? editBack(id, out.error, 'error', 'prompt')
-    : editBack(id, out.changes.length ? `${String(out.changes.length)} ${out.changes.length === 1 ? 'change' : 'changes'} in the preview. Save them when it looks right.` : 'Nothing changed.', 'info', 'prompt'));
+    : editBack(id, out.changes.length ? `${String(out.changes.length)} ${out.changes.length === 1 ? 'change' : 'changes'} in the preview. Save them when it looks right.` : 'Nothing changed.', 'info', 'prompt', out.changes.length > 0));
 });
 
 notebooksRouter.post('/notebooks/:id/edit/save', (req: Request, res: Response) => {
