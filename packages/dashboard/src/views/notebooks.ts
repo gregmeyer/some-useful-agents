@@ -734,25 +734,30 @@ function addEntryForm(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml
 /** The rest of a notebook's own actions, under its Edit page: stop it, keep it as a template, archive or delete it. */
 function notebookMoreActions(nb: Notebook): SafeHtml {
   const id = encodeURIComponent(nb.id);
+  // One row each: the action, then one sentence on what it does and whether it can be undone.
+  const row = (action: SafeHtml, what: string, cls = '') => html`<li class="nbe-manage__row${cls}">${action}<span class="nbe-manage__what">${what}</span></li>`;
+  const post = (path: string, name: string, value: string, label: string) =>
+    html`<form method="POST" action="/notebooks/${id}/${path}" class="nbe-manage__act"><input type="hidden" name="${name}" value="${value}"><button type="submit" class="btn btn--sm">${label}</button></form>`;
   return html`
-      <section class="nbe-more" aria-label="More">
-        ${nb.status === 'active' ? html`<form method="POST" action="/notebooks/${id}/status" class="nb-form nbe-more__row"><input type="hidden" name="status" value="stopped"><button type="submit" class="btn btn--sm btn--ghost">Stop this notebook</button><span class="nbe-more__hint">Keeps everything; you can reopen it.</span></form>` : html``}
-        <div class="nb-template">
-          <a class="btn btn--sm btn--ghost" href="/notebooks/${id}/template">Save as a template…</a>
-          <span class="nb-template__hint">Keeps its setup (fields, checks, stages, steps, limits and done-whens), not its options. You make its words fit any time and say what changes each time, like who you're meeting.</span>
-        </div>
-        <div class="nb-remove">
-          ${nb.archivedAt ? html`` : html`<form method="POST" action="/notebooks/${id}/archive" class="nb-form"><input type="hidden" name="archived" value="1"><button type="submit" class="btn btn--sm btn--ghost" title="Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.">Archive</button></form>`}
-          <details class="nb-delete">
-            <summary class="btn btn--sm btn--ghost nb-delete__open">Delete…</summary>
+      <ul class="nbe-manage" aria-label="Manage this notebook">
+        ${nb.status === 'active'
+          ? row(post('status', 'status', 'stopped', 'Stop'), 'Pause it: no more searches or steps. Everything stays, and you can reopen it.')
+          : row(post('status', 'status', 'active', 'Reopen'), 'Make it active again, to keep searching and working through its steps.')}
+        ${row(html`<a class="btn btn--sm nbe-manage__act" href="/notebooks/${id}/template">Save as a template…</a>`, 'Start new notebooks set up like this one, saying what changes each time (like who you\'re meeting).')}
+        ${nb.archivedAt
+          ? row(post('archive', 'archived', '0', 'Restore'), 'Show it again in your notebooks, Home and Today.')
+          : row(post('archive', 'archived', '1', 'Archive'), 'Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.')}
+        <li class="nbe-manage__row nbe-manage__row--danger">
+          <details class="nbe-manage__delete">
+            <summary><span class="btn btn--sm nbe-manage__act">Delete…</span><span class="nbe-manage__what">Remove it and everything in it. This can't be undone.</span></summary>
             <form method="POST" action="/notebooks/${id}/delete" class="nb-delete__form">
               <p class="nb-delete__what">Delete “${nb.title}” and everything in it (options, notes, history, photos)? Its conversation with sua and the runs that fed it stay. This can't be undone.${nb.archivedAt ? '' : ' To only hide it, archive it instead.'}</p>
               <input type="hidden" name="confirm" value="${nb.id}">
               <button type="submit" class="btn btn--sm btn--warn">Delete this notebook</button>
             </form>
           </details>
-        </div>
-      </section>
+        </li>
+      </ul>
   `;
 }
 
@@ -882,7 +887,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
         </div>` : html``}
         ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
-        <details class="nbe-fold nbe-fold--more"><summary>More: stop, save as a template, archive or delete</summary>${notebookMoreActions(nb)}</details>
+        <details class="nbe-fold nbe-fold--more"><summary>Manage this notebook</summary>${notebookMoreActions(nb)}</details>
       </div>
       <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>
         <div class="nbe-preview__bar">
