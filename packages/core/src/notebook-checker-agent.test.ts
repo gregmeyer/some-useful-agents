@@ -21,8 +21,8 @@ const hasPython = spawnSync('python3', ['--version']).status === 0;
 let server: Server | undefined;
 afterAll(() => { server?.close(); });
 
-async function page(body: string): Promise<string> {
-  server = createServer((_req, res) => { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(body); });
+async function page(body: string, status = 200): Promise<string> {
+  server = createServer((_req, res) => { res.statusCode = status; res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(body); });
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
   return `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/case-study`;
 }
@@ -179,6 +179,20 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     expect(fake.facts).toEqual([]);
     // A site that refused the browser is named, so it's clear why its check stays open.
     const refused = await verify([], options, checks, env, `<seen>${JSON.stringify([{ i: 0, seen: false, blocked: true, proof: '/runs/run-1/files/look-1.png' }])}</seen>`);
-    expect(refused.summary).toBe("0 checks met with a quote; 0 ruled out; 2 quotes not found word for word, left open; 127.0.0.1:" + new URL(url).port + " blocked a browser, so its page couldn't be checked by screenshot.");
+    expect(refused.summary).toBe("0 checks met with a quote; 0 ruled out; 2 quotes not found word for word, left open; 127.0.0.1 refused automated reading, so its page couldn't be checked.");
+  });
+
+  it('names a site that refuses automated reading (a 403, or a bot-check page) and spends no screenshot on it', async () => {
+    const options = [{ id: 'a', name: 'Acme', facts: {}, left: ['Why people buy is quoted'] }];
+    const checks = ['Why people buy is quoted'];
+    const pending = { ok: true, keys: { c1: 'Why people buy is quoted' }, subjects: { acme: 'a' } };
+    for (const [body, status] of [['<p>Please enable JS and disable any ad blocker</p>', 403], ['<title>Just a moment...</title>', 200]] as const) {
+      server?.close();
+      const url = await page(body, status);
+      const web = { results: [{ subject: 'Acme', status: 'done', found: { c1: { value: 'met', source: url, quote: 'buy it to close the books in half the time' } } }] };
+      const out = await verify([], options, checks, { UPSTREAM_PENDING_RESULT: JSON.stringify(pending), UPSTREAM_WEB_RESULT: JSON.stringify(web) });
+      expect(out.verified).toMatchObject({ any_second_look: false, second_look: [], blocked: ['127.0.0.1'] });
+      expect(out.summary).toBe("0 checks met with a quote; 0 ruled out; 1 quote not found word for word, left open; 127.0.0.1 refused automated reading, so its page couldn't be checked.");
+    }
   });
 });
