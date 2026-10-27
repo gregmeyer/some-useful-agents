@@ -292,7 +292,8 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
     ctx.notebookPipelines ??= new Map();
     ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
-    void writeBriefing(ctx, store, nb.id, step).then((said) => { store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`); }).catch(() => undefined).finally(() => {
+    const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
+    void writeBriefing(ctx, store, nb.id, step, (runId) => store.addRunToPass(passId, runId)).then((said) => { store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`); store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`); }).catch(() => undefined).finally(() => {
       ctx.notebookPipelines?.delete(notebookId);
       reconcileStepCards(ctx, notebookId);
     });
@@ -329,7 +330,9 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
 
 /** A done profile step, once more: what it learned this time, said in the conversation. */
 async function lookAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<void> {
-  const notes = await learnAbout(ctx, store, notebookId, step);
+  const passId = store.startPass(notebookId, 'pipeline', undefined, { stepId: step.id });
+  const notes = await learnAbout(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
+  store.finishPass(passId, `${NOTEBOOK_RESEARCHER_ID}, again: ${sentenceOf(notes) || 'looked'}`);
   const words = notes.length ? `Looked again (**${step.title}**): ${notes.join('; ')}.` : `Looked again (**${step.title}**): sua's researcher didn't answer. Nothing changed.`;
   store.noteRun(notebookId, `${step.title}, again: ${words.replace(/\*\*/g, '')}`);
   const nb = store.get(notebookId);
@@ -346,7 +349,7 @@ async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step
   let nb = store.get(notebookId)!;
   const had = new Set(store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
   const p = stepProgress(nb, store.entries(nb.id, 1000), step);
-  const passId = store.startPass(nb.id, 'pipeline');
+  const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
   const running = ctx.notebookPipelines?.get(notebookId);
   const entries = store.entries(nb.id, 1000);
   const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: p.have + p.want, have: p.have, missing: [] }), (runId) => { if (running) running.runId = runId; });
@@ -402,7 +405,10 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   // A write step: sua's writer writes the talking points from what the notebook has (lib/notebook-write.ts); like a profile step, it runs whenever it's started (to write them again).
   if (step.kind === 'write') {
     const tries = step.tries + 1;
-    const wrote = await writeBriefing(ctx, store, notebookId, step);
+    // Its run is a pass of its own (How it was made shows it under the step).
+    const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
+    const wrote = await writeBriefing(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
+    store.finishPass(passId, `${NOTEBOOK_WRITER_ID}: ${sentenceOf(wrote) || 'wrote'}`);
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
@@ -411,7 +417,9 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   // A profile step: sua's researcher learns about who the notebook is about (lib/notebook-profile.ts).
   if (step.kind === 'profile') {
     const tries = step.tries + 1;
-    const learned = await learnAbout(ctx, store, notebookId, step);
+    const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
+    const learned = await learnAbout(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
+    store.finishPass(passId, `${NOTEBOOK_RESEARCHER_ID}: ${sentenceOf(learned) || 'looked'}`);
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
@@ -431,7 +439,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
   let noCloser = false;
   for (let i = 0; i < MAX_TRIES; i++) {
     tries++;
-    const passId = store.startPass(nb.id, 'pipeline');
+    const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
     const entries = store.entries(nb.id, 1000);
     // Stop (the header's, while it runs) reaches this run through its id.
     const running = ctx.notebookPipelines?.get(notebookId);
@@ -498,7 +506,7 @@ async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, st
   if (!withPage.length) {
     return finish(ctx, store, notebookId, { ...step, tries }, before, [`${agentId} reads an option's own page, and none of the options missing facts has one`], true, "Its agent reads each option's own page, and none of the options still missing facts has one.");
   }
-  const passId = store.startPass(nb.id, 'pipeline');
+  const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
   const running = ctx.notebookPipelines?.get(notebookId);
   let factsSet = 0;
   let read = 0;
