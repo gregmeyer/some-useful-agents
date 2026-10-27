@@ -7,7 +7,12 @@
 # notebook's check step (dashboard lib/notebook-steps.ts); never proposed in
 # triage.
 #
-#   judge (own facts, no web) ── pending ── web (research-fanout, 3 at once) ── verify
+#   judge (own facts, no web) ── pending ── web (research-fanout, 3 at once) ── verify ── look ── finish
+#
+# A quote that isn't on the page as downloaded (a page that needs a browser
+# to show its text) gets a second look: a screenshot of the page, read by a
+# model that can see it (look). One it sees there ticks the check, with the
+# screenshot kept as proof; a screenshot never rules an option out.
 #
 # Most checks are settled by an option's own facts and notes, so a model
 # judges those first with no tools. Only the checks still unknown go to the
@@ -265,6 +270,95 @@ nodes:
                     if canon.get(norm(str(c))) and (oid, canon[norm(str(c))]) not in tried)
       bits = [f"{n_ticked} check{'s' if n_ticked != 1 else ''} met with a quote", f"{len(out_reason)} ruled out"]
       if unknown: bits.append(f"{unknown} unknown")
-      if unconfirmed: bits.append(f"{unconfirmed} quote{'s' if unconfirmed != 1 else ''} not found word for word, left open")
-      print("<notebook>" + json.dumps({"facts": facts, "summary": "; ".join(bits) + "."}, ensure_ascii=False) + "</notebook>")
+      # A "met" whose quote wasn't on the downloaded page (only a page, not the
+      # notebook's own facts): a screenshot of the page gets a second look (look).
+      second = []
+      for v in verdicts:
+          o = options.get(str(v.get("id", "")))
+          check = canon.get(norm(str(v.get("check", ""))))
+          url = str(v.get("url") or "").strip()
+          if (o and check and str(v.get("verdict", "")).lower().strip() == "met" and (o["id"], check) in failed - confirmed
+                  and re.match(r"^https?://", url) and not any(x["id"] == o["id"] and x["check"] == check for x in second)):
+              second.append({"id": o["id"], "check": check, "quote": str(v.get("quote") or "")[:300], "url": url})
+      second = second[:4]
+      print(json.dumps({"ok": True, "facts": facts, "bits": bits, "unconfirmed": unconfirmed, "second_look": second, "any_second_look": bool(second)}, ensure_ascii=False))
+      PYEOF
+
+  # 5. A second look at the pages whose quote code couldn't find in their
+  #    downloaded text: a screenshot of each, read by a model that sees it.
+  - id: look
+    type: llm-prompt
+    dependsOn: [verify]
+    onlyIf: { upstream: verify, field: any_second_look, equals: true }
+    tools: [web-screenshot]
+    maxTurns: 8
+    timeout: 300
+    prompt: |
+      Code couldn't find these quotes in the text of their pages (some pages
+      only show their text in a browser). Look at each page yourself:
+
+      {{upstream.verify.second_look}}
+
+      For each item, call web-screenshot once with its url and full_page true,
+      then look at the picture(s). "seen" is true only when the page shows
+      the quote's words, or plainly states the same fact. When it doesn't,
+      or you couldn't see a picture, "seen" is false. "blocked" is true when
+      the picture shows the site refusing a browser (an access-denied,
+      "verify you are human" or bot-check page) instead of the page itself.
+      "shown" is the words
+      on the page that show it, as they appear (empty when not seen).
+      "proof" is the address the tool gave for the picture, exactly as it
+      wrote it (/runs/…/files/….png).
+
+      Reply with only this, as valid JSON:
+      <seen>
+      [{"i": 0, "seen": true, "blocked": false, "shown": "", "proof": "/runs/…/files/….png"}]
+      </seen>
+
+  # 6. What's kept: verify's ticks and rulings, plus each check the second
+  #    look saw on its page (ticked, with the screenshot as evidence).
+  - id: finish
+    type: shell
+    dependsOn: [verify, look]
+    onlyIf: { upstream: verify, field: ok, equals: true }
+    timeout: 30
+    command: |
+      python3 << 'PYEOF'
+      import json, re
+      from sua_helpers import upstream, last_json, tagged_json
+
+      v = last_json(upstream("VERIFY"), "ok") or {}
+      facts = {f["id"]: f for f in v.get("facts") or [] if isinstance(f, dict) and f.get("id")}
+      bits = list(v.get("bits") or [])
+      second = v.get("second_look") or []
+      seen = [x for x in tagged_json(upstream("LOOK"), "seen") or [] if isinstance(x, dict)]
+      entries, by_shot = [], 0
+      # Pages that refused the browser (a bot check): said, so it's clear why they stay open.
+      blocked = sorted({re.sub(r"^www\.", "", re.sub(r"^https?://([^/]+).*$", r"\1", second[x["i"]]["url"]))
+                        for x in seen if isinstance(x.get("i"), int) and 0 <= x["i"] < len(second) and x.get("blocked") is True})
+      for x in seen:
+          i = x.get("i")
+          if not isinstance(i, int) or not 0 <= i < len(second) or x.get("seen") is not True:
+              continue
+          item = second[i]
+          proof = str(x.get("proof") or "").strip()
+          if not re.match(r"^/runs/[A-Za-z0-9_-]+/files/[A-Za-z0-9_-]+\.png$", proof):
+              continue
+          f = facts.setdefault(item["id"], {"id": item["id"]})
+          if f.get("ruleOut") or item["check"] in f.get("checked", []):
+              continue
+          f.setdefault("checked", []).append(item["check"])
+          by_shot += 1
+          shown = " ".join(str(x.get("shown") or "").split())[:300]
+          entries.append({"kind": "evidence", "title": f'Seen on a screenshot: {item["check"]}'[:200],
+                          "body": f'{shown or item["quote"]} — {item["url"]} (screenshot: {proof})'[:1000]})
+      left = int(v.get("unconfirmed") or 0) - by_shot
+      bits = [b for b in bits if "not found word for word" not in b]
+      if by_shot:
+          bits.append(f"{by_shot} seen on a screenshot of the page")
+      if left > 0:
+          bits.append(f"{left} quote{'s' if left != 1 else ''} not found word for word, left open")
+      if blocked:
+          bits.append(f"{', '.join(blocked)} blocked a browser, so {'its page' if len(blocked) == 1 else 'their pages'} couldn't be checked by screenshot")
+      print("<notebook>" + json.dumps({"facts": list(facts.values()), "entries": entries, "summary": "; ".join(bits) + "."}, ensure_ascii=False) + "</notebook>")
       PYEOF
