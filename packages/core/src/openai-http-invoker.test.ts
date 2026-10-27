@@ -121,6 +121,34 @@ describe('invokeOpenAiChat', () => {
       expect(msgs.some((m) => m.role === 'tool' && m.content === '{"json_ld":[]}')).toBe(true);
     });
 
+    it('shows a tool\'s pictures to a model that can see images, after the tool results; tells one that can\'t', async () => {
+      const run = async (vision: boolean) => {
+        let post = 0;
+        const bodies: Array<Record<string, unknown>> = [];
+        const fetchImpl = (async (_url: string, init: RequestInit) => {
+          bodies.push(JSON.parse(String(init.body)));
+          post++;
+          if (post === 1) {
+            return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [
+              { id: 'call_1', type: 'function', function: { name: 'web-scrape', arguments: '{}' } },
+            ] } }] });
+          }
+          return jsonResponse(200, { choices: [{ message: { role: 'assistant', content: 'DONE' } }] });
+        }) as unknown as typeof fetch;
+        const onToolCall = async () => ({ content: 'Took a screenshot.', images: [{ data: 'aGk=', mimeType: 'image/jpeg' as const }] });
+        const r = await invokeOpenAiChat({ ...base, fetchImpl, tools, onToolCall, maxTurns: 5, vision });
+        expect(r.result).toBe('DONE');
+        return bodies[1].messages as Array<Record<string, unknown>>;
+      };
+      const seen = await run(true);
+      expect(seen.slice(-2)).toEqual([
+        { role: 'tool', tool_call_id: 'call_1', content: 'Took a screenshot.' },
+        { role: 'user', content: [{ type: 'text', text: 'The picture from web-scrape:' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,aGk=' } }] },
+      ]);
+      const blind = await run(false);
+      expect(blind.at(-1)).toEqual({ role: 'tool', tool_call_id: 'call_1', content: "Took a screenshot.\n\n(1 picture not shown: this model can't see images.)" });
+    });
+
     it('emits tool_use progress events (call + result) so the run record shows the round-trip', async () => {
       let post = 0;
       const fetchImpl = (async () => {

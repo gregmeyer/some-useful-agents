@@ -16,7 +16,7 @@ import { BoardConflictError, boardDocAgentIds, boardDocSystemTileIds, type Board
 import { applyBoardOps, describeBoardDoc } from './board-tree.js';
 import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
-import { screenshotWithBrowser } from './web-fetch/browser.js';
+import { screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js';
 import { saveRunFile } from './run-files.js';
 
 /**
@@ -579,7 +579,9 @@ const BUILTINS: BuiltinToolEntry[] = [
       const path = join(ctx.runFiles.dir, file);
       return {
         url: shot.finalUrl, title: shot.title, file, path, width: shot.width, height: shot.height, status: shot.status, error: null,
-        result: `Took a screenshot of ${shot.finalUrl}${shot.title ? ` ("${shot.title}")` : ''}: ${String(shot.width)}×${String(shot.height)}px, kept with the run as ${file} (/runs/${ctx.runFiles.runId}/files/${file}).`,
+        result: `Took a screenshot of ${shot.finalUrl}${shot.title ? ` ("${shot.title}")` : ''}: ${String(shot.width)}×${String(shot.height)}px, kept with the run as ${file} (/runs/${ctx.runFiles.runId}/files/${file}).${shot.views.length ? ` Attached: ${shot.views.length === 1 ? 'the page as it shows' : `the top of the page in ${String(shot.views.length)} pictures, in order`}${shot.views.length * SHOT_VIEW_HEIGHT < shot.height ? ` (the first ${String(shot.views.length * SHOT_VIEW_HEIGHT)}px)` : ''}.` : ''}`,
+        // The model looks at these (if it can see images); they aren't kept as outputs.
+        images: shot.views.map((v) => ({ data: v.toString('base64'), mimeType: 'image/jpeg' as const })),
       };
     },
   ),

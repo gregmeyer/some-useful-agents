@@ -8,7 +8,7 @@
  * here (never the reverse), keeping this file free of executor/store dependencies.
  */
 import { getBuiltinTool, isBuiltinTool } from './builtin-tools.js';
-import type { ToolDefinition, ToolFieldType } from './tool-types.js';
+import type { ToolDefinition, ToolFieldType, ToolImage } from './tool-types.js';
 
 /** OpenAI `tools[]` entry (function-calling). */
 export interface OpenAiTool {
@@ -29,6 +29,8 @@ export interface OpenAiTool {
 export interface ToolCallResult {
   content: string;
   isError?: boolean;
+  /** Pictures for the model (see ToolOutput.images), capped by the dispatcher. */
+  images?: ToolImage[];
 }
 
 /** (name, JSON-encoded args) → result content the loop feeds back to the model. */

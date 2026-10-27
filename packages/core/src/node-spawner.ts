@@ -1526,6 +1526,7 @@ async function runLlmAttemptInner(
     return invokeOpenAiChat({
       apiBase: custom.apiBase,
       apiKey: custom.apiKey,
+      vision: custom.vision === true,
       // A node may pin a different model on the same endpoint; else use the
       // provider's configured model.
       model: node.model ?? custom.model,

@@ -3,7 +3,7 @@ import type { ToolStore } from './tool-store.js';
 import type { ToolDefinition } from './tool-types.js';
 import type { PolicyDocument } from './policy-store.js';
 import { mangleToolName } from './llm-tools.js';
-import { resolveExposedToolDefs, buildToolExecutor } from './llm-tool-dispatch.js';
+import { resolveExposedToolDefs, buildToolExecutor, toolImages, MAX_TOOL_IMAGES, MAX_TOOL_IMAGE_BYTES } from './llm-tool-dispatch.js';
 
 // Mock the MCP client so MCP dispatch is exercised without a real server.
 vi.mock('./mcp-client.js', () => ({
@@ -85,6 +85,14 @@ describe('buildToolExecutor', () => {
     const r = await exec('json-parse', JSON.stringify({ text: '{"k":1}' }));
     expect(r.isError).toBeFalsy();
     expect(r.content).toContain('"k"');
+  });
+
+  it('keeps a tool\'s pictures apart from its text: a few, well-formed and small, never stringified into the result', async () => {
+    const big = 'x'.repeat(MAX_TOOL_IMAGE_BYTES + 1);
+    expect(toolImages([{ data: 'aGk=', mimeType: 'image/jpeg' }, { data: big, mimeType: 'image/png' }, { data: 'aGk=', mimeType: 'text/html' }, null, { data: '' }]))
+      .toEqual([{ data: 'aGk=', mimeType: 'image/jpeg' }]);
+    expect(toolImages(Array.from({ length: 9 }, () => ({ data: 'aGk=', mimeType: 'image/png' })))).toHaveLength(MAX_TOOL_IMAGES);
+    expect(toolImages(undefined)).toEqual([]);
   });
 
   it('translates a mangled function name to the real MCP id and dispatches it', async () => {

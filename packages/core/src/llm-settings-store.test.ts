@@ -203,13 +203,16 @@ describe('LlmSettingsStore (custom OpenAI-compatible providers)', () => {
         providers: ['claude'],
         customProviders: [
           { name: 'ok', kind: 'openai', apiBase: 'http://x/v1', model: 'm' },
+          { name: 'sees', kind: 'openai', apiBase: 'http://x/v1', model: 'm', vision: true },
           { name: 'bad-kind', kind: 'anthropic', apiBase: 'http://x/v1', model: 'm' },
           { name: 'missing-model', kind: 'openai', apiBase: 'http://x/v1' },
         ],
       },
     }));
     const s = new LlmSettingsStore(path).get();
-    expect(s.customProviders?.map((c) => c.name)).toEqual(['ok']);
+    expect(s.customProviders?.map((c) => c.name)).toEqual(['ok', 'sees']);
+    // Only a model marked able to read images gets tools' pictures.
+    expect(s.customProviders?.map((c) => c.vision)).toEqual([undefined, true]);
   });
 });
 
