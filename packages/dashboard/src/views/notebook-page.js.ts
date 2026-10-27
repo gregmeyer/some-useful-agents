@@ -106,16 +106,27 @@ export const NOTEBOOK_PAGE_JS = `
       var form = ta.form;
       if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
     });
-    // A brief opens (or is saved) in the mode you use the dashboard in: its links carry it.
-    document.addEventListener('click', function (e) {
-      var a = e.target && e.target.closest ? e.target.closest('a[href*="/brief.html"]') : null;
-      if (!a) return;
+    // A brief opens (or is saved) in the mode you use the dashboard in: its links carry it,
+    // set on load and again as you press one (any button: a middle-click or Open in new
+    // tab too), so a switch of mode since is followed.
+    function briefMode() {
       var mode = 'dark';
       try { if (localStorage.getItem('sua-theme') === 'light') mode = 'light'; } catch (_) { /* dark */ }
+      return mode;
+    }
+    function markBriefLink(a) {
       var u = new URL(a.getAttribute('href'), location.href);
-      u.searchParams.set('theme', mode);
+      u.searchParams.set('theme', briefMode());
       a.setAttribute('href', u.pathname + u.search);
-    }, true);
+    }
+    var briefLinks = document.querySelectorAll('a[href*="/brief.html"]');
+    for (var bi = 0; bi < briefLinks.length; bi++) markBriefLink(briefLinks[bi]);
+    ['mousedown', 'click', 'auxclick', 'contextmenu', 'focusin'].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[href*="/brief.html"]') : null;
+        if (a) markBriefLink(a);
+      }, true);
+    });
     // An option's own page: its checklist saves the tick, then the page reloads.
     var optionPage = document.querySelector('[data-nb-option]');
     if (optionPage) {
