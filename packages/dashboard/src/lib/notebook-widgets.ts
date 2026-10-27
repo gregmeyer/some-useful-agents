@@ -185,7 +185,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** The company's competitors as table rows (link cells: {label, url}). */
     competitors: Array<{ competitor: { label: string; url?: string }; how: string; source?: { label: string; url: string } }>;
     /** The person's other companies as table rows (link cells), with any a settled conflict set aside. */
-    affiliations: Array<{ company: { label: string; url?: string }; role: string; source?: { label: string; url: string } }>;
+    affiliations: Array<{ company: { label: string; url?: string }; role: string; what: string; source?: { label: string; url: string } }>;
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -365,6 +365,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       affiliations: notebookAffiliations(nb).map((a) => ({
         company: { label: a.name, ...(a.website ? { url: a.website } : {}) },
         role: a.role ?? '',
+        what: [a.what, a.industry, a.stage].filter(Boolean).join(' · '),
         ...(a.source ? { source: { label: ((): string => { try { return new URL(a.source!).hostname.replace(/^www\./, ''); } catch { return a.source!; } })(), url: a.source } } : {}),
       })),
       competitors: (nb.about?.company?.competitors ?? []).map((c) => ({

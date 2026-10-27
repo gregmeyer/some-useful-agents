@@ -133,6 +133,7 @@ export const AFFILIATIONS_TABLE: ViewComponent = {
   columns: [
     { key: 'company', label: 'Company', format: 'link' },
     { key: 'role', label: 'Their role' },
+    { key: 'what', label: 'What it does' },
     { key: 'source', label: 'Said on', format: 'link' },
   ],
 };
@@ -639,7 +640,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/otherQuotes': 'The quotes after that one (QuoteList items, when the pull quote is shown).',
   '/notebook/personFacts': 'What was learned about the person only (FactSheet facts beside their cover).',
   '/notebook/companyFacts': 'What was learned about their company only (FactSheet facts beside its card).',
-  '/notebook/affiliations': 'The other companies the person leads, founded or works with, each {company: {label, url?}, role, source: {label, url}} (Table rows; link columns).',
+  '/notebook/affiliations': 'The other companies the person leads, founded or works with, each {company: {label, url?}, role, what (what it does, its industry and stage), source: {label, url}} (Table rows; link columns).',
   '/notebook/competitors': 'The company\'s competitors, each {competitor: {label, url?}, how, source: {label, url}} (Table rows: the competitor linked to its site, how it competes, the page that names it; link columns).',
   '/notebook/shortlistNote': 'How the shortlist is ranked.',
   '/notebook/limitsNote': 'How many limits disagree.',

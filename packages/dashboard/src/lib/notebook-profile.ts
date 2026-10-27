@@ -8,6 +8,7 @@
  * company's logo from its own site. Those feed ProfileCard and FactSheet
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
+import { notebookAffiliations } from './notebook-widgets.js';
 import { NotebookStore, type NotebookAboutOne, cleanAffiliations, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -217,6 +218,63 @@ async function keepPicture(ctx: Ctx, store: NotebookStore, nb: Notebook, who: No
   return undefined;
 }
 
+/** What a quick look at one of a person's other companies asks. */
+export const OTHER_COMPANY_ASK: readonly Ask[] = [
+  { key: 'what_they_do', label: 'What they do', hint: 'one sentence' },
+  { key: 'website', label: 'Website', hint: 'its own site, https://…' },
+  { key: 'industry', label: 'Industry', hint: 'the market it is in, a few words' },
+  { key: 'stage', label: 'Stage or size', hint: 'funding stage, or roughly how many people, when a page says' },
+];
+/** At most this many of a person's other companies get a quick look, this many at once. */
+const OTHER_LOOKS = 5;
+const OTHER_AT_ONCE = 3;
+
+/**
+ * A quick look at each of a person's other companies not looked at yet (one
+ * research-one run each, three at a time): what it does, its site, industry
+ * and stage, kept on the company with the page they came from. Returns how
+ * many it looked at; never throws.
+ */
+export async function lookAtOtherCompanies(ctx: Ctx, store: NotebookStore, notebookId: string, person: string, onRun?: (runId: string) => void): Promise<number> {
+  const nb = store.get(notebookId);
+  if (!nb?.about?.person) return 0;
+  const all = notebookAffiliations(nb);
+  const todo = all.filter((a) => !a.what).slice(0, OTHER_LOOKS);
+  if (!todo.length) return 0;
+  const found = new Map<string, Found>();
+  for (let i = 0; i < todo.length; i += OTHER_AT_ONCE) {
+    await Promise.all(todo.slice(i, i + OTHER_AT_ONCE).map(async (a) => {
+      try {
+        const r = await research(ctx, {
+          SUBJECT: `${a.name}${a.website ? ` (${a.website})` : ''}`,
+          ASK: JSON.stringify(OTHER_COMPANY_ASK),
+          CONTEXT: `A company ${person} is ${a.role ? `${a.role} of` : 'connected with'}${a.source ? ` (${a.source} says so)` : ''}. Make sure a page is about this company, not another of the same name.`,
+          DEPTH: 'quick',
+        });
+        if (r.runId) onRun?.(r.runId);
+        const f = readResearch(r.result);
+        if (f) found.set(a.name, f);
+      } catch { /* a company it couldn't look at stays as it was */ }
+    }));
+  }
+  if (!found.size) return 0;
+  const src = (f: Found) => ['what_they_do', 'industry', 'stage'].map((k) => f.found[k]?.source).find((x): x is string => typeof x === 'string');
+  const next = all.map((a) => {
+    const f = found.get(a.name);
+    if (!f) return a;
+    return {
+      ...a,
+      ...(text(f, 'what_they_do') ? { what: text(f, 'what_they_do') } : {}),
+      ...(!a.website && /^https?:\/\//i.test(text(f, 'website')) ? { website: text(f, 'website') } : {}),
+      ...(text(f, 'industry') ? { industry: text(f, 'industry') } : {}),
+      ...(text(f, 'stage') ? { stage: text(f, 'stage') } : {}),
+      ...(src(f) ? { factsSource: src(f) } : {}),
+    };
+  });
+  store.setAbout(notebookId, 'person', { facts: [], affiliations: next });
+  return found.size;
+}
+
 /**
  * Learn about who the notebook is about. Returns notes for the step's log
  * (each research run, what was kept); never throws.
@@ -246,6 +304,9 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     const others = cleanAffiliations([...also, ...(Array.isArray(person.found.other_companies?.value) ? person.found.other_companies.value : [])], mainOrg);
     store.setAbout(nb.id, 'person', { name: subject, facts: kept, notFound, ...(person.summary ? { summary: person.summary } : {}), ...(others.length ? { affiliations: others } : {}) });
     if (others.length) notes.push(`found ${String(others.length)} other compan${others.length === 1 ? 'y' : 'ies'} of theirs`);
+    // A quick look at each other company not looked at yet: what it does, its industry and stage.
+    const looked = await lookAtOtherCompanies(ctx, store, nb.id, subject, onRun);
+    if (looked) notes.push(`looked at ${String(looked)} of their other compan${looked === 1 ? 'y' : 'ies'}`);
     notes.push(`learned ${String(facts.length)} about ${subject}`);
     const photo = await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);
     const pic = photo ? await keepPicture(ctx, store, nb, 'person', { photo }) : undefined;
