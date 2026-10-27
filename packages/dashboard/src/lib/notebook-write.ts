@@ -43,7 +43,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       // Its competitors, named on a page, with how each competes.
       ...(one.competitors?.length ? { competitors: one.competitors.map((c) => `${c.name}${c.how ? `: ${c.how}` : ''}`) } : {}),
       // A person's other companies (and any a settled conflict set aside).
-      ...(who === 'person' && notebookAffiliations(nb).length ? { otherCompanies: notebookAffiliations(nb).map((a) => `${a.name}${a.role ? ` (${a.role})` : ''}`) } : {}),
+      ...(who === 'person' && notebookAffiliations(nb).length ? { otherCompanies: notebookAffiliations(nb).map((a) => `${a.name}${a.role ? ` (${a.role})` : ''}${a.what ? `: ${a.what}` : ''}`) } : {}),
     } : undefined;
   };
   const themes = options.map((o) => {

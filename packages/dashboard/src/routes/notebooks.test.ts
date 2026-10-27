@@ -2728,14 +2728,17 @@ describe('a profile step', () => {
     for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
 
     const after = store.get(nb.id)!;
-    expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Dana Reyes', 'Northwind']);
+    // Them, a quick look at each other company of theirs, then their company.
+    expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Dana Reyes', 'Freight Founders (https://freightfounders.example)', 'Northwind']);
     expect(JSON.parse(researchAsked[0].ASK).map((a: { key: string }) => a.key)).toContain('photo_url');
+    expect(researchAsked[1]).toMatchObject({ DEPTH: 'quick', CONTEXT: expect.stringContaining('A company Dana Reyes is co-founder of') });
+    expect(JSON.parse(researchAsked[1].ASK).map((a: { key: string }) => a.key)).toEqual(['what_they_do', 'website', 'industry', 'stage']);
     expect(after.steps![0]).toMatchObject({ status: 'met', note: '4 of 4 facts learned' });
     expect(after.about!.person!.facts.map((f) => f.key)).toEqual(['role', 'organization', 'company_website', 'known_for', 'linkedin']);
     expect(after.about!.person!.facts[0]).toMatchObject({ value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' });
     expect(after.about!.person!.notFound).toEqual(['Based in']);
     // Their other companies: a list of its own (not a fact), never their main one.
-    expect(after.about!.person!.affiliations).toEqual([{ name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about' }]);
+    expect(after.about!.person!.affiliations).toEqual([{ name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about', what: 'Freight software' }]);
     expect(after.about!.company).toMatchObject({ name: 'Northwind', notFound: ['Stage'] });
     expect(fetched).toEqual(['https://northwind.example/dana.png', 'https://northwind.example/apple-touch-icon.png']);
     expect(checked[0]).toBe('https://northwind.example/team|https://northwind.example/dana.png');

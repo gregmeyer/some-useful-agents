@@ -152,6 +152,14 @@ export interface NotebookAffiliation {
   website?: string;
   /** The page that says so (http/https). */
   source?: string;
+  /** What it does, in a sentence (a quick look at it). */
+  what?: string;
+  /** The market it's in, a few words. */
+  industry?: string;
+  /** Its stage or size ("seed", "about 40 people"). */
+  stage?: string;
+  /** The page those came from (http/https). */
+  factsSource?: string;
 }
 
 export interface NotebookAboutOne {
@@ -234,7 +242,12 @@ export function cleanAffiliations(raw: unknown, main = ''): NotebookAffiliation[
     const role = line(o.role, 60);
     const website = url(o.website ?? o.url);
     const source = url(o.source);
-    out.push({ name, ...(role ? { role } : {}), ...(website ? { website } : {}), ...(source ? { source } : {}) });
+    const what = line(o.what, 200);
+    const industry = line(o.industry, 80);
+    const stage = line(o.stage, 80);
+    const factsSource = url(o.factsSource);
+    out.push({ name, ...(role ? { role } : {}), ...(website ? { website } : {}), ...(source ? { source } : {}),
+      ...(what ? { what } : {}), ...(industry ? { industry } : {}), ...(stage ? { stage } : {}), ...(factsSource ? { factsSource } : {}) });
     if (out.length === MAX_AFFILIATIONS) break;
   }
   return out;

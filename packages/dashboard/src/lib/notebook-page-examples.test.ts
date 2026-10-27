@@ -281,5 +281,18 @@ describe('a person\'s other companies, on the page', () => {
     expect(brief).toContain('<a href="https://openaccess.example">Open Access Ventures</a>');
     expect(brief).toContain('<a href="https://www.linkedin.com/posts/gelley">linkedin.com</a>');
     expect(writerInputs(got, [], {}).NOTEBOOK).toContain('"otherCompanies":["Open Access Ventures (CEO)","Arrive"]');
+
+    // A quick look at each one it hasn't looked at (Arrive, from the conflict, too); one already looked at isn't looked again.
+    const { lookAtOtherCompanies } = await import('./notebook-profile.js');
+    s.setAbout(nb.id, 'person', { facts: [], affiliations: [{ name: 'Open Access Ventures', role: 'CEO', website: 'https://openaccess.example', what: 'Backs founders' }, { name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }] });
+    const asked: string[] = [];
+    const ctx = { notebookResearchRun: async (inputs: Record<string, string>) => { asked.push(inputs.SUBJECT); return JSON.stringify({ found: { what_they_do: { value: 'Software for accounting firms', source: 'https://arrive.example' }, industry: { value: 'Accounting software' }, website: { value: 'https://arrive.example' } }, not_found: ['stage'] }); } } as never;
+    expect(await lookAtOtherCompanies(ctx, s, nb.id, 'Steven Gelley')).toBe(1);
+    expect(asked).toEqual(['Arrive']);
+    const arrive = s.get(nb.id)!.about!.person!.affiliations!.find((a) => a.name === 'Arrive');
+    expect(arrive).toEqual({ name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley', what: 'Software for accounting firms', website: 'https://arrive.example', industry: 'Accounting software', factsSource: 'https://arrive.example' });
+    expect(await lookAtOtherCompanies(ctx, s, nb.id, 'Steven Gelley')).toBe(0);
+    const brief2 = renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s });
+    expect(brief2).toContain('Software for accounting firms · Accounting software');
   });
 });
