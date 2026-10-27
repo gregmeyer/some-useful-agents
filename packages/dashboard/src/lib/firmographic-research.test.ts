@@ -73,3 +73,25 @@ describe('firmographic-research', () => {
     expect(out.summary_stats[1]).toMatchObject({ label: 'Researched', value: 1, tone: 'warn' });
   });
 });
+
+describe('firmographic-research: industry and competitors', () => {
+  it('asks for them, and keeps competitors as a list (each once, never the company) and as a CSV cell', () => {
+    const ask = JSON.parse(agent.nodes.find((n) => n.id === 'research')!.agentInvokeConfig!.inputMapping!.ASK as string) as Array<{ key: string }>;
+    expect(ask.map((a) => a.key)).toEqual(['website', 'value_offered', 'why_buy', 'revenue', 'employees', 'founded', 'industry', 'competitors']);
+    const out = run('records', {
+      UPSTREAM_LIST_RESULT: JSON.stringify({ selected_companies: ['Arrive', 'Vena'], omitted_companies: '' }),
+      UPSTREAM_RESEARCH_RESULT: JSON.stringify({ results: [
+        { status: 'done', found: {
+          industry: { value: 'Accounting software', source: 'https://cb.example/arrive' },
+          competitors: { value: [{ name: 'Karbon', website: 'https://karbonhq.com', how: 'Practice management' }, { name: 'Arrive' }, 'Xero', { name: 'karbon' }], source: 'https://g2.example/alt' },
+        } },
+        { status: 'done', found: {} },
+      ] }),
+    });
+    expect(out.companies[0]).toMatchObject({
+      industry: 'Accounting software', competitors: 'Karbon; Xero',
+      competitor_list: [{ name: 'Karbon', website: 'https://karbonhq.com', how: 'Practice management', source: 'https://g2.example/alt' }, { name: 'Xero', source: 'https://g2.example/alt' }],
+    });
+    expect(out.companies[1]).toMatchObject({ industry: 'not found', competitors: 'not found', competitor_list: [] });
+  });
+});

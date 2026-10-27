@@ -2859,7 +2859,8 @@ describe('a profile step', () => {
 
     researchReply = (inputs) => JSON.stringify(inputs.ASK.includes('photo_url')
       ? { found: { kind: { value: 'company' }, website: { value: 'https://acme.example' } } }
-      : { found: { what_they_do: { value: 'Warehouse robots' }, website: { value: 'https://acme.example' }, size: { value: '80' }, founded: { value: '2019' }, headquarters: { value: 'Austin' } } });
+      : { found: { what_they_do: { value: 'Warehouse robots' }, website: { value: 'https://acme.example' }, size: { value: '80' }, founded: { value: '2019' }, headquarters: { value: 'Austin' },
+        competitors: { value: [{ name: 'Locus Robotics', website: 'https://locusrobotics.com', how: 'Warehouse picking robots' }, { name: 'Acme Robotics' }], source: 'https://g2.example/acme-alternatives' } } });
     researchAsked.length = 0;
     startNotebookStep(ctx, nb.id);
     for (let i = 0; i < 200 && store.get(nb.id)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 25));
@@ -2867,6 +2868,8 @@ describe('a profile step', () => {
     expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Acme Robotics', 'Acme Robotics']);
     expect(after.about!.person).toBeUndefined();
     expect(after.about!.company!.facts.map((f) => f.key)).toEqual(['what_they_do', 'website', 'size', 'founded', 'headquarters']);
+    // Its competitors are their own list (not a fact), never the company itself, each with the page that names it.
+    expect(after.about!.company!.competitors).toEqual([{ name: 'Locus Robotics', website: 'https://locusrobotics.com', how: 'Warehouse picking robots', source: 'https://g2.example/acme-alternatives' }]);
     // A company alone is looked up thoroughly, for its industry, model and competitors too.
     const asked = researchAsked[1];
     expect(asked.DEPTH).toBe('thorough');

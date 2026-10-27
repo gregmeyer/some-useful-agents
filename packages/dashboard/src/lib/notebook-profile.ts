@@ -8,7 +8,7 @@
  * company's logo from its own site. Those feed ProfileCard and FactSheet
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
-import { NotebookStore, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
+import { NotebookStore, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { defaultLogoDeps, findLogo } from './notebook-logos.js';
@@ -40,7 +40,7 @@ export const COMPANY_ASK: readonly Ask[] = [
   { key: 'website', label: 'Website', hint: 'its own site, https://…' },
   { key: 'industry', label: 'Industry', hint: 'the market it is in, a few words ("accounting software")' },
   { key: 'business_model', label: 'Business model', hint: 'how it makes money and from whom, one sentence' },
-  { key: 'competitors', label: 'Competitors', hint: '3 to 5 companies named as its competitors or alternatives, comma separated, from one page that names them (a comparison, an alternatives list, an analyst page)' },
+  { key: 'competitors', label: 'Competitors', hint: 'up to 5 companies a page names as its competitors or alternatives (a comparison, an alternatives list, an analyst or review page), as a list: [{"name": "…", "website": "https://…", "how": "how it competes, one line", "source": "the page that names it"}]' },
   { key: 'size', label: 'Size', hint: 'employees, roughly' },
   { key: 'revenue', label: 'Revenue', hint: 'annual revenue with its year, or an estimate said as one' },
   { key: 'stage', label: 'Stage', hint: 'funding stage and latest round, or public' },
@@ -50,7 +50,8 @@ export const COMPANY_ASK: readonly Ask[] = [
 ];
 
 /** Keys that steer the step, not facts to show. */
-const NOT_FACTS = new Set(['kind', 'photo_url']);
+// competitors are a list of their own (the company's competitors), not a fact.
+const NOT_FACTS = new Set(['kind', 'photo_url', 'competitors']);
 
 interface Found { found: Record<string, { value?: unknown; source?: unknown; quote?: unknown }>; notFound: string[]; summary?: string }
 
@@ -226,7 +227,10 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     const c = readResearch(second.result);
     if (c) {
       const { facts, notFound } = aboutFrom(c, COMPANY_ASK);
-      store.setAbout(nb.id, 'company', { name: company.name, facts, notFound, ...(c.summary ? { summary: c.summary } : {}) });
+      // Its competitors: their own list, each from the page that names it (the answer's page for any that don't say).
+      const rivals = cleanCompetitors(c.found.competitors?.value, company.name, typeof c.found.competitors?.source === 'string' ? c.found.competitors.source : undefined);
+      store.setAbout(nb.id, 'company', { name: company.name, facts, notFound, ...(c.summary ? { summary: c.summary } : {}), ...(rivals.length ? { competitors: rivals } : {}) });
+      if (rivals.length) notes.push(`named ${String(rivals.length)} competitor${rivals.length === 1 ? '' : 's'}`);
       notes.push(`learned ${String(facts.length)} about ${company.name}`);
       const pic = await keepPicture(ctx, store, nb, 'company', { site: text(c, 'website') || company.site });
       if (pic) notes.push(`kept its ${pic}`);

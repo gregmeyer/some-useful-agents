@@ -49,6 +49,8 @@ view:
           label: Revenue USD
         - key: employees
           label: Employees
+        - key: competitors
+          label: Competitors
         - key: fit
           label: Fit
         - key: confidence
@@ -218,7 +220,7 @@ nodes:
         CONTEXT: "Source priority: {{inputs.SOURCE_PRIORITY}}. Match the company's website and description before using a page; if same-named companies remain ambiguous, put every key under not_found and say which candidates in the note. Never substitute a different company."
         DEPTH: "{{inputs.DEPTH}}"
         MAX_ITEMS: "20"
-        ASK: '[{"key":"website","label":"Website","hint":"its own site, a full https address"},{"key":"value_offered","label":"Value offered","hint":"what it sells and to whom, one sentence"},{"key":"why_buy","label":"Why buy","hint":"why its customers buy it, one sentence"},{"key":"revenue","label":"Revenue (USD)","hint":"annual revenue as a plain number; a range as {min, max}; say the year and basis in the quote"},{"key":"employees","label":"Employees","hint":"headcount as a plain number; a range as {min, max}; a \"1,000+\" figure as its number"},{"key":"founded","label":"Founded","hint":"the year"}]'
+        ASK: '[{"key":"website","label":"Website","hint":"its own site, a full https address"},{"key":"value_offered","label":"Value offered","hint":"what it sells and to whom, one sentence"},{"key":"why_buy","label":"Why buy","hint":"why its customers buy it, one sentence"},{"key":"revenue","label":"Revenue (USD)","hint":"annual revenue as a plain number; a range as {min, max}; say the year and basis in the quote"},{"key":"employees","label":"Employees","hint":"headcount as a plain number; a range as {min, max}; a \"1,000+\" figure as its number"},{"key":"founded","label":"Founded","hint":"the year"},{"key":"industry","label":"Industry","hint":"the market it is in, a few words"},{"key":"competitors","label":"Competitors","hint":"up to 5 companies a page names as its competitors or alternatives (a comparison, alternatives list, analyst or review page), as a list: [{\"name\": \"…\", \"website\": \"https://…\", \"how\": \"how it competes, one line\", \"source\": \"the page that names it\"}]"}]'
 
   # 4. Records from what the research found: code, so every value is one it
   #    sourced. Ranges become midpoints and "+" figures their number; the
@@ -252,6 +254,26 @@ nodes:
               return int((values[0] + values[1]) / 2)
           return int(values[0])
 
+      def rivals(entry, self_name):
+          """Its competitors as a list (each named once, never itself), from the page that names them."""
+          value = (entry or {}).get("value")
+          page = (entry or {}).get("source") or ""
+          items = value if isinstance(value, list) else re.split(r"[,;\n]", value) if isinstance(value, str) else []
+          out, seen = [], {self_name.strip().lower()}
+          for x in items:
+              o = x if isinstance(x, dict) else {"name": x}
+              name = re.sub(r"^(and|or)\s+", "", str(o.get("name") or "").strip(), flags=re.I).rstrip(".")[:60]
+              if not name or name.lower() in seen:
+                  continue
+              seen.add(name.lower())
+              url = lambda v: v.strip()[:500] if isinstance(v, str) and v.strip().startswith(("http://", "https://")) else ""
+              c = {"name": name}
+              if url(o.get("website")): c["website"] = url(o.get("website"))
+              if str(o.get("how") or "").strip(): c["how"] = " ".join(str(o["how"]).split())[:160]
+              if url(o.get("source")) or url(page): c["source"] = url(o.get("source")) or url(page)
+              out.append(c)
+          return out[:6]
+
       plan = json.loads(upstream("LIST"))
       fan = last_json(upstream("RESEARCH"), "results") or {}
       results = fan.get("results") or []
@@ -268,7 +290,11 @@ nodes:
               if s and s not in urls:
                   urls.append(s)
           row = {"company": name, "website": text("website"), "value_offered": text("value_offered"), "why_buy": text("why_buy"),
-                 "founded": text("founded")[:4] if re.match(r"^\d{4}", text("founded")) else text("founded")}
+                 "founded": text("founded")[:4] if re.match(r"^\d{4}", text("founded")) else text("founded"),
+                 "industry": text("industry")}
+          # Competitors: a list (competitor_list) and a CSV cell ("A; B; C").
+          row["competitor_list"] = rivals(found.get("competitors"), name)
+          row["competitors"] = "; ".join(c["name"] for c in row["competitor_list"]) or "not found"
           for key in ("revenue", "employees"):
               orig = (found.get(key) or {}).get("value")
               row[key] = number(orig)
@@ -342,7 +368,7 @@ nodes:
           if r["status"] != "done":
               fit = 0
           conf = s.get("confidence") if s.get("confidence") in ("low", "medium", "high") else "low"
-          row = {k: r[k] for k in ("company", "website", "value_offered", "why_buy", "revenue", "employees", "founded")}
+          row = {k: r[k] for k in ("company", "website", "value_offered", "why_buy", "revenue", "employees", "founded", "industry", "competitors", "competitor_list")}
           row.update({"fit": fit, "confidence": conf, "source_urls": r["source_urls"],
                       "conflicts": " ".join(x for x in [r["conflicts"], f"Fit: {str(s['why']).strip().rstrip('.')}." if s.get("why") else ""] if x)})
           rows.append(row)
