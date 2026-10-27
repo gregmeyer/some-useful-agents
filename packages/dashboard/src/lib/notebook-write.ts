@@ -21,6 +21,12 @@ type Ctx = ReturnType<typeof getContext>;
 
 const text = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : typeof v === 'number' ? String(v) : '');
 
+/** Whole days from today to a meeting's date, both as local dates (not UTC: an evening isn't tomorrow). */
+export function daysUntil(when: string, now = new Date()): number {
+  const [y, m, d] = when.split('T')[0].split('-').map(Number);
+  return Math.round((new Date(y, m - 1, d).getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000);
+}
+
 /** What the writer reads: the notebook (what it's for, who it's about) and its themes (what they said, each with its id). Pure. */
 export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>): Record<string, string> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
@@ -55,7 +61,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   // The meeting it prepares for: when (and how soon), your goal, what you know.
   const m = nb.meeting;
   const meeting = m ? {
-    ...(m.when ? { when: m.when, daysAway: Math.round((Date.parse(m.when.split('T')[0]) - Date.parse(new Date().toISOString().slice(0, 10))) / 86_400_000) } : {}),
+    ...(m.when ? { when: m.when, daysAway: daysUntil(m.when) } : {}),
     ...(m.goal ? { goal: m.goal } : {}), ...(m.notes ? { notes: m.notes } : {}),
   } : undefined;
   return {

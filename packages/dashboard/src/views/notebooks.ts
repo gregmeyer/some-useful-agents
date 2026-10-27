@@ -244,6 +244,34 @@ export function conflictLine(nb: Notebook, checking = false): SafeHtml {
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
 
 /**
+ * What a step offers you, once it's run (the step strip, and the folded
+ * steps line): Search again, Look again, Write again (and Edit the points),
+ * Check or Source the top N when it came out short, and Narrow or Pick when
+ * it's yours and current. Nothing while the notebook is working.
+ */
+function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof stepProgress>, 'met' | 'have' | 'want'>, o: { running: boolean; current?: NotebookStep; inRunning: number; focus: number }): SafeHtml {
+  const { running, current, inRunning, focus } = o;
+  return html`
+  ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
+    ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
+    : html``}
+  ${!running && nb.status === 'active' && step.kind === 'find' && (step.status === 'done' || step.status === 'met')
+    ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Run this step's search once more for new ones; the notebook keeps the ones it has">Search again →</button></form>`
+    : html``}
+  ${!running && nb.status === 'active' && step.kind === 'profile' && (step.status === 'done' || step.status === 'met')
+    ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
+    : html``}
+  ${!running && nb.status === 'active' && step.kind === 'write' && (step.status === 'done' || step.status === 'met')
+    ? step.shape === 'answer' || step.shape === 'plan'
+      ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the ${step.shape} once more, from what the notebook has now; this one is replaced">${step.shape === 'plan' ? 'Plan again' : 'Answer again'} →</button></form>`
+      : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="${nb.briefing?.by === 'you' ? 'Write the talking points once more, from what the notebook has now; your edits are replaced' : 'Write the talking points once more, from what the notebook has now; these are replaced'}">Write again →</button></form>${nb.briefing?.points.length ? html`<a class="nb-step__focus-btn" href="/notebooks/${encodeURIComponent(nb.id)}/talking-points" title="Reword, reorder, remove or add talking points">Edit the points →</a>` : html``}`
+    : html``}
+  ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
+    ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
+    : html``}`;
+}
+
+/**
  * The notebook's work in steps: each with its agent, how far it is toward
  * its goal ("8 of 10 found") and where it stands. The step being worked on
  * (the first not done) is marked; what it still needs is its tooltip.
@@ -282,23 +310,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
           <span class="nb-step__meta"><span class="nb-step__count">${progress}${step.top ? ` · top ${String(step.top)}` : ''}</span><span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
           ${step.why && step.movedOn ? html`<span class="nb-step__why" title="${step.why}">${step.why}</span>` : html``}
-          ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
-            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/top" class="nb-step__focus"><input type="hidden" name="top" value="${String(focus)}"><button type="submit" class="nb-step__focus-btn" title="Work on this step again for just the best ${String(focus)} of the ${String(inRunning)} in the running">${step.kind === 'check' ? 'Check' : 'Source'} the top ${String(focus)} →</button></form>`
-            : html``}
-          ${!running && nb.status === 'active' && step.kind === 'find' && (step.status === 'done' || step.status === 'met')
-            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Run this step's search once more for new ones; the notebook keeps the ones it has">Search again →</button></form>`
-            : html``}
-          ${!running && nb.status === 'active' && step.kind === 'profile' && (step.status === 'done' || step.status === 'met')
-            ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
-            : html``}
-          ${!running && nb.status === 'active' && step.kind === 'write' && (step.status === 'done' || step.status === 'met')
-            ? step.shape === 'answer' || step.shape === 'plan'
-              ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the ${step.shape} once more, from what the notebook has now; this one is replaced">${step.shape === 'plan' ? 'Plan again' : 'Answer again'} →</button></form>`
-              : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="${nb.briefing?.by === 'you' ? 'Write the talking points once more, from what the notebook has now; your edits are replaced' : 'Write the talking points once more, from what the notebook has now; these are replaced'}">Write again →</button></form>${nb.briefing?.points.length ? html`<a class="nb-step__focus-btn" href="/notebooks/${encodeURIComponent(nb.id)}/talking-points" title="Reword, reorder, remove or add talking points">Edit the points →</a>` : html``}`
-            : html``}
-          ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
-            ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
-            : html``}
+          ${stepActions(nb, step, p, { running, current, inRunning, focus })}
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
@@ -437,13 +449,27 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
  * Steps folded away (a drawn page's header says so, once the work is mostly
  * done): one line saying how far it got and what's now, opening to the strip.
  */
-function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], strip: SafeHtml): SafeHtml {
+/**
+ * A reading page's steps, folded to one line (its NotebookHeader says
+ * steps: 'fold'): how far they got, then what they offer (Write again,
+ * Search again, Check the top 5…), the last step's first, so folding never
+ * hides a control. Open when a step is stuck or waiting on you; the full
+ * strip is a click away.
+ */
+function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], strip: SafeHtml, running = false): SafeHtml {
   const done = steps.filter((x) => x.status === 'done' || x.status === 'met').length;
   const now = steps.find((x) => x.status !== 'done' && x.status !== 'met');
-  return html`<details class="nb-hero__steps">
+  const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
+  const focus = topFor(nb, inRunning);
+  const acts = [...steps].reverse().map((step) => stepActions(nb, step, stepProgress(nb, entries, step), { running, current: now, inRunning, focus }));
+  const open = !running && (steps.some((x) => x.status === 'stuck') || (!!now && (now.kind === 'decide' || now.kind === 'narrow')));
+  return html`<div class="nb-hero__stepsrow">
+    <details class="nb-hero__steps"${open ? unsafeHtml(' open') : unsafeHtml('')}>
       <summary>Steps: ${String(done)} of ${String(steps.length)} done${now ? html` · now: <b>${now.title}</b>` : html``}</summary>
       ${strip}
-    </details>`;
+    </details>
+    <span class="nb-hero__stepacts">${acts as unknown as SafeHtml[]}</span>
+  </div>`;
 }
 
 function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView): SafeHtml {
@@ -480,7 +506,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length
-          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, stepsStrip(nb, nb.steps, entries, !!running)) : stepsStrip(nb, nb.steps, entries, !!running))
+          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running), !!running) : stepsStrip(nb, nb.steps, entries, !!running))
           : pipelineDiagram(stages)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
