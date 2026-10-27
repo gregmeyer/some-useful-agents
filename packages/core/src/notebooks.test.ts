@@ -1053,6 +1053,7 @@ describe('notebook templates', () => {
     ]);
     expect(JSON.stringify(t.setup)).not.toContain('Acme');
 
+
     // The same name again replaces it; uses count; delete.
     s.saveTemplate('Job search', nb.id);
     expect(s.listTemplates()).toHaveLength(1);
@@ -1075,11 +1076,22 @@ describe('notebook templates', () => {
     expect(s.getTemplate('car-search')).toBeUndefined();
     expect(() => s.saveTemplate('  ', nb.id)).toThrow('A template needs a name.');
   });
+  it('keeps what a write step writes (an answer, a plan): without it, a notebook from it writes meeting talking points', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const brief = s.create({ title: 'Brief on Arrive' });
+    s.setSteps(brief.id, [{ title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'met', tries: 1 }]);
+    expect(s.saveTemplate('Company briefing', brief.id).setup.steps).toEqual([{ id: 's1', title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'todo', tries: 0 }]);
+  });
 });
 
 describe('template subjects', () => {
   it('swap the subject for {subject}, fill it back, guess it from the title, and clip on words', () => {
     expect(subjectOut("Dana Reyes's newsletter, and dana  reyes again; not DanaReyesson", 'Dana Reyes')).toBe("{subject}'s newsletter, and {subject} again; not DanaReyesson");
+    // Never inside a web address or an email; a sentence's last word still is.
+    expect(subjectOut('A briefing on Arrive for https://www.arrive.accountants/ (arrive.accountants, hi@arrive.com). Ask Arrive.', 'Arrive'))
+      .toBe('A briefing on {subject} for https://www.arrive.accountants/ (arrive.accountants, hi@arrive.com). Ask {subject}.');
     expect(fillSubject('Evidence relates to {subject}, not {subject}’s namesake', 'Acme Corp')).toBe('Evidence relates to Acme Corp, not Acme Corp’s namesake');
     expect(fillSubject('Who is {subject}?', '  ')).toBe('Who is {subject}?');
     expect(templateSubjectGuess({ title: 'Prepare for meeting with Dana Reyes', params: ['Dana Reyes', 'LinkedIn profile provided', 'upcoming meeting'] })).toBe('Dana Reyes');
