@@ -39,6 +39,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
     return one ? {
       name: one.name, ...(one.summary ? { summary: one.summary } : {}), facts: one.facts.filter((f) => !open.some((c) => c.fact === f.key)).map((f) => `${f.label}: ${f.value}`),
       ...(open.length ? { unsettled: open.map((c) => ({ fact: c.label, sides: c.claims.map((x) => `${x.value}${x.when ? ` (${x.when})` : ''}`), question: c.question })) } : {}),
+      // Its competitors, named on a page, with how each competes.
+      ...(one.competitors?.length ? { competitors: one.competitors.map((c) => `${c.name}${c.how ? `: ${c.how}` : ''}`) } : {}),
     } : undefined;
   };
   const themes = options.map((o) => {

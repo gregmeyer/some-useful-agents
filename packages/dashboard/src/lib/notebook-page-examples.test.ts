@@ -224,8 +224,13 @@ describe('a company\'s competitors, on the page', () => {
     ]);
     const brief = renderPageBrief({ nb: got, entries: [], history: s });
     expect(brief).toContain('>Their competitors<');
-    expect(brief).toContain('Locus Robotics');
+    // Each a link to its site, and the page that names it a link too; one without a site is just its name.
+    expect(brief).toContain('<a href="https://locusrobotics.com">Locus Robotics</a>');
+    expect(brief).toContain('<a href="https://www.g2.com/acme-alternatives">g2.com</a>');
     expect(brief).toContain('Picking robots as a service');
-    expect(brief).toContain('Geek+');
+    expect(brief).toContain('<td>Geek+</td>');
+    // The writer reads them too.
+    const { writerInputs } = await import('./notebook-write.js');
+    expect(writerInputs(got, [], { shape: 'answer' }).NOTEBOOK).toContain('Locus Robotics: Picking robots as a service');
   });
 });
