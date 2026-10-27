@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1083,6 +1083,27 @@ describe('notebook templates', () => {
     const brief = s.create({ title: 'Brief on Arrive' });
     s.setSteps(brief.id, [{ title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'met', tries: 1 }]);
     expect(s.saveTemplate('Company briefing', brief.id).setup.steps).toEqual([{ id: 's1', title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'todo', tries: 0 }]);
+  });
+});
+
+describe('a person\'s other companies', () => {
+  it('keeps each once (never their main company), with their role, its site and the page that says so', () => {
+    expect(cleanAffiliations([
+      { name: 'Arrive', role: ' CEO ', website: 'https://www.arrive.accountants/', source: 'https://www.linkedin.com/posts/x' },
+      { name: 'ARV' }, { name: 'arrive' }, 'Open Access Ventures', { company: 'Blueprint Ventures', role: 'CEO', url: 'https://blueprint.example' },
+    ], 'ARV')).toEqual([
+      { name: 'Arrive', role: 'CEO', website: 'https://www.arrive.accountants/', source: 'https://www.linkedin.com/posts/x' },
+      { name: 'Open Access Ventures' },
+      { name: 'Blueprint Ventures', role: 'CEO', website: 'https://blueprint.example' },
+    ]);
+    expect(cleanAffiliations('not a list')).toEqual([]);
+  });
+
+  it('a fresh list replaces the old; one that names none keeps it, minus a company that is now their main one', () => {
+    const fact = (value: string) => ({ key: 'organization', label: 'Company', value });
+    const was = mergeAbout(undefined, { name: 'Dana', facts: [fact('Acme')], affiliations: [{ name: 'Globex' }, { name: 'Initech' }] }, '2026-10-27T00:00:00Z');
+    expect(was.affiliations).toEqual([{ name: 'Globex' }, { name: 'Initech' }]);
+    expect(mergeAbout(was, { facts: [fact('Globex')] }, '2026-10-28T00:00:00Z').affiliations).toEqual([{ name: 'Initech' }]);
   });
 });
 

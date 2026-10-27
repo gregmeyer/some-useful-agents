@@ -14,7 +14,7 @@
  */
 import { rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
-  type Notebook, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
+  type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
 } from '@some-useful-agents/core';
@@ -184,6 +184,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     companyFacts: NotebookWidgetData['notebook']['facts'];
     /** The company's competitors as table rows (link cells: {label, url}). */
     competitors: Array<{ competitor: { label: string; url?: string }; how: string; source?: { label: string; url: string } }>;
+    /** The person's other companies as table rows (link cells), with any a settled conflict set aside. */
+    affiliations: Array<{ company: { label: string; url?: string }; role: string; source?: { label: string; url: string } }>;
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -360,6 +362,11 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       otherQuotes: quotes.slice(1),
       personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
       companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
+      affiliations: notebookAffiliations(nb).map((a) => ({
+        company: { label: a.name, ...(a.website ? { url: a.website } : {}) },
+        role: a.role ?? '',
+        ...(a.source ? { source: { label: ((): string => { try { return new URL(a.source!).hostname.replace(/^www\./, ''); } catch { return a.source!; } })(), url: a.source } } : {}),
+      })),
       competitors: (nb.about?.company?.competitors ?? []).map((c) => ({
         competitor: { label: c.name, ...(c.website ? { url: c.website } : {}) },
         how: c.how ?? '',
@@ -595,6 +602,27 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
 }
 
 /** What a layout's `when` tests, for this notebook (core NOTEBOOK_LAYOUT_FLAGS). */
+/**
+ * The person's other companies: the ones their profile step found, and any
+ * company a settled conflict set aside (you said ARV is their company, not
+ * Arrive: Arrive is still theirs, as another). Never their main company. Pure.
+ */
+export function notebookAffiliations(nb: Pick<Notebook, 'about'>): NotebookAffiliation[] {
+  const p = nb.about?.person;
+  if (!p) return [];
+  const main = (p.facts.find((f) => f.key === 'organization')?.value ?? nb.about?.company?.name ?? '').trim().toLowerCase();
+  const out = [...(p.affiliations ?? [])];
+  const has = (n: string) => n.trim().toLowerCase() === main || out.some((a) => a.name.trim().toLowerCase() === n.trim().toLowerCase());
+  for (const c of p.conflicts ?? []) {
+    if (c.fact !== 'organization' || !c.settled) continue;
+    for (const claim of c.claims) {
+      if (claim.value.trim().toLowerCase() === c.settled.value.trim().toLowerCase() || has(claim.value)) continue;
+      out.push({ name: claim.value, ...(claim.source ? { source: claim.source } : {}) });
+    }
+  }
+  return out;
+}
+
 export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Record<NotebookLayoutFlag, boolean> {
   return {
     map: !!(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
@@ -607,6 +635,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     person: !!nb.about?.person,
     company: !!nb.about?.company,
     competitors: !!nb.about?.company?.competitors?.length,
+    affiliations: notebookAffiliations(nb).length > 0,
     answered: !!nb.answer?.text,
     planned: !!nb.plan?.items.length,
   };

@@ -8,7 +8,7 @@
  * company's logo from its own site. Those feed ProfileCard and FactSheet
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
-import { NotebookStore, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
+import { NotebookStore, type NotebookAboutOne, cleanAffiliations, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { defaultLogoDeps, findLogo } from './notebook-logos.js';
@@ -31,6 +31,7 @@ export const PERSON_ASK: readonly Ask[] = [
   { key: 'known_for', label: 'Known for', hint: 'one sentence: what they write, talk or post about' },
   { key: 'website', label: 'Their site', hint: 'their own site or newsletter, https://…' },
   { key: 'linkedin', label: 'LinkedIn', hint: 'their LinkedIn profile address' },
+  { key: 'other_companies', label: 'Other companies', hint: 'other companies they lead, founded, invest in or work with now, besides the one under organization, as a list: [{"name": "…", "role": "their role there", "website": "https://…", "source": "the page that says so"}]' },
   { key: 'photo_url', label: 'Photo', hint: 'a direct image address (.jpg, .png or .webp) of a photo of them alone, from a page about them (their own site, an author, speaker or guest page; not LinkedIn); its source is that page, which must name them' },
 ];
 
@@ -51,7 +52,7 @@ export const COMPANY_ASK: readonly Ask[] = [
 
 /** Keys that steer the step, not facts to show. */
 // competitors are a list of their own (the company's competitors), not a fact.
-const NOT_FACTS = new Set(['kind', 'photo_url', 'competitors']);
+const NOT_FACTS = new Set(['kind', 'photo_url', 'competitors', 'other_companies']);
 
 interface Found { found: Record<string, { value?: unknown; source?: unknown; quote?: unknown }>; notFound: string[]; summary?: string }
 
@@ -96,6 +97,31 @@ export function aboutFrom(f: Found, ask: readonly Ask[]): { facts: Array<{ key: 
   });
   const notFound = f.notFound.filter((k) => !NOT_FACTS.has(k)).map(label);
   return { facts, notFound };
+}
+
+/**
+ * A person's main company after a look: the one you settled ("ARV, not
+ * Arrive") stands over what the research says; the research's other answer,
+ * and the main company before when it changes, become other companies of
+ * theirs (`also`). Pure.
+ */
+export function mainCompany(was: NotebookAboutOne | undefined, facts: ReturnType<typeof aboutFrom>['facts'], source?: unknown): { org: string; facts: ReturnType<typeof aboutFrom>['facts']; also: Array<{ name: string; source?: string }> } {
+  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  const found = facts.find((f) => f.key === 'organization');
+  const settled = (was?.conflicts ?? []).find((c) => c.fact === 'organization' && c.settled)?.settled;
+  const before = was?.facts.find((f) => f.key === 'organization')?.value;
+  const also: Array<{ name: string; source?: string }> = [];
+  let org = found?.value ?? '';
+  let kept = facts;
+  if (settled && !same(org, settled.value)) {
+    if (org) also.push({ name: org, ...(typeof source === 'string' ? { source } : {}) });
+    org = settled.value;
+    const fact = { key: 'organization', label: found?.label ?? 'Company', value: settled.value, ...(settled.source ? { source: settled.source } : {}) };
+    // Its website was the other company's: not kept as theirs.
+    kept = (found ? facts.map((f) => (f === found ? fact : f)) : [...facts, fact]).filter((f) => f.key !== 'company_website');
+  }
+  if (before && org && !same(before, org)) also.push({ name: before });
+  return { org, facts: kept, also };
 }
 
 /** Who a profile step is about: its own subject, else the notebook's title without "Prepare for a meeting with". Pure. */
@@ -214,13 +240,19 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     company = { name: subject, ...(text(person, 'website') ? { site: text(person, 'website') } : {}) };
   } else {
     const { facts, notFound } = withGivenLinkedIn(aboutFrom(person, PERSON_ASK), notebookGivenLinks(nb));
-    store.setAbout(nb.id, 'person', { name: subject, facts, notFound, ...(person.summary ? { summary: person.summary } : {}) });
+    // Their main company: the one you settled, if you did; the research's (and the one before) are others then.
+    const { org: mainOrg, facts: kept, also } = mainCompany(nb.about?.person, facts, person.found.organization?.source);
+    // Their other companies: their own list, never their main one.
+    const others = cleanAffiliations([...also, ...(Array.isArray(person.found.other_companies?.value) ? person.found.other_companies.value : [])], mainOrg);
+    store.setAbout(nb.id, 'person', { name: subject, facts: kept, notFound, ...(person.summary ? { summary: person.summary } : {}), ...(others.length ? { affiliations: others } : {}) });
+    if (others.length) notes.push(`found ${String(others.length)} other compan${others.length === 1 ? 'y' : 'ies'} of theirs`);
     notes.push(`learned ${String(facts.length)} about ${subject}`);
     const photo = await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);
     const pic = photo ? await keepPicture(ctx, store, nb, 'person', { photo }) : undefined;
     notes.push(pic ? `kept a photo (${photo!.why})` : 'no photo that is clearly them');
-    const org = text(person, 'organization');
-    if (org) company = { name: org, ...(text(person, 'company_website') ? { site: text(person, 'company_website') } : {}) };
+    const org = mainOrg;
+    const site = org === text(person, 'organization') ? text(person, 'company_website') : '';
+    if (org) company = { name: org, ...(site ? { site } : {}) };
   }
 
   if (company) {
