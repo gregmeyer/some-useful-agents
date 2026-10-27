@@ -648,8 +648,19 @@ window.renderDagViz = function () {
     return true;
   }
 
+  // A box that opens a page shows a pointer.
+  cy.on('mouseover', 'node', function (evt) { if (evt.target.data('href') && !editBase) cy.container().style.cursor = 'pointer'; });
+  cy.on('mouseout', 'node', function () { cy.container().style.cursor = ''; });
   cy.on('tap', 'node', function (evt) {
     var n = evt.target;
+    // A box that names its own page (How it was made: a run, the notebook) opens it; cmd/ctrl-click in a new tab.
+    var href = n.data('href');
+    if (href && !editBase && href.charAt(0) === '/' && href.charAt(1) !== '/') {
+      var oe = evt.originalEvent;
+      if (oe && (oe.metaKey || oe.ctrlKey)) window.open(href, '_blank', 'noopener');
+      else window.location.href = href;
+      return;
+    }
     var data = {
       id: n.id(),
       label: n.data('label'),
