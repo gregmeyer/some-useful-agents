@@ -2958,6 +2958,15 @@ describe('a drawn page\'s header', () => {
     expect(html).not.toContain('<p class="nb-hero__statement">What matters to Dana before we talk</p>');
     expect(html).toContain('<details class="nb-hero__steps">');
     expect(html).toMatch(/Steps: 0 of 2 done · now: <b>Find 5 themes<\/b>/);
+    // Folded, the steps still offer what they can do, on the same line (the last step's first).
+    const s1 = store.get(nb.id)!.steps![0].id;
+    store.updateStep(nb.id, s1, { status: 'done' });
+    html = (await get()).text;
+    expect(html).toMatch(/<\/details>\s*<span class="nb-hero__stepacts">[\s\S]*?Search again →/);
+    // A step stuck: the strip opens.
+    store.updateStep(nb.id, s1, { status: 'stuck' });
+    expect((await get()).text).toContain('<details class="nb-hero__steps" open>');
+    store.updateStep(nb.id, s1, { status: 'todo' });
     expect(html).toContain('data-a2ui-surface');
     expect(html).toContain(`notebook-${nb.id}-header`);
     expect(html).toContain('Three themes to raise');
@@ -3843,7 +3852,9 @@ describe('the meeting a notebook prepares for', () => {
     expect(notebookGreeting(s.get(nb.id)!)).toContain('When is the meeting, and what do you want out of it?');
 
     // Saved as you said it.
-    const day = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+    // A local date 3 days ahead (not UTC: in the evening UTC is already tomorrow).
+    const ahead = new Date(Date.now() + 3 * 86_400_000);
+    const day = `${String(ahead.getFullYear())}-${String(ahead.getMonth() + 1).padStart(2, '0')}-${String(ahead.getDate()).padStart(2, '0')}`;
     const res = await post(`/notebooks/${nb.id}/meeting`, { meeting_date: day, meeting_time: '14:00', meeting_goal: 'Explore a partnership on onboarding', meeting_notes: 'We met at a conference' });
     expect(decodeURIComponent(res.headers.location)).toContain('Saved the meeting');
     expect(s.get(nb.id)!.meeting).toEqual({ when: `${day}T14:00`, goal: 'Explore a partnership on onboarding', notes: 'We met at a conference' });
