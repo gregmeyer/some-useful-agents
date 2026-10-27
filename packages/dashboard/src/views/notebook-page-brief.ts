@@ -79,7 +79,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Columns': {
       const ks = kids(c);
       const w = ks.map((_, i) => Number((c.widths as number[] | undefined)?.[i] ?? 1));
-      return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${String(n)}fr)`).join(' ')}">${ks.map((k) => html`<div>${node(p, k)}</div>`) as unknown as SafeHtml[]}</div>`;
+      return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${String(n)}fr)`).join(' ')}">${ks.map((k, i) => html`<div style="--w: ${String(w[i])}">${node(p, k)}</div>`) as unknown as SafeHtml[]}</div>`;
     }
     case 'Panel': {
       const t = text(c.treatment) || 'plain';
@@ -324,7 +324,17 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   @page { margin: 16mm 14mm; }
   body { font-size: 10.5pt; }
   .brief { max-width: none; padding: 0; gap: 1rem; }
-  .part, figure, .profile, .agenda li, tr, .full { break-inside: avoid; }
+  /* Small things stay whole; a part may split across pages (kept whole inside a grid column, Chrome moves it to the next page and prints what follows over it). */
+  figure, .profile, .agenda li, .facts dt, .facts dd, .plain li, tr, .full { break-inside: avoid; }
+  .facts dt { break-after: avoid; }
+  /* Columns as flex, not grid: Chrome doesn't grow a grid row when a part in it is pushed to the next page, so what follows prints over it. */
+  .cols { display: flex !important; align-items: flex-start; }
+  .cols > * { flex: var(--w, 1) 1 0; container-type: inline-size; }
+  .brief, .stack { display: block; }
+  .brief > * + * { margin-top: 1rem; } .stack > * + * { margin-top: 1.5rem; }
+  /* A card in a narrow column: its picture above its words, not squeezing them. */
+  @container (max-width: 20rem) { .profile { grid-template-columns: 1fr; } .profile__pic { width: 4.5rem; } }
+  .part__head { break-after: avoid; }
   h2 { break-after: avoid; }
   .appendix:first-of-type, .fullset { break-before: page; }
   .profile__mono, .part--band, .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
