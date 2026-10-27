@@ -31,7 +31,8 @@ async function page(body: string): Promise<string> {
 async function verify(verdicts: unknown[], options: unknown[], checks: string[], extra: Record<string, string> = {}, look = ''): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; entries?: Array<{ kind: string; title: string; body: string }>; summary: string; verified: Record<string, unknown> }> {
   const verified = await shellNode('verify', { UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra });
   const out = await shellNode('finish', { UPSTREAM_VERIFY_RESULT: verified, UPSTREAM_LOOK_RESULT: look });
-  return { ...JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(out)![1]) as never, verified: JSON.parse(verified.trim().split('\n').at(-1)!) as Record<string, unknown> };
+  const kept = JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(out)![1]) as { facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; entries?: Array<{ kind: string; title: string; body: string }>; summary: string };
+  return { ...kept, verified: JSON.parse(verified.trim().split('\n').at(-1)!) as Record<string, unknown> };
 }
 
 function shellNode(id: string, env: Record<string, string>): Promise<string> {
