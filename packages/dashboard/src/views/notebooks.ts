@@ -913,7 +913,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       ${editSummary(proposed)}
       ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
         ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="working__spin" aria-hidden="true"></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
-        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. sua changes it and shows you a preview before anything is saved.</p>`}
+        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person, or just “do it better” to have sua sharpen the whole notebook and draw its page again. sua shows you a preview before anything is saved.</p>`}
       <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
         ${args.turns.length ? html`` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
         <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}

@@ -3971,6 +3971,42 @@ describe('enhancing the prompt', () => {
   });
 });
 
+describe('"do it better", with nothing more said', () => {
+  it('sharpens the whole notebook (Enhance) and draws its page again, as one proposal', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: Record<string, string>) => request(app).post(path)
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { ENHANCE_ASK, VAGUE_IMPROVE } = await import('../lib/notebook-edit.js');
+    const ctx = getContext(app.locals);
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call with Dana Reyes', statement: 'a call with dana' });
+    s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 3 }]);
+    const asked: string[] = [];
+    const was = ctx.notebookDrafterRun;
+    ctx.notebookDrafterRun = async (inputs) => { asked.push(inputs.CHANGE); return `<draft>${JSON.stringify({ title: 'Prepare for a call with Dana Reyes', statement: 'Get ready for a 30-minute call with Dana Reyes about her team.', params: [], criteria: ['Talking points ready'], fields: [], checks: [], stages: [], pipeline: [], cadence: '', steps: [{ title: 'Find what she said', kind: 'find', target: 3 }], why: 'Made what it is for specific.' })}</draft>`; };
+    pageAsked.length = 0;
+    pageReply = () => `<page>${JSON.stringify({ preset: 'dossier', about: 'a briefing before the call' })}</page>`;
+    try {
+      await post(`/notebooks/${nb.id}/edit/talk`, { text: 'Do it better!' });
+      for (let i = 0; i < 50 && (await get(`/notebooks/${nb.id}/edit/state`)).body.status === 'working'; i++) await new Promise((r) => setTimeout(r, 20));
+      expect(asked).toEqual([ENHANCE_ASK]);
+      expect(pageAsked.at(-1)!.ASK).toContain('Draw the page that best fits what this notebook is for now');
+      const page = (await get(`/notebooks/${nb.id}/edit`)).text;
+      expect(page).toContain('Get ready for a 30-minute call with Dana Reyes about her team.');
+      expect(page).toContain('Meeting briefing');
+      // A request that says what to change is taken as it is.
+      expect(['make it better for the launch', 'improve the talking points'].map((t) => VAGUE_IMPROVE.test(t))).toEqual([false, false]);
+      expect(['do it better', 'redraw it and do it better', 'please improve it', 'clean it up'].every((t) => VAGUE_IMPROVE.test(t))).toBe(true);
+    } finally {
+      ctx.notebookDrafterRun = was;
+      pageReply = undefined;
+    }
+  });
+});
+
 describe('how a notebook looks, picked from pictures', () => {
   it('a look goes in your changes and opens the preview; sua can pick one; back to how it is drops it', async () => {
     const app = await makeApp();
