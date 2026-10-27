@@ -27,19 +27,12 @@ async function page(body: string): Promise<string> {
   return `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/case-study`;
 }
 
-function verify(verdicts: unknown[], options: unknown[], checks: string[], extra: Record<string, string> = {}): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; summary: string }> {
-  const node = parseAgent(yaml).nodes.find((n) => n.id === 'verify') as { command: string };
-  return new Promise((resolve, reject) => {
-    const p = spawn('bash', ['-c', node.command], { env: withShellHelpers({ ...process.env, UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra } as Record<string, string>) });
-    let out = '';
-    let err = '';
-    p.stdout.on('data', (d) => { out += String(d); });
-    p.stderr.on('data', (d) => { err += String(d); });
-    p.on('close', (code) => {
-      if (code !== 0) { reject(new Error(err)); return; }
-      resolve(JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(out)![1]) as never);
-    });
-  });
+/** verify, then finish (what's kept), with the second look's reply when given (`look`). */
+async function verify(verdicts: unknown[], options: unknown[], checks: string[], extra: Record<string, string> = {}, look = ''): Promise<{ facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; entries?: Array<{ kind: string; title: string; body: string }>; summary: string; verified: Record<string, unknown> }> {
+  const verified = await shellNode('verify', { UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(verdicts)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks), ...extra });
+  const out = await shellNode('finish', { UPSTREAM_VERIFY_RESULT: verified, UPSTREAM_LOOK_RESULT: look });
+  const kept = JSON.parse(/<notebook>([\s\S]*)<\/notebook>/.exec(out)![1]) as { facts: Array<{ id: string; checked?: string[]; ruleOut?: string }>; entries?: Array<{ kind: string; title: string; body: string }>; summary: string };
+  return { ...kept, verified: JSON.parse(verified.trim().split('\n').at(-1)!) as Record<string, unknown> };
 }
 
 function shellNode(id: string, env: Record<string, string>): Promise<string> {
@@ -57,9 +50,13 @@ function shellNode(id: string, env: Record<string, string>): Promise<string> {
 describe('notebook-checker wiring', () => {
   it('judges from own facts with no tools, and sends only what is open to research-fanout', () => {
     const agent = parseAgent(yaml);
-    expect(agent.nodes.map((n) => n.id)).toEqual(['judge', 'pending', 'web', 'verify']);
+    expect(agent.nodes.map((n) => n.id)).toEqual(['judge', 'pending', 'web', 'verify', 'look', 'finish']);
+    // The second look takes screenshots, only when verify has quotes it couldn't find; finish runs either way.
+    expect(agent.nodes.find((n) => n.id === 'look')).toMatchObject({ tools: ['web-screenshot'], onlyIf: { upstream: 'verify', field: 'any_second_look', equals: true } });
+    expect(agent.nodes.find((n) => n.id === 'finish')).toMatchObject({ onlyIf: { upstream: 'verify', field: 'ok', equals: true } });
     expect(agent.nodes.find((n) => n.id === 'judge')).toMatchObject({ type: 'llm-prompt', maxTurns: 1 });
-    expect(agent.nodes.filter((n) => n.type === 'llm-prompt' && n.tools?.length)).toEqual([]);
+    // Research goes through research-fanout; the only model step with a tool is the second look's screenshots.
+    expect(agent.nodes.filter((n) => n.type === 'llm-prompt' && n.tools?.length).map((n) => n.id)).toEqual(['look']);
     expect(agent.nodes.find((n) => n.id === 'web')).toMatchObject({ type: 'agent-invoke', optional: true, onlyIf: { upstream: 'pending', field: 'need_web', equals: true }, agentInvokeConfig: { agentId: 'research-fanout' } });
     expect(agent.nodes.find((n) => n.id === 'verify')).toMatchObject({ onlyIf: { upstream: 'pending', field: 'ok', equals: true } });
   });
@@ -156,5 +153,32 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     expect(out.facts.find((f) => f.id === 'a')).toEqual({ id: 'a', checked: ['Why people buy is quoted'], ruleOut: `Fails "Headcount under 500": "We have 2,400 employees worldwide" (${url})` });
     expect(out.facts.find((f) => f.id === 'b')).toBeUndefined();
     expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 quote not found word for word, left open.');
+  });
+
+  it('gives a quote not on the downloaded page a second look, and ticks one seen on its screenshot, with the screenshot as evidence', async () => {
+    const url = await page('<div id="app"></div>'); // its text only shows in a browser
+    const options = [{ id: 'a', name: 'Acme', facts: {}, left: ['Why people buy is quoted', 'Headcount under 500'] }];
+    const checks = ['Why people buy is quoted', 'Headcount under 500'];
+    const pending = { ok: true, keys: { c1: 'Why people buy is quoted', c2: 'Headcount under 500' }, subjects: { acme: 'a' } };
+    const web = { results: [{ subject: 'Acme', status: 'done', found: {
+      c1: { value: 'met', source: url, quote: 'buy it to close the books in half the time' },
+      c2: { value: 'not met', source: url, quote: 'We have 2,400 employees worldwide' },
+    } }] };
+    const env = { UPSTREAM_PENDING_RESULT: JSON.stringify(pending), UPSTREAM_WEB_RESULT: JSON.stringify(web) };
+    // Nothing looked again: both stay open, and only the "met" goes to a second look (a screenshot never rules out).
+    const before = await verify([], options, checks, env);
+    expect(before.verified).toMatchObject({ any_second_look: true, second_look: [{ id: 'a', check: 'Why people buy is quoted', url }] });
+    expect(before.facts).toEqual([]);
+    expect(before.summary).toBe('0 checks met with a quote; 0 ruled out; 2 quotes not found word for word, left open.');
+    // Seen on its screenshot: ticked, with the picture as evidence; a made-up proof address doesn't count.
+    const seen = await verify([], options, checks, env, `<seen>${JSON.stringify([{ i: 0, seen: true, shown: 'They buy it to close the books in half the time', proof: '/runs/run-1/files/look-1.png' }])}</seen>`);
+    expect(seen.facts).toEqual([{ id: 'a', checked: ['Why people buy is quoted'] }]);
+    expect(seen.entries).toEqual([{ kind: 'evidence', title: 'Seen on a screenshot: Why people buy is quoted', body: `They buy it to close the books in half the time — ${url} (screenshot: /runs/run-1/files/look-1.png)` }]);
+    expect(seen.summary).toBe('0 checks met with a quote; 0 ruled out; 1 seen on a screenshot of the page; 1 quote not found word for word, left open.');
+    const fake = await verify([], options, checks, env, `<seen>${JSON.stringify([{ i: 0, seen: true, proof: 'https://evil.example/x.png' }])}</seen>`);
+    expect(fake.facts).toEqual([]);
+    // A site that refused the browser is named, so it's clear why its check stays open.
+    const refused = await verify([], options, checks, env, `<seen>${JSON.stringify([{ i: 0, seen: false, blocked: true, proof: '/runs/run-1/files/look-1.png' }])}</seen>`);
+    expect(refused.summary).toBe("0 checks met with a quote; 0 ruled out; 2 quotes not found word for word, left open; 127.0.0.1:" + new URL(url).port + " blocked a browser, so its page couldn't be checked by screenshot.");
   });
 });
