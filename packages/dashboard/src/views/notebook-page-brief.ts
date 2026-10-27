@@ -9,7 +9,7 @@
  * shortlist brief (notebook-brief.ts).
  */
 import { meetingWhenWords } from '../lib/notebook-edit.js';
-import { resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, type Notebook, type NotebookEntry, type ViewComponent } from '@some-useful-agents/core';
+import { notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, type Notebook, type NotebookEntry, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
@@ -33,12 +33,6 @@ const items = (v: unknown): Array<Record<string, unknown> & { text: string }> =>
   .map((x) => (typeof x === 'string' ? { text: x } : x && typeof x === 'object' ? { ...(x as Record<string, unknown>), text: text((x as { text?: unknown; label?: unknown }).text ?? (x as { label?: unknown }).label) } : { text: '' }))
   .filter((x) => x.text);
 
-/** The links you gave it (in what it's for, its meeting notes, what you asked), each once, in order. Pure. */
-export function givenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string[] {
-  const from = [nb.statement, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? [])].filter((x): x is string => typeof x === 'string');
-  const urls = from.flatMap((t) => t.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ''));
-  return [...new Set(urls)].filter(isUrl);
-}
 /** A link as words: the site and its path ("linkedin.com/in/steven-gelley"). */
 const linkWords = (u: string) => { try { const x = new URL(u); return `${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`; } catch { return u; } };
 
@@ -342,7 +336,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
       <div class="eyebrow">${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}</div>
       <h1>${nb.title}</h1>
       ${nb.statement && !(header && header.statement === false) ? html`<p class="goal">${nb.statement}</p>` : html``}
-      ${givenLinks(nb).length ? html`<p class="links">${givenLinks(nb).map((u) => html`<a href="${u}">${linkWords(u)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
+      ${notebookGivenLinks(nb).length ? html`<p class="links">${notebookGivenLinks(nb).map((u) => html`<a href="${u}">${linkWords(u)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
       ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
     </div>
     ${sideId ? html`<aside>${node(p, sideId)}</aside>` : html``}
