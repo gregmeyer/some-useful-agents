@@ -8,6 +8,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { formatAge } from './components.js';
 import { renderGraphFrame } from './dag-view.js';
+import { passStep } from '../lib/notebook-made-by.js';
 
 const KIND_WORDS: Record<string, [string, string]> = { option: ['option', 'options'], note: ['note', 'notes'], evidence: ['piece of evidence', 'evidence'], decision: ['ruling', 'rulings'] };
 
@@ -81,6 +82,13 @@ function passFacts(p: LineagePass): string {
 export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLineage; pass?: string }): string {
   const { nb, lineage } = args;
   const id = encodeURIComponent(nb.id);
+  // A pass a step ran is named for it ("Step 2 · Find 5 sources on Arrive"); else what kind of pass it was.
+  const steps = nb.steps ?? [];
+  const passName = (p: LineagePass): string => {
+    const sid = passStep(nb, p);
+    const i = sid ? steps.findIndex((s) => s.id === sid) : -1;
+    return i >= 0 ? `Step ${String(i + 1)} · ${steps[i].title}` : PASS_KIND[p.kind];
+  };
   const passes = lineage.passes;
   const selected = passes.find((p) => p.id === args.pass) ?? passes[0];
   const total = passes.reduce((n, p) => n + p.feeders.length + p.feeders.reduce((m, f) => m + f.subRuns.length, 0), 0);
@@ -98,17 +106,17 @@ export function renderNotebookWorkflow(args: { nb: Notebook; lineage: NotebookLi
       <nav class="nbw-passes" aria-label="Passes">
         ${passes.map((p) => html`<a class="nbw-pass${p === selected ? ' is-on' : ''}" href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}"${p === selected ? unsafeHtml(' aria-current="true"') : unsafeHtml('')}>
           <span class="nbw-pass__when">${formatAge(p.startedAt)}</span>
-          <span class="nbw-pass__kind">${PASS_KIND[p.kind]}${p.scheduled ? ', on schedule' : ''}</span>
+          <span class="nbw-pass__kind">${passName(p)}${p.scheduled ? ', on schedule' : ''}</span>
           <span class="nbw-pass__facts">${passFacts(p)}</span>
         </a>`) as unknown as SafeHtml[]}
       </nav>
-      ${renderGraphFrame({ title: `${PASS_KIND[selected.kind]} · ${formatAge(selected.startedAt)}`, countLabel: `${String(shown)} run${shown === 1 ? '' : 's'}`, elements: lineageElements(nb, { feeders: selected.feeders }) })}
+      ${renderGraphFrame({ title: `${passName(selected)} · ${formatAge(selected.startedAt)}`, countLabel: `${String(shown)} run${shown === 1 ? '' : 's'}`, elements: lineageElements(nb, { feeders: selected.feeders }) })}
       ${selected.note ? html`<p class="nbw-note">${selected.note}</p>` : html``}
       <section class="nbw-list" aria-labelledby="nbw-list-title">
         <h2 class="nbw-list__title" id="nbw-list-title">Passes, newest first</h2>
         ${passes.map((p) => html`
-          <section class="nbw-group${p === selected ? ' is-on' : ''}" aria-label="${PASS_KIND[p.kind]}, ${formatAge(p.startedAt)}">
-            <h3 class="nbw-group__head"><a href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}">${PASS_KIND[p.kind]}${p.scheduled ? ', on schedule' : ''} · ${formatAge(p.startedAt)}</a> <span class="nbw-run__when">${passFacts(p)}</span></h3>
+          <section class="nbw-group${p === selected ? ' is-on' : ''}" aria-label="${passName(p)}, ${formatAge(p.startedAt)}">
+            <h3 class="nbw-group__head"><a href="/notebooks/${id}/workflow?pass=${encodeURIComponent(p.id)}">${passName(p)}${p.scheduled ? ', on schedule' : ''} · ${formatAge(p.startedAt)}</a> <span class="nbw-run__when">${passFacts(p)}</span></h3>
             <ul class="nbw-runs">${p.feeders.map(runRow) as unknown as SafeHtml[]}</ul>
           </section>`) as unknown as SafeHtml[]}
       </section>` : unsafeHtml('')}

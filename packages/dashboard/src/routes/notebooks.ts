@@ -8,6 +8,7 @@ import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
+import { notebookMadeBy, type NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
 import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
@@ -218,7 +219,11 @@ notebooksRouter.get('/notebooks/:id/workflow', (req: Request, res: Response) => 
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('html').send(renderNotFoundPage({ path: req.originalUrl, message: 'No such notebook.' })); return; }
-  res.type('html').send(renderNotebookWorkflow({ nb, lineage: notebookLineage(s, ctx.runStore, nb.id), pass: str(req.query.pass) }));
+  const lineage = notebookLineage(s, ctx.runStore, nb.id);
+  // ?step=<id>: that step's latest pass (a step card's How →).
+  const step = str(req.query.step);
+  const pass = str(req.query.pass) || (step ? notebookMadeBy(nb, lineage).stepPass[step] : undefined);
+  res.type('html').send(renderNotebookWorkflow({ nb, lineage, ...(pass ? { pass } : {}) }));
 });
 
 notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
@@ -270,7 +275,10 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   ];
   // What's live: the conversation waiting on you or replying, and the notebook's own work.
   const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of, startedAt: running.startedAt } : undefined, busy);
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), flash: parseFlash(req) }));
+  // What made it (the made-by strip and each step's How →); a failure to read it never fails the page.
+  let madeBy: NotebookMadeBy | undefined;
+  try { madeBy = notebookMadeBy(nb, notebookLineage(s, ctx.runStore, nb.id, 12, 100), (a) => ctx.agentStore.getAgent(a)?.name); } catch { madeBy = undefined; }
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {

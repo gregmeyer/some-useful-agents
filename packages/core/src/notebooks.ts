@@ -60,6 +60,8 @@ export interface NotebookPass {
   runIds: string[];
   /** Started by the notebook's schedule, not by someone pressing Run. */
   scheduled?: boolean;
+  /** The step it ran for (a step's id), when a step ran it. */
+  stepId?: string;
 }
 
 export interface NotebookSearchSource {
@@ -907,7 +909,7 @@ export class NotebookStore {
     `);
     // G2 columns, added to tables created before them.
     for (const [table, col] of [
-      ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'cadence_fired_at TEXT'], ['notebook_passes', 'trigger TEXT'], ['notebooks', 'conversation_id TEXT'],
+      ['notebook_entries', 'run_id TEXT'], ['notebooks', 'last_run_at TEXT'], ['notebooks', 'last_run_note TEXT'], ['notebooks', 'cadence_fired_at TEXT'], ['notebook_passes', 'trigger TEXT'], ['notebook_passes', 'step_id TEXT'], ['notebooks', 'conversation_id TEXT'],
       ['notebooks', "fields_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'data_json TEXT'], ['notebook_entries', 'fingerprint TEXT'], ['notebook_entries', 'last_seen_at TEXT'],
       ['notebooks', "stages_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'stage TEXT'], ['notebook_entries', 'stage_at TEXT'],
       ['notebook_entries', 'ruled_out_at TEXT'], ['notebook_entries', 'ruled_out_reason TEXT'], ['notebook_entries', 'ruled_out_by TEXT'], ['notebook_entries', 'ruled_out_stage TEXT'],
@@ -1086,10 +1088,10 @@ export class NotebookStore {
   }
 
   /** Start a pass; add its runs as they go, then finish it. */
-  startPass(notebookId: string, kind: NotebookPassKind, at = new Date().toISOString(), opts: { scheduled?: boolean } = {}): string {
+  startPass(notebookId: string, kind: NotebookPassKind, at = new Date().toISOString(), opts: { scheduled?: boolean; stepId?: string } = {}): string {
     this.mustGet(notebookId);
     const id = randomUUID();
-    this.db.prepare('INSERT INTO notebook_passes (id, notebook_id, kind, started_at, trigger) VALUES (?, ?, ?, ?, ?)').run(id, notebookId, kind, at, opts.scheduled ? 'schedule' : null);
+    this.db.prepare('INSERT INTO notebook_passes (id, notebook_id, kind, started_at, trigger, step_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, notebookId, kind, at, opts.scheduled ? 'schedule' : null, opts.stepId ?? null);
     return id;
   }
 
@@ -1126,6 +1128,7 @@ export class NotebookStore {
       ...(r.finished_at ? { finishedAt: String(r.finished_at) } : {}), ...(r.note ? { note: String(r.note) } : {}),
       runIds: (() => { try { return JSON.parse(String(r.run_ids_json)) as string[]; } catch { return []; } })(),
       ...(r.trigger === 'schedule' ? { scheduled: true } : {}),
+      ...(typeof r.step_id === 'string' && r.step_id ? { stepId: r.step_id } : {}),
     }));
   }
 

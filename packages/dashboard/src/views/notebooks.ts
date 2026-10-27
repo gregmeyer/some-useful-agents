@@ -5,6 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
+import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
@@ -249,7 +250,7 @@ const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', run
  * Check or Source the top N when it came out short, and Narrow or Pick when
  * it's yours and current. Nothing while the notebook is working.
  */
-function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof stepProgress>, 'met' | 'have' | 'want'>, o: { running: boolean; current?: NotebookStep; inRunning: number; focus: number }): SafeHtml {
+function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof stepProgress>, 'met' | 'have' | 'want'>, o: { running: boolean; current?: NotebookStep; inRunning: number; focus: number; how?: boolean }): SafeHtml {
   const { running, current, inRunning, focus } = o;
   return html`
   ${!running && nb.status === 'active' && (step.kind === 'check' || step.kind === 'source') && (step.movedOn || step.status === 'stuck') && !p.met && inRunning > focus && (!step.top || step.top > focus)
@@ -268,7 +269,25 @@ function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof
     : html``}
   ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
     ? html`<button type="button" class="nb-step__focus-btn" data-nb-open-act="${step.kind}" title="${step.kind === 'decide' ? 'Tick the ones you picked; the notebook can stay open' : 'Tick the ones to keep; the rest are ruled out'}">${step.kind === 'decide' ? (p.have ? 'Change the picks' : `Pick ${String(p.want)}`) : 'Narrow'}… →</button>`
-    : html``}`;
+    : html``}
+  ${o.how ? html`<a class="nb-step__focus-btn nb-step__how" href="/notebooks/${encodeURIComponent(nb.id)}/workflow?step=${encodeURIComponent(step.id)}" title="The runs this step made, the agents they called, and what each left">How →</a>` : html``}`;
+}
+
+/**
+ * What made the notebook, in a line under its steps: how many agents and
+ * runs, when last, who, and the way into How it was made. Nothing before
+ * anything has run.
+ */
+export function madeByStrip(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefined): SafeHtml {
+  if (!m || m.runs === 0) return html``;
+  const who = m.agents.slice(0, 4).join(' · ') + (m.agents.length > 4 ? ` · +${String(m.agents.length - 4)}` : '');
+  return html`<a class="nb-madeby" href="/notebooks/${encodeURIComponent(nb.id)}/workflow">
+    <span class="nb-madeby__text">
+      <span class="nb-madeby__line"><b>Made by ${String(m.agents.length)} agent${m.agents.length === 1 ? '' : 's'} in ${String(m.runs)} run${m.runs === 1 ? '' : 's'}</b>${m.lastAt ? ` · last ${formatAge(m.lastAt)}` : ''}</span>
+      <span class="nb-madeby__who">${who}</span>
+    </span>
+    <span class="btn btn--sm nb-madeby__go">See how it was made →</span>
+  </a>`;
 }
 
 /**
@@ -276,7 +295,7 @@ function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof
  * its goal ("8 of 10 found") and where it stands. The step being worked on
  * (the first not done) is marked; what it still needs is its tooltip.
  */
-export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], running = false): SafeHtml {
+export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], running = false, madeBy?: NotebookMadeBy): SafeHtml {
   const current = steps.find((x) => x.status !== 'done');
   const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
   const focus = topFor(nb, inRunning);
@@ -310,7 +329,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
           <span class="nb-step__bar" aria-hidden="true"><span style="width:${String(pct)}%"></span></span>
           <span class="nb-step__meta"><span class="nb-step__count">${progress}${step.top ? ` · top ${String(step.top)}` : ''}</span><span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
           ${step.why && step.movedOn ? html`<span class="nb-step__why" title="${step.why}">${step.why}</span>` : html``}
-          ${stepActions(nb, step, p, { running, current, inRunning, focus })}
+          ${stepActions(nb, step, p, { running, current, inRunning, focus, how: !!madeBy?.stepPass[step.id] })}
         </span>
       </li>`;
     }) as unknown as SafeHtml[]}
@@ -472,7 +491,7 @@ function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], entries: read
   </div>`;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView, madeBy?: NotebookMadeBy): SafeHtml {
   // A drawn page's NotebookHeader shapes this header; its page has its own parts, so the side box goes.
   const widgets = widgetsIn || !!head;
   const cover = head?.cover === 'none' ? undefined : coverIn;
@@ -503,11 +522,12 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         ${conflictLine(nb, busy.includes(CHECKING_WHO))}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>
+          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${madeBy?.runs ? html`` : html` · <a href="/notebooks/${id}/workflow">How it was made →</a>`}${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length
-          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running), !!running) : stepsStrip(nb, nb.steps, entries, !!running))
+          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running, madeBy), !!running) : stepsStrip(nb, nb.steps, entries, !!running, madeBy))
           : pipelineDiagram(stages)}
+        ${madeByStrip(nb, madeBy)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
@@ -1108,12 +1128,12 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
     </div>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined))}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy)}
     ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
