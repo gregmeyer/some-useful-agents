@@ -720,6 +720,17 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-step__focus { margin: var(--space-1) 0 0; }
 .nb-step__focus-btn { padding: 0; border: 0; background: none; font: inherit; font-size: var(--font-size-xs); color: var(--color-primary); cursor: pointer; text-align: left; }
 .nb-step__focus-btn:hover, .nb-step__focus-btn:focus-visible { text-decoration: underline; }
+/* A step's How → (its runs on How it was made): beside its actions, quieter than them. */
+.nb-step__how { color: var(--color-text-muted); text-decoration: none; }
+.nb-step__how:hover, .nb-step__how:focus-visible { color: var(--color-primary); }
+
+/* What made the notebook, under its steps: agents, runs, when last, and the way into How it was made. */
+.nb-madeby { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); margin: var(--space-2) 0 var(--space-3); padding: var(--space-2) var(--space-3); border: 1px dashed var(--color-border-strong); border-radius: var(--radius-md); color: var(--color-text); text-decoration: none; }
+.nb-madeby:hover, .nb-madeby:focus-visible { border-style: solid; border-color: var(--color-primary); }
+.nb-madeby__text { display: grid; gap: 2px; min-width: 0; }
+.nb-madeby__line { font-size: var(--font-size-sm); }
+.nb-madeby__who { font: var(--font-size-xs) var(--font-mono); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.nb-madeby__go { flex: none; }
 
 /* Draft review: the steps sua will take */
 .nbd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }

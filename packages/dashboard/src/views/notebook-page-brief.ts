@@ -175,7 +175,15 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         ? (Array.isArray(c.columns) ? c.columns as Array<{ key: string; label: string }> : [])
         : [{ key: 'name', label: 'Option' }, { key: 'stage', label: 'Stage' }, { key: 'link', label: 'Link' }];
       const shown = rows.filter((r) => !r.ruledOut).slice(0, p.full ? 200 : 15);
-      const cell = (x: unknown) => (isUrl(x) ? html`<a href="${x}">${site(x)}</a>` : x && typeof x === 'object' ? text((x as { label?: unknown }).label) : text(x));
+      // A link cell is an address, or {label, url} (a competitor and its site): a link either way, its label as the text.
+      const cell = (x: unknown) => {
+        if (isUrl(x)) return html`<a href="${x}">${site(x)}</a>`;
+        if (x && typeof x === 'object') {
+          const { label, url } = x as { label?: unknown; url?: unknown };
+          return isUrl(url) ? html`<a href="${url}">${text(label) || site(url)}</a>` : html`${text(label)}`;
+        }
+        return html`${text(x)}`;
+      };
       return html`<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k.label}</th>`) as unknown as SafeHtml[]}</tr></thead>
         <tbody>${shown.map((r) => html`<tr>${cols.map((k) => html`<td>${cell(r[k.key])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>`;
     }
