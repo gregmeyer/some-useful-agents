@@ -2867,6 +2867,10 @@ describe('a profile step', () => {
     expect(researchAsked.map((x) => x.SUBJECT)).toEqual(['Acme Robotics', 'Acme Robotics']);
     expect(after.about!.person).toBeUndefined();
     expect(after.about!.company!.facts.map((f) => f.key)).toEqual(['what_they_do', 'website', 'size', 'founded', 'headquarters']);
+    // A company alone is looked up thoroughly, for its industry, model and competitors too.
+    const asked = researchAsked[1];
+    expect(asked.DEPTH).toBe('thorough');
+    expect(JSON.parse(asked.ASK).map((a: { key: string }) => a.key)).toEqual(['what_they_do', 'website', 'industry', 'business_model', 'competitors', 'size', 'revenue', 'stage', 'founded', 'headquarters', 'recent_news']);
     expect(after.steps![0].status).toBe('met');
     // No picture could be fetched: their initials stand in.
     expect(store.aboutPhotos(nb.id).size).toBe(0);

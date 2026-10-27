@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, PERSON_ASK } from './notebook-profile.js';
+import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, PERSON_ASK, COMPANY_ASK } from './notebook-profile.js';
 
 describe('a profile step\'s research', () => {
   it('is about its subject, else the notebook\'s title without "Prepare for a meeting with"', () => {
@@ -36,5 +36,10 @@ describe('a profile step\'s research', () => {
     // A post or a company page isn't their profile.
     const notProfile = { facts: [], notFound: ['LinkedIn'] };
     expect(withGivenLinkedIn(notProfile, ['https://www.linkedin.com/posts/dana_x', 'https://www.linkedin.com/company/acme'])).toBe(notProfile);
+  });
+
+  it('keeps a number given as a range ("2–10"), as research-one gives sizes and amounts', () => {
+    const f = readResearch('{"found": {"size": {"value": {"min": 2, "max": 10}, "source": "https://x.example"}, "revenue": {"value": {"min": 1000000}}, "founded": {"value": {"min": 2019, "max": 2019}}, "stage": {"value": {}}}, "not_found": []}')!;
+    expect(aboutFrom(f, COMPANY_ASK).facts.map((x) => [x.key, x.value])).toEqual([['size', '2–10'], ['revenue', '1,000,000+'], ['founded', '2019']]);
   });
 });
