@@ -60,11 +60,14 @@ export async function renderWithBrowser(
 }
 
 export type BrowserShot =
-  | { available: true; png: Buffer; title: string; finalUrl: string; status: number; width: number; height: number }
+  | { available: true; png: Buffer; title: string; finalUrl: string; status: number; width: number; height: number; views: Buffer[] }
   | { available: false; reason: string };
 
 /** The tallest full-page shot kept (px); a longer page is cut at this height. */
 export const SHOT_MAX_HEIGHT = 8000;
+/** What a model is shown of a page: JPEG views from the top, each this tall at most, this many at most. */
+export const SHOT_VIEW_HEIGHT = 1400;
+export const SHOT_MAX_VIEWS = 3;
 
 /**
  * A picture of a page as a browser shows it: the window (`fullPage` false)
@@ -109,7 +112,13 @@ export async function screenshotWithBrowser(
     const pageHeight = full ? Number(await page.evaluate('document.documentElement.scrollHeight')) : 900;
     const height = Math.min(SHOT_MAX_HEIGHT, Math.max(1, pageHeight));
     const png = await page.screenshot(full ? { clip: { x: 0, y: 0, width, height }, fullPage: true } : {});
-    return { available: true, png, title, finalUrl: page.url(), status: response?.status() ?? 200, width, height };
+    // For a model to look at: the page from the top in views it can read (a tall
+    // picture would be shrunk until its text is too small), as smaller JPEGs.
+    const views: Buffer[] = [];
+    for (let y = 0; y < height && views.length < SHOT_MAX_VIEWS; y += SHOT_VIEW_HEIGHT) {
+      views.push(await page.screenshot({ type: 'jpeg', quality: 70, fullPage: full, clip: { x: 0, y, width, height: Math.min(SHOT_VIEW_HEIGHT, height - y) } }));
+    }
+    return { available: true, png, title, finalUrl: page.url(), status: response?.status() ?? 200, width, height, views };
   } catch (err) {
     return { available: false, reason: err instanceof Error ? err.message : String(err) };
   } finally {

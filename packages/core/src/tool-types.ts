@@ -151,6 +151,18 @@ export interface ToolDefinition {
 export interface ToolOutput {
   [key: string]: unknown;
   result?: string;
+  /**
+   * Pictures for the model to look at alongside `result` (web-screenshot's
+   * views of a page). Only a model that can see images gets them; the rest of
+   * the pipeline (outputs, traces) never stores them.
+   */
+  images?: ToolImage[];
+}
+
+/** A picture a tool hands the model: base64 bytes and their type. */
+export interface ToolImage {
+  data: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 }
 
 /**

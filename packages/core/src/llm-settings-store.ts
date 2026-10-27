@@ -73,6 +73,8 @@ export interface CustomLlmProvider {
   apiKey?: string;
   /** Model id passed in the request body. */
   model: string;
+  /** The model can read images: tools' pictures (web-screenshot) are sent to it. Off by default. */
+  vision?: boolean;
 }
 
 /**
@@ -266,6 +268,7 @@ export class LlmSettingsStore {
       apiBase,
       apiKey: def.apiKey?.trim() || undefined,
       model,
+      ...(def.vision === true ? { vision: true } : {}),
     };
     const data = this.read();
     const list = data.settings.customProviders ?? [];
@@ -513,6 +516,7 @@ function sanitizeCustomProviders(raw: unknown): CustomLlmProvider[] {
       apiBase: r.apiBase,
       apiKey: typeof r.apiKey === 'string' ? r.apiKey : undefined,
       model: r.model,
+      ...(r.vision === true ? { vision: true } : {}),
     });
   }
   return out;

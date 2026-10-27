@@ -29,7 +29,14 @@ Take a **picture of a web page** as a browser shows it, and keep it with the run
 
 Each picture is a PNG in `<data dir>/run-files/<run id>/`, named for the node that took it. The run page shows a node's screenshots under its card (**Screenshots**), each opening full size; by address, `/runs/<id>/files/<name>` (signed in). A tool call outside a run (nowhere to keep it) says so and takes nothing.
 
-Today the model gets the text result only; it doesn't see the picture itself yet.
+## What the model sees
+
+Called by a model, the tool also hands it the page to look at: the first screen, or for `full_page` the top of the page in up to 3 pictures of 1400px each (JPEG, so the text stays readable; a tall picture would be shrunk until it isn't). The kept PNG is the whole page.
+
+- **claude** and **codex** get them as image content in the tool result.
+- An **OpenAI-compatible provider** gets them only when it's marked `vision: true` in its settings (a model that can read images); the pictures follow the tool results as a message with `image_url` parts. Otherwise its result says the pictures weren't shown.
+
+The pictures go to the model only: they're never kept in the run's outputs or its tool-call trace.
 
 ## Safety
 

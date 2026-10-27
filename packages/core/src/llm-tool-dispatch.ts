@@ -17,7 +17,7 @@ import { getGeneratedTool } from './integrations/generated-tools.js';
 import { callMcpTool } from './mcp-client.js';
 import { resolveVarsTemplate } from './node-templates.js';
 import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, policyResource, type PolicyDocument } from './policy-store.js';
-import type { ToolDefinition, ToolOutput, BuiltinToolContext } from './tool-types.js';
+import type { ToolDefinition, ToolOutput, BuiltinToolContext, ToolImage } from './tool-types.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
@@ -205,6 +205,19 @@ export function resolveExposedToolDefs(
 }
 
 
+/** At most this many pictures from one tool call, each at most MAX_TOOL_IMAGE_BYTES (base64). */
+export const MAX_TOOL_IMAGES = 4;
+export const MAX_TOOL_IMAGE_BYTES = 1_500_000;
+const IMAGE_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+/** A tool's pictures as the model may get them: well-formed, a known type, small enough, a few. Pure. */
+export function toolImages(raw: unknown): ToolImage[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is ToolImage => !!x && typeof x === 'object'
+    && typeof (x as ToolImage).data === 'string' && (x as ToolImage).data.length > 0 && (x as ToolImage).data.length <= MAX_TOOL_IMAGE_BYTES
+    && IMAGE_TYPES.has((x as ToolImage).mimeType)).slice(0, MAX_TOOL_IMAGES);
+}
+
 export interface ToolExecutorOptions {
   /** Real tool ids the model is allowed to call (already validated to exist). */
   exposedToolIds: readonly string[];
@@ -307,12 +320,13 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
       askHuman: opts.askHuman,
     };
     try {
-      const out = await executeResolvedTool(toolId, args, ctx, deps, opts.signal);
+      const { images: rawImages, ...out } = await executeResolvedTool(toolId, args, ctx, deps, opts.signal);
       let content = typeof out.result === 'string' && out.result.length > 0 ? out.result : JSON.stringify(out);
       if (content.length > maxOut) {
         content = content.slice(0, maxOut) + `\n\n[output truncated — ${content.length - maxOut} more chars]`;
       }
-      return { content, isError: out.isError === true };
+      const images = toolImages(rawImages);
+      return { content, isError: out.isError === true, ...(images.length ? { images } : {}) };
     } catch (err) {
       return { content: `Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}`, isError: true };
     }

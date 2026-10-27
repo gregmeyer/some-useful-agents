@@ -64,7 +64,7 @@ Leave it on **its own default** to use the CLI's own setting (`model` in `~/.cod
 **Custom OpenAI-compatible providers** — POST to a `/v1/chat/completions`
 endpoint. This is how you run a **local or self-hosted model** (llama.cpp,
 LM Studio, Ollama, vLLM, a gateway, …) as a first-class provider. Each one is a
-named entry with an `apiBase`, an optional `apiKey`, and a `model`.
+named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision": true` on one whose model can read images, so tools' pictures ([web-screenshot](tools/web-screenshot.md)) are sent to it; it's off by default, since a text-only model would reject them.
 
 ## The waterfall
 
