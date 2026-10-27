@@ -100,6 +100,7 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
       experimentalApple: spawnOpts.experimentalApple,
       agentCallInfo: spawnOpts.agentCallInfo,
       memoryRunId: spawnOpts.memoryRunId,
+      runFiles: spawnOpts.runFiles,
       spendBudgetUsd: spawnOpts.spendBudgetUsd,
       askRunId: spawnOpts.askRunId,
     };

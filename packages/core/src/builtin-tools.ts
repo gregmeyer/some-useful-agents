@@ -1,7 +1,7 @@
 import { MAX_QUESTIONS_PER_NODE } from './human-questions.js';
 import { execSync, spawn, type ExecSyncOptions } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { lookup } from 'node:dns/promises';
 import { createServer } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
@@ -16,6 +16,8 @@ import { BoardConflictError, boardDocAgentIds, boardDocSystemTileIds, type Board
 import { applyBoardOps, describeBoardDoc } from './board-tree.js';
 import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
+import { screenshotWithBrowser } from './web-fetch/browser.js';
+import { saveRunFile } from './run-files.js';
 
 /**
  * SSRF guard: resolve the hostname to an IP and reject private, loopback,
@@ -541,6 +543,44 @@ const BUILTINS: BuiltinToolEntry[] = [
       // `result` is the node's stdout: the clean content, or the error so a
       // downstream text consumer (or small model) sees why it failed.
       return { ...r, result: r.content ?? (r.error ?? '') };
+    },
+  ),
+
+  def(
+    'web-screenshot',
+    'Web screenshot',
+    "Take a picture of a web page as a browser shows it, kept with the run (as proof of what the page said, or to look at a page whose text can't be read: an image-heavy page, a chart, a layout). Give it a URL; full_page: true for the whole page (cut at 8000px tall). Returns the page's title, its final URL and where the picture is kept. Use web-fetch to read a page's text.",
+    {
+      url: { type: 'string', description: 'Absolute http(s) URL of the page.', required: true },
+      full_page: { type: 'boolean', description: 'The whole page (true), or just the first screen (false).', default: false },
+      width: { type: 'number', description: 'Browser width in px (320-1920).', default: 1280 },
+      timeout: { type: 'number', description: 'Timeout in seconds.', default: 30 },
+    },
+    {
+      url: { type: 'string', description: 'Final URL after redirects.' },
+      title: { type: 'string', description: 'Page title.' },
+      file: { type: 'string', description: "The picture's name with the run (e.g. research-1.png)." },
+      path: { type: 'string', description: 'Where the picture is on disk.' },
+      width: { type: 'number', description: 'Picture width, px.' },
+      height: { type: 'number', description: 'Picture height, px.' },
+      status: { type: 'number', description: 'HTTP status of the page.' },
+      error: { type: 'string', description: 'Plain-English failure reason, or null on success.' },
+    },
+    async (inputs, ctx) => {
+      const url = String(inputs.url ?? '');
+      if (!ctx.runFiles) return { error: 'No place to keep a screenshot here (it is kept with a run).', result: 'No place to keep a screenshot here (it is kept with a run).', isError: true };
+      const shot = await screenshotWithBrowser(url, {
+        fullPage: inputs.full_page === true || inputs.full_page === 'true',
+        ...(inputs.width != null ? { width: Number(inputs.width) } : {}),
+        ...(inputs.timeout != null ? { timeoutSec: Number(inputs.timeout) } : {}),
+      });
+      if (!shot.available) return { url, error: shot.reason, result: `Couldn't take a screenshot of ${url}: ${shot.reason}`, isError: true };
+      const file = saveRunFile(ctx.runFiles, shot.png);
+      const path = join(ctx.runFiles.dir, file);
+      return {
+        url: shot.finalUrl, title: shot.title, file, path, width: shot.width, height: shot.height, status: shot.status, error: null,
+        result: `Took a screenshot of ${shot.finalUrl}${shot.title ? ` ("${shot.title}")` : ''}: ${String(shot.width)}×${String(shot.height)}px, kept with the run as ${file} (/runs/${ctx.runFiles.runId}/files/${file}).`,
+      };
     },
   ),
 

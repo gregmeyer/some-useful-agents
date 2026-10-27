@@ -7,15 +7,15 @@ import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from '
 import { MemorySecretsStore } from './secrets-store.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 18 built-in tools', () => {
+  it('lists all 19 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(18);
+    expect(tools.length).toBe(19);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
       'ask-human', 'board-place', 'board-read', 'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
       'http-post', 'json-parse', 'json-path', 'memory-forget',
       'memory-save', 'memory-search', 'oauth-loopback',
-      'shell-exec', 'template', 'web-fetch', 'web-scrape',
+      'shell-exec', 'template', 'web-fetch', 'web-scrape', 'web-screenshot',
     ]);
   });
 
@@ -35,6 +35,22 @@ describe('Builtin tool registry', () => {
     expect(entry!.definition.outputs.json_ld.type).toBe('array');
     expect(entry!.definition.outputs.meta.type).toBe('object');
     expect(entry!.definition.outputs.error.type).toBe('string');
+  });
+
+  it('web-screenshot keeps its picture with the run, and says why when it can\'t', async () => {
+    const entry = getBuiltinTool('web-screenshot')!;
+    expect(entry.definition.inputs.url.required).toBe(true);
+    expect(entry.definition.outputs.file.type).toBe('string');
+    // No run to keep it with: says so, takes nothing.
+    const none = await entry.execute({ url: 'https://example.com' }, {});
+    expect(none).toMatchObject({ isError: true, result: expect.stringContaining('kept with a run') });
+    // A private address is refused before any browser starts.
+    const dir = mkdtempSync(join(tmpdir(), 'sua-shot-'));
+    try {
+      const out = await entry.execute({ url: 'http://127.0.0.1:9/' }, { runFiles: { runId: 'r1', nodeId: 'research', dir } });
+      expect(out.isError).toBe(true);
+      expect(String(out.result)).toMatch(/Couldn't take a screenshot of http:\/\/127\.0\.0\.1:9\/: .*(private|loopback|Blocked)/i);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
   it('retrieves shell-exec by id', () => {

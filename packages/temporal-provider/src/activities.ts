@@ -203,6 +203,8 @@ export interface RunNodeActivityInput {
    * (Recall itself already arrived inside `behaviorPreamble`.)
    */
   memoryRunId?: string;
+  /** Where the node keeps files with its run (web-screenshot); plain data, same machine's data dir. */
+  runFiles?: { runId: string; nodeId: string; dir: string };
   /** Set when the node may ask the person (ask-human): the worker rebuilds the tool's context on the shared db. */
   askRunId?: string;
   /** What's left of the run's spend limit, USD (core spend-limits.ts). */
@@ -368,6 +370,7 @@ export async function runNodeActivity(input: RunNodeActivityInput): Promise<Spaw
             }
           : undefined,
         boards: boardsStore,
+        runFiles: input.runFiles,
       },
       onProgress,
       askAbort.signal,

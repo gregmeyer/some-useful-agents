@@ -185,3 +185,14 @@ describe('renderRunDetail — a completed run with steps that didn\'t finish', (
     expect(html).toContain('flash flash--error');
   });
 });
+
+describe('renderRunDetail — screenshots a node kept', () => {
+  it('shows each node its own screenshots, each opening full size', async () => {
+    const { nodeFiles } = await import('./run-detail.js');
+    expect(nodeFiles(['triage-1.png', 'triage-2.png', 'triage-extra-1.png', 'other-1.png'], 'triage')).toEqual(['triage-1.png', 'triage-2.png']);
+    const html = renderRunDetail({ run: baseRun, agent, nodeExecutions: [nodeExec({})], files: ['triage-1.png', 'other-1.png'] });
+    expect(html).toContain('<a class="run-shot" href="/runs/run-1/files/triage-1.png"');
+    expect(html).not.toContain('other-1.png');
+    expect(renderRunDetail({ run: baseRun, agent, nodeExecutions: [nodeExec({})] })).not.toContain('run-shot');
+  });
+});

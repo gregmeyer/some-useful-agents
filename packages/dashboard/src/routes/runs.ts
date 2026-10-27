@@ -1,5 +1,7 @@
 import { questionStore } from '../lib/ask-human.js';
-import { collectSubRunTree, NotebookStore } from '@some-useful-agents/core';
+import { collectSubRunTree, NotebookStore, listRunFiles, runFilesDir, RUN_FILE_NAME } from '@some-useful-agents/core';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { Router, type Request, type Response } from 'express';
 import type { Run, RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
@@ -67,6 +69,18 @@ runsRouter.get('/runs', (req: Request, res: Response) => {
     distinct,
     flash,
   }));
+});
+
+/** A file the run kept (a web-screenshot picture): png only, by its name, never outside the run's folder. */
+runsRouter.get('/runs/:id/files/:name', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const name = String(req.params.name);
+  const root = ctx.agentStore.dataRoot;
+  let dir: string | undefined;
+  try { dir = root && RUN_FILE_NAME.test(name) ? runFilesDir(root, String(req.params.id)) : undefined; } catch { dir = undefined; }
+  if (!dir || !existsSync(join(dir, name))) { res.status(404).type('text/plain').send('No such file.'); return; }
+  res.set({ 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=3600', 'Content-Security-Policy': "default-src 'none'; sandbox" });
+  res.sendFile(join(dir, name));
 });
 
 runsRouter.get('/runs/:id', (req: Request, res: Response) => {
@@ -159,7 +173,9 @@ runsRouter.get('/runs/:id', (req: Request, res: Response) => {
     notebooks = [...byNb.values()];
   } catch { /* the run page doesn't need it */ }
   const history = agent?.view && run.status === 'completed' ? viewHistory(agent, run, ctx.runStore) : undefined;
-  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question, notebooks, viewHistory: history }));
+  // Files the run kept (web-screenshot's pictures), by name.
+  const files = ctx.agentStore.dataRoot ? listRunFiles(ctx.agentStore.dataRoot, run.id).map((f) => f.name) : [];
+  res.type('html').send(renderRunDetail({ run, partial, nodeExecutions, agent, back, flash, widgetControls, temporalLink, outcome, outcomeHistory, toolCalls, childRuns, question, notebooks, viewHistory: history, files }));
 });
 
 function parseIntOr(v: unknown, fallback: number): number {
