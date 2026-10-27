@@ -58,7 +58,10 @@ nodes:
       {{inputs.THEMES}}
 
       If what to write is "answer": answer the question the notebook is for
-      ("for", else its title), from what's above only.
+      ("for", else its title), from what's above only. What the notebook
+      knows about the company or person (its facts, its competitors) is
+      above too: use it. A briefing on a company says what it does, who for,
+      and who it competes with (name its competitors when there are some).
         - "answer": the answer itself, 1 to 4 sentences in plain words,
           leading with the direct answer; **bold** the key part. If what's
           above can't settle it, say what it does show and what's missing.
