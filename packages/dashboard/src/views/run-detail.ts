@@ -34,6 +34,8 @@ export interface RunDetailOptions {
   temporalLink?: string;
   /** Recorded tool calls by node id (the `tool_calls` table). Older runs have none. */
   toolCalls?: Map<string, ToolCallRecord[]>;
+  /** Files the run kept (web-screenshot's pictures), by name: `<node>-<n>.png`. */
+  files?: readonly string[];
   /** The agent's earlier completed runs, for its view's `/history` and `/series` (lib/a2ui-surface.ts viewHistory). */
   viewHistory?: RunViewOptions['history'];
   /** Runs this run started (agent-invoke / loop nodes, agents called as tools). */
@@ -54,7 +56,7 @@ export interface RunDetailOptions {
 }
 
 export function renderRunDetail(opts: RunDetailOptions): string {
-  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns, question, viewHistory } = opts;
+  const { run, partial, nodeExecutions, agent, back, flash, widgetControls, outcome, outcomeHistory, toolCalls, childRuns, question, viewHistory, files } = opts;
   const inProgress = run.status === 'running' || run.status === 'pending';
 
   // Run id is a UUID — safe to inline in an attribute without re-escaping.
@@ -169,7 +171,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
   const nodeCards = isDagRun ? html`
     <section>
       <h2>Per-node execution</h2>
-      ${renderNodeCards(nodeExecutions!, undefined, undefined, toolCalls, agent)}
+      ${renderNodeCards(nodeExecutions!, run.id, undefined, toolCalls, agent, files)}
     </section>
   ` : html``;
 
@@ -306,7 +308,7 @@ export function renderRunDetail(opts: RunDetailOptions): string {
               <option value="skipped">Skipped</option>
             </select>
           </div>
-          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls, agent)}</div>
+          <div data-poll-region="nodes">${renderNodeCards(nodeExecutions!, run.id, canReplay, toolCalls, agent, files)}</div>
           ${renderChildRuns(childRuns)}
         </section>
       ` : html`
@@ -609,6 +611,12 @@ function renderDuration(startedAt: string, completedAt?: string): SafeHtml {
   return html`<span class="run-elapsed" data-elapsed-since="${startedAt}">${seed}</span>`;
 }
 
+/** A node's kept files: named for it (`<node>-<n>.png`, the node id as a file name). Pure. */
+export function nodeFiles(files: readonly string[], nodeId: string): string[] {
+  const stem = nodeId.replace(/[^A-Za-z0-9_-]/g, '-').replace(/^-+/, '').slice(0, 60) || 'node';
+  return files.filter((f) => f.startsWith(`${stem}-`) && /^\d+\.png$/.test(f.slice(stem.length + 1)));
+}
+
 /**
  * Render one collapsible card per node execution. Failed/errored nodes
  * open by default so the user doesn't have to hunt for failures; others
@@ -620,6 +628,7 @@ function renderNodeCards(
   canReplay?: boolean,
   toolCalls?: Map<string, ToolCallRecord[]>,
   agent?: Agent,
+  files: readonly string[] = [],
 ): SafeHtml {
   const cards = execs.map((e) => {
     const shouldOpen = e.status === 'completed' || e.status === 'failed' || e.error !== undefined;
@@ -703,6 +712,11 @@ function renderNodeCards(
     if (e.errorCategory === 'budget_exhausted') bodyBlocks.push(renderExhaustedHint(e, nodeDef, agent, budget));
     const toolActivity = renderToolActivity(e, toolCalls?.get(e.nodeId));
     if (toolActivity) bodyBlocks.push(toolActivity);
+    const shots = runId ? nodeFiles(files, e.nodeId) : [];
+    if (shots.length) {
+      bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">Screenshots</h4>
+        <div class="run-shots">${shots.map((f) => html`<a class="run-shot" href="/runs/${runId!}/files/${f}" target="_blank" rel="noopener"><img src="/runs/${runId!}/files/${f}" alt="Screenshot ${f}" loading="lazy"><span class="mono">${f}</span></a>`) as unknown as SafeHtml[]}</div>`);
+    }
     if (e.result && e.result.length > 0) {
       bodyBlocks.push(html`<h4 class="dim" style="margin: var(--space-4) 0 var(--space-2);">stdout</h4>`);
       bodyBlocks.push(outputFrame(e.result));

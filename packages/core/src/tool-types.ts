@@ -195,6 +195,11 @@ export interface BuiltinToolContext {
    */
   /** Boards, for board-read / board-place (see boards.ts). */
   boards?: BoardsStore;
+  /**
+   * Where this node keeps files with its run (web-screenshot's pictures; see
+   * run-files.ts). Set by the executor when it has a data root.
+   */
+  runFiles?: { runId: string; nodeId: string; dir: string };
   askHuman?: {
     runId: string;
     nodeId: string;

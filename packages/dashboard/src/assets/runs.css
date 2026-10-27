@@ -585,3 +585,9 @@
   background: var(--color-warn-soft);
   font-size: var(--font-size-sm);
 }
+
+/* A node's screenshots (web-screenshot), each opening full size. */
+.run-shots { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.run-shot { display: grid; gap: var(--space-1); width: 14rem; color: var(--color-text-muted); font-size: var(--font-size-xs); text-decoration: none; }
+.run-shot img { width: 100%; max-height: 10rem; object-fit: cover; object-position: top; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.run-shot:hover img { border-color: var(--color-primary); }

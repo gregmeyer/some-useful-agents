@@ -44,6 +44,7 @@ import { callMcpTool } from './mcp-client.js';
 import { resolveUpstreamTemplate, resolveVarsTemplate, resolveStateTemplate } from './node-templates.js';
 import { substituteInputs } from './input-resolver.js';
 import { stateDirFor, stateDirSize, formatBytes, DEFAULT_STATE_MAX_BYTES } from './agent-state.js';
+import { runFilesDir } from './run-files.js';
 import { UntrustedCommunityShellError } from './agent-executor.js';
 import { buildNodeEnv, buildUpstreamOutputs, buildUpstreamSnapshot, filterEnvForLog, mergedInputs } from './node-env.js';
 import { unallowedWidgetImageHosts, formatBlockedImageError } from './widget-image-hosts.js';
@@ -579,6 +580,11 @@ export async function executeAgentDag(
     memoryStore
       ? { agentId: agent.id, store: memoryStore, runId, secretValues: (node.secrets ?? []).map((k) => env[k]).filter(Boolean) }
       : undefined;
+  // Where a node keeps files with this run (web-screenshot), when there's a data root.
+  const runFilesCtx = (node: AgentNode): BuiltinToolContext['runFiles'] => {
+    if (!deps.dataRoot) return undefined;
+    try { return { runId, nodeId: node.id, dir: runFilesDir(deps.dataRoot, runId) }; } catch { return undefined; }
+  };
   const withMemoryTools = (node: AgentNode): AgentNode =>
     memoryStore && (isLlmPromptType(node.type) || isGoalType(node.type))
       ? { ...node, tools: [...new Set([...(node.tools ?? []), ...MEMORY_TOOL_IDS])] }
@@ -1383,6 +1389,7 @@ export async function executeAgentDag(
           secretsStore: deps.secretsStore,
           memory: memoryToolCtx(node, env),
           boards: boardsStore(),
+          runFiles: runFilesCtx(node),
         };
         structuredOutput = await builtinEntry.execute(toolInputs, ctx);
         const stdout = structuredOutput.result ?? '';
@@ -1462,7 +1469,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1489,7 +1496,7 @@ export async function executeAgentDag(
           result = ask.failure;
         } else {
           const nodePreamble = ask?.preamble ? [behaviorPreamble, ask.preamble].filter(Boolean).join('\n') : behaviorPreamble;
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), runFiles: runFilesCtx(node), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
           const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, ask?.signal ?? effectiveSignal, onSpawn, onChildExit);
           ask?.dispose();
           askedQuestion = ask ? ask.pending() : undefined;

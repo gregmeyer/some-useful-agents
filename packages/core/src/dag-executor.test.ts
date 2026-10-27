@@ -2692,6 +2692,19 @@ describe('agent memory (memory: on)', () => {
     expect(runStore.getRun(run.id)?.recalledMemories).toEqual([pin.id, hit.id]);
   });
 
+  it('gives each llm node a place to keep files with its run, when there is a data root', async () => {
+    const seen: Array<{ node: AgentNode; opts?: { runFiles?: { runId: string; nodeId: string; dir: string } } }> = [];
+    const spawn: DagExecutorDeps['spawnNode'] = async (node, _env, opts) => { seen.push({ node, opts: opts as (typeof seen)[number]['opts'] }); return { result: 'ok', exitCode: 0 }; };
+    const root = mkdtempSync(join(tmpdir(), 'sua-runfiles-dag-'));
+    try {
+      const run = await executeAgentDag(llmAgent(), { triggeredBy: 'cli' }, { runStore, spawnNode: spawn, dataRoot: root });
+      expect(seen.find((x) => x.node.id === 'ask')!.opts?.runFiles).toEqual({ runId: run.id, nodeId: 'ask', dir: join(root, 'run-files', run.id) });
+      seen.length = 0;
+      await executeAgentDag(llmAgent(), { triggeredBy: 'cli' }, { runStore, spawnNode: spawn });
+      expect(seen.find((x) => x.node.id === 'ask')!.opts?.runFiles).toBeUndefined();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('offers the memory tools to llm nodes only', async () => {
     const seen: Seen[] = [];
     await executeAgentDag(llmAgent({ memory: true }), { triggeredBy: 'cli' }, { runStore, spawnNode: recording(seen) });

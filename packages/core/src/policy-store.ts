@@ -264,6 +264,7 @@ export function policyResource(toolId: string, args: Record<string, unknown>, wo
     case 'http-post':
     case 'web-fetch':
     case 'web-scrape':
+    case 'web-screenshot':
       return str(args.url) || str(args.endpoint);
     case 'file-read':
     case 'file-write': {
