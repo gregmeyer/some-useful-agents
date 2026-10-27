@@ -58,6 +58,14 @@ describe('startToolEndpoint', () => {
     await client.close();
   });
 
+  it('sends a tool\'s pictures as MCP image content after its text', async () => {
+    endpoint = await startToolEndpoint({ tools: [echo], execute: async () => ({ content: 'Took a screenshot.', images: [{ data: 'aGk=', mimeType: 'image/jpeg' }] }) });
+    const client = await connect(endpoint);
+    const res = await client.callTool({ name: 'echo-upper', arguments: { text: 'x' } });
+    expect(res.content).toEqual([{ type: 'text', text: 'Took a screenshot.' }, { type: 'image', data: 'aGk=', mimeType: 'image/jpeg' }]);
+    await client.close();
+  });
+
   it('passes executor errors back as MCP tool errors the model can read', async () => {
     endpoint = await startToolEndpoint({ tools: [echo], execute: async () => ({ content: 'Blocked by policy: nope', isError: true }) });
     const client = await connect(endpoint);

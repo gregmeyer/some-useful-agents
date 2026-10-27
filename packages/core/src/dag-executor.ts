@@ -1391,7 +1391,9 @@ export async function executeAgentDag(
           boards: boardsStore(),
           runFiles: runFilesCtx(node),
         };
-        structuredOutput = await builtinEntry.execute(toolInputs, ctx);
+        // A tool's pictures are for a model to look at, never kept in the run's outputs.
+        const { images: _images, ...builtinOut } = await builtinEntry.execute(toolInputs, ctx);
+        structuredOutput = builtinOut;
         const stdout = structuredOutput.result ?? '';
         result = { result: stdout, exitCode: (structuredOutput as Record<string, unknown>).exit_code as number ?? 0 };
       } else if (toolId && deps.toolStore) {

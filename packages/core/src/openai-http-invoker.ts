@@ -40,6 +40,12 @@ export interface OpenAiInvokeArgs {
   tools?: OpenAiTool[];
   /** Executes a model tool_call → result content fed back into the loop. */
   onToolCall?: ToolCallExecutor;
+  /**
+   * The model can read images: a tool's pictures (web-screenshot) follow its
+   * result as a user message with image_url parts (chat completions has no
+   * images in a tool message). Off ⇒ the result says it can't see them.
+   */
+  vision?: boolean;
   /** Max tool-call turns before giving up (default 5). Ignored without tools. */
   maxTurns?: number;
   /**
@@ -157,6 +163,7 @@ async function invokeOpenAiChatInner(
       }
       if (useTools && toolCalls.length > 0) {
         messages.push({ role: 'assistant', content: message?.content ?? '', tool_calls: toolCalls });
+        const seen: Array<{ name: string; images: NonNullable<Awaited<ReturnType<ToolCallExecutor>>['images']> }> = [];
         for (const call of toolCalls) {
           const name = call.function?.name ?? '';
           const argsJson = call.function?.arguments ?? '{}';
@@ -167,7 +174,7 @@ async function invokeOpenAiChatInner(
             message: `Calling ${name}`,
             preview: argsJson.slice(0, 200),
           });
-          const { content, isError } = await args.onToolCall!(name, argsJson);
+          const { content, isError, images } = await args.onToolCall!(name, argsJson);
           emitProgress(args.onProgress, {
             type: 'tool_use',
             toolStatus: 'result',
@@ -176,7 +183,17 @@ async function invokeOpenAiChatInner(
             message: `${name} ${isError ? 'errored' : 'returned'}`,
             preview: content.slice(0, 200),
           });
-          messages.push({ role: 'tool', tool_call_id: call.id ?? name, content });
+          const pictures = images ?? [];
+          messages.push({ role: 'tool', tool_call_id: call.id ?? name, content: pictures.length && !args.vision ? `${content}\n\n(${String(pictures.length)} picture${pictures.length === 1 ? '' : 's'} not shown: this model can't see images.)` : content });
+          if (pictures.length && args.vision) seen.push({ name, images: pictures });
+        }
+        // The pictures the tools returned this turn, after all their results (a tool message can't carry one).
+        if (seen.length) {
+          messages.push({ role: 'user', content: [
+            { type: 'text', text: `The picture${seen.reduce((n, x) => n + x.images.length, 0) === 1 ? '' : 's'} from ${seen.map((x) => x.name).join(', ')}:` },
+            ...seen.flatMap((x) => x.images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}` } }))),
+          ] });
+          seen.length = 0;
         }
         continue;
       }

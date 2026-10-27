@@ -53,7 +53,14 @@ export async function startToolEndpoint(opts: ToolEndpointOptions): Promise<Tool
         },
         async (args: unknown) => {
           const res = await opts.execute(name, JSON.stringify(args ?? {}));
-          return { content: [{ type: 'text' as const, text: res.content }], isError: res.isError === true };
+          // A tool's pictures go with its text as MCP image content: claude and codex see them.
+          return {
+            content: [
+              { type: 'text' as const, text: res.content },
+              ...(res.images ?? []).map((img) => ({ type: 'image' as const, data: img.data, mimeType: img.mimeType })),
+            ],
+            isError: res.isError === true,
+          };
         },
       );
     }
