@@ -590,6 +590,7 @@ A check step with no agent of its own uses sua's checker (`notebook-checker`, a 
    - **met:** the check is ticked on the option;
    - **not met:** the option is ruled out, with the quote as the reason (`Fails "Sells enterprise software": "hand tools for hobbyists"`). An option you've chosen isn't ruled out: the failed check is a note on the notebook (once per check), it shows on the option as ✗ "fails; you kept it", and it counts as checked, so the step can finish. The decision stays yours;
    - **unknown, or a quote it couldn't find word for word:** the check stays open for the next try. It's never guessed.
+5. **A second look, by screenshot**, for a "met" whose quote wasn't in the page as downloaded (a page that only shows its text in a browser): up to 4 such pages a run get a [screenshot](tools/web-screenshot.md), read by a model that can see it. One it sees there is ticked, with an **evidence** entry, "Seen on a screenshot: *check*", giving the words, the page and the screenshot (`/runs/<id>/files/<name>.png`). A screenshot never rules an option out. A site that refuses a browser (an access-denied or "verify you are human" page, as G2 and Crunchbase often do) is named in the run note, so it's clear why its check stays open.
 
 The step runs again while each run gets further, up to 3 times per press, so a long list takes a few presses. The run note says what happened ("2 checks met, 1 ruled out on a check").
 
