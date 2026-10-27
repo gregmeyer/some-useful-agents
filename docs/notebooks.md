@@ -471,7 +471,7 @@ A run's results go into the notebook by themselves when it was started from the 
 
 ## The pipeline
 
-On the **Edit** page, tick the agents that gather for the notebook under **Searches**. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes.
+On the **Edit** page, tick the agents that gather for the notebook under **Searches**. **Run the pipeline now** runs them one after another. The diagram shows which agent is running, and the page updates as it goes. While a step or pass runs, the notebook's header shows it as sua's working panel (a ring, the step, anything else it's doing, and how long it's been). Scroll past it and a line pinned to the bottom of the window keeps it in view; click it to go back up.
 
 - **Each agent gets the notebook's goal.** Any input it declares named `GOAL`, `NOTEBOOK`, `NOTEBOOK_CONTEXT` or `BRIEF` gets the statement, parameters and criteria. `TOPIC`, `QUERY`, `QUESTION` or `SEARCH` gets the statement. Other inputs keep their defaults.
 - **It also says what the notebook already has.** That same notebook input lists the options in the running (best first, up to 40) so the search doesn't bring them back, and for each one the facts the notebook tracks that it's still missing ("Motive: planning and forecasting — employees, revenue, founded"). The link, picture and fit score aren't asked for. So a search can fill gaps in what the notebook has, by each option's name, as well as find new options. Each agent in a run sees what the agents before it added.

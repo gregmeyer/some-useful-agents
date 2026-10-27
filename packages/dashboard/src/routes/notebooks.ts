@@ -269,7 +269,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     ...([...(ctx.notebookConflictChecks ?? [])].some((k) => k.startsWith(`${nb.id}|`)) ? [CHECKING_WHO] : []),
   ];
   // What's live: the conversation waiting on you or replying, and the notebook's own work.
-  const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of } : undefined, busy);
+  const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of, startedAt: running.startedAt } : undefined, busy);
   res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), flash: parseFlash(req) }));
 });
 
@@ -1099,7 +1099,7 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   res.setHeader('X-Notebook-Steps', stepsKey(ctx, s.get(nb.id) ?? nb));
   // What's live (waiting on you, sua replying, a step running): the page redraws its bar and Talk card when it changes.
   const running = pipelineRunning(ctx, nb.id);
-  const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of } : undefined, []);
+  const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of, startedAt: running.startedAt } : undefined, []);
   res.setHeader('X-Notebook-Live', encodeURIComponent(notebookLiveKey(live)));
   res.setHeader('X-Notebook-Waiting', live.talk?.state === 'waiting' ? encodeURIComponent(live.talk.kind === 'step' ? `Your step: ${live.talk.text}` : live.talk.text) : '');
   res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp));

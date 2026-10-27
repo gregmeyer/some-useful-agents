@@ -235,14 +235,20 @@ describe('filing into a notebook of organizations', () => {
     ctx.notebookPictures.add(nb.id);
     html = await page();
     expect(html).toMatch(/class="nb-step nb-step--running[^"]* is-live"/);
-    expect(html).toContain('Working on step 1: Find 5 · Finding photos…');
-    expect(html).toMatch(/data-notebook-running>\s*<span class="working__spin"/);
+    // The standard working panel: the step as its title, the rest after, counting up from when it started.
+    expect(html).toMatch(/data-notebook-running>\s*<div class="working working--panel"/);
+    expect(html).toContain('<p class="working__title">Working on step 1: Find 5…</p>');
+    expect(html).toContain('Also: Finding photos. This page updates as it goes');
+    expect(html).toMatch(/data-working-since="\d{4}-\d\d-\d\dT/);
+    // Scrolled past it, a pinned line keeps it in view (hidden until then).
+    expect(html).toContain('data-nb-live-pin hidden');
     expect(html).toContain('location.reload()');
 
     // Only background work: still says so, and still reloads.
     ctx.notebookPipelines.delete(nb.id);
     html = await page();
-    expect(html).toContain('<strong>Finding photos…</strong> <span class="nb-live__note">');
+    expect(html).toContain('<p class="working__title">Finding photos…</p>');
+    expect(html).not.toContain('data-working-since');
     expect(html).toContain('location.reload()');
     ctx.notebookPictures.delete(nb.id);
   });

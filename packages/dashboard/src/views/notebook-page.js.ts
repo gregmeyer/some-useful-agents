@@ -121,6 +121,12 @@ export const NOTEBOOK_PAGE_JS = `
       });
       return;
     }
+    // The step running now, once you scroll past its panel: a pinned line that brings it back.
+    var runningPanel = document.querySelector('[data-notebook-running]');
+    var pin = document.querySelector('[data-nb-live-pin]');
+    if (runningPanel && pin && 'IntersectionObserver' in window) {
+      new IntersectionObserver(function (es) { pin.hidden = es[0].isIntersecting; }).observe(runningPanel);
+    }
     var main = document.querySelector('[data-nb-main]');
     if (!main) return;
     var id = main.getAttribute('data-nb-main');

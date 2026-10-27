@@ -438,10 +438,10 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
         <span class="nb-live__text"><strong>${talk.text.replace(/…$/, '')}</strong> on a reply in this notebook's conversation…</span>
         ${open(talk.threadId, 'Watch', false)}
       </div>` : html``}
-      ${work.length ? html`<div class="nb-live__row nb-live__row--working" role="status" data-notebook-running>
-        <span class="working__spin" aria-hidden="true"></span>
-        <span class="nb-live__text"><strong>${work.join(' · ')}…</strong> <span class="nb-live__note">this page updates as it goes</span></span>
-      </div>` : html``}
+      ${work.length ? html`<div class="nb-live__working" data-notebook-running>
+        ${working({ size: 'panel', title: `${work[0].replace(/…$/, '')}…`, text: `${work.length > 1 ? `Also: ${work.slice(1).map((w) => w.replace(/…$/, '')).join(', ')}. ` : ''}This page updates as it goes; you can leave and come back.`, ...(live?.since ? { since: live.since } : {}) })}
+      </div>
+      <a class="nb-live__pin" href="#nb-title" data-nb-live-pin hidden>${working({ text: `${work[0].replace(/…$/, '')}…` })}</a>` : html``}
     </div>`;
 }
 

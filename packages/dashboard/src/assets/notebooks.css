@@ -849,6 +849,10 @@ html:has(.nbe-preview[open]) { overflow: hidden; }
 .nb-live__row--waiting strong { color: var(--color-warn); }
 .nb-live__row--working strong { color: var(--color-primary); font-weight: var(--weight-semibold); }
 .nb-live__note { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+/* The step running now, as the standard working panel (DESIGN.md "Working"); scrolled past it, a pinned line keeps it in view. */
+.nb-live__pin { position: fixed; left: var(--space-4); bottom: var(--space-4); z-index: 55; max-width: min(440px, calc(100vw - 2 * var(--space-4))); padding: var(--space-2) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-primary); border-radius: var(--radius-md); box-shadow: var(--shadow-md); color: var(--color-text); text-decoration: none; }
+.nb-live__pin[hidden] { display: none; }
+.nb-live__pin:hover { background: var(--color-primary-soft); }
 .nb-live__dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--color-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warn) 25%, transparent); }
 .nb-live__row--working .nb-live__dot { background: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent); }
 
