@@ -390,7 +390,7 @@ const ABOUT_THE_PAGE = /\b(page|layout|look|looks|show|shows|showing|display|top
 export const ENHANCE_ASK = `Enhance this notebook: make its definition a better prompt for what it's for, the way a careful editor would, from what it already says.
 - What it's for: one specific sentence (what, for whom, where, by when) from what's there; no new goals.
 - Limits: concrete and checkable (numbers, places, dates), only ones it states or clearly implies; no duplicates.
-- Done when: 2 to 4 outcomes someone could tick off.
+- Done when: 2 to 4 outcomes someone could tick off, each one its steps can reach (no "a decision recorded" without a decide step; for talking points, "talking points written").
 - Facts each option notes: the ones that decide it, each with the right type, unit and role (price, measure, place, link, when, quote…); drop vague or repeated ones.
 - Checks: what to confirm with a source before deciding, each one checkable.
 - Steps: the kinds and order that fit the goal (a choice ends with decide; a question with write, shape answer; a plan with write, shape plan; a meeting with write, talking points; a watch has a schedule and no decide), with fitting targets; keep agents that fit.
@@ -419,6 +419,12 @@ export function startEditEnhance(ctx: Ctx, nb: Notebook, md?: string): { ok: tru
   return { ok: true };
 }
 
+/** "Do it better", "improve it", "redo it", "redraw it", "polish it", "clean it up": a request to make it better with nothing more said. */
+export const VAGUE_IMPROVE = /^\s*(?:(?:please|can you|could you|just)\s+)?(?:(?:make|get)\s+(?:it|this|the notebook)\s+(?:(?:a lot|much|way)\s+)?(?:better|good|great|nicer)|do\s+(?:it|this)\s+(?:(?:a lot|much|way)\s+)?better|improve(?:\s+(?:it|this|the notebook|everything))?|redo(?:\s+(?:it|this))?|redraw(?:\s+(?:it|this|the notebook|the page))?(?:\s+(?:and\s+)?(?:do it\s+)?better)?|polish(?:\s+(?:it|this))?|clean\s+(?:it|this)\s+up|enhance(?:\s+(?:it|this))?|try again)(?:\s+(?:please|pls))?\s*[.!?]*\s*$/i;
+
+/** What the page designer is asked when "do it better" redraws the page. */
+const IMPROVE_PAGE = 'Draw the page that best fits what this notebook is for now, better than the one it has: lead with what matters most for its goal, and keep what works.';
+
 export function startEditTalk(ctx: Ctx, nb: Notebook, text: string): { ok: true } | { error: string } {
   const said = text.replace(/\s+/g, ' ').trim().slice(0, 600);
   if (!said) return { error: 'Say what to change first.' };
@@ -429,11 +435,13 @@ export function startEditTalk(ctx: Ctx, nb: Notebook, text: string): { ok: true 
   const turns = [...(was?.turns ?? []), { you: said, via: 'talk' as const, at: new Date().toISOString() }];
   const working: NotebookEdit = { setup: base, ...(was?.layout !== undefined ? { layout: was.layout } : {}), turns, status: 'working', updatedAt: new Date().toISOString() };
   writeEdit(ctx, nb.id, working);
-  void talk(ctx, nb, said, working).catch(() => undefined);
+  // "Do it better", with nothing more: the whole notebook, sharper (Enhance), and its page drawn again to fit.
+  if (VAGUE_IMPROVE.test(said)) void talk(ctx, nb, said, working, ENHANCE_ASK, { request: IMPROVE_PAGE }).catch(() => undefined);
+  else void talk(ctx, nb, said, working).catch(() => undefined);
   return { ok: true };
 }
 
-async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit, ask?: string): Promise<void> {
+async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit, ask?: string, page?: { request: string }): Promise<void> {
   const base = working.setup;
   const baseLayout = working.layout === undefined ? nb.layout : working.layout ?? undefined;
   const agents = searchAgents(ctx);
@@ -465,9 +473,9 @@ async function talk(ctx: Ctx, nb: Notebook, said: string, working: NotebookEdit,
   let layout = working.layout;
   // About the page, or the notebook's own page and what it does changed: the page agent draws it again for the change.
   const shapeChanged = JSON.stringify([base.fields.map((f) => f.role), base.steps.map((s) => s.kind)]) !== JSON.stringify([setup.fields.map((f) => f.role), setup.steps.map((s) => s.kind)]);
-  if (ABOUT_THE_PAGE.test(said) || (shapeChanged && (nb.layoutBy === 'notebook' || (!nb.layout && !nb.layoutBy)))) {
+  if (page || ABOUT_THE_PAGE.test(said) || (shapeChanged && (nb.layoutBy === 'notebook' || (!nb.layout && !nb.layoutBy)))) {
     const draft = proposedNotebook(nb, { ...working, setup });
-    const drawn = await drawNotebookPage(draft, async (inputs) => runPage(ctx, inputs), { request: said, current: baseLayout });
+    const drawn = await drawNotebookPage(draft, async (inputs) => runPage(ctx, inputs), { request: page?.request ?? said, current: baseLayout });
     if ('layout' in drawn.answer) layout = drawn.answer.layout;
     else if ('keep' in drawn.answer && baseLayout) layout = null;
   }
