@@ -33,6 +33,15 @@ const items = (v: unknown): Array<Record<string, unknown> & { text: string }> =>
   .map((x) => (typeof x === 'string' ? { text: x } : x && typeof x === 'object' ? { ...(x as Record<string, unknown>), text: text((x as { text?: unknown; label?: unknown }).text ?? (x as { label?: unknown }).label) } : { text: '' }))
   .filter((x) => x.text);
 
+/** The links you gave it (in what it's for, its meeting notes, what you asked), each once, in order. Pure. */
+export function givenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string[] {
+  const from = [nb.statement, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? [])].filter((x): x is string => typeof x === 'string');
+  const urls = from.flatMap((t) => t.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ''));
+  return [...new Set(urls)].filter(isUrl);
+}
+/** A link as words: the site and its path ("linkedin.com/in/steven-gelley"). */
+const linkWords = (u: string) => { try { const x = new URL(u); return `${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`; } catch { return u; } };
+
 /** Up to `n` quotes, in their order, one per theme (group) before a second from any. Pure. */
 export function briefQuotes<T extends { group?: unknown }>(all: readonly T[], n: number): T[] {
   const picked = new Set<number>();
@@ -177,7 +186,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         <tbody>${shown.map((r) => html`<tr>${cols.map((k) => html`<td>${cell(r[k.key])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>`;
     }
     case 'Timeline': {
-      const ev = list(v('events')) as Array<{ at?: unknown; title?: unknown; body?: unknown }>;
+      // A search that found nothing says nothing to the reader: the brief leaves it out.
+      const ev = (list(v('events')) as Array<{ at?: unknown; title?: unknown; body?: unknown; empty?: unknown }>).filter((e) => !e.empty);
+      if (!ev.length) return html``;
       return html`<ul class="plain">${ev.slice(0, p.full ? 80 : 8).map((e) => html`<li><span class="fine">${text(e.at) ? new Date(text(e.at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span> ${text(e.title)}</li>`) as unknown as SafeHtml[]}</ul>`;
     }
     case 'Coverage': return html`<ul class="plain">${(list(v('sources')) as Array<{ name?: unknown; found?: unknown; status?: unknown }>).map((s) => html`<li>${text(s.name)} <span class="fine">· ${text(s.status) === 'found' ? `${text(s.found)} found` : text(s.status)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
@@ -270,6 +281,7 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--mono); }
 .profile--cover .profile__name { font-size: 1.75rem; }
 .profile p { margin: 0.5rem 0 0; max-width: 65ch; }
 .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font: 0.75rem var(--mono); }
+.masthead .links { margin: 0.5rem 0 0; }
 .pull { grid-column: 1 / -1; margin: 0.25rem 0 0; padding-left: 1rem; border-left: 3px solid var(--accent); font-size: 1.1875rem; line-height: 1.45; }
 .facts dl { margin: 0; }
 .facts dt { padding-top: 0.5rem; border-top: 1px solid var(--line); font: 600 0.625rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -330,6 +342,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
       <div class="eyebrow">${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}</div>
       <h1>${nb.title}</h1>
       ${nb.statement && !(header && header.statement === false) ? html`<p class="goal">${nb.statement}</p>` : html``}
+      ${givenLinks(nb).length ? html`<p class="links">${givenLinks(nb).map((u) => html`<a href="${u}">${linkWords(u)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
       ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
     </div>
     ${sideId ? html`<aside>${node(p, sideId)}</aside>` : html``}

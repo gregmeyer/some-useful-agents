@@ -139,7 +139,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     limitsNote: string;
     coverage: { sources: NotebookSearchSource[]; when: string };
     checklist: Array<{ id: string; title: string; items: Array<{ text: string; done: boolean }> }>;
-    timeline: Array<{ at: string; title: string; body?: string; kind?: string; who?: string; tag?: string; link?: string; linkText?: string; faded?: boolean }>;
+    timeline: Array<{ at: string; title: string; body?: string; kind?: string; who?: string; tag?: string; link?: string; linkText?: string; faded?: boolean; empty?: boolean }>;
     shortlistNote: string;
     /** What each option says (its `quote` field), chosen first, grouped by its short label (QuoteList). */
     quotes: Array<{ title: string; quote: string; href: string; source?: string; at?: string; ask?: string; group?: string; chosen?: boolean }>;
@@ -286,6 +286,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
     timeline.push({
       at: s.at, kind: 'search', who: s.agentId,
       title: s.found ? `Search returned ${String(s.found)} option${s.found === 1 ? '' : 's'}` : 'Search returned no options',
+      ...(s.found ? {} : { empty: true }),
       ...(s.sources.length ? { body: s.sources.map((x) => `${x.name} ${x.status === 'found' ? String(x.found) : x.status}`).join(' · ') } : {}),
       ...(s.runId ? { link: `/runs/${encodeURIComponent(s.runId)}`, linkText: `run ${s.runId.slice(0, 8)}` } : {}),
     });
