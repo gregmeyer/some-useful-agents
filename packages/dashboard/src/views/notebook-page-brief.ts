@@ -8,6 +8,7 @@
  * every fact with its page, each option in full. A shortlist keeps the
  * shortlist brief (notebook-brief.ts).
  */
+import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, type Notebook, type NotebookEntry, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
@@ -213,8 +214,10 @@ function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data[
     ${active.length ? html`<section class="fullset appendix"><h2>Each one in full<span class="part__note">${String(active.length)}</span></h2>${active.map((o, i) => optionInFull(nb, o, i + 1, entries, history, pic)) as unknown as SafeHtml[]}</section>` : html``}`;
 }
 
-export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined }): string {
+export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
   const { nb } = args;
+  // The dashboard's look (its tokens and brand theme), in your mode.
+  const theme = args.theme ?? briefTheme();
   const now = args.now ?? new Date();
   const data = notebookWidgetData(nb, args.entries, args.history);
   const layout = notebookLayoutOf(nb);
@@ -231,28 +234,16 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
 /* A drawn page, printed: its parts in their treatments (DESIGN.md "Notebook pages"). */
-:root {
-  --bg: #faf9f7; --surface: #ffffff; --raised: #f5f4f2; --line: #e7e5e4; --line-strong: #d6d3d1;
-  --text: #1c1917; --muted: #78716c; --subtle: #a8a29e; --accent: #0f766e; --accent-soft: #ccfbf1;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #1a1918; --surface: #242220; --raised: #2e2c2a; --line: #3d3a37; --line-strong: #57534e;
-  --text: #e7e5e4; --muted: #a8a29e; --subtle: #78716c; --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, 0.12); color-scheme: dark;
-} }
-:root[data-theme="dark"] {
-  --bg: #1a1918; --surface: #242220; --raised: #2e2c2a; --line: #3d3a37; --line-strong: #57534e;
-  --text: #e7e5e4; --muted: #a8a29e; --subtle: #78716c; --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, 0.12); color-scheme: dark;
-}
+${unsafeHtml(theme.css)}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
 a { color: var(--accent); }
 .brief { max-width: 62rem; margin: 0 auto; padding-inline: 1rem; padding-block: 2.5rem 3rem; display: grid; gap: 1.75rem; }
 .brief > *, .stack > *, .cols > * { min-width: 0; }
-.eyebrow { font: 600 0.6875rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.75rem 0 0.35rem; }
+.eyebrow { font: 600 0.6875rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.75rem 0 0.35rem; }
 .masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1.5rem; align-items: start; border-bottom: 2px solid var(--text); padding-bottom: 1rem; }
 .masthead .eyebrow { color: var(--accent); margin-top: 0; }
-h1 { margin: 0.25rem 0 0; font: 700 1.75rem/1.2 var(--mono); text-wrap: balance; }
+h1 { margin: 0.25rem 0 0; font: 700 1.75rem/1.2 var(--display); text-wrap: balance; }
 .goal { margin: 0.5rem 0 0; color: var(--muted); max-width: 65ch; }
 .masthead aside { max-width: 20rem; font-size: 0.875rem; }
 .stack { display: grid; gap: 1.5rem; }
@@ -260,14 +251,14 @@ h1 { margin: 0.25rem 0 0; font: 700 1.75rem/1.2 var(--mono); text-wrap: balance;
 .cols { display: grid; gap: 1.75rem; align-items: start; }
 @media (max-width: 760px) { .cols, .masthead { grid-template-columns: 1fr !important; } }
 .part__head { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; }
-h2 { margin: 0; font: 700 1rem/1.3 var(--mono); }
+h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .part__note { margin-left: auto; font-size: 0.75rem; color: var(--muted); }
 .part--plain { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
-.part--lede h2 { font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+.part--lede h2 { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
 .part--feature { border-top: 2px solid var(--text); padding-top: 0.75rem; }
 .part--feature h2 { font-size: 1.0625rem; }
 .part--aside { border-left: 1px solid var(--line-strong); padding-left: 1rem; }
-.part--aside h2, .part--band h2 { font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.part--aside h2, .part--band h2 { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .part--band { background: var(--raised); border-radius: 10px; padding: 0.75rem 1rem; }
 .callout p { margin: 0.25rem 0 0; font-size: 1.0625rem; }
 .muted { color: var(--muted); } .fine { font-size: 0.75rem; color: var(--muted); margin: 0.35rem 0 0; }
@@ -279,7 +270,7 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--mono); }
 .profile__pic { width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: contain; background: var(--raised); border: 1px solid var(--line); }
 .profile__mono { display: grid; place-items: center; font: 700 1.75rem var(--mono); color: var(--accent); background: var(--accent-soft); border: 0; }
 .profile--cover .profile__mono { font-size: 3rem; }
-.profile__name { font: 700 1.25rem/1.2 var(--mono); }
+.profile__name { font: 700 1.25rem/1.2 var(--display); }
 .profile--cover .profile__name { font-size: 1.75rem; }
 .profile p { margin: 0.5rem 0 0; max-width: 65ch; }
 .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font: 0.75rem var(--mono); }
@@ -327,9 +318,7 @@ th { font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: up
 .pic--hero { width: 100%; max-width: 18rem; aspect-ratio: 4 / 3; border-radius: 10px; }
 .pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
-@media print {
-  :root, :root[data-theme="dark"] { --bg: #ffffff; --surface: #ffffff; --raised: #f5f4f2; --line: #e7e5e4; --line-strong: #d6d3d1; --text: #1c1917; --muted: #57534e; --subtle: #78716c; --accent: #0f766e; --accent-soft: #ccfbf1; color-scheme: light; }
-  @page { margin: 16mm 14mm; }
+@media print {  @page { margin: 16mm 14mm; }
   body { font-size: 10.5pt; }
   .brief { max-width: none; padding: 0; gap: 1rem; }
   /* Small things stay whole; a part may split across pages (kept whole inside a grid column, Chrome moves it to the next page and prints what follows over it). */
@@ -364,5 +353,5 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   <footer>From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.</footer>
 </main>
 ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
-  return `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
+  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
 }

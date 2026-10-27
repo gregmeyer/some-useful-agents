@@ -234,3 +234,27 @@ describe('a company\'s competitors, on the page', () => {
     expect(writerInputs(got, [], { shape: 'answer' }).NOTEBOOK).toContain('Locus Robotics: Picking robots as a service');
   });
 });
+
+describe('a brief in the dashboard\'s look', () => {
+  it('carries the tokens and brand theme, opens in the mode given, prints in the theme\'s light colours, and stays script-free', async () => {
+    const { briefTheme, tokenBlock } = await import('./brief-theme.js');
+    const { brandThemeSchema, layoutPreset } = await import('@some-useful-agents/core');
+    const brand = brandThemeSchema.parse({ version: 1, name: 'Test', preset: 'default', dark: { primary: '#68ddff' }, light: { primary: '#0033cc', bg: '#fff9df' }, fonts: { display: 'Georgia, serif' } });
+    const s = store();
+    const nb = s.create({ title: 'Prepare for a meeting with Acme' });
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+    const dark = renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s, theme: briefTheme(brand) });
+    expect(dark).toContain('<html lang="en">');
+    expect(dark).toContain('--color-primary: #68ddff;');
+    expect(dark).toContain('--font-display: Georgia, serif;');
+    expect(dark).toContain('--accent: var(--color-primary)');
+    expect(dark).toMatch(/h1 \{[^}]*var\(--display\)/);
+    const paper = /@media print \{ :root, :root\[data-theme="light"\] \{ ([^}]*)\}/.exec(dark)![1];
+    expect(paper).toContain('--color-primary: #0033cc;');
+    expect(paper).toContain('--color-bg: #fff9df;');
+    expect(paper).toContain('--color-text: #1c1917;'); // tokens' light text, under the brand's
+    expect(dark).not.toMatch(/<script/);
+    expect(renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s, theme: briefTheme(brand, 'light') })).toContain('<html lang="en" data-theme="light">');
+    expect(tokenBlock(':root {\n  --color-bg: #111;\n  --font-x: y;\n}\n[data-theme="light"] {\n  --color-bg: #fff;\n}', '[data-theme="light"]')).toEqual({ bg: '#fff' });
+  });
+});
