@@ -14,7 +14,7 @@ import { RunStore, NotebookStore, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePoint
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookLayoutFlags } from './notebook-widgets.js';
-import { renderPageBrief, briefIsPage, briefQuotes } from '../views/notebook-page-brief.js';
+import { renderPageBrief, briefIsPage, briefQuotes, givenLinks } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[] }>;
 
@@ -185,5 +185,25 @@ describe('what they said, in the brief', () => {
     const full = renderPageBrief({ nb: s.get(nb.id)!, entries, history: s, full: true });
     expect(full).toContain('Everything they said');
     for (let i = 0; i < 8; i++) expect(full).toContain(`Said thing number ${i}.`);
+  });
+});
+
+describe('research activity and your links, in the brief', () => {
+  it('leaves out searches that found nothing, and lists the links you gave it', async () => {
+    const ex = NOTEBOOK_PAGE_EXAMPLES.find((e) => e.id === 'meet-person')!;
+    const { s, nb } = await decided(ex, true);
+    s.recordSearch(nb.id, 'person-finder', 'run-found', 3, '2026-10-24T10:00:00Z');
+    for (let i = 0; i < 4; i++) s.recordSearch(nb.id, 'person-finder', `run-none-${String(i)}`, 0, `2026-10-24T11:0${String(i)}:00Z`);
+    s.setMeeting(nb.id, { notes: 'LinkedIn profile provided: https://www.linkedin.com/in/dana-reyes/.' });
+    const brief = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id), history: s });
+    expect(brief).toContain('Search returned 3 options');
+    expect(brief).not.toContain('Search returned no options');
+    expect(brief).toContain('<a href="https://www.linkedin.com/in/dana-reyes/">linkedin.com/in/dana-reyes</a>');
+  });
+
+  it('finds each link once, in what it is for, its meeting, and what you asked', () => {
+    expect(givenLinks({ statement: 'Meet them (https://a.com/x).', params: ['see https://b.org/y, and https://a.com/x'], meeting: { goal: 'no link', notes: 'https://c.net' } }))
+      .toEqual(['https://a.com/x', 'https://c.net', 'https://b.org/y']);
+    expect(givenLinks({ statement: 'nothing here', params: [] })).toEqual([]);
   });
 });
