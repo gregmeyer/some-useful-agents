@@ -3090,6 +3090,13 @@ export function cleanMeeting(raw: unknown): NotebookMeeting | undefined {
   return when || goal || notes ? { ...(when ? { when } : {}), ...(goal ? { goal } : {}), ...(notes ? { notes } : {}) } : undefined;
 }
 
+/** The links you gave it (in what it's for, its meeting notes, what you asked), each once, in order. Pure. */
+export function notebookGivenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string[] {
+  const from = [nb.statement, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? [])].filter((x): x is string => typeof x === 'string');
+  const urls = from.flatMap((t) => t.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ''));
+  return [...new Set(urls)];
+}
+
 /** Whether a notebook prepares for a meeting: the meeting briefing page, or a write step that writes talking points. */
 export function isMeetingNotebook(nb: Pick<Notebook, 'layout' | 'steps' | 'meeting'>): boolean {
   return !!nb.meeting || nb.layout?.preset === 'dossier' || !!nb.steps?.some((s) => s.kind === 'write' && !s.shape);

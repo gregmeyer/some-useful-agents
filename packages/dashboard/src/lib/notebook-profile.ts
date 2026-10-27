@@ -8,7 +8,7 @@
  * company's logo from its own site. Those feed ProfileCard and FactSheet
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
-import { NotebookStore, fetchImage, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
+import { NotebookStore, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { defaultLogoDeps, findLogo } from './notebook-logos.js';
@@ -92,6 +92,27 @@ export function profileSubject(nb: Pick<Notebook, 'title'>, step: Pick<NotebookS
   return nb.title.replace(/^(prepare|get ready|prep)\s+(for\s+)?(a\s+|the\s+|my\s+)?(meeting|call|chat|interview|coffee)\s+(with\s+)?/i, '').replace(/^(learn about|research|meet)\s+/i, '').trim() || nb.title;
 }
 
+/**
+ * What the researcher is told about why and who: the links you gave first (so
+ * they survive the cut, and it can tell which of a shared name it is), then
+ * what the notebook is for, what you asked, and the meeting. Pure.
+ */
+export function profileContext(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string {
+  const links = notebookGivenLinks(nb);
+  return [
+    links.length ? `Links you were given about them (the right one is the one these are about): ${links.join(' ')}` : '',
+    nb.statement, ...nb.params, nb.meeting?.goal ? `Meeting goal: ${nb.meeting.goal}` : '', nb.meeting?.notes ? `Already known: ${nb.meeting.notes}` : '',
+  ].filter(Boolean).join('; ').slice(0, 900);
+}
+
+/** A LinkedIn profile you gave is their LinkedIn (it can't be read, so research never finds it): kept as given, over any found. Pure. */
+export function withGivenLinkedIn<T extends { facts: Array<{ key: string; label: string; value: string; source?: string; quote?: string }>; notFound: string[] }>(f: T, links: readonly string[]): T {
+  const given = links.find((u) => /^https?:\/\/([a-z]+\.)?linkedin\.com\/in\/[^/?#]+/i.test(u));
+  if (!given) return f;
+  const label = PERSON_ASK.find((a) => a.key === 'linkedin')!.label;
+  return { ...f, facts: [...f.facts.filter((x) => x.key !== 'linkedin'), { key: 'linkedin', label, value: given, source: given }], notFound: f.notFound.filter((x) => x !== label) };
+}
+
 const host = (u: string): string | undefined => {
   try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('.') ? h : undefined; } catch { return undefined; }
 };
@@ -168,7 +189,7 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   if (!nb) return notes;
   const subject = profileSubject(nb, step);
   const ask = (list: readonly Ask[]) => JSON.stringify(list);
-  const context = [nb.statement, ...nb.params].filter(Boolean).join('; ').slice(0, 600);
+  const context = profileContext(nb);
 
   const first = await research(ctx, { SUBJECT: subject, ASK: ask(PERSON_ASK), CONTEXT: context, DEPTH: 'thorough' });
   const person = readResearch(first.result);
@@ -179,7 +200,7 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   if (isCompany) {
     company = { name: subject, ...(text(person, 'website') ? { site: text(person, 'website') } : {}) };
   } else {
-    const { facts, notFound } = aboutFrom(person, PERSON_ASK);
+    const { facts, notFound } = withGivenLinkedIn(aboutFrom(person, PERSON_ASK), notebookGivenLinks(nb));
     store.setAbout(nb.id, 'person', { name: subject, facts, notFound, ...(person.summary ? { summary: person.summary } : {}) });
     notes.push(`learned ${String(facts.length)} about ${subject}`);
     const photo = await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);

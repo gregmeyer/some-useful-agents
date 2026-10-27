@@ -10,11 +10,11 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunStore, NotebookStore, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePointer, splitNotebookHeader, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
+import { RunStore, NotebookStore, notebookGivenLinks, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePointer, splitNotebookHeader, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookLayoutFlags } from './notebook-widgets.js';
-import { renderPageBrief, briefIsPage, briefQuotes, givenLinks } from '../views/notebook-page-brief.js';
+import { renderPageBrief, briefIsPage, briefQuotes } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[] }>;
 
@@ -202,8 +202,8 @@ describe('research activity and your links, in the brief', () => {
   });
 
   it('finds each link once, in what it is for, its meeting, and what you asked', () => {
-    expect(givenLinks({ statement: 'Meet them (https://a.com/x).', params: ['see https://b.org/y, and https://a.com/x'], meeting: { goal: 'no link', notes: 'https://c.net' } }))
+    expect(notebookGivenLinks({ statement: 'Meet them (https://a.com/x).', params: ['see https://b.org/y, and https://a.com/x'], meeting: { goal: 'no link', notes: 'https://c.net' } }))
       .toEqual(['https://a.com/x', 'https://c.net', 'https://b.org/y']);
-    expect(givenLinks({ statement: 'nothing here', params: [] })).toEqual([]);
+    expect(notebookGivenLinks({ statement: 'nothing here', params: [] })).toEqual([]);
   });
 });
