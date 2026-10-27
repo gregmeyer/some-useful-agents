@@ -106,6 +106,16 @@ export const NOTEBOOK_PAGE_JS = `
       var form = ta.form;
       if (form && form.requestSubmit) form.requestSubmit(); else if (form) form.submit();
     });
+    // A brief opens (or is saved) in the mode you use the dashboard in: its links carry it.
+    document.addEventListener('click', function (e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[href*="/brief.html"]') : null;
+      if (!a) return;
+      var mode = 'dark';
+      try { if (localStorage.getItem('sua-theme') === 'light') mode = 'light'; } catch (_) { /* dark */ }
+      var u = new URL(a.getAttribute('href'), location.href);
+      u.searchParams.set('theme', mode);
+      a.setAttribute('href', u.pathname + u.search);
+    }, true);
     // An option's own page: its checklist saves the tick, then the page reloads.
     var optionPage = document.querySelector('[data-nb-option]');
     if (optionPage) {

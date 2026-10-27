@@ -9,6 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
+import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
@@ -262,7 +263,9 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean; theme?: BriefTheme }): string {
+  // The dashboard's look (its tokens and brand theme), in your mode.
+  const theme = args.theme ?? briefTheme();
   const { nb } = args;
   const now = args.now ?? new Date();
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
@@ -289,40 +292,24 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
 /* A brief: one column of reading. Findings first, the options as a table, then each in detail. */
-:root {
-  --bg: #faf9f7; --surface: #ffffff; --line: #e7e5e4; --line-strong: #d6d3d1;
-  --text: #1c1917; --muted: #78716c; --subtle: #a8a29e;
-  --accent: #0f766e; --accent-soft: #ccfbf1; --ok: #15803d;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-  --bg: #1a1918; --surface: #242220; --line: #3d3a37; --line-strong: #57534e;
-  --text: #e7e5e4; --muted: #a8a29e; --subtle: #78716c;
-  --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, 0.12); --ok: #4ade80; color-scheme: dark;
-} }
-:root[data-theme="dark"] {
-  --bg: #1a1918; --surface: #242220; --line: #3d3a37; --line-strong: #57534e;
-  --text: #e7e5e4; --muted: #a8a29e; --subtle: #78716c;
-  --accent: #2dd4bf; --accent-soft: rgba(45, 212, 191, 0.12); --ok: #4ade80; color-scheme: dark;
-}
+${unsafeHtml(theme.css)}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
 .brief { max-width: 48rem; margin: 0 auto; padding-inline: 1rem; padding-block: 2.5rem 3rem; display: grid; gap: 2rem; }
 .brief > * { min-width: 0; }
-.eyebrow { font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-h1 { margin: 0.5rem 0 0; font: 700 1.75rem/1.2 var(--mono); text-wrap: balance; }
+.eyebrow { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0.5rem 0 0; font: 700 1.75rem/1.2 var(--display); text-wrap: balance; }
 .goal { margin: 0.75rem 0 0; color: var(--muted); max-width: 65ch; }
 .stands { margin: 0; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-width: 65ch; }
 .stands strong { font-weight: 650; }
 .decision { padding: 1rem 1.25rem; border-radius: 10px; background: var(--accent-soft); display: grid; gap: 0.6rem; }
 .decision__head { margin: 0; font-size: 0.9375rem; }
-.decision__head b { font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-right: 0.5rem; }
+.decision__head b { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-right: 0.5rem; }
 .decision ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0.25rem 1.5rem; font-size: 0.875rem; }
 .decision li strong { font-weight: 650; }
 .decision li span { color: var(--muted); }
 .decision p { margin: 0; color: var(--muted); font-size: 0.875rem; max-width: 65ch; }
-h2 { margin: 0 0 0.75rem; font: 700 1.0625rem/1.3 var(--mono); }
+h2 { margin: 0 0 0.75rem; font: 700 1.0625rem/1.3 var(--display); }
 .count { font: 500 0.8125rem var(--mono); color: var(--muted); margin-left: 0.5rem; }
 .findings { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; max-width: 70ch; }
 .findings li::marker { color: var(--accent); }
@@ -330,7 +317,7 @@ h2 { margin: 0 0 0.75rem; font: 700 1.0625rem/1.3 var(--mono); }
 .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-thead th { font: 600 0.6875rem/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+thead th { font: 600 0.6875rem/1.2 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 tbody th { font-weight: 600; min-width: 12rem; }
 /* A name with its own page links to it (in the PDF too); the table stays compact, so no address after it. */
 /* Pictures: a small one by each name, a bigger one atop each option in full. A logo or drawing sits whole on a white tile. */
@@ -417,11 +404,6 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 .full__when { font: 500 0.75rem var(--mono); color: var(--subtle); min-width: 3.5rem; display: inline-block; }
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
 @media print {
-  :root, :root[data-theme="dark"] {
-    --bg: #ffffff; --surface: #ffffff; --line: #e7e5e4; --line-strong: #d6d3d1;
-    --text: #1c1917; --muted: #57534e; --subtle: #78716c;
-    --accent: #0f766e; --accent-soft: #ccfbf1; --ok: #15803d; color-scheme: light;
-  }
   @page { margin: 16mm 14mm; }
   body { font-size: 11pt; }
   .brief { max-width: none; padding: 0; gap: 1.25rem; }
@@ -489,5 +471,5 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 </main>
 ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
   if (args.fragment) return render(body);
-  return `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
+  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
 }

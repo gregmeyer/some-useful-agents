@@ -9,6 +9,7 @@ import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMar
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { notebookMadeBy, type NotebookMadeBy } from '../lib/notebook-made-by.js';
+import { briefTheme } from '../lib/brief-theme.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
 import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
@@ -29,7 +30,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing } from '@some-useful-agents/core';
+import { cleanBriefing, loadBrandTheme } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -1060,9 +1061,13 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   // ?latest=1: only the options the last run found for the first time.
   const latest = req.query.latest === '1';
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
+  // The dashboard's look: its brand theme, in your mode (?theme=light|dark; the share links pass yours).
+  const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
+  const mode = req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined;
+  const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
   const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
-    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
