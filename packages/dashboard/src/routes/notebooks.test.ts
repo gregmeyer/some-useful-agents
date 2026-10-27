@@ -2612,6 +2612,14 @@ describe('notebook templates', () => {
     const made = store.list().find((n) => n.title === 'Prepare for meeting with Acme Corp')!;
     expect(made.fields.map((f) => f.label)).toEqual(['What matters to Acme Corp', 'Source']);
     expect(made).toMatchObject({ statement: 'Help me understand what matters to Acme Corp before we meet.', params: ['Acme Corp', 'upcoming meeting', 'focus on what matters to them'], checks: ['Evidence relates to Acme Corp, not someone with a similar name'] });
+
+    // A profile step's subject changes each time too: kept as {subject}, filled in when one starts (not the title).
+    const co = store.create({ title: 'Create a briefing on Arrive', statement: 'Create a company briefing for Arrive.' });
+    store.setSteps(co.id, [{ title: 'Learn about Arrive', kind: 'profile', subject: 'Arrive' }, { title: 'Write the company briefing', kind: 'write', shape: 'answer' }]);
+    const ct = store.saveTemplate('Company briefing', co.id, undefined, { subject: { label: 'The company', example: 'Arrive' } });
+    expect(ct.setup.steps.map((x) => [x.title, x.subject, x.shape])).toEqual([['Learn about {subject}', '{subject}', undefined], ['Write the company briefing', undefined, 'answer']]);
+    expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'company-briefing', TITLE: 'Create a briefing on {subject}', SUBJECT: 'Ramp' } }).status).toBe('completed');
+    expect(store.list().find((n) => n.title === 'Create a briefing on Ramp')!.steps?.[0]).toMatchObject({ title: 'Learn about Ramp', kind: 'profile', subject: 'Ramp' });
   });
 });
 

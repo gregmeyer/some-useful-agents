@@ -614,7 +614,7 @@ export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
     fields: cleanFields(nb.fields),
     checks: [...nb.checks],
     stages: [...nb.stages],
-    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top, shape }) => ({ id, title, kind, agentId, target, facts, top, shape, status: 'todo', tries: 0 }))),
+    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top, shape, subject }) => ({ id, title, kind, agentId, target, facts, top, shape, subject, status: 'todo', tries: 0 }))),
     cadence: nb.cadence,
     pipeline: [...nb.pipeline],
     ...(nb.layout ? { layout: nb.layout } : {}),
@@ -700,7 +700,8 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
     }),
     steps: base.steps.map((st) => {
       const t = edits.stepTitles?.[st.id];
-      return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title) };
+      // A profile step's subject ("Arrive") is what changes each time too.
+      return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title), ...(st.subject ? { subject: sub(st.subject) } : {}) };
     }),
   };
   if (label && example) setup.subject = { label, example };
