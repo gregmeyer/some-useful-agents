@@ -105,7 +105,12 @@ nodes:
       last one moving toward it (a question or a next step that serves
       it); put in "watch" anything that cuts against the goal. Use its
       "notes" for what the person already knows (don't explain that back
-      to them). Without a goal, as below.
+      to them). Without a goal, as below. When the person or company has
+      "unsettled" facts (sources disagree, e.g. which company they work
+      for now), don't state either side as true anywhere: make the first
+      point an easy question that lets them say ("What are you spending
+      most of your time on these days?"), and put the disagreement in
+      "watch".
 
       Write {{inputs.COUNT}} talking points for the meeting. A talking point
       is something to raise in the conversation, written as a sentence the

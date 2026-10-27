@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1138,6 +1138,42 @@ describe('who a notebook is about', () => {
     expect(s.aboutPhoto(nb.id, 'person')).toMatchObject({ contentType: 'image/jpeg', kind: 'photo', sourceUrl: 'https://example.com/dana.jpg' });
     s.delete(nb.id);
     expect(s.aboutPhotos(nb.id).size).toBe(0);
+  });
+});
+
+describe('who they are now, when what was found disagrees', () => {
+  it('keeps a conflict about a fact they have, with 2+ sourced sides; settled ones stay settled; settling updates the fact', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call with Dana Reyes' });
+    s.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'organization', label: 'Company', value: 'Northwind', source: 'https://northwind.example/team' }, { key: 'role', label: 'Role', value: 'Founder' }] });
+    const opt = s.upsertOption(nb.id, { title: 'Joined Globex', by: 'agent:x', data: {} }).entry.id;
+    const about = s.get(nb.id)!.about;
+    const raw = { conflicts: [
+      { about: 'person', fact: 'organization', question: 'Is she at Globex now?', claims: [{ value: 'Northwind', source: 'https://northwind.example/team' }, { value: 'Globex', from: [opt, 'ghost'], when: '2026-10' }, { value: 'Somewhere', from: ['ghost'] }] },
+      { about: 'person', fact: 'hobby', claims: [{ value: 'a', source: 'https://a.example' }, { value: 'b', source: 'https://b.example' }] },
+      { about: 'company', fact: 'organization', claims: [] },
+    ] };
+    const found = cleanConflicts(raw, about, new Set([opt]), '2026-10-26T00:00:00Z');
+    expect(found).toEqual({ person: [{ fact: 'organization', label: 'Company', question: 'Is she at Globex now?', at: '2026-10-26T00:00:00Z', claims: [{ value: 'Northwind', source: 'https://northwind.example/team' }, { value: 'Globex', when: '2026-10', from: [opt] }] }] });
+    s.setAboutConflicts(nb.id, 'person', found.person!);
+    expect(openConflicts(s.get(nb.id)!.about!.person)).toHaveLength(1);
+    // Learning about her again keeps it.
+    s.setAbout(nb.id, 'person', { facts: [{ key: 'location', label: 'Based in', value: 'Lisbon' }] });
+    expect(openConflicts(s.get(nb.id)!.about!.person)).toHaveLength(1);
+    // Settled: the fact takes it (with its source), and it's no longer open.
+    s.settleConflict(nb.id, 'person', 'organization', { value: 'Globex', by: 'you' });
+    const person = s.get(nb.id)!.about!.person!;
+    expect(person.facts.find((f) => f.key === 'organization')!.value).toBe('Globex');
+    expect(openConflicts(person)).toEqual([]);
+    expect(person.conflicts![0].settled).toMatchObject({ value: 'Globex', by: 'you' });
+    // The same disagreement again isn't raised; a new value is.
+    s.setAboutConflicts(nb.id, 'person', found.person!);
+    expect(openConflicts(s.get(nb.id)!.about!.person)).toEqual([]);
+    s.setAboutConflicts(nb.id, 'person', [{ ...found.person![0], claims: [{ value: 'Globex', source: 'https://globex.example' }, { value: 'Initech', source: 'https://initech.example' }] }]);
+    expect(openConflicts(s.get(nb.id)!.about!.person).map((c) => c.claims.map((x) => x.value))).toEqual([['Globex', 'Initech']]);
+    expect(() => s.settleConflict(nb.id, 'person', 'role', { value: 'x', by: 'you' })).toThrow("isn't an open question");
   });
 });
 

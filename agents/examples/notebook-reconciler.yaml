@@ -1,0 +1,78 @@
+# Notebook Reconciler — checks who a notebook is about against what its
+# steps found. When something found says otherwise about a fact the profile
+# states (their role, their company, where they're based, what the company
+# does), it names the conflict, each side with where it came from, and the
+# question it raises. It never decides, and never adds facts of its own.
+# Route-dispatched only, by the step runner (dashboard
+# lib/notebook-reconcile.ts); never proposed in triage.
+
+id: notebook-reconciler
+name: Notebook Reconciler
+description: >
+  Finds where what a notebook found disagrees with who it's about (a role,
+  a company, a place), with each side's source and the question it raises.
+status: active
+source: examples
+
+inputs:
+  PEOPLE:
+    type: string
+    required: true
+    description: "JSON: who it's about (person, company), each with its facts: key, label, value, source."
+  FOUND:
+    type: string
+    required: true
+    description: "JSON list: what the notebook's steps found, each with its id, title, its facts, source and when."
+  TODAY:
+    type: string
+    required: true
+    description: Today's date, YYYY-MM-DD.
+
+nodes:
+  - id: reconcile
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<conflicts>[\s\S]*?</conflicts>'
+      description: a <conflicts> JSON block
+    prompt: |
+      Today is {{inputs.TODAY}}.
+
+      Who this notebook is about, as sua has them (JSON):
+      {{inputs.PEOPLE}}
+
+      What its steps found (JSON; each has an id):
+      {{inputs.FOUND}}
+
+      Find where what was found says something different, about the
+      present, from a fact above: their current role or title, the company
+      they work for now, where they're based, what the company does or its
+      size. Say it when what was found names a different current one
+      than the profile: a different employer or title now, a move, a new
+      city. Say it even when both might be true (their own firm and a job
+      somewhere else): the profile names only one, so ask which is their
+      main work now. A past job ("before", "after 10 years at"), or a role
+      the profile already includes, isn't one.
+
+      For each (at most 3), give:
+        - "about": "person" or "company";
+        - "fact": the fact's key above (e.g. "organization", "role");
+        - "claims": each side, {"value": the fact itself in 1 to 5 words,
+          as it would fill the profile ("Contentful", "Founder,
+          Intelligist Group", "Lisbon"), no explanation,
+          "source": the page it came from (the fact's source, or the
+          found item's source), "when": the date the found item gives
+          (its "when"), else nothing (never today's date, never a guess),
+          "from": the found ids that say it};
+          the profile's own value is one side;
+        - "question": the one question that settles it, as you'd ask it
+          ("Is he at Contentful now, or still running Intelligist?").
+
+      Use only what's above: don't add facts, sources or dates. No
+      conflict is a fine answer.
+
+      Reply with only this, as valid JSON:
+      <conflicts>
+      {"conflicts": [{"about": "person", "fact": "organization", "claims": [{"value": "…", "source": "…", "when": "…", "from": []}], "question": "…"}]}
+      </conflicts>

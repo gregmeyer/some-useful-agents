@@ -206,6 +206,12 @@ A notebook without fields shows cards instead. The widgets bind to the notebook'
   - your notes are taken as known, not explained back to you.
 - **When the points are old:** once they're 3 or more days old with the meeting still ahead, the header says so, with **Write again →**.
 
+**When what was found disagrees with who they are.** After a find, source or profile step, and before talking points are written, sua's reconciler (`notebook-reconciler`) compares who the notebook is about with what was found. It looks for disagreements about the present: their role, their company, where they're based, what the company does. Each one shows at the top of the notebook until it's settled, with the question (e.g. "Is she at Globex now, or still running Northwind?") and each side with its source and date.
+- **Check it:** sua looks it up as of today, with both sides as leads, and keeps the sourced answer.
+- **It's …:** keeps the side you know is right.
+
+Until it's settled, the talking points state neither side; they open with a question that lets them say. See [ADR-0062](adr/0062-who-they-are-now-conflicts.md).
+
 **Writing the answer.** A notebook that asks a question ("What do 10-person sales teams pay for a CRM?", "Is it worth upgrading to …?") ends with a write step that writes the answer: `"shape": "answer"`, written `Write the answer (write; answer)` in the Prompt tab. The drafter lays it out for a goal that's a question or something to find out rather than something to pick. Its find step gathers sources, and it ends with this step instead of decide. sua's writer reads what the notebook asks, the sources and findings still in the running, and the notes its research left. From those it writes:
 
 - **The answer:** one to four sentences, the key part in **bold**.

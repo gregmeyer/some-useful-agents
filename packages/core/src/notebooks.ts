@@ -102,9 +102,39 @@ export interface NotebookAboutFact {
   at: string;
 }
 
+/** One side of a conflict about who they are: what a source says. */
+export interface NotebookAboutClaim {
+  value: string;
+  /** The page that says it (http/https). */
+  source?: string;
+  /** When that page said it ("2026-10", "Oct 2026"). */
+  when?: string;
+  /** The options (what was found) that say it, by entry id. */
+  from?: string[];
+}
+
+/**
+ * What was found disagrees with who they are: their role, their company, where
+ * they're based. Open until you pick one, or sua checks it and the newer
+ * sourced answer wins.
+ */
+export interface NotebookAboutConflict {
+  /** The fact it's about (its key, e.g. "organization"), and its label. */
+  fact: string;
+  label: string;
+  claims: NotebookAboutClaim[];
+  /** The question it raises, in a sentence ("Is he at Contentful now?"). */
+  question: string;
+  at: string;
+  /** How it was settled: the value kept, by you or by sua's check, and why. */
+  settled?: { value: string; by: 'you' | 'research'; at: string; why?: string; source?: string };
+}
+
 export interface NotebookAboutOne {
   name: string;
   facts: NotebookAboutFact[];
+  /** Where what was found disagrees with these facts. */
+  conflicts?: NotebookAboutConflict[];
   /** What was looked for and not found (labels). */
   notFound?: string[];
   /** A sentence on who they are. */
@@ -143,7 +173,52 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     .slice(0, 12);
   const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
   const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
-  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), updatedAt: now };
+  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), ...(was?.conflicts?.length ? { conflicts: was.conflicts } : {}), updatedAt: now };
+}
+
+const lowerTrim = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * A reconciler's <conflicts> as ones to keep, against who the notebook is
+ * about and what it found: each about a fact they have (by key or label),
+ * with 2+ claims that differ, each claim from a page or an option it has
+ * (others dropped); at most 3 for each of them. Pure.
+ */
+export function cleanConflicts(raw: unknown, about: NotebookAbout | undefined, optionIds: ReadonlySet<string>, now = new Date().toISOString()): Partial<Record<NotebookAboutWho, NotebookAboutConflict[]>> {
+  const v = raw && typeof raw === 'object' ? (raw as { conflicts?: unknown }).conflicts : undefined;
+  const out: Partial<Record<NotebookAboutWho, NotebookAboutConflict[]>> = {};
+  const line = (x: unknown, n: number) => (typeof x === 'string' || typeof x === 'number' ? String(x).replace(/\s+/g, ' ').trim().slice(0, n) : '');
+  for (const c of Array.isArray(v) ? v : []) {
+    const o = (c ?? {}) as Record<string, unknown>;
+    const who = o.about === 'company' ? 'company' : 'person';
+    const one = about?.[who];
+    if (!one) continue;
+    const want = lowerTrim(line(o.fact, 60));
+    const fact = one.facts.find((f) => f.key === want || lowerTrim(f.label) === want);
+    if (!fact) continue;
+    const claims: NotebookAboutClaim[] = [];
+    for (const raw of Array.isArray(o.claims) ? o.claims : []) {
+      const x = (raw ?? {}) as Record<string, unknown>;
+      // The fact itself, as it would fill the profile (it's also a button: "It's Contentful").
+      const value = line(x.value, 80);
+      const source = typeof x.source === 'string' && /^https?:\/\//i.test(x.source.trim()) ? x.source.trim().slice(0, 500) : undefined;
+      const from = (Array.isArray(x.from) ? x.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id)).slice(0, 4);
+      const when = line(x.when, 30);
+      if (!value || (!source && !from.length)) continue;
+      if (claims.some((y) => lowerTrim(y.value) === lowerTrim(value))) continue;
+      claims.push({ value, ...(source ? { source } : {}), ...(when ? { when } : {}), ...(from.length ? { from } : {}) });
+    }
+    if (claims.length < 2) continue;
+    const list = (out[who] ??= []);
+    if (list.length >= 3 || list.some((x) => x.fact === fact.key)) continue;
+    list.push({ fact: fact.key, label: fact.label, claims: claims.slice(0, 4), question: line(o.question, 160) || `Which is right about ${fact.label.toLowerCase()} now?`, at: now });
+  }
+  return out;
+}
+
+/** The conflicts not settled yet, for one of them. */
+export function openConflicts(one: NotebookAboutOne | undefined): NotebookAboutConflict[] {
+  return (one?.conflicts ?? []).filter((c) => !c.settled);
 }
 
 /** One fact every option in a notebook has: a car's price or miles, a flat's rent. */
@@ -1039,6 +1114,47 @@ export class NotebookStore {
     const about: NotebookAbout = { ...(nb.about ?? {}), [who]: mergeAbout(nb.about?.[who], next, now) };
     this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
     return this.get(id)!;
+  }
+
+  /**
+   * Take a reconciler's conflicts for one of them: the open ones are replaced;
+   * settled ones stay, and one is raised again only when it brings a value
+   * that wasn't part of it.
+   */
+  setAboutConflicts(id: string, who: NotebookAboutWho, conflicts: readonly NotebookAboutConflict[], now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const one = nb.about?.[who];
+    if (!one) return nb;
+    const settled = (one.conflicts ?? []).filter((c) => c.settled);
+    const fresh = conflicts.filter((c) => {
+      const known = settled.filter((s) => s.fact === c.fact);
+      if (!known.length) return true;
+      const seen = new Set(known.flatMap((s) => [...s.claims.map((x) => lowerTrim(x.value)), lowerTrim(s.settled!.value)]));
+      return c.claims.some((x) => !seen.has(lowerTrim(x.value)));
+    });
+    const kept = settled.filter((s) => !fresh.some((c) => c.fact === s.fact));
+    const about: NotebookAbout = { ...(nb.about ?? {}), [who]: { ...one, conflicts: [...kept, ...fresh] } };
+    this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
+    return this.mustGet(id);
+  }
+
+  /**
+   * Settle a conflict: the fact takes the value kept (with its source), and
+   * the conflict says how. `by`: you picked it, or sua's check found it.
+   */
+  settleConflict(id: string, who: NotebookAboutWho, fact: string, settled: { value: string; by: 'you' | 'research'; why?: string; source?: string }, now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const one = nb.about?.[who];
+    const c = one?.conflicts?.find((x) => x.fact === fact && !x.settled);
+    if (!one || !c) throw new Error('That isn\'t an open question about them.');
+    const value = settled.value.replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!value) throw new Error('Say which is right.');
+    const label = one.facts.find((f) => f.key === fact)?.label ?? c.label;
+    const merged = mergeAbout(one, { facts: [{ key: fact, label, value, ...(settled.source ? { source: settled.source } : {}) }] }, now);
+    const conflicts = (merged.conflicts ?? []).map((x) => (x === c || (x.fact === fact && !x.settled) ? { ...x, settled: { value, by: settled.by, at: now, ...(settled.why ? { why: settled.why.slice(0, 300) } : {}), ...(settled.source ? { source: settled.source } : {}) } } : x));
+    const about: NotebookAbout = { ...(nb.about ?? {}), [who]: { ...merged, conflicts } };
+    this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
+    return this.mustGet(id);
   }
 
   /** Keep a copy of their picture (a person's photo, a company's logo). */

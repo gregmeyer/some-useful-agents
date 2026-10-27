@@ -1040,3 +1040,14 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbd-meeting { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
 .nbd-meeting__when { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .nbd-meeting label { display: grid; gap: 2px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+
+/* A conflict about who they are, at the top until settled (views/notebooks.ts conflictLine). */
+.nb-conflict { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-warn); border-left-width: 3px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-warn) 8%, transparent); display: grid; gap: var(--space-2); max-width: 56rem; font-size: var(--font-size-sm); }
+.nb-conflict p { margin: 0; }
+.nb-conflict__q { color: var(--color-text); font-weight: var(--weight-semibold); }
+.nb-conflict__tag { margin-right: var(--space-1); padding: 0 6px; border: 1px solid currentColor; border-radius: 999px; font: 600 11px/16px var(--font-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--color-warn); }
+.nb-conflict__sides { margin: 0; padding-left: 1.1rem; display: grid; gap: 2px; color: var(--color-text); }
+.nb-conflict__src { color: var(--color-text-muted); }
+.nb-conflict__src a { color: inherit; }
+.nb-conflict__acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.nb-conflict__acts form { margin: 0; }

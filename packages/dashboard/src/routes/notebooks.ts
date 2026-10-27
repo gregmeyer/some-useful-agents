@@ -19,6 +19,8 @@ import { templateOfNotebook, draftTemplate } from '../lib/notebook-template-acti
 import { conversationWorking } from '../lib/conversation-working.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { notebookSuggestions } from '../lib/notebook-suggestions.js';
+import { startConflictCheck } from '../lib/notebook-reconcile.js';
+import { CHECKING_WHO } from '../views/notebooks.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, meetingFromForm } from '../lib/notebook-draft.js';
 import {
   NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
@@ -264,6 +266,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
     ...(ctx.notebookListingPhotos?.has(nb.id) ? ['Getting listing photos'] : []),
     ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),
     ...(unfiled.some((r) => r.adding) ? ['Adding a run'] : []),
+    ...([...(ctx.notebookConflictChecks ?? [])].some((k) => k.startsWith(`${nb.id}|`)) ? [CHECKING_WHO] : []),
   ];
   // What's live: the conversation waiting on you or replying, and the notebook's own work.
   const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of } : undefined, busy);
@@ -641,6 +644,30 @@ function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'err
   const qs = [tab ? `tab=${tab}` : '', preview ? 'preview=1' : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
   return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
 }
+
+/** A conflict about who they are: sua checks it (in the background), or you pick the one that's right. */
+notebooksRouter.post('/notebooks/:id/about/:who/conflicts/:fact/check', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const who = str(req.params.who) === 'company' ? 'company' : 'person';
+  const out = startConflictCheck(getContext(req.app.locals), id, who, str(req.params.fact));
+  res.redirect(303, back(id, out.started ? 'sua is checking it. This page shows what it finds.' : out.reason ?? "Couldn't check it."));
+});
+
+notebooksRouter.post('/notebooks/:id/about/:who/conflicts/:fact/settle', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  const who = str(req.params.who) === 'company' ? 'company' : 'person';
+  try {
+    const nb = s.get(id);
+    const c = nb?.about?.[who]?.conflicts?.find((x) => x.fact === str(req.params.fact) && !x.settled);
+    const claim = c?.claims.find((x) => x.value === str(req.body?.value));
+    const value = claim?.value ?? str(req.body?.value).trim();
+    s.settleConflict(id, who, str(req.params.fact), { value, by: 'you', ...(claim?.source ? { source: claim.source } : {}) });
+    res.redirect(303, back(id, `Kept: ${c?.label ?? 'it'} is ${value}. Write again uses it.`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
 
 /** The meeting a notebook prepares for: your words, saved as they are (no proposal to check). */
 notebooksRouter.post('/notebooks/:id/meeting', (req: Request, res: Response) => {

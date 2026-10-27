@@ -5,7 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
-import { isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
+import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -211,6 +211,34 @@ export function meetingLine(nb: Notebook, now = new Date()): SafeHtml {
     ${form}
     ${stale ? html`<form method="POST" action="/notebooks/${id}/steps/${write!.id}/again" class="nb-meeting__stale"><span>The talking points are ${String(ageDays)} days old.</span> <button type="submit" class="nb-step__focus-btn">Write again →</button></form>` : html``}
   </div>`;
+}
+
+/** What the header says while sua checks a conflict about who they are. */
+export const CHECKING_WHO = 'Checking who they are now';
+
+const siteOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+
+/**
+ * Where what was found disagrees with who the notebook is about (core
+ * NotebookAboutOne.conflicts), at the top until it's settled: the question,
+ * each side with its source and date, then Check it (sua looks it up as of
+ * today) or the side you know is right.
+ */
+export function conflictLine(nb: Notebook, checking = false): SafeHtml {
+  const open = (['person', 'company'] as const).flatMap((who) => openConflicts(nb.about?.[who]).map((c) => ({ who, c })));
+  if (!open.length) return html``;
+  const id = encodeURIComponent(nb.id);
+  return html`${open.map(({ who, c }) => {
+    const at = `/notebooks/${id}/about/${who}/conflicts/${encodeURIComponent(c.fact)}`;
+    return html`<div class="nb-conflict" role="status">
+      <p class="nb-conflict__q"><span class="nb-conflict__tag">Not settled</span> ${c.question}</p>
+      <ul class="nb-conflict__sides">${c.claims.map((x) => html`<li><strong>${x.value}</strong>${x.source || x.when ? html` <span class="nb-conflict__src">${x.source ? html`<a href="${x.source}" target="_blank" rel="noopener">${siteOf(x.source)} ↗</a>` : html``}${x.source && x.when ? ' · ' : ''}${x.when ?? ''}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>
+      <div class="nb-conflict__acts">
+        ${checking ? working({ text: 'sua is checking it…' }) : html`<form method="POST" action="${at}/check"><button type="submit" class="btn btn--sm btn--primary" title="sua looks it up as of today, with both sides as leads, and keeps the answer with its source">Check it</button></form>`}
+        ${c.claims.map((x) => html`<form method="POST" action="${at}/settle"><input type="hidden" name="value" value="${x.value}"><button type="submit" class="btn btn--sm btn--ghost">It's ${x.value}</button></form>`) as unknown as SafeHtml[]}
+      </div>
+    </div>`;
+  }) as unknown as SafeHtml[]}`;
 }
 
 const STEP_STATUS: Record<NotebookStep['status'], string> = { todo: 'to do', running: 'running', met: 'goal met', stuck: 'stuck', done: 'done' };
@@ -446,6 +474,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         </div>
         ${head?.statement === false ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         ${meetingLine(nb)}
+        ${conflictLine(nb, busy.includes(CHECKING_WHO))}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence} · <a href="/notebooks/${id}/workflow">How it was made →</a>${running ? html`` : newLink(leads)}</span>

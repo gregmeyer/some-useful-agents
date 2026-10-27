@@ -11,10 +11,11 @@
  * why, the findings it rests on (by id, the same way), and what's still
  * open (Notebook.answer); the Answer page and the brief show it.
  */
-import { NotebookStore, cleanBriefing, cleanAnswer, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
+import { reconcileAbout } from './notebook-reconcile.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -27,7 +28,12 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
   const about = (who: 'person' | 'company') => {
     const one = nb.about?.[who];
-    return one ? { name: one.name, ...(one.summary ? { summary: one.summary } : {}), facts: one.facts.map((f) => `${f.label}: ${f.value}`) } : undefined;
+    // A fact sources disagree on isn't stated as true: the writer gets both sides.
+    const open = openConflicts(one);
+    return one ? {
+      name: one.name, ...(one.summary ? { summary: one.summary } : {}), facts: one.facts.filter((f) => !open.some((c) => c.fact === f.key)).map((f) => `${f.label}: ${f.value}`),
+      ...(open.length ? { unsettled: open.map((c) => ({ fact: c.label, sides: c.claims.map((x) => `${x.value}${x.when ? ` (${x.when})` : ''}`), question: c.question })) } : {}),
+    } : undefined;
   };
   const themes = options.map((o) => {
     const rest = Object.fromEntries(nb.fields.filter((f) => f !== quoteF && f !== askF && f.role !== 'link' && f.role !== 'image' && text(o.fields[f.key])).map((f) => [f.label, text(o.fields[f.key]).slice(0, 200)]));
@@ -74,6 +80,10 @@ async function runWriter(ctx: Ctx, inputs: Record<string, string>): Promise<{ re
 
 /** Write what the notebook was for (a write step's run): its talking points, or its answer. Returns what happened, a line each; never throws. */
 export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<string[]> {
+  if (!store.get(notebookId)) return [];
+  // Talking points: first check who they are against what was found, so the points don't state a contested fact.
+  const reconciled = !step.shape ? await reconcileAbout(ctx, store, notebookId) : undefined;
+  if (reconciled) store.noteRun(notebookId, reconciled);
   const nb = store.get(notebookId);
   if (!nb) return [];
   const entries = store.entries(nb.id, 1000);
