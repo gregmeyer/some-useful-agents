@@ -174,13 +174,20 @@ nodes:
     command: |
       set -e
       python3 << 'PYEOF'
-      import html, json, os, re, unicodedata, urllib.request
+      import html, json, os, re, unicodedata, urllib.error, urllib.request
       from sua_helpers import upstream, last_json, tagged_json
 
       REPL = {"“": '"', "”": '"', "‘": "'", "’": "'", " ": " ", "—": "-", "–": "-", "…": "..."}
       def norm(s):
           s = unicodedata.normalize("NFKC", "".join(REPL.get(ch, ch) for ch in (s or "")))
           return re.sub(r"\s+", " ", s).strip().lower()
+
+      # A site that refuses automated readers (a 401/403/429, or a bot-check
+      # page): its host, so it's named and gets no screenshot (a browser is refused too).
+      CHALLENGE = re.compile(r"just a moment\.\.\.|cf-chl|cf_chl|attention required|px-captcha|captcha|access is temporarily restricted|verify you are (a )?human|enable javascript and cookies", re.I)
+      blocked_hosts = set()
+      def host_of(url):
+          return re.sub(r"^www\.", "", re.sub(r"^https?://([^/:?#]+).*$", r"\1", url or "", flags=re.I).lower())
 
       def page_text(url, cache={}):
           if url in cache:
@@ -191,8 +198,19 @@ nodes:
                   req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (sua notebook-checker)"})
                   with urllib.request.urlopen(req, timeout=8) as r:
                       raw = r.read(2_000_000).decode(r.headers.get_content_charset() or "utf-8", "replace")
+                  if len(raw) < 20000 and CHALLENGE.search(raw):
+                      blocked_hosts.add(host_of(url))
+                      raw = ""
                   raw = re.sub(r"<(script|style|noscript)[\s\S]*?</\1>", " ", raw, flags=re.I)
                   text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+              except urllib.error.HTTPError as e:
+                  try:
+                      body = e.read(20000).decode("utf-8", "replace")
+                  except Exception:
+                      body = ""
+                  if e.code in (401, 403, 429) or (e.code == 503 and CHALLENGE.search(body)):
+                      blocked_hosts.add(host_of(url))
+                  text = ""
               except Exception:
                   text = ""
           cache[url] = text
@@ -278,10 +296,14 @@ nodes:
           check = canon.get(norm(str(v.get("check", ""))))
           url = str(v.get("url") or "").strip()
           if (o and check and str(v.get("verdict", "")).lower().strip() == "met" and (o["id"], check) in failed - confirmed
-                  and re.match(r"^https?://", url) and not any(x["id"] == o["id"] and x["check"] == check for x in second)):
+                  and re.match(r"^https?://", url) and host_of(url) not in blocked_hosts
+                  and not any(x["id"] == o["id"] and x["check"] == check for x in second)):
               second.append({"id": o["id"], "check": check, "quote": str(v.get("quote") or "")[:300], "url": url})
       second = second[:4]
-      print(json.dumps({"ok": True, "facts": facts, "bits": bits, "unconfirmed": unconfirmed, "second_look": second, "any_second_look": bool(second)}, ensure_ascii=False))
+      # The blocked sites among the pages its unconfirmed quotes came from.
+      cited = {host_of(str(v.get("url") or "")) for v in verdicts if re.match(r"^https?://", str(v.get("url") or ""))}
+      print(json.dumps({"ok": True, "facts": facts, "bits": bits, "unconfirmed": unconfirmed, "second_look": second, "any_second_look": bool(second),
+                        "blocked": sorted(blocked_hosts & cited)}, ensure_ascii=False))
       PYEOF
 
   # 5. A second look at the pages whose quote code couldn't find in their
@@ -334,7 +356,8 @@ nodes:
       seen = [x for x in tagged_json(upstream("LOOK"), "seen") or [] if isinstance(x, dict)]
       entries, by_shot = [], 0
       # Pages that refused the browser (a bot check): said, so it's clear why they stay open.
-      blocked = sorted({re.sub(r"^www\.", "", re.sub(r"^https?://([^/]+).*$", r"\1", second[x["i"]]["url"]))
+      # Blocked: the ones verify's download was refused by, and any the second look saw a bot check on.
+      blocked = sorted(set(v.get("blocked") or []) | {re.sub(r"^www\.", "", re.sub(r"^https?://([^/:?#]+).*$", r"\1", second[x["i"]]["url"]).lower())
                         for x in seen if isinstance(x.get("i"), int) and 0 <= x["i"] < len(second) and x.get("blocked") is True})
       for x in seen:
           i = x.get("i")
@@ -359,6 +382,6 @@ nodes:
       if left > 0:
           bits.append(f"{left} quote{'s' if left != 1 else ''} not found word for word, left open")
       if blocked:
-          bits.append(f"{', '.join(blocked)} blocked a browser, so {'its page' if len(blocked) == 1 else 'their pages'} couldn't be checked by screenshot")
+          bits.append(f"{' and '.join(blocked) if len(blocked) <= 2 else ', '.join(blocked[:-1]) + ' and ' + blocked[-1]} refused automated reading, so {'its page' if len(blocked) == 1 else 'their pages'} couldn't be checked")
       print("<notebook>" + json.dumps({"facts": list(facts.values()), "entries": entries, "summary": "; ".join(bits) + "."}, ensure_ascii=False) + "</notebook>")
       PYEOF
