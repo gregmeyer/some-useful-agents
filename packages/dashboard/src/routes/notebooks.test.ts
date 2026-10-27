@@ -3838,7 +3838,7 @@ describe('the meeting a notebook prepares for', () => {
 
     // No meeting yet: the page asks, and so does sua's greeting.
     let page = (await get(`/notebooks/${nb.id}`)).text;
-    expect(page).toContain('Add the meeting: when it is and what you want from it');
+    expect(page).toContain('<span class="nb-meeting__add">＋ Add the meeting</span> <span class="nb-meeting__why">when, and what you want from it</span>');
     const { notebookGreeting } = await import('../lib/notebook-chat.js');
     expect(notebookGreeting(s.get(nb.id)!)).toContain('When is the meeting, and what do you want out of it?');
 
@@ -3850,7 +3850,7 @@ describe('the meeting a notebook prepares for', () => {
     page = (await get(`/notebooks/${nb.id}`)).text;
     expect(page).toMatch(/Meeting <strong>[^<]*2:00 PM<\/strong> · in 3 days/);
     expect(page).toContain('Your goal: Explore a partnership on onboarding');
-    expect(page).toContain('Edit the meeting');
+    expect(page).toMatch(/<details class="nb-meeting__edit">\s*<summary>Edit<\/summary>/);
     // A date that isn't one is refused, and the meeting stays.
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/meeting`, { meeting_date: 'soon' })).headers.location)).toContain("That date didn't read as a date.");
     expect(s.get(nb.id)!.meeting?.when).toBe(`${day}T14:00`);

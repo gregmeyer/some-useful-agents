@@ -194,20 +194,22 @@ export function meetingLine(nb: Notebook, now = new Date()): SafeHtml {
   const ageDays = nb.briefing?.at ? Math.floor((now.getTime() - Date.parse(nb.briefing.at)) / 86_400_000) : 0;
   const upcoming = !!m.when && !/ago|yesterday/.test(meetingDays(m.when, now));
   const stale = upcoming && nb.briefing?.points.length && ageDays >= 3 && write && (write.status === 'done' || write.status === 'met');
-  const form = (open: boolean) => html`<details class="nb-meeting__edit"${open ? unsafeHtml(' open') : unsafeHtml('')}>
-      <summary>${m.when || m.goal ? 'Edit the meeting' : 'Add the meeting: when it is and what you want from it'}</summary>
+  // Closed until asked for: one quiet line, then a compact row (date · time · goal · Save) with notes under it.
+  const set = !!(m.when || m.goal);
+  const form = html`<details class="nb-meeting__edit">
+      <summary>${set ? 'Edit' : html`<span class="nb-meeting__add">＋ Add the meeting</span> <span class="nb-meeting__why">when, and what you want from it</span>`}</summary>
       <form method="POST" action="/notebooks/${id}/meeting" class="nb-meeting__form">
-        <label><span>Date</span><input type="date" name="meeting_date" value="${(m.when ?? '').split('T')[0]}" class="form-field"></label>
-        <label><span>Time</span><input type="time" name="meeting_time" value="${(m.when ?? '').split('T')[1] ?? ''}" class="form-field"></label>
-        <label class="nb-meeting__wide"><span>Your goal</span><input type="text" name="meeting_goal" value="${m.goal ?? ''}" class="form-field" maxlength="300" placeholder="What you want out of it, e.g. explore a partnership on X"></label>
-        <label class="nb-meeting__wide"><span>Notes <em>optional</em></span><input type="text" name="meeting_notes" value="${m.notes ?? ''}" class="form-field" maxlength="600" placeholder="What you already know, who else is coming"></label>
+        <label class="sr-only" for="nbm-date-${nb.id}">Date</label><input id="nbm-date-${nb.id}" type="date" name="meeting_date" value="${(m.when ?? '').split('T')[0]}" class="form-field nb-meeting__date">
+        <label class="sr-only" for="nbm-time-${nb.id}">Time</label><input id="nbm-time-${nb.id}" type="time" name="meeting_time" value="${(m.when ?? '').split('T')[1] ?? ''}" class="form-field nb-meeting__time">
+        <label class="sr-only" for="nbm-goal-${nb.id}">Your goal</label><input id="nbm-goal-${nb.id}" type="text" name="meeting_goal" value="${m.goal ?? ''}" class="form-field nb-meeting__goalin" maxlength="300" placeholder="Your goal, e.g. explore a partnership on X">
         <button type="submit" class="btn btn--primary btn--sm">Save</button>
+        <label class="sr-only" for="nbm-notes-${nb.id}">Notes</label><input id="nbm-notes-${nb.id}" type="text" name="meeting_notes" value="${m.notes ?? ''}" class="form-field nb-meeting__notes" maxlength="600" placeholder="Notes (optional): what you already know, who else is coming">
       </form>
     </details>`;
   return html`<div class="nb-meeting">
-    ${m.when || m.goal ? html`<p class="nb-meeting__line">${m.when ? html`<span class="nb-meeting__when">Meeting <strong>${meetingWhenWords(m.when)}</strong> · ${meetingDays(m.when, now)}</span>` : html``}${m.goal ? html`<span class="nb-meeting__goal">Your goal: ${m.goal}</span>` : html``}</p>` : html``}
+    ${set ? html`<span class="nb-meeting__line">${m.when ? html`<span class="nb-meeting__when">Meeting <strong>${meetingWhenWords(m.when)}</strong> · ${meetingDays(m.when, now)}</span>` : html``}${m.goal ? html`<span class="nb-meeting__goal">Your goal: ${m.goal}</span>` : html``}</span>` : html``}
+    ${form}
     ${stale ? html`<form method="POST" action="/notebooks/${id}/steps/${write!.id}/again" class="nb-meeting__stale"><span>The talking points are ${String(ageDays)} days old.</span> <button type="submit" class="nb-step__focus-btn">Write again →</button></form>` : html``}
-    ${form(!m.goal && !m.when)}
   </div>`;
 }
 

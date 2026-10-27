@@ -1017,23 +1017,25 @@ body.has-sua-panel .nb-toast { display: none; }
 .tpe-foot__note { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 @media (max-width: 560px) { .tpe-point__head { grid-template-columns: 1.5rem minmax(0, 1fr); } .tpe-point__acts { grid-column: 2; } .tpe-point .tpe-field, .tpe-point__from { margin-left: 0; } }
 
-/* A meeting notebook's meeting, under what it's for (views/notebooks.ts meetingLine). */
-.nb-meeting { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; }
-.nb-meeting__line { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+/* A meeting notebook's meeting, under what it's for (views/notebooks.ts meetingLine): one line, its Edit at the end; the form opens under it. */
+.nb-meeting { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin: var(--space-2) 0 0; font-size: var(--font-size-sm); }
+.nb-meeting__line { display: inline-flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); color: var(--color-text-muted); }
 .nb-meeting__when strong { color: var(--color-text); font-weight: var(--weight-semibold); }
 .nb-meeting__goal { color: var(--color-text); }
-.nb-meeting__stale { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-size-sm); color: var(--color-warn); }
-.nb-meeting__edit summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-primary); }
-.nb-meeting__form { margin-top: var(--space-2); display: grid; grid-template-columns: 10rem 8rem minmax(0, 1fr); gap: var(--space-2) var(--space-3); align-items: end; max-width: 56rem; }
-.nb-meeting__form label { display: grid; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-muted); min-width: 0; }
-.nb-meeting__form .form-field { box-sizing: border-box; width: 100%; height: var(--control-h, 32px); padding: 0 var(--space-2); font-size: var(--font-size-sm); }
-/* The goal sits beside the date and time; notes and Save below. */
-.nb-meeting__wide:first-of-type { grid-column: auto; }
-.nb-meeting__wide { grid-column: 1 / -1; }
-.nb-meeting__form label:nth-of-type(3) { grid-column: 3; }
-.nb-meeting__form label:nth-of-type(4) { grid-column: 1 / 3; }
-.nb-meeting__form button { justify-self: start; align-self: end; height: var(--control-h, 32px); }
-@media (max-width: 640px) { .nb-meeting__form { grid-template-columns: 1fr 1fr; } .nb-meeting__form label:nth-of-type(3), .nb-meeting__form label:nth-of-type(4) { grid-column: 1 / -1; } }
+.nb-meeting__edit summary { cursor: pointer; list-style: none; color: var(--color-primary); }
+.nb-meeting__edit summary::-webkit-details-marker { display: none; }
+.nb-meeting__edit summary::before { content: none; display: none; }
+.nb-meeting__edit summary:hover, .nb-meeting__edit summary:focus-visible { text-decoration: underline; }
+.nb-meeting__add { font-weight: var(--weight-semibold); }
+.nb-meeting__why { color: var(--color-text-subtle); }
+.nb-meeting__edit[open] { flex-basis: 100%; }
+.nb-meeting__form { margin-top: var(--space-2); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); max-width: 46rem; }
+.nb-meeting__form .form-field { box-sizing: border-box; height: var(--control-h-sm, 28px); padding: 0 var(--space-2); font-size: var(--font-size-sm); }
+.nb-meeting__date { width: 9.5rem; }
+.nb-meeting__time { width: 7rem; }
+.nb-meeting__goalin { flex: 1 1 14rem; min-width: 0; }
+.nb-meeting__notes { flex: 1 1 100%; }
+.nb-meeting__stale { flex-basis: 100%; margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--color-warn); }
 /* The draft's meeting row. */
 .nbd-meeting { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-2); }
 .nbd-meeting__when { display: flex; flex-wrap: wrap; gap: var(--space-2); }
