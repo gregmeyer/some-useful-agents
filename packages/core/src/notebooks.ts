@@ -614,7 +614,7 @@ export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
     fields: cleanFields(nb.fields),
     checks: [...nb.checks],
     stages: [...nb.stages],
-    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top }) => ({ id, title, kind, agentId, target, facts, top, status: 'todo', tries: 0 }))),
+    steps: cleanSteps((nb.steps ?? []).map(({ id, title, kind, agentId, target, facts, top, shape }) => ({ id, title, kind, agentId, target, facts, top, shape, status: 'todo', tries: 0 }))),
     cadence: nb.cadence,
     pipeline: [...nb.pipeline],
     ...(nb.layout ? { layout: nb.layout } : {}),
@@ -625,12 +625,13 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Swap `example` for `{subject}` in a text, as a whole phrase, any case:
- * "Dana Reyes's" keeps its "'s". No example: the text as it is.
+ * "Dana Reyes's" keeps its "'s". Never inside a web address
+ * ("www.arrive.accountants" stays). No example: the text as it is.
  */
 export function subjectOut(text: string, example: string): string {
   const ex = example.replace(/\s+/g, ' ').trim();
   if (!ex) return text;
-  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(ex).replace(/ /g, '\\s+')}(?![\\p{L}\\p{N}])`, 'giu'), TEMPLATE_SUBJECT);
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}./@])${escapeRe(ex).replace(/ /g, '\\s+')}(?![\\p{L}\\p{N}]|\\.[\\p{L}\\p{N}])`, 'giu'), TEMPLATE_SUBJECT);
 }
 
 /** Fill a template text's `{subject}` with this time's ("Acme Corp"). Nothing given: it stays. */
