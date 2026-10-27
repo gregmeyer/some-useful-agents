@@ -195,7 +195,7 @@ async function keepPicture(ctx: Ctx, store: NotebookStore, nb: Notebook, who: No
  * Learn about who the notebook is about. Returns notes for the step's log
  * (each research run, what was kept); never throws.
  */
-export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<string[]> {
+export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, onRun?: (runId: string) => void): Promise<string[]> {
   const notes: string[] = [];
   const nb = store.get(notebookId);
   if (!nb) return notes;
@@ -204,6 +204,7 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   const context = profileContext(nb);
 
   const first = await research(ctx, { SUBJECT: subject, ASK: ask(PERSON_ASK), CONTEXT: context, DEPTH: 'thorough' });
+  if (first.runId) onRun?.(first.runId);
   const person = readResearch(first.result);
   if (!person) { notes.push(`${RESEARCH_ONE_ID}: ${first.error ?? 'no answer'}`); return notes; }
   const isCompany = /^(company|organi[sz]ation|business)/i.test(text(person, 'kind'));
@@ -224,6 +225,7 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
 
   if (company) {
     const second = await research(ctx, { SUBJECT: company.name, ASK: ask(COMPANY_ASK), CONTEXT: isCompany ? context : `${subject}'s company${company.site ? `, ${company.site}` : ''}`, DEPTH: isCompany ? 'thorough' : 'quick' });
+    if (second.runId) onRun?.(second.runId);
     const c = readResearch(second.result);
     if (c) {
       const { facts, notFound } = aboutFrom(c, COMPANY_ASK);

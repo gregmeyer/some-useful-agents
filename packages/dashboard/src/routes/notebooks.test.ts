@@ -2237,7 +2237,12 @@ describe('how a notebook was made (Workflow)', () => {
     s.recordSearch(nb.id, 'car-sweep', 'sweep-1', 1, new Date(now - 100_000).toISOString());
     s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-1' });
 
-    expect((await get('/notebooks/car')).text).toContain('href="/notebooks/car/workflow">How it was made →</a>');
+    // Once something ran, the made-by strip under the steps is the way in (not the meta line's link).
+    const nbPage = (await get('/notebooks/car')).text;
+    expect(nbPage).toContain('<a class="nb-madeby" href="/notebooks/car/workflow">');
+    expect(nbPage).toMatch(/<b>Made by 2 agents in 2 runs<\/b> · last /);
+    expect(nbPage).toContain('See how it was made →');
+    expect(nbPage).not.toContain('How it was made →</a>');
     const page = await get('/notebooks/car/workflow');
     expect(page.status).toBe(200);
     expect(page.text).toContain('How this notebook was made');
@@ -2255,6 +2260,19 @@ describe('how a notebook was made (Workflow)', () => {
     // Run pages link back, the sub-run through its parent.
     expect((await get('/runs/sweep-1')).text).toContain('<a href="/notebooks/car">Car</a> · <a href="/notebooks/car/workflow">how it was made</a>');
     expect((await get('/runs/cl-a')).text).toContain('(through the run that started this one)');
+
+    // A step's pass is named for it, and the step's card links to it (How →).
+    s.setSteps(nb.id, [{ title: 'Find 5 cars', kind: 'find', agentId: 'car-sweep', target: 5, status: 'done', tries: 1 }]);
+    const stepId = s.get(nb.id)!.steps![0].id;
+    run('sweep-2', 'car-sweep', 50_000);
+    const passId = s.startPass(nb.id, 'pipeline', new Date(now - 50_000).toISOString(), { stepId });
+    s.addRunToPass(passId, 'sweep-2');
+    s.finishPass(passId, 'car-sweep: 0 new');
+    expect(s.passes(nb.id)[0]).toMatchObject({ id: passId, stepId });
+    expect((await get('/notebooks/car')).text).toContain(`href="/notebooks/car/workflow?step=${stepId}" title="The runs this step made, the agents they called, and what each left">How →</a>`);
+    const byStep = (await get(`/notebooks/car/workflow?step=${stepId}`)).text;
+    expect(byStep).toContain('Step 1 · Find 5 cars');
+    expect(byStep).toContain(`aria-current="true"`);
   });
 });
 

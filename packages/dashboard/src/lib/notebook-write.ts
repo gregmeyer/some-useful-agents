@@ -76,16 +76,17 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   };
 }
 
-async function runWriter(ctx: Ctx, inputs: Record<string, string>): Promise<{ result?: string; error?: string }> {
+async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runId: string) => void): Promise<{ result?: string; error?: string }> {
   if (ctx.notebookWriterRun) return { result: await ctx.notebookWriterRun(inputs) };
   const agent = ctx.agentStore.getAgent(NOTEBOOK_WRITER_ID);
   if (!agent) return { error: `${NOTEBOOK_WRITER_ID} isn't installed` };
   const run = await runDispatchedAgentToTerminal(ctx, agent, inputs);
+  onRun?.(run.id);
   return run.status === 'completed' ? { result: run.result } : { error: run.error ?? run.status };
 }
 
 /** Write what the notebook was for (a write step's run): its talking points, or its answer. Returns what happened, a line each; never throws. */
-export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<string[]> {
+export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, onRun?: (runId: string) => void): Promise<string[]> {
   if (!store.get(notebookId)) return [];
   // Talking points: first check who they are against what was found, so the points don't state a contested fact.
   const reconciled = !step.shape ? await reconcileAbout(ctx, store, notebookId) : undefined;
@@ -96,7 +97,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
   const ids = new Set(entries.filter((e) => e.kind === 'option' && !e.ruledOut).map((e) => e.id));
   if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : step.shape === 'plan' ? 'there is nothing to plan with yet: nothing found is in the running' : 'there is nothing to write from yet: no themes in the running'];
   try {
-    const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step));
+    const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step), onRun);
     if (!result) return [`${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
     if (step.shape === 'plan') {
       const block = extractTaggedJson(result, 'plan');
