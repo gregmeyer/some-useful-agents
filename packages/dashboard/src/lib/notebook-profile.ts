@@ -38,7 +38,11 @@ export const PERSON_ASK: readonly Ask[] = [
 export const COMPANY_ASK: readonly Ask[] = [
   { key: 'what_they_do', label: 'What they do', hint: 'one sentence' },
   { key: 'website', label: 'Website', hint: 'its own site, https://…' },
+  { key: 'industry', label: 'Industry', hint: 'the market it is in, a few words ("accounting software")' },
+  { key: 'business_model', label: 'Business model', hint: 'how it makes money and from whom, one sentence' },
+  { key: 'competitors', label: 'Competitors', hint: '3 to 5 companies named as its competitors or alternatives, comma separated, from one page that names them (a comparison, an alternatives list, an analyst page)' },
   { key: 'size', label: 'Size', hint: 'employees, roughly' },
+  { key: 'revenue', label: 'Revenue', hint: 'annual revenue with its year, or an estimate said as one' },
   { key: 'stage', label: 'Stage', hint: 'funding stage and latest round, or public' },
   { key: 'founded', label: 'Founded', hint: 'year' },
   { key: 'headquarters', label: 'Headquarters', hint: 'city and country' },
@@ -68,7 +72,14 @@ export function readResearch(raw: string | undefined): Found | undefined {
 
 const text = (f: Found, key: string): string => {
   const v = f.found[key]?.value;
-  return typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '';
+  if (typeof v === 'string' || typeof v === 'number') return String(v).trim();
+  // A range ({"min": 2, "max": 10}, as research-one gives numbers): "2–10".
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const { min, max } = v as { min?: unknown; max?: unknown };
+    const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? (Math.abs(x) >= 10000 ? x.toLocaleString('en-US') : String(x)) : ''); // a year stays 2019
+    return n(min) && n(max) ? (min === max ? n(min) : `${n(min)}–${n(max)}`) : n(min) ? `${n(min)}+` : n(max) ? `up to ${n(max)}` : '';
+  }
+  return '';
 };
 
 /** Found facts as the notebook keeps them (labelled, sourced), and what wasn't found by label. Pure. */
@@ -211,7 +222,7 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   }
 
   if (company) {
-    const second = await research(ctx, { SUBJECT: company.name, ASK: ask(COMPANY_ASK), CONTEXT: isCompany ? context : `${subject}'s company${company.site ? `, ${company.site}` : ''}`, DEPTH: 'quick' });
+    const second = await research(ctx, { SUBJECT: company.name, ASK: ask(COMPANY_ASK), CONTEXT: isCompany ? context : `${subject}'s company${company.site ? `, ${company.site}` : ''}`, DEPTH: isCompany ? 'thorough' : 'quick' });
     const c = readResearch(second.result);
     if (c) {
       const { facts, notFound } = aboutFrom(c, COMPANY_ASK);
