@@ -2718,7 +2718,8 @@ describe('a profile step', () => {
       ? { subject: 'Dana Reyes', summary: 'Dana runs operations at Northwind.', not_found: ['location'], found: {
         kind: { value: 'person' }, role: { value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' },
         organization: { value: 'Northwind' }, company_website: { value: 'https://northwind.example' }, linkedin: { value: 'https://www.linkedin.com/in/dana' },
-        known_for: { value: 'Writes about scaling ops teams' }, photo_url: { value: 'https://northwind.example/dana.png', source: 'https://northwind.example/team' } } }
+        known_for: { value: 'Writes about scaling ops teams' }, photo_url: { value: 'https://northwind.example/dana.png', source: 'https://northwind.example/team' },
+        other_companies: { value: [{ name: 'Northwind' }, { name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about' }] } } }
       : { subject: 'Northwind', found: { what_they_do: { value: 'Freight software' }, website: { value: 'https://northwind.example' }, size: { value: 'about 200', source: 'https://northwind.example/about' } }, not_found: ['stage'] });
     const store = NotebookStore.fromHandle(runStore.databaseHandle());
     const nb = store.create({ title: 'Prepare for a call with Dana Reyes', statement: 'What matters to Dana' });
@@ -2733,6 +2734,8 @@ describe('a profile step', () => {
     expect(after.about!.person!.facts.map((f) => f.key)).toEqual(['role', 'organization', 'company_website', 'known_for', 'linkedin']);
     expect(after.about!.person!.facts[0]).toMatchObject({ value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' });
     expect(after.about!.person!.notFound).toEqual(['Based in']);
+    // Their other companies: a list of its own (not a fact), never their main one.
+    expect(after.about!.person!.affiliations).toEqual([{ name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about' }]);
     expect(after.about!.company).toMatchObject({ name: 'Northwind', notFound: ['Stage'] });
     expect(fetched).toEqual(['https://northwind.example/dana.png', 'https://northwind.example/apple-touch-icon.png']);
     expect(checked[0]).toBe('https://northwind.example/team|https://northwind.example/dana.png');

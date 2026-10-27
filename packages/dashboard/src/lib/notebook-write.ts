@@ -11,6 +11,7 @@
  * why, the findings it rests on (by id, the same way), and what's still
  * open (Notebook.answer); the Answer page and the brief show it.
  */
+import { notebookAffiliations } from './notebook-widgets.js';
 import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -41,6 +42,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(open.length ? { unsettled: open.map((c) => ({ fact: c.label, sides: c.claims.map((x) => `${x.value}${x.when ? ` (${x.when})` : ''}`), question: c.question })) } : {}),
       // Its competitors, named on a page, with how each competes.
       ...(one.competitors?.length ? { competitors: one.competitors.map((c) => `${c.name}${c.how ? `: ${c.how}` : ''}`) } : {}),
+      // A person's other companies (and any a settled conflict set aside).
+      ...(who === 'person' && notebookAffiliations(nb).length ? { otherCompanies: notebookAffiliations(nb).map((a) => `${a.name}${a.role ? ` (${a.role})` : ''}`) } : {}),
     } : undefined;
   };
   const themes = options.map((o) => {

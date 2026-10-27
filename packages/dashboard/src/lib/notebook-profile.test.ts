@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, PERSON_ASK, COMPANY_ASK } from './notebook-profile.js';
+import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, mainCompany, PERSON_ASK, COMPANY_ASK } from './notebook-profile.js';
 
 describe('a profile step\'s research', () => {
   it('is about its subject, else the notebook\'s title without "Prepare for a meeting with"', () => {
@@ -41,5 +41,20 @@ describe('a profile step\'s research', () => {
   it('keeps a number given as a range ("2–10"), as research-one gives sizes and amounts', () => {
     const f = readResearch('{"found": {"size": {"value": {"min": 2, "max": 10}, "source": "https://x.example"}, "revenue": {"value": {"min": 1000000}}, "founded": {"value": {"min": 2019, "max": 2019}}, "stage": {"value": {}}}, "not_found": []}')!;
     expect(aboutFrom(f, COMPANY_ASK).facts.map((x) => [x.key, x.value])).toEqual([['size', '2–10'], ['revenue', '1,000,000+'], ['founded', '2019']]);
+  });
+
+  it('keeps the company you settled as theirs; the research\'s other answer, and the one before, become other companies', () => {
+    const facts = [{ key: 'organization', label: 'Company', value: 'Blueprint Ventures', source: 'https://blueprint.example' }, { key: 'company_website', label: 'Company website', value: 'https://blueprint.example' }, { key: 'role', label: 'Role', value: 'CEO' }];
+    const settled = { name: 'Steven Gelley', facts: [{ key: 'organization', label: 'Company', value: 'ARV', at: 'x' }], updatedAt: 'x',
+      conflicts: [{ fact: 'organization', label: 'Company', question: '?', at: 'x', claims: [{ value: 'ARV' }, { value: 'Arrive' }], settled: { value: 'ARV', by: 'you' as const, at: 'x', source: 'https://arvfirm.com/team/' } }] };
+    expect(mainCompany(settled, facts, 'https://blueprint.example')).toEqual({
+      org: 'ARV',
+      facts: [{ key: 'organization', label: 'Company', value: 'ARV', source: 'https://arvfirm.com/team/' }, { key: 'role', label: 'Role', value: 'CEO' }],
+      also: [{ name: 'Blueprint Ventures', source: 'https://blueprint.example' }],
+    });
+    // Nothing settled: the research's answer is theirs, and the one before is another.
+    const before = { name: 'Dana', facts: [{ key: 'organization', label: 'Company', value: 'Acme', at: 'x' }], updatedAt: 'x' };
+    expect(mainCompany(before, facts)).toMatchObject({ org: 'Blueprint Ventures', also: [{ name: 'Acme' }] });
+    expect(mainCompany(undefined, facts)).toMatchObject({ org: 'Blueprint Ventures', also: [] });
   });
 });

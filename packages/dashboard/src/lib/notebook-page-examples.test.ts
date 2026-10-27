@@ -258,3 +258,28 @@ describe('a brief in the dashboard\'s look', () => {
     expect(tokenBlock(':root {\n  --color-bg: #111;\n  --font-x: y;\n}\n[data-theme="light"] {\n  --color-bg: #fff;\n}', '[data-theme="light"]')).toEqual({ bg: '#fff' });
   });
 });
+
+describe('a person\'s other companies, on the page', () => {
+  it('the meeting briefing lists them (and one a settled conflict set aside) under Also runs, and the writer reads them', async () => {
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    const { notebookAffiliations } = await import('./notebook-widgets.js');
+    const { writerInputs } = await import('./notebook-write.js');
+    const s = store();
+    const nb = s.create({ title: 'Prepare for a meeting with Steven Gelley' });
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+    s.setAbout(nb.id, 'person', { name: 'Steven Gelley', facts: [{ key: 'organization', label: 'Company', value: 'ARV', source: 'https://arvfirm.com/team/' }] });
+    expect(renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s })).not.toContain('Also runs');
+    s.setAbout(nb.id, 'person', { facts: [], affiliations: [{ name: 'Open Access Ventures', role: 'CEO', website: 'https://openaccess.example' }] });
+    // You settled "ARV or Arrive?" as ARV: Arrive is still one of theirs.
+    s.setAboutConflicts(nb.id, 'person', [{ fact: 'organization', label: 'Company', question: 'Is his main work now at ARV or Arrive?', at: '2026-10-27T00:00:00Z',
+      claims: [{ value: 'ARV', source: 'https://arvfirm.com/team/' }, { value: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }],
+      settled: { value: 'ARV', by: 'you', at: '2026-10-27T01:00:00Z' } }]);
+    const got = s.get(nb.id)!;
+    expect(notebookAffiliations(got)).toEqual([{ name: 'Open Access Ventures', role: 'CEO', website: 'https://openaccess.example' }, { name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }]);
+    const brief = renderPageBrief({ nb: got, entries: [], history: s });
+    expect(brief).toContain('>Also runs<');
+    expect(brief).toContain('<a href="https://openaccess.example">Open Access Ventures</a>');
+    expect(brief).toContain('<a href="https://www.linkedin.com/posts/gelley">linkedin.com</a>');
+    expect(writerInputs(got, [], {}).NOTEBOOK).toContain('"otherCompanies":["Open Access Ventures (CEO)","Arrive"]');
+  });
+});
