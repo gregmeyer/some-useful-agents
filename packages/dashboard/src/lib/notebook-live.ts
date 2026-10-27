@@ -21,6 +21,8 @@ export interface NotebookLive {
   talk?: NotebookTalkLive;
   /** The notebook's own work right now ("Working on step 2: Check options"). */
   work: string[];
+  /** When the step or pass running now started (ISO): the working panel counts up from it. */
+  since?: string;
 }
 
 /**
@@ -49,7 +51,7 @@ export function notebookTalkLive(ctx: Ctx, nb: Pick<Notebook, 'conversationId' |
 }
 
 /** Everything live on the page. `running` is the pass or step running now; `busy`, sua's background work. */
-export function notebookLive(ctx: Ctx, nb: Notebook, running: { step: number; of: number } | undefined, busy: readonly string[]): NotebookLive {
+export function notebookLive(ctx: Ctx, nb: Notebook, running: { step: number; of: number; startedAt?: number } | undefined, busy: readonly string[]): NotebookLive {
   const work: string[] = [];
   if (running) {
     const step = nb.steps?.find((s) => s.status === 'running');
@@ -58,7 +60,7 @@ export function notebookLive(ctx: Ctx, nb: Notebook, running: { step: number; of
   }
   work.push(...busy);
   const talk = notebookTalkLive(ctx, nb, !!running);
-  return { ...(talk ? { talk } : {}), work };
+  return { ...(talk ? { talk } : {}), work, ...(running?.startedAt ? { since: new Date(running.startedAt).toISOString() } : {}) };
 }
 
 /**
