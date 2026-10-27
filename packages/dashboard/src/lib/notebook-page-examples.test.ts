@@ -207,3 +207,25 @@ describe('research activity and your links, in the brief', () => {
     expect(notebookGivenLinks({ statement: 'nothing here', params: [] })).toEqual([]);
   });
 });
+
+describe('a company\'s competitors, on the page', () => {
+  it('the meeting briefing shows them as a table once a profile step named them, and leaves the part out before', async () => {
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    const s = store();
+    const nb = s.create({ title: 'Prepare for a meeting with Acme Robotics' });
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+    s.setAbout(nb.id, 'company', { name: 'Acme Robotics', facts: [{ key: 'what_they_do', label: 'What they do', value: 'Warehouse robots' }] });
+    expect(renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s })).not.toContain('Their competitors');
+    s.setAbout(nb.id, 'company', { facts: [], competitors: [{ name: 'Locus Robotics', website: 'https://locusrobotics.com', how: 'Picking robots as a service', source: 'https://www.g2.com/acme-alternatives' }, { name: 'Geek+' }] });
+    const got = s.get(nb.id)!;
+    expect(notebookWidgetData(got, [], s).notebook.competitors).toEqual([
+      { competitor: { label: 'Locus Robotics', url: 'https://locusrobotics.com' }, how: 'Picking robots as a service', source: { label: 'g2.com', url: 'https://www.g2.com/acme-alternatives' } },
+      { competitor: { label: 'Geek+' }, how: '' },
+    ]);
+    const brief = renderPageBrief({ nb: got, entries: [], history: s });
+    expect(brief).toContain('>Their competitors<');
+    expect(brief).toContain('Locus Robotics');
+    expect(brief).toContain('Picking robots as a service');
+    expect(brief).toContain('Geek+');
+  });
+});

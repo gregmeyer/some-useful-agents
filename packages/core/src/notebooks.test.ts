@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1083,6 +1083,30 @@ describe('notebook templates', () => {
     const brief = s.create({ title: 'Brief on Arrive' });
     s.setSteps(brief.id, [{ title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'met', tries: 1 }]);
     expect(s.saveTemplate('Company briefing', brief.id).setup.steps).toEqual([{ id: 's1', title: 'Write the briefing', kind: 'write', shape: 'answer', status: 'todo', tries: 0 }]);
+  });
+});
+
+describe('a company\'s competitors', () => {
+  it('keeps each named once (never the company itself), with its site, how it competes and the page that names it', () => {
+    expect(cleanCompetitors([
+      { name: 'Karbon', website: 'https://karbonhq.com', how: '  Practice   management ', source: 'https://g2.com/alt' },
+      { name: 'karbon' }, { name: 'Arrive' }, { name: '' }, { name: 'Xero', website: 'not a url' }, 'Canopy',
+    ], 'Arrive', 'https://crunchbase.com/x')).toEqual([
+      { name: 'Karbon', website: 'https://karbonhq.com', how: 'Practice management', source: 'https://g2.com/alt' },
+      { name: 'Xero', source: 'https://crunchbase.com/x' },
+      { name: 'Canopy', source: 'https://crunchbase.com/x' },
+    ]);
+    // A line of names, as an older answer gives it; at most 6.
+    expect(cleanCompetitors('Xero, Karbon; and Suralink.').map((c) => c.name)).toEqual(['Xero', 'Karbon', 'Suralink']);
+    expect(cleanCompetitors(Array.from({ length: 9 }, (_, i) => `Co ${String(i)}`))).toHaveLength(6);
+    expect(cleanCompetitors(undefined)).toEqual([]);
+  });
+
+  it('a fresh list replaces the old one; a look that names none keeps it', () => {
+    const was = mergeAbout(undefined, { name: 'Arrive', facts: [], competitors: [{ name: 'Xero' }] }, '2026-10-27T00:00:00Z');
+    expect(was.competitors).toEqual([{ name: 'Xero' }]);
+    expect(mergeAbout(was, { facts: [] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Xero' }]);
+    expect(mergeAbout(was, { facts: [], competitors: [{ name: 'Karbon' }] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Karbon' }]);
   });
 });
 

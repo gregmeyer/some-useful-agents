@@ -182,6 +182,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What was learned about the person, and about their company, apart (FactSheet beside each). */
     personFacts: NotebookWidgetData['notebook']['facts'];
     companyFacts: NotebookWidgetData['notebook']['facts'];
+    /** The company's competitors as table rows (link cells: {label, url}). */
+    competitors: Array<{ competitor: { label: string; url?: string }; how: string; source?: { label: string; url: string } }>;
     /** Kept for older layouts and boards. */
     stats: { active: string; best: string; bestLabel: string; furthest: string; ruledOut: string };
   };
@@ -358,6 +360,11 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       otherQuotes: quotes.slice(1),
       personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
       companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
+      competitors: (nb.about?.company?.competitors ?? []).map((c) => ({
+        competitor: { label: c.name, ...(c.website ? { url: c.website } : {}) },
+        how: c.how ?? '',
+        ...(c.source ? { source: { label: ((): string => { try { return new URL(c.source!).hostname.replace(/^www\./, ''); } catch { return c.source!; } })(), url: c.source } } : {}),
+      })),
       options: v.options.map((o) => {
         const facets = optionFacets(nb, o);
         return { ...o, page: notebookOptionPath(nb.id, o.id), ...(facets ? { facets } : {}) };
@@ -599,6 +606,7 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     about: !!(nb.about?.person || nb.about?.company),
     person: !!nb.about?.person,
     company: !!nb.about?.company,
+    competitors: !!nb.about?.company?.competitors?.length,
     answered: !!nb.answer?.text,
     planned: !!nb.plan?.items.length,
   };

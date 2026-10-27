@@ -29,6 +29,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   about: 'It knows who it\'s about: a profile step learned about a person or company.',
   person: 'It knows the person it\'s about.',
   company: 'It knows their company (or the company it\'s about).',
+  competitors: 'It knows its company\'s competitors (a profile step named them).',
   answered: 'It has a written answer (a write step that answers its question).',
   planned: 'It has a written plan (a write step that makes its plan).',
 } as const;
@@ -115,8 +116,18 @@ const SHORTLIST: ViewComponent[] = [
  * talk about as the feature beside their company, what they said, and the
  * research folded at the end. Each part waits for what it shows.
  */
+/** A company's competitors as a table: each a link to its site, how it competes, the page that names it. */
+export const COMPETITORS_TABLE: ViewComponent = {
+  id: 'rivals', component: 'Table', rows: { path: '/notebook/competitors' },
+  columns: [
+    { key: 'competitor', label: 'Competitor', format: 'link' },
+    { key: 'how', label: 'How it competes' },
+    { key: 'source', label: 'Named on', format: 'link' },
+  ],
+};
+
 const DOSSIER: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'cover_row', 'talk_row', 'said_p', 'more'] },
+  { id: 'root', component: 'Column', children: ['header', 'cover_row', 'talk_row', 'rivals_p', 'said_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Meeting briefing', steps: 'fold', cover: 'none' },
   { id: 'cover_row', component: 'Columns', children: ['who_p', 'facts_p'], widths: [2, 1], align: 'start' },
   { ...panel('who_p', 'Who they are', 'who'), treatment: 'lede', when: 'person' },
@@ -137,6 +148,8 @@ const DOSSIER: ViewComponent[] = [
   },
   { ...panel('agenda_p', 'What to talk about', 'agenda'), treatment: 'feature' },
   { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, watch: { path: '/notebook/watch' }, variant: 'numerals' },
+  { ...panel('rivals_p', 'Their competitors', 'rivals'), treatment: 'band', when: 'competitors' },
+  COMPETITORS_TABLE,
   { ...panel('said_p', 'In their words', 'quotes', 'grouped by theme'), treatment: 'feature', when: 'options' },
   { id: 'quotes', component: 'QuoteList', items: { path: '/notebook/otherQuotes' }, maxItems: 4 },
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
@@ -613,6 +626,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/otherQuotes': 'The quotes after that one (QuoteList items, when the pull quote is shown).',
   '/notebook/personFacts': 'What was learned about the person only (FactSheet facts beside their cover).',
   '/notebook/companyFacts': 'What was learned about their company only (FactSheet facts beside its card).',
+  '/notebook/competitors': 'The company\'s competitors, each {competitor: {label, url?}, how, source: {label, url}} (Table rows: the competitor linked to its site, how it competes, the page that names it; link columns).',
   '/notebook/shortlistNote': 'How the shortlist is ranked.',
   '/notebook/limitsNote': 'How many limits disagree.',
 };

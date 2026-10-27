@@ -130,9 +130,22 @@ export interface NotebookAboutConflict {
   settled?: { value: string; by: 'you' | 'research'; at: string; why?: string; source?: string };
 }
 
+/** A company named as a competitor or alternative: on the page that names it. */
+export interface NotebookCompetitor {
+  name: string;
+  /** Its own site (http/https). */
+  website?: string;
+  /** How it competes, in a line ("practice management for small firms"). */
+  how?: string;
+  /** The page that names it as a competitor (http/https). */
+  source?: string;
+}
+
 export interface NotebookAboutOne {
   name: string;
   facts: NotebookAboutFact[];
+  /** Its competitors (a company's), each from a page that names it. */
+  competitors?: NotebookCompetitor[];
   /** Where what was found disagrees with these facts. */
   conflicts?: NotebookAboutConflict[];
   /** What was looked for and not found (labels). */
@@ -153,7 +166,7 @@ const ABOUT_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
  * and source), facts not seen again stay, and what's found leaves "not
  * found". Pure.
  */
-export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown }, now: string): NotebookAboutOne {
+export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown; competitors?: unknown }, now: string): NotebookAboutOne {
   const facts = [...(was?.facts ?? [])];
   for (const raw of next.facts ?? []) {
     const f = (raw ?? {}) as Partial<Record<keyof NotebookAboutFact, unknown>>;
@@ -173,10 +186,44 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     .slice(0, 12);
   const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
   const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
-  return { name, facts: facts.slice(0, 24), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), ...(was?.conflicts?.length ? { conflicts: was.conflicts } : {}), updatedAt: now };
+  // A fresh list replaces the old one (a later look is the newer word); none found keeps what was.
+  const fresh = cleanCompetitors(next.competitors, name);
+  const competitors = fresh.length ? fresh : was?.competitors ?? [];
+  return { name, facts: facts.slice(0, 24), ...(competitors.length ? { competitors } : {}), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), ...(was?.conflicts?.length ? { conflicts: was.conflicts } : {}), updatedAt: now };
 }
 
 const lowerTrim = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** At most this many competitors kept for a company. */
+export const MAX_COMPETITORS = 6;
+
+/**
+ * Competitors as a company keeps them: each named (not the company itself),
+ * once, with its site, a line on how it competes and the page that names it
+ * when given. Takes a list of {name, website, how, source} or of names, or a
+ * comma-separated line ("Xero, Karbon"); `source` is the page for any that
+ * don't name their own. Pure.
+ */
+export function cleanCompetitors(raw: unknown, self = '', source?: string): NotebookCompetitor[] {
+  const url = (x: unknown) => (typeof x === 'string' && /^https?:\/\//i.test(x.trim()) ? x.trim().slice(0, 500) : undefined);
+  const line = (x: unknown, n: number) => (typeof x === 'string' ? x.replace(/\s+/g, ' ').trim().slice(0, n) : '');
+  const list: unknown[] = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,;\n]/) : [];
+  const fallback = url(source);
+  const seen = new Set([lowerTrim(self)]);
+  const out: NotebookCompetitor[] = [];
+  for (const x of list) {
+    const o = typeof x === 'string' ? { name: x } : x && typeof x === 'object' ? x as Record<string, unknown> : {};
+    const name = line(o.name, 60).replace(/^(and|or)\s+/i, '').replace(/[.]$/, '');
+    if (!name || seen.has(lowerTrim(name))) continue;
+    seen.add(lowerTrim(name));
+    const website = url(o.website ?? o.url);
+    const how = line(o.how ?? o.why, 160);
+    const from = url(o.source) ?? fallback;
+    out.push({ name, ...(website ? { website } : {}), ...(how ? { how } : {}), ...(from ? { source: from } : {}) });
+    if (out.length === MAX_COMPETITORS) break;
+  }
+  return out;
+}
 
 /**
  * A reconciler's <conflicts> as ones to keep, against who the notebook is
@@ -1110,7 +1157,7 @@ export class NotebookStore {
    * A2UI document (notebook-layout.ts). Null: back to the default.
    */
   /** Learned about who it's about (a profile step): merged with what's known (mergeAbout). */
-  setAbout(id: string, who: NotebookAboutWho, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown }, now = new Date().toISOString()): Notebook {
+  setAbout(id: string, who: NotebookAboutWho, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown; competitors?: unknown }, now = new Date().toISOString()): Notebook {
     const nb = this.get(id);
     if (!nb) throw new Error(`No notebook "${id}".`);
     const about: NotebookAbout = { ...(nb.about ?? {}), [who]: mergeAbout(nb.about?.[who], next, now) };
