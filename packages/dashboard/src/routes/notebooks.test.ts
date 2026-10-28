@@ -3987,6 +3987,17 @@ describe('the meeting a notebook prepares for', () => {
     expect((await get(`/notebooks/${nb.id}/brief.html`)).text).toContain('Your goal: Agree on a pilot');
   });
 
+  it("a draft's limits leave out filler: the person's name, what you gave it, what the meeting is", async () => {
+    const { parseNotebookDraft } = await import('../lib/notebook-draft.js');
+    await makeApp(); // this block's afterEach shuts one down
+    const params = ['Brendan Short', 'LinkedIn profile provided', 'upcoming meeting', 'focus on what matters to him'];
+    const meet = parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Prepare for meeting with Brendan Short', statement: 'Help me understand what matters to Brendan Short before our upcoming meeting.', params, steps: [{ title: 'Learn about Brendan Short', kind: 'profile' }] })}</draft>`, new Set());
+    expect('params' in meet && meet.params).toEqual(['focus on what matters to him']);
+    // Not about someone: a limit the title repeats is still a limit; a note on what you gave isn't.
+    const car = parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Buy an AWD wagon', params: ['AWD', 'under $12k', 'Budget not specified'] })}</draft>`, new Set());
+    expect('params' in car && car.params).toEqual(['AWD', 'under $12k']);
+  });
+
   it('a draft keeps the meeting the drafter heard, and starting it saves it', async () => {
     const { parseNotebookDraft } = await import('../lib/notebook-draft.js');
     const d = parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Meet Dana', steps: [{ title: 'Write the talking points', kind: 'write' }], meeting: { when: '2026-11-05T10:00', goal: 'Hire her team', notes: '' } })}</draft>`, new Set());

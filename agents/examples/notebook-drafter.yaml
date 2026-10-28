@@ -68,8 +68,13 @@ nodes:
       - "statement": one sentence: what it's for, in their words.
       - "params": their limits, each a short phrase they'd recognise
         ("$3–8k", "under 175k miles", "AWD", "SUV or wagon",
-        "within 50 miles of home"). Only what they said or clearly implied;
-        3–8 of them. No invented budgets.
+        "within 50 miles of home"; for a meeting, "focus on their work at
+        Acme", "a 30-minute intro call"). Only real limits they said or
+        clearly implied; 0–8 of them, and none is fine. No invented budgets.
+        Never who or what it's about (the title says it), what it's for
+        (the statement says it), what they gave you ("LinkedIn profile
+        provided"), or the meeting's date, goal or notes (those go in
+        "meeting").
       - "criteria": 2–4 "done when" checks, the last a decision
         ("At least one car that fits", "Clean title on the top pick",
         "A decision recorded"). Put a deadline they gave on the decision
