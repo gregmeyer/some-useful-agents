@@ -48,16 +48,32 @@ export function renderDraftsStrip(drafts: ReadonlyArray<{ id: string } & DraftSt
     </section>`;
 }
 
-type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'> & { setup?: Pick<NotebookTemplate['setup'], 'subject'> };
+type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'> & { setup?: Partial<Pick<NotebookTemplate['setup'], 'subject' | 'statement' | 'steps'>> };
 
-/** Remove a template, after asking once. */
-function deleteTemplateControl(t: TemplateRow): SafeHtml {
-  return html`<details class="nbd-tpl__del">
-    <summary class="btn btn--sm btn--ghost" aria-label="Delete the template ${t.name}" title="Delete this template">×</summary>
-    <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete">
-      <span>Delete it? Notebooks made from it stay.</span>
-      <button type="submit" class="btn btn--sm">Delete</button>
-    </form>
+/** What a template is for, in a line: its statement with "…" where the subject goes, else its steps, else what it sets up. */
+function templateWhat(t: TemplateRow): string {
+  const said = (t.setup?.statement ?? '').replace(/\{subject\}\.?/g, '…').replace(/\s+/g, ' ').trim();
+  const steps = (t.setup?.steps ?? []).map((s) => s.title.replace(/\{subject\}/g, '…')).join(' → ');
+  return `${said || steps || t.description}${t.uses ? ` · used ${String(t.uses)}×` : ''}`;
+}
+
+/** A template's rarer actions, in its ⋯ menu: Archive (or Restore), and Delete after asking once. */
+function templateMenu(t: TemplateRow, archived: boolean): SafeHtml {
+  return html`<details class="nbd-tpl__more">
+    <summary class="btn btn--sm btn--ghost nbd-tpl__more-btn" aria-label="More for the template ${t.name}" title="More">⋯</summary>
+    <div class="nbd-tpl__menu">
+      <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/archive" class="nbd-tpl__menu-form">
+        <input type="hidden" name="archived" value="${archived ? '0' : '1'}">
+        <button type="submit" class="nbd-tpl__menu-item" title="${archived ? 'Offer it again on New notebook and to sua' : "Keep it, but don't offer it on New notebook or to sua"}">${archived ? 'Restore' : 'Archive'}</button>
+      </form>
+      <details class="nbd-tpl__del">
+        <summary class="nbd-tpl__menu-item">Delete…</summary>
+        <form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/delete" class="nbd-tpl__menu-form nbd-tpl__confirm">
+          <span>Delete it? Notebooks made from it stay.</span>
+          <button type="submit" class="btn btn--sm">Delete</button>
+        </form>
+      </details>
+    </div>
   </details>`;
 }
 
@@ -68,33 +84,31 @@ function deleteTemplateControl(t: TemplateRow): SafeHtml {
  */
 function renderTemplateList(templates: readonly TemplateRow[], archived: readonly TemplateRow[] = []): SafeHtml {
   if (!templates.length && !archived.length) return html``;
-  const archiveForm = (t: TemplateRow, restore: boolean) => html`<form method="POST" action="/notebooks/templates/${encodeURIComponent(t.id)}/archive" class="nbd-tpl__arch">
-    <input type="hidden" name="archived" value="${restore ? '0' : '1'}">
-    <button type="submit" class="btn btn--sm${restore ? '' : ' btn--ghost'}" title="${restore ? 'Offer it again on New notebook and to sua' : "Keep it, but don't offer it on New notebook or to sua"}">${restore ? 'Restore' : 'Archive'}</button>
-  </form>`;
+  // Each row: what it is, then (in one column for every row) what changes this time and Start; the rest under ⋯.
+  const text = (t: TemplateRow) => html`<div class="nbd-tpl__text">
+    <span class="nbd-tpl__name">${t.name}</span>
+    <span class="nbd-tpl__what" title="${templateWhat(t)}">${templateWhat(t)}</span>
+  </div>`;
   return html`<section class="nbd-tpl" aria-labelledby="nbd-tpl-h">
     ${templates.length ? html`<h2 class="nbd-tpl__h" id="nbd-tpl-h">Or start from one of your templates</h2>
     <ul class="nbd-tpl__list">
       ${templates.map((t) => html`<li class="nbd-tpl__item">
-        <span class="nbd-tpl__name">${t.name}</span>
-        <span class="nbd-tpl__what">${t.description}${t.uses ? ` · used ${String(t.uses)}×` : ''}</span>
+        ${text(t)}
         <form method="POST" action="/inbox/new" class="nbd-tpl__go"${t.setup?.subject ? html` data-nbt-start="${`Start a new notebook from my “${t.name}” template for `}"` : html``}>
           <input type="hidden" name="body" value="${`Start a new notebook from my “${t.name}” template.`}">
-          ${t.setup?.subject ? html`<input type="text" name="subject" class="form-field nbd-tpl__subject" maxlength="80" placeholder="${t.setup.subject.label}" aria-label="${t.setup.subject.label}" data-nbt-subject>` : html``}
-          <button type="submit" class="btn btn--sm btn--primary" title="sua asks what's different this time, then creates it">Start with sua →</button>
+          ${t.setup?.subject ? html`<input type="text" name="subject" class="form-field nbd-tpl__subject" maxlength="80" placeholder="${t.setup.subject.label}" aria-label="${t.setup.subject.label}" title="${t.setup.subject.label}" data-nbt-subject>` : html``}
+          <button type="submit" class="btn btn--sm nbd-tpl__start" title="sua asks what's different this time, then creates it">Start →</button>
         </form>
-        ${archiveForm(t, false)}
-        ${deleteTemplateControl(t)}
+        ${templateMenu(t, false)}
       </li>`) as unknown as SafeHtml[]}
     </ul>` : html`<h2 class="nbd-tpl__h" id="nbd-tpl-h">Your templates</h2>`}
     ${archived.length ? html`<details class="nbd-tpl__archived">
       <summary>Archived templates <span class="nbd-tpl__n">${String(archived.length)}</span></summary>
       <ul class="nbd-tpl__list">
         ${archived.map((t) => html`<li class="nbd-tpl__item is-archived">
-          <span class="nbd-tpl__name">${t.name}</span>
-          <span class="nbd-tpl__what">${t.description}</span>
-          ${archiveForm(t, true)}
-          ${deleteTemplateControl(t)}
+          ${text(t)}
+          <span class="nbd-tpl__go"></span>
+          ${templateMenu(t, true)}
         </li>`) as unknown as SafeHtml[]}
       </ul>
     </details>` : html``}
