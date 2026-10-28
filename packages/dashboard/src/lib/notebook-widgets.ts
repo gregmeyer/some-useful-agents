@@ -19,6 +19,7 @@ import { rankBy, rankOptions, isRange,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
+import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
 
 /** What the widgets read from the store beyond the view data: the searches. */
 export interface NotebookWidgetHistory extends NotebookViewHistory {
@@ -32,7 +33,7 @@ export interface NotebookWidgetHistory extends NotebookViewHistory {
   /** That picture, with the page it's on and why it's taken to be them. */
   aboutPhoto?(notebookId: string, who: 'person' | 'company'): { page?: string; why?: string } | undefined;
   /** The notebook's passes (its pipeline, steps and conversation runs), to tell its own failed runs from others. */
-  passes?(notebookId: string, limit?: number): Array<{ runIds: string[] }>;
+  passes?(notebookId: string, limit?: number): Array<{ runIds: string[]; startedAt?: string; finishedAt?: string; stepId?: string; note?: string }>;
   /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
   notebooksFedBy?(agentId: string): string[];
 }
@@ -172,7 +173,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     person?: NotebookProfileView;
     company?: NotebookProfileView;
     /** What was learned about them, each with its source, for FactSheet. */
-    facts: Array<{ label: string; value: string; url?: string; group: string }>;
+    facts: Array<{ label: string; value: string; url?: string; group: string; mark?: 'new' | 'changed'; was?: string }>;
     /** What was looked for about them and not found. */
     notFound: string[];
     /** The first thing they said (the top quote), for a cover's pull quote. */
@@ -285,6 +286,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const latestWithSources = searches.find((s) => s.sources.length);
   const outOptions = v.options.filter((o) => o.ruledOut);
 
+  // What the latest run found that the one before didn't (a briefing): its facts get a mark.
+  const fresh = history?.passes ? whatsNew(nb, entries, history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
   const timeline: NotebookWidgetData['notebook']['timeline'] = [];
   for (const s of searches) {
     timeline.push({
@@ -293,6 +296,22 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...(s.found ? {} : { empty: true }),
       ...(s.sources.length ? { body: s.sources.map((x) => `${x.name} ${x.status === 'found' ? String(x.found) : x.status}`).join(' · ') } : {}),
       ...(s.runId ? { link: `/runs/${encodeURIComponent(s.runId)}`, linkText: `run ${s.runId.slice(0, 8)}` } : {}),
+    });
+  }
+  // A profile or write step run again (Look again, Write again): what it did; the latest with what's new.
+  const rerunSteps = new Map((nb.steps ?? []).filter((x) => x.kind === 'profile' || x.kind === 'write').map((x) => [x.id, x]));
+  const stepRuns = (history?.passes?.(nb.id, 60) ?? []).filter((x) => x.stepId && rerunSteps.has(x.stepId) && x.finishedAt && x.startedAt)
+    .sort((a, b) => a.startedAt!.localeCompare(b.startedAt!));
+  const seenStep = new Set<string>();
+  for (const x of stepRuns) {
+    if (!seenStep.has(x.stepId!)) { seenStep.add(x.stepId!); continue; }
+    const step = rerunSteps.get(x.stepId!)!;
+    const latest = fresh && x.finishedAt === fresh.at;
+    const lines = latest ? whatsNewLines(fresh) : [];
+    timeline.push({
+      at: x.finishedAt!, kind: 'search', who: step.agentId ?? (step.kind === 'profile' ? 'research-one' : 'notebook-writer'),
+      title: `${step.kind === 'profile' ? 'Looked again' : 'Wrote again'}: ${step.title}`,
+      ...(latest && fresh.empty ? { body: 'Nothing new since the run before.', empty: true } : lines.length ? { body: lines.join(' · ') } : x.note ? { body: clip(x.note, 150) } : {}),
     });
   }
   // Runs from before searches were recorded: rebuilt from the options each run added.
@@ -347,7 +366,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
   const { quotes, talkingPoints, questions, watch } = whatTheySaid(nb, active);
-  const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined);
+  const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined, fresh?.marks);
 
   return {
     notebook: {
@@ -421,7 +440,7 @@ export function notebookAboutPhotoPath(notebookId: string, who: string): string 
 }
 
 /** Who the notebook is about, for ProfileCard and FactSheet. Pure but for the pictures it's told about. */
-function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who: 'person' | 'company') => { page?: string; why?: string } | undefined): Pick<NotebookWidgetData['notebook'], 'person' | 'company' | 'facts' | 'notFound'> {
+function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who: 'person' | 'company') => { page?: string; why?: string } | undefined, marks: WhatsNew['marks'] = {}): Pick<NotebookWidgetData['notebook'], 'person' | 'company' | 'facts' | 'notFound'> {
   const fact = (who: 'person' | 'company', key: string) => nb.about?.[who]?.facts.find((f) => f.key === key)?.value;
   const asOf = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const link = (label: string, url: string | undefined) => (url && /^https?:\/\//i.test(url) ? [{ label, url }] : []);
@@ -452,11 +471,14 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who:
   } : undefined;
   // Links show on the card, so the sheet leaves them out.
   const linkKeys = new Set(['linkedin', 'website', 'company_website']);
-  const rows = (one: typeof p) => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => ({ label: f.label, value: f.value, ...(f.source ? { url: f.source } : {}), group: one.name })) : []);
+  const rows = (one: typeof p, who: 'person' | 'company') => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => {
+    const m = marks[`${who}:${f.key}`];
+    return { label: f.label, value: f.value, ...(f.source ? { url: f.source } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
+  }) : []);
   return {
     ...(person ? { person } : {}),
     ...(company ? { company } : {}),
-    facts: [...rows(p), ...rows(c)],
+    facts: [...rows(p, 'person'), ...rows(c, 'company')],
     notFound: [...new Set([...(p?.notFound ?? []), ...(c?.notFound ?? [])])],
   };
 }

@@ -745,6 +745,13 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-madeby__who { font: var(--font-size-xs) var(--font-mono); color: var(--color-text-muted); overflow-wrap: anywhere; }
 .nb-madeby__go { flex: none; }
 
+/* What's new since the last run (a briefing rerun): views/notebooks.ts whatsNewBand. */
+.nb-new { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-primary-soft); }
+.nb-new__h { display: inline; margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
+.nb-new__at { margin-left: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-new__list { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--font-size-sm); line-height: 1.5; }
+.nb-new--none { border-left-color: var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--font-size-sm); }
+
 /* Draft review: the steps sua will take */
 .nbd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 /* The agent picker takes a share of the row, not the width of its longest agent name. */

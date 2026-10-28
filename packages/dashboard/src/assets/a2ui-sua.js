@@ -1039,9 +1039,14 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
     .ruled dl { display: block; }
     .ruled dt { margin: 0; padding-top: 8px; border-top: 1px solid var(--color-border); font: 600 10px/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; }
     .ruled dd { margin: 3px 0 8px; }
-    .ruled .src { display: block; margin: 2px 0 0; }`,
+    .ruled .src { display: block; margin: 2px 0 0; }
+    /* What the latest run learned or changed (What's new since the last run). */
+    .mark { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font: 600 10px/16px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; vertical-align: 1px; background: var(--color-primary-soft); color: var(--color-primary); }
+    .mark--changed { background: var(--color-warn-soft, var(--color-primary-soft)); color: var(--color-warn, var(--color-primary)); cursor: help; }`,
   (p) => {
     const facts = (Array.isArray(p.facts) ? p.facts : []).filter((f) => f && typeof f === 'object' && String(f.label ?? '').trim());
+    const mark = (f) => (f.mark === 'new' ? html`<span class="mark">new</span>`
+      : f.mark === 'changed' ? html`<span class="mark mark--changed" title=${f.was ? `Was ${f.was}` : 'Changed'}>changed</span>` : nothing);
     const missing = textItems(p.missing).map((m) => m.text);
     if (!facts.length && !missing.length) return html`<p class="empty">Nothing found yet.</p>`;
     const value = (f) => {
@@ -1055,7 +1060,7 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
     };
     return html`<div class="groups ${p.variant === 'ruled' ? 'ruled' : ''}">${groupBy(facts).map((g) => html`<section>
         ${g.group ? html`<h4 class="h">${g.group}</h4>` : nothing}
-        <dl>${g.items.map((f) => html`<dt>${f.label}</dt><dd>${value(f)}${source(f)}</dd>`)}</dl>
+        <dl>${g.items.map((f) => html`<dt>${f.label}</dt><dd>${value(f)}${mark(f)}${source(f)}</dd>`)}</dl>
       </section>`)}</div>
       ${missing.length ? html`<p class="miss"><b>Not found:</b> ${missing.join(', ')}</p>` : nothing}`;
   });

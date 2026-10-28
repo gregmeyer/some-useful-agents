@@ -9,6 +9,7 @@ import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMar
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { notebookMadeBy, type NotebookMadeBy } from '../lib/notebook-made-by.js';
+import { whatsNew } from '../lib/notebook-whats-new.js';
 import { briefTheme } from '../lib/brief-theme.js';
 import { renderNotebookWorkflow } from '../views/notebook-workflow.js';
 import { renderNotebookOptionPage } from '../views/notebook-option.js';
@@ -281,7 +282,10 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What made it (the made-by strip and each step's How →); a failure to read it never fails the page.
   let madeBy: NotebookMadeBy | undefined;
   try { madeBy = notebookMadeBy(nb, notebookLineage(s, ctx.runStore, nb.id, 12, 100), (a) => ctx.agentStore.getAgent(a)?.name); } catch { madeBy = undefined; }
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  // What the latest run found that the one before didn't (a briefing rerun); never fails the page.
+  let fresh: ReturnType<typeof whatsNew>;
+  try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
