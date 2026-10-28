@@ -1102,8 +1102,8 @@ describe('a person\'s other companies', () => {
   it('a fresh list replaces the old; one that names none keeps it, minus a company that is now their main one', () => {
     const fact = (value: string) => ({ key: 'organization', label: 'Company', value });
     const was = mergeAbout(undefined, { name: 'Dana', facts: [fact('Acme')], affiliations: [{ name: 'Globex' }, { name: 'Initech' }] }, '2026-10-27T00:00:00Z');
-    expect(was.affiliations).toEqual([{ name: 'Globex' }, { name: 'Initech' }]);
-    expect(mergeAbout(was, { facts: [fact('Globex')] }, '2026-10-28T00:00:00Z').affiliations).toEqual([{ name: 'Initech' }]);
+    expect(was.affiliations).toEqual([{ name: 'Globex', firstAt: '2026-10-27T00:00:00Z' }, { name: 'Initech', firstAt: '2026-10-27T00:00:00Z' }]);
+    expect(mergeAbout(was, { facts: [fact('Globex')] }, '2026-10-28T00:00:00Z').affiliations).toEqual([{ name: 'Initech', firstAt: '2026-10-27T00:00:00Z' }]);
   });
 });
 
@@ -1125,9 +1125,9 @@ describe('a company\'s competitors', () => {
 
   it('a fresh list replaces the old one; a look that names none keeps it', () => {
     const was = mergeAbout(undefined, { name: 'Arrive', facts: [], competitors: [{ name: 'Xero' }] }, '2026-10-27T00:00:00Z');
-    expect(was.competitors).toEqual([{ name: 'Xero' }]);
-    expect(mergeAbout(was, { facts: [] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Xero' }]);
-    expect(mergeAbout(was, { facts: [], competitors: [{ name: 'Karbon' }] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Karbon' }]);
+    expect(was.competitors).toEqual([{ name: 'Xero', firstAt: '2026-10-27T00:00:00Z' }]);
+    expect(mergeAbout(was, { facts: [] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Xero', firstAt: '2026-10-27T00:00:00Z' }]);
+    expect(mergeAbout(was, { facts: [], competitors: [{ name: 'Karbon' }] }, '2026-10-28T00:00:00Z').competitors).toEqual([{ name: 'Karbon', firstAt: '2026-10-28T00:00:00Z' }]);
   });
 });
 
@@ -1185,11 +1185,52 @@ describe('who a notebook is about', () => {
   it('merges what\'s learned: a later sighting of a fact wins, others stay, and what\'s found leaves "not found"', async () => {
     const { mergeAbout } = await import('./notebooks.js');
     const a = mergeAbout(undefined, { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://example.com/a' }, { key: 'Bad Key', value: 'x' }, { key: 'location', value: '' }], notFound: ['Based in', 'Company'] }, '2026-10-01T00:00:00Z');
-    expect(a).toEqual({ name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://example.com/a', at: '2026-10-01T00:00:00Z' }], notFound: ['Based in', 'Company'], updatedAt: '2026-10-01T00:00:00Z' });
+    expect(a).toEqual({ name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', source: 'https://example.com/a', at: '2026-10-01T00:00:00Z', firstAt: '2026-10-01T00:00:00Z' }], notFound: ['Based in', 'Company'], updatedAt: '2026-10-01T00:00:00Z' });
     const b = mergeAbout(a, { facts: [{ key: 'role', label: 'Role', value: 'COO', source: 'javascript:alert(1)' }, { key: 'location', label: 'Based in', value: 'Austin' }] }, '2026-10-02T00:00:00Z');
     expect(b.name).toBe('Dana Reyes');
     expect(b.facts.map((f) => [f.key, f.value, f.source ?? ''])).toEqual([['role', 'COO', ''], ['location', 'Austin', '']]);
     expect(b.notFound).toEqual(['Company']);
+  });
+
+  it('keeps what came before: when a fact was first learned, the value a change replaced, when a competitor was first named', async () => {
+    const { mergeAbout } = await import('./notebooks.js');
+    const t1 = '2026-10-01T00:00:00Z', t2 = '2026-10-02T00:00:00Z', t3 = '2026-10-03T00:00:00Z';
+    const a = mergeAbout(undefined, { name: 'Acme', facts: [{ key: 'role', value: 'VP Ops', source: 'https://a.example' }], competitors: [{ name: 'Bolt' }] }, t1);
+    expect(a.facts[0]).toMatchObject({ value: 'VP Ops', at: t1, firstAt: t1 });
+    expect(a.facts[0].was).toBeUndefined();
+    expect(a.competitors).toEqual([{ name: 'Bolt', firstAt: t1 }]);
+    // Seen again with the same value: first learned stays, nothing changed.
+    const b = mergeAbout(a, { facts: [{ key: 'role', value: 'vp  ops' }, { key: 'revenue', value: '$4M' }], competitors: [{ name: 'Bolt' }, { name: 'Karbon' }] }, t2);
+    expect(b.facts.find((f) => f.key === 'role')).toMatchObject({ at: t2, firstAt: t1 });
+    expect(b.facts.find((f) => f.key === 'role')!.changedAt).toBeUndefined();
+    expect(b.facts.find((f) => f.key === 'revenue')).toMatchObject({ firstAt: t2 });
+    expect(b.competitors).toEqual([{ name: 'Bolt', firstAt: t1 }, { name: 'Karbon', firstAt: t2 }]);
+    // A new value keeps the one it replaced; seen again, that stays.
+    const c = mergeAbout(b, { facts: [{ key: 'role', value: 'COO' }] }, t3);
+    expect(c.facts.find((f) => f.key === 'role')).toMatchObject({ value: 'COO', firstAt: t1, changedAt: t3, was: { value: 'vp ops', at: t2 } });
+    expect(mergeAbout(c, { facts: [{ key: 'role', value: 'COO' }] }, '2026-10-04T00:00:00Z').facts.find((f) => f.key === 'role')).toMatchObject({ changedAt: t3, was: { value: 'vp ops' } });
+    // Kept before this: no first time (it was "before"), and a list item named before keeps none.
+    const legacy = { name: 'Acme', facts: [{ key: 'role', label: 'Role', value: 'VP Ops', at: t1 }], competitors: [{ name: 'Bolt' }], updatedAt: t1 };
+    const d = mergeAbout(legacy, { facts: [{ key: 'role', value: 'VP Ops' }], competitors: [{ name: 'Bolt' }, { name: 'Karbon' }] }, t2);
+    expect(d.facts[0].firstAt).toBeUndefined();
+    expect(d.competitors).toEqual([{ name: 'Bolt' }, { name: 'Karbon', firstAt: t2 }]);
+  });
+
+  it("keeps the version sua's rewrite replaced, and your edit keeps that as it was", () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for a call with Dana Reyes' });
+    const pt = (text: string) => ({ text, from: [] });
+    s.setBriefing(nb.id, { points: [pt('Ask about hiring')], questions: [], watch: [], at: '2026-10-01T00:00:00Z', by: 'notebook-writer' });
+    expect(s.get(nb.id)!.briefing!.previous).toBeUndefined();
+    s.setBriefing(nb.id, { points: [pt('Ask about hiring'), pt('Their new office')], questions: [], watch: [], at: '2026-10-02T00:00:00Z', by: 'notebook-writer' });
+    expect(s.get(nb.id)!.briefing!.previous).toEqual({ at: '2026-10-01T00:00:00Z', items: ['Ask about hiring'] });
+    s.setBriefing(nb.id, { points: [pt('Their new office')], questions: [], watch: [], at: '2026-10-03T00:00:00Z', by: 'you' });
+    expect(s.get(nb.id)!.briefing!.previous).toEqual({ at: '2026-10-01T00:00:00Z', items: ['Ask about hiring'] });
+    s.setAnswer(nb.id, { question: 'q', text: 'a', confidence: 'low', findings: [{ text: 'One', from: [] }], open: [], at: '2026-10-01T00:00:00Z', by: 'notebook-writer' });
+    s.setAnswer(nb.id, { question: 'q', text: 'b', confidence: 'low', findings: [{ text: 'Two', from: [] }], open: [], at: '2026-10-02T00:00:00Z', by: 'notebook-writer' });
+    expect(s.get(nb.id)!.answer!.previous).toEqual({ at: '2026-10-01T00:00:00Z', items: ['One'] });
   });
 
   it('keeps it with the notebook, gives a profile step its subject and progress, and leaves it out of the options\' funnel', () => {

@@ -100,8 +100,13 @@ export interface NotebookAboutFact {
   source?: string;
   /** The words on that page that say it. */
   quote?: string;
-  /** When it was learned. */
+  /** When it was learned (last written). */
   at: string;
+  /** When it was first learned (none: before this was kept). */
+  firstAt?: string;
+  /** When its value last changed, and the value it replaced. */
+  changedAt?: string;
+  was?: { value: string; source?: string; at: string };
 }
 
 /** One side of a conflict about who they are: what a source says. */
@@ -141,6 +146,8 @@ export interface NotebookCompetitor {
   how?: string;
   /** The page that names it as a competitor (http/https). */
   source?: string;
+  /** When it was first named (none: before this was kept). */
+  firstAt?: string;
 }
 
 /** Another company a person leads, founded or works with (besides their main one). */
@@ -160,6 +167,8 @@ export interface NotebookAffiliation {
   stage?: string;
   /** The page those came from (http/https). */
   factsSource?: string;
+  /** When it was first named (none: before this was kept). */
+  firstAt?: string;
 }
 
 export interface NotebookAboutOne {
@@ -187,7 +196,10 @@ const ABOUT_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 /**
  * Facts about someone, merged: a later sighting of a fact wins (its value
  * and source), facts not seen again stay, and what's found leaves "not
- * found". Pure.
+ * found". What came before is kept for "what's new": a fact's first time
+ * (`firstAt`), and when its value changes, the value it replaced (`was`,
+ * `changedAt`); a competitor or other company keeps when it was first named.
+ * Pure.
  */
 export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: string; facts?: readonly unknown[]; notFound?: readonly unknown[]; summary?: unknown; competitors?: unknown; affiliations?: unknown }, now: string): NotebookAboutOne {
   const facts = [...(was?.facts ?? [])];
@@ -199,9 +211,16 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     const source = typeof f.source === 'string' && /^https?:\/\//i.test(f.source.trim()) ? f.source.trim().slice(0, 500) : undefined;
     const quote = typeof f.quote === 'string' && f.quote.trim() ? f.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : undefined;
     const label = typeof f.label === 'string' && f.label.trim() ? f.label.trim().slice(0, 40) : key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
-    const fact: NotebookAboutFact = { key, label, value, ...(source ? { source } : {}), ...(quote ? { quote } : {}), at: now };
     const i = facts.findIndex((x) => x.key === key);
-    if (i >= 0) facts[i] = fact; else facts.push(fact);
+    const old = i >= 0 ? facts[i] : undefined;
+    // Seen again: when it was first learned stays; a new value keeps the one it replaced.
+    const same = old && lowerTrim(old.value) === lowerTrim(value);
+    const before = !old ? { firstAt: now }
+      : { ...(old.firstAt ? { firstAt: old.firstAt } : {}),
+        ...(same ? { ...(old.changedAt ? { changedAt: old.changedAt } : {}), ...(old.was ? { was: old.was } : {}) }
+          : { changedAt: now, was: { value: old.value, ...(old.source ? { source: old.source } : {}), at: old.at } }) };
+    const fact: NotebookAboutFact = { key, label, value, ...(source ? { source } : {}), ...(quote ? { quote } : {}), at: now, ...before };
+    if (old) facts[i] = fact; else facts.push(fact);
   }
   const have = new Set(facts.map((f) => f.label.toLowerCase()).concat(facts.map((f) => f.key)));
   const notFound = [...new Set([...(was?.notFound ?? []), ...(next.notFound ?? []).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean)])]
@@ -210,16 +229,25 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
   const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
   const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
   // A fresh list replaces the old one (a later look is the newer word); none found keeps what was.
-  const fresh = cleanCompetitors(next.competitors, name);
+  const fresh = firstNamed(cleanCompetitors(next.competitors, name), was?.competitors, now);
   const competitors = fresh.length ? fresh : was?.competitors ?? [];
   // Their other companies too, never their main one (its name is their organization fact).
   const main = facts.find((f) => f.key === 'organization')?.value ?? '';
-  const others = cleanAffiliations(next.affiliations, main);
+  const others = firstNamed(cleanAffiliations(next.affiliations, main), was?.affiliations, now);
   const affiliations = others.length ? others : (was?.affiliations ?? []).filter((a) => lowerTrim(a.name) !== lowerTrim(main));
   return { name, facts: facts.slice(0, 24), ...(competitors.length ? { competitors } : {}), ...(affiliations.length ? { affiliations } : {}), ...(notFound.length ? { notFound } : {}), ...(summary ? { summary } : {}), ...(was?.rejectedPhotos?.length ? { rejectedPhotos: was.rejectedPhotos } : {}), ...(was?.conflicts?.length ? { conflicts: was.conflicts } : {}), updatedAt: now };
 }
 
 const lowerTrim = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** A fresh list with when each was first named: as before for one named before, else now (none on a first look). */
+function firstNamed<T extends { name: string; firstAt?: string }>(fresh: T[], was: readonly T[] | undefined, now: string | undefined): T[] {
+  return fresh.map((x) => {
+    const old = was?.find((w) => lowerTrim(w.name) === lowerTrim(x.name));
+    const at = old ? old.firstAt : now;
+    return at ? { ...x, firstAt: at } : x;
+  });
+}
 
 /** At most this many other companies kept for a person. */
 export const MAX_AFFILIATIONS = 6;
@@ -377,6 +405,20 @@ export interface NotebookBriefingPoint {
   from: string[];
 }
 
+/** A written version's main lines (talking points, findings, plan items) and when it was written. */
+export interface NotebookWrittenBefore { at: string; items: string[] }
+
+/**
+ * The version a new write replaces, for "what's new": when sua writes it
+ * again, the one it replaced (its main lines); when you edit it, what it
+ * replaced before stays as it was. Pure.
+ */
+export function writtenBefore<T extends { at: string; by: string; previous?: NotebookWrittenBefore }>(was: T | undefined, next: T, items: (x: T) => string[]): T {
+  const { previous: _p, ...rest } = next;
+  if (next.by === 'you') return { ...rest, ...(was?.previous ? { previous: was.previous } : {}) } as T;
+  return { ...rest, ...(was ? { previous: { at: was.at, items: items(was).slice(0, 40) } } : {}) } as T;
+}
+
 /** What a write step wrote: the talking points, more questions, what to watch for. */
 export interface NotebookBriefing {
   points: NotebookBriefingPoint[];
@@ -385,6 +427,8 @@ export interface NotebookBriefing {
   at: string;
   /** The agent that wrote it. */
   by: string;
+  /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
+  previous?: NotebookWrittenBefore;
 }
 
 /** One finding behind an answer, resting on the options (sources) it came from, by entry id. */
@@ -407,6 +451,8 @@ export interface NotebookAnswer {
   open: string[];
   at: string;
   by: string;
+  /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
+  previous?: NotebookWrittenBefore;
 }
 
 /** One thing in a plan: when, what, and the options (places, things found) it uses, by entry id. */
@@ -428,6 +474,8 @@ export interface NotebookPlan {
   open: string[];
   at: string;
   by: string;
+  /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
+  previous?: NotebookWrittenBefore;
 }
 
 /** The meeting a notebook prepares for: when, what you want out of it, what you already know. */
@@ -1298,21 +1346,24 @@ export class NotebookStore {
   /** Keep the plan a write step wrote (none: forget it). */
   setPlan(id: string, plan: NotebookPlan | undefined): Notebook {
     this.mustGet(id);
-    this.db.prepare('UPDATE notebooks SET plan_json = ?, updated_at = ? WHERE id = ?').run(plan ? JSON.stringify(plan) : null, new Date().toISOString(), id);
+    const kept = plan ? writtenBefore(this.mustGet(id).plan, plan, (x) => x.items.map((i) => i.title)) : undefined;
+    this.db.prepare('UPDATE notebooks SET plan_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
 
   /** Keep the answer a write step wrote (none: forget it). */
   setAnswer(id: string, answer: NotebookAnswer | undefined): Notebook {
     this.mustGet(id);
-    this.db.prepare('UPDATE notebooks SET answer_json = ?, updated_at = ? WHERE id = ?').run(answer ? JSON.stringify(answer) : null, new Date().toISOString(), id);
+    const kept = answer ? writtenBefore(this.mustGet(id).answer, answer, (x) => x.findings.map((f) => f.text)) : undefined;
+    this.db.prepare('UPDATE notebooks SET answer_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
 
   /** Keep what a write step wrote (none: forget it). */
   setBriefing(id: string, briefing: NotebookBriefing | undefined): Notebook {
     this.mustGet(id);
-    this.db.prepare('UPDATE notebooks SET briefing_json = ?, updated_at = ? WHERE id = ?').run(briefing ? JSON.stringify(briefing) : null, new Date().toISOString(), id);
+    const kept = briefing ? writtenBefore(this.mustGet(id).briefing, briefing, (x) => x.points.map((p) => p.text)) : undefined;
+    this.db.prepare('UPDATE notebooks SET briefing_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
 
