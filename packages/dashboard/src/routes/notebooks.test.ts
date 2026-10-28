@@ -203,6 +203,28 @@ describe('notebooks pages', () => {
     expect((await get(app, '/notebooks?status=archived')).text).toContain('Buy a bike');
   });
 
+  it("Download / share: a briefing leads with the brief and offers its findings as a spreadsheet; a shortlist asks which options", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const meet = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Help me prepare.' });
+    store.setSteps(meet.id, [{ title: 'Find 5 themes', kind: 'find', target: 5 }, { title: 'Write the talking points', kind: 'write' }]);
+    store.upsertOption(meet.id, { title: 'Scaling ops teams', by: 'you', data: {} });
+    const menu = (await get(app, `/notebooks/${meet.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    expect(menu).not.toContain('Which options?');
+    expect(menu).not.toContain('In the running');
+    expect(menu).toContain('Extended: every finding in full');
+    expect(menu.indexOf('To share')).toBeLessThan(menu.indexOf('The findings as a spreadsheet'));
+    expect(menu).toContain('href="/notebooks/prepare-for-a-meeting-with-dana-reyes/shortlist.csv?rows=running" download title="Every finding still in, with its facts and sources">What it found (CSV) <span class="nb-csv__n">1</span>');
+
+    const car = store.create({ title: 'Buy a used car', statement: 'A reliable SUV' });
+    store.upsertOption(car.id, { title: '2012 RAV4', by: 'you', data: {} });
+    const shop = (await get(app, `/notebooks/${car.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    expect(shop.indexOf('Which options?')).toBeLessThan(shop.indexOf('To share'));
+    expect(shop).toContain('In the running');
+    expect(shop).toContain('Extended: each option in full');
+  });
+
   it('starts a notebook, shows its cover, adds entries, ticks criteria, decides', async () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
