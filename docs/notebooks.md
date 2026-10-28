@@ -366,6 +366,8 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 - no option split across pages;
 - each link's address printed after it.
 
+**For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.
+
 **What's new** (under **Download / share**, once the last run that found options added some): **New in the last run** downloads a CSV of only those (`shortlist.csv?rows=new`). **Open the brief of what's new ↗** and **Save what's new as PDF ↗** give the brief of only those (`brief.html?latest=1`). It has their table and details, the ones from that run that were ruled out, and the notes since then. Key findings stay the whole notebook's.
 
 **The extended brief** (an option under **Download / share**: **Open the extended brief ↗** or **Save extended as PDF ↗**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections), under its picture. The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
