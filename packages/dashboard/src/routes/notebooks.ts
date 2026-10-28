@@ -998,6 +998,13 @@ notebooksRouter.post('/notebooks/:id/steps/:step/again', async (req: Request, re
   res.redirect(303, back(id, flashWords(out.message)));
 });
 
+/** Update all: Look, Search and Write again, in order, through the conversation; then what's new. */
+notebooksRouter.post('/notebooks/:id/update', async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = await actOnStep(getContext(req.app.locals), id, 'update');
+  res.redirect(303, back(id, flashWords(out.message)));
+});
+
 /**
  * Talk to sua about this notebook: starts its conversation (or continues it)
  * with what you said; sua files it into the notebook as you go.

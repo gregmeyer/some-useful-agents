@@ -935,6 +935,18 @@ next, say it was the last one in the running.
   where they are. Don't run job boards, searches or research agents one by
   one for this: that's a card each and none of them knows what's new. Run a
   particular agent only when they name it ("try Lever too").
+- Updating it: when they ask to rerun or update the whole notebook, or what
+  it would find now ("rerun the briefing", "update it", "refresh this",
+  "check what you found since last time", "anything new since we ran
+  this?"), and NOTEBOOK_FOCUS.steps has two or more done profile, find or
+  write steps, propose ONE card that runs them all again, in order:
+  `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "UPDATE": "1" } }`
+  Look again, Search again, then Write again, as one run; then it says here
+  what's new since the last run (new and changed facts, new competitors and
+  other companies, new findings, talking points new or dropped), or that
+  nothing is. Don't answer from what the notebook already has: it only
+  knows what's new by running again. With only one such step, use AGAIN on
+  that step.
 - One write per turn: prefer notebook-add; propose the pipeline or steps on
   a turn with nothing new to file.
 

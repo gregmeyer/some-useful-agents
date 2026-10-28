@@ -22,6 +22,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
+import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
 import { decideNotebookPage, pageIsItsOwn } from './notebook-page.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, NOTEBOOK_WRITER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
@@ -292,8 +293,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
     const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
     ctx.notebookPipelines ??= new Map();
     ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
-    const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
-    void writeBriefing(ctx, store, nb.id, step, (runId) => store.addRunToPass(passId, runId)).then((said) => { store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`); store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`); }).catch(() => undefined).finally(() => {
+    void writeAgain(ctx, store, nb.id, step).catch(() => undefined).finally(() => {
       ctx.notebookPipelines?.delete(notebookId);
       reconcileStepCards(ctx, notebookId);
     });
@@ -328,24 +328,93 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   return { started: true, step };
 }
 
-/** A done profile step, once more: what it learned this time, said in the conversation. */
-async function lookAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<void> {
+/** The steps an update runs again, in the notebook's order: each done profile, find and write step. */
+export function updateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
+  return (nb.steps ?? []).filter((s) => (s.kind === 'profile' || s.kind === 'find' || s.kind === 'write') && (s.status === 'done' || s.status === 'met'));
+}
+
+/**
+ * Update a briefing: Look again, Search again and Write again, each done
+ * profile, find and write step once more in the notebook's order, as one
+ * run (Stop stops it between steps); then one message in the conversation
+ * with what's new since the last run. Later steps (check, decide) stay
+ * where they are. Needs two of them: one alone is that step's own again.
+ */
+export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean; reason?: string; steps?: NotebookStep[] } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to update it.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
+  const steps = updateSteps(nb);
+  if (steps.length < 2) return { started: false, reason: steps.length ? `Only ${steps[0].title} can run again; use its own button.` : 'Nothing has run yet to update: start its first step.' };
+  const all = nb.steps!;
+  const running: { agentId: string; step: number; of: number; startedAt: number; runId?: string; stopped?: boolean; again: boolean } = { agentId: NOTEBOOK_RESEARCHER_ID, step: all.indexOf(steps[0]) + 1, of: all.length, startedAt: Date.now(), again: true };
+  ctx.notebookPipelines ??= new Map();
+  ctx.notebookPipelines.set(notebookId, running);
+  void (async () => {
+    const said: string[] = [];
+    for (const step of steps) {
+      if (running.stopped) { said.push(`You stopped it before **${step.title}**.`); break; }
+      running.step = all.indexOf(step) + 1;
+      if (step.kind === 'profile') {
+        running.agentId = NOTEBOOK_RESEARCHER_ID;
+        said.push(await lookAgain(ctx, store, notebookId, step, true));
+        continue;
+      }
+      const agent = stepAgent(ctx, step, notebookId);
+      if (!agent.agentId) { said.push(`Skipped **${step.title}**: ${agent.reason ?? 'it has no agent'}.`); continue; }
+      running.agentId = agent.agentId;
+      said.push(step.kind === 'find' ? await runAgain(ctx, store, notebookId, step, agent.agentId, true) : await writeAgain(ctx, store, notebookId, step));
+    }
+    return said;
+  })().then((said) => {
+    const now = store.get(notebookId);
+    const threadId = now && ctx.inboxStore ? notebookThread(ctx, now) : undefined;
+    if (!now || !threadId) return;
+    const w = whatsNew(now, store.entries(notebookId, 1000), store.passes(notebookId, 60));
+    const news = w ? whatsNewSummary(w) : '';
+    const words = `Updated **${now.title}** (${steps.map((s) => s.title).join(', then ')}).${news ? `\n\n${news}` : ''}\n\n${said.map((x) => `- ${x.split('\n')[0]}`).join('\n')}`;
+    const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
+    publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+    reopenForStepNews(ctx, threadId);
+  }).catch((err: unknown) => {
+    try { store.noteRun(notebookId, `Update: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
+  }).finally(() => {
+    ctx.notebookPipelines?.delete(notebookId);
+    reconcileStepCards(ctx, notebookId);
+  });
+  return { started: true, steps };
+}
+
+/** A done write step, once more: what it wrote this time (the run's note). */
+async function writeAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep): Promise<string> {
+  const passId = store.startPass(notebookId, 'pipeline', undefined, { stepId: step.id });
+  const said = await writeBriefing(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
+  store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`);
+  store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`);
+  return `Wrote again (**${step.title}**)${said.length ? `: ${said.join('; ')}` : ''}.`;
+}
+
+/** A done profile step, once more: what it learned this time, said in the conversation (unless `quiet`: the update says it). */
+async function lookAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, quiet = false): Promise<string> {
   const passId = store.startPass(notebookId, 'pipeline', undefined, { stepId: step.id });
   const notes = await learnAbout(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
   store.finishPass(passId, `${NOTEBOOK_RESEARCHER_ID}, again: ${sentenceOf(notes) || 'looked'}`);
   const words = notes.length ? `Looked again (**${step.title}**): ${notes.join('; ')}.` : `Looked again (**${step.title}**): sua's researcher didn't answer. Nothing changed.`;
   store.noteRun(notebookId, `${step.title}, again: ${words.replace(/\*\*/g, '')}`);
   const nb = store.get(notebookId);
-  const threadId = nb && ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  const threadId = nb && ctx.inboxStore && !quiet ? notebookThread(ctx, nb) : undefined;
   if (threadId) {
     const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
     publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
     reopenForStepNews(ctx, threadId);
   }
+  return words;
 }
 
-/** One more run of a met or done find step's agent, for as many new ones as its goal; then say what's new. */
-async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string): Promise<void> {
+/** One more run of a met or done find step's agent, for as many new ones as its goal; then say what's new (unless `quiet`). */
+async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, quiet = false): Promise<string> {
   let nb = store.get(notebookId)!;
   const had = new Set(store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
   const p = stepProgress(nb, store.entries(nb.id, 1000), step);
@@ -375,12 +444,13 @@ async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step
     if (short) words += ` Part of the search didn't finish: ${short}.`;
   }
   store.noteRun(notebookId, `${step.title}, again: ${words.split('\n')[0].replace(/\*\*/g, '')}`);
-  const threadId = ctx.inboxStore ? notebookThread(ctx, nb) : undefined;
+  const threadId = ctx.inboxStore && !quiet ? notebookThread(ctx, nb) : undefined;
   if (threadId) {
     const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
     publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
     reopenForStepNews(ctx, threadId);
   }
+  return words;
 }
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */

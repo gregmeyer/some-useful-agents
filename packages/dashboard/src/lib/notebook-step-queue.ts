@@ -10,15 +10,15 @@ import { createHash } from 'node:crypto';
 import { NotebookStore, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { parseActionMeta, publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
-import { addStepCard, currentStep, isYourStep, NOTEBOOK_STEP_ACTION, stepCards } from './notebook-steps.js';
+import { addStepCard, currentStep, isYourStep, NOTEBOOK_STEP_ACTION, stepCards, updateSteps } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
-/** What a step card asks for: run the step (Start, Continue, Try again), move on from it, or search again. */
-export type StepOp = 'start' | 'move' | 'again';
+/** What a step card asks for: run the step (Start, Continue, Try again), move on from it, search again, or update them all (Look, Search and Write again). */
+export type StepOp = 'start' | 'move' | 'again' | 'update';
 
 export function stepOp(meta: Pick<InboxActionMeta, 'inputs'>): StepOp {
-  return meta.inputs.AGAIN === '1' ? 'again' : meta.inputs.MOVE === '1' ? 'move' : 'start';
+  return meta.inputs.UPDATE === '1' ? 'update' : meta.inputs.AGAIN === '1' ? 'again' : meta.inputs.MOVE === '1' ? 'move' : 'start';
 }
 
 /** Cards asking the same thing share a key; only the newest stays. */
@@ -39,6 +39,7 @@ export function stepCardLive(nb: Notebook, meta: Pick<InboxActionMeta, 'inputs'>
   if (running || nb.status !== 'active') return false;
   const op = stepOp(meta);
   const { STEP, WAS } = meta.inputs;
+  if (op === 'update') return updateSteps(nb).length >= 2;
   if (op === 'again') return !!(STEP ? nb.steps?.find((s) => s.id === STEP) : nb.steps?.find((s) => s.kind === 'find'));
   const cur = currentStep(nb);
   if (!cur || (STEP && STEP !== cur.id) || (WAS && WAS !== cur.status)) return false;
@@ -93,7 +94,7 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
       live.push(c);
     }
   }
-  if (running || nb.status !== 'active' || live.some((c) => stepOp(c.meta) !== 'again')) return live;
+  if (running || nb.status !== 'active' || live.some((c) => stepOp(c.meta) !== 'again' && stepOp(c.meta) !== 'update')) return live;
   const step = currentStep(nb);
   if (!step) return live;
   const p = step.status === 'met' ? { have: 0, want: 0, met: true } : stepProgress(nb, stores(ctx).entries(nb.id, 1000), step);
@@ -128,7 +129,7 @@ export function waitingStepCard(ctx: Ctx, notebookId: string): InboxActionMeta |
   const nb = stores(ctx).get(notebookId);
   if (!nb?.conversationId || !ctx.inboxStore?.get(nb.conversationId)) return undefined;
   const running = isRunning(ctx, notebookId);
-  const live = proposedStepCards(ctx, nb.conversationId, notebookId).filter((c) => stepCardLive(nb, c.meta, running) && stepOp(c.meta) !== 'again');
+  const live = proposedStepCards(ctx, nb.conversationId, notebookId).filter((c) => stepCardLive(nb, c.meta, running) && stepOp(c.meta) !== 'again' && stepOp(c.meta) !== 'update');
   return live[0]?.meta;
 }
 
@@ -142,6 +143,11 @@ export function pinStepAction(ctx: Ctx, action: InboxActionMeta): { action?: Inb
   if (!nb) return { reason: 'no such notebook' };
   if (isRunning(ctx, nb.id)) return { reason: 'a step is already running; say so instead of proposing another' };
   const op = stepOp(action);
+  if (op === 'update') {
+    if (!stepCardLive(nb, action, false)) return { reason: 'an update needs two or more done Look, Search or Write steps; propose that step with AGAIN instead' };
+    if (nb.conversationId && proposedStepCards(ctx, nb.conversationId, nb.id).some((c) => cardKey(c.meta) === cardKey(action))) return { reason: 'that update card is already waiting on the operator' };
+    return { action };
+  }
   if (op === 'again') return { action };
   const cur = currentStep(nb);
   if (!cur) return { reason: 'every step is done' };
@@ -169,17 +175,18 @@ export async function actOnStep(ctx: Ctx, notebookId: string, op: StepOp, opts: 
   let card = live.find((c) => wanted(c.meta));
   let meta: InboxActionMeta | undefined = card?.meta;
   if (!meta) {
-    const inputs: Record<string, string> = op === 'again'
+    const inputs: Record<string, string> = op === 'update' ? { NOTEBOOK: nb.id, UPDATE: '1' } : op === 'again'
       ? { NOTEBOOK: nb.id, AGAIN: '1', ...(opts.stepId ? { STEP: opts.stepId } : {}) }
       : { NOTEBOOK: nb.id, ...(cur ? { STEP: cur.id, WAS: cur.status } : {}), ...(op === 'move' ? { MOVE: '1' } : {}) };
     const target = op === 'again' ? nb.steps?.find((s) => s.id === opts.stepId) : cur;
     const i = target ? (nb.steps ?? []).indexOf(target) : -1;
     const next = i >= 0 ? nb.steps![i + 1] : undefined;
-    const rationale = op === 'again' ? `${target?.kind === 'profile' ? 'Look again' : 'Search again'}: ${target?.title ?? 'the find step'}.`
+    const rationale = op === 'update' ? `Update it: ${updateSteps(nb).map((s) => s.title).join(', then ')}; then what's new since the last run.`
+      : op === 'again' ? `${target?.kind === 'profile' ? 'Look again' : 'Search again'}: ${target?.title ?? 'the find step'}.`
       : op === 'move' ? `Keep what ${cur?.title ?? 'the step'} found and ${next ? `go on to ${next.title}` : 'finish'}.`
       : cur?.status === 'met' && next ? `Start step ${String(i + 2)}: ${next.title}.`
       : `${cur?.status === 'stuck' ? 'Run' : 'Start'} step ${String(i + 1)}: ${cur?.title ?? ''}${cur?.status === 'stuck' ? ' again' : ''}.`;
-    meta = { kind: 'action', status: 'proposed', agentId: NOTEBOOK_STEP_ACTION, effect: 'write', inputs, rationale, ctaLabel: op === 'again' ? (target?.kind === 'profile' ? 'Look again' : 'Search again') : op === 'move' ? 'Move on' : cur?.status === 'met' ? 'Continue' : cur?.status === 'stuck' ? 'Try again' : 'Start' };
+    meta = { kind: 'action', status: 'proposed', agentId: NOTEBOOK_STEP_ACTION, effect: 'write', inputs, rationale, ctaLabel: op === 'update' ? 'Update it' : op === 'again' ? (target?.kind === 'profile' ? 'Look again' : 'Search again') : op === 'move' ? 'Move on' : cur?.status === 'met' ? 'Continue' : cur?.status === 'stuck' ? 'Try again' : 'Start' };
   }
   const threadId = nb.conversationId && ctx.inboxStore?.get(nb.conversationId) ? nb.conversationId : undefined;
   // No conversation yet: act directly, as before.

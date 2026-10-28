@@ -1094,4 +1094,7 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-hero__steps[open] + .nb-hero__stepacts { display: none; }
 .nb-hero__stepacts { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
 .nb-hero__stepacts:empty { display: none; }
+/* The full strip: Update all under it. */
+.nb-hero__update { margin: var(--space-1) 0 0; }
+.nb-hero__update:empty { display: none; }
 .nb-hero__stepacts .nb-step__focus { display: inline; margin: 0; }

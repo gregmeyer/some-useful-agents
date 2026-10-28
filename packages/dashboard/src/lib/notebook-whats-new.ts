@@ -87,6 +87,15 @@ export function whatsNew(nb: Notebook, entries: readonly NotebookEntry[], passes
   return out;
 }
 
+/** "Oct 28": the band's and the conversation's dates. */
+export const shortDay = (iso: string): string => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+/** What's new, as a conversation message: the band's lines, or that nothing changed. */
+export function whatsNewSummary(w: WhatsNew): string {
+  const lines = whatsNewLines(w);
+  return lines.length ? `**What's new since ${shortDay(w.since)}:**\n${lines.map((l) => `- ${l}`).join('\n')}` : `Nothing new since ${shortDay(w.since)}.`;
+}
+
 /** The band's lines, in words ("2 new facts: Revenue, Headquarters"). Empty when nothing changed. */
 export function whatsNewLines(w: WhatsNew): string[] {
   const n = (k: number, one: string, many = `${one}s`) => `${String(k)} ${k === 1 ? one : many}`;
