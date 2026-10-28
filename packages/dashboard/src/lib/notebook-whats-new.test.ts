@@ -58,6 +58,10 @@ describe("what's new since the last run", () => {
     expect(whatsNewLines(w)).toEqual([]);
     expect(whatsNewSummary(w)).toBe('Nothing new since Oct 26.');
     expect(whatsNew(nb(), [], [pass('s1', 26), pass('s2', 26), pass('s3', 26)])).toBeUndefined();
+    // A find step's run before can be a pass from before passes kept their step.
+    const legacy = whatsNew(nb(), [option(D(26, 10)), option(D(28, 10))], [{ startedAt: D(24), finishedAt: D(24, 11) }, pass('s2', 28)])!;
+    expect(legacy).toMatchObject({ since: D(24, 11), sources: 1 });
+    expect(whatsNew(nb(), [], [{ startedAt: D(24), finishedAt: D(24, 11) }, pass('s1', 28)])).toBeUndefined();
     // A run still going doesn't count.
     expect(whatsNew(nb(), [], [pass('s1', 26), { stepId: 's1', startedAt: D(28) }])).toBeUndefined();
   });
