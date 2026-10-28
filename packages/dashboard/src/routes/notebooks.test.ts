@@ -3026,6 +3026,50 @@ describe('a profile step', () => {
     writerReply = undefined;
   });
 
+  it('updates a shortlist: Search again, then checks only the new ones; picks stay', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Staff PM roles' });
+    store.setFields(nb.id, [{ key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.setChecks(nb.id, ['Remote OK']);
+    // One it has, never checked: the update leaves it to the check step's own button.
+    const old = store.upsertOption(nb.id, { title: 'Staff PM, Old Co', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/1' }, fingerprint: 'https://jobs.lever.co/oldco/1' }).entry;
+    store.setSteps(nb.id, [{ title: 'Find 2 roles', kind: 'find', target: 2 }, { title: 'Check them', kind: 'check' }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
+    const [s1, s2] = store.get(nb.id)!.steps!.map((x) => x.id);
+    store.updateStep(nb.id, s1, { status: 'done' });
+    store.updateStep(nb.id, s2, { status: 'done', movedOn: true });
+    const { greetNotebook } = await import('../lib/notebook-chat.js');
+    greetNotebook(ctx, nb.id);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain('Update all →');
+    finderReply = () => `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'Principal PM, New Co', data: { posting_url: 'https://jobs.ashbyhq.com/newco/2' }, fingerprint: 'https://jobs.ashbyhq.com/newco/2' }] })}</notebook>`;
+    const asked: Array<Record<string, string>> = [];
+    checkerReply = (inputs) => {
+      asked.push(inputs);
+      const id = (JSON.parse(inputs.OPTIONS) as Array<{ id: string }>)[0].id;
+      return `<notebook>${JSON.stringify({ facts: [{ id, checked: ['Remote OK'] }] })}</notebook>`;
+    };
+    const res = await request(app).post(`/notebooks/${nb.id}/update`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(decodeURIComponent(res.headers.location)).toContain('Updating it: Find 2 roles, then Check them.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    // The checker was asked about the new one only.
+    const fresh = store.entries(nb.id).find((e) => e.title === 'Principal PM, New Co')!;
+    expect(asked).toHaveLength(1);
+    expect((JSON.parse(asked[0].OPTIONS) as Array<{ id: string }>).map((o) => o.id)).toEqual([fresh.id]);
+    expect(store.entries(nb.id).find((e) => e.id === fresh.id)!.checked).toEqual(['Remote OK']);
+    expect(store.entries(nb.id).find((e) => e.id === old.id)!.checked ?? []).toEqual([]);
+    expect(store.get(nb.id)!.steps!.map((x) => x.status)).toEqual(['done', 'done', 'todo']);
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!).map((r) => r.body);
+    const update = said.find((x) => x.startsWith('Updated **Staff PM roles**'))!;
+    expect(update).toContain('- Checked the new ones (**Check them**, with notebook-checker): 1 of 1 new checked.');
+    expect(said.filter((x) => x.startsWith('Searched again'))).toEqual([]);
+    finderReply = undefined;
+    checkerReply = undefined;
+  });
+
   it('looks up a company alone as a company, and is stuck without an answer', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

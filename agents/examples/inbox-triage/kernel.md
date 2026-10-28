@@ -938,10 +938,13 @@ next, say it was the last one in the running.
 - Updating it: when they ask to rerun or update the whole notebook, or what
   it would find now ("rerun the briefing", "update it", "refresh this",
   "check what you found since last time", "anything new since we ran
-  this?"), and NOTEBOOK_FOCUS.steps has two or more done profile, find or
-  write steps, propose ONE card that runs them all again, in order:
+  this?"), and NOTEBOOK_FOCUS.steps has two or more done profile, find,
+  check (after a find) or write steps (a briefing, an answer, a plan, or a
+  shortlist that searches and checks), propose ONE card that runs them all
+  again, in order:
   `{ "type": "notebook-step", "inputs": { "NOTEBOOK": "<id>", "UPDATE": "1" } }`
-  Look again, Search again, then Write again, as one run; then it says here
+  Look again, Search again, check only the new ones, then Write again, as
+  one run (your picks and ruled-out ones stay as they are); then it says here
   what's new since the last run (new and changed facts, new competitors and
   other companies, new findings, talking points new or dropped), or that
   nothing is. Don't answer from what the notebook already has: it only
