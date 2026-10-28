@@ -2649,7 +2649,8 @@ describe('notebook templates', () => {
     const t = store.getTemplate('prepare-for-a-meeting')!;
     expect(t.setup).toMatchObject({
       subject: { label: 'Who you’re meeting (a person or company)', example: 'Dana Reyes' },
-      params: ['{subject}', 'upcoming meeting', 'focus on what matters to them'],
+      // A limit that's only the subject says nothing; it's dropped.
+      params: ['upcoming meeting', 'focus on what matters to them'],
       checks: ['Evidence relates to {subject}, not someone with a similar name'],
     });
     expect(t.setup.fields.map((f) => f.label)).toEqual(['What matters to {subject}', 'Source']);
@@ -2668,7 +2669,7 @@ describe('notebook templates', () => {
     expect(executeNotebookCreate(ctx, card).status).toBe('completed');
     const made = store.list().find((n) => n.title === 'Prepare for meeting with Acme Corp')!;
     expect(made.fields.map((f) => f.label)).toEqual(['What matters to Acme Corp', 'Source']);
-    expect(made).toMatchObject({ statement: 'Help me understand what matters to Acme Corp before we meet.', params: ['Acme Corp', 'upcoming meeting', 'focus on what matters to them'], checks: ['Evidence relates to Acme Corp, not someone with a similar name'] });
+    expect(made).toMatchObject({ statement: 'Help me understand what matters to Acme Corp before we meet.', params: ['upcoming meeting', 'focus on what matters to them'], checks: ['Evidence relates to Acme Corp, not someone with a similar name'] });
 
     // A profile step's subject changes each time too: kept as {subject}, filled in when one starts (not the title).
     const co = store.create({ title: 'Create a briefing on Arrive', statement: 'Create a company briefing for Arrive.' });
@@ -3193,11 +3194,11 @@ describe('making a template with sua', () => {
     expect(accepted[0]).toMatchObject({ agentId: 'notebook-template', ctaLabel: 'Save the template', inputs: { PARAMS: JSON.stringify(inputs.PARAMS) } });
     const card = withEditorBase(ctx, accepted[0]);
     expect(card.surfaceChanges).toContainEqual({ what: 'asks each time', before: '—', after: 'Who you’re meeting (a person or company) (this time: Dana Reyes)' });
-    expect(card.surfaceChanges).toContainEqual({ what: 'limits', before: '—', after: '{subject}; focus on what matters to them' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'limits', before: '—', after: 'focus on what matters to them' });
     expect(card.surfaceChanges).toContainEqual({ what: 'steps', before: '—', after: '1. Find 5 things {subject} cares about; 2. Choose talking points' });
     expect(executeNotebookTemplate(ctx, card)).toMatchObject({ status: 'completed' });
     expect(store.getTemplate('prepare-for-a-meeting')!.setup).toMatchObject({
-      statement: 'Help me understand what matters to {subject} before we meet.', params: ['{subject}', 'focus on what matters to them'],
+      statement: 'Help me understand what matters to {subject} before we meet.', params: ['focus on what matters to them'],
       subject: { label: 'Who you’re meeting (a person or company)', example: 'Dana Reyes' },
     });
 

@@ -1145,6 +1145,19 @@ describe('template subjects', () => {
     expect(clipWords('short one', 60)).toBe('short one');
   });
 
+  it("drop limits that are only the subject or that what it's for already says", async () => {
+    const { templateWithEdits } = await import('./notebooks.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Create a briefing on Arrive', statement: 'Create a company briefing for Arrive.', params: ['Arrive', 'company briefing', 'Under 50 people'] });
+    const subject = { label: 'The company', example: 'Arrive' };
+    expect(templateWithEdits(nb, { subject }).params).toEqual(['Under 50 people']);
+    // Limits you write when saving are kept, with the subject swapped.
+    expect(templateWithEdits(nb, { subject, params: ['Confirm Arrive’s identity and official website first', 'Arrive.'] }).params)
+      .toEqual(['Confirm {subject}’s identity and official website first']);
+  });
+
   it('keep a check whole up to 120 characters', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));
