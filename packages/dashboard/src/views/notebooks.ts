@@ -1168,6 +1168,30 @@ export interface NotebookCard {
 
 export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
 
+/** Ways to start, as you'd say them on New notebook (each opens it with the words filled in). */
+const STARTS = [
+  { title: 'Choose between options', text: 'A quiet 2-bed rental in Fremont under $2,600, decide by next month', get: 'A shortlist, each option checked against what you need.' },
+  { title: 'Answer a question', text: 'Which project-management tools suit a 10-person agency, and what do they cost?', get: 'A written answer, with where each part came from.' },
+  { title: 'Prepare for a meeting', text: "Prepare for my meeting with a logistics startup's head of sales", get: 'A brief on who they are, with talking points.' },
+] as const;
+
+/** The Notebooks page before you have any: what a notebook is, and ways to start one. */
+function renderNotebooksEmpty(templates: ReadonlyArray<{ id: string; name: string }>): SafeHtml {
+  return html`<section class="nbl-empty" aria-labelledby="nbl-empty-h">
+    <h2 class="nbl-empty__h" id="nbl-empty-h">No notebooks yet</h2>
+    <p class="nbl-empty__lede">Say what you're after and sua finds options, checks each one against what you need, and keeps what you decide. Start from one of these, or describe your own.</p>
+    <ul class="nbl-empty__starts">
+      ${STARTS.map((s) => html`<li><a class="nbl-empty__start" href="/notebooks/new?text=${encodeURIComponent(s.text)}">
+        <span class="nbl-empty__title">${s.title}</span>
+        <span class="nbl-empty__text">“${s.text}”</span>
+        <span class="nbl-empty__get">${s.get}</span>
+      </a></li>`) as unknown as SafeHtml[]}
+    </ul>
+    ${templates.length ? html`<p class="nbl-empty__tpl">Or start from one of your templates: ${templates.map((t, i) => html`${i ? ', ' : ''}<a href="/notebooks/new#nbd-tpl-h">${t.name}</a>`) as unknown as SafeHtml[]}</p>` : html``}
+    <a class="btn btn--primary nbl-empty__go" href="/notebooks/new">Describe your own →</a>
+  </section>`;
+}
+
 export function renderNotebooksList(args: {
   notebooks: NotebookCard[];
   openNew?: boolean;
@@ -1176,6 +1200,8 @@ export function renderNotebooksList(args: {
   counts?: { active: number; decided: number; stopped: number; all: number; archived?: number };
   /** New notebooks you began drafting but haven't started. */
   drafts?: ReadonlyArray<{ id: string } & DraftState>;
+  /** Your templates, offered when you have no notebooks yet. */
+  templates?: ReadonlyArray<{ id: string; name: string }>;
 }): string {
   const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
   const counts = { archived: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
@@ -1246,7 +1272,7 @@ export function renderNotebooksList(args: {
           </a>`;
       }) as unknown as SafeHtml[]}
     </div>
-    ${args.notebooks.length === 0 ? empty : html``}
+    ${counts.all || counts.archived ? (args.notebooks.length === 0 ? empty : html``) : renderNotebooksEmpty(args.templates ?? [])}
     ${q.pages > 1 ? html`
       <nav class="nb-pager" aria-label="Pages">
         ${q.page > 1 ? html`<a class="btn btn--sm" href="${href({ page: q.page - 1 })}" rel="prev">‹ Prev</a>` : html`<span class="btn btn--sm is-disabled" aria-disabled="true">‹ Prev</span>`}

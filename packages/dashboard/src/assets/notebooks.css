@@ -411,6 +411,18 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-tools__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: var(--font-size-sm); color: var(--color-text); }
 .nbl-tools__sort { margin-left: auto; }
 .nbl-tools__sort select { height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
+/* No notebooks yet: what one is, and ways to start (views/notebooks.ts renderNotebooksEmpty). */
+.nbl-empty { max-width: 960px; margin: var(--space-6) 0; }
+.nbl-empty__h { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
+.nbl-empty__lede { margin: 0 0 var(--space-6); max-width: 62ch; color: var(--color-text-muted); line-height: 1.5; }
+.nbl-empty__starts { list-style: none; margin: 0 0 var(--space-6); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
+.nbl-empty__start { display: flex; flex-direction: column; gap: var(--space-2); height: 100%; box-sizing: border-box; padding: var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-text); text-decoration: none; transition: border-color 120ms ease, transform 120ms ease; }
+.nbl-empty__start:hover, .nbl-empty__start:focus-visible { border-color: var(--color-primary); transform: translateY(-1px); }
+.nbl-empty__title { font-weight: 600; }
+.nbl-empty__text { font-size: var(--font-size-sm); line-height: 1.45; }
+.nbl-empty__get { margin-top: auto; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbl-empty__tpl { margin: 0 0 var(--space-4); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+@media (prefers-reduced-motion: reduce) { .nbl-empty__start { transition: none; } .nbl-empty__start:hover { transform: none; } }
 .nbl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--space-4); }
 .nbl-card { display: flex; flex-direction: column; overflow: hidden; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-text); text-decoration: none; transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease; }
 .nbl-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-md); transform: translateY(-2px); }
