@@ -184,10 +184,23 @@ describe('notebooks pages', () => {
     expect(withTpl).toContain('Or start from one of your templates: <a href="/notebooks/new#nbd-tpl-h">Meeting prep</a>');
 
     // Once there is one, the list (and a search with no matches) is as before.
-    store.create({ title: 'Buy a bike', statement: 'A commuter bike' });
+    const bike = store.create({ title: 'Buy a bike', statement: 'A commuter bike' });
     const listed = (await get(app, '/notebooks?q=nothing-like-this')).text;
     expect(listed).not.toContain('No notebooks yet');
     expect(listed).toContain('No active notebooks matching');
+    expect(listed).toContain('<a href="/notebooks">Clear the search</a>');
+    expect(listed).not.toContain('nbl-empty__start');
+
+    // All archived: Active and All say where they are, with ways to start.
+    store.archive(bike.id);
+    for (const path of ['/notebooks', '/notebooks?status=all']) {
+      const none = (await get(app, path)).text;
+      expect(none).toContain(path === '/notebooks' ? 'No active notebooks' : 'No notebooks in use');
+      expect(none).toContain('Yours are under <a href="/notebooks?status=archived">Archived (1)</a>.');
+      expect(none.match(/class="nbl-empty__start"/g)).toHaveLength(3);
+      expect(none).toContain('Meeting prep</a>');
+    }
+    expect((await get(app, '/notebooks?status=archived')).text).toContain('Buy a bike');
   });
 
   it('starts a notebook, shows its cover, adds entries, ticks criteria, decides', async () => {

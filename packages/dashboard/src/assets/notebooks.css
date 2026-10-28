@@ -414,6 +414,7 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 /* No notebooks yet: what one is, and ways to start (views/notebooks.ts renderNotebooksEmpty). */
 .nbl-empty { max-width: 960px; margin: var(--space-6) 0; }
 .nbl-empty__h { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
+.nbl-empty__where { margin: 0 0 var(--space-2); }
 .nbl-empty__lede { margin: 0 0 var(--space-6); max-width: 62ch; color: var(--color-text-muted); line-height: 1.5; }
 .nbl-empty__starts { list-style: none; margin: 0 0 var(--space-6); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
 .nbl-empty__start { display: flex; flex-direction: column; gap: var(--space-2); height: 100%; box-sizing: border-box; padding: var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); color: var(--color-text); text-decoration: none; transition: border-color 120ms ease, transform 120ms ease; }

@@ -109,7 +109,8 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
     notebooks, openNew: req.query.new === '1', flash: parseFlash(req),
     query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
     drafts: listDrafts(ctx),
-    ...(all.length || archived.length ? {} : { templates: s.listTemplates() }),
+    // Nothing to show (and no search): ways to start, with your templates.
+    ...(matches.length || q ? {} : { templates: s.listTemplates() }),
   }));
 });
 
