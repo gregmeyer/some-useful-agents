@@ -6,7 +6,7 @@
  * the version it replaced. Only what the latest run did counts: a fact you
  * settled since, or points you edited, aren't "new". Pure.
  */
-import type { Notebook, NotebookEntry, NotebookPass, NotebookStepKind, NotebookWrittenBefore } from '@some-useful-agents/core';
+import { shortName, type Notebook, type NotebookEntry, type NotebookPass, type NotebookStepKind, type NotebookWrittenBefore } from '@some-useful-agents/core';
 
 type Pass = Pick<NotebookPass, 'startedAt' | 'finishedAt' | 'stepId'>;
 
@@ -20,6 +20,8 @@ export interface WhatsNew {
   affiliations: string[];
   /** What the latest find added (sources, themes: the notebook's options). */
   sources: number;
+  /** Their names, newest first. */
+  sourceNames: string[];
   /** Talking points, findings or plan items: new ones and ones it dropped. */
   points: { new: number; dropped: number };
   /** Nothing changed: a recheck that found nothing new. */
@@ -62,7 +64,7 @@ export function whatsNew(nb: Notebook, entries: readonly NotebookEntry[], passes
   const write = rerun(nb, passes, ['write']);
   if (!profile && !find && !write) return undefined;
 
-  const out: WhatsNew = { since: '', at: '', facts: { new: [], changed: [] }, competitors: [], affiliations: [], sources: 0, points: { new: 0, dropped: 0 }, empty: true, marks: {} };
+  const out: WhatsNew = { since: '', at: '', facts: { new: [], changed: [] }, competitors: [], affiliations: [], sources: 0, sourceNames: [], points: { new: 0, dropped: 0 }, empty: true, marks: {} };
   if (profile) {
     for (const who of ['person', 'company'] as const) {
       const one = nb.about?.[who];
@@ -80,7 +82,11 @@ export function whatsNew(nb: Notebook, entries: readonly NotebookEntry[], passes
       for (const a of one.affiliations ?? []) if (inside(a.firstAt, profile)) out.affiliations.push(a.name);
     }
   }
-  if (find) out.sources = entries.filter((e) => e.kind === 'option' && inside(e.createdAt, find)).length;
+  if (find) {
+    const found = entries.filter((e) => e.kind === 'option' && inside(e.createdAt, find));
+    out.sources = found.length;
+    out.sourceNames = found.map((e) => shortName(e.title));
+  }
   const w = writtenItems(nb);
   if (write && w?.previous && inside(w.at, write)) {
     const before = new Set(w.previous.items.map(norm));
@@ -113,7 +119,7 @@ export function whatsNewLines(w: WhatsNew): string[] {
   if (w.facts.changed.length > 3) lines.push(`${n(w.facts.changed.length - 3, 'more changed fact')}`);
   if (w.competitors.length) lines.push(`${n(w.competitors.length, 'new competitor')}: ${names(w.competitors)}`);
   if (w.affiliations.length) lines.push(`${n(w.affiliations.length, 'new other company', 'new other companies')}: ${names(w.affiliations)}`);
-  if (w.sources) lines.push(`${n(w.sources, 'new finding')} from the search`);
+  if (w.sources) lines.push(`${n(w.sources, 'new finding')} from the search${w.sourceNames.length ? `: ${names(w.sourceNames)}` : ''}`);
   if (w.points.new || w.points.dropped) lines.push(`Rewritten: ${[w.points.new ? `${String(w.points.new)} new` : '', w.points.dropped ? `${String(w.points.dropped)} dropped` : ''].filter(Boolean).join(', ')}`);
   return lines;
 }

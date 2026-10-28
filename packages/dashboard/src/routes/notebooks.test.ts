@@ -3102,7 +3102,7 @@ describe('a profile step', () => {
     expect(said.filter((x) => x.startsWith('Searched again'))).toEqual([]);
     // The search's list on its line; and what's new, against the search before passes kept their step.
     expect(update).toContain('1 new option in the notebook: Staff PM, New Co, $250k');
-    expect(update).toContain('- 1 new finding from the search');
+    expect(update).toContain('- 1 new finding from the search: Staff PM');
     finderReply = undefined;
     checkerReply = undefined;
   });

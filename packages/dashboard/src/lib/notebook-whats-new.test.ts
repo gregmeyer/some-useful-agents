@@ -33,11 +33,11 @@ const nb = (over: Partial<Notebook> = {}) => ({
   briefing: { points: [{ text: 'Ask about hiring', from: [] }, { text: 'Their new office', from: [] }], questions: [], watch: [], at: D(28, 10), by: 'notebook-writer', previous: { at: D(26, 10), items: ['Ask about hiring', 'Their podcast', 'Board seat'] } },
   ...over,
 }) as unknown as Notebook;
-const option = (createdAt: string) => ({ kind: 'option', createdAt }) as unknown as NotebookEntry;
+const option = (createdAt: string, title = 'A theme') => ({ kind: 'option', createdAt, title }) as unknown as NotebookEntry;
 
 describe("what's new since the last run", () => {
   it('compares each part with its own run before: facts, lists, what was found, what was rewritten', () => {
-    const w = whatsNew(nb(), [option(D(26, 10)), option(D(28, 10)), option(D(28, 10))], passes)!;
+    const w = whatsNew(nb(), [option(D(26, 10)), option(D(28, 10), 'Hiring an ops lead'), option(D(28, 10), 'The new office')], passes)!;
     expect(w).toMatchObject({
       since: D(26, 11), at: D(28, 11), empty: false,
       facts: { new: ['Revenue'], changed: [{ label: 'Role', was: 'VP Ops', now: 'COO' }] },
@@ -46,7 +46,7 @@ describe("what's new since the last run", () => {
     expect(w.marks).toEqual({ 'person:role': { mark: 'changed', was: 'VP Ops' }, 'person:revenue': { mark: 'new' } });
     expect(whatsNewLines(w)).toEqual([
       '1 new fact: Revenue', 'Changed: Role, VP Ops → COO', '1 new competitor: Karbon', '1 new other company: Freight Founders',
-      '2 new findings from the search', 'Rewritten: 1 new, 2 dropped',
+      '2 new findings from the search: Hiring an ops lead, The new office', 'Rewritten: 1 new, 2 dropped',
     ]);
     expect(whatsNewSummary(w).split('\n').slice(0, 2)).toEqual(["**What's new since Oct 26:**", '- 1 new fact: Revenue']);
   });
