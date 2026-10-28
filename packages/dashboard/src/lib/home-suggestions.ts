@@ -1,5 +1,5 @@
 /**
- * Home's Try next: agents you can run in one click, and questions to ask sua, picked from
+ * Home's Ask sua card: agents you can run in one click (its Run row), and questions to ask sua, picked from
  * what you use and what happened today. Pure (`pickSuggestions`) with a reader (`homeSuggestions`).
  */
 import { NotebookStore, SYSTEM_AGENT_IDS, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
@@ -28,7 +28,7 @@ export interface SuggestedAsk {
   href?: string;
 }
 /** Home's Ask sua card: starters by verb; a pill fills the box (you finish it). */
-export type StarterVerb = 'Start' | 'Run' | 'Build' | 'Fix' | 'Look up';
+export type StarterVerb = 'Start' | 'Run' | 'Build or fix' | 'Look up';
 export interface AskStarters { verb: StarterVerb; pills: SuggestedAsk[] }
 export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[]; starters?: AskStarters[] }
 
@@ -177,10 +177,10 @@ export function askStarters(d: {
   if (look.length < 3) look.push(pill('Look up …', 'Look up '));
 
   return [
-    ...(d.notebookStarts?.length ? [{ verb: 'Start' as const, pills: d.notebookStarts.slice(0, 4) }] : []),
+    ...(d.notebookStarts?.length ? [{ verb: 'Start' as const, pills: d.notebookStarts.slice(0, 3) }] : []),
     { verb: 'Run', pills: run.slice(0, 3) },
-    { verb: 'Build', pills: build.slice(0, 3) },
-    { verb: 'Fix', pills: fix.slice(0, 3) },
+    // At most three a row: two to build (a schedule for your go-to over watching a page), one to fix (a failure first).
+    { verb: 'Build or fix', pills: [...(build.length > 2 ? [build[0], build[2]] : build), ...fix.slice(0, 1)] },
     { verb: 'Look up', pills: look.slice(0, 3) },
   ];
 }

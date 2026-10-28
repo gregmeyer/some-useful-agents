@@ -71,9 +71,9 @@ describe('Try next', () => {
 
   it('gives the Ask sua card starters for every verb, from what you use and what happened', () => {
     const none = askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [], now: NOW });
-    expect(none.map((r) => r.verb)).toEqual(['Run', 'Build', 'Fix', 'Look up']);
+    expect(none.map((r) => r.verb)).toEqual(['Run', 'Build or fix', 'Look up']);
     expect(none.every((r) => r.pills.length > 0)).toBe(true);
-    expect(none[2].pills.map((p) => p.label)).toEqual(['Check my agents for anything broken']);
+    expect(none[1].pills.map((p) => p.label)).toEqual(['Build an agent that checks … every morning', 'Watch a page for changes', 'Check my agents for anything broken']);
 
     const agents = [
       agent('research', { name: 'Research a topic', inputs: { TOPIC: { type: 'string', default: 'x' }, DEPTH_DAYS: { type: 'number', default: 3 } } } as Partial<Agent>),
@@ -89,9 +89,9 @@ describe('Try next', () => {
     const run = got[0].pills;
     expect(run[0]).toEqual({ label: 'Run Research a topic on …', text: 'Run Research a topic with topic: ' });
     expect(run.map((p) => p.label)).toContain('Run Daily digest');
-    expect(got[1].pills.map((p) => p.label)).toContain('Put Research a topic on a schedule');
-    expect(got[2].pills[0]).toEqual({ label: 'Why did Flaky feed fail?', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
-    expect(got[3].pills[0]).toEqual({ label: 'Help me find a used road bike', text: 'Help me find a used road bike under $800' });
+    expect(got[1].pills.map((p) => p.label)).toEqual(['Build an agent that checks … every morning', 'Put Research a topic on a schedule', 'Why did Flaky feed fail?']);
+    expect(got[1].pills[2]).toEqual({ label: 'Why did Flaky feed fail?', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
+    expect(got[2].pills[0]).toEqual({ label: 'Help me find a used road bike', text: 'Help me find a used road bike under $800' });
   });
 });
 
