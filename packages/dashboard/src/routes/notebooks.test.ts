@@ -2745,6 +2745,20 @@ describe('notebook templates', () => {
     expect(ct.setup.steps.map((x) => [x.title, x.subject, x.shape])).toEqual([['Learn about {subject}', '{subject}', undefined], ['Write the company briefing', undefined, 'answer']]);
     expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'company-briefing', TITLE: 'Create a briefing on {subject}', SUBJECT: 'Ramp' } }).status).toBe('completed');
     expect(store.list().find((n) => n.title === 'Create a briefing on Ramp')!.steps?.[0]).toMatchObject({ title: 'Learn about Ramp', kind: 'profile', subject: 'Ramp' });
+
+    // Its page's words name the subject too: kept as {subject}, filled in (a template saved before that still names Arrive).
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    const coPage = { ...layoutPreset('company')!.layout, about: 'a company briefing: who Arrive is and what it offers' };
+    store.setLayout(co.id, coPage);
+    const withPage = store.saveTemplate('Company briefing', co.id, undefined, { subject: { label: 'The company', example: 'Arrive' } });
+    expect(withPage.setup.layout?.about).toBe('a company briefing: who {subject} is and what it offers');
+    expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'company-briefing', TITLE: 'Brief Hex', SUBJECT: 'Hex' } }).status).toBe('completed');
+    expect(store.list().find((n) => n.title === 'Brief Hex')!.layout?.about).toBe('a company briefing: who Hex is and what it offers');
+    // One saved before: Arrive still in its page.
+    const db = runStore.databaseHandle();
+    db.prepare('UPDATE notebook_templates SET setup_json = ? WHERE id = ?').run(JSON.stringify({ ...withPage.setup, layout: coPage }), 'company-briefing');
+    expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'company-briefing', TITLE: 'Brief Pipe', SUBJECT: 'Pipe' } }).status).toBe('completed');
+    expect(store.list().find((n) => n.title === 'Brief Pipe')!.layout?.about).toBe('a company briefing: who Pipe is and what it offers');
   });
 });
 

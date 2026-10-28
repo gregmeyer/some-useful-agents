@@ -55,7 +55,7 @@ import {
   partialInlineWidget,
   prepareViewForRender,
   viewToMessages,
-  fillSubject,
+  fillSubject, subjectOut, layoutWords,
   notebookLayoutGuide,
   suaComponentDocs,
 } from '@some-useful-agents/core';
@@ -1227,6 +1227,9 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
   const subject = (meta.inputs.SUBJECT ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
   if (t.setup.subject && !subject) return { error: `The template "${t.name}" needs to know ${t.setup.subject.label.replace(/^./, (c) => c.toLowerCase())} (SUBJECT).` };
   const fill = (x: string) => fillSubject(x, subject);
+  // Its page's words: {subject} filled in (a template saved before its page's words were swapped still names its example).
+  const example = t.setup.subject?.example ?? '';
+  const fillPage = (x: string) => fill(example ? subjectOut(x, example) : x);
   const steps = t.setup.steps.map(({ agentId, ...s }) => ({
     ...s,
     title: fill(s.title),
@@ -1248,7 +1251,7 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       stages: t.setup.stages,
       checks: listInput(meta.inputs.CHECKS, t.setup.checks).map(fill),
       steps,
-      ...(t.setup.layout ? { layout: t.setup.layout } : {}),
+      ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage) } : {}),
     },
   };
 }
