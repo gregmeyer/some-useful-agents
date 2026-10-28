@@ -144,7 +144,7 @@ export function pinStepAction(ctx: Ctx, action: InboxActionMeta): { action?: Inb
   if (isRunning(ctx, nb.id)) return { reason: 'a step is already running; say so instead of proposing another' };
   const op = stepOp(action);
   if (op === 'update') {
-    if (!stepCardLive(nb, action, false)) return { reason: 'an update needs two or more done profile, find, check or write steps (a check after a find); propose that step with AGAIN instead' };
+    if (!stepCardLive(nb, action, false)) return { reason: 'an update needs two or more done profile, find, source, check or write steps (source and check after a find); propose that step with AGAIN instead' };
     if (nb.conversationId && proposedStepCards(ctx, nb.conversationId, nb.id).some((c) => cardKey(c.meta) === cardKey(action))) return { reason: 'that update card is already waiting on the operator' };
     return { action };
   }
