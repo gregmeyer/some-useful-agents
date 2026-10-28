@@ -30,13 +30,20 @@ export interface WhatsNew {
 
 interface Window { start: string; end: string; since: string }
 
-/** The latest finished run of these steps, and when the one before finished; none without one before. */
+/**
+ * The latest finished run of these steps, and when the one before finished;
+ * none without one before. A find step's run before can be a pass from
+ * before passes kept their step (the notebook's searches then).
+ */
 function rerun(nb: Pick<Notebook, 'steps'>, passes: readonly Pass[], kinds: readonly NotebookStepKind[]): Window | undefined {
   const ids = new Set((nb.steps ?? []).filter((s) => kinds.includes(s.kind)).map((s) => s.id));
   if (!ids.size) return undefined;
-  const done = passes.filter((p) => p.stepId && ids.has(p.stepId) && p.finishedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  if (done.length < 2) return undefined;
-  return { start: done[0].startedAt, end: done[0].finishedAt!, since: done[1].finishedAt ?? done[1].startedAt };
+  const newest = (ps: readonly Pass[]) => [...ps].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  const done = newest(passes.filter((p) => p.stepId && ids.has(p.stepId) && p.finishedAt));
+  if (!done.length) return undefined;
+  const before = done[1] ?? (kinds.includes('find') ? newest(passes.filter((p) => !p.stepId && p.finishedAt && p.finishedAt <= done[0].startedAt))[0] : undefined);
+  if (!before) return undefined;
+  return { start: done[0].startedAt, end: done[0].finishedAt!, since: before.finishedAt ?? before.startedAt };
 }
 
 const inside = (t: string | undefined, w: Window) => !!t && t >= w.start && t <= w.end;

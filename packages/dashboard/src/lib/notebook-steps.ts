@@ -12,7 +12,7 @@
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, shortName, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, checksLeft, notebookViewData, rankOptions, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { writeBriefing } from './notebook-write.js';
@@ -386,7 +386,9 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
     if (!now || !threadId) return;
     const w = whatsNew(now, store.entries(notebookId, 1000), store.passes(notebookId, 60));
     const news = w ? whatsNewSummary(w) : '';
-    const words = `Updated **${now.title}** (${steps.map((s) => s.title).join(', then ')}).${news ? `\n\n${news}` : ''}\n\n${said.map((x) => `- ${x.split('\n')[0]}`).join('\n')}`;
+    // A step's own list ("1 new option in the notebook:\n- …") goes on its line.
+    const line = (x: string) => x.replace(/:\n- /, ': ').replace(/\n- /g, '; ').replace(/\n/g, ' ');
+    const words = `Updated **${now.title}** (${steps.map((s) => s.title).join(', then ')}).${news ? `\n\n${news}` : ''}\n\n${said.map((x) => `- ${line(x)}`).join('\n')}`;
     const msg = ctx.inboxStore!.addResponse(threadId, 'triage', words);
     publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
     reopenForStepNews(ctx, threadId);
@@ -409,14 +411,18 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const where = step.top ? ` in the top ${String(step.top)}` : '';
   if (!nb.checks.length) return `Skipped **${step.title}**: the notebook has no checks.`;
   const entries = store.entries(nb.id, 1000);
-  const fresh = entries.filter((e) => e.kind === 'option' && !had.has(e.id));
-  const left = (missing: readonly string[]) => fresh.filter((e) => missing.some((m) => m.startsWith(`${shortName(e.title)} — `)));
-  const p = stepProgress(nb, entries, step);
-  const todo = left(p.missing);
+  // The new ones (by id: two options can share a short name) with checks left, in its top N.
+  const left = (n: Notebook, es: readonly NotebookEntry[]) => {
+    const ranked = rankOptions(n, notebookViewData(n, es).notebook.options).filter((o) => !o.ruledOut);
+    return (step.top ? ranked.slice(0, step.top) : ranked).filter((o) => !had.has(o.id)).map((o) => ({ o, checks: checksLeft(n, o) })).filter((x) => x.checks.length);
+  };
+  const todo = left(nb, entries);
   if (!todo.length) return `Nothing new to check${where} (**${step.title}**).`;
-  const missing = p.missing.filter((m) => todo.some((e) => m.startsWith(`${shortName(e.title)} — `)));
+  const missing = todo.map((x) => `${x.o.name} — ${x.checks.join(', ')}`);
+  const ids = new Set(todo.map((x) => x.o.id));
+  const p = stepProgress(nb, entries, step);
   // Its agent is given just those.
-  const ask = entries.filter((e) => e.kind !== 'option' || todo.includes(e));
+  const ask = entries.filter((e) => e.kind !== 'option' || ids.has(e.id));
   const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
   const running = ctx.notebookPipelines?.get(notebookId);
   const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: todo.length, have: 0, missing }), (runId) => { if (running) running.runId = runId; });
@@ -433,7 +439,7 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
   store.finishPass(passId, passNote(agentId, out));
   nb = store.get(notebookId)!;
-  const open = left(stepProgress(nb, store.entries(nb.id, 1000), step).missing).length;
+  const open = left(nb, store.entries(nb.id, 1000)).filter((x) => ids.has(x.o.id)).length;
   const done = `${String(todo.length - open)} of ${String(todo.length)} new checked`;
   store.noteRun(notebookId, `${step.title}: ${done}`);
   return `Checked the new ones${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
@@ -467,8 +473,7 @@ async function sourceNew(ctx: Ctx, store: NotebookStore, notebookId: string, ste
   }
   // Its agent is given just those, and what each still needs.
   const p = stepProgress(nb, entries, step);
-  const names = jobs.map((j) => j.name);
-  const missing = p.missing.filter((m) => names.some((n) => m.startsWith(`${n} — `)));
+  const missing = jobs.map((j) => `${j.name} — ${j.missing.map((f) => f.label.toLowerCase()).join(', ')}`);
   const ask = entries.filter((e) => e.kind !== 'option' || ids.has(e.id));
   const running = ctx.notebookPipelines?.get(notebookId);
   const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: wanted, have: 0, missing }), (runId) => { if (running) running.runId = runId; });

@@ -3040,17 +3040,21 @@ describe('a profile step', () => {
     store.setFields(nb.id, [{ key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }, { key: 'level', label: 'Level', type: 'text' }]);
     store.setChecks(nb.id, ['Remote OK']);
     // One it has, never sourced or checked: the update leaves it to those steps' own buttons.
-    const old = store.upsertOption(nb.id, { title: 'Staff PM, Old Co', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/1' }, fingerprint: 'https://jobs.lever.co/oldco/1' }).entry;
+    // (Its short name, "Staff PM", is the new one's too: they're told apart by id.)
+    const old = store.upsertOption(nb.id, { title: 'Staff PM, Old Co, $200k', by: 'you', data: { posting_url: 'https://jobs.lever.co/oldco/1' }, fingerprint: 'https://jobs.lever.co/oldco/1' }).entry;
     store.setSteps(nb.id, [{ title: 'Find 2 roles', kind: 'find', target: 2 }, { title: 'Read each posting', kind: 'source', agentId: 'posting-reader', facts: ['level'] }, { title: 'Check them', kind: 'check' }, { title: 'Pick 1', kind: 'decide', target: 1 }]);
     const [s1, s2, s3] = store.get(nb.id)!.steps!.map((x) => x.id);
     store.updateStep(nb.id, s1, { status: 'done' });
     store.updateStep(nb.id, s2, { status: 'done', movedOn: true });
     store.updateStep(nb.id, s3, { status: 'done', movedOn: true });
+    // Its search before, from before passes kept their step.
+    store.finishPass(store.startPass(nb.id, 'pipeline'), 'notebook-finder: 1 new');
+    await new Promise((r) => setTimeout(r, 5));
     const { greetNotebook } = await import('../lib/notebook-chat.js');
     greetNotebook(ctx, nb.id);
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain('Update all →');
-    finderReply = () => `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'Principal PM, New Co', data: { posting_url: 'https://jobs.ashbyhq.com/newco/2' }, fingerprint: 'https://jobs.ashbyhq.com/newco/2' }] })}</notebook>`;
+    finderReply = () => `<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'Staff PM, New Co, $250k', data: { posting_url: 'https://jobs.ashbyhq.com/newco/2' }, fingerprint: 'https://jobs.ashbyhq.com/newco/2' }] })}</notebook>`;
     const asked: Array<Record<string, string>> = [];
     checkerReply = (inputs) => {
       asked.push(inputs);
@@ -3062,7 +3066,7 @@ describe('a profile step', () => {
     for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
     // Its page was read, and the checker asked about it: the new one only.
     expect(readFileSync(read, 'utf-8').trim().split('\n')).toEqual(['https://jobs.ashbyhq.com/newco/2|Level']);
-    const fresh = store.entries(nb.id).find((e) => e.title === 'Principal PM, New Co')!;
+    const fresh = store.entries(nb.id).find((e) => e.title === 'Staff PM, New Co, $250k')!;
     expect(fresh.data).toMatchObject({ level: 'Principal' });
     expect(fresh.factMeta?.level?.source).toBe('https://jobs.ashbyhq.com/newco/2');
     expect(store.entries(nb.id).find((e) => e.id === old.id)!.data?.level).toBeUndefined();
@@ -3076,6 +3080,9 @@ describe('a profile step', () => {
     expect(update).toContain('- Sourced the new ones (**Read each posting**, with posting-reader): read 1 of 1 new page, 1 fact.');
     expect(update).toContain('- Checked the new ones (**Check them**, with notebook-checker): 1 of 1 new checked.');
     expect(said.filter((x) => x.startsWith('Searched again'))).toEqual([]);
+    // The search's list on its line; and what's new, against the search before passes kept their step.
+    expect(update).toContain('1 new option in the notebook: Staff PM, New Co, $250k');
+    expect(update).toContain('- 1 new finding from the search');
     finderReply = undefined;
     checkerReply = undefined;
   });
