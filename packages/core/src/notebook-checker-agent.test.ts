@@ -155,6 +155,26 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 quote not found word for word, left open.');
   });
 
+  it('matches an answer to its option when the subject has an em dash or research-fanout cut a long one short', async () => {
+    const url = await page('<p>Customers say they buy it to close the books in half the time.</p>');
+    const long = `Arrive LLC — Florida entity (https://records.example/detail?${'q=1&'.repeat(60)})`;
+    const options = [
+      { id: 'a', name: 'Acme — the app', facts: {}, left: ['Why people buy is quoted'] },
+      { id: 'b', name: long, facts: {}, left: ['Why people buy is quoted'] },
+    ];
+    const checks = ['Why people buy is quoted'];
+    const p = JSON.parse((await shellNode('pending', { UPSTREAM_JUDGE_RESULT: '<verdicts>[]</verdicts>', OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks) })).trim().split('\n').at(-1)!);
+    const items = JSON.parse(p.items_json) as Array<{ subject: string }>;
+    expect(items[1].subject.length).toBeLessThanOrEqual(200);
+    const met = { c1: { value: 'met', source: url, quote: 'buy it to close the books in half the time' } };
+    // As research-fanout returns them: the first as sent, the second as an older pending's long subject cut at 200.
+    const pending = { ...p, subjects: { 'acme — the app': 'a', [long.toLowerCase()]: 'b' } };
+    const web = { results: [{ subject: 'Acme — the app', status: 'done', found: met }, { subject: long.slice(0, 200), status: 'done', found: met }] };
+    const out = await verify([], options, checks, { UPSTREAM_PENDING_RESULT: JSON.stringify(pending), UPSTREAM_WEB_RESULT: JSON.stringify(web) });
+    expect(out.facts.find((f) => f.id === 'a')?.checked).toEqual(['Why people buy is quoted']);
+    expect(out.facts.find((f) => f.id === 'b')?.checked).toEqual(['Why people buy is quoted']);
+  });
+
   it('gives a quote not on the downloaded page a second look, and ticks one seen on its screenshot, with the screenshot as evidence', async () => {
     const url = await page('<div id="app"></div>'); // its text only shows in a browser
     const options = [{ id: 'a', name: 'Acme', facts: {}, left: ['Why people buy is quoted', 'Headcount under 500'] }];

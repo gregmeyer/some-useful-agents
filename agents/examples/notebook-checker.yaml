@@ -120,7 +120,8 @@ nodes:
           facts = o.get("facts") if isinstance(o.get("facts"), dict) else {}
           site = next((str(v) for k, v in facts.items() if re.search(r"web ?site|url|link", str(k), re.I) and str(v).startswith("http")), "")
           name = str(o.get("name") or o["id"]).strip()[:150]
-          subject = f"{name} ({site})" if site else name
+          # At most 200 characters, as research-fanout keeps it (so its answer names it the same).
+          subject = (f"{name} ({site})" if site else name)[:190].strip()
           # Same-named options stay apart: research-fanout drops repeats.
           if norm(subject) in subjects:
               subject = f"{subject} [{len(subjects) + 1}]"
@@ -232,8 +233,16 @@ nodes:
       pend = last_json(upstream("PENDING"), "subjects") or {}
       web = last_json(upstream("WEB"), "results") or {}
       keys, subjects = pend.get("keys") or {}, pend.get("subjects") or {}
+      # Which option an answer is about: pending keyed its subjects by spacing and
+      # case only (an em dash stays one), and research-fanout may have cut a long one short.
+      def plain(s):
+          return re.sub(r"\s+", " ", s or "").strip().lower()
+      by_norm = {norm(k): v for k, v in subjects.items()}
+      def option_of(subject):
+          s = plain(subject)
+          return subjects.get(s) or by_norm.get(norm(subject)) or next((v for k, v in subjects.items() if len(s) >= 40 and k.startswith(s)), None)
       for r in web.get("results") or []:
-          oid = subjects.get(norm(str((r or {}).get("subject") or ""))) if isinstance(r, dict) else None
+          oid = option_of(str((r or {}).get("subject") or "")) if isinstance(r, dict) else None
           found = r.get("found") if oid and isinstance(r.get("found"), dict) else {}
           for k, a in found.items():
               said = norm(str((a or {}).get("value") if isinstance(a, dict) else a))
