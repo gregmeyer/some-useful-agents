@@ -1175,10 +1175,11 @@ const STARTS = [
   { title: 'Prepare for a meeting', text: "Prepare for my meeting with a logistics startup's head of sales", get: 'A brief on who they are, with talking points.' },
 ] as const;
 
-/** The Notebooks page before you have any: what a notebook is, and ways to start one. */
-function renderNotebooksEmpty(templates: ReadonlyArray<{ id: string; name: string }>): SafeHtml {
+/** The Notebooks page before you have any (or with none on this tab): what a notebook is, and ways to start one. */
+function renderNotebooksEmpty(templates: ReadonlyArray<{ id: string; name: string }>, none?: { title: string; where: SafeHtml }): SafeHtml {
   return html`<section class="nbl-empty" aria-labelledby="nbl-empty-h">
-    <h2 class="nbl-empty__h" id="nbl-empty-h">No notebooks yet</h2>
+    <h2 class="nbl-empty__h" id="nbl-empty-h">${none?.title ?? 'No notebooks yet'}</h2>
+    ${none ? html`<p class="nbl-empty__where">${none.where}</p>` : html``}
     <p class="nbl-empty__lede">Say what you're after and sua finds options, checks each one against what you need, and keeps what you decide. Start from one of these, or describe your own.</p>
     <ul class="nbl-empty__starts">
       ${STARTS.map((s) => html`<li><a class="nbl-empty__start" href="/notebooks/new?text=${encodeURIComponent(s.text)}">
@@ -1218,9 +1219,15 @@ export function renderNotebooksList(args: {
   const tab = (status: NotebookListQuery['status'], label: string) => html`<a class="nb-tabs__tab${q.status === status ? ' is-on' : ''}" href="${href({ status })}"${q.status === status ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label} <span class="nb-tabs__n">${String(counts[status])}</span></a>`;
   const first = q.total ? (q.page - 1) * q.perPage + 1 : 0;
   const last = Math.min(q.total, q.page * q.perPage);
-  const empty = q.q || q.status !== 'all'
-    ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks${q.q ? html` matching “${q.q}”` : html``}. <a href="${href({ q: '', status: 'all' })}">See them all</a></p>`
-    : html``;
+  // Nothing on this tab: a search says so; otherwise where yours are (e.g. all archived), and ways to start one.
+  const label = { active: 'Active', decided: 'Decided', stopped: 'Stopped', all: 'All', archived: 'Archived' } as const;
+  const elsewhere = (['active', 'decided', 'stopped', 'archived'] as const).filter((st) => st !== q.status && counts[st] > 0);
+  const empty = q.q
+    ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks matching “${q.q}”. <a href="${href({ q: '' })}">Clear the search</a></p>`
+    : renderNotebooksEmpty(args.templates ?? [], {
+      title: q.status === 'all' ? 'No notebooks in use' : `No ${q.status} notebooks`,
+      where: html`Yours are under ${elsewhere.map((st, i) => html`${i ? (i === elsewhere.length - 1 ? ' and ' : ', ') : ''}<a href="${href({ status: st })}">${label[st]} (${String(counts[st])})</a>`) as unknown as SafeHtml[]}.`,
+    });
   return render(layout({ title: 'Notebooks', activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     ${pageHeader({
       crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks' }],
