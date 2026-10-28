@@ -175,14 +175,17 @@ const DOSSIER: ViewComponent[] = [
 
 /**
  * A company on its own (a prospect, a partner, a competitor, an employer):
- * who it is beside its facts, its competitors, then what the research found
- * (the answer and how sure, the findings it rests on, what's still open),
- * the sources as a table, and the research folded at the end.
+ * the story down the left (who it is, then what the research found: the
+ * answer and how sure, the findings it rests on, what's still open) beside
+ * its facts, so a long fact sheet never leaves a hole under a short
+ * profile; then its competitors, the sources as a table, and the research
+ * folded at the end.
  */
 const COMPANY: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'profile_row', 'rivals_p', 'answer', 'findings_p', 'evidence_p', 'more'] },
+  { id: 'root', component: 'Column', children: ['header', 'top', 'rivals_p', 'evidence_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Company briefing', steps: 'fold', cover: 'none' },
-  { id: 'profile_row', component: 'Columns', children: ['company_p', 'facts_p'], widths: [2, 1], align: 'start', when: 'about' },
+  { id: 'top', component: 'Columns', children: ['story', 'facts_p'], widths: [2, 1], align: 'start' },
+  { id: 'story', component: 'Column', children: ['company_p', 'answer', 'findings_p'] },
   { ...panel('company_p', 'Who they are', 'company'), treatment: 'lede', when: 'about' },
   {
     id: 'company', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/company/name' }, role: { path: '/notebook/company/role' }, org: { path: '/notebook/company/org' },
