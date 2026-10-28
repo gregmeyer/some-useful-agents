@@ -2599,6 +2599,12 @@ describe('notebook templates', () => {
     const page = (await get('/notebooks/new')).text;
     expect(page).toContain('Or start from one of your templates');
     expect(page).toContain('<span class="nbd-tpl__name">Job search</span>');
+    // A row says what it's for (its steps, with no statement), Start is the one button, and Archive and Delete are under ⋯.
+    const row = page.slice(page.indexOf('<li class="nbd-tpl__item">'), page.indexOf('</li>', page.indexOf('<li class="nbd-tpl__item">')));
+    expect(row).toMatch(/class="nbd-tpl__what"[^>]*>[^<]+</);
+    expect(row).toContain('>Start →</button>');
+    expect(row).not.toContain('btn--primary');
+    expect(row).toMatch(/<details class="nbd-tpl__more">[\s\S]*Archive[\s\S]*Delete…/);
     expect(page).toContain('value="Start a new notebook from my “Job search” template."');
 
     // Archive: off the list and away from sua, in a folded Archived list; restore brings it back.

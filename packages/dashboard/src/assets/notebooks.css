@@ -481,24 +481,37 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 /* Your templates (New notebook): one row each, start one with sua. */
 .nbd-tpl { margin-top: var(--space-4); }
 .nbd-tpl__h { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); font-weight: var(--weight-semibold); color: var(--color-text-muted); }
-.nbd-tpl__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
-.nbd-tpl__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbd-tpl__list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+/* One grid for every row: what it is | what changes this time + Start | ⋯, so boxes and buttons line up. */
+.nbd-tpl__item { display: grid; grid-template-columns: minmax(0, 1fr) minmax(12rem, 22rem) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); }
+.nbd-tpl__item + .nbd-tpl__item { border-top: 1px solid var(--color-border); }
+.nbd-tpl__text { display: flex; flex-direction: column; min-width: 0; }
 .nbd-tpl__name { font-weight: var(--weight-semibold); }
-.nbd-tpl__what { flex: 1; min-width: 0; font-size: var(--font-size-xs); color: var(--color-text-muted); font-family: var(--font-mono); }
-.nbd-tpl__go, .nbd-tpl__arch { margin: 0; }
-.nbd-tpl__go { display: flex; align-items: center; gap: var(--space-2); }
-.nbd-tpl__subject { width: 20rem; max-width: 100%; height: var(--control-h-sm); font-size: var(--font-size-sm); }
+.nbd-tpl__what { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nbd-tpl__go { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin: 0; min-width: 0; }
+.nbd-tpl__subject { flex: 1; min-width: 0; height: var(--control-h-sm); font-size: var(--font-size-sm); }
+.nbd-tpl__start { flex: none; }
 .nbd-tpl__archived { margin-top: var(--space-3); }
 .nbd-tpl__archived > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.nbd-tpl__archived > .nbd-tpl__list { margin-top: var(--space-2); }
+.nbd-tpl__archived > .nbd-tpl__list { margin-top: var(--space-2); background: transparent; }
 .nbd-tpl__n { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-subtle); }
-.nbd-tpl__item.is-archived { background: transparent; }
 .nbd-tpl__item.is-archived .nbd-tpl__name { color: var(--color-text-muted); }
-.nbd-tpl__del > summary { list-style: none; cursor: pointer; }
-.nbd-tpl__del > summary::-webkit-details-marker { display: none; }
-.nbd-tpl__del > summary::marker { content: ''; }
-.nbd-tpl__del form { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-1) 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.nbd-tpl__del[open] { flex-basis: 100%; }
+/* ⋯: Archive and Delete, out of the way (the inbox thread's menu, smaller). */
+.nbd-tpl__more { position: relative; }
+.nbd-tpl__more > summary, .nbd-tpl__del > summary { list-style: none; cursor: pointer; }
+.nbd-tpl__more > summary::-webkit-details-marker, .nbd-tpl__del > summary::-webkit-details-marker { display: none; }
+.nbd-tpl__more > summary::marker, .nbd-tpl__del > summary::marker { content: ''; }
+.nbd-tpl__more > summary::before, .nbd-tpl__del > summary::before { content: none; }
+.nbd-tpl__menu { position: absolute; top: 100%; right: 0; margin-top: var(--space-1); min-width: 14rem; z-index: 100; display: flex; flex-direction: column; gap: 1px; padding: var(--space-1); background: var(--color-surface-raised); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.nbd-tpl__menu-form { margin: 0; }
+.nbd-tpl__menu-item { display: block; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); cursor: pointer; }
+.nbd-tpl__menu-item:hover { background: var(--color-surface); }
+.nbd-tpl__confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+/* Narrow: what it is on top, then the box and Start on one row. */
+@media (max-width: 640px) {
+  .nbd-tpl__item { grid-template-columns: minmax(0, 1fr) auto; }
+  .nbd-tpl__text { grid-column: 1 / -1; }
+}
 .nb-template__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbd-ask__label { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .nbd-ask__row { display: flex; gap: var(--space-2); align-items: stretch; }
