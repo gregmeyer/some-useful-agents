@@ -98,6 +98,8 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
 ![The same notebook with its conversation open in the sua panel](images/drawer.png)
 
+**What's new since the last run.** When a briefing's profile, find or write step runs again (Look again, Write again, or its schedule), a band under the made-by strip says what that run found that the one before didn't: new facts, changed ones ("Changed: Role, VP Ops → COO"), new competitors and other companies, new findings from the search, and talking points (or findings, or plan items) that are new or were dropped. Each part is compared with its own run before. A fact the run learned or changed gets a **new** or **changed** mark in What we know (hover a changed one for what it was). A recheck that finds nothing says "Looked again Oct 28: nothing new since Oct 26." There's no band after a first run, or while a step is running. A fact you settle afterwards, or points you edit, aren't counted. The brief starts with the same **What's new** section, and the timeline gets a **Looked again** or **Wrote again** entry for each rerun. Facts learned before this was kept have no first time, so the first rerun shows only what it added or changed.
+
 **The header shows the notebook's picture** (a listing photo, an example photo or an illustration of the lead option), the same one its card and conversation show. A notebook with no picture yet shows the notebook icon.
 
 **The sua panel follows you to a notebook.** Open a notebook with the panel open (docked or wide) and the panel switches to that notebook's conversation. A closed or minimised panel stays as it was.

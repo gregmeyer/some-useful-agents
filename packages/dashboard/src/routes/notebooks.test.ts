@@ -225,6 +225,45 @@ describe('notebooks pages', () => {
     expect(shop).toContain('Extended: each option in full');
   });
 
+  it("a briefing run again says what's new since the run before, marks its facts, and so does its brief", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Help me prepare.' });
+    const [profile] = store.setSteps(nb.id, [{ title: 'Learn about Dana Reyes', kind: 'profile', subject: 'Dana Reyes' }]).steps!;
+    // A meeting briefing's page (its brief prints as that page).
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    store.setLayout(nb.id, layoutPreset('dossier')!.layout);
+    const look = (d: string, facts: Array<{ key: string; value: string }>) => {
+      const id = store.startPass(nb.id, 'pipeline', `2026-10-${d}T10:00:00.000Z`, { stepId: profile.id });
+      store.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts }, `2026-10-${d}T10:30:00.000Z`);
+      store.finishPass(id, 'research-one: learned', `2026-10-${d}T11:00:00.000Z`);
+    };
+    look('26', [{ key: 'role', value: 'VP Ops' }, { key: 'location', value: 'Austin' }]);
+    // One run: nothing to compare with.
+    expect((await get(app, `/notebooks/${nb.id}`)).text).not.toContain('nb-new');
+    look('28', [{ key: 'role', value: 'COO' }, { key: 'location', value: 'Austin' }, { key: 'revenue', value: '$4M' }]);
+    const page = (await get(app, `/notebooks/${nb.id}`)).text;
+    expect(page).toContain("What's new since Oct 26");
+    expect(page).toContain('<li>1 new fact: Revenue</li>');
+    expect(page).toContain('<li>Changed: Role, VP Ops → COO</li>');
+    // The fact sheet's rows carry the mark (the page draws it).
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const data = notebookWidgetData(store.get(nb.id)!, [], store).notebook;
+    const facts = data.facts;
+    expect(facts.find((f) => f.label === 'Role')).toMatchObject({ value: 'COO', mark: 'changed', was: 'VP Ops' });
+    expect(facts.find((f) => f.label === 'Revenue')).toMatchObject({ mark: 'new' });
+    expect(facts.find((f) => f.label === 'Location')!.mark).toBeUndefined();
+    // The timeline says it looked again, with what's new.
+    expect(data.timeline.find((t) => t.title === 'Looked again: Learn about Dana Reyes')).toMatchObject({ body: '1 new fact: Revenue · Changed: Role, VP Ops → COO' });
+    const brief = (await get(app, `/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain("What's new since");
+    expect(brief).toContain('<span class="mark">changed</span> <span class="muted">(was VP Ops)</span>');
+    // Again with nothing new: it says so.
+    look('29', [{ key: 'role', value: 'COO' }]);
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain('nothing new since Oct 28.');
+  });
+
   it('starts a notebook, shows its cover, adds entries, ticks criteria, decides', async () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');

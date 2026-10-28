@@ -6,6 +6,7 @@
  * with a decision.
  */
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
+import { whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
 import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
@@ -291,6 +292,20 @@ export function madeByStrip(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefi
 }
 
 /**
+ * What's new since the last run (a briefing rerun): what it learned, changed
+ * or found that the run before didn't, or that a recheck found nothing new.
+ */
+export function whatsNewBand(w: WhatsNew | undefined): SafeHtml {
+  if (!w) return html``;
+  const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (w.empty) return html`<p class="nb-new nb-new--none" role="status">Looked again ${day(w.at)}: nothing new since ${day(w.since)}.</p>`;
+  return html`<section class="nb-new" aria-labelledby="nb-new-h">
+    <h2 class="nb-new__h" id="nb-new-h">What's new since ${day(w.since)}</h2><span class="nb-new__at">looked again ${day(w.at)}</span>
+    <ul class="nb-new__list">${whatsNewLines(w).map((l) => html`<li>${l}</li>`) as unknown as SafeHtml[]}</ul>
+  </section>`;
+}
+
+/**
  * The notebook's work in steps: each with its agent, how far it is toward
  * its goal ("8 of 10 found") and where it stands. The step being worked on
  * (the first not done) is marked; what it still needs is its tooltip.
@@ -491,7 +506,7 @@ function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], entries: read
   </div>`;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView, madeBy?: NotebookMadeBy): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView, madeBy?: NotebookMadeBy, fresh?: WhatsNew): SafeHtml {
   // A drawn page's NotebookHeader shapes this header; its page has its own parts, so the side box goes.
   const widgets = widgetsIn || !!head;
   const cover = head?.cover === 'none' ? undefined : coverIn;
@@ -528,6 +543,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running, madeBy), !!running) : stepsStrip(nb, nb.steps, entries, !!running, madeBy))
           : pipelineDiagram(stages)}
         ${madeByStrip(nb, madeBy)}
+        ${running ? html`` : whatsNewBand(fresh)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
@@ -1139,12 +1155,12 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
     </div>`;
 }
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy)}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
     ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>

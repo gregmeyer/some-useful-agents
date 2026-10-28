@@ -15,6 +15,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
+import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -116,11 +117,13 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       </div>`;
     }
     case 'FactSheet': {
-      const facts = list(v('facts')) as Array<{ label?: unknown; value?: unknown; url?: unknown; group?: unknown }>;
+      const facts = list(v('facts')) as Array<{ label?: unknown; value?: unknown; url?: unknown; group?: unknown; mark?: unknown; was?: unknown }>;
+      // What the latest run learned or changed: new, or changed with what it was.
+      const mark = (f: (typeof facts)[number]) => (f.mark === 'new' ? html` <span class="mark">new</span>` : f.mark === 'changed' ? html` <span class="mark">changed</span>${text(f.was) ? html` <span class="muted">(was ${text(f.was)})</span>` : html``}` : html``);
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<dt>${text(f.label)}</dt><dd>${text(f.value)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : html``}</dd>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : html``}</dd>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {
@@ -229,6 +232,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
+  // What the latest run found that the one before didn't (a briefing).
+  const fresh = args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
   const body = html`<title>${nb.title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
@@ -261,6 +266,9 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .part--aside h2, .part--band h2 { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .part--band { background: var(--raised); border-radius: 10px; padding: 0.75rem 1rem; }
 .callout p { margin: 0.25rem 0 0; font-size: 1.0625rem; }
+.whatsnew { margin: 1rem 0 0; padding: 0.75rem 1rem; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--surface); }
+.whatsnew .eyebrow { margin-top: 0; color: var(--accent); } .whatsnew ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
+.mark { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font: 600 0.625rem/1rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .muted { color: var(--muted); } .fine { font-size: 0.75rem; color: var(--muted); margin: 0.35rem 0 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; }
 .chip { font: 0.75rem/1.7 var(--mono); padding: 0 0.5rem; border: 1px solid var(--line); border-radius: 6px; }
@@ -348,6 +356,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     </div>
     ${sideId ? html`<aside>${node(p, sideId)}</aside>` : html``}
   </header>
+  ${fresh && !fresh.empty ? html`<section class="whatsnew" aria-label="What's new"><div class="eyebrow">What's new since ${fmtDate(new Date(fresh.since))}</div><ul>${whatsNewLines(fresh).map((l) => html`<li>${l}</li>`) as unknown as SafeHtml[]}</ul></section>` : html``}
   ${node(p, 'root')}
   ${args.full ? behindThePage(nb, args.entries, data.notebook, args.history, pic) : html``}
   <footer>From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.</footer>
