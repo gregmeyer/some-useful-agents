@@ -810,6 +810,13 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
       return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title), ...(st.subject ? { subject: sub(st.subject) } : {}) };
     }),
   };
+  // A limit that is only the subject ("Arrive" → {subject}), or that the statement already
+  // says ("company briefing" in "Create a company briefing for {subject}"), tells nothing.
+  const said = setup.statement.toLowerCase();
+  setup.params = setup.params.filter((p) => {
+    const l = p.replace(/[\s.]+$/, '').trim().toLowerCase();
+    return l !== '' && l !== TEMPLATE_SUBJECT.toLowerCase() && !said.includes(l);
+  });
   if (label && example) setup.subject = { label, example };
   return setup;
 }
