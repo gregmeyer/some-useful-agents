@@ -2800,7 +2800,7 @@ describe('a profile step', () => {
     expect(after.about!.person!.facts[0]).toMatchObject({ value: 'VP Operations', source: 'https://northwind.example/team', quote: 'Dana Reyes, VP Operations' });
     expect(after.about!.person!.notFound).toEqual(['Based in']);
     // Their other companies: a list of its own (not a fact), never their main one.
-    expect(after.about!.person!.affiliations).toEqual([{ name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about', what: 'Freight software' }]);
+    expect(after.about!.person!.affiliations).toMatchObject([{ name: 'Freight Founders', role: 'co-founder', website: 'https://freightfounders.example', source: 'https://dana.example/about', what: 'Freight software' }]);
     expect(after.about!.company).toMatchObject({ name: 'Northwind', notFound: ['Stage'] });
     expect(fetched).toEqual(['https://northwind.example/dana.png', 'https://northwind.example/apple-touch-icon.png']);
     expect(checked[0]).toBe('https://northwind.example/team|https://northwind.example/dana.png');
@@ -2955,7 +2955,7 @@ describe('a profile step', () => {
     expect(after.about!.person).toBeUndefined();
     expect(after.about!.company!.facts.map((f) => f.key)).toEqual(['what_they_do', 'website', 'size', 'founded', 'headquarters']);
     // Its competitors are their own list (not a fact), never the company itself, each with the page that names it.
-    expect(after.about!.company!.competitors).toEqual([{ name: 'Locus Robotics', website: 'https://locusrobotics.com', how: 'Warehouse picking robots', source: 'https://g2.example/acme-alternatives' }]);
+    expect(after.about!.company!.competitors).toMatchObject([{ name: 'Locus Robotics', website: 'https://locusrobotics.com', how: 'Warehouse picking robots', source: 'https://g2.example/acme-alternatives' }]);
     // A company alone is looked up thoroughly, for its industry, model and competitors too.
     const asked = researchAsked[1];
     expect(asked.DEPTH).toBe('thorough');

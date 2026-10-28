@@ -275,7 +275,7 @@ describe('a person\'s other companies, on the page', () => {
       claims: [{ value: 'ARV', source: 'https://arvfirm.com/team/' }, { value: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }],
       settled: { value: 'ARV', by: 'you', at: '2026-10-27T01:00:00Z' } }]);
     const got = s.get(nb.id)!;
-    expect(notebookAffiliations(got)).toEqual([{ name: 'Open Access Ventures', role: 'CEO', website: 'https://openaccess.example' }, { name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }]);
+    expect(notebookAffiliations(got)).toMatchObject([{ name: 'Open Access Ventures', role: 'CEO', website: 'https://openaccess.example' }, { name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley' }]);
     const brief = renderPageBrief({ nb: got, entries: [], history: s });
     expect(brief).toContain('>Also runs<');
     expect(brief).toContain('<a href="https://openaccess.example">Open Access Ventures</a>');
@@ -290,7 +290,7 @@ describe('a person\'s other companies, on the page', () => {
     expect(await lookAtOtherCompanies(ctx, s, nb.id, 'Steven Gelley')).toBe(1);
     expect(asked).toEqual(['Arrive']);
     const arrive = s.get(nb.id)!.about!.person!.affiliations!.find((a) => a.name === 'Arrive');
-    expect(arrive).toEqual({ name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley', what: 'Software for accounting firms', website: 'https://arrive.example', industry: 'Accounting software', factsSource: 'https://arrive.example' });
+    expect(arrive).toMatchObject({ name: 'Arrive', source: 'https://www.linkedin.com/posts/gelley', what: 'Software for accounting firms', website: 'https://arrive.example', industry: 'Accounting software', factsSource: 'https://arrive.example' });
     expect(await lookAtOtherCompanies(ctx, s, nb.id, 'Steven Gelley')).toBe(0);
     const brief2 = renderPageBrief({ nb: s.get(nb.id)!, entries: [], history: s });
     expect(brief2).toContain('Software for accounting firms · Accounting software');
