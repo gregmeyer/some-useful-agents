@@ -164,6 +164,32 @@ describe('notebooks pages', () => {
     .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
   const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
+  it('with no notebooks, says what one is and offers ways to start, then your templates', async () => {
+    const app = await makeApp();
+    const page = (await get(app, '/notebooks')).text;
+    expect(page).toContain('No notebooks yet');
+    expect(page).not.toContain('No active notebooks');
+    expect(page.match(/class="nbl-empty__start" href="\/notebooks\/new\?text=/g)).toHaveLength(3);
+    expect(page).toContain(`href="/notebooks/new?text=${encodeURIComponent('A quiet 2-bed rental in Fremont under $2,600, decide by next month')}"`);
+    expect(page).toContain('href="/notebooks/new">Describe your own →</a>');
+    expect(page).not.toContain('nbl-empty__tpl');
+
+    // A template outlives the notebook it came from: offered while you have none.
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const seed = store.create({ title: 'Meet a founder', statement: 'Prepare for a meeting' });
+    store.saveTemplate('Meeting prep', seed.id);
+    store.delete(seed.id);
+    const withTpl = (await get(app, '/notebooks')).text;
+    expect(withTpl).toContain('Or start from one of your templates: <a href="/notebooks/new#nbd-tpl-h">Meeting prep</a>');
+
+    // Once there is one, the list (and a search with no matches) is as before.
+    store.create({ title: 'Buy a bike', statement: 'A commuter bike' });
+    const listed = (await get(app, '/notebooks?q=nothing-like-this')).text;
+    expect(listed).not.toContain('No notebooks yet');
+    expect(listed).toContain('No active notebooks matching');
+  });
+
   it('starts a notebook, shows its cover, adds entries, ticks criteria, decides', async () => {
     const app = await makeApp();
     const empty = await get(app, '/notebooks');
