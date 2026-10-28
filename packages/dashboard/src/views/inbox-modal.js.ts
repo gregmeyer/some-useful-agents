@@ -1265,7 +1265,7 @@ export const INBOX_MODAL_JS = `
     var end = ta.value.length;
     try { ta.setSelectionRange(end, end); } catch (_) { /* not every input supports it */ }
   });
-  // Home's Try next Run: the run starts in a conversation about the agent, opened
+  // Home's Run pills (Ask sua's Run row): the run starts in a conversation about the agent, opened
   // in the panel, where its result comes back. Without JS the form posts and lands on it.
   document.addEventListener('submit', function (e) {
     var form = e.target.closest && e.target.closest('[data-try-run]');
@@ -1273,12 +1273,13 @@ export const INBOX_MODAL_JS = `
     e.preventDefault();
     var btn = form.querySelector('button');
     if (btn && btn.disabled) return;
+    var was = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
     fetch(form.getAttribute('action'), { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) { var id = r.headers.get('X-Inbox-Id'); if (!r.ok || !id) throw new Error('try ' + r.status); return id; })
       .then(function (id) { openFor(id, { panel: panelMode === 'wide' ? 'wide' : 'docked' }); })
       .catch(function (err) { console.error('try next failed', err); form.submit(); })
-      .then(function () { if (btn) { btn.disabled = false; btn.textContent = 'Run'; } });
+      .then(function () { if (btn) { btn.disabled = false; btn.innerHTML = was; } });
   });
   // Enter submits (Shift+Enter = newline); textarea auto-grows with content.
   document.addEventListener('keydown', function (e) {

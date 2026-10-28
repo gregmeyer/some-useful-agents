@@ -1,7 +1,7 @@
 /**
  * Home (`/`): a page, not the inbox split (that's /inbox). The shared page header (breadcrumb,
  * title with how things stand, autonomy and Adjust Home), then two columns: Today on the left;
- * your notebooks and Try next (agents to run, questions for sua) on the right. A Today row opens
+ * your notebooks on the right. Ask sua, under Today, has the agents to run. A Today row opens
  * in the sua panel (home-page.js.ts); an ask pill starts a conversation there.
  */
 import type { AutonomyMode } from '@some-useful-agents/core';
@@ -29,8 +29,7 @@ export function renderHomeToday(today: HomeSurface | undefined): SafeHtml {
     : html`<p class="panel-home__empty">Today couldn't be read just now. <a href="/inbox">Open the inbox</a>.</p>`;
 }
 
-/** Try next: agents you can run in one click, then questions to ask sua. */
-/** Why Try next suggests it, with when it last ran. */
+/** Why the Run row suggests it, with when it last ran. */
 function tryWhy(a: SuggestedAgent): string {
   const when = a.lastRunAt ? `last ran ${formatAge(a.lastRunAt)}` : 'not run yet';
   if (a.why === 'go-to') return `Your go-to · ${when}`;
@@ -39,56 +38,37 @@ function tryWhy(a: SuggestedAgent): string {
   return 'New to you · not run yet';
 }
 
-function renderTryNext(s: HomeSuggestions): SafeHtml {
-  return html`
-    <section class="home-try" aria-labelledby="home-try-title">
-      <h2 class="home-rail__title" id="home-try-title">Try next</h2>
-      ${s.agents.length ? html`<ul class="home-try__agents">${s.agents.map((a) => html`
-        <li class="home-try__agent">
-          <div class="home-try__head">
-            <a class="home-try__name" href="/agents/${encodeURIComponent(a.id)}">${a.name}</a>
-            <form method="POST" action="/home/try/${encodeURIComponent(a.id)}" class="home-try__run" data-try-run><button type="submit" class="btn btn--sm" aria-label="Run ${a.name}" title="Runs it in a conversation with sua, which tells you what it found">Run</button></form>
-          </div>
-          ${a.description ? html`<p class="home-try__desc">${a.description}</p>` : html``}
-          ${a.runsWith.length
-            ? html`<dl class="home-try__with" aria-label="Run uses">${a.runsWith.map((i) => html`<div><dt>${i.label}</dt><dd>${i.value}</dd></div>`) as unknown as SafeHtml[]}</dl>`
-            : html`<p class="home-try__none-in">Takes no inputs: Run shows what it does.</p>`}
-          <div class="home-try__foot">
-            <span class="home-try__when">${tryWhy(a)}</span>
-            <button type="button" class="home-try__own" data-ask-send="${a.ownAsk.text}">${a.ownAsk.label} →</button>
-          </div>
-        </li>`) as unknown as SafeHtml[]}</ul>`
-        : html`<p class="home-try__none">No agents to suggest yet. <a href="/agents/new">Build an agent</a> or ask sua for one.</p>`}
-    </section>`;
+/** What a Run pill does, on hover: what the agent does, what it runs with, why it's here. */
+function runTitle(a: SuggestedAgent): string {
+  const uses = a.runsWith.length ? `Runs with ${a.runsWith.map((i) => `${i.label}: ${i.value}`).join(', ')}` : 'Takes no inputs';
+  return [a.description, uses, tryWhy(a)].filter(Boolean).join(' · ');
 }
 
 /**
- * Ask sua, under Today: a box to run, build, fix or look something up, and
- * starters by verb so it's never empty. A starter fills the box for you to
- * finish (inbox-modal.js.ts [data-ask-fill]); sending opens the answer in
- * the panel, like the bar at the top (the same form contract).
+ * Ask sua, under Today: a one-line box to run, build, fix or look something
+ * up, and starters by verb so it's never empty. A starter fills the box for
+ * you to finish (inbox-modal.js.ts [data-ask-fill]); sending opens the answer
+ * in the panel, like the bar at the top (the same form contract). The Run row
+ * is agents you can run as they are: one click runs it in a conversation
+ * ([data-try-run]); with none to suggest, it fills the box like the others.
  */
-function renderAskCard(starters: readonly AskStarters[]): SafeHtml {
+function renderAskCard(starters: readonly AskStarters[], agents: readonly SuggestedAgent[]): SafeHtml {
   return html`
     <section class="home-ask-card" aria-labelledby="home-ask-card-title">
-      <div class="home-ask-card__head">
-        <h2 class="home-today__title" id="home-ask-card-title">Ask sua</h2>
-        <span class="home-ask-card__lede">Run, build, fix, or look something up.</span>
-      </div>
+      <h2 class="home-today__title" id="home-ask-card-title">Ask sua</h2>
       <form class="home-ask-card__form" method="POST" action="/inbox/new" data-home-ask>
-        <textarea class="home-ask-card__input" name="body" rows="3" data-home-ask-input data-no-draft
-          placeholder="e.g. Run Research a topic on local-first databases" aria-label="Ask sua"></textarea>
-        <div class="home-ask-card__send">
-          <span class="home-ask-card__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
-          <button type="submit" class="btn btn--primary btn--sm" data-home-ask-send>Send ↵</button>
-        </div>
+        <textarea class="home-ask-card__input" name="body" rows="1" data-home-ask-input data-no-draft
+          placeholder="Run, build, fix, or look something up…" aria-label="Ask sua" title="Enter sends · Shift+Enter for a new line"></textarea>
+        <button type="submit" class="btn btn--primary btn--sm" data-home-ask-send>Send ↵</button>
       </form>
       ${starters.length ? html`<div class="home-ask-card__starters" data-ask-starters hidden>${starters.map((row) => html`
         <div class="home-ask-card__row">
           <span class="home-ask-card__verb">${row.verb}</span>
-          <div class="ask-pills" role="group" aria-label="${row.verb}">${row.pills.map((p) => (p.href
-            ? html`<a class="ask-pill" href="${p.href}" title="New notebook: ${p.text}…">${p.label}</a>`
-            : html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`)) as unknown as SafeHtml[]}</div>
+          <div class="ask-pills" role="group" aria-label="${row.verb}">${row.verb === 'Run' && agents.length
+            ? agents.slice(0, 3).map((a) => html`<form method="POST" action="/home/try/${encodeURIComponent(a.id)}" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="${runTitle(a)}"><span aria-hidden="true">▶</span> ${a.name}</button></form>`) as unknown as SafeHtml[]
+            : row.pills.map((p) => (p.href
+              ? html`<a class="ask-pill" href="${p.href}" title="New notebook: ${p.text}…">${p.label}</a>`
+              : html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`)) as unknown as SafeHtml[]}</div>
         </div>`) as unknown as SafeHtml[]}
       </div>` : html``}
     </section>`;
@@ -133,11 +113,10 @@ export function renderHomePage(opts: {
             <div data-home-today>${renderHomeToday(opts.today)}</div>
             <div class="home-today__toast" data-surface-toast hidden></div>
           </section>
-          ${renderAskCard(suggestions.starters ?? [])}
+          ${renderAskCard(suggestions.starters ?? [], suggestions.agents)}
         </div>
-        <aside class="home-rail" aria-label="Notebooks and things to try">
+        <aside class="home-rail" aria-label="Your notebooks">
           ${opts.shelf ?? html``}
-          ${renderTryNext(suggestions)}
         </aside>
       </div>
     </div>

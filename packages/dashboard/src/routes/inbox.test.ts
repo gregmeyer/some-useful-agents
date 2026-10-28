@@ -138,19 +138,17 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toContain('action="/inbox/trust/mode"');
     expect(home.text).toContain('action="/surfaces/home/ask" class="home-change"');
     expect(home.text).toContain('href="/inbox">Full inbox');
-    // Two columns: Today, and a rail with Try next (an agent to run, questions for sua while something waits).
+    // Two columns: Today (with Ask sua under it), and a rail with your notebooks; no separate Try next.
     expect(home.text).toContain('class="home-grid"');
-    expect(home.text).toContain('action="/home/try/weather" class="home-try__run" data-try-run');
-    // Each says why it's suggested and what Run uses.
-    expect(home.text).toMatch(/New to you · not run yet|Your go-to|You used it this week/);
-    expect(home.text).toMatch(/class="home-try__(with|none-in)/);
-    expect(home.text).toContain('class="home-try__own" data-ask-send=');
-    expect(home.text).toContain('data-ask-send=');
-    // Under Today: Ask sua, a box and starters for each verb (a starter fills the box).
+    expect(home.text).not.toContain('home-try');
+    // Under Today: Ask sua, a one-line box and starters for each verb (a starter fills the box).
     expect(home.text).toMatch(/class="home-ask-card"[\s\S]*data-home-ask>/);
-    for (const verb of ['Run', 'Build', 'Fix', 'Look up']) expect(home.text).toContain(`<span class="home-ask-card__verb">${verb}</span>`);
+    expect(home.text).toContain('name="body" rows="1"');
+    for (const verb of ['Run', 'Build or fix', 'Look up']) expect(home.text).toContain(`<span class="home-ask-card__verb">${verb}</span>`);
     expect(home.text).toContain('data-ask-fill="Build an agent that checks "');
-    expect(home.text).not.toContain('<h3 class="home-try__label">Ask sua</h3>');
+    // Its Run row runs an agent as it is in one click, saying on hover what it does, what it uses and why it's here.
+    expect(home.text).toContain('action="/home/try/weather" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="');
+    expect(home.text).toMatch(/class="ask-pill ask-pill--run" title="[^"]*(Runs with|Takes no inputs)[^"]*(New to you · not run yet|Your go-to|You used it this week|A tutorial example)/);
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
     expect(home.text).not.toContain('Search or ask sua');
@@ -166,7 +164,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(quiet.body.html).not.toContain('panel-home__empty');
   });
 
-  it("Try next's Run starts a conversation about the agent with its run as a card, and the result comes back there", async () => {
+  it("Home's Run pill starts a conversation about the agent with its run as a card, and the result comes back there", async () => {
     const app = await makeApp();
     agentStore.createAgent({ id: 'pinger', name: 'Pinger', description: 'Pings a URL', status: 'active', source: 'local', mcp: false,
       inputs: { TARGET_URL: { type: 'string', default: 'https://example.com' } },
