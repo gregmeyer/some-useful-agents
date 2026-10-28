@@ -80,10 +80,10 @@ function ownAsk(a: Agent): SuggestedAgent['ownAsk'] {
 
 /** Kinds of notebook, each a sentence to finish: what they're for, as you'd say it. */
 const NOTEBOOK_KINDS = [
-  { kind: 'meeting', label: 'Prepare for a meeting with …', text: 'Prepare for a meeting with ' },
-  { kind: 'report', label: 'Research a report on …', text: 'Research a report on ' },
+  { kind: 'meeting', label: 'Meeting with …', text: 'Prepare for a meeting with ' },
+  { kind: 'report', label: 'Report on …', text: 'Research a report on ' },
   { kind: 'plan', label: 'Plan …', text: 'Plan ' },
-  { kind: 'choose', label: 'Help me choose …', text: 'Help me choose ' },
+  { kind: 'choose', label: 'Choose …', text: 'Help me choose ' },
 ] as const;
 type NotebookKind = typeof NOTEBOOK_KINDS[number]['kind'];
 
@@ -113,8 +113,8 @@ export function notebookStartPills(templates: readonly Pick<NotebookTemplate, 'n
     // Choosing only when it ranks its options (a price, a score, a measure): otherwise it says nothing about the kind.
     if (kind !== 'choose' || (t.setup.fields ?? []).some((f) => f.role === 'price' || f.role === 'score' || f.role === 'measure')) covered.add(kind);
     pills.push(t.setup.subject
-      ? { label: `${clip(t.name, 40)} for …`, text: `Start a new notebook from my “${t.name}” template for ` }
-      : { label: clip(t.name, 44), text: `Start a new notebook from my “${t.name}” template.` });
+      ? { label: `${clip(t.name, 22)} for …`, text: `Start a new notebook from my “${t.name}” template for ` }
+      : { label: clip(t.name, 26), text: `Start a new notebook from my “${t.name}” template.` });
   }
   const made = [...new Set(notebooks.filter((n) => !n.archivedAt).map(notebookKind))];
   const kinds = [...made, 'meeting', 'report'].filter((k, i, all): k is NotebookKind => all.indexOf(k) === i && !covered.has(k as NotebookKind));
@@ -148,32 +148,34 @@ export function askStarters(d: {
   const shelves = agentShelves(yours, { lastRunAt: d.lastRunAt, runCounts: d.runCounts, feeds: new Map(), weekAgo });
   const used = [...shelves.goTo, ...shelves.recent.filter((a) => !shelves.goTo.includes(a))];
   const pill = (label: string, text = label): SuggestedAsk => ({ label, text });
+  // Short enough for three to a row: the row's verb says what kind it is.
+  const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, '')}…` : t);
 
   const run: SuggestedAsk[] = [];
   for (const a of used) {
     if (run.length === 2) break;
     const main = Object.entries(a.inputs ?? {}).find(([key, spec]) => spec.type === 'string' && !SETTING_RE.test(key));
-    if (main) run.push(pill(`Run ${a.name} on …`, `Run ${a.name} with ${inputLabel(main[0])}: `));
+    if (main) run.push(pill(`${clip(a.name, 20)} on …`, `Run ${a.name} with ${inputLabel(main[0])}: `));
   }
   const plain = used.find((a) => Object.keys(a.inputs ?? {}).length === 0);
-  if (plain) run.push(pill(`Run ${plain.name}`, `Run ${plain.name} and tell me what it found.`));
-  if (!run.length) run.push(pill('Run my most-used agent', 'Run my most-used agent and tell me what it found.'));
+  if (plain) run.push(pill(clip(plain.name, 24), `Run ${plain.name} and tell me what it found.`));
+  if (!run.length) run.push(pill('My most-used agent', 'Run my most-used agent and tell me what it found.'));
 
   const build: SuggestedAsk[] = [
-    pill('Build an agent that checks … every morning', 'Build an agent that checks '),
-    pill('Watch a page for changes', 'Build an agent that watches this page for changes and tells me what changed: '),
+    pill('Check … every morning', 'Build an agent that checks '),
+    pill('Watch a page', 'Build an agent that watches this page for changes and tells me what changed: '),
   ];
   const unscheduled = shelves.goTo.find((a) => !a.schedule && (d.runCounts.get(a.id) ?? 0) >= 3);
-  if (unscheduled) build.push(pill(`Put ${unscheduled.name} on a schedule`, `Put ${unscheduled.name} (${unscheduled.id}) on a schedule that suits what it does.`));
+  if (unscheduled) build.push(pill(`Schedule ${clip(unscheduled.name, 18)}`, `Put ${unscheduled.name} (${unscheduled.id}) on a schedule that suits what it does.`));
 
   const fix: SuggestedAsk[] = [...new Set(d.failedAgents)].slice(0, 2).map((id) => {
     const name = d.agents.find((a) => a.id === id)?.name ?? id;
-    return pill(`Why did ${name} fail?`, `Why did ${name} (${id}) fail today, and can you fix it?`);
+    return pill(`Why ${clip(name, 16)} failed`, `Why did ${name} (${id}) fail today, and can you fix it?`);
   });
-  if (fix.length < 2) fix.push(pill('Check my agents for anything broken', 'Check my agents for anything broken or slow, and fix what you can.'));
+  if (fix.length < 2) fix.push(pill('Find broken agents', 'Check my agents for anything broken or slow, and fix what you can.'));
 
-  const look: SuggestedAsk[] = d.notebookIdeas.slice(0, 2).map((i) => pill(`Help me find ${i.label.charAt(0).toLowerCase()}${i.label.slice(1)}`, i.text));
-  look.push(pill('What did my agents find today?', 'What did my agents find today? Anything worth a look?'));
+  const look: SuggestedAsk[] = d.notebookIdeas.slice(0, 2).map((i) => pill(`Find ${clip(`${i.label.charAt(0).toLowerCase()}${i.label.slice(1)}`, 22)}`, i.text));
+  look.push(pill("Today's finds", 'What did my agents find today? Anything worth a look?'));
   if (look.length < 3) look.push(pill('Look up …', 'Look up '));
 
   return [

@@ -73,7 +73,7 @@ describe('Try next', () => {
     const none = askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [], now: NOW });
     expect(none.map((r) => r.verb)).toEqual(['Run', 'Build or fix', 'Look up']);
     expect(none.every((r) => r.pills.length > 0)).toBe(true);
-    expect(none[1].pills.map((p) => p.label)).toEqual(['Build an agent that checks … every morning', 'Watch a page for changes', 'Check my agents for anything broken']);
+    expect(none[1].pills.map((p) => p.label)).toEqual(['Check … every morning', 'Watch a page', 'Find broken agents']);
 
     const agents = [
       agent('research', { name: 'Research a topic', inputs: { TOPIC: { type: 'string', default: 'x' }, DEPTH_DAYS: { type: 'number', default: 3 } } } as Partial<Agent>),
@@ -87,11 +87,16 @@ describe('Try next', () => {
       failedAgents: ['broken', 'broken'],
     });
     const run = got[0].pills;
-    expect(run[0]).toEqual({ label: 'Run Research a topic on …', text: 'Run Research a topic with topic: ' });
-    expect(run.map((p) => p.label)).toContain('Run Daily digest');
-    expect(got[1].pills.map((p) => p.label)).toEqual(['Build an agent that checks … every morning', 'Put Research a topic on a schedule', 'Why did Flaky feed fail?']);
-    expect(got[1].pills[2]).toEqual({ label: 'Why did Flaky feed fail?', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
-    expect(got[2].pills[0]).toEqual({ label: 'Help me find a used road bike', text: 'Help me find a used road bike under $800' });
+    expect(run[0]).toEqual({ label: 'Research a topic on …', text: 'Run Research a topic with topic: ' });
+    expect(run.map((p) => p.label)).toContain('Daily digest');
+    expect(got[1].pills.map((p) => p.label)).toEqual(['Check … every morning', 'Schedule Research a topic', 'Why Flaky feed failed']);
+    expect(got[1].pills[2]).toEqual({ label: 'Why Flaky feed failed', text: 'Why did Flaky feed (broken) fail today, and can you fix it?' });
+    // Three to a row: short labels, a long name cut at a word.
+    const long = askStarters({ agents: [agent('long', { name: 'Quarterly competitor pricing and packaging digest' })], now: NOW,
+      lastRunAt: new Map([['long', ago(30)]]), runCounts: new Map([['long', 5]]), notebookIdeas: [{ label: 'A quiet two-bedroom rental near the lake', text: 'x' }], failedAgents: ['long'] });
+    for (const p of [...got, ...long].flatMap((r) => r.pills)) expect(p.label.length).toBeLessThanOrEqual(28);
+    expect(long[0].pills[0].label).toBe('Quarterly competitor…');
+    expect(got[2].pills[0]).toEqual({ label: 'Find a used road bike', text: 'Help me find a used road bike under $800' });
   });
 });
 
@@ -109,14 +114,14 @@ describe('ways to start a notebook (Home, Ask sua)', () => {
   it('offers your templates first, then the kinds you made, then a meeting and a report, to make three', () => {
     const tpl = (name: string, uses: number, subject?: boolean) => ({ name, uses, setup: { statement: '', steps: [], ...(subject ? { subject: { label: 'Who you\'re meeting', example: 'Dana Reyes' } } : {}) } }) as never;
     // Nothing yet: the two everyone has.
-    expect(notebookStartPills([], []).map((p) => p.label)).toEqual(['Prepare for a meeting with …', 'Research a report on …']);
+    expect(notebookStartPills([], []).map((p) => p.label)).toEqual(['Meeting with …', 'Report on …']);
     // A meeting and shortlists made, one template that changes each time.
     const pills = notebookStartPills([tpl('Meeting prep', 3, true), tpl('Old one', 0)], [nb('Prepare for a meeting with Dana Reyes'), nb('Buy a used AWD wagon'), nb('Pick a standing desk'), nb('Gone', { archivedAt: 'x' })]);
-    expect(pills.map((p) => p.label)).toEqual(['Meeting prep for …', 'Old one', 'Help me choose …', 'Research a report on …']);
+    expect(pills.map((p) => p.label)).toEqual(['Meeting prep for …', 'Old one', 'Choose …', 'Report on …']);
     // A template fills the box for sua (ends where you say who); a kind opens New notebook with its sentence started.
     expect(pills[0]).toEqual({ label: 'Meeting prep for …', text: 'Start a new notebook from my “Meeting prep” template for ' });
     expect(pills[1].text).toBe('Start a new notebook from my “Old one” template.');
-    expect(pills[2]).toEqual({ label: 'Help me choose …', text: 'Help me choose ', href: '/notebooks/new?text=Help%20me%20choose%20' });
+    expect(pills[2]).toEqual({ label: 'Choose …', text: 'Help me choose ', href: '/notebooks/new?text=Help%20me%20choose%20' });
     // As a row on Home's Ask sua, first.
     expect(askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [], notebookStarts: pills })[0]).toMatchObject({ verb: 'Start' });
   });
