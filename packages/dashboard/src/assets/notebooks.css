@@ -489,7 +489,8 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbd-tpl__name { font-weight: var(--weight-semibold); }
 .nbd-tpl__what { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nbd-tpl__go { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); margin: 0; min-width: 0; }
-.nbd-tpl__subject { flex: 1; min-width: 0; height: var(--control-h-sm); font-size: var(--font-size-sm); }
+/* .form-field is a field's wrapper (its bottom margin pushed the box above Start): the box alone, Start's height. */
+.nbd-tpl__subject { flex: 1; min-width: 0; box-sizing: border-box; height: var(--control-h-sm); margin: 0; padding: 0 var(--space-2); border-radius: var(--radius-sm); font-size: var(--font-size-sm); }
 .nbd-tpl__start { flex: none; }
 .nbd-tpl__archived { margin-top: var(--space-3); }
 .nbd-tpl__archived > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
