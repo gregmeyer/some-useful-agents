@@ -174,6 +174,41 @@ const DOSSIER: ViewComponent[] = [
 ];
 
 /**
+ * A company on its own (a prospect, a partner, a competitor, an employer):
+ * who it is beside its facts, its competitors, then what the research found
+ * (the answer and how sure, the findings it rests on, what's still open),
+ * the sources as a table, and the research folded at the end.
+ */
+const COMPANY: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'profile_row', 'rivals_p', 'answer', 'findings_p', 'evidence_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Company briefing', steps: 'fold', cover: 'none' },
+  { id: 'profile_row', component: 'Columns', children: ['company_p', 'facts_p'], widths: [2, 1], align: 'start', when: 'about' },
+  { ...panel('company_p', 'Who they are', 'company'), treatment: 'lede', when: 'about' },
+  {
+    id: 'company', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/company/name' }, role: { path: '/notebook/company/role' }, org: { path: '/notebook/company/org' },
+    about: { path: '/notebook/company/about' }, image: { path: '/notebook/company/image' }, links: { path: '/notebook/company/links' },
+    imageFrom: { path: '/notebook/company/imageFrom' }, imageWhy: { path: '/notebook/company/imageWhy' }, rejectHref: { path: '/notebook/company/rejectHref' },
+  },
+  { ...panel('facts_p', 'Company facts', 'facts'), treatment: 'aside', when: 'about' },
+  { id: 'facts', component: 'FactSheet', facts: { path: '/notebook/facts' }, missing: { path: '/notebook/notFound' }, variant: 'ruled' },
+  { ...panel('rivals_p', 'Competitors', 'rivals'), treatment: 'band', when: 'competitors' },
+  COMPETITORS_TABLE,
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' } },
+  { ...panel('findings_p', 'What the briefing rests on', 'findings'), treatment: 'feature', when: 'answered' },
+  { id: 'findings', component: 'Agenda', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' }, questionsLabel: 'Still open', maxQuestions: 5, check: false },
+  { ...panel('evidence_p', 'Sources and evidence', 'evidence'), treatment: 'feature', when: 'options' },
+  {
+    id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: 'table', sort: L('sort'), actions: true, csvHref: L('csvHref'),
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
+/**
  * An answer to a question (the header says the question): the answer
  * (until there is one, where it stands), how sure and why, the findings it rests on (each linked to its
  * sources) with what's still open, beside the steps; then the evidence sua
@@ -269,8 +304,14 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'dossier',
     label: 'Meeting briefing',
-    when: 'Getting ready to meet or work with a person or company: who they are, what\'s known, what they said, what to talk about.',
+    when: 'Getting ready to meet or work with someone (a person, or their company when you\'re meeting them): who they are, what\'s known, what they said, what to talk about.',
     layout: { preset: 'dossier', components: DOSSIER },
+  },
+  {
+    id: 'company',
+    label: 'Company briefing',
+    when: 'Getting to know a company on its own (a prospect, a partner, a competitor, an employer), with no meeting to prepare: who it is and its facts, its competitors, what the research found and how sure, then the sources.',
+    layout: { preset: 'company', components: COMPANY },
   },
   {
     id: 'answer',
@@ -291,6 +332,24 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     layout: { preset: 'watch', components: WATCH },
   },
 ];
+
+/**
+ * A layout's own words (what it's about, its titles and labels) through `f`:
+ * a template swaps its subject for `{subject}`, and a notebook made from it
+ * fills it in. Bindings and ids are left alone.
+ */
+export function layoutWords(layout: NotebookLayout, f: (text: string) => string): NotebookLayout {
+  const WORDS = ['title', 'label', 'subtitle', 'note', 'text', 'empty', 'questionsLabel'];
+  return {
+    ...layout,
+    ...(layout.about ? { about: f(layout.about) } : {}),
+    components: layout.components.map((c) => {
+      const out: ViewComponent = { ...c };
+      for (const k of WORDS) if (typeof out[k] === 'string') out[k] = f(out[k] as string);
+      return out;
+    }),
+  };
+}
 
 export function layoutPreset(id: string): NotebookLayoutPreset | undefined {
   return NOTEBOOK_LAYOUT_PRESETS.find((p) => p.id === id);

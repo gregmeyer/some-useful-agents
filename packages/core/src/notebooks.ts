@@ -8,7 +8,7 @@
  * Its page is drawn from its own surface (`notebook:<id>`, see surfaces/),
  * from items projected out of its entries.
  */
-import { checkNotebookLayout, cleanLayout, type NotebookLayout } from './notebook-layout.js';
+import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
@@ -874,6 +874,8 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
       // A profile step's subject ("Arrive") is what changes each time too.
       return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title), ...(st.subject ? { subject: sub(st.subject) } : {}) };
     }),
+    // Its page's words too ("who Arrive is" → "who {subject} is").
+    ...(base.layout ? { layout: layoutWords(base.layout, sub) } : {}),
   };
   // What it's for already says ("company briefing" in "Create a company briefing for {subject}").
   setup.params = setup.params.filter((p) => !fillerLimit(p, { statement: setup.statement }));
