@@ -330,21 +330,23 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
 
 /**
  * The steps an update runs again, in the notebook's order: each done
- * profile, find and write step, and a done check step after a find (for the
- * new ones it finds).
+ * profile, find and write step, and a done source or check step after a
+ * find (for the new ones it finds).
  */
 export function updateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
   const done = (nb.steps ?? []).filter((s) => s.status === 'done' || s.status === 'met');
-  return done.filter((s) => s.kind === 'profile' || s.kind === 'find' || s.kind === 'write' || (s.kind === 'check' && done.some((f) => f.kind === 'find' && done.indexOf(f) < done.indexOf(s))));
+  const afterFind = (s: NotebookStep) => done.some((f) => f.kind === 'find' && done.indexOf(f) < done.indexOf(s));
+  return done.filter((s) => s.kind === 'profile' || s.kind === 'find' || s.kind === 'write' || ((s.kind === 'source' || s.kind === 'check') && afterFind(s)));
 }
 
 /**
- * Update a notebook: Look again, Search again, check the new ones and Write
- * again, each done step of those kinds once more in the notebook's order,
- * as one run (Stop stops it between steps); then one message in the
- * conversation with what's new since the last run. A check step checks
- * only what this update found; source and decide steps, and your picks,
- * stay as they are. Needs two of them: one alone is that step's own again.
+ * Update a notebook: Look again, Search again, source and check the new
+ * ones, and Write again, each done step of those kinds once more in the
+ * notebook's order, as one run (Stop stops it between steps); then one
+ * message in the conversation with what's new since the last run. Source
+ * and check steps work only on what this update found; decide steps and
+ * your picks stay as they are. Needs two of them: one alone is that step's
+ * own again.
  */
 export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean; reason?: string; steps?: NotebookStep[] } {
   const store = stores(ctx);
@@ -374,6 +376,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
       if (!agent.agentId) { said.push(`Skipped **${step.title}**: ${agent.reason ?? 'it has no agent'}.`); continue; }
       running.agentId = agent.agentId;
       if (step.kind === 'check') { said.push(await checkNew(ctx, store, notebookId, step, agent.agentId, had)); continue; }
+      if (step.kind === 'source') { said.push(await sourceNew(ctx, store, notebookId, step, agent.agentId, had)); continue; }
       said.push(step.kind === 'find' ? await runAgain(ctx, store, notebookId, step, agent.agentId, true) : await writeAgain(ctx, store, notebookId, step));
     }
     return said;
@@ -434,6 +437,57 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const done = `${String(todo.length - open)} of ${String(todo.length)} new checked`;
   store.noteRun(notebookId, `${step.title}: ${done}`);
   return `Checked the new ones${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
+}
+
+/**
+ * A done source step, for the options an update found (not in `had`): the
+ * facts it looks up, for just those still missing some (in its top N, when
+ * it has one). An agent that reads each option's own page runs once per
+ * new page; another runs once for them all. The step stays where it is.
+ */
+async function sourceNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>): Promise<string> {
+  const nb = store.get(notebookId)!;
+  const where = step.top ? ` in the top ${String(step.top)}` : '';
+  const entries = store.entries(nb.id, 1000);
+  const jobs = sourceJobs(nb, entries, step).filter((j) => !had.has(j.entryId));
+  if (!jobs.length) return `Nothing new to source${where} (**${step.title}**).`;
+  const facts = (ids: ReadonlySet<string>) => sourceJobs(store.get(notebookId)!, store.entries(notebookId, 1000), step).filter((j) => ids.has(j.entryId)).reduce((n, j) => n + j.missing.length, 0);
+  const ids = new Set(jobs.map((j) => j.entryId));
+  const wanted = facts(ids);
+  const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
+  const installed = ctx.agentStore.getAgent(agentId);
+  const perItem = installed ? perItemInputs(installed) : undefined;
+  if (perItem) {
+    const withPage = jobs.filter((j) => j.link).slice(0, PER_ITEM_MAX);
+    const r = await readPages(ctx, store, notebookId, agentId, perItem, withPage, passId);
+    const words = `read ${String(r.read)} of ${String(withPage.length)} new page${withPage.length === 1 ? '' : 's'}, ${String(r.factsSet)} fact${r.factsSet === 1 ? '' : 's'}${r.blocked.size ? `; ${[...r.blocked].join(', ')} blocked the reader` : ''}${r.gone.length ? `; ${String(r.gone.length)} gone, ruled out` : ''}${r.stopped ? '; you stopped it' : ''}`;
+    store.finishPass(passId, `${agentId}: ${words}`);
+    store.noteRun(notebookId, `${step.title}, the new ones: ${words}`);
+    return `Sourced the new ones${where} (**${step.title}**, with ${agentId}): ${words}.`;
+  }
+  // Its agent is given just those, and what each still needs.
+  const p = stepProgress(nb, entries, step);
+  const names = jobs.map((j) => j.name);
+  const missing = p.missing.filter((m) => names.some((n) => m.startsWith(`${n} — `)));
+  const ask = entries.filter((e) => e.kind !== 'option' || ids.has(e.id));
+  const running = ctx.notebookPipelines?.get(notebookId);
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: wanted, have: 0, missing }), (runId) => { if (running) running.runId = runId; });
+  store.addRunToPass(passId, run.id);
+  if (run.status === 'cancelled' || running?.stopped) {
+    store.finishPass(passId, `${agentId}: stopped`);
+    return `You stopped sourcing the new ones (**${step.title}**).`;
+  }
+  if (run.status !== 'completed') {
+    const why = `${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
+    store.finishPass(passId, why);
+    return `Sourcing the new ones (**${step.title}**) didn't finish (${why}).`;
+  }
+  const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
+  store.finishPass(passId, passNote(agentId, out));
+  const found = wanted - facts(ids);
+  const done = `${String(found)} of ${String(wanted)} facts for ${String(jobs.length)} new`;
+  store.noteRun(notebookId, `${step.title}: ${done}`);
+  return `Sourced the new ones${where} (**${step.title}**, with ${agentId}): ${done}.`;
 }
 
 /** A done write step, once more: what it wrote this time (the run's note). */
@@ -626,34 +680,7 @@ async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, st
     return finish(ctx, store, notebookId, { ...step, tries }, before, [`${agentId} reads an option's own page, and none of the options missing facts has one`], true, "Its agent reads each option's own page, and none of the options still missing facts has one.");
   }
   const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
-  const running = ctx.notebookPipelines?.get(notebookId);
-  let factsSet = 0;
-  let read = 0;
-  let stopped = false;
-  const blocked = new Set<string>();
-  const gone: string[] = [];
-  const failed: string[] = [];
-  for (const job of withPage) {
-    if (running?.stopped) { stopped = true; break; }
-    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; });
-    store.addRunToPass(passId, run.id);
-    if (run.status === 'cancelled' || running?.stopped) { stopped = true; break; }
-    if (run.status !== 'completed') { failed.push(job.name); continue; }
-    nb = store.get(notebookId)!;
-    const answer = readItemAnswer(run.result ?? '', nb.fields);
-    if (answer.status === 'blocked') { blocked.add(hostOf(job.link!)); continue; }
-    read++;
-    if (answer.status === 'gone') {
-      store.ruleOut(nb.id, job.entryId, 'Its page says it is gone (sold, expired or removed).', `agent:${agentId}`, { gone: true });
-      gone.push(job.name);
-      continue;
-    }
-    const facts = Object.fromEntries(Object.entries(answer.facts).map(([k, v]) => [k, { value: v, source: job.link }]));
-    if (Object.keys(facts).length) {
-      store.setOptionFacts(nb.id, job.entryId, facts);
-      factsSet += Object.keys(facts).length;
-    }
-  }
+  const { read, factsSet, blocked, gone, failed, stopped } = await readPages(ctx, store, notebookId, agentId, io, withPage, passId);
   const words = [
     `${agentId}: read ${String(read)} of ${String(withPage.length)} page${withPage.length === 1 ? '' : 's'}, ${String(factsSet)} fact${factsSet === 1 ? '' : 's'}`,
     ...(blocked.size ? [`${[...blocked].join(', ')} blocked the reader`] : []),
@@ -670,6 +697,39 @@ async function runPerItem(ctx: Ctx, store: NotebookStore, notebookId: string, st
   // Nothing got closer (every page blocked, or nothing new on them): Move on comes first.
   const closer = now.have > before.have || gone.length > 0;
   return finish(ctx, store, notebookId, { ...step, tries }, now, [words], stopped || !closer, perItemWhy({ read, pages: withPage.length, factsSet, blocked: [...blocked], failed: failed.length, noPage, stopped }));
+}
+
+/** Each option's own page, read by a per-item agent (a run each): the facts it found, set with the page as their source; gone ones ruled out. */
+async function readPages(ctx: Ctx, store: NotebookStore, notebookId: string, agentId: string, io: { page: string; want?: string }, jobs: ReturnType<typeof sourceJobs>, passId: string): Promise<{ read: number; factsSet: number; blocked: Set<string>; gone: string[]; failed: string[]; stopped: boolean }> {
+  const running = ctx.notebookPipelines?.get(notebookId);
+  let factsSet = 0;
+  let read = 0;
+  let stopped = false;
+  const blocked = new Set<string>();
+  const gone: string[] = [];
+  const failed: string[] = [];
+  for (const job of jobs) {
+    if (running?.stopped) { stopped = true; break; }
+    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; });
+    store.addRunToPass(passId, run.id);
+    if (run.status === 'cancelled' || running?.stopped) { stopped = true; break; }
+    if (run.status !== 'completed') { failed.push(job.name); continue; }
+    const nb = store.get(notebookId)!;
+    const answer = readItemAnswer(run.result ?? '', nb.fields);
+    if (answer.status === 'blocked') { blocked.add(hostOf(job.link!)); continue; }
+    read++;
+    if (answer.status === 'gone') {
+      store.ruleOut(nb.id, job.entryId, 'Its page says it is gone (sold, expired or removed).', `agent:${agentId}`, { gone: true });
+      gone.push(job.name);
+      continue;
+    }
+    const facts = Object.fromEntries(Object.entries(answer.facts).map(([k, v]) => [k, { value: v, source: job.link }]));
+    if (Object.keys(facts).length) {
+      store.setOptionFacts(nb.id, job.entryId, facts);
+      factsSet += Object.keys(facts).length;
+    }
+  }
+  return { read, factsSet, blocked, gone, failed, stopped };
 }
 
 /** A profile or write step's notes, as the sentence that says why it came out short. */
