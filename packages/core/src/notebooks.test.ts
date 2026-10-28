@@ -1158,6 +1158,17 @@ describe('template subjects', () => {
       .toEqual(['Confirm {subject}’s identity and official website first']);
   });
 
+  it('know a filler limit from a real one', async () => {
+    const { fillerLimit } = await import('./notebooks.js');
+    const gelley = { title: 'Prepare for a meeting with Steven Gelley', statement: 'Help me prepare for a meeting with Steven Gelley.' };
+    expect(['Steven Gelley', 'LinkedIn profile provided', 'Meeting date not specified', '{subject}', ' '].filter((l) => !fillerLimit(l, gelley))).toEqual([]);
+    expect(fillerLimit('focus on what matters to him', gelley)).toBe(false);
+    expect(fillerLimit('Meeting with Alan Berkson', { title: 'Prepare for a meeting with Alan Berkson' })).toBe(true);
+    expect(fillerLimit('$180k minimum comp', { title: 'Find a director-level accounting job', statement: 'Austin or remote' })).toBe(false);
+    // Without the title and statement (not a notebook about someone), only notes on what was given are filler.
+    expect(fillerLimit('AWD', {})).toBe(false);
+  });
+
   it('keep a check whole up to 120 characters', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
     runs = new RunStore(join(dir, 'runs.db'));

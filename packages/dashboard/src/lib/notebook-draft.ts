@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
   type NotebookField, type NotebookStep, type NotebookMeeting, cleanMeeting,
-  clipWords, CHECK_MAX,
+  clipWords, CHECK_MAX, fillerLimit,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -93,6 +93,18 @@ export function draftSteps(raw: unknown, agentIds: ReadonlySet<string>): { steps
   return steps.length ? { steps } : {};
 }
 
+/**
+ * The draft's limits without filler (core fillerLimit): never a note on what
+ * you gave it, and for a notebook about someone (a meeting, a profile step)
+ * never their name or what the title or statement already say.
+ */
+function draftLimits(v: Record<string, unknown>): string[] {
+  const aboutSomeone = !!(v.meeting && typeof v.meeting === 'object' && Object.values(v.meeting as Record<string, unknown>).some((x) => typeof x === 'string' && x.trim()))
+    || (Array.isArray(v.steps) && v.steps.some((st) => st && typeof st === 'object' && (st as { kind?: unknown }).kind === 'profile'));
+  const about = aboutSomeone ? { title: typeof v.title === 'string' ? v.title : '', statement: typeof v.statement === 'string' ? v.statement : '' } : {};
+  return phrases(v.params, 10, 80).filter((p) => !fillerLimit(p, about));
+}
+
 /** The drafter's <draft> as a clean draft, or why it isn't one. Pure. */
 export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): NotebookDraft | { error: string } {
   const block = extractTaggedJson(raw, 'draft');
@@ -106,7 +118,7 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
   return {
     title,
     statement: typeof v.statement === 'string' ? v.statement.replace(/\s+/g, ' ').trim().slice(0, 400) : '',
-    params: phrases(v.params, 10, 80),
+    params: draftLimits(v),
     criteria: phrases(v.criteria, 6, 120),
     fields: cleanFields(Array.isArray(v.fields) ? v.fields : []).slice(0, 10),
     checks: phrases(v.checks, 5, CHECK_MAX),

@@ -764,6 +764,23 @@ export function templateSubjectGuess(nb: Pick<Notebook, 'title' | 'params'>): st
  * Clip a text to `max` characters on a word boundary, so a check or limit
  * never ends mid-word ("…not someone with a simila").
  */
+/**
+ * A limit that tells the research and the writer nothing: only who or what
+ * it's about (`{subject}`, or words the title or statement already say: the
+ * name, "company briefing", "Meeting with Dana Reyes"), or a note on what was
+ * given or isn't known ("LinkedIn profile provided", "Meeting date not
+ * specified"), which belongs with the meeting, not the limits. Pass the title
+ * and statement only for a notebook about someone or something (a meeting, a
+ * profile step): a shopping notebook's "AWD" is a limit even when its title
+ * says "AWD wagon". Pure.
+ */
+export function fillerLimit(limit: string, about: { title?: string; statement?: string }): boolean {
+  const l = limit.replace(/[\s.]+$/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!l || l === TEMPLATE_SUBJECT.toLowerCase()) return true;
+  if ([about.title, about.statement].some((t) => (t ?? '').replace(/\s+/g, ' ').toLowerCase().includes(l))) return true;
+  return /\b(provided|not specified|not given|unknown|tbd)\b/i.test(l);
+}
+
 export function clipWords(text: string, max: number): string {
   const s = text.replace(/\s+/g, ' ').trim();
   if (s.length <= max) return s;
@@ -810,13 +827,8 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
       return { ...st, title: sub(t !== undefined && t.trim() ? clipWords(t, 60) : st.title), ...(st.subject ? { subject: sub(st.subject) } : {}) };
     }),
   };
-  // A limit that is only the subject ("Arrive" → {subject}), or that the statement already
-  // says ("company briefing" in "Create a company briefing for {subject}"), tells nothing.
-  const said = setup.statement.toLowerCase();
-  setup.params = setup.params.filter((p) => {
-    const l = p.replace(/[\s.]+$/, '').trim().toLowerCase();
-    return l !== '' && l !== TEMPLATE_SUBJECT.toLowerCase() && !said.includes(l);
-  });
+  // What it's for already says ("company briefing" in "Create a company briefing for {subject}").
+  setup.params = setup.params.filter((p) => !fillerLimit(p, { statement: setup.statement }));
   if (label && example) setup.subject = { label, example };
   return setup;
 }
