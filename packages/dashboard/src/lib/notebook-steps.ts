@@ -12,7 +12,7 @@
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, shortName, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { writeBriefing } from './notebook-write.js';
@@ -328,17 +328,23 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   return { started: true, step };
 }
 
-/** The steps an update runs again, in the notebook's order: each done profile, find and write step. */
+/**
+ * The steps an update runs again, in the notebook's order: each done
+ * profile, find and write step, and a done check step after a find (for the
+ * new ones it finds).
+ */
 export function updateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
-  return (nb.steps ?? []).filter((s) => (s.kind === 'profile' || s.kind === 'find' || s.kind === 'write') && (s.status === 'done' || s.status === 'met'));
+  const done = (nb.steps ?? []).filter((s) => s.status === 'done' || s.status === 'met');
+  return done.filter((s) => s.kind === 'profile' || s.kind === 'find' || s.kind === 'write' || (s.kind === 'check' && done.some((f) => f.kind === 'find' && done.indexOf(f) < done.indexOf(s))));
 }
 
 /**
- * Update a briefing: Look again, Search again and Write again, each done
- * profile, find and write step once more in the notebook's order, as one
- * run (Stop stops it between steps); then one message in the conversation
- * with what's new since the last run. Later steps (check, decide) stay
- * where they are. Needs two of them: one alone is that step's own again.
+ * Update a notebook: Look again, Search again, check the new ones and Write
+ * again, each done step of those kinds once more in the notebook's order,
+ * as one run (Stop stops it between steps); then one message in the
+ * conversation with what's new since the last run. A check step checks
+ * only what this update found; source and decide steps, and your picks,
+ * stay as they are. Needs two of them: one alone is that step's own again.
  */
 export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean; reason?: string; steps?: NotebookStep[] } {
   const store = stores(ctx);
@@ -352,6 +358,8 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
   const running: { agentId: string; step: number; of: number; startedAt: number; runId?: string; stopped?: boolean; again: boolean } = { agentId: NOTEBOOK_RESEARCHER_ID, step: all.indexOf(steps[0]) + 1, of: all.length, startedAt: Date.now(), again: true };
   ctx.notebookPipelines ??= new Map();
   ctx.notebookPipelines.set(notebookId, running);
+  // What it had before: the check step checks only what this update finds.
+  const had = new Set(store.entries(notebookId, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
   void (async () => {
     const said: string[] = [];
     for (const step of steps) {
@@ -365,6 +373,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
       const agent = stepAgent(ctx, step, notebookId);
       if (!agent.agentId) { said.push(`Skipped **${step.title}**: ${agent.reason ?? 'it has no agent'}.`); continue; }
       running.agentId = agent.agentId;
+      if (step.kind === 'check') { said.push(await checkNew(ctx, store, notebookId, step, agent.agentId, had)); continue; }
       said.push(step.kind === 'find' ? await runAgain(ctx, store, notebookId, step, agent.agentId, true) : await writeAgain(ctx, store, notebookId, step));
     }
     return said;
@@ -385,6 +394,46 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
     reconcileStepCards(ctx, notebookId);
   });
   return { started: true, steps };
+}
+
+/**
+ * A done check step, for the options an update found (not in `had`): one
+ * run of its agent on just those, still to check (in its top N, when it has
+ * one); the step stays where it is.
+ */
+async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>): Promise<string> {
+  let nb = store.get(notebookId)!;
+  const where = step.top ? ` in the top ${String(step.top)}` : '';
+  if (!nb.checks.length) return `Skipped **${step.title}**: the notebook has no checks.`;
+  const entries = store.entries(nb.id, 1000);
+  const fresh = entries.filter((e) => e.kind === 'option' && !had.has(e.id));
+  const left = (missing: readonly string[]) => fresh.filter((e) => missing.some((m) => m.startsWith(`${shortName(e.title)} — `)));
+  const p = stepProgress(nb, entries, step);
+  const todo = left(p.missing);
+  if (!todo.length) return `Nothing new to check${where} (**${step.title}**).`;
+  const missing = p.missing.filter((m) => todo.some((e) => m.startsWith(`${shortName(e.title)} — `)));
+  // Its agent is given just those.
+  const ask = entries.filter((e) => e.kind !== 'option' || todo.includes(e));
+  const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
+  const running = ctx.notebookPipelines?.get(notebookId);
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: todo.length, have: 0, missing }), (runId) => { if (running) running.runId = runId; });
+  store.addRunToPass(passId, run.id);
+  if (run.status === 'cancelled' || running?.stopped) {
+    store.finishPass(passId, `${agentId}: stopped`);
+    return `You stopped checking the new ones (**${step.title}**).`;
+  }
+  if (run.status !== 'completed') {
+    const why = `${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
+    store.finishPass(passId, why);
+    return `Checking the new ones (**${step.title}**) didn't finish (${why}).`;
+  }
+  const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
+  store.finishPass(passId, passNote(agentId, out));
+  nb = store.get(notebookId)!;
+  const open = left(stepProgress(nb, store.entries(nb.id, 1000), step).missing).length;
+  const done = `${String(todo.length - open)} of ${String(todo.length)} new checked`;
+  store.noteRun(notebookId, `${step.title}: ${done}`);
+  return `Checked the new ones${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
 }
 
 /** A done write step, once more: what it wrote this time (the run's note). */
