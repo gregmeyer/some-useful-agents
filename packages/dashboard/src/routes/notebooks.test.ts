@@ -2966,6 +2966,66 @@ describe('a profile step', () => {
     expect(said).toContain('Looked again (**Learn about Dana**): learned 1 about Dana Reyes; kept a photo (captioned with their name on a page about them)');
   });
 
+  it('updates it all (Update all, or sua\'s card): Look again then Write again, one run, then what\'s new in the conversation', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    ctx.notebookLogoDeps = { fetchImage: async () => { throw new Error('offline'); }, siteIcons: async () => [] };
+    researchReply = () => JSON.stringify({ found: { kind: { value: 'person' }, role: { value: 'COO' } } });
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'Ask about the new role', from: [] }] })}</briefing>`;
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a call with Dana Reyes' });
+    store.setSteps(nb.id, [{ title: 'Learn about Dana', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Write the talking points', kind: 'write' }]);
+    const [s1, s2] = store.get(nb.id)!.steps!.map((x) => x.id);
+    store.upsertOption(nb.id, { title: 'Hiring for ops', body: 'She is hiring an ops lead.', by: 'you' });
+    // Each ran once before.
+    for (const id of [s1, s2]) { store.updateStep(nb.id, id, { status: 'done' }); store.finishPass(store.startPass(nb.id, 'pipeline', undefined, { stepId: id }), 'ran'); }
+    const { layoutPreset } = await import('@some-useful-agents/core');
+    store.setLayout(nb.id, layoutPreset('dossier')!.layout);
+    const { greetNotebook } = await import('../lib/notebook-chat.js');
+    greetNotebook(ctx, nb.id);
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    // The folded line: Update all first, then each step's own, in the steps' order.
+    const page = (await get(`/notebooks/${nb.id}`)).text;
+    const acts = page.slice(page.indexOf('nb-hero__stepacts'));
+    expect(acts.indexOf('Update all →')).toBeGreaterThan(-1);
+    expect(acts.indexOf('Update all →')).toBeLessThan(acts.indexOf('Look again →'));
+    expect(acts.indexOf('Look again →')).toBeLessThan(acts.indexOf('Write again →'));
+    // A moment on, so the update's runs come after the ones before.
+    await new Promise((r) => setTimeout(r, 5));
+    const res = await request(app).post(`/notebooks/${nb.id}/update`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(decodeURIComponent(res.headers.location)).toContain('Updating it: Learn about Dana, then Write the talking points.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    const after = store.get(nb.id)!;
+    expect(after.steps!.map((x) => x.status)).toEqual(['done', 'done']);
+    expect(after.briefing!.points.map((p) => p.text)).toEqual(['Ask about the new role']);
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(after.conversationId!).map((r) => r.body);
+    const update = said.find((x) => x.startsWith('Updated **Prepare for a call with Dana Reyes**'))!;
+    expect(update).toContain('(Learn about Dana, then Write the talking points).');
+    expect(update).toMatch(/\*\*What's new since \w+ \d+:\*\*\n- 1 new fact: Role/);
+    expect(update).toContain('- Looked again (**Learn about Dana**)');
+    expect(update).toContain('- Wrote again (**Write the talking points**)');
+    // One message for the update: Look again's own note isn't said as well.
+    expect(said.filter((x) => x.startsWith('Looked again'))).toEqual([]);
+
+    // sua's card asks the same, and one step alone isn't an update.
+    const { pinStepAction } = await import('../lib/notebook-step-queue.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { accepted } = parseProposedActions([{ type: 'notebook-step', rationale: 'You asked what is new', inputs: { NOTEBOOK: nb.id, STEP: s1, UPDATE: '1' } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-step', ctaLabel: 'Update it', inputs: { NOTEBOOK: nb.id, UPDATE: '1' } });
+    const card = accepted[0];
+    expect(pinStepAction(ctx, card as never)).toEqual({ action: card });
+    const { executeNotebookStep } = await import('./inbox-engine.js');
+    expect(await executeNotebookStep(ctx, card as never)).toMatchObject({ status: 'completed', summary: "Updating it: **Learn about Dana**, then **Write the talking points**. I'll say here what's new since the last run." });
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    store.updateStep(nb.id, s2, { status: 'todo' });
+    expect(pinStepAction(ctx, card as never).reason).toContain('two or more');
+    expect((await get(`/notebooks/${nb.id}`)).text).not.toContain('Update all →');
+    researchReply = undefined;
+    writerReply = undefined;
+  });
+
   it('looks up a company alone as a company, and is stuck without an answer', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -3104,7 +3164,7 @@ describe('a drawn page\'s header', () => {
     expect(html).not.toContain('<p class="nb-hero__statement">What matters to Dana before we talk</p>');
     expect(html).toContain('<details class="nb-hero__steps">');
     expect(html).toMatch(/Steps: 0 of 2 done · now: <b>Find 5 themes<\/b>/);
-    // Folded, the steps still offer what they can do, on the same line (the last step's first).
+    // Folded, the steps still offer what they can do, on the same line (in the steps' order).
     const s1 = store.get(nb.id)!.steps![0].id;
     store.updateStep(nb.id, s1, { status: 'done' });
     html = (await get()).text;

@@ -1294,7 +1294,13 @@ async function notebookStepOutcome(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
 ): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
-  const { startNotebookStep, moveOnFromStep, searchAgain } = await import('../lib/notebook-steps.js');
+  const { startNotebookStep, moveOnFromStep, searchAgain, updateBriefing } = await import('../lib/notebook-steps.js');
+  // Update: Look, Search and Write again, in order; then what's new.
+  if (meta.inputs.UPDATE === '1') {
+    const u = updateBriefing(ctx, meta.inputs.NOTEBOOK ?? '');
+    if (!u.started) return { status: 'failed', refusalReason: u.reason ?? 'It could not start.' };
+    return { status: 'completed', summary: `Updating it: ${u.steps!.map((s) => `**${s.title}**`).join(', then ')}. I'll say here what's new since the last run.` };
+  }
   // Search again: a find step that's done runs once more for new options.
   if (meta.inputs.AGAIN === '1') {
     const a = searchAgain(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });

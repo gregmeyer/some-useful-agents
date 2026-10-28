@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { whatsNew, whatsNewLines } from './notebook-whats-new.js';
+import { whatsNew, whatsNewLines, whatsNewSummary } from './notebook-whats-new.js';
 
 // Two profile runs (Oct 26, Oct 28), two finds, two writes: each part against its own run before.
 const D = (d: number, h = 10) => `2026-10-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
@@ -48,6 +48,7 @@ describe("what's new since the last run", () => {
       '1 new fact: Revenue', 'Changed: Role, VP Ops → COO', '1 new competitor: Karbon', '1 new other company: Freight Founders',
       '2 new findings from the search', 'Rewritten: 1 new, 2 dropped',
     ]);
+    expect(whatsNewSummary(w).split('\n').slice(0, 2)).toEqual(["**What's new since Oct 26:**", '- 1 new fact: Revenue']);
   });
 
   it('says nothing changed after a recheck, and nothing at all after a first run', () => {
@@ -55,6 +56,7 @@ describe("what's new since the last run", () => {
     const w = whatsNew(quiet, [option(D(26, 10))], passes)!;
     expect(w.empty).toBe(true);
     expect(whatsNewLines(w)).toEqual([]);
+    expect(whatsNewSummary(w)).toBe('Nothing new since Oct 26.');
     expect(whatsNew(nb(), [], [pass('s1', 26), pass('s2', 26), pass('s3', 26)])).toBeUndefined();
     // A run still going doesn't count.
     expect(whatsNew(nb(), [], [pass('s1', 26), { stepId: 's1', startedAt: D(28) }])).toBeUndefined();

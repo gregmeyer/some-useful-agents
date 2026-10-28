@@ -6,7 +6,7 @@
  * with a decision.
  */
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
-import { whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
+import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
 import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
@@ -17,7 +17,7 @@ import { layout } from './layout.js';
 import { working } from './working.js';
 import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
-import { isYourStep, topFor, yourStepButton } from '../lib/notebook-steps.js';
+import { isYourStep, topFor, updateSteps, yourStepButton } from '../lib/notebook-steps.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { formatMoney, formatFieldValue } from '../lib/field-format.js';
 import { handStagesHidden, notebookWidgetMessages, notebookHeaderView, type NotebookHeaderView, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -297,7 +297,7 @@ export function madeByStrip(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefi
  */
 export function whatsNewBand(w: WhatsNew | undefined): SafeHtml {
   if (!w) return html``;
-  const day = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const day = shortDay;
   if (w.empty) return html`<p class="nb-new nb-new--none" role="status">Looked again ${day(w.at)}: nothing new since ${day(w.since)}.</p>`;
   return html`<section class="nb-new" aria-labelledby="nb-new-h">
     <h2 class="nb-new__h" id="nb-new-h">What's new since ${day(w.since)}</h2><span class="nb-new__at">looked again ${day(w.at)}</span>
@@ -485,24 +485,34 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
  */
 /**
  * A reading page's steps, folded to one line (its NotebookHeader says
- * steps: 'fold'): how far they got, then what they offer (Write again,
- * Search again, Check the top 5…), the last step's first, so folding never
- * hides a control. Open when a step is stuck or waiting on you; the full
- * strip is a click away.
+ * steps: 'fold'): how far they got, then what they offer in the steps'
+ * order (Look again, Search again, Check the top 5, Write again), so folding
+ * never hides a control; first, Update all when two or more can run again
+ * (all of them in order, then what's new). Open when a step is stuck or
+ * waiting on you; the full strip is a click away.
  */
+/** Update all: each done profile, find and write step again, in order (two or more of them); nothing while it's working. */
+function updateAllButton(nb: Notebook, running: boolean): SafeHtml {
+  const again = updateSteps(nb);
+  return !running && nb.status === 'active' && again.length >= 2
+    ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/update" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn nb-step__update" title="${again.map((s) => s.title).join(', then ')}; then what's new since the last run">Update all →</button></form>`
+    : html``;
+}
+
 function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], strip: SafeHtml, running = false): SafeHtml {
   const done = steps.filter((x) => x.status === 'done' || x.status === 'met').length;
   const now = steps.find((x) => x.status !== 'done' && x.status !== 'met');
   const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
   const focus = topFor(nb, inRunning);
-  const acts = [...steps].reverse().map((step) => stepActions(nb, step, stepProgress(nb, entries, step), { running, current: now, inRunning, focus }));
+  const acts = steps.map((step) => stepActions(nb, step, stepProgress(nb, entries, step), { running, current: now, inRunning, focus }));
+  const all = updateAllButton(nb, running);
   const open = !running && (steps.some((x) => x.status === 'stuck') || (!!now && (now.kind === 'decide' || now.kind === 'narrow')));
   return html`<div class="nb-hero__stepsrow">
     <details class="nb-hero__steps"${open ? unsafeHtml(' open') : unsafeHtml('')}>
       <summary>Steps: ${String(done)} of ${String(steps.length)} done${now ? html` · now: <b>${now.title}</b>` : html``}</summary>
       ${strip}
     </details>
-    <span class="nb-hero__stepacts">${acts as unknown as SafeHtml[]}</span>
+    <span class="nb-hero__stepacts">${all}${acts as unknown as SafeHtml[]}</span>
   </div>`;
 }
 
@@ -540,7 +550,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${madeBy?.runs ? html`` : html` · <a href="/notebooks/${id}/workflow">How it was made →</a>`}${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length
-          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running, madeBy), !!running) : stepsStrip(nb, nb.steps, entries, !!running, madeBy))
+          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running, madeBy), !!running) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
           : pipelineDiagram(stages)}
         ${madeByStrip(nb, madeBy)}
         ${running ? html`` : whatsNewBand(fresh)}
