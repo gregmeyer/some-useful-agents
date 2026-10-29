@@ -223,7 +223,7 @@ export function renderHelp(): string {
         </li>
         <li>
           <strong>Start from Home.</strong> The <em>Ask sua</em> card under Today has starters to start a notebook,
-          run, build, fix or look something up; its <em>Run</em> row runs one of your agents in one click.
+          run, build, fix or look something up; its <em>Run</em> row runs an agent that takes nothing in one click, and for one about something (a topic, a place) fills the box with its values to change before you send.
         </li>
         <li>
           <strong>Keep a goal in a notebook.</strong> <a href="/notebooks/new">Start a notebook</a> with a sentence
