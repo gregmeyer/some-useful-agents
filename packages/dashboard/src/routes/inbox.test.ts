@@ -118,6 +118,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(empty.text).toContain('No agents yet');
     expect(empty.text).not.toContain('data-inbox-split');
     agentStore.createAgent({ id: 'weather', name: 'Weather', description: 'The forecast', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    agentStore.createAgent({ id: 'city-news', name: 'City news', description: 'News for a city', status: 'active', source: 'local', mcp: false, inputs: { CITY: { type: 'string', default: 'Seattle' }, MAX_ITEMS: { type: 'number', default: 5 } }, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
     const inbox = await request(app).get('/inbox').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(inbox.text).toContain('data-inbox-split data-initial-thread=""');
     expect(inbox.text).toContain('action="/inbox/trust/mode"');
@@ -149,6 +150,9 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     // Its Run row runs an agent as it is in one click, saying on hover what it does, what it uses and why it's here.
     expect(home.text).toContain('action="/home/try/weather" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="');
     expect(home.text).toMatch(/class="ask-pill ask-pill--run" title="[^"]*(Runs with|Takes no inputs)[^"]*(New to you · not run yet|Your go-to|You used it this week|A tutorial example)/);
+    // One about something (a city) fills the box with what it's about, its default in place, to change and send (not its settings).
+    expect(home.text).toContain('data-ask-fill="Run City news with city: Seattle" title="Run City news with city: Seattle · change any of it, then Send">City news on …</button>');
+    expect(home.text).not.toContain('action="/home/try/city-news"');
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
     expect(home.text).not.toContain('Search or ask sua');

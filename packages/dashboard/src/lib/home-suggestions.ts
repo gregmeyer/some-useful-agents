@@ -20,6 +20,8 @@ export interface SuggestedAgent {
   runsWith: SuggestedInput[];
   /** A prompt for sua: run it with your own value for what it's about (sua asks you what), or what it's good for. */
   ownAsk: { label: string; text: string };
+  /** What it's about, as a sentence for the box with its defaults filled in ("Run Weather Forecast with location: Seattle"), to change and send; none when it takes nothing to change (one click runs it). */
+  fill?: string;
 }
 export interface SuggestedAsk {
   label: string;
@@ -44,6 +46,18 @@ export function needsInputs(agent: Pick<Agent, 'inputs'>): boolean {
 export function runsAsIs(agent: Pick<Agent, 'inputs'>): boolean {
   if (perItemInputs(agent)) return false;
   return Object.values(agent.inputs ?? {}).every((spec) => spec.default !== undefined && String(spec.default).trim() !== '' && String(spec.default).trim() !== '[]');
+}
+
+/**
+ * Run it, in words, with what it's about set to its defaults (not settings
+ * such as how many or where it writes): Home's Run pill fills the box with
+ * it, so you can change them before it runs. None when there's nothing to
+ * change. Pure.
+ */
+export function runFill(agent: Pick<Agent, 'name' | 'inputs'>): string | undefined {
+  const what = Object.entries(agent.inputs ?? {}).filter(([key, spec]) => !SETTING_RE.test(key) && spec.type !== 'boolean');
+  if (!what.length) return undefined;
+  return `Run ${agent.name} with ${what.map(([key, spec]) => `${inputLabel(key)}: ${spec.default === undefined ? '' : String(spec.default)}`).join('; ')}`;
 }
 
 /** A tutorial example ("… Teaches flow control."): fine to try, after the rest. */
@@ -218,7 +232,7 @@ export function pickSuggestions(d: {
     seen.add(a.id);
     const last = d.lastRunAt.get(a.id);
     const why: SuggestedAgent['why'] = goTo.has(a.id) ? 'go-to' : last ? 'recent' : TUTORIAL_RE.test(a.description ?? '') ? 'tutorial' : 'new';
-    agents.push({ id: a.id, name: a.name, description: (a.description ?? '').trim(), ...(last ? { lastRunAt: last } : {}), why, runsWith: runsWithInputs(a), ownAsk: ownAsk(a) });
+    agents.push({ id: a.id, name: a.name, description: (a.description ?? '').trim(), ...(last ? { lastRunAt: last } : {}), why, runsWith: runsWithInputs(a), ownAsk: ownAsk(a), ...(runFill(a) ? { fill: runFill(a) } : {}) });
     if (agents.length === 3) break;
   }
 

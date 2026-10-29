@@ -49,8 +49,10 @@ function runTitle(a: SuggestedAgent): string {
  * up, and starters by verb so it's never empty. A starter fills the box for
  * you to finish (inbox-modal.js.ts [data-ask-fill]); sending opens the answer
  * in the panel, like the bar at the top (the same form contract). The Run row
- * is agents you can run as they are: one click runs it in a conversation
- * ([data-try-run]); with none to suggest, it fills the box like the others.
+ * is agents you can run as they are: one that takes nothing to change runs
+ * in one click, in a conversation ([data-try-run]); one about something (a
+ * topic, a place) fills the box with its defaults, to change and send.
+ * With none to suggest, it fills the box like the others.
  */
 function renderAskCard(starters: readonly AskStarters[], agents: readonly SuggestedAgent[]): SafeHtml {
   return html`
@@ -65,7 +67,9 @@ function renderAskCard(starters: readonly AskStarters[], agents: readonly Sugges
         <div class="home-ask-card__row">
           <span class="home-ask-card__verb">${row.verb}</span>
           <div class="ask-pills" role="group" aria-label="${row.verb}">${row.verb === 'Run' && agents.length
-            ? agents.slice(0, 3).map((a) => html`<form method="POST" action="/home/try/${encodeURIComponent(a.id)}" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="${runTitle(a)}" aria-label="Run ${a.name}"><span aria-hidden="true">▶</span> ${a.name.length > 24 ? `${a.name.slice(0, 23).replace(/\s+\S*$/, '')}…` : a.name}</button></form>`) as unknown as SafeHtml[]
+            ? agents.slice(0, 3).map((a) => a.fill
+              ? html`<button type="button" class="ask-pill" data-ask-fill="${a.fill}" title="${a.fill} · change any of it, then Send">${a.name.length > 24 ? `${a.name.slice(0, 23).replace(/\s+\S*$/, '')}…` : a.name} on …</button>`
+              : html`<form method="POST" action="/home/try/${encodeURIComponent(a.id)}" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="${runTitle(a)}" aria-label="Run ${a.name}"><span aria-hidden="true">▶</span> ${a.name.length > 24 ? `${a.name.slice(0, 23).replace(/\s+\S*$/, '')}…` : a.name}</button></form>`) as unknown as SafeHtml[]
             : row.pills.map((p) => (p.href
               ? html`<a class="ask-pill" href="${p.href}" title="New notebook: ${p.text}…">${p.label}</a>`
               : html`<button type="button" class="ask-pill" data-ask-fill="${p.text}" title="${p.text}">${p.label}</button>`)) as unknown as SafeHtml[]}</div>
