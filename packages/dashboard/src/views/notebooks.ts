@@ -1031,7 +1031,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
         </div>` : html``}
         ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
-        <details class="nbe-fold nbe-fold--more"><summary>Manage this notebook</summary>${notebookMoreActions(nb)}</details>
+        <details class="nbe-fold nbe-fold--more" open><summary>Manage this notebook</summary>${notebookMoreActions(nb)}</details>
       </div>
       <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>
         <div class="nbe-preview__bar">
