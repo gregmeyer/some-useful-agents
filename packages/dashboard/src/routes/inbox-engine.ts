@@ -58,6 +58,7 @@ import {
   fillSubject, subjectOut, layoutWords,
   notebookLayoutGuide,
   suaComponentDocs,
+  type ProviderFailure,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
@@ -2705,7 +2706,7 @@ export async function runTriageAgent(
         messageId,
         `Triage agent did not complete (${run?.status ?? 'unknown'}). ${run?.error ?? ''}`.trim(),
       );
-      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId));
+      postTriageFailureFallback(ctx, message, ctx.inboxStore.listResponses(messageId), run ? runProviderFailures(ctx, run.id) : []);
       return;
     }
     const planJson = extractPlanJson(run.result);
@@ -3143,4 +3144,13 @@ export async function runTriageAgent(
       });
     }
   }
+}
+
+/** What a run's model steps ran into, attempt by attempt (empty when none was kept). */
+function runProviderFailures(ctx: ReturnType<typeof getContext>, runId: string): ProviderFailure[] {
+  try {
+    return ctx.runStore.listNodeExecutions(runId).flatMap((n) => {
+      try { return n.providerFailures ? (JSON.parse(n.providerFailures) as ProviderFailure[]) : []; } catch { return []; }
+    });
+  } catch { return []; }
 }

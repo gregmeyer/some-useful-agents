@@ -1164,6 +1164,24 @@ settingsRouter.post('/settings/llm/provider-model', (req: Request, res: Response
   redirectWith(res, '/settings/llm', 'flash', model ? `${provider} now runs ${model}.` : `${provider} runs its own default model.`);
 });
 
+/** Which model a provider tries once when its model is busy. */
+settingsRouter.post('/settings/llm/provider-fallback-model', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) {
+    redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.');
+    return;
+  }
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider : '';
+  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  try {
+    ctx.llmSettingsStore.setProviderFallbackModel(provider, model || null);
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+    return;
+  }
+  redirectWith(res, '/settings/llm', 'flash', model ? `When ${provider} is busy, it tries ${model}.` : provider === 'claude' ? 'When Claude is busy, it tries Sonnet.' : `When ${provider} is busy, sua goes on to the next provider.`);
+});
+
 /**
  * The local model server card: configured command, process state, and — when
  * running — whether it answers yet. llama-server's /health is 503 while it

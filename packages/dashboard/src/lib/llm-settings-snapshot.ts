@@ -35,6 +35,7 @@ export function buildLlmSettingsSnapshot(
     pricing: current.pricing,
     spendLimits: current.spendLimits,
     models: current.models,
+    fallbackModels: current.fallbackModels,
     onModelUnavailable: modelUnavailableRecorder(store),
     onFallback: (event) => {
       try {

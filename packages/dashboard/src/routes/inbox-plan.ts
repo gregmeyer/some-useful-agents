@@ -1,4 +1,4 @@
-import { parseInlineWidget, checkNotebookLayout } from '@some-useful-agents/core';
+import { parseInlineWidget, checkNotebookLayout, describeProviderFailure, type ProviderFailure } from '@some-useful-agents/core';
 import {
   isSafeUrl,
   type InboxActionMeta,
@@ -272,10 +272,24 @@ export function findLatestTriageLinks(
   return [];
 }
 
+/**
+ * Why sua couldn't answer, in words, from what its models ran into ("Codex
+ * (OpenAI) on gpt-6-sol is busy: …"); undefined when nothing explains it. Pure.
+ */
+export function triageFailureWords(failures: readonly ProviderFailure[]): string | undefined {
+  const known = failures.filter((f) => f.category !== 'other');
+  if (!known.length) return undefined;
+  const words = known.map(describeProviderFailure);
+  const busy = known.some((f) => f.category === 'model_busy');
+  const lead = `I couldn't answer: ${words.length === 1 ? words[0] : `${words.slice(0, -1).join('; ')}; and then ${words.at(-1)}`}.`;
+  return `${lead} ${busy ? 'Nothing is wrong with your request. Say "try again" in a few minutes, or pick another model (or a fallback for when it\'s busy) in Settings → LLM.' : 'Say "try again" once that\'s sorted, or change the models in Settings → LLM.'}`;
+}
+
 export function postTriageFailureFallback(
   ctx: ReturnType<typeof getContext>,
   message: { id: string; agentId?: string },
   responses: readonly InboxResponse[],
+  failures: readonly ProviderFailure[] = [],
 ): void {
   const priorLinks = findLatestTriageLinks(responses);
   const links = priorLinks.length > 0
@@ -283,12 +297,13 @@ export function postTriageFailureFallback(
     : message.agentId
       ? [{ label: 'Open agent', href: `/agents/${message.agentId}` }]
       : [{ label: 'Open agents', href: '/agents' }];
-  const body = priorLinks.length > 0
+  const why = triageFailureWords(failures);
+  const body = why ?? (priorLinks.length > 0
     ? 'I hit a triage failure before I could suggest a new step. Use the last concrete destination below and continue from there.'
     : message.agentId
       ? `I hit a triage failure before I could suggest a new step. Open /agents/${message.agentId} to continue directly.`
-      : 'I hit a triage failure before I could suggest a new step. Open /agents to continue directly, or retry triage.';
-  const metaJson = JSON.stringify({ links });
+      : 'I hit a triage failure before I could suggest a new step. Open /agents to continue directly, or retry triage.');
+  const metaJson = JSON.stringify({ links: why ? [{ label: 'LLM settings', href: '/settings/llm' }] : links });
   const reply = ctx.inboxStore!.addResponse(message.id, 'triage', body, metaJson);
   publishInboxEvent(ctx, message.id, 'triage:complete', {
     responseId: reply.id,

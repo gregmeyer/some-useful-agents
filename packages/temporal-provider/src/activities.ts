@@ -53,6 +53,7 @@ export function workerLlmSettings(
     pricing: local?.pricing,
     spendLimits: local?.spendLimits,
     models: local?.models,
+    fallbackModels: local?.fallbackModels,
     ...(store ? { onModelUnavailable: modelUnavailableRecorder(store) } : {}),
   };
 }

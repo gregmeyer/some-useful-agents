@@ -175,6 +175,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
           </form>
         </div>
         ${args.cliModels?.[p] ? renderProviderModel(p, settings.models?.[p], args.cliModels[p]!, settings.unavailableModels) : html``}
+        ${p === 'apple-foundation-models' ? html`` : renderBusyFallback(p, settings.fallbackModels?.[p], args.cliModels?.[p])}
       </li>
     `;
   });
@@ -385,6 +386,36 @@ const CLI_FETCH_HINT: Record<string, string> = {
   codex: "Codex hasn't shared its model list yet; run <code>codex</code> once to fetch it.",
   claude: "Claude hasn't shared its model list yet; run <code>claude</code> once to fetch it.",
 };
+
+/**
+ * The model a provider tries once when its model is busy (at capacity on
+ * their side, not out of usage), before the waterfall moves on: a pick from
+ * what Codex or Claude offers, or a model id for an OpenAI-compatible one.
+ */
+export function renderBusyFallback(
+  provider: string,
+  current: string | undefined,
+  cli: NonNullable<SettingsLlmArgs['cliModels']>[string] | undefined,
+): SafeHtml {
+  const id = `llm-${provider}-busy`;
+  const none = provider === 'claude' ? 'Sonnet (the default)' : 'None: go on to the next provider';
+  const options = [...(cli?.list.models ?? [])];
+  if (current && !options.some((m) => m.id === current)) options.push({ id: current, label: current, desc: '' });
+  return html`
+    <form method="POST" action="/settings/llm/provider-fallback-model" class="settings-llm__model">
+      <input type="hidden" name="provider" value="${provider}">
+      <label for="${id}">If it's busy</label>
+      ${cli
+        ? html`<select id="${id}" name="model" class="form-field">
+            <option value=""${current ? '' : ' selected'}>${none}</option>
+            ${options.map((m) => html`<option value="${m.id}"${m.id === current ? ' selected' : ''}>${m.label}</option>`) as unknown as SafeHtml[]}
+          </select>`
+        : html`<input id="${id}" type="text" name="model" class="form-field" value="${current ?? ''}" placeholder="${none}">`}
+      <button type="submit" class="btn btn--xs btn--ghost">Save</button>
+      <p class="settings-llm__model-hint">When the model is at capacity (your usage isn't used up), sua tries this model once, then the next provider.</p>
+    </form>
+  `;
+}
 
 /**
  * Which model a CLI provider (codex, claude) runs when a node doesn't pin one:
