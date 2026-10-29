@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { NotebookStore, checksLeft, notebookViewData, rankOptions, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
-import { writeBriefing } from './notebook-write.js';
+import { swapTalkingPoint, writeBriefing } from './notebook-write.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from './notebook-pipeline.js';
@@ -502,6 +502,35 @@ async function writeAgain(ctx: Ctx, store: NotebookStore, notebookId: string, st
   store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`);
   store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`);
   return `Wrote again (**${step.title}**)${said.length ? `: ${said.join('; ')}` : ''}.`;
+}
+
+/**
+ * Strike one talking point (its place and words) and have the writer write
+ * a new one there, leaving the others as they are. Runs like Write again:
+ * the notebook's one run at a time.
+ */
+export function replaceTalkingPoint(ctx: Ctx, notebookId: string, at: number, text: string): { started: boolean; reason?: string } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to change its talking points.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running. Try again when it’s done.' };
+  if (nb.briefing?.points[at]?.text !== text) return { started: false, reason: 'That point has changed since. Nothing was struck.' };
+  const step = nb.steps?.find((s) => s.kind === 'write' && !s.shape);
+  if (!step) return { started: false, reason: 'The notebook has no step that writes talking points.' };
+  const writer = stepAgent(ctx, step, nb.id);
+  if (!writer.agentId) return { started: false, reason: writer.reason };
+  const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
+  ctx.notebookPipelines ??= new Map();
+  ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
+  // Not a pass of the step: one point isn't a rewrite (What's new compares whole writes).
+  void swapTalkingPoint(ctx, store, notebookId, step, at, text).then((said) => {
+    store.noteRun(notebookId, `${step.title}, a new point: ${said.join('; ')}`);
+  }).catch(() => undefined).finally(() => {
+    ctx.notebookPipelines?.delete(notebookId);
+    reconcileStepCards(ctx, notebookId);
+  });
+  return { started: true };
 }
 
 /** A done profile step, once more: what it learned this time, said in the conversation (unless `quiet`: the update says it). */

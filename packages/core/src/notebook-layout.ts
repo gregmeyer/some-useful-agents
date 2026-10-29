@@ -445,14 +445,14 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
 
 /**
  * An agenda of the notebook's talking points shows what to watch for too,
- * and an Edit link once sua has written them (pages drawn before there was
- * either).
+ * an Edit link once sua has written them, and Replace on each (pages drawn
+ * before there was any of these).
  */
 function withWatch(c: ViewComponent): ViewComponent {
   if (c.component !== 'Agenda') return c;
   const points = c.points as { path?: unknown } | undefined;
   if (points?.path !== '/notebook/talkingPoints') return c;
-  return { ...c, ...(c.watch === undefined ? { watch: { path: '/notebook/watch' } } : {}), ...(c.editHref === undefined ? { editHref: { path: '/notebook/talkingPointsEdit' } } : {}) };
+  return { ...c, ...(c.watch === undefined ? { watch: { path: '/notebook/watch' } } : {}), ...(c.editHref === undefined ? { editHref: { path: '/notebook/talkingPointsEdit' } } : {}), ...(c.replaceHref === undefined ? { replaceHref: { path: '/notebook/talkingPointsReplace' } } : {}) };
 }
 
 /**
@@ -694,6 +694,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/changesIntro/next': 'Before any search, what\'s next (Callout next).',
   '/notebook/changes': 'What changed since the search before the latest: [{kind: new | price | changed | gone | missing, title, detail, href, tone}] (Changes items).',
   '/notebook/talkingPointsEdit': 'Where to edit the talking points sua wrote, once there are some (Agenda editHref).',
+  '/notebook/talkingPointsReplace': 'Where to strike one talking point and have sua write a new one in its place (Agenda replaceHref).',
   '/notebook/person': 'Who it\'s about, once a profile step learned it: {name, role?, org?, about?, image?, imageFrom?, imageWhy?, rejectHref?, links, asOf} (ProfileCard props, each bound to its own path: /notebook/person/name, /notebook/person/role…; bind imageFrom, imageWhy and rejectHref with image so the photo says where it came from and can be refused).',
   '/notebook/company': 'Their company (or the company it\'s about), the same shape (ProfileCard).',
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
