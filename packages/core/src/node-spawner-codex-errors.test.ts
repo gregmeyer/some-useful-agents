@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { classifyLlmFailure, codexFailureMessage, codexFinishedTurn, shouldFallback, spawnNodeReal } from './node-spawner.js';
+import { busyFallbackModel, classifyLlmFailure, codexFailureMessage, codexFinishedTurn, describeProviderFailures, shouldFallback, spawnNodeReal } from './node-spawner.js';
 
 // Regression: codex pinned to a model the account no longer supports failed
 // every call with a 400 in its `turn.failed` event, while stderr carried an
@@ -133,6 +133,78 @@ describe('the operator\'s model for a provider', () => {
     const res = await run('gpt-6-luna');
     expect(res.result).toContain('-m gpt-6-luna');
     expect(res.result).not.toContain('gpt-6-sol');
+  });
+});
+
+describe('model_busy — at capacity, not out of usage', () => {
+  it('classifies busy wording as model_busy, which falls back', () => {
+    for (const error of ['Selected model is at capacity. Please try a different model.', 'API Error: 529 {"type":"overloaded_error","message":"Overloaded"}', 'Our servers are busy right now']) {
+      expect(classifyLlmFailure({ result: '', exitCode: 1, error })).toBe('model_busy');
+    }
+    expect(shouldFallback('model_busy')).toBe(true);
+    // Out of usage is still quota, a 429 still rate limited.
+    expect(classifyLlmFailure({ result: '', exitCode: 1, error: 'You have hit your usage limit' })).toBe('quota_exceeded');
+    expect(classifyLlmFailure({ result: '', exitCode: 1, error: '429 Too Many Requests' })).toBe('rate_limited');
+  });
+
+  it('picks the fallback model: the one set, else Sonnet for Claude, never the busy one', () => {
+    expect(busyFallbackModel('codex', 'gpt-6-sol', { codex: 'gpt-5.6-sol' })).toBe('gpt-5.6-sol');
+    expect(busyFallbackModel('codex', 'gpt-5.6-sol', { codex: 'gpt-5.6-sol' })).toBeUndefined();
+    expect(busyFallbackModel('codex', 'gpt-6-sol', undefined)).toBeUndefined();
+    expect(busyFallbackModel('claude', 'opus', undefined)).toBe('sonnet');
+    expect(busyFallbackModel('claude', 'claude-sonnet-5-5', undefined)).toBeUndefined();
+    expect(busyFallbackModel('local-qwen', 'qwen3', { 'local-qwen': 'qwen3-small' })).toBe('qwen3-small');
+  });
+
+  it('says what each attempt ran into, in words', () => {
+    const said = describeProviderFailures([
+      { provider: 'codex', category: 'model_busy', model: 'gpt-6-sol' },
+      { provider: 'claude', category: 'auth_required' },
+    ], 'Not logged in');
+    expect(said).toBe("Every model it tried failed: Codex (OpenAI) on gpt-6-sol is busy: the model is at capacity on their side right now (your usage isn't used up); then Claude needs you to sign in again. Try again in a few minutes, or pick another model (or a fallback model) in Settings → LLM. Last error: Not logged in");
+    expect(describeProviderFailures([{ provider: 'codex', category: 'other' }], 'boom')).toBeUndefined();
+  });
+
+  let binDir: string;
+  beforeAll(() => {
+    binDir = mkdtempSync(join(tmpdir(), 'sua-fake-codex-busy-'));
+    // Busy on gpt-6-sol; answers on any other model.
+    writeFileSync(join(binDir, 'codex'), [
+      '#!/bin/sh',
+      'cat >/dev/null',
+      'case "$*" in *"-m gpt-6-sol"*)',
+      `  printf '%s\n' '${JSON.stringify({ type: 'turn.failed', error: { message: 'Selected model is at capacity. Please try a different model.' } })}'`,
+      '  exit 1;;',
+      'esac',
+      'msg=$(printf "%s " "$@")',
+      'printf \'{"type":"item.completed","item":{"type":"agent_message","text":"%s"}}\\n\' "$msg"',
+      `printf '%s\n' '${JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })}'`,
+    ].join('\n'));
+    writeFileSync(join(binDir, 'claude'), ['#!/bin/sh', 'cat >/dev/null', 'echo \'{"type":"result","subtype":"success","result":"answered by claude"}\''].join('\n'));
+    chmodSync(join(binDir, 'codex'), 0o755);
+    chmodSync(join(binDir, 'claude'), 0o755);
+  });
+  afterAll(() => rmSync(binDir, { recursive: true, force: true }));
+
+  const run = (fallbackModels?: Record<string, string>) => spawnNodeReal(
+    { id: 'triage', type: 'llm-prompt', prompt: 'hi' },
+    { PATH: `${binDir}:${process.env.PATH ?? ''}` },
+    { agentId: 'a', agentSource: 'local', llmSettings: { providers: ['codex', 'claude'], models: { codex: 'gpt-6-sol' }, ...(fallbackModels ? { fallbackModels } : {}) } },
+  );
+
+  it('tries the same provider on its fallback model before the next provider', async () => {
+    const res = await run({ codex: 'gpt-5.6-sol' });
+    expect(res.exitCode).toBe(0);
+    expect(res.result).toContain('-m gpt-5.6-sol');
+    expect(res.usedLLMProvider).toBe('codex');
+    expect(res.attemptedProviders).toEqual(['codex']);
+    expect(res.providerFailures).toEqual([expect.objectContaining({ provider: 'codex', category: 'model_busy', model: 'gpt-6-sol' })]);
+  });
+
+  it('without a fallback model, goes on to the next provider (it used to stop: "other")', async () => {
+    const res = await run();
+    expect(res.result).toBe('answered by claude');
+    expect(res.attemptedProviders).toEqual(['codex', 'claude']);
   });
 });
 

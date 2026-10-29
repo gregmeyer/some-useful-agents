@@ -68,6 +68,8 @@ export interface ProviderFailure {
   provider: string;
   category: string;
   error?: string;
+  /** The model it ran, when known (a busy model's fallback is tried on the same provider). */
+  model?: string;
 }
 
 export type SpawnResult = ExecutionResult & {
@@ -156,6 +158,12 @@ export interface LlmSettingsSnapshot {
    */
   models?: Record<string, string>;
   /**
+   * The model a provider tries once when its model is busy (at capacity, not
+   * out of usage), keyed by provider id or a custom provider's name, before
+   * the waterfall moves on. Claude without one tries Sonnet.
+   */
+  fallbackModels?: Record<string, string>;
+  /**
    * Fired when a provider refuses the model it was asked to run as not offered
    * (`model_unavailable`), so the runtime can record it and tell the operator.
    * `model` is the id that was refused, when it could be told.
@@ -197,6 +205,9 @@ export interface LlmSettingsSnapshot {
  * - `model_unavailable` — the provider rejected the configured model
  *   (retired, or not on this account's plan); a config problem on this
  *   provider that another provider doesn't share
+ * - `model_busy` — the model is at capacity or overloaded on the
+ *   provider's side (usage isn't used up); the same provider's fallback
+ *   model is tried once, then the next provider
  * - `other` — unknown / probably a real prompt or runtime bug; don't
  *   mask by switching providers
  */
@@ -210,6 +221,7 @@ export type LlmFailureCategory =
   | 'invalid_output'
   | 'tool_unavailable'
   | 'model_unavailable'
+  | 'model_busy'
   /** Hit the run's spend limit. Never falls back: another provider would spend more. */
   | 'budget_exhausted'
   | 'other';
@@ -1206,6 +1218,8 @@ export async function spawnNodeReal(
     usageAttempts.length > 0 ? { total: totalUsage(usageAttempts), attempts: usageAttempts } : undefined;
 
   const costOf = (u: LlmUsage): number | undefined => priceUsage(u, { pricing: _opts.llmSettings?.pricing, localProviders }).costUsd;
+  // A provider whose model was busy, once more on its fallback model (each provider once).
+  const busyRetry = new Map<string, string>();
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     // Per-run spend limit: what's left after this node's earlier attempts.
@@ -1223,9 +1237,9 @@ export async function spawnNodeReal(
         break;
       }
     }
-    attemptedProviders.push(provider);
-    // The operator's model for this provider applies only when the node pins none.
-    const providerModel = node.model ? undefined : _opts.llmSettings?.models?.[provider];
+    if (attemptedProviders.at(-1) !== provider) attemptedProviders.push(provider);
+    // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
+    const providerModel = busyRetry.get(provider) ?? (node.model ? undefined : _opts.llmSettings?.models?.[provider]);
     const attemptNode = providerModel ? { ...node, model: providerModel } : node;
     let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
@@ -1296,7 +1310,8 @@ export async function spawnNodeReal(
     // still leaves a diagnosable trail (the per-attempt error is otherwise
     // discarded once a later provider wins).
     const errSnippet = (result.error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
-    providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined });
+    const ranModel = attemptNode.model ?? (provider === 'codex' ? codexConfigModel() : provider === 'claude' ? claudeConfigModel() : _opts.llmSettings?.customProviders?.find((c) => c.name === provider)?.model);
+    providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined, ...(ranModel ? { model: ranModel } : {}) });
     if (lastCategory === 'model_unavailable') {
       try {
         _opts.llmSettings?.onModelUnavailable?.({
@@ -1314,6 +1329,16 @@ export async function spawnNodeReal(
       `${errSnippet ? `: ${errSnippet}` : ''}\n`,
     );
 
+    // Busy, not out of usage: the same provider on its fallback model, once, before the next one.
+    if (lastCategory === 'model_busy' && !busyRetry.has(provider)) {
+      const alt = busyFallbackModel(provider, ranModel, _opts.llmSettings?.fallbackModels);
+      if (alt) {
+        busyRetry.set(provider, alt);
+        process.stderr.write(`[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} busy, trying ${alt}\n`);
+        i--;
+        continue;
+      }
+    }
     // Decide whether to continue the waterfall.
     if (!shouldFallback(lastCategory)) break;
     const next = chain[i + 1];
@@ -1342,9 +1367,11 @@ export async function spawnNodeReal(
   // All attempts failed (or the chain ended on a non-fallback
   // category). Return the most recent failure with the trail so the
   // operator can see what was tried.
+  // Otherwise what each attempt ran into, in words, ahead of the last one's own error.
+  const said = toolsError ? undefined : describeProviderFailures(providerFailures, lastResult?.error);
   return {
     ...(lastResult ?? { result: '', exitCode: 1 }),
-    ...(toolsError ? { error: toolsError } : {}),
+    ...(toolsError ? { error: toolsError } : said ? { error: said } : {}),
     toolCalls: collectedToolCalls(),
     usage: collectedUsage(),
     usedLLMProvider: attemptedProviders[attemptedProviders.length - 1],
@@ -1918,6 +1945,11 @@ export function classifyLlmFailure(result: SpawnResult): LlmFailureCategory {
   // Ran out of turns: a prompt problem, not the provider's. Checked before
   // the quota words, which turn up in the CLI's own status events.
   if (/error_max_turns|maximum number of turns/.test(haystack)) return 'other';
+  // Busy on the provider's side, not out of usage: "Selected model is at
+  // capacity", Anthropic's overloaded_error / 529, "servers are busy".
+  if (/at capacity|overloaded|(?:^|[^\w.-])529(?:[^\w.-]|$)|servers? (?:is|are) (?:busy|overloaded)|experiencing high demand|try a different model/.test(haystack)) {
+    return 'model_busy';
+  }
   if (haystack.includes('credit balance')
     || haystack.includes('insufficient credit')
     || haystack.includes('out of credit')
@@ -1989,7 +2021,55 @@ export function shouldFallback(category: LlmFailureCategory): boolean {
     || category === 'rate_limited'
     || category === 'invalid_output'
     || category === 'tool_unavailable'
-    || category === 'model_unavailable';
+    || category === 'model_unavailable'
+    || category === 'model_busy';
+}
+
+/**
+ * The model a busy provider tries next: the operator's fallback model for
+ * it, else (Claude) Sonnet; none when that's the model that was busy. Pure.
+ */
+export function busyFallbackModel(provider: string, busy: string | undefined, fallbackModels: Record<string, string> | undefined): string | undefined {
+  const set = fallbackModels?.[provider]?.trim();
+  const alt = set || (provider === 'claude' ? 'sonnet' : undefined);
+  if (!alt) return undefined;
+  if (busy && (busy === alt || (provider === 'claude' && !set && /sonnet/i.test(busy)))) return undefined;
+  return alt;
+}
+
+const PROVIDER_WORDS: Record<string, string> = { codex: 'Codex (OpenAI)', claude: 'Claude', 'apple-foundation-models': "Apple's on-device model" };
+
+/** One failed attempt in plain words ("Codex (OpenAI) on gpt-6-sol is busy: …"). Pure. */
+export function describeProviderFailure(f: Pick<ProviderFailure, 'provider' | 'category' | 'model'>): string {
+  const who = `${PROVIDER_WORDS[f.provider] ?? f.provider}${f.model ? ` on ${f.model}` : ''}`;
+  switch (f.category as LlmFailureCategory) {
+    case 'model_busy': return `${who} is busy: the model is at capacity on their side right now (your usage isn't used up)`;
+    case 'quota_exceeded': return `${who} is out of usage for now`;
+    case 'credit_exhausted': return `${who} is out of credit`;
+    case 'rate_limited': return `${who} is limiting how fast it takes requests`;
+    case 'auth_required': return `${who} needs you to sign in again`;
+    case 'binary_missing': return `${who} isn't installed or isn't running`;
+    case 'timeout': return `${who} took too long to answer`;
+    case 'model_unavailable': return `${who}: that model isn't offered any more`;
+    case 'tool_unavailable': return `${who} can't use this step's tools`;
+    case 'invalid_output': return `${who} answered, but not in the form the step needs`;
+    case 'budget_exhausted': return 'the run reached its spend limit';
+    default: return `${who} failed`;
+  }
+}
+
+/**
+ * What every attempt ran into, as a sentence, then the last one's own words
+ * ("Every model it tried failed: …. Last error: …"); undefined when there's
+ * nothing to add (one unexplained failure keeps its own error). Pure.
+ */
+export function describeProviderFailures(failures: readonly ProviderFailure[], lastError?: string): string | undefined {
+  if (!failures.length || failures.every((f) => f.category === 'other')) return undefined;
+  const words = failures.map(describeProviderFailure);
+  const lead = failures.length === 1 ? `${words[0].charAt(0).toUpperCase()}${words[0].slice(1)}.` : `Every model it tried failed: ${words.join('; then ')}.`;
+  const busy = failures.some((f) => f.category === 'model_busy');
+  const tip = busy ? ' Try again in a few minutes, or pick another model (or a fallback model) in Settings → LLM.' : '';
+  return `${lead}${tip}${lastError ? ` Last error: ${lastError}` : ''}`;
 }
 
 /**

@@ -118,6 +118,12 @@ export interface LlmSettings {
    */
   models?: Record<string, string>;
   /**
+   * The model a provider tries once when its model is busy (at capacity, not
+   * out of usage), keyed by provider id or a custom provider's name, before
+   * the next provider. Absent ⇒ Claude tries Sonnet; the others move on.
+   */
+  fallbackModels?: Record<string, string>;
+  /**
    * Models a provider refused as no longer offered, keyed `provider/model`.
    * Written by the runtime when an attempt fails `model_unavailable`; read by
    * the dashboard's model watch to tell sua once per model.
@@ -354,6 +360,21 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
+  /**
+   * Set (or with `null` / empty, clear) the model `provider` tries when its
+   * model is busy. Any provider in the waterfall, custom ones too.
+   */
+  setProviderFallbackModel(provider: string, model: string | null): void {
+    const data = this.read();
+    if (!isProvider(provider) && !(data.settings.customProviders ?? []).some((c) => c.name === provider)) throw new Error(`Invalid provider: ${provider}`);
+    const m = (model ?? '').trim();
+    if (m && !/^[\w.:/-]+$/.test(m)) throw new Error('A model id is letters, digits and . _ : / -');
+    const fallbackModels = { ...(data.settings.fallbackModels ?? {}) };
+    if (m) fallbackModels[provider] = m; else delete fallbackModels[provider];
+    data.settings.fallbackModels = Object.keys(fallbackModels).length > 0 ? fallbackModels : undefined;
+    this.write(data);
+  }
+
   /** Note that `provider` refused `model` as not offered (first sighting kept). */
   recordUnavailableModel(provider: string, model: string, error?: string): void {
     const key = `${provider}/${model}`;
@@ -424,8 +445,9 @@ export class LlmSettingsStore {
       const pricing = sanitizePricing((settings as LlmSettings).pricing);
       const spendLimits = sanitizeSpendLimits((settings as LlmSettings).spendLimits);
       const models = sanitizeModels((settings as LlmSettings).models);
+      const fallbackModels = sanitizeModels((settings as LlmSettings).fallbackModels, customNames);
       const unavailableModels = sanitizeUnavailable((settings as LlmSettings).unavailableModels);
-      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), ...(models ? { models } : {}), ...(unavailableModels ? { unavailableModels } : {}), lastFallback: settings.lastFallback } };
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), ...(models ? { models } : {}), ...(fallbackModels ? { fallbackModels } : {}), ...(unavailableModels ? { unavailableModels } : {}), lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
@@ -449,11 +471,11 @@ export function modelUnavailableRecorder(store: LlmSettingsStore) {
 }
 
 /** Keep only builtin-provider → model-id strings from a hand-edited file. */
-function sanitizeModels(raw: unknown): Record<string, string> | undefined {
+function sanitizeModels(raw: unknown, customNames: ReadonlySet<string> = new Set()): Record<string, string> | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (isProvider(k) && typeof v === 'string' && v.trim()) out[k] = v.trim();
+    if ((isProvider(k) || customNames.has(k)) && typeof v === 'string' && v.trim()) out[k] = v.trim();
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

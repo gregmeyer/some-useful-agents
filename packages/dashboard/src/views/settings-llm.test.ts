@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { render } from './html.js';
-import { renderSettingsLlm, renderModelServer } from './settings-llm.js';
+import { renderSettingsLlm, renderModelServer, renderBusyFallback } from './settings-llm.js';
 import { LLM_PROVIDERS, type LlmSettings } from '@some-useful-agents/core';
 
 const base = {
@@ -150,6 +150,15 @@ describe('renderSettingsLlm — CLI provider models', () => {
     expect(out).toContain('value="gpt-6-sol"');
     expect(out).toContain("Codex&#39;s own default (gpt-5.5)");
     expect(out).toContain('Codex no longer offers <code>gpt-5.5</code>');
+  });
+
+  it('offers a model to try when busy on each row: a pick for Codex and Claude, an id for a custom one, none for Apple', () => {
+    const out = render(renderSettingsLlm({ ...base, settings: { providers: ['codex', 'claude', 'apple-foundation-models'], fallbackModels: { codex: 'gpt-6-sol' } }, cliModels: { codex, claude } }));
+    expect(out).toContain('action="/settings/llm/provider-fallback-model"');
+    expect(out).toMatch(/id="llm-codex-busy" name="model" class="form-field">\s*<option value="">None: go on to the next provider<\/option>\s*<option value="gpt-6-sol" selected>/);
+    expect(out).toContain('<option value="" selected>Sonnet (the default)</option>');
+    expect(out).not.toContain('llm-apple-foundation-models-busy');
+    expect(render(renderBusyFallback('local-qwen', 'qwen3-small', undefined))).toContain('type="text" name="model" class="form-field" value="qwen3-small"');
   });
 
   it('no warning once a current model is picked; a saved retired pick stays visible', () => {

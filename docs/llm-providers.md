@@ -75,6 +75,19 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   auth required (401), rate limited (429), or the provider rejecting its
   configured model (retired, or not on your plan — `model_unavailable`). Unclassified errors stay on the
   same provider so real bugs surface instead of being masked.
+- **A busy model** (`model_busy`: "Selected model is at capacity", Anthropic's
+  529 / `overloaded_error`, "servers are busy") is the provider's capacity, not
+  your usage. The same provider first tries its **fallback model** once (Settings →
+  LLM, **If it's busy** on each provider; `fallbackModels` in `llm-settings.json`,
+  keyed by provider id or a custom provider's name). Claude without one tries
+  Sonnet; the others go straight on. If the fallback is busy too, the waterfall
+  moves on to the next provider.
+- When every attempt fails, the node's error says what each one ran into, in
+  words ("Every model it tried failed: Codex (OpenAI) on gpt-6-sol is busy: …;
+  then Claude needs you to sign in again."), before the last provider's own
+  error. When sua itself can't answer in a conversation, its reply says the same
+  thing ("I couldn't answer: … Say "try again" in a few minutes…") and links to
+  LLM settings.
 - For codex, the reason comes from its own `turn.failed` event rather than
   stderr, which also carries log noise (e.g. an MCP server's expired token)
   that used to misclassify failures as `auth_required`.

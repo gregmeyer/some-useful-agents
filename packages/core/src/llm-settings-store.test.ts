@@ -269,6 +269,15 @@ describe('LlmSettingsStore (provider models)', () => {
     expect(() => store.setProviderModel('codex', 'gpt 6; rm')).toThrow(/model id/);
   });
 
+  it('saves and clears the model a provider tries when busy, custom providers too', () => {
+    store.setProviderFallbackModel('codex', 'gpt-5.6-sol');
+    expect(store.get().fallbackModels).toEqual({ codex: 'gpt-5.6-sol' });
+    expect(() => store.setProviderFallbackModel('nope', 'x')).toThrow(/Invalid provider/);
+    expect(() => store.setProviderFallbackModel('codex', 'a b')).toThrow(/model id/);
+    store.setProviderFallbackModel('codex', null);
+    expect(store.get().fallbackModels).toBeUndefined();
+  });
+
   it('records a refused model once, keeping the first sighting', () => {
     store.recordUnavailableModel('codex', 'gpt-5.5', 'not supported');
     const first = store.get().unavailableModels?.['codex/gpt-5.5'];
