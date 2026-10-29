@@ -34,7 +34,7 @@ import {
 import { cleanBriefing, loadBrandTheme } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
@@ -789,9 +789,21 @@ notebooksRouter.post('/notebooks/:id/talking-points', (req: Request, res: Respon
   const lines = (v: unknown) => str(v).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   // The themes a point rests on stay as they were: any option the notebook has.
   const optionIds = new Set(s.entries(id, 1000).filter((e) => e.kind === 'option').map((e) => e.id));
-  const briefing = cleanBriefing({ points, questions: lines(req.body?.questions), watch: lines(req.body?.watch) }, optionIds, 'you');
+  // Ones you removed aren't written again (Write again skips them).
+  const removed = uids.map((uid, i) => (drop.has(uid) ? (texts[i] ?? '').trim() : '')).filter(Boolean);
+  const cleaned = cleanBriefing({ points, questions: lines(req.body?.questions), watch: lines(req.body?.watch) }, optionIds, 'you');
+  const struck = [...(nb.briefing?.struck ?? []).filter((x) => !removed.includes(x)), ...removed];
+  const briefing = cleaned && struck.length ? { ...cleaned, struck } : cleaned;
   s.setBriefing(id, briefing);
   res.redirect(303, back(id, briefing ? `Saved the talking points (${String(briefing.points.length)}).` : 'Removed the talking points.'));
+});
+
+/** Strike one talking point and have sua write a new one in its place (the Agenda's Replace). */
+notebooksRouter.post('/notebooks/:id/talking-points/replace', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const at = Number(str(req.body?.at));
+  const r = Number.isInteger(at) && at >= 0 ? replaceTalkingPoint(getContext(req.app.locals), id, at, str(req.body?.text)) : { started: false, reason: 'Which point? Nothing was struck.' };
+  res.redirect(303, back(id, r.started ? 'Struck it. sua is writing a new point in its place.' : r.reason ?? 'Nothing was struck.'));
 });
 
 /** The notebook's page: back to a preset, or undo the last change (sua draws new ones in its conversation). */

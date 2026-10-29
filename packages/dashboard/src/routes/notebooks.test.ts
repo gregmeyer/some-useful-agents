@@ -4586,12 +4586,60 @@ describe('editing the talking points', () => {
       { text: 'Ask what she never hands to AI', why: 'She writes her own drafts.', from: [a.id] },
       { text: 'Ask about her next hire', why: 'Mentioned hiring in a talk.', from: [] },
     ]);
-    expect(after).toMatchObject({ questions: ['What would you change?', 'Who else should I meet?'], watch: [], by: 'you' });
+    expect(after).toMatchObject({ questions: ['What would you change?', 'Who else should I meet?'], watch: [], by: 'you', struck: ['An old point'] });
     expect((await get(`/notebooks/${nb.id}/talking-points`)).text).toContain('You edited these. Write again replaces them.');
 
     // Every point removed: no talking points (the agenda falls back to the themes).
     const none = await post(`/notebooks/${nb.id}/talking-points`, [row('p0', 'x', '', '', ''), 'point_drop=p0', row('new', '', '', '', '')].join('&'));
     expect(decodeURIComponent(none.headers.location)).toContain('Removed the talking points.');
     expect(s.get(nb.id)!.briefing).toBeUndefined();
+  });
+
+  it('strikes one point and has sua write a new one in its place; struck ones are not written again', async () => {
+    const app = await makeApp();
+    const post = (path: string, body: string) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { notebookWidgetData, notebookWidgetComponents } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana Reyes' });
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'What she said', type: 'text' }]);
+    const a = s.upsertOption(nb.id, { title: 'Human work', by: 'agent:x', data: { theme: 'Human work', evidence: 'She writes her drafts.' } }).entry;
+    s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 1, status: 'done' }, { title: 'Write the talking points', kind: 'write', target: 3, status: 'done' }]);
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout, 'notebook');
+    const points = [{ text: 'Open with her drafts', from: [a.id] }, { text: 'Confirm her current role at Acme', from: [] }, { text: 'Ask what comes next', from: [] }];
+    s.setBriefing(nb.id, { points, questions: ['Q?'], watch: [], at: '2026-10-26T12:00:00Z', by: 'notebook-writer' });
+    s.setBriefing(nb.id, { points, questions: ['Q?'], watch: [], at: '2026-10-27T12:00:00Z', by: 'notebook-writer' });
+    const previous = s.get(nb.id)!.briefing!.previous;
+    expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.talkingPointsReplace).toBe(`/notebooks/${nb.id}/talking-points/replace`);
+    expect(notebookWidgetComponents(s.get(nb.id)!).find((c) => c.component === 'Agenda')).toMatchObject({ replaceHref: { path: '/notebook/talkingPointsReplace' } });
+
+    // A page drawn before the point changed strikes nothing.
+    const stale = await post(`/notebooks/${nb.id}/talking-points/replace`, `at=1&text=${encodeURIComponent('Something else')}`);
+    expect(decodeURIComponent(stale.headers.location)).toContain('That point has changed since. Nothing was struck.');
+
+    writerAsked.length = 0;
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'Ask where AI stops in her drafts', why: 'In her post on drafting she said she writes them herself.', from: [a.id] }], questions: [], watch: [] })}</briefing>`;
+    const res = await post(`/notebooks/${nb.id}/talking-points/replace`, `at=1&text=${encodeURIComponent('Confirm her current role at Acme')}`);
+    expect(decodeURIComponent(res.headers.location)).toContain('Struck it. sua is writing a new point in its place.');
+    for (let i = 0; i < 50 && s.get(nb.id)!.briefing!.points.length < 3; i++) await new Promise((r) => setTimeout(r, 20));
+    const after = s.get(nb.id)!.briefing!;
+    // In its place, the others as they were; what the band compares against is untouched.
+    expect(after.points.map((p) => p.text)).toEqual(['Open with her drafts', 'Ask where AI stops in her drafts', 'Ask what comes next']);
+    expect(after).toMatchObject({ questions: ['Q?'], struck: ['Confirm her current role at Acme'], previous });
+    // The writer was asked for one, knowing what's kept and what was struck.
+    const asked = JSON.parse(writerAsked[0].NOTEBOOK) as { keep: string[]; skip: string[] };
+    expect(writerAsked[0].COUNT).toBe('1');
+    expect(asked.keep).toEqual(['Open with her drafts', 'Ask what comes next']);
+    expect(asked.skip).toEqual(['Confirm her current role at Acme']);
+
+    // Write again: the struck point is still skipped, and kept on the rewrite.
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'A fresh opener', from: [a.id] }] })}</briefing>`;
+    writerAsked.length = 0;
+    await post(`/notebooks/${nb.id}/steps/${s.get(nb.id)!.steps![1].id}/again`, '');
+    for (let i = 0; i < 50 && s.get(nb.id)!.briefing!.points[0].text !== 'A fresh opener'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(JSON.parse(writerAsked[0].NOTEBOOK)).toMatchObject({ skip: ['Confirm her current role at Acme'] });
+    expect(JSON.parse(writerAsked[0].NOTEBOOK).keep).toBeUndefined();
+    expect(s.get(nb.id)!.briefing!.struck).toEqual(['Confirm her current role at Acme']);
+    writerReply = undefined;
   });
 });

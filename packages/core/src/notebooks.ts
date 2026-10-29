@@ -429,6 +429,8 @@ export interface NotebookBriefing {
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
   previous?: NotebookWrittenBefore;
+  /** Points you struck (or removed): the writer doesn't write them, or ones like them, again. Newest last. */
+  struck?: string[];
 }
 
 /** One finding behind an answer, resting on the options (sources) it came from, by entry id. */
@@ -1362,9 +1364,18 @@ export class NotebookStore {
   }
 
   /** Keep what a write step wrote (none: forget it). */
-  setBriefing(id: string, briefing: NotebookBriefing | undefined): Notebook {
-    this.mustGet(id);
-    const kept = briefing ? writtenBefore(this.mustGet(id).briefing, briefing, (x) => x.points.map((p) => p.text)) : undefined;
+  /**
+   * Keep what was written (none removes it). The points you struck carry
+   * over to a rewrite that doesn't name its own; `swap` (one point struck
+   * and replaced) keeps the version before as it was.
+   */
+  setBriefing(id: string, briefing: NotebookBriefing | undefined, opts: { swap?: boolean } = {}): Notebook {
+    const was = this.mustGet(id).briefing;
+    const struck = briefing?.struck ?? was?.struck;
+    const next = briefing && struck?.length ? { ...briefing, struck: struck.slice(-20) } : briefing;
+    const kept = !next ? undefined
+      : opts.swap ? { ...next, ...(was?.previous ? { previous: was.previous } : {}) }
+        : writtenBefore(was, next, (x) => x.points.map((p) => p.text));
     this.db.prepare('UPDATE notebooks SET briefing_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }

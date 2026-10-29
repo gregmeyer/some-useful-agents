@@ -29,7 +29,7 @@ export function daysUntil(when: string, now = new Date()): number {
 }
 
 /** What the writer reads: the notebook (what it's for, who it's about) and its themes (what they said, each with its id). Pure. */
-export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>): Record<string, string> {
+export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>, opts: { keep?: string[] } = {}): Record<string, string> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
   const askF = nb.fields.find((f) => f.role === 'ask');
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
@@ -74,9 +74,12 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
+      // Talking points you struck aren't written again; replacing one, the ones you're keeping.
+      ...(!step.shape && nb.briefing?.struck?.length ? { skip: nb.briefing.struck } : {}),
+      ...(opts.keep ? { keep: opts.keep } : {}),
     }),
     THEMES: JSON.stringify(themes.slice(0, 30)),
-    COUNT: String(Math.min(8, Math.max(3, step.target ?? 4))),
+    COUNT: opts.keep ? '1' : String(Math.min(8, Math.max(3, step.target ?? 4))),
     SHAPE: step.shape === 'answer' ? 'answer' : step.shape === 'plan' ? 'plan' : 'talking points',
   };
 }
@@ -132,5 +135,43 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
     return [`wrote ${String(briefing.points.length)} talking points${briefing.questions.length ? ` and ${String(briefing.questions.length)} questions` : ''}`];
   } catch (err) {
     return [`${NOTEBOOK_WRITER_ID}: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`];
+  }
+}
+
+/**
+ * Strike one talking point and have the writer write one new one in its
+ * place: not like the ones kept, nor any you struck. The struck point is
+ * gone (and remembered) at once; the new one comes when the writer answers.
+ * `at` is where it was, `text` what it said (a stale page's point isn't
+ * struck). Returns what happened, a line each; never throws.
+ */
+export async function swapTalkingPoint(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, at: number, text: string, onRun?: (runId: string) => void): Promise<string[]> {
+  const nb = store.get(notebookId);
+  const b = nb?.briefing;
+  const point = b?.points[at];
+  if (!nb || !b || !point || point.text !== text) return ['that point has changed since; nothing was struck'];
+  const keep = b.points.filter((_, i) => i !== at);
+  store.setBriefing(nb.id, { ...b, points: keep, struck: [...(b.struck ?? []).filter((x) => x !== text), text] }, { swap: true });
+  const entries = store.entries(nb.id, 1000);
+  const ids = new Set(entries.filter((e) => e.kind === 'option' && !e.ruledOut).map((e) => e.id));
+  const struck = `struck "${text}"`;
+  if (!ids.size) return [struck, 'there is nothing to write a new one from: no themes in the running'];
+  try {
+    const { result, error } = await runWriter(ctx, writerInputs(store.get(nb.id)!, entries, step, { keep: keep.map((p) => p.text) }), onRun);
+    if (!result) return [struck, `${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
+    const block = extractTaggedJson(result, 'briefing');
+    let raw: unknown;
+    try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
+    const fresh = cleanBriefing(raw, ids, NOTEBOOK_WRITER_ID)?.points.find((p) => !keep.some((k) => k.text === p.text) && p.text !== text);
+    if (!fresh) return [struck, `${NOTEBOOK_WRITER_ID}: no new point came back`];
+    // Into the place the struck one had, in what's there now (you may have edited meanwhile).
+    const now = store.get(nb.id)?.briefing;
+    if (!now) return [struck];
+    const points = [...now.points];
+    points.splice(Math.min(at, points.length), 0, fresh);
+    store.setBriefing(nb.id, { ...now, points }, { swap: true });
+    return [struck, `wrote a new one: "${fresh.text}"`];
+  } catch (err) {
+    return [struck, `${NOTEBOOK_WRITER_ID}: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`];
   }
 }

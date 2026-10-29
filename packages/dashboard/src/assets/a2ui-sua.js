@@ -1128,7 +1128,7 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
-  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional(), questionsLabel: Str.optional(), watchLabel: Str.optional(), empty: Str.optional() }).strict(),
+  Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), replaceHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional(), questionsLabel: Str.optional(), watchLabel: Str.optional(), empty: Str.optional() }).strict(),
   css`${sectionHead}
     .top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
     .top .h { margin: 0; }
@@ -1140,6 +1140,12 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     ol { margin: 0 0 16px; padding: 0; list-style: none; display: grid; gap: 10px; }
     ol li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px 10px; }
     ol li > :not(.pt) { grid-column: 2; }
+    ol li > form.swap { grid-column: 3; grid-row: 1; margin: 0; }
+    .swaps ol li { grid-template-columns: 24px minmax(0, 1fr) auto; }
+    .swaps.numerals ol li { grid-template-columns: 44px minmax(0, 1fr) auto; }
+    form.swap .copy { opacity: 0; }
+    li:hover form.swap .copy, form.swap .copy:focus-visible { opacity: 1; }
+    @media (hover: none) { form.swap .copy { opacity: 1; } }
     .pt { display: contents; font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
     .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 700 11px/1 var(--font-mono); color: var(--color-primary); background: var(--color-primary-soft); }
     .pt .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); padding-top: 2px; }
@@ -1184,12 +1190,14 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     const checkable = p.check !== false;
     const maxQ = p.maxQuestions ?? 3;
     const refs = (pt) => (Array.isArray(pt.refs) ? pt.refs : []).filter((r) => r && safeUrl(r.href) && r.label).slice(0, 6);
-    return html`<div class="${p.variant === 'numerals' ? 'numerals' : ''}">
+    const replace = p.replaceHref && safeUrl(p.replaceHref) ? p.replaceHref : '';
+    return html`<div class="${[p.variant === 'numerals' ? 'numerals' : '', replace ? 'swaps' : ''].filter(Boolean).join(' ')}">
       <div class="top"><h4 class="h">${p.title ?? 'Talking points'}</h4>${this._copied ? html`<span class="status" role="status">${this._copied}</span>` : nothing}<span class="acts">${p.editHref && safeUrl(p.editHref) ? html`<a class="copy" href=${p.editHref}>Edit</a>` : nothing}${p.copy === false ? nothing : html`<button type="button" class="copy" @click=${copy}>Copy as text</button>`}</span></div>
       ${points.length ? html`<ol>${points.map((pt, i) => html`<li class="${checkable && done.has(pt.text) ? 'done' : ''}">
         ${checkable
           ? html`<label class="pt"><input class="sr" type="checkbox" .checked=${done.has(pt.text)} @change=${(e) => tick(pt.text, e.target.checked)}><span class="num" title="Tick it off">${done.has(pt.text) ? '✓' : i + 1}</span><span class="t">${pt.text}</span></label>`
           : html`<div class="pt"><span class="num">${i + 1}</span><span class="t">${pt.text}</span></div>`}
+        ${replace ? html`<form class="swap" method="POST" action=${replace}><input type="hidden" name="at" value=${String(i)}><input type="hidden" name="text" value=${pt.text}><button type="submit" class="copy" title="Strike this point; sua writes a new one in its place">Replace</button></form>` : nothing}
         ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
         ${refs(pt).length ? html`<div class="refs">${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
       </li>`)}</ol>` : nothing}

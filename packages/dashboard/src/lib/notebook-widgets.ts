@@ -152,6 +152,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     watch: string[];
     /** Where to edit the talking points sua wrote (none before there are any) (Agenda editHref). */
     talkingPointsEdit?: string;
+    /** Where to strike one and have sua write a new one in its place (an open notebook with a talking-points write step) (Agenda replaceHref). */
+    talkingPointsReplace?: string;
     /** The answer a write step wrote, as a Callout; before then, where it stands (the Answer page). */
     answer: { question: string; label: string; text: string; next?: string; nextLabel: string };
     /** The findings the answer rests on, each linked to its sources (Agenda points). */
@@ -376,6 +378,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       questions,
       watch,
       ...(nb.briefing?.points.length ? { talkingPointsEdit: `/notebooks/${encodeURIComponent(nb.id)}/talking-points` } : {}),
+      ...(nb.briefing?.points.length && nb.status === 'active' && nb.steps?.some((s) => s.kind === 'write' && !s.shape) ? { talkingPointsReplace: `/notebooks/${encodeURIComponent(nb.id)}/talking-points/replace` } : {}),
       ...about,
       ...(quotes[0]?.quote ? { leadQuote: quotes[0].quote } : {}),
       otherQuotes: quotes.slice(1),

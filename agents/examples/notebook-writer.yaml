@@ -110,10 +110,10 @@ nodes:
       "notes" for what the person already knows (don't explain that back
       to them). Without a goal, as below. When the person or company has
       "unsettled" facts (sources disagree, e.g. which company they work
-      for now), don't state either side as true anywhere: make the first
-      point an easy question that lets them say ("What are you spending
-      most of your time on these days?"), and put the disagreement in
-      "watch".
+      for now), don't state either side as true anywhere: put an easy
+      question that lets them say first in "questions" ("What are you
+      spending most of your time on these days?"), not a point of its
+      own, and put the disagreement in "watch".
 
       Write {{inputs.COUNT}} talking points for the meeting. A talking point
       is something to raise in the conversation, written as a sentence the
@@ -122,11 +122,19 @@ nodes:
       theme. For each:
         - "text": the point, one sentence, in plain words;
         - "why": why it matters to them, from what they said (one or two
-          sentences; name the source in words if it helps, e.g. "in her
+          sentences; name the source in words if it helps, e.g. "in their
           newsletter on hiring");
         - "ask": one open question that gets them talking about it;
         - "from": the ids of the themes it rests on (one or more, only ids
           given above).
+      Don't assume they remember what they wrote or said: it may have
+      been months ago, or one of many posts. When a point rests on it,
+      the point (or its "ask") reminds them in a few words what they said
+      and where ("In your March post on hiring you argued for…; has that
+      held up?"), never "As you know…" or "Your famous post…". Their
+      title, employer and other basic facts aren't talking points: don't
+      write a point whose only aim is to confirm them.
+
       Prefer chosen and checked themes, cover different themes rather than
       one twice, and order them the way the conversation could flow (an
       easy opener first). Then up to 5 more "questions" worth asking, and up
@@ -134,6 +142,13 @@ nodes:
       subject, a view they hold strongly, something not to assume), each
       one sentence. Watch is about the meeting, not about gaps in the
       research.
+
+      When the notebook has "skip", those are points the person struck:
+      don't write them again, or one that makes the same point. When it
+      has "keep", those are the points they're keeping: write only
+      {{inputs.COUNT}} new point(s), on something none of them already
+      covers, that fit alongside them ("questions" and "watch" can be
+      empty).
 
       Use only what's above: don't invent facts, quotes, numbers or
       dates. If the themes are thin, write fewer, better points.
