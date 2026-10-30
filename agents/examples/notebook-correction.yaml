@@ -93,7 +93,13 @@ nodes:
         - "about-fact": a fact about who the notebook is about
           (target_id like "about:person:role"). A fact it doesn't have yet
           is fine: use "about:person:<lowercase_snake key>" and give
-          "label". new_value "" when they say the fact is simply wrong;
+          "label". new_value "" when they say the fact is simply wrong.
+          The picture the page shows of them is its own part
+          ("about:person:photo", a company's logo "about:company:photo"):
+          to change it, new_value is the link to use, the picture itself
+          or a page it's on (their About page); "" when it isn't them.
+          Use the link they gave, or one in the notebook (a fact's
+          source, their website); never invent one. No link: ask for it;
         - "option-fact": one fact on one option ("option:<id>:<key>");
         - "limit", "check", "criterion": a rule (its id). new_value "" to
           take it out;

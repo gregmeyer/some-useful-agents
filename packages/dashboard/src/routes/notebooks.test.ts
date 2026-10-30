@@ -4892,4 +4892,60 @@ describe('editing the talking points', () => {
     checkerReply = undefined;
     correctionReply = undefined;
   });
+
+  it("a correction to their photo: a page's picture is kept as theirs, a picture's link fact goes, and research doesn't replace it", async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection, applyNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana Reyes' });
+    s.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'COO' }, { key: 'image', label: 'Who they are ProfileCard photo', value: 'https://dana.example/dana.png' }] });
+    s.saveAboutPhoto(nb.id, 'person', 'https://old.example/dana-2016.jpg', { contentType: 'image/jpeg', bytes: new Uint8Array([1, 2, 3]) }, 'photo', { page: 'https://old.example/p/dana', why: 'captioned with their name on a page about them' });
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    const lastAction = () => JSON.parse([...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action')!.metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    const lastWords = () => [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'triage')!.body;
+    const correct = async (said: string, delta: Record<string, string>) => {
+      correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: delta, impact: [], clarification_required: false, clarification_question: '' })}</correction>`;
+      let work: Promise<void> | undefined;
+      startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: said } }, (p) => { work = p; });
+      await work;
+    };
+
+    // The agent sees the picture the page shows, as a part.
+    correctionAsked.length = 0;
+    await correct('Use the portrait on my About page', { type: 'about-fact', target_id: 'about:person:photo', old_value: 'https://old.example/dana-2016.jpg', new_value: 'https://dana.example/about', label: 'Photo' });
+    expect(JSON.parse(correctionAsked[0].NOTEBOOK).parts).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'about:person:photo', kind: 'photo', text: 'Dana Reyes, Photo: https://old.example/dana-2016.jpg (on https://old.example/p/dana)' })]));
+    const card = lastAction();
+    expect(card.surfaceChanges).toEqual(expect.arrayContaining([
+      { what: 'Photo', before: 'the picture on old.example', after: 'the picture on dana.example' },
+      expect.objectContaining({ what: 'take out', before: 'Dana Reyes, Who they are ProfileCard photo: https://dana.example/dana.png' }),
+    ]));
+
+    // Applied: the page isn't a picture, so its picture of them is found there and kept as yours; the link fact goes.
+    const fetched: string[] = [];
+    ctx.notebookLogoDeps = { fetchImage: async (u) => { fetched.push(u); if (u.endsWith('/about')) throw new Error('not an image'); return { contentType: 'image/png', bytes: new Uint8Array([9, 9]) }; }, siteIcons: async () => [] };
+    const checkPhoto = ctx.notebookPersonPhotoCheck;
+    ctx.notebookPersonPhotoCheck = async (page, name) => ({ image: 'https://dana.example/dana.png', page, why: `captioned ${name}` });
+    let done: Promise<void> | undefined;
+    expect(applyNotebookCorrection(ctx, thread, card, (p) => { done = p; }).summary).toBe("Took out the picture's link from what it knows about them; fetching the picture…");
+    await done;
+    expect(fetched).toEqual(['https://dana.example/about', 'https://dana.example/dana.png']);
+    expect(s.aboutPhoto(nb.id, 'person')).toMatchObject({ sourceUrl: 'https://dana.example/dana.png', page: 'https://dana.example/about', why: 'you picked it' });
+    expect(s.get(nb.id)!.about!.person!.facts.map((f) => f.key)).toEqual(['role']);
+    expect(lastWords()).toContain('kept the photo from dana.example, as you picked');
+
+    // Not a link: asked for one. None at all: it goes, and isn't used again.
+    await correct("That photo isn't me", { type: 'about-fact', target_id: 'about:person:photo', old_value: '', new_value: 'my newer one', label: 'Photo' });
+    expect(lastWords()).toBe('Send me a link to the picture to use: the picture itself, or a page it’s on.');
+    await correct("That photo isn't me", { type: 'about-fact', target_id: 'about:person:photo', old_value: 'https://dana.example/dana.png', new_value: '', label: 'Photo' });
+    expect(applyNotebookCorrection(ctx, thread, lastAction()).summary).toBe("Took out the photo; it won't be used again.");
+    expect(s.aboutPhoto(nb.id, 'person')).toBeUndefined();
+    expect(s.get(nb.id)!.about!.person!.rejectedPhotos).toEqual(['https://dana.example/dana.png']);
+    ctx.notebookLogoDeps = undefined;
+    ctx.notebookPersonPhotoCheck = checkPhoto;
+    correctionReply = undefined;
+  });
 });

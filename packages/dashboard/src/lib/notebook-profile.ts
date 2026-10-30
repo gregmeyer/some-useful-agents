@@ -196,9 +196,39 @@ async function personPhoto(ctx: Ctx, nb: Notebook, name: string, research: Found
   return undefined;
 }
 
-/** Keep a copy of a picture of them; none that checks out just leaves their initials. */
+/** Why a picture is kept when you gave it: research doesn't replace it. */
+export const YOUR_PICTURE = 'you picked it';
+
+/**
+ * A picture you gave for them (a correction: "use this one"): the image's
+ * own link, or a page it's on (their picture there, found as research
+ * finds one). Fetched with the same guards as any picture, and kept over
+ * what research finds. Never throws.
+ */
+export async function keepGivenPicture(ctx: Ctx, store: NotebookStore, notebookId: string, who: NotebookAboutWho, link: string): Promise<{ from: string } | { why: string }> {
+  const deps = ctx.notebookLogoDeps ?? defaultLogoDeps;
+  const get = (u: string) => (ctx.notebookLogoDeps ? deps.fetchImage(u) : fetchImage(u, { maxBytes: 3 * 1024 * 1024 }));
+  let image = link;
+  let page: string | undefined;
+  let img: { bytes: Uint8Array; contentType: string } | undefined;
+  try { img = await get(link); } catch { img = undefined; }
+  if (!img) {
+    // Not a picture: a page with theirs on it.
+    const name = store.get(notebookId)?.about?.[who]?.name ?? '';
+    const found = await (ctx.notebookPersonPhotoCheck ?? findPersonPhoto)(link, name);
+    if (!('image' in found)) return { why: `that link isn't a picture, and ${found.why}` };
+    image = found.image;
+    page = found.page;
+    try { img = await get(image); } catch (err) { return { why: `couldn't fetch the picture on that page (${err instanceof Error ? err.message.slice(0, 80) : 'it failed'})` }; }
+  }
+  store.saveAboutPhoto(notebookId, who, image, img, who === 'person' ? 'photo' : 'logo', { ...(page ? { page } : {}), why: YOUR_PICTURE });
+  return { from: page ?? image };
+}
+
+/** Keep a copy of a picture of them; none that checks out just leaves their initials. One you picked stays. */
 async function keepPicture(ctx: Ctx, store: NotebookStore, nb: Notebook, who: NotebookAboutWho, how: { photo?: PersonPhotoFound; site?: string }): Promise<string | undefined> {
   const deps = ctx.notebookLogoDeps ?? defaultLogoDeps;
+  if (store.aboutPhoto(nb.id, who)?.why === YOUR_PICTURE) return undefined;
   try {
     if (how.photo) {
       const img = ctx.notebookLogoDeps ? await deps.fetchImage(how.photo.image) : await fetchImage(how.photo.image, { maxBytes: 3 * 1024 * 1024 });
@@ -309,9 +339,11 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     const looked = await lookAtOtherCompanies(ctx, store, nb.id, subject, onRun);
     if (looked) notes.push(`looked at ${String(looked)} of their other compan${looked === 1 ? 'y' : 'ies'}`);
     notes.push(`learned ${String(facts.length)} about ${subject}`);
-    const photo = await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);
+    // The photo you picked stays: no need to look for one.
+    const yours = store.aboutPhoto(nb.id, 'person')?.why === YOUR_PICTURE;
+    const photo = yours ? undefined : await personPhoto(ctx, store.get(nb.id) ?? nb, subject, person);
     const pic = photo ? await keepPicture(ctx, store, nb, 'person', { photo }) : undefined;
-    notes.push(pic ? `kept a photo (${photo!.why})` : 'no photo that is clearly them');
+    notes.push(yours ? 'kept the photo you picked' : pic ? `kept a photo (${photo!.why})` : 'no photo that is clearly them');
     const org = mainOrg;
     const site = org === text(person, 'organization') ? text(person, 'company_website') : '';
     if (org) company = { name: org, ...(site ? { site } : {}) };
