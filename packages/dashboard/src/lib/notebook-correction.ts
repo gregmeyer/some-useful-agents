@@ -94,8 +94,10 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
     for (const f of one.facts) {
       const open = one.conflicts?.find((c) => c.fact === f.key && !c.settled);
       const yours = one.conflicts?.find((c) => c.fact === f.key && c.settled?.by === 'you');
+      // A picture's link kept as a fact isn't the picture shown: said so, so the change goes to the picture.
+      const link = PICTURE_LINK_FACT.test(f.key) ? `, only a picture's link (not the ${who === 'person' ? 'photo' : 'logo'} shown: that's about:${who}:${PICTURE_KEY})` : '';
       parts.push({
-        id: `about:${who}:${f.key}`, role: 'evidence', kind: `${who} fact`,
+        id: `about:${who}:${f.key}`, role: 'evidence', kind: `${who} fact${link}`,
         text: `${one.name ? `${one.name}, ` : ''}${f.label}: ${f.value}${open ? ` (not settled: ${open.claims.map((c) => c.value).join(' or ')})` : ''}${yours ? ' (you said so)' : ''}`,
         ...(f.source ? { source: f.source } : {}), ...(f.quote ? { quote: f.quote } : {}),
       });
@@ -208,6 +210,14 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   const parts = correctionParts(nb, entries, focus, pictures);
   const byId = new Map(parts.map((p) => [p.id, p]));
   let d = c.semantic_delta;
+  // A new link for a picture's link kept as a fact is a new picture: the change goes to the picture itself.
+  const linkFact = /^about:(person|company):([a-z][a-z0-9_]{0,39})$/.exec(d.target_id);
+  if (linkFact && PICTURE_LINK_FACT.test(linkFact[2]) && (d.type === 'about-fact' || d.type === 'other') && /^https?:\/\/\S+$/i.test(d.new_value.trim())) {
+    const shown = pictures[linkFact[1] as NotebookAboutWho];
+    d = { type: 'about-fact', target_id: `about:${linkFact[1]}:${PICTURE_KEY}`, old_value: shown?.sourceUrl ?? '', new_value: d.new_value.trim(), label: linkFact[1] === 'person' ? 'Photo' : 'Logo' };
+    c = { ...c, semantic_delta: d };
+    if (shown && shown.sourceUrl === d.new_value) return { question: `The notebook already shows that ${linkFact[1] === 'person' ? 'photo' : 'logo'}. What should change?` };
+  }
   const m = /^about:(person|company):([a-z][a-z0-9_]{0,39})$/.exec(d.target_id);
   const target = byId.get(d.target_id);
   const ok = d.type === 'about-fact' ? !!m && !!nb.about?.[m[1] as NotebookAboutWho] && (!!target || !!d.new_value)
