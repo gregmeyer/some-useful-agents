@@ -1,5 +1,221 @@
 # @some-useful-agents/core
 
+## 0.33.0
+
+### Minor Changes
+
+- 5f75250: Notebooks keep what a rerun replaced, so a briefing can say what's new.
+  
+  A briefing's facts about someone now keep when each was first learned, and when a rerun changes one, the value it replaced. A competitor or other company keeps when it was first named. When sua writes the talking points, answer or plan again, the version it replaced is kept one level back (its main lines); your own edits don't count as a rewrite. Nothing shows this yet; it's what "What's new since the last run" will read.
+- 8314b4c: A quick look at each of a person's other companies.
+  
+  After a profile step learns a person's other companies, it now takes a quick look at each one not looked at yet (at most 5, three at a time): what it does, its site, industry and stage or size, with the page they came from. **Also runs** shows what each does, and sua's writer reads it.
+- 73e5631: A busy model tries a fallback model, then the next provider, and failures say why.
+  
+  When a provider's model is busy (OpenAI's "Selected model is at capacity", Anthropic's 529 overloaded, "servers are busy"), sua now classifies it as `model_busy` instead of an unknown error, which used to stop the waterfall dead. The same provider first tries its fallback model once (new **If it's busy** picker on each provider in Settings → LLM, stored as `fallbackModels`; Claude defaults to Sonnet), then the next provider. A node whose attempts all fail says what each one ran into in words, and sua's reply in a conversation says why it couldn't answer and what to do, instead of "I hit a triage failure".
+- 3bcd78f: A ready-made Company briefing look, and template pages that name the right company.
+  
+  Edit → How it looks has **Company briefing**: who the company is beside its facts, its competitors, what the research found and how sure, then the sources (sua can pick it for a notebook about a company with no meeting). A template now swaps its subject for `{subject}` in its page's words too, and a notebook started from one fills it in, so a briefing on another company no longer says "who Arrive is" (templates saved before this are filled in the same way).
+- ec5005f: A company's competitors get their own list and panel.
+  
+  A profile step now keeps a company's competitors as their own list (up to 5 a page names as competitors or alternatives), each with its site, a line on how it competes and the page that names it, instead of a single "Competitors" fact. The meeting briefing shows them under **Their competitors**, and any drawn page can bind `/notebook/competitors` (with a new `competitors` flag). `firmographic-research` also asks for each company's industry and competitors: a `competitors` CSV cell ("A; B; C") plus a `competitor_list` with sources.
+- 241ad08: Enhance this prompt: sua makes a notebook's definition sharper for its goal.
+  
+  On Edit → Prompt, **✦ Enhance this prompt** has sua rewrite the notebook as it is in the box (your edits included) into a better prompt for what it's for. It makes what it's for one specific sentence, the limits concrete and checkable, and the done-whens outcomes you can tick off. It also gives the facts the right types and roles, makes the checks confirmable with a source, and fits the steps to the goal (decide, answer, plan or watch). It never adds new goals or facts. While it works, the tab says so. It comes back as a change to preview, with a line on what it made sharper, and nothing is saved until you save.
+- 83b0d7b: Home has one Ask sua card: Try next is its Run row.
+  
+  Home had an Ask sua card (a three-line box and five rows of starters) and a Try next rail suggesting the same agents. Now Try next's agents are the card's Run row: one click runs one, and hovering shows what it does, what it runs with and why it's suggested. The box is one line, Fix joins Build ("Build or fix"), each row has at most three starters, and the right column is just your notebooks.
+- ce49732: A meeting notebook knows the meeting: when it is and what you want out of it.
+  
+  A meeting notebook keeps the meeting it prepares for (`Notebook.meeting`): when, your goal, and notes on what you already know. sua's draft picks it up from what you said ("Thursday at 2"), the header asks for it when it's missing (**Add the meeting**), sua's first message asks too, and you can tell sua in the conversation or set it under Edit → Prompt (`## The meeting`). The header shows "Meeting Thu, Oct 29, 2:00 PM · in 3 days · Your goal: …", and so does the brief. The find step looks for what bears on your goal, and the writer aims the talking points at it. When the points are 3 or more days old before the meeting, the header suggests **Write again**.
+- 6db2d3e: Correct a notebook in its conversation, and sua works out what that changes.
+  
+  Say "she's COO now, not VP Ops", or "that talking point is wrong, she never said that", in a notebook's conversation. sua's new correction agent (`notebook-correction`) reads the notebook, with an id on every part and each part marked as evidence, a judgment, or a rule you set. It finds the smallest change you meant and what that change touches. Code checks the agent's answer against the notebook and follows what cites what, so nothing that rests on the change is missed, and evidence is never dropped for another part's change. sua shows a card: the change, what it rewrites, takes out or looks at again, and how much it keeps. Nothing changes until you press Apply. When it can't tell what you meant, sua asks one question instead.
+  
+  Applying it changes the fact and keeps it as yours, so a later look doesn't change it back. Questions that rest on the old value come out. Talking points that rest on it are written again in their places, and the other points stay as they are. Findings and plan items you say are wrong come out, and are remembered so they aren't written again. This first version applies corrections to facts about who a notebook is about, and to what sua wrote. Corrections to an option's facts still go through the notebook's own correction.
+- 5f56bb8: How a notebook was made, where you'll see it.
+  
+  Under a notebook's steps, a line now says what made it ("Made by 6 agents in 39 runs · last 14m ago", who, and **See how it was made →**), and each step that has run has **How →**, opening How it was made on that step's latest pass. Passes keep the step they ran for (a new `step_id` on notebook passes) and are named for it ("Step 2 · Find 5 sources"); older ones are matched by their agent. Profile and write steps' runs, and their Look again / Write again, are recorded as passes too.
+- a50a29f: sua's checker gives a quote it can't find a second look, by screenshot.
+  
+  When a check's quote isn't in a page as downloaded (a page that only shows its text in a browser), sua's checker takes a screenshot of up to 4 such pages and has a model that can see it look. A check it sees there is ticked, with an evidence entry ("Seen on a screenshot: …") linking the screenshot as proof; a screenshot never rules an option out. Sites that refuse a browser are named in the run note.
+- 68284d0: Correcting an option's fact checks that option again.
+  
+  Say "the Artisan is actually $450" in a notebook's conversation, and sua's correction card now covers an option's facts too. Apply changes the fact and forgets the option's results for the checks that rest on it. The notebook's check step then checks just that option again, on just those checks. An option one of sua's checks ruled out comes back in to be checked again. A picked option that now fails a check stays picked, and sua says which check it fails. Talking points that cite the option are written again. New: `NotebookStore.clearChecks`.
+  
+  The correction card also reads better. It names an option by its company ("Extend, Salary: $225,000–$250,000 → $150,000–$180,000"). Option facts show as formatted values (ranges, money). Evidence the card flags but Apply doesn't change shows as "may be out of date". When an option's recheck rules it out, sua says so and why.
+- b4c5e6f: A person's other companies, and the company you settled stays theirs.
+  
+  A profile step now also learns the other companies a person leads, founded or works with (role, site and source), shown on the meeting briefing under **Also runs** and read by the writer. A company you set aside when settling a conflict ("ARV, not Arrive") still shows there. And the company you settled stays theirs on a later look: the research's different answer, or their company before, becomes another company instead of replacing it.
+- 9bd7cc3: Correct the photo or logo of who a notebook is about, in its conversation.
+  
+  The picture a notebook shows of someone is now a part sua's correction agent can see. Say "use the portrait on my About page", with a link to the picture or to a page it's on, and Apply does three things. It fetches that picture with the usual guards; for a page, it finds their picture on it, the way research does. It keeps the picture as the one you picked, so a later Look again or Update doesn't replace it. And a picture's link that had been kept as a fact about them comes out with it. Saying "that isn't them" with no link takes the picture out, the same as Not them.
+- f187878: A notebook that makes a plan gets the plan, day by day, on a page made for it.
+  
+  A write step can now write a plan (`"shape": "plan"`, or `(write; plan)` in the Prompt tab): the plan in a sentence, each item in order with its day or slot, a line on when, how long or what it costs, and the options it uses, then what to book or do first and what's still open. The drafter ends a plan-shaped notebook (a trip, a week, a move, a project) with it. The new ready-made **Plan** page, which sua picks for these notebooks, shows it with a new **Itinerary** widget (day by day, Copy as text) beside the steps, then what it draws on. The brief prints it. Itinerary is in the A2UI catalog for boards and agent views too, and a page part can wait for a plan with `"when": "planned"`.
+- 8f8a9ad: Replace a talking point: strike it and sua writes a new one in its place.
+  
+  Each talking point on a briefing's agenda has **Replace**. It strikes that point, and sua's writer writes one new point in its place, about something the others don't already cover. Points you strike, or remove on the edit page, are remembered (`briefing.struck`), so Write again doesn't bring them back. The writer now reminds the person what they said and where, rather than assuming they remember it. It no longer makes "confirm their current role" a talking point: when sources disagree, that question goes first in the questions to ask.
+- 66a8297: Correct a notebook's limits, checks and done-whens in its conversation.
+  
+  Say "a 4 qt bowl is fine", "the budget is $600 now" or "we don't need it by Friday", and sua's correction card shows what that changes. Applying it changes or removes the rule where it is.
+  
+  - **A changed check:** its results are forgotten, and the options sua ruled out on it come back. Then every option in the running is checked on the new check. A check taken out brings back what it ruled out.
+  - **A changed limit:** the options it ruled out come back and are checked again, and the next search uses the new limit.
+  - **Rules that change together:** when another rule has to change with it, such as a limit and the check that applies it, the card changes both.
+  - **Your own rule-outs** stay as they are.
+  - **The card** lists the first few options, then how many more, and finds the rule by its words.
+  
+  With this, corrections cover every part of a notebook.
+- b234a23: A notebook step that comes out short says why.
+  
+  A stuck step now says, under it on the page and in sua's message, what its last try did: which places its search looked and that none had a match, which one blocked it, that what it found was already in the notebook or ruled out, that a check couldn't be confirmed from a source, that a page blocked the page reader, or that its run timed out, with the agent's own words when it gave any. The reason stays on a step you moved on from (new `why` on a notebook step), and sua can answer "why did that step stop?" from it. A run's note also counts the notes a search leaves ("1 new, 1 note") instead of calling them new options.
+- c3bbca8: Edit the talking points sua wrote.
+  
+  **Edit** on a briefing's agenda (and **Edit the points →** on a done write step) opens a page where you reword each point, why it matters and its question, move points up or down, remove some or add your own, and change the questions to ask and what to watch for. The themes a point rests on stay as they are, so its quotes are still theirs. The briefing and its brief show what you save; Write again says it replaces your edits.
+- e7afe72: The model sees what web-screenshot took.
+  
+  A screenshot taken by a model is now handed to it as pictures (the first screen, or the top of the page in up to 3 readable views): claude and codex get them as image content in the tool result. An OpenAI-compatible provider gets them when marked `vision: true` in its settings (new knob, off by default); otherwise its result says they weren't shown. The pictures go to the model only, never into the run's outputs or trace.
+- 0bd5594: Update a briefing in one go, from the page or by asking sua.
+  
+  A briefing's folded steps line has **Update all →** first: it runs its done profile, find and write steps again in order (Look again, Search again, Write again) as one run, then sua says in the conversation what's new since the last run. Asking sua "rerun the briefing" or "check what you found since last time" gives one **Update it** card that does the same. The step links on that line now follow the steps' order instead of last step first.
+- b33efc5: Update a shortlist in one go: search again, then check only the new ones.
+  
+  **Update all** (and sua's **Update it** card) now covers notebooks that search and check, like shopping and job shortlists: it searches again, then runs the check step on just the options that search found (in its top N, when it has one), leaving your picks, what you ruled out and the step's place as they are. sua says what was found and checked in the conversation.
+- 10e04b4: Updating a shortlist now sources the new options too.
+  
+  **Update all** (and sua's **Update it** card) runs a done source step after Search again, for just the options that search found: an agent that reads each option's own page reads each new one (up to 8), and another agent is given only those. So new roles or listings arrive with their facts (level, pay, price) filled in before they're checked. Options it already had are left to the step's own button.
+- 9d059a4: A notebook that keeps watch says what changed since last time, first.
+  
+  A watch notebook ("tell me when a used X100V under $1,200 shows up") searches on a schedule, every morning unless you say otherwise. The drafter sets that up with a find step and no decide step. The new ready-made **Watch** page, which sua picks for these notebooks, leads with what changed since the search before the latest: new options, price changes (marked better or worse), other facts that changed, ones whose page said they're gone, and ones the latest search didn't find again, with a line summing it up. All of it is worked out from what the notebook keeps (core `notebookChanges`), never by a model. The first search reads as a first look. The new **Changes** widget is in the A2UI catalog, and the data paths are `/notebook/changes` and `/notebook/changesIntro/*`.
+- fe7d301: New `web-screenshot` tool: a picture of a page, kept with the run.
+  
+  An agent can take a screenshot of a web page (the first screen or the whole page) as proof of what it said, or for a page whose text can't be read. Each picture is kept with its run under `run-files/<run id>/` and shown on the run page under its node. Every request the page makes is checked against private addresses. Needs Playwright's Chromium (`npx playwright install chromium`).
+- 80d3ba0: A briefing says what's new since the last run.
+  
+  When a meeting or company briefing runs again, a band at the top says what that run found that the one before didn't: new and changed facts ("Changed: Role, VP Ops → COO"), new competitors and other companies, new findings, and talking points that are new or dropped. A recheck that finds nothing says so. New and changed facts are marked in What we know, the brief starts with the same section, and the timeline notes each Look again and Write again.
+- 000adfc: When what a notebook found disagrees with who it's about, it says so, and you can settle it.
+  
+  A new system agent, `notebook-reconciler`, compares a notebook's profile (role, company, where they're based) with what its steps found. It runs after find, source and profile steps, and before talking points are written. Disagreements about the present show at the top of the notebook: the question, and each side with its source and date. **Check it** has sua look it up as of today and keep the sourced answer, and **It's …** keeps the side you know is right. Until it's settled, the talking points state neither side and open with a question that lets them say. Core adds `NotebookAboutOne.conflicts`, `cleanConflicts`, `setAboutConflicts` and `settleConflict`. See ADR-0062.
+- 36cfa31: sua shows at once that it heard you, and a ready draft puts Start where you can see it.
+  
+  New standard "working" component (`working()` / `window.suaWorking`, `.working` in components.css, DESIGN.md "Working"): a spinning ring, inline or as a panel with a title, what you asked in your words, what it's doing and an elapsed time. Starting a notebook now changes the button to "Drafting…" and shows the panel right under the box (above your templates) instead of a small dot below them. A ready draft opens with a ✓ "Your notebook draft is ready" and **Looks right, start it** at its top, the page scrolls to it, and the bar with Start stays in view while you check the draft. The notebook page's own working signs (setting up, steps running, talking to sua, Edit's changes and looks) use the same ring.
+- 8e08981: A notebook that asks a question gets an answer, on a page made for it.
+  
+  A write step can now write the answer (`"shape": "answer"`, or `(write; answer)` in the Prompt tab) as well as talking points. sua's writer answers what the notebook asks from what it found. It says how sure it is (sure, fairly sure, not sure yet) and why, gives 3 to 6 findings, each linked to the sources it rests on, and lists what's still open. The drafter ends a question-shaped notebook with it instead of decide. The new ready-made **Answer** page, which sua picks for these notebooks, shows the answer (or where it stands until there is one), the findings and what's still open beside the steps, then the evidence as a table. The brief prints the same. Agenda gains `questionsLabel`, `watchLabel` and `empty`, Callout gains `nextLabel`, and a page part can wait for an answer with `"when": "answered"`.
+
+### Patch Changes
+
+- 267604e: A brief opens in your mode however you open it.
+  
+  A notebook's brief links now carry the mode you use the dashboard in from the moment the page loads (and again as you press one), so a middle-click, Open in new tab or a copied link opens the brief in light mode too, not only a plain click.
+- 58ed372: A brief links each competitor, and the writer reads them.
+  
+  In a notebook's brief, a table cell that names something with its own address (a competitor and its site) is now a link, as it is on the page. A write step now reads the company's competitors too, so a briefing can say who it competes with.
+- 70ee08f: A meeting brief saved as PDF no longer prints one part over another.
+  
+  Printed, a drawn notebook's brief could put a heading on top of the part above it, squeeze a company card into a column a few words wide, and leave half a page blank. Its columns and stacks now print as flex and block (which split across pages cleanly), parts may continue on the next page while small items stay whole, and a card in a narrow column puts its picture above its words.
+- f73be5a: A notebook's brief leaves out searches that found nothing and lists the links you gave it.
+  
+  Research activity in the brief no longer fills up with "Search returned no options" lines, so the activity that matters fits. The links you gave the notebook (in what it's for, its meeting notes, or what you asked) are listed under its title.
+- a29ab5d: A notebook's brief uses the dashboard's theme.
+  
+  The brief (basic and extended, page and shortlist) now carries the dashboard's design tokens and your brand theme (colours and fonts from Settings → Appearance), in the mode you use the dashboard in, instead of its own fixed palette. Printed or saved as PDF it uses the theme's light colours.
+- 7bff42f: A briefing's Download / share menu leads with the brief.
+  
+  For a notebook that ends in sua writing (a meeting or company briefing, an answer, a plan), the menu asked "Which options?" with "In the running" and "Everything, with ruled out", as if it were a shopping list. Now it starts with the brief (open, download, PDF, extended) and offers its findings as a spreadsheet last ("What it found (CSV)", "With what it set aside"). Shortlists are unchanged.
+- 3da9649: sua's checker names sites that refuse automated reading, and skips their screenshots.
+  
+  A site that answers the checker with a 401, 403 or 429, or a bot-check page, is now spotted in code: it's named in the run note ("g2.com and crunchbase.com refused automated reading…") and no screenshot is spent on it, since a browser is refused too. Before, naming it depended on the model reading the screenshot, which missed it.
+- 8fcd536: A notebook's check step keeps what the web research found for every option.
+  
+  The check step matched each web answer back to its option by name. A name with an em dash ("Arrive Android app — …"), or one long enough for the research to cut short, didn't match, so those options' answers were thrown away and their checks stayed open however often you ran the step. Now every answer finds its option, and subjects stay within what the research keeps.
+- ea842d9: The Company briefing look has no hole, and "What's new" names what the search found.
+  
+  The Company briefing look puts who the company is, then the answer and what it rests on, down the left beside its facts, so a long fact sheet no longer leaves a big gap under a short profile (on the page and in the brief). "What's new since …" names the new findings ("2 new findings from the search: Collective LLC and S Corp memberships, …") instead of only counting them.
+- 4f4f33a: Starting a notebook from its draft keeps what each step does.
+  
+  **Looks right, start it** used to drop a write step's shape, so a question notebook wrote talking points instead of the answer (and a plan notebook too). It also dropped a profile step's subject and a source step's facts, because the steps were saved before the fields they name. All three now carry through. Checks on a draft can be as long as on the notebook (120 characters), and a long one, like any draft phrase, ends at a word instead of mid-word.
+- e6f0160: A notebook conversation folds the step cards the notebook let go.
+  
+  A run of cards the notebook retired (its steps moved on, or a newer card asks the same) shows as one quiet line, "11 step cards the notebook moved past ▸", which opens to show them and why each went. Cards you skipped yourself, and everything else in the conversation, stay as they are.
+- 504116c: How it was made: clicking a box opens its run.
+  
+  On a notebook's How it was made, each box in the graph (a run, the notebook) now opens its page when clicked, with a pointer on hover; cmd/ctrl-click opens it in a new tab. Before, clicks did nothing.
+- 1a3348f: Home's Run row lets you set what an agent runs on.
+  
+  An agent about something (a topic, a place) no longer runs on its saved defaults in one click. Its pill ("Research a topic on …") fills the Ask sua box with what it's about, defaults filled in ("Run Research a topic with topic: local-first software; depth: quick"), so you can change them and send. Settings such as how many or where it writes keep their defaults. An agent that takes nothing still runs in one click (▶).
+- 1323350: Home's Ask sua starters are short enough to fit three to a row.
+  
+  The row's label already says the verb, so the starters drop it ("Research a topic on …", "Schedule Web Search Links", "Find broken agents", "Today's finds"), and long agent, template and notebook names are cut at a word. Each starter is at most 28 characters; hovering a Run pill still gives the agent's full name.
+- 3e50174: Edit notebook shows Manage this notebook open.
+  
+  Its buttons (save as a template, archive, delete…) are shown without opening the fold first; it can still be folded away.
+- 18c2312: The meeting in a notebook's header is one quiet line, not a form.
+  
+  Without a meeting it reads "＋ Add the meeting · when, and what you want from it". With one, the meeting line ends with a small Edit. Either opens a compact row (date · time · your goal · Save, then optional notes) at the small control size, instead of a form that was open by default with stacked labels.
+- f6fbefa: A drafted notebook's limits are real limits, not filler.
+  
+  Meeting prep notebooks were drafted with limits like the person's name, "LinkedIn profile provided" and "Meeting date not specified", which tell the research and the writer nothing. The drafter now asks for only real limits (none is fine) and keeps meeting details in the meeting. Code drops filler whatever the drafter returns: a note on what was given or isn't known, and, for a notebook about someone, their name or what the title or statement already say. Saving a template uses the same check.
+- 0cc8be2: A running notebook step shows sua's working panel and stays in view.
+  
+  The running line under a notebook's steps had a small ring that blended into its background and scrolled out of sight. It's now the standard working panel (a large ring, the step, what else is happening, and elapsed time), and once you scroll past it a pinned line at the bottom of the window keeps it in view.
+- 35ffec6: The Notebooks page shows how to start when you have none.
+  
+  With no notebooks, the page was blank under its header (or said "No active notebooks"). Now it says what a notebook does and offers three ways to start (choose between options, answer a question, prepare for a meeting). Each opens New notebook with an example filled in. Your saved templates are listed too.
+- 32297e9: The Notebooks page says where your notebooks are when a tab has none.
+  
+  With every notebook archived, the page opened on Active ("No active notebooks. See them all"), and All was blank. Now an empty tab says where yours are ("Yours are under Archived (3)") and offers the same ways to start a new one. A search with no matches offers to clear the search.
+- 32dd56a: A picture's link kept as a fact no longer stalls a photo correction.
+  
+  When a notebook had a picture's link saved as a fact about someone ("image", "photo_url"), the correction agent couldn't tell it from the photo the page shows and asked which one you meant. That fact now says it's only a link, and a new link aimed at it changes the photo itself.
+- 77277b4: A button press that doesn't go through says so, and the dashboard log says why.
+  
+  Pressing a card's button (Apply, Run it, Not now) or a list row's button used to fail silently: the button came back on and nothing changed, so the press looked like it did nothing. Now a message shows under the buttons: signed out, gone, an error number, or sua not reachable. The dashboard also logs every press it refuses or fails, with the path, the status, and whether a session cookie came with it, so a press that didn't work can be traced.
+- d8c80c9: A profile step learns a company's industry, business model, competitors and revenue.
+  
+  When a profile step looks up a company, it now also asks for its industry, how it makes money, 3 to 5 named competitors (from a page that names them) and revenue. A company on its own gets the thorough look (up to 6 pages). A size or amount given as a range ("2–10 employees") is kept instead of dropped.
+- ec40ec8: A profile step uses the links you gave and keeps the LinkedIn profile you gave.
+  
+  The researcher is now told the links you gave the notebook (including in the meeting's notes) first, along with the meeting's goal and notes, so it can tell which person of a shared name it is. A LinkedIn profile you gave is kept as their LinkedIn instead of being listed as not found. `notebookGivenLinks` moves to core.
+- 509aadc: Remove dashboard code that nothing uses any more.
+  
+  Pulse and dashboards draw every tile on the canvas, so the old tile route (`GET /pulse/tile/:id`) and its configure, refresh, in-place run and add-tile scripts are gone, which also makes the page script smaller. Also removed: the layout planner's unused suggestion and commit routes, thread fork and retarget, the old way of setting a notebook's look by preset (pick it on the Edit page; Undo still works), and Home's old Notebooks line. Nothing you can see changes.
+- d77d974: Fix a test that started failing once its fixed date was more than 30 days old.
+  
+  The Temporal provider's resume test seeded a waiting run with a fixed start date. Opening the run store sweeps runs older than its 30-day retention, so after Oct 29 the run was gone and the test failed. It now seeds a run from an hour ago. No change to the published code.
+- 55b5f67: Folded steps no longer hide what they can do.
+  
+  On the reading pages (Meeting briefing, Answer, Plan, Watch), the steps fold to one line. That line now carries their actions: Write again, Edit the points, Check the top 5, Search again and Look again, the last step's first. It opens on its own when a step is stuck or waiting on you. The writer's "days away" from a meeting, and the header's countdown test, now use local dates, so an evening no longer counts as tomorrow.
+- 8ba2fb1: A notebook template leaves out limits that say nothing.
+  
+  Saving a company briefing as a template kept its limits "Arrive" (which became `{subject}`) and "company briefing", which only repeat who it's about and what it's for. Now, however a template is saved, a limit that's only the subject or that what it's for already says is dropped. The limits that are left tell the research and the writer something.
+- 38b0294: A template keeps what its write step writes, and leaves web addresses whole.
+  
+  A template saved from a notebook whose write step writes an answer or a plan (a company briefing, a trip) dropped that, so notebooks started from it wrote meeting talking points instead. It's kept now. Making a template also no longer swaps the subject's name inside a web address or email ("https://www.{subject}.accountants/").
+- 04eef00: New notebook's templates are one tidy list.
+  
+  Each template is a row that says what it's for (its statement, with "…" where the subject goes) instead of "8 fields · 4 steps · 5 checks", with its subject box and **Start →** in the same column on every row, and Archive and Delete under a **⋯** menu. No more five blue buttons, wrapping counts and a row of small controls per template.
+- 34765e3: A template keeps who its profile step learns about, filled in each time.
+  
+  A template saved from a notebook with a profile step dropped the step's subject, so a notebook started from it looked up its title ("Create a briefing on Ramp") instead of who it's about. The subject is now kept as `{subject}` and filled in when the notebook starts. Writing an answer again now says the answer is replaced, not the talking points.
+- 1ab6ab5: New notebook's template rows line up: each subject box sits level with its Start button, at the same height.
+- 86d52bd: Tests that checked a copy of the code now check the code itself.
+  
+  `sua agent reimport` and `sua outcome show` are tested through their own per-file and lookup code (which a reimport that can't read or parse a file, and a run-id prefix, now exercise), and the builder's "Install draft" proposal is tested by running it. No behavior changes.
+- 4e9eb58: Updating a shortlist counts and says what's new correctly.
+  
+  The update told the new options apart by their short name, so a new "Staff PM" role was mixed up with older roles of the same name and counted as still open after it was checked; it goes by id now. A notebook whose earlier searches ran before passes kept their step now gets "What's new" after an update, against its last search. And the update's message keeps the new options' names on the search's line.
+- 27aab4c: "Do it better" on Edit → Talk now does it better.
+  
+  A bare request to improve the notebook ("do it better", "improve it", "redo it", "redraw it", "clean it up") used to change nothing ("That didn't change anything"). It now enhances the whole notebook (the same brief as ✦ Enhance this prompt), and sua draws its page again to fit, as one proposal to preview. Requests that say what to change are taken as they are.
+- 239c2a7: The Watch page reads well with many changes.
+  
+  Each kind of change shows its first 5, then "Show N more". New options say what tells them apart: who, where and the price. "Not seen lately" replaces "not found this time". It's said once, when an option misses its second search in a row (the same rule as the "not in the last 2 searches" chip), instead of after a single miss and on every search after, which flooded job searches whose queries vary.
+- 1529a12: A company briefing's answer names its competitors.
+  
+  sua's writer now uses what the notebook knows about the company (its facts and competitors) when it writes an answer, and a briefing on a company says who it competes with.
+
 ## 0.32.0
 
 ### Minor Changes
