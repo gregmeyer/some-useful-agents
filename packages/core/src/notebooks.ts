@@ -133,8 +133,13 @@ export interface NotebookAboutConflict {
   /** The question it raises, in a sentence ("Is he at Contentful now?"). */
   question: string;
   at: string;
-  /** How it was settled: the value kept, by you or by sua's check, and why. */
-  settled?: { value: string; by: 'you' | 'research'; at: string; why?: string; source?: string };
+  /**
+   * How it was settled: the value kept, by you or by sua's check, and why.
+   * Settled by you, research doesn't change it again; an empty value is a
+   * fact you said is wrong (it's gone and isn't learned again). `wrong`: the
+   * values you said it isn't (a correction), never raised again.
+   */
+  settled?: { value: string; by: 'you' | 'research'; at: string; why?: string; source?: string; wrong?: string[] };
 }
 
 /** A company named as a competitor or alternative: on the page that names it. */
@@ -211,6 +216,9 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     const source = typeof f.source === 'string' && /^https?:\/\//i.test(f.source.trim()) ? f.source.trim().slice(0, 500) : undefined;
     const quote = typeof f.quote === 'string' && f.quote.trim() ? f.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : undefined;
     const label = typeof f.label === 'string' && f.label.trim() ? f.label.trim().slice(0, 40) : key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+    // What you settled stands over what's learned after.
+    const yours = was?.conflicts?.find((c) => c.fact === key && c.settled?.by === 'you')?.settled;
+    if (yours && lowerTrim(yours.value) !== lowerTrim(value)) continue;
     const i = facts.findIndex((x) => x.key === key);
     const old = i >= 0 ? facts[i] : undefined;
     // Seen again: when it was first learned stays; a new value keeps the one it replaced.
@@ -419,6 +427,12 @@ export function writtenBefore<T extends { at: string; by: string; previous?: Not
   return { ...rest, ...(was ? { previous: { at: was.at, items: items(was).slice(0, 40) } } : {}) } as T;
 }
 
+/** What you struck carries over to a rewrite that doesn't name its own (the newest 20). Pure. */
+function withStruck<T extends { struck?: string[] }>(next: T | undefined, was: T | undefined): T | undefined {
+  const struck = next?.struck ?? was?.struck;
+  return next && struck?.length ? { ...next, struck: struck.slice(-20) } : next;
+}
+
 /** What a write step wrote: the talking points, more questions, what to watch for. */
 export interface NotebookBriefing {
   points: NotebookBriefingPoint[];
@@ -455,6 +469,8 @@ export interface NotebookAnswer {
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
   previous?: NotebookWrittenBefore;
+  /** Findings you said are wrong: the writer doesn't write them again. Newest last. */
+  struck?: string[];
 }
 
 /** One thing in a plan: when, what, and the options (places, things found) it uses, by entry id. */
@@ -478,6 +494,8 @@ export interface NotebookPlan {
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
   previous?: NotebookWrittenBefore;
+  /** Plan items you said are wrong: the writer doesn't plan them again. Newest last. */
+  struck?: string[];
 }
 
 /** The meeting a notebook prepares for: when, what you want out of it, what you already know. */
@@ -1309,7 +1327,7 @@ export class NotebookStore {
     const fresh = conflicts.filter((c) => {
       const known = settled.filter((s) => s.fact === c.fact);
       if (!known.length) return true;
-      const seen = new Set(known.flatMap((s) => [...s.claims.map((x) => lowerTrim(x.value)), lowerTrim(s.settled!.value)]));
+      const seen = new Set(known.flatMap((s) => [...s.claims.map((x) => lowerTrim(x.value)), lowerTrim(s.settled!.value), ...(s.settled!.wrong ?? []).map(lowerTrim)]));
       return c.claims.some((x) => !seen.has(lowerTrim(x.value)));
     });
     const kept = settled.filter((s) => !fresh.some((c) => c.fact === s.fact));
@@ -1337,6 +1355,33 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
+  /**
+   * You corrected a fact about them ("she's COO now, not VP Ops"): it takes
+   * your value (none: it's wrong, and goes), kept as settled by you, so a
+   * later look doesn't change it back. The value it had is remembered as
+   * wrong. Any open question about it is settled with it.
+   */
+  correctAbout(id: string, who: NotebookAboutWho, key: string, c: { value: string; label?: string; why?: string }, now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const one = nb.about?.[who];
+    if (!one) throw new Error(`The notebook doesn't know about the ${who} yet.`);
+    const k = key.trim().toLowerCase();
+    if (!ABOUT_KEY_RE.test(k)) throw new Error(`"${key}" isn't a fact's key.`);
+    const value = c.value.replace(/\s+/g, ' ').trim().slice(0, 300);
+    const old = one.facts.find((f) => f.key === k);
+    if (!old && !value) throw new Error('There\'s no such fact to take out.');
+    const label = c.label?.trim().slice(0, 40) || old?.label || k.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
+    const before = one.conflicts?.find((x) => x.fact === k);
+    const rest: NotebookAboutOne = { ...one, conflicts: (one.conflicts ?? []).filter((x) => x.fact !== k) };
+    const merged = value ? mergeAbout(rest, { facts: [{ key: k, label, value }] }, now) : { ...rest, facts: rest.facts.filter((f) => f.key !== k), updatedAt: now };
+    const wrong = [...new Set([...(before?.settled?.wrong ?? []), ...(old && lowerTrim(old.value) !== lowerTrim(value) ? [old.value] : []), ...(before?.claims ?? []).map((x) => x.value).filter((v) => lowerTrim(v) !== lowerTrim(value))])].slice(0, 8);
+    const settled: NonNullable<NotebookAboutConflict['settled']> = { value, by: 'you', at: now, ...(c.why ? { why: c.why.replace(/\s+/g, ' ').trim().slice(0, 300) } : {}), ...(wrong.length ? { wrong } : {}) };
+    const conflict: NotebookAboutConflict = { fact: k, label, claims: [], question: before?.question ?? `What is their ${label.toLowerCase()}?`, at: before?.at ?? now, settled };
+    const about: NotebookAbout = { ...(nb.about ?? {}), [who]: { ...merged, conflicts: [...(merged.conflicts ?? []), conflict] } };
+    this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
+    return this.mustGet(id);
+  }
+
   /** Keep a copy of their picture (a person's photo, a company's logo). */
   /** `from`: the page it's on and why it's taken to be them (a person's photo). */
   /** Keep the meeting it prepares for (none: forget it). */
@@ -1347,18 +1392,20 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  /** Keep the plan a write step wrote (none: forget it). */
-  setPlan(id: string, plan: NotebookPlan | undefined): Notebook {
-    this.mustGet(id);
-    const kept = plan ? writtenBefore(this.mustGet(id).plan, plan, (x) => x.items.map((i) => i.title)) : undefined;
+  /** Keep the plan a write step wrote (none: forget it). Items you struck carry over, like the briefing's; `swap` keeps the version before as it was. */
+  setPlan(id: string, plan: NotebookPlan | undefined, opts: { swap?: boolean } = {}): Notebook {
+    const was = this.mustGet(id).plan;
+    const next = withStruck(plan, was);
+    const kept = !next ? undefined : opts.swap ? { ...next, ...(was?.previous ? { previous: was.previous } : {}) } : writtenBefore(was, next, (x) => x.items.map((i) => i.title));
     this.db.prepare('UPDATE notebooks SET plan_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
 
-  /** Keep the answer a write step wrote (none: forget it). */
-  setAnswer(id: string, answer: NotebookAnswer | undefined): Notebook {
-    this.mustGet(id);
-    const kept = answer ? writtenBefore(this.mustGet(id).answer, answer, (x) => x.findings.map((f) => f.text)) : undefined;
+  /** Keep the answer a write step wrote (none: forget it). Findings you struck carry over, like the briefing's; `swap` keeps the version before as it was. */
+  setAnswer(id: string, answer: NotebookAnswer | undefined, opts: { swap?: boolean } = {}): Notebook {
+    const was = this.mustGet(id).answer;
+    const next = withStruck(answer, was);
+    const kept = !next ? undefined : opts.swap ? { ...next, ...(was?.previous ? { previous: was.previous } : {}) } : writtenBefore(was, next, (x) => x.findings.map((f) => f.text));
     this.db.prepare('UPDATE notebooks SET answer_json = ?, updated_at = ? WHERE id = ?').run(kept ? JSON.stringify(kept) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }
@@ -1371,8 +1418,7 @@ export class NotebookStore {
    */
   setBriefing(id: string, briefing: NotebookBriefing | undefined, opts: { swap?: boolean } = {}): Notebook {
     const was = this.mustGet(id).briefing;
-    const struck = briefing?.struck ?? was?.struck;
-    const next = briefing && struck?.length ? { ...briefing, struck: struck.slice(-20) } : briefing;
+    const next = withStruck(briefing, was);
     const kept = !next ? undefined
       : opts.swap ? { ...next, ...(was?.previous ? { previous: was.previous } : {}) }
         : writtenBefore(was, next, (x) => x.points.map((p) => p.text));

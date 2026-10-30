@@ -1425,3 +1425,46 @@ describe('a write step (the talking points)', () => {
     } finally { runs.close(); rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe('corrections you make', () => {
+  it('a fact you correct stays yours: research doesn\'t change it back, and what you said it isn\'t isn\'t raised again', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana' });
+    s.setAbout(nb.id, 'person', { name: 'Dana', facts: [{ key: 'role', label: 'Role', value: 'VP Ops' }, { key: 'school', label: 'School', value: 'Rice' }] }, '2026-10-26T00:00:00Z');
+    expect(() => s.correctAbout(nb.id, 'company', 'role', { value: 'COO' })).toThrow("doesn't know about the company");
+    s.correctAbout(nb.id, 'person', 'role', { value: 'COO', why: "She's COO now" }, '2026-10-28T00:00:00Z');
+    const one = s.get(nb.id)!.about!.person!;
+    expect(one.facts.find((f) => f.key === 'role')).toMatchObject({ value: 'COO', changedAt: '2026-10-28T00:00:00Z', was: { value: 'VP Ops' } });
+    expect(one.conflicts).toEqual([expect.objectContaining({ fact: 'role', claims: [], settled: expect.objectContaining({ value: 'COO', by: 'you', why: "She's COO now", wrong: ['VP Ops'] }) })]);
+    // A later look brings the old value: it stays yours; other facts still change.
+    s.setAbout(nb.id, 'person', { facts: [{ key: 'role', label: 'Role', value: 'VP Ops' }, { key: 'school', label: 'School', value: 'UT Austin' }] });
+    expect(s.get(nb.id)!.about!.person!.facts.map((f) => f.value)).toEqual(['COO', 'UT Austin']);
+    // Sources disagreeing only on what you said it isn't don't reopen it.
+    s.setAboutConflicts(nb.id, 'person', [{ fact: 'role', label: 'Role', claims: [{ value: 'VP Ops' }, { value: 'COO' }], question: 'Is she COO?', at: 'x' }]);
+    expect(s.get(nb.id)!.about!.person!.conflicts!.filter((c) => !c.settled)).toEqual([]);
+    // A fact you say is wrong goes, and isn't learned again.
+    s.correctAbout(nb.id, 'person', 'school', { value: '' });
+    s.setAbout(nb.id, 'person', { facts: [{ key: 'school', label: 'School', value: 'UT Austin' }] });
+    expect(s.get(nb.id)!.about!.person!.facts.map((f) => f.key)).toEqual(['role']);
+  });
+
+  it('findings and plan items you strike carry over to a rewrite, like talking points', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Which mixer?' });
+    const answer = { question: 'Which mixer?', text: 'The Artisan.', confidence: 'medium' as const, findings: [{ text: 'It is $350', from: [] }], open: [], at: '2026-10-26T00:00:00Z', by: 'notebook-writer' };
+    s.setAnswer(nb.id, answer);
+    s.setAnswer(nb.id, { ...answer, findings: [], struck: ['It is $350'] }, { swap: true });
+    expect(s.get(nb.id)!.answer).toMatchObject({ struck: ['It is $350'] });
+    expect(s.get(nb.id)!.answer!.previous).toBeUndefined();
+    s.setAnswer(nb.id, { ...answer, text: 'The Classic.', at: '2026-10-28T00:00:00Z' });
+    expect(s.get(nb.id)!.answer).toMatchObject({ text: 'The Classic.', struck: ['It is $350'], previous: { items: [] } });
+    const plan = { summary: '', items: [{ when: 'Day 1', title: 'Museum', from: [] }], before: [], open: [], at: 'x', by: 'notebook-writer' };
+    s.setPlan(nb.id, { ...plan, struck: ['Zoo'] });
+    s.setPlan(nb.id, plan);
+    expect(s.get(nb.id)!.plan!.struck).toEqual(['Zoo']);
+  });
+});

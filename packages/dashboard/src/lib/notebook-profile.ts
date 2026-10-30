@@ -109,7 +109,8 @@ export function aboutFrom(f: Found, ask: readonly Ask[]): { facts: Array<{ key: 
 export function mainCompany(was: NotebookAboutOne | undefined, facts: ReturnType<typeof aboutFrom>['facts'], source?: unknown): { org: string; facts: ReturnType<typeof aboutFrom>['facts']; also: Array<{ name: string; source?: string }> } {
   const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   const found = facts.find((f) => f.key === 'organization');
-  const settled = (was?.conflicts ?? []).find((c) => c.fact === 'organization' && c.settled)?.settled;
+  // A company you said is wrong (settled empty) isn't their main one either.
+  const settled = (was?.conflicts ?? []).find((c) => c.fact === 'organization' && c.settled?.value)?.settled;
   const before = was?.facts.find((f) => f.key === 'organization')?.value;
   const also: Array<{ name: string; source?: string }> = [];
   let org = found?.value ?? '';

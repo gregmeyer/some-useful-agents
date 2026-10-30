@@ -74,6 +74,10 @@ nodes:
           more, only ids given above)}; most important first;
         - "open": up to 5 questions it couldn't settle, or what to check or
           do next, one sentence each.
+
+      When the notebook has "skip", those are findings the person said
+      are wrong: don't write them, or one that says the same, again.
+
       Use only what's above: don't invent facts, numbers, dates or sources.
       Reply with only this, as valid JSON:
       <answer>
@@ -94,6 +98,10 @@ nodes:
           day, nothing that breaks the limits;
         - "before": up to 8 things to book, buy or do before it starts;
         - "open": up to 5 things still to decide.
+
+      When the notebook has "skip", those are plan items the person said
+      are wrong: don't plan them again.
+
       Use only what's above: don't invent places, prices, hours or dates
       the items don't give; leave out what you can't place.
       Reply with only this, as valid JSON:

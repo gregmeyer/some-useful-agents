@@ -29,7 +29,7 @@ export function daysUntil(when: string, now = new Date()): number {
 }
 
 /** What the writer reads: the notebook (what it's for, who it's about) and its themes (what they said, each with its id). Pure. */
-export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>, opts: { keep?: string[] } = {}): Record<string, string> {
+export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>, opts: { keep?: string[]; count?: number } = {}): Record<string, string> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
   const askF = nb.fields.find((f) => f.role === 'ask');
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
@@ -74,15 +74,19 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
-      // Talking points you struck aren't written again; replacing one, the ones you're keeping.
-      ...(!step.shape && nb.briefing?.struck?.length ? { skip: nb.briefing.struck } : {}),
+      // What you struck isn't written again (points, findings, plan items); replacing some, the ones you're keeping.
+      ...(struckOf(nb, step).length ? { skip: struckOf(nb, step) } : {}),
       ...(opts.keep ? { keep: opts.keep } : {}),
     }),
     THEMES: JSON.stringify(themes.slice(0, 30)),
-    COUNT: opts.keep ? '1' : String(Math.min(8, Math.max(3, step.target ?? 4))),
+    COUNT: opts.keep ? String(Math.max(1, opts.count ?? 1)) : String(Math.min(8, Math.max(3, step.target ?? 4))),
     SHAPE: step.shape === 'answer' ? 'answer' : step.shape === 'plan' ? 'plan' : 'talking points',
   };
 }
+
+/** What you struck from what this step writes. */
+const struckOf = (nb: Notebook, step: Pick<NotebookStep, 'shape'>): string[] =>
+  (step.shape === 'answer' ? nb.answer?.struck : step.shape === 'plan' ? nb.plan?.struck : nb.briefing?.struck) ?? [];
 
 async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runId: string) => void): Promise<{ result?: string; error?: string }> {
   if (ctx.notebookWriterRun) return { result: await ctx.notebookWriterRun(inputs) };
@@ -145,32 +149,49 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
  * `at` is where it was, `text` what it said (a stale page's point isn't
  * struck). Returns what happened, a line each; never throws.
  */
-export async function swapTalkingPoint(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, at: number, text: string, onRun?: (runId: string) => void): Promise<string[]> {
+export function swapTalkingPoint(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, at: number, text: string, onRun?: (runId: string) => void): Promise<string[]> {
+  return strikePoints(ctx, store, notebookId, step, [{ at, text }], 1, onRun);
+}
+
+/**
+ * Strike talking points (each by its place and words) and have the writer
+ * write `write` new ones in the places of the first `write` struck: not like the
+ * ones kept, nor any you struck. A point that changed since isn't struck.
+ * Returns what happened, a line each; never throws.
+ */
+export async function strikePoints(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, strike: ReadonlyArray<{ at: number; text: string }>, write: number, onRun?: (runId: string) => void): Promise<string[]> {
   const nb = store.get(notebookId);
   const b = nb?.briefing;
-  const point = b?.points[at];
-  if (!nb || !b || !point || point.text !== text) return ['that point has changed since; nothing was struck'];
-  const keep = b.points.filter((_, i) => i !== at);
-  store.setBriefing(nb.id, { ...b, points: keep, struck: [...(b.struck ?? []).filter((x) => x !== text), text] }, { swap: true });
+  const gone = b ? strike.filter((x) => b.points[x.at]?.text === x.text) : [];
+  if (!nb || !b || !gone.length) return [strike.length === 1 ? 'that point has changed since; nothing was struck' : 'those points have changed since; nothing was struck'];
+  const at = new Set(gone.map((x) => x.at));
+  const texts = gone.map((x) => x.text);
+  const keep = b.points.filter((_, i) => !at.has(i));
+  store.setBriefing(nb.id, { ...b, points: keep, struck: [...(b.struck ?? []).filter((x) => !texts.includes(x)), ...texts] }, { swap: true });
+  const struck = texts.length === 1 ? `struck "${texts[0]}"` : `struck ${String(texts.length)} points`;
+  const want = Math.min(write, gone.length);
+  if (!want) return [struck];
   const entries = store.entries(nb.id, 1000);
   const ids = new Set(entries.filter((e) => e.kind === 'option' && !e.ruledOut).map((e) => e.id));
-  const struck = `struck "${text}"`;
-  if (!ids.size) return [struck, 'there is nothing to write a new one from: no themes in the running'];
+  if (!ids.size) return [struck, `there is nothing to write ${want === 1 ? 'a new one' : 'new ones'} from: no themes in the running`];
   try {
-    const { result, error } = await runWriter(ctx, writerInputs(store.get(nb.id)!, entries, step, { keep: keep.map((p) => p.text) }), onRun);
+    const { result, error } = await runWriter(ctx, writerInputs(store.get(nb.id)!, entries, step, { keep: keep.map((p) => p.text), count: want }), onRun);
     if (!result) return [struck, `${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
     const block = extractTaggedJson(result, 'briefing');
     let raw: unknown;
     try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
-    const fresh = cleanBriefing(raw, ids, NOTEBOOK_WRITER_ID)?.points.find((p) => !keep.some((k) => k.text === p.text) && p.text !== text);
-    if (!fresh) return [struck, `${NOTEBOOK_WRITER_ID}: no new point came back`];
-    // Into the place the struck one had, in what's there now (you may have edited meanwhile).
+    const fresh = (cleanBriefing(raw, ids, NOTEBOOK_WRITER_ID)?.points ?? []).filter((p) => !keep.some((k) => k.text === p.text) && !texts.includes(p.text)).slice(0, want);
+    if (!fresh.length) return [struck, `${NOTEBOOK_WRITER_ID}: no new point came back`];
+    // Into the places the struck ones had, in what's there now (you may have edited meanwhile).
     const now = store.get(nb.id)?.briefing;
     if (!now) return [struck];
     const points = [...now.points];
-    points.splice(Math.min(at, points.length), 0, fresh);
+    // The first struck get the new ones, each where it was (less the struck ones before it that aren't replaced).
+    const redone = gone.slice(0, fresh.length).map((x) => x.at).sort((x, y) => x - y);
+    const dropped = gone.slice(fresh.length).map((x) => x.at);
+    redone.forEach((was, i) => points.splice(Math.min(was - dropped.filter((d) => d < was).length, points.length), 0, fresh[i]));
     store.setBriefing(nb.id, { ...now, points }, { swap: true });
-    return [struck, `wrote a new one: "${fresh.text}"`];
+    return [struck, fresh.length === 1 ? `wrote a new one: "${fresh[0].text}"` : `wrote ${String(fresh.length)} new ones: ${fresh.map((p) => `"${p.text}"`).join('; ')}`];
   } catch (err) {
     return [struck, `${NOTEBOOK_WRITER_ID}: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`];
   }
