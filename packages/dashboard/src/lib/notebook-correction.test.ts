@@ -74,6 +74,17 @@ describe('notebook corrections', () => {
     expect('correction' in wrong && wrong.correction.impact).toEqual([{ object_id: 'finding:1', action: 'invalidate', reason: "you said it's wrong" }]);
   });
 
+  it('a check every option was checked on: the first few on the card, then how many more', () => {
+    const many = Array.from({ length: 8 }, (_, i) => option(`m${String(i)}`, `Mixer ${String(i)}`, { checked: ['Bowl of 5 qt or more'] }));
+    const out = checkCorrection(nb, many, delta({ type: 'check', target_id: 'check:1', old_value: 'Bowl of 5 qt or more', new_value: 'Bowl of 4 qt or more' }));
+    if ('question' in out) throw new Error(out.question);
+    const { rows, summary } = describeCorrection(nb, many, out.correction);
+    expect(rows[0]).toEqual({ what: 'check', before: 'Bowl of 5 qt or more', after: 'Bowl of 4 qt or more' });
+    expect(rows.filter((r) => r.what === 'look again')).toHaveLength(6);
+    expect(rows.at(-2)).toEqual({ what: 'look again', before: '—', after: "and 3 more options' results for it" });
+    expect(summary).toBe('Check: Bowl of 5 qt or more → Bowl of 4 qt or more. Checks the options against it, looks again at 8; everything else stays as it is.');
+  });
+
   it('asks instead of guessing: when the agent asks, or names a part the notebook doesn\'t have', () => {
     expect(checkCorrection(nb, entries, { ...delta({}), clarification_required: true, clarification_question: 'The Artisan or the Classic?' })).toEqual({ question: 'The Artisan or the Classic?' });
     expect(checkCorrection(nb, entries, delta({ target_id: 'option:zz:price' }))).toEqual({ question: 'Which part of the notebook is wrong, and what should it say?' });

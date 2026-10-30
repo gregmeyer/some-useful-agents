@@ -79,7 +79,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
   This follows your autonomy setting: under Full it applies right away, otherwise it waits as a card. Every entry can be removed.
 - **sua suggests a pipeline** when there isn't one, from agents you have (e.g. a listings search every morning). That's a **Set up the pipeline** card you approve, and it can run once right away.
 - **Agents sua runs in the conversation feed the notebook.** A search becomes options, evidence, or a note such as "Searched Seattle Craigslist for Foresters: nothing that fits yet", each linked to its run. When sua builds an agent for the notebook, it offers to add it to the pipeline.
-- **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
+- **A whole new set of limits replaces the old ones.** Changing or dropping one limit, check or done-when ("the budget is $600 now", "drop the CPA check") is a correction (below): sua shows what it brings back and checks again.
 - **Corrections change the option itself.** Say "the price is actually $136.64" or "it's 30 inches, not 24", and sua shows what that changes (below); applied, it updates that option's facts, so its card, its page, the chart and the stats change too. It isn't filed as a separate note. The option's history shows **Corrected**, with what it replaced ("Price $4,023 → $136.64"). The old source and estimate mark for that fact go. A correction stands over the option's own title and earlier searches. A corrected price starts the price history over, so fixing a wrong price doesn't read as a price drop.
 - **Correct something, and sua works out what it changes.** Say "she's COO now, not VP Ops", "he's based in Denver", or "that talking point is wrong, she never said that". sua's correction agent (`notebook-correction`) reads the notebook part by part: what was found (evidence), what was concluded from it (check results, picks, talking points, findings), and the rules you set. It names the smallest change you meant and what rests on it.
   - **A card shows it before anything changes:**
@@ -94,7 +94,13 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
     - Talking points that rest on it are written again in their places (the rest stay).
     - Findings and plan items you say are wrong come out, and aren't written again.
     - **An option's fact:** its results for the checks that rest on it are forgotten, and the notebook's check step checks just that option again, on just those checks. If a check ruled it out (sua's check, not you, and it isn't gone), it's back in to be checked again. A picked option that now fails a check stays picked, and sua says which check, so you can unpick it. Talking points, findings and plan items that cite it are written again.
-  - For now this covers facts about who the notebook is about, an option's facts, and what sua wrote. Limits and checks come next. See [ADR-0063](adr/0063-notebook-corrections.md).
+    - **A limit, check or done-when** changes or comes out where it is.
+      - **A changed check:** its results are forgotten, and options sua ruled out on it come back. Then the check step checks every option in the running (in its top N, if it has one) on the new check. A check taken out brings back what it ruled out.
+      - **A changed limit:** options it ruled out (the agent names them, by their reason) come back and are checked again, and the next search uses the new limit.
+      - **A done-when:** just that changes.
+      - **Rules that go together change together.** "The comp bar is $180k+ now" changes the limit, the check that applies it and the done-when that names it, each shown on the card.
+      - Options you ruled out yourself stay out. A card made before the rule changed again finds it by its words, or says to ask again.
+  - See [ADR-0063](adr/0063-notebook-corrections.md).
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, use **+ Add entry** in the notebook's header.
 
 - **A conversation that turns to a notebook** sees it too. Ask "which notebook should I work on next?" anywhere, pick one, and once sua's reply links just that notebook, sua has its options, steps and fields for the rest of the conversation, as if you'd asked on its page. sua sees every option still in the running, however long the notebook's history, so its count matches the page's. Results of searches you run there still go into the notebook only from its own conversation.

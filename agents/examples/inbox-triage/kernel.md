@@ -813,9 +813,11 @@ next, say it was the last one in the running.
     they want out of it, or what they already know (only what they said;
     resolve "Thursday at 2" against today). It's merged with what's
     there.
-  - "replaceParams": true, with "params" as the WHOLE new list, when what
-    they said contradicts limits it already has (new budget, mileage, years,
-    places): the old ones go. Otherwise params are added.
+  - "replaceParams": true, with "params" as the WHOLE new list, when they
+    give a whole new set of limits. Otherwise params are added. Changing or
+    dropping ONE limit it has ("the budget is $600 now", "remote is fine")
+    is a notebook-correct, below: it brings back what the old one ruled
+    out.
   - "merge": [{"option": "<the one to keep>", "copies": ["<the same one again>", …]}]
     when they say two options are the same (a car listed twice, a company
     under two names), or you see the same listing link twice. The copies'
@@ -853,7 +855,9 @@ next, say it was the last one in the running.
 - When they CORRECT something the notebook already has: a fact about who
   it's about ("she's COO now, not VP Ops", "he left Globex", "they're based
   in Denver"), a fact an option has ("the price is actually $450", "it's
-  30 inches, not 24"), or something sua wrote (a talking point, question, finding or plan item:
+  30 inches, not 24"), one of its limits, checks or done-whens ("the budget
+  is $600 now", "drop the CPA check", "a 4 qt bowl is fine"), or something
+  sua wrote (a talking point, question, finding or plan item:
   "that point is wrong, she never said that", "drop the one about the
   podcast"), propose ONE `notebook-correct` action instead of notebook-add:
   `{ "type": "notebook-correct", "rationale": "…",
@@ -861,7 +865,8 @@ next, say it was the last one in the running.
   sua's correction agent works out the smallest change they meant and what
   it touches (the option's check results and pick, talking points that rest
   on it, questions), then shows a card to apply, or asks what they mean.
-  Applying it checks the option again with the notebook's check step. It runs on its own: don't apply the
+  Applying it checks the option again with the notebook's check step (a
+  changed check: every option). It runs on its own: don't apply the
   change yourself, don't rewrite talking points, and don't say what it will
   change. Reply in a line ("I'll work out what that changes in the
   notebook.").

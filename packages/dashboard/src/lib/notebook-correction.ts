@@ -31,10 +31,11 @@ const TYPES: readonly CorrectionType[] = ['about-fact', 'option-fact', 'limit', 
 export type CorrectionAction = 'keep' | 'reevaluate' | 'invalidate';
 const ACTIONS: readonly CorrectionAction[] = ['keep', 'reevaluate', 'invalidate'];
 /** What applying a correction can do yet (the others are worked out and said, not applied). */
-const APPLIES: ReadonlySet<CorrectionType> = new Set(['about-fact', 'option-fact', 'written']);
+const APPLIES: ReadonlySet<CorrectionType> = new Set(['about-fact', 'option-fact', 'limit', 'check', 'criterion', 'written']);
 
 export interface CorrectionDelta { type: CorrectionType; target_id: string; old_value: string; new_value: string; label?: string }
-export interface CorrectionImpact { object_id: string; action: CorrectionAction; reason: string }
+/** `new_value`: another rule that changes with it (a limit and the check that applies it), and what it says now. */
+export interface CorrectionImpact { object_id: string; action: CorrectionAction; reason: string; new_value?: string }
 export interface Correction {
   semantic_delta: CorrectionDelta;
   impact: CorrectionImpact[];
@@ -147,7 +148,7 @@ export function parseCorrection(result: string): Correction | undefined {
     const o = (x ?? {}) as Record<string, unknown>;
     const action = ACTIONS.find((a) => a === line(o.action));
     const id = line(o.object_id, 120);
-    return action && id ? { object_id: id, action, reason: line(o.reason, 200) } : undefined;
+    return action && id ? { object_id: id, action, reason: line(o.reason, 200), ...(typeof o.new_value === 'string' && RULE_ID.test(id) ? { new_value: line(o.new_value) } : {}) } : undefined;
   }).filter((x): x is CorrectionImpact => !!x);
   return {
     semantic_delta: { type, target_id: line(d.target_id, 120), old_value: line(d.old_value), new_value: line(d.new_value), ...(label ? { label } : {}) },
@@ -158,6 +159,16 @@ export function parseCorrection(result: string): Correction | undefined {
 }
 
 const STRENGTH: Record<CorrectionAction, number> = { keep: 0, reevaluate: 1, invalidate: 2 };
+const RULE_ID = /^(limit|check|criterion):\d+$/;
+
+/** The rules a correction changes: its target, when it's a rule, and any rule that changes with it. */
+export function ruleChanges(c: Pick<Correction, 'semantic_delta' | 'impact'>): Array<{ id: string; value: string }> {
+  const d = c.semantic_delta;
+  return [
+    ...(RULE_ID.test(d.target_id) && (d.type === 'limit' || d.type === 'check' || d.type === 'criterion') ? [{ id: d.target_id, value: d.new_value }] : []),
+    ...c.impact.filter((x) => x.new_value !== undefined && x.action !== 'keep' && RULE_ID.test(x.object_id)).map((x) => ({ id: x.object_id, value: x.new_value! })),
+  ];
+}
 
 /** What a checked correction comes to: the change and its impact, or the question to ask. */
 export type CheckedCorrection = { correction: Correction } | { question: string };
@@ -196,7 +207,7 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   const put = (x: CorrectionImpact) => {
     if (x.object_id === d.target_id || !byId.has(x.object_id)) return;
     const was = impact.get(x.object_id);
-    if (!was || STRENGTH[x.action] > STRENGTH[was.action]) impact.set(x.object_id, { ...x, reason: x.reason || was?.reason || '' });
+    if (!was || STRENGTH[x.action] > STRENGTH[was.action]) impact.set(x.object_id, { ...x, reason: x.reason || was?.reason || '', ...(was?.new_value !== undefined && x.new_value === undefined ? { new_value: was.new_value } : {}) });
   };
   for (const x of c.impact) put(x);
   // What follows by the notebook's own links.
@@ -213,9 +224,11 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
       else if (p.from?.includes(opt) && written.includes(p)) put({ object_id: p.id, action: 'reevaluate', reason: 'it cites that option' });
     }
   }
-  if (d.type === 'check') {
-    const i = d.target_id.slice('check:'.length);
-    for (const p of parts) if (p.id.endsWith(`:check:${i}`)) put({ object_id: p.id, action: 'reevaluate', reason: 'it was checked against the old check' });
+  // A check that changes (the target, or one that changes with it): its results on each option. Not on one you ruled out: that stays your call.
+  const yours = new Set(entries.filter((e) => e.ruledOut?.by === 'you').map((e) => optionId(e.id)));
+  for (const r of ruleChanges({ semantic_delta: d, impact: [...impact.values()] }).filter((x) => x.id.startsWith('check:'))) {
+    const i = r.id.slice('check:'.length);
+    for (const p of parts) if (p.id.endsWith(`:check:${i}`) && !yours.has(p.id.replace(/:check:\d+$/, ''))) put({ object_id: p.id, action: 'reevaluate', reason: 'it was checked against the old check' });
   }
   // Evidence stays unless the change is to that very fact.
   for (const [id, x] of impact) {
@@ -232,6 +245,9 @@ const partText = (nb: Notebook, entries: readonly NotebookEntry[], id: string) =
 /** Its words on the card: a point without its why and question. */
 const cardText = (text: string) => text.split(/ \((?:why|ask): /)[0];
 
+/** A rule's name on the card. */
+const RULE_WORDS: Partial<Record<CorrectionType, string>> = { limit: 'Limit', check: 'Check', criterion: 'Done when' };
+
 /** An option as the card and sua's words name it: its company ("Extend"), else its short name. */
 function optionName(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookEntry, 'title' | 'data'>): string {
   const org = nb.fields.find((f) => f.role === 'org')?.key;
@@ -247,22 +263,38 @@ export function describeCorrection(nb: Notebook, entries: readonly NotebookEntry
   const opt = optId ? entries.find((e) => e.id === optId) : undefined;
   const who = opt ? optionName(nb, opt) : 'option';
   const name = d.type === 'option-fact' ? `${who}, ${nb.fields.find((f) => f.key === key)?.label ?? key}`
-    : d.label || (d.type === 'written' ? cardText(partText(nb, entries, d.target_id)) : d.type.replace('-', ' '));
+    : RULE_WORDS[d.type] ?? (d.label || (d.type === 'written' ? cardText(partText(nb, entries, d.target_id)) : d.type.replace('-', ' ')));
   const rows: Array<{ what: string; before: string; after: string }> = [];
-  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type === 'option-fact' ? name : d.type.replace('-', ' '), before: d.old_value || '—', after: d.new_value || '(take it out)' });
+  // A rule's words as the notebook has them (the agent may say less).
+  const old = RULE_WORDS[d.type] ? cardText(partText(nb, entries, d.target_id)).replace(/ \(met\)$/, '') : d.old_value;
+  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type === 'option-fact' ? name : RULE_WORDS[d.type]?.toLowerCase() ?? d.type, before: old || '—', after: d.new_value || '(take it out)' });
   const touched = c.impact.filter((x) => x.action !== 'keep');
-  for (const x of touched) {
-    // Evidence it flags isn't changed (only you or a new look change what was found): said so.
-    const evidence = /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(x.object_id);
-    const what = evidence ? 'may be out of date' : x.action === 'invalidate' ? 'take out' : /^(point|finding|plan):/.test(x.object_id) ? 'rewrite' : /^question:/.test(x.object_id) ? 'take out' : 'look again';
-    rows.push({ what, before: cardText(partText(nb, entries, x.object_id)).slice(0, 160), after: x.reason || '—' });
+  // Each touched part's row: evidence it flags isn't changed (only you or a new look change what was found), said so.
+  const whatOf = (id: string, action: CorrectionAction) => RULE_ID.test(id) ? 'rule' : /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(id) ? 'may be out of date'
+    : action === 'invalidate' ? 'take out' : /^(point|finding|plan):/.test(id) ? 'rewrite' : /^question:/.test(id) ? 'take out' : 'look again';
+  const all = touched.map((x) => ({ x, what: whatOf(x.object_id, x.action) }));
+  // A changed check can touch every option: the first few by name, then how many more.
+  const isResult = (id: string) => /^option:[^:]+:check:\d+$/.test(id);
+  const shown = all.filter(({ x }, i) => !isResult(x.object_id) || all.slice(0, i).filter((y) => isResult(y.x.object_id)).length < 5);
+  for (const { x, what } of shown) {
+    // A rule that changes with it shows its change; one only to look at, why.
+    if (what === 'rule') rows.push({ what: RULE_WORDS[x.object_id.split(':')[0] as CorrectionType]!.toLowerCase(), before: cardText(partText(nb, entries, x.object_id)).replace(/ \(met\)$/, ''), after: x.new_value === undefined ? `look at it: ${x.reason || 'it rests on this'}` : x.new_value || '(take it out)' });
+    else rows.push({ what, before: cardText(partText(nb, entries, x.object_id)).slice(0, 160), after: x.reason || '—' });
   }
-  const counts = (['rewrite', 'take out', 'look again', 'may be out of date'] as const).map((w) => [w, rows.filter((r) => r.what === w).length] as const).filter(([, n]) => n);
-  const changes = counts.map(([w, n]) => w === 'may be out of date' ? `flags ${String(n)} that may be out of date` : `${w === 'rewrite' ? 'rewrites' : w === 'take out' ? 'takes out' : 'looks again at'} ${String(n)}`).join(', ');
+  const more = all.length - shown.length;
+  if (more) rows.push({ what: 'look again', before: '—', after: `and ${String(more)} more option${more === 1 ? '' : 's'}' results for it` });
+  const counts = (['rewrite', 'take out', 'look again', 'may be out of date'] as const).map((w) => [w, all.filter((r) => r.what === w).length] as const).filter(([, n]) => n);
+  // A changed check is checked on every option (not listed: it's all of them).
+  const rules = all.filter((r) => r.what === 'rule' && r.x.new_value !== undefined).length;
+  const againstAll = [
+    ...(rules ? [`changes ${String(rules)} more rule${rules === 1 ? '' : 's'} with it`] : []),
+    ...(ruleChanges(c).some((r) => r.id.startsWith('check:') && r.value) ? ['checks the options against it'] : []),
+  ];
+  const changes = [...againstAll, ...counts.map(([w, n]) => w === 'may be out of date' ? `flags ${String(n)} that may be out of date` : `${w === 'rewrite' ? 'rewrites' : w === 'take out' ? 'takes out' : 'looks again at'} ${String(n)}`)].join(', ');
   // A count of every part kept (facts, check results…) means nothing to read: say the rest stays.
   const head = d.type === 'written'
     ? `"${name.slice(0, 80)}" is wrong`
-    : `${d.type === 'option-fact' ? name : d.label ?? name}: ${d.old_value || '—'} → ${d.new_value || 'taken out'}`;
+    : `${d.type === 'option-fact' || RULE_WORDS[d.type] ? name : d.label ?? name}: ${old || '—'} → ${d.new_value || 'taken out'}`;
   rows.push({ what: 'keeps', before: '—', after: touched.length ? 'everything else in the notebook as it is' : 'everything else: nothing rests on it' });
   return { rows, summary: `${head}. ${changes ? `${capital(changes)}; everything else stays as it is.` : 'Nothing else changes.'}` };
 }
@@ -321,7 +353,7 @@ export function startNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
     const action: InboxActionMeta = {
       kind: 'action', status: 'proposed', agentId: 'notebook-correct-apply', effect: 'write',
-      inputs: { NOTEBOOK: nb.id, NOTEBOOK_TITLE: now.title, INSTRUCTION: instruction, CORRECTION: JSON.stringify(checked.correction), TEXTS: JSON.stringify(Object.fromEntries(checked.correction.impact.map((x) => [x.object_id, partText(now, nowEntries, x.object_id)]))) },
+      inputs: { NOTEBOOK: nb.id, NOTEBOOK_TITLE: now.title, INSTRUCTION: instruction, CORRECTION: JSON.stringify(checked.correction), TEXTS: JSON.stringify(Object.fromEntries([checked.correction.semantic_delta.target_id, ...checked.correction.impact.map((x) => x.object_id)].map((id) => [id, partText(now, nowEntries, id)]))) },
       rationale: summary, surfaceChanges: rows, ctaLabel: 'Apply',
     };
     const resp = ctx.inboxStore!.addResponse(messageId, 'action', summary, JSON.stringify(action));
@@ -374,6 +406,26 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
       const { entry, changed } = store.correctOption(nb.id, entryId, { [key]: d.new_value }, 'you');
       said.push(changed.length ? `${optionName(nb, entry)}'s ${(field?.label ?? key).toLowerCase()} is ${field ? formatFieldValue(field, changed[0].to) : String(changed[0].to)} now, as you said` : `${optionName(nb, entry)} already says that`);
     }
+    // Each rule that changes (the target, and any that changes with it), found by its words when the card was made.
+    const rules = ruleChanges(c);
+    for (const r of rules) {
+      const kind = r.id.split(':')[0] as 'limit' | 'check' | 'criterion';
+      const now = store.get(nb.id)!;
+      const list = kind === 'limit' ? now.params : kind === 'check' ? now.checks : now.criteria.map((x) => x.text);
+      const at = placeNow(list, r.id, texts);
+      if (at < 0) {
+        if (r.id === d.target_id) return { status: 'failed', refusalReason: 'That rule has changed since this was worked out. Ask again.' };
+        continue;
+      }
+      const was = list[at];
+      const next = r.value ? list.map((x, j) => (j === at ? r.value : x)) : list.filter((_, j) => j !== at);
+      if (kind === 'limit') store.update(nb.id, { params: next });
+      else if (kind === 'check') store.setChecks(nb.id, next);
+      else store.setCriteria(nb.id, next);
+      const word = kind === 'criterion' ? 'done-when' : kind;
+      said.push(r.value ? `the ${word} "${was}" is "${r.value}" now` : `took out the ${word} "${was}"`);
+    }
+    if (rules.some((r) => r.id.startsWith('limit:'))) said.push('the next search uses it');
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
@@ -412,7 +464,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     const m = /^option:([^:]+):(check:(\d+)|ruled-out|pick)$/.exec(x.object_id);
     if (!m || x.action === 'keep') continue;
     const checks = recheck.get(m[1]) ?? new Set<string>();
-    if (m[3] !== undefined && fresh.checks[Number(m[3])]) checks.add(fresh.checks[Number(m[3])]);
+    if (m[3] !== undefined && nb.checks[Number(m[3])]) checks.add(nb.checks[Number(m[3])]);
     recheck.set(m[1], checks);
   }
   const optionNow = (id: string) => store.entries(nb.id, 1000).find((e) => e.id === id && e.kind === 'option');
@@ -421,7 +473,9 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     if (!o) { recheck.delete(id); continue; }
     if (checks.size) store.clearChecks(nb.id, id, [...checks]);
     // Ruled out by sua's checks (not by you, and not gone): back in, to be checked again.
-    if (o.ruledOut && o.ruledOut.by !== 'you' && !o.ruledOut.gone && c.impact.some((x) => x.object_id === `option:${id}:ruled-out` && x.action !== 'keep')) {
+    // Ruled out by sua (not you, and not gone), on what's corrected or on a check that changed: back in.
+    const byCheck = /Fails "([^"]+)"/.exec(o.ruledOut?.reason ?? '')?.[1]?.toLowerCase();
+    if (o.ruledOut && o.ruledOut.by !== 'you' && !o.ruledOut.gone && (c.impact.some((x) => x.object_id === `option:${id}:ruled-out` && x.action !== 'keep') || (!!byCheck && [...checks].some((k) => k.toLowerCase() === byCheck)))) {
       store.reinstate(nb.id, id);
       said.push(`brought ${optionName(fresh, o)} back to check it again`);
     }
@@ -429,19 +483,21 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   const pointStep = fresh.steps?.find((s) => s.kind === 'write' && !s.shape);
   const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => touched(shape === 'answer' ? 'finding' : 'plan', 'reevaluate').length && fresh.steps?.some((s) => s.kind === 'write' && s.shape === shape));
   const redo = strike.filter((x) => x.redo).length;
-  if (!strike.length && !rewriteWhole.length && !recheck.size) {
+  // A check that changed applies to every option: all of them (in the check step's top N) are checked on it.
+  const recheckAll = ruleChanges(c).some((r) => r.id.startsWith('check:') && !!r.value) && !!fresh.steps?.some((s) => s.kind === 'check');
+  if (!strike.length && !rewriteWhole.length && !recheck.size && !recheckAll) {
     store.noteRun(nb.id, `Corrected: ${said.join('; ')}`);
     return { status: 'completed', summary: `${capital(said.join('; ') || 'nothing to change')}.` };
   }
   // The rest is the checker's and the writer's: one run at a time, like Write again.
   ctx.notebookPipelines ??= new Map();
-  const running = { agentId: recheck.size ? NOTEBOOK_CHECKER_ID : NOTEBOOK_WRITER_ID, step: 0, of: fresh.steps?.length ?? 0, startedAt: Date.now(), again: true };
+  const running = { agentId: recheck.size || recheckAll ? NOTEBOOK_CHECKER_ID : NOTEBOOK_WRITER_ID, step: 0, of: fresh.steps?.length ?? 0, startedAt: Date.now(), again: true };
   ctx.notebookPipelines.set(nb.id, running);
   const work = (async () => {
     const out: string[] = [];
-    if (recheck.size) {
-      const inBefore = new Set([...recheck.keys()].filter((id) => !optionNow(id)?.ruledOut));
-      out.push((await recheckOptions(ctx, nb.id, [...recheck.keys()])).replace(/\.$/, ''));
+    if (recheck.size || recheckAll) {
+      const inBefore = new Set((recheckAll ? store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id) : [...recheck.keys()]).filter((id) => !optionNow(id)?.ruledOut));
+      out.push((await recheckOptions(ctx, nb.id, recheckAll ? 'all' : [...recheck.keys()])).replace(/\.$/, ''));
       // Ruled out by the new look: said, with why.
       for (const id of inBefore) {
         const o = optionNow(id);
@@ -481,7 +537,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   });
   done?.(work);
   const next = [
-    recheck.size ? `checking ${recheck.size === 1 ? 'it' : `${String(recheck.size)} options`} again` : '',
+    recheckAll ? 'checking the options against it' : recheck.size ? `checking ${recheck.size === 1 ? 'it' : `${String(recheck.size)} options`} again` : '',
     redo ? `rewriting ${String(redo)} talking point${redo === 1 ? '' : 's'}` : strike.length ? `striking ${String(strike.length)} talking point${strike.length === 1 ? '' : 's'}` : '',
     rewriteWhole.length ? 'writing it again' : '',
   ].filter(Boolean).join(', then ');
