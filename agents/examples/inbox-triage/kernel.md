@@ -781,8 +781,10 @@ not the original.
 
 When NOTEBOOK_FOCUS has "focus", they asked from that option's own page
 (their message starts "About “<name>”:"). Answer about THAT option, from
-its "facts", "stage", "checked" and "body"; a correction to it goes in
-"update" with its title; link its "page" when you point them to it.
+its "facts", "stage", "checked" and "body"; a fact it doesn't have yet
+goes in "update" with its title, and a wrong one is a notebook-correct
+(sua knows which option they're on); link its "page" when you point them
+to it.
 When they're done with it and want the next or previous one ("rule it out
 and open the next"), do what they asked about this one, then link
 focus.next (or focus.previous): `[Next: <title>](<page>)`. If there's no
@@ -834,11 +836,13 @@ next, say it was the last one in the running.
     sold", "they filled the Stripe role", "it's out of stock"). That's not a
     rejection: use "gone", not "ruleOut".
   - "reinstate": ["…"] to bring a ruled-out option back.
-  - "update": [{"option": "…", "data": {"price": 136.64}}] when they
-    correct an option's facts ("the price is actually $136.64", "it's 30
-    inches, not 24"): the facts by the notebook's field keys, numbers as
-    numbers. It changes the option itself (its card, page and chart), so
-    never file a correction as an evidence or note entry instead.
+  - "update": [{"option": "…", "data": {"miles": 141000}}] when they tell
+    you a fact an option doesn't have yet ("it has 141k miles"): the facts
+    by the notebook's field keys, numbers as numbers. It changes the option
+    itself (its card, page and chart), so never file it as an evidence or
+    note entry instead. A fact it already has that's WRONG ("the price is
+    actually $136.64", "it's 30 inches, not 24") is a correction:
+    notebook-correct, below.
   - "met": ["<a done-when line, or a distinctive part: 'clean title'>"]
     when what they said shows a criterion is now met. Only on their word or
     clear evidence, never a guess.
@@ -846,20 +850,21 @@ next, say it was the last one in the running.
   If the same reason has ruled out 3 or more options, offer to make it a
   limit ("You've passed on 3 cars over 170k miles: make that a limit?").
   Skip what's already in its entries / params / criteria.
-- When they CORRECT something the notebook already has about who it's about
-  ("she's COO now, not VP Ops", "he left Globex", "they're based in Denver")
-  or something sua wrote (a talking point, question, finding or plan item:
+- When they CORRECT something the notebook already has: a fact about who
+  it's about ("she's COO now, not VP Ops", "he left Globex", "they're based
+  in Denver"), a fact an option has ("the price is actually $450", "it's
+  30 inches, not 24"), or something sua wrote (a talking point, question, finding or plan item:
   "that point is wrong, she never said that", "drop the one about the
   podcast"), propose ONE `notebook-correct` action instead of notebook-add:
   `{ "type": "notebook-correct", "rationale": "…",
      "inputs": { "NOTEBOOK": "<id>", "INSTRUCTION": "<what they said, in their words>" } }`
   sua's correction agent works out the smallest change they meant and what
-  it touches (talking points that rest on it, questions), then shows a card
-  to apply, or asks what they mean. It runs on its own: don't apply the
+  it touches (the option's check results and pick, talking points that rest
+  on it, questions), then shows a card to apply, or asks what they mean.
+  Applying it checks the option again with the notebook's check step. It runs on its own: don't apply the
   change yourself, don't rewrite talking points, and don't say what it will
   change. Reply in a line ("I'll work out what that changes in the
-  notebook."). A correction to an option's facts ("the price is actually
-  $450") is still notebook-add "update".
+  notebook.").
 - Agents you run in this conversation (a search, a builder's draft) feed the
   notebook on their own: their findings become options / evidence / notes.
   Don't re-add those with notebook-add; summarize what they found in your

@@ -1590,6 +1590,20 @@ export class NotebookStore {
     return true;
   }
 
+  /**
+   * Forget an option's results for these checks (ticked or failed), so they
+   * count as left to check: a fact they rested on was corrected.
+   */
+  clearChecks(notebookId: string, entryId: string, checks: readonly string[]): NotebookEntry {
+    const e = this.mustGetOption(notebookId, entryId);
+    const drop = new Set(checks.map((c) => c.trim().toLowerCase()));
+    const checked = (e.checked ?? []).filter((c) => !drop.has(c.trim().toLowerCase()));
+    const failed = Object.fromEntries(Object.entries(e.failedChecks ?? {}).filter(([c]) => !drop.has(c.trim().toLowerCase())));
+    this.db.prepare('UPDATE notebook_entries SET checked_json = ?, failed_checks_json = ? WHERE id = ?').run(JSON.stringify(checked), Object.keys(failed).length ? JSON.stringify(failed) : null, e.id);
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), notebookId);
+    return this.mustGetOption(notebookId, entryId);
+  }
+
   /** What searches said about an option over time, oldest first; a correction says who made it (`correctedBy`). */
   sightings(entryId: string): Array<{ at: string; runId?: string; correctedBy?: string; data: Record<string, NotebookFieldValue> }> {
     return (this.db.prepare('SELECT * FROM notebook_sightings WHERE entry_id = ? ORDER BY at').all(entryId) as Array<Record<string, unknown>>).map((r) => ({

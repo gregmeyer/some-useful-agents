@@ -4689,9 +4689,9 @@ describe('editing the talking points', () => {
       expect.objectContaining({ what: 'rewrite', before: 'Ask how she runs ops as VP Ops' }),
       expect.objectContaining({ what: 'take out', before: 'As VP Ops, what keeps you up at night?' }),
       // A fact about them isn't dropped by another fact's change: looked at again, not taken out.
-      expect.objectContaining({ what: 'look again', before: 'Dana Reyes, Based in: Austin' }),
+      expect.objectContaining({ what: 'may be out of date', before: 'Dana Reyes, Based in: Austin' }),
     ]));
-    expect(card.rationale).toBe('Role: VP Ops → COO. Rewrites 1, takes out 1, looks again at 1; everything else stays as it is.');
+    expect(card.rationale).toBe('Role: VP Ops → COO. Rewrites 1, takes out 1, flags 1 that may be out of date; everything else stays as it is.');
     // Nothing changed yet.
     expect(s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'role')!.value).toBe('VP Ops');
 
@@ -4732,5 +4732,79 @@ describe('editing the talking points', () => {
     expect(inbox.listResponses(thread).filter((r) => r.role === 'action').length).toBe(cards);
     correctionReply = undefined;
     writerReply = undefined;
+  });
+
+  it("a correction to an option's fact: its check results are forgotten, it's checked again, and its pick says what changed", async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection, applyNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Buy a stand mixer' });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'bowl', label: 'Bowl', type: 'text' }]);
+    s.setChecks(nb.id, ['Under $400', 'Bowl of 5 qt or more']);
+    s.setSteps(nb.id, [{ title: 'Find 2 mixers', kind: 'find', target: 2, status: 'done' }, { title: 'Check them', kind: 'check', status: 'done' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const a = s.upsertOption(nb.id, { title: 'Artisan', by: 'agent:x', data: { price: 350, bowl: '5 qt' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'Classic', by: 'agent:x', data: { price: 280, bowl: '4.5 qt' } }).entry;
+    s.checkOption(nb.id, a.id, 'Under $400', true);
+    s.checkOption(nb.id, a.id, 'Bowl of 5 qt or more', true);
+    s.choose(nb.id, a.id);
+    s.checkOption(nb.id, b.id, 'Under $400', true);
+    s.ruleOut(nb.id, b.id, 'Fails "Bowl of 5 qt or more": "4.5 qt bowl"', 'agent:notebook-checker');
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    const lastAction = () => JSON.parse([...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action')!.metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    const lastWords = () => [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'triage')!.body;
+    const correct = async (said: string, delta: Record<string, string>, impact: unknown[] = []) => {
+      correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: delta, impact, clarification_required: false, clarification_question: '' })}</correction>`;
+      let work: Promise<void> | undefined;
+      startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: said } }, (p) => { work = p; });
+      await work;
+      return lastAction();
+    };
+
+    // The price was wrong: its checks and its pick come along by the notebook's links.
+    const card = await correct('The Artisan is actually $450', { type: 'option-fact', target_id: `option:${a.id}:price`, old_value: '350', new_value: '450' });
+    expect(card).toMatchObject({ agentId: 'notebook-correct-apply', rationale: 'Artisan, Price: 350 → 450. Looks again at 3; everything else stays as it is.' });
+    expect(card.surfaceChanges![0]).toEqual({ what: 'Artisan, Price', before: '350', after: '450' });
+
+    // Applied: the fact now; then just this option, just those checks, with the check step's agent.
+    const asked: Array<Record<string, string>> = [];
+    checkerReply = (inputs) => { asked.push(inputs); return `<notebook>${JSON.stringify({ facts: [{ id: a.id, checked: ['Bowl of 5 qt or more'], ruleOut: 'Fails "Under $400": "$450.00"' }] })}</notebook>`; };
+    let checked: Promise<void> | undefined;
+    const applied = applyNotebookCorrection(ctx, thread, card, (p) => { checked = p; });
+    expect(applied.summary).toBe("Artisan's price is $450 now, as you said; checking it again…");
+    expect(s.entries(nb.id).find((e) => e.id === a.id)!.data!.price).toBe(450);
+    await checked;
+    expect(JSON.parse(asked[0].OPTIONS).map((o: { id: string }) => o.id)).toEqual([a.id]);
+    expect(JSON.parse(asked[0].OPTIONS)[0].left).toEqual(['Under $400', 'Bowl of 5 qt or more']);
+    const artisan = s.entries(nb.id).find((e) => e.id === a.id)!;
+    // Picked, so failing a check is your call: it stays picked and says why.
+    expect(artisan).toMatchObject({ checked: ['Bowl of 5 qt or more'], failedChecks: { 'Under $400': expect.stringContaining('$450') } });
+    expect(artisan.chosenAt).toBeTruthy();
+    expect(artisan.ruledOut).toBeUndefined();
+    expect(lastWords()).toContain('Checked what you corrected (**Check them**, with notebook-checker): 1 of 1 corrected checked');
+    expect(lastWords()).toContain('Artisan is still picked, but now fails "Under $400": unpick it if that changes your mind');
+
+    // A fact that ruled one out was wrong: it's back in, checked again on the check that rests on it (the agent says which), and passes.
+    const back = await correct("The Classic's bowl is 5 qt, not 4.5", { type: 'option-fact', target_id: `option:${b.id}:bowl`, old_value: '4.5 qt', new_value: '5 qt' }, [{ object_id: `option:${b.id}:check:1`, action: 'reevaluate', reason: 'about the bowl' }]);
+    expect(back.surfaceChanges).toEqual(expect.arrayContaining([expect.objectContaining({ what: 'look again', before: 'Classic ruled out: Fails "Bowl of 5 qt or more": "4.5 qt bowl"' })]));
+    checkerReply = () => `<notebook>${JSON.stringify({ facts: [{ id: b.id, checked: ['Bowl of 5 qt or more'] }] })}</notebook>`;
+    applyNotebookCorrection(ctx, thread, back, (p) => { checked = p; });
+    await checked;
+    expect(s.entries(nb.id).find((e) => e.id === b.id)).toMatchObject({ checked: ['Under $400', 'Bowl of 5 qt or more'], data: { bowl: '5 qt' } });
+    expect(s.entries(nb.id).find((e) => e.id === b.id)!.ruledOut).toBeUndefined();
+    expect(lastWords()).toContain('brought Classic back to check it again');
+
+    // Checked again and it fails: ruled out now, and sua says why.
+    const dearer = await correct("The Classic is $420, not $280", { type: 'option-fact', target_id: `option:${b.id}:price`, old_value: '$280', new_value: '$420' }, [{ object_id: `option:${b.id}:check:0`, action: 'reevaluate', reason: 'the price check' }]);
+    checkerReply = () => `<notebook>${JSON.stringify({ facts: [{ id: b.id, ruleOut: 'Fails "Under $400": "$420"' }] })}</notebook>`;
+    applyNotebookCorrection(ctx, thread, dearer, (p) => { checked = p; });
+    await checked;
+    expect(s.entries(nb.id).find((e) => e.id === b.id)!.ruledOut).toMatchObject({ reason: 'Fails "Under $400": "$420"' });
+    expect(lastWords()).toContain('Classic is ruled out now (Fails "Under $400": "$420")');
+    checkerReply = undefined;
+    correctionReply = undefined;
   });
 });

@@ -10,7 +10,7 @@
  * The change shows as a card (`notebook-correct-apply`); nothing changes
  * until you apply it.
  */
-import { extractTaggedJson, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry} from '@some-useful-agents/core';
+import { clipWords, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry} from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -18,7 +18,9 @@ import { publishInboxEvent } from '../routes/inbox-shared.js';
 import { notebookThread, notebooksOf, threadOptionFocus } from './notebook-chat.js';
 import { strikePoints, writeBriefing } from './notebook-write.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
-import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
+import { NOTEBOOK_CHECKER_ID, NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
+import { formatFieldValue } from './field-format.js';
+import { recheckOptions } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -29,7 +31,7 @@ const TYPES: readonly CorrectionType[] = ['about-fact', 'option-fact', 'limit', 
 export type CorrectionAction = 'keep' | 'reevaluate' | 'invalidate';
 const ACTIONS: readonly CorrectionAction[] = ['keep', 'reevaluate', 'invalidate'];
 /** What applying a correction can do yet (the others are worked out and said, not applied). */
-const APPLIES: ReadonlySet<CorrectionType> = new Set(['about-fact', 'written']);
+const APPLIES: ReadonlySet<CorrectionType> = new Set(['about-fact', 'option-fact', 'written']);
 
 export interface CorrectionDelta { type: CorrectionType; target_id: string; old_value: string; new_value: string; label?: string }
 export interface CorrectionImpact { object_id: string; action: CorrectionAction; reason: string }
@@ -91,7 +93,7 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
     for (const f of facts) {
       const meta = o.factMeta?.[f.key];
       parts.push({
-        id: `${optionId(o.id)}:${f.key}`, role: 'evidence', kind: 'option fact', text: `${o.title}, ${f.label}: ${line(o.data?.[f.key], 200)}`,
+        id: `${optionId(o.id)}:${f.key}`, role: 'evidence', kind: 'option fact', text: `${o.title}, ${f.label}: ${line(formatFieldValue(f, o.data![f.key]), 200)}`,
         ...(meta?.source ? { source: meta.source } : {}), ...(meta?.quote ? { quote: meta.quote } : {}),
       });
     }
@@ -103,6 +105,10 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
       const i = checkIndex(c);
       if (i >= 0) parts.push({ id: `${optionId(o.id)}:check:${String(i)}`, role: 'judgment', kind: 'check failed', text: `${o.title} fails "${nb.checks[i]}": ${line(why, 200)}`, from: [optionId(o.id)] });
     }
+    // Ruled out by a check: that check's failure is a part of its own, like one it failed while picked.
+    const failedBy = /Fails "([^"]+)"/.exec(o.ruledOut?.reason ?? '')?.[1];
+    const fi = failedBy ? checkIndex(failedBy) : -1;
+    if (fi >= 0 && !parts.some((p) => p.id === `${optionId(o.id)}:check:${String(fi)}`)) parts.push({ id: `${optionId(o.id)}:check:${String(fi)}`, role: 'judgment', kind: 'check failed', text: `${o.title} fails "${nb.checks[fi]}" (so it was ruled out)`, from: [optionId(o.id)] });
     if (o.ruledOut) parts.push({ id: `${optionId(o.id)}:ruled-out`, role: 'judgment', kind: o.ruledOut.gone ? 'gone' : 'ruled out', text: `${o.title} ruled out: ${line(o.ruledOut.reason, 200)}`, from: [optionId(o.id)] });
     if (o.chosenAt) parts.push({ id: `${optionId(o.id)}:pick`, role: 'judgment', kind: 'pick', text: `${o.title} is picked`, from: [optionId(o.id)] });
   }
@@ -170,7 +176,7 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   if (c.clarification_required) return { question: ask };
   const parts = correctionParts(nb, entries, focus);
   const byId = new Map(parts.map((p) => [p.id, p]));
-  const d = c.semantic_delta;
+  let d = c.semantic_delta;
   const m = /^about:(person|company):([a-z][a-z0-9_]{0,39})$/.exec(d.target_id);
   const target = byId.get(d.target_id);
   const ok = d.type === 'about-fact' ? !!m && !!nb.about?.[m[1] as NotebookAboutWho] && (!!target || !!d.new_value)
@@ -179,6 +185,11 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
         : d.type === 'written' ? !!target && /^(point|question|finding|plan):\d+$/.test(d.target_id)
           : false;
   if (!ok) return { question: ask };
+  // Just the values, when the agent gave the part's whole text ("Extend, Salary: $225,000").
+  const label = d.type === 'option-fact' ? nb.fields.find((f) => f.key === d.target_id.split(':')[2])?.label : d.type === 'about-fact' ? (d.label ?? target?.text.split(': ')[0].split(', ').at(-1)) : undefined;
+  const bare = (v: string) => { const i = label ? v.lastIndexOf(`${label}: `) : -1; return i >= 0 ? v.slice(i + label!.length + 2).trim() : v; };
+  if (label) c = { ...c, semantic_delta: { ...d, old_value: bare(d.old_value), new_value: bare(d.new_value) } };
+  d = c.semantic_delta;
   if (d.type === 'about-fact' && target && lower(d.new_value) === lower(/: (.*?)(?: \(|$)/.exec(target.text)?.[1] ?? '')) return { question: `The notebook already says ${d.label ?? 'that'} is ${d.new_value}. What should change?` };
 
   const impact = new Map<string, CorrectionImpact>();
@@ -195,8 +206,10 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   }
   if (d.type === 'option-fact') {
     const opt = d.target_id.replace(/^(option:[^:]+):.*$/, '$1');
+    // The checks the agent says rest on it; none named, all of the option's (a check it missed would stay wrong).
+    const named = c.impact.some((x) => x.object_id.startsWith(`${opt}:check:`));
     for (const p of parts) {
-      if (p.id.startsWith(`${opt}:check:`) || p.id === `${opt}:ruled-out` || p.id === `${opt}:pick`) put({ object_id: p.id, action: 'reevaluate', reason: 'it rests on the corrected fact' });
+      if ((p.id.startsWith(`${opt}:check:`) && !named) || p.id === `${opt}:ruled-out` || p.id === `${opt}:pick`) put({ object_id: p.id, action: 'reevaluate', reason: 'it rests on the corrected fact' });
       else if (p.from?.includes(opt) && written.includes(p)) put({ object_id: p.id, action: 'reevaluate', reason: 'it cites that option' });
     }
   }
@@ -219,23 +232,37 @@ const partText = (nb: Notebook, entries: readonly NotebookEntry[], id: string) =
 /** Its words on the card: a point without its why and question. */
 const cardText = (text: string) => text.split(/ \((?:why|ask): /)[0];
 
+/** An option as the card and sua's words name it: its company ("Extend"), else its short name. */
+function optionName(nb: Pick<Notebook, 'fields'>, o: Pick<NotebookEntry, 'title' | 'data'>): string {
+  const org = nb.fields.find((f) => f.role === 'org')?.key;
+  const v = org ? o.data?.[org] : undefined;
+  return typeof v === 'string' && v.trim() ? v.trim() : clipWords(shortName(o.title), 40);
+}
+
 /** The card's rows and its one line: the change, what it redoes or drops, and that the rest stays. Pure. */
 export function describeCorrection(nb: Notebook, entries: readonly NotebookEntry[], c: Correction): { rows: Array<{ what: string; before: string; after: string }>; summary: string } {
   const d = c.semantic_delta;
-  const name = d.label || (d.type === 'written' ? cardText(partText(nb, entries, d.target_id)) : d.type.replace('-', ' '));
+  // An option's fact is named with the option, short ("Extend, Salary").
+  const [, optId, key] = d.type === 'option-fact' ? d.target_id.split(':') : [];
+  const opt = optId ? entries.find((e) => e.id === optId) : undefined;
+  const who = opt ? optionName(nb, opt) : 'option';
+  const name = d.type === 'option-fact' ? `${who}, ${nb.fields.find((f) => f.key === key)?.label ?? key}`
+    : d.label || (d.type === 'written' ? cardText(partText(nb, entries, d.target_id)) : d.type.replace('-', ' '));
   const rows: Array<{ what: string; before: string; after: string }> = [];
-  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type.replace('-', ' '), before: d.old_value || '—', after: d.new_value || '(take it out)' });
+  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type === 'option-fact' ? name : d.type.replace('-', ' '), before: d.old_value || '—', after: d.new_value || '(take it out)' });
   const touched = c.impact.filter((x) => x.action !== 'keep');
   for (const x of touched) {
-    const what = x.action === 'invalidate' ? 'take out' : /^(point|finding|plan):/.test(x.object_id) ? 'rewrite' : /^question:/.test(x.object_id) ? 'take out' : 'look again';
+    // Evidence it flags isn't changed (only you or a new look change what was found): said so.
+    const evidence = /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(x.object_id);
+    const what = evidence ? 'may be out of date' : x.action === 'invalidate' ? 'take out' : /^(point|finding|plan):/.test(x.object_id) ? 'rewrite' : /^question:/.test(x.object_id) ? 'take out' : 'look again';
     rows.push({ what, before: cardText(partText(nb, entries, x.object_id)).slice(0, 160), after: x.reason || '—' });
   }
-  const counts = (['rewrite', 'take out', 'look again'] as const).map((w) => [w, rows.filter((r) => r.what === w).length] as const).filter(([, n]) => n);
-  const changes = counts.map(([w, n]) => `${w === 'rewrite' ? 'rewrites' : w === 'take out' ? 'takes out' : 'looks again at'} ${String(n)}`).join(', ');
+  const counts = (['rewrite', 'take out', 'look again', 'may be out of date'] as const).map((w) => [w, rows.filter((r) => r.what === w).length] as const).filter(([, n]) => n);
+  const changes = counts.map(([w, n]) => w === 'may be out of date' ? `flags ${String(n)} that may be out of date` : `${w === 'rewrite' ? 'rewrites' : w === 'take out' ? 'takes out' : 'looks again at'} ${String(n)}`).join(', ');
   // A count of every part kept (facts, check results…) means nothing to read: say the rest stays.
   const head = d.type === 'written'
     ? `"${name.slice(0, 80)}" is wrong`
-    : `${d.label ?? name}: ${d.old_value || '—'} → ${d.new_value || 'taken out'}`;
+    : `${d.type === 'option-fact' ? name : d.label ?? name}: ${d.old_value || '—'} → ${d.new_value || 'taken out'}`;
   rows.push({ what: 'keeps', before: '—', after: touched.length ? 'everything else in the notebook as it is' : 'everything else: nothing rests on it' });
   return { rows, summary: `${head}. ${changes ? `${capital(changes)}; everything else stays as it is.` : 'Nothing else changes.'}` };
 }
@@ -289,7 +316,7 @@ export function startNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
     const { rows, summary } = describeCorrection(now, nowEntries, checked.correction);
     if (!APPLIES.has(checked.correction.semantic_delta.type)) {
-      say(ctx, messageId, `${summary}\n\nI can't apply that kind of correction from here yet. Change it on the notebook's page, or ask me to correct the option ("its price is $450").`);
+      say(ctx, messageId, `${summary}\n\nI can't apply that kind of correction from here yet. Change it on the notebook's Edit page.`);
       return;
     }
     const action: InboxActionMeta = {
@@ -340,6 +367,13 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
       store.correctAbout(nb.id, who, key, { value: d.new_value, ...(d.label ? { label: d.label } : {}), why: meta.inputs.INSTRUCTION });
       said.push(d.new_value ? `${d.label ?? key.replace(/_/g, ' ')} is ${d.new_value} now, as you said` : `took out ${d.label ?? key.replace(/_/g, ' ')}`);
     }
+    if (d.type === 'option-fact') {
+      // option:<entry id>:<field key>
+      const [, entryId, key] = d.target_id.split(':');
+      const field = nb.fields.find((f) => f.key === key);
+      const { entry, changed } = store.correctOption(nb.id, entryId, { [key]: d.new_value }, 'you');
+      said.push(changed.length ? `${optionName(nb, entry)}'s ${(field?.label ?? key).toLowerCase()} is ${field ? formatFieldValue(field, changed[0].to) : String(changed[0].to)} now, as you said` : `${optionName(nb, entry)} already says that`);
+    }
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
@@ -372,19 +406,57 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
     said.push(`took out ${String(out.size)} ${kind === 'answer' ? 'finding' : 'plan item'}${out.size === 1 ? '' : 's'}`);
   }
+  // Options whose check results, rule-out or pick rest on it: those results are forgotten and they're checked again.
+  const recheck = new Map<string, Set<string>>();
+  for (const x of c.impact) {
+    const m = /^option:([^:]+):(check:(\d+)|ruled-out|pick)$/.exec(x.object_id);
+    if (!m || x.action === 'keep') continue;
+    const checks = recheck.get(m[1]) ?? new Set<string>();
+    if (m[3] !== undefined && fresh.checks[Number(m[3])]) checks.add(fresh.checks[Number(m[3])]);
+    recheck.set(m[1], checks);
+  }
+  const optionNow = (id: string) => store.entries(nb.id, 1000).find((e) => e.id === id && e.kind === 'option');
+  for (const [id, checks] of [...recheck]) {
+    const o = optionNow(id);
+    if (!o) { recheck.delete(id); continue; }
+    if (checks.size) store.clearChecks(nb.id, id, [...checks]);
+    // Ruled out by sua's checks (not by you, and not gone): back in, to be checked again.
+    if (o.ruledOut && o.ruledOut.by !== 'you' && !o.ruledOut.gone && c.impact.some((x) => x.object_id === `option:${id}:ruled-out` && x.action !== 'keep')) {
+      store.reinstate(nb.id, id);
+      said.push(`brought ${optionName(fresh, o)} back to check it again`);
+    }
+  }
   const pointStep = fresh.steps?.find((s) => s.kind === 'write' && !s.shape);
   const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => touched(shape === 'answer' ? 'finding' : 'plan', 'reevaluate').length && fresh.steps?.some((s) => s.kind === 'write' && s.shape === shape));
   const redo = strike.filter((x) => x.redo).length;
-  if (!strike.length && !rewriteWhole.length) {
+  if (!strike.length && !rewriteWhole.length && !recheck.size) {
     store.noteRun(nb.id, `Corrected: ${said.join('; ')}`);
     return { status: 'completed', summary: `${capital(said.join('; ') || 'nothing to change')}.` };
   }
-  // The rest is the writer's: one run at a time, like Write again.
+  // The rest is the checker's and the writer's: one run at a time, like Write again.
   ctx.notebookPipelines ??= new Map();
-  ctx.notebookPipelines.set(nb.id, { agentId: NOTEBOOK_WRITER_ID, step: 0, of: fresh.steps?.length ?? 0, startedAt: Date.now(), again: true });
+  const running = { agentId: recheck.size ? NOTEBOOK_CHECKER_ID : NOTEBOOK_WRITER_ID, step: 0, of: fresh.steps?.length ?? 0, startedAt: Date.now(), again: true };
+  ctx.notebookPipelines.set(nb.id, running);
   const work = (async () => {
-    if (!ctx.notebookWriterRun) ensureSystemAgentCurrent(ctx, NOTEBOOK_WRITER_ID, 'notebook corrections');
     const out: string[] = [];
+    if (recheck.size) {
+      const inBefore = new Set([...recheck.keys()].filter((id) => !optionNow(id)?.ruledOut));
+      out.push((await recheckOptions(ctx, nb.id, [...recheck.keys()])).replace(/\.$/, ''));
+      // Ruled out by the new look: said, with why.
+      for (const id of inBefore) {
+        const o = optionNow(id);
+        if (o?.ruledOut) out.push(`${optionName(fresh, o)} is ruled out now (${o.ruledOut.reason.replace(/\.$/, '')})`);
+      }
+      // A pick that now fails a check stays picked (that's your call), and says so.
+      for (const x of touched('option')) {
+        const m = /^option:([^:]+):pick$/.exec(x.object_id);
+        const o = m ? optionNow(m[1]) : undefined;
+        const fails = o ? Object.keys(o.failedChecks ?? {}).filter((k) => [...(recheck.get(o.id) ?? [])].some((c) => c.toLowerCase() === k.toLowerCase())) : [];
+        if (o && fails.length) out.push(`${optionName(fresh, o)} is still picked, but now fails ${fails.map((f) => `"${f}"`).join(' and ')}: unpick it if that changes your mind`);
+      }
+    }
+    running.agentId = NOTEBOOK_WRITER_ID;
+    if ((strike.length || rewriteWhole.length) && !ctx.notebookWriterRun) ensureSystemAgentCurrent(ctx, NOTEBOOK_WRITER_ID, 'notebook corrections');
     if (strike.length) {
       out.push(...(pointStep
         ? await strikePoints(ctx, store, nb.id, pointStep, strike.map((x) => ({ at: x.at, text: points[x.at] })), redo)
@@ -408,7 +480,11 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     reconcileStepCards(ctx, nb.id);
   });
   done?.(work);
-  const next = redo ? `rewriting ${String(redo)} talking point${redo === 1 ? '' : 's'}` : strike.length && !rewriteWhole.length ? `striking ${String(strike.length)} talking point${strike.length === 1 ? '' : 's'}` : 'writing it again';
+  const next = [
+    recheck.size ? `checking ${recheck.size === 1 ? 'it' : `${String(recheck.size)} options`} again` : '',
+    redo ? `rewriting ${String(redo)} talking point${redo === 1 ? '' : 's'}` : strike.length ? `striking ${String(strike.length)} talking point${strike.length === 1 ? '' : 's'}` : '',
+    rewriteWhole.length ? 'writing it again' : '',
+  ].filter(Boolean).join(', then ');
   return { status: 'completed', summary: `${capital([...said, next].join('; '))}…` };
 }
 

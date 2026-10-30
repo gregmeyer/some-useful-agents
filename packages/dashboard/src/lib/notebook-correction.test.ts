@@ -14,6 +14,7 @@ const option = (id: string, title: string, extra: Partial<NotebookEntry>) => ({ 
 const entries = [
   option('a', 'Artisan', { data: { price: 350, bowl: '5 qt' }, factMeta: { price: { source: 'https://target.example/a', quote: '$350.00' } }, checked: ['Under $400', 'bowl of 5 qt or more'], chosenAt: 'x' }),
   option('b', 'Classic', { data: { price: 280 }, failedChecks: { 'Bowl of 5 qt or more': '4.5 qt bowl' } }),
+  option('c', 'Mini', { data: { price: 300 }, ruledOut: { reason: 'Fails "Under $400": "$420"', at: 'x', by: 'agent:notebook-checker' } }),
   { id: 'e1', notebookId: 'n', kind: 'note', title: 'Wants it for sourdough', body: '', by: 'you', createdAt: 'x' } as NotebookEntry,
 ];
 const delta = (over: Partial<Correction['semantic_delta']>, impact: Correction['impact'] = []): Correction => ({
@@ -26,11 +27,14 @@ describe('notebook corrections', () => {
     const by = Object.fromEntries(parts.map((p) => [p.id, p]));
     expect(by['limit:0']).toMatchObject({ role: 'rule', text: 'under $400' });
     expect(by['about:company:hq']).toMatchObject({ role: 'evidence', source: 'https://example.com' });
-    expect(by['option:a:price']).toMatchObject({ role: 'evidence', text: 'Artisan, Price: 350', quote: '$350.00' });
+    expect(by['option:a:price']).toMatchObject({ role: 'evidence', text: 'Artisan, Price: $350', quote: '$350.00' });
     // Check results by the check's place, whatever its case.
     expect(by['option:a:check:1']).toMatchObject({ role: 'judgment', kind: 'check passed' });
     expect(by['option:b:check:1']).toMatchObject({ kind: 'check failed', text: 'Classic fails "Bowl of 5 qt or more": 4.5 qt bowl' });
     expect(by['option:a:pick']).toMatchObject({ role: 'judgment' });
+    // Ruled out by a check: that check's failure, and the rule-out.
+    expect(by['option:c:check:0']).toMatchObject({ kind: 'check failed', text: 'Mini fails "Under $400" (so it was ruled out)' });
+    expect(by['option:c:ruled-out']).toMatchObject({ kind: 'ruled out' });
     expect(by['finding:0']).toMatchObject({ role: 'judgment', from: ['option:a'] });
     expect(by['entry:e1']).toMatchObject({ role: 'evidence', kind: 'note' });
   });
@@ -51,11 +55,16 @@ describe('notebook corrections', () => {
       'finding:0': 'reevaluate',
     });
     const { rows, summary } = describeCorrection(nb, entries, out.correction);
-    expect(rows[0]).toEqual({ what: 'option fact', before: '350', after: '450' });
+    expect(rows[0]).toEqual({ what: 'Artisan, Price', before: '350', after: '450' });
     expect(rows.at(-1)).toEqual({ what: 'keeps', before: '—', after: 'everything else in the notebook as it is' });
-    expect(summary).toBe('option fact: 350 → 450. Rewrites 1, looks again at 4; everything else stays as it is.');
+    expect(summary).toBe('Artisan, Price: 350 → 450. Rewrites 1, looks again at 3, flags 1 that may be out of date; everything else stays as it is.');
     // Nothing rests on it: said so.
     expect(describeCorrection(nb, entries, delta({ type: 'about-fact', target_id: 'about:company:hq', old_value: 'Benton Harbor', new_value: 'Chicago', label: 'Headquarters' })).summary).toBe('Headquarters: Benton Harbor → Chicago. Nothing else changes.');
+  });
+
+  it('keeps just the values when the agent gives a part\'s whole text', () => {
+    const out = checkCorrection(nb, entries, delta({ old_value: 'Artisan, Price: $350', new_value: 'Artisan, Price: $450' }));
+    expect('correction' in out && out.correction.semantic_delta).toMatchObject({ old_value: '$350', new_value: '$450' });
   });
 
   it('a check reaches the options checked against it; something sua wrote is the part that goes', () => {

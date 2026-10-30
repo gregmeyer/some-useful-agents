@@ -103,12 +103,18 @@ nodes:
         - "other": anything else. Then ask what they mean.
       - "target_id": the id from the notebook (exactly as given).
       - "old_value": what it says now. "new_value": what it should say.
+        Just the value ("$225,000–$250,000", "COO"), never the part's
+        whole text.
       - "label": the fact's name, for an about-fact.
 
       The impact: each part the change touches, with "object_id" (exactly
       as given), "action" ("keep", "reevaluate" or "invalidate") and
       "reason" (a short phrase). List "keep" only for a part you'd
       expect to be touched that isn't. Don't list the target itself.
+      For an option's fact, name which of that option's check results
+      ("option:<id>:check:<n>") rest on that fact: a corrected price
+      touches its price check, not its size check. Its pick and rule-out
+      are looked at again on their own.
 
       Reply with only this, as valid JSON:
       <correction>
