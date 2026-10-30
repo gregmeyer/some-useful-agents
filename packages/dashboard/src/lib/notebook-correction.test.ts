@@ -85,6 +85,20 @@ describe('notebook corrections', () => {
     expect(summary).toBe('Check: Bowl of 5 qt or more → Bowl of 4 qt or more. Checks the options against it, looks again at 8; everything else stays as it is.');
   });
 
+  it("a picture's link kept as a fact says it isn't the picture, and a new link for it changes the picture", () => {
+    const withLink = { ...nb, about: { ...nb.about, company: { ...nb.about!.company!, facts: [...nb.about!.company!.facts, { key: 'image', label: 'Logo link', value: 'https://kitchenaid.example/new.png', at: 'x' }] } } } as unknown as Notebook;
+    const pictures = { company: { sourceUrl: 'https://old.example/logo.png' } } as never;
+    const parts = correctionParts(withLink, entries, undefined, pictures);
+    expect(parts.find((p) => p.id === 'about:company:image')?.kind).toBe("company fact, only a picture's link (not the logo shown: that's about:company:photo)");
+    const out = checkCorrection(withLink, entries, delta({ type: 'other', target_id: 'about:company:image', old_value: '', new_value: 'https://kitchenaid.example/new.png' }), undefined, pictures);
+    if ('question' in out) throw new Error(out.question);
+    expect(out.correction.semantic_delta).toMatchObject({ type: 'about-fact', target_id: 'about:company:photo', old_value: 'https://old.example/logo.png', new_value: 'https://kitchenaid.example/new.png' });
+    // The link fact goes with it.
+    expect(out.correction.impact).toContainEqual(expect.objectContaining({ object_id: 'about:company:image', action: 'invalidate' }));
+    // Already the picture shown: nothing to change.
+    expect(checkCorrection(withLink, entries, delta({ type: 'about-fact', target_id: 'about:company:image', old_value: '', new_value: 'https://old.example/logo.png' }), undefined, pictures)).toHaveProperty('question');
+  });
+
   it('asks instead of guessing: when the agent asks, or names a part the notebook doesn\'t have', () => {
     expect(checkCorrection(nb, entries, { ...delta({}), clarification_required: true, clarification_question: 'The Artisan or the Classic?' })).toEqual({ question: 'The Artisan or the Classic?' });
     expect(checkCorrection(nb, entries, delta({ target_id: 'option:zz:price' }))).toEqual({ question: 'Which part of the notebook is wrong, and what should it say?' });

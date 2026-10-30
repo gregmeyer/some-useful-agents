@@ -98,6 +98,9 @@ nodes:
           ("about:person:photo", a company's logo "about:company:photo"):
           to change it, new_value is the link to use, the picture itself
           or a page it's on (their About page); "" when it isn't them.
+          A fact that only holds a picture's link ("image", "photo_url")
+          isn't the picture shown: change "about:person:photo", even when
+          that fact already has the right link.
           Use the link they gave, or one in the notebook (a fact's
           source, their website); never invent one. No link: ask for it;
         - "option-fact": one fact on one option ("option:<id>:<key>");
