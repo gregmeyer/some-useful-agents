@@ -4807,4 +4807,89 @@ describe('editing the talking points', () => {
     checkerReply = undefined;
     correctionReply = undefined;
   });
+
+  it('a correction to a rule: a changed check checks every option on it, a limit brings back what it ruled out, a done-when goes', async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection, applyNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Buy a stand mixer', params: ['under $400'], criteria: ['One picked', 'Bought by Friday'] });
+    s.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'bowl', label: 'Bowl', type: 'text' }]);
+    s.setChecks(nb.id, ['Under $400', 'Bowl of 5 qt or more']);
+    s.setSteps(nb.id, [{ title: 'Find mixers', kind: 'find', target: 3, status: 'done' }, { title: 'Check them', kind: 'check', status: 'done' }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const a = s.upsertOption(nb.id, { title: 'Artisan', by: 'agent:x', data: { price: 350, bowl: '5 qt' } }).entry;
+    const b = s.upsertOption(nb.id, { title: 'Classic', by: 'agent:x', data: { price: 280, bowl: '4.5 qt' } }).entry;
+    const c = s.upsertOption(nb.id, { title: 'Tilt-head', by: 'agent:x', data: { price: 300, bowl: '4.5 qt' } }).entry;
+    const d = s.upsertOption(nb.id, { title: 'Pro 600', by: 'agent:x', data: { price: 520, bowl: '6 qt' } }).entry;
+    for (const k of ['Under $400', 'Bowl of 5 qt or more']) s.checkOption(nb.id, a.id, k, true);
+    s.checkOption(nb.id, b.id, 'Under $400', true);
+    s.ruleOut(nb.id, b.id, 'Fails "Bowl of 5 qt or more": "4.5 qt bowl"', 'agent:notebook-checker');
+    // One you ruled out stays yours, whatever changes.
+    s.ruleOut(nb.id, c.id, 'Fails "Bowl of 5 qt or more": "4.5 qt"', 'you');
+    s.ruleOut(nb.id, d.id, 'Over budget: $520', 'agent:x');
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    const lastAction = () => JSON.parse([...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action')!.metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    const lastWords = () => [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'triage')!.body;
+    const correct = async (said: string, delta: Record<string, string>, impact: unknown[] = []) => {
+      correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: delta, impact, clarification_required: false, clarification_question: '' })}</correction>`;
+      let work: Promise<void> | undefined;
+      startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: said } }, (p) => { work = p; });
+      await work;
+      return lastAction();
+    };
+    let done: Promise<void> | undefined;
+    const asked: Array<Record<string, string>> = [];
+
+    // A check changes: its results are forgotten, the one it ruled out comes back, and every option is checked on it.
+    const check = await correct('A 4 qt bowl is fine', { type: 'check', target_id: 'check:1', old_value: '5 qt', new_value: 'Bowl of 4 qt or more' });
+    expect(check.rationale).toBe('Check: Bowl of 5 qt or more → Bowl of 4 qt or more. Checks the options against it, looks again at 2; everything else stays as it is.');
+    checkerReply = (inputs) => { asked.push(inputs); return `<notebook>${JSON.stringify({ facts: [{ id: a.id, checked: ['Bowl of 4 qt or more'] }, { id: b.id, checked: ['Bowl of 4 qt or more'] }] })}</notebook>`; };
+    expect(applyNotebookCorrection(ctx, thread, check, (p) => { done = p; }).summary).toBe('The check "Bowl of 5 qt or more" is "Bowl of 4 qt or more" now; brought Classic back to check it again; checking the options against it…');
+    await done;
+    expect(s.get(nb.id)!.checks).toEqual(['Under $400', 'Bowl of 4 qt or more']);
+    expect(JSON.parse(asked[0].OPTIONS).map((o: { id: string; left: string[] }) => [o.id, o.left])).toEqual(expect.arrayContaining([[a.id, ['Bowl of 4 qt or more']], [b.id, ['Bowl of 4 qt or more']]]));
+    const opts = () => Object.fromEntries(s.entries(nb.id).filter((e) => e.kind === 'option').map((e) => [e.title, e]));
+    expect(opts().Artisan.checked).toEqual(['Under $400', 'Bowl of 4 qt or more']);
+    expect(opts().Classic).toMatchObject({ checked: ['Under $400', 'Bowl of 4 qt or more'] });
+    expect(opts().Classic.ruledOut).toBeUndefined();
+    expect(opts()['Tilt-head'].ruledOut).toMatchObject({ by: 'you' });
+    expect(lastWords()).toContain('Checked against the changed check (**Check them**, with notebook-checker): 2 of 2 checked');
+
+    // A limit changes: what the agent says it ruled out comes back and is checked.
+    asked.length = 0;
+    const limit = await correct('The budget is $600 now', { type: 'limit', target_id: 'limit:0', old_value: 'under $400', new_value: 'under $600' }, [{ object_id: `option:${d.id}:ruled-out`, action: 'reevaluate', reason: 'over the old budget' }]);
+    expect(limit.surfaceChanges![0]).toEqual({ what: 'limit', before: 'under $400', after: 'under $600' });
+    checkerReply = (inputs) => { asked.push(inputs); return `<notebook>${JSON.stringify({ facts: [{ id: d.id, checked: ['Bowl of 4 qt or more'] }] })}</notebook>`; };
+    applyNotebookCorrection(ctx, thread, limit, (p) => { done = p; });
+    await done;
+    expect(s.get(nb.id)!.params).toEqual(['under $600']);
+    expect(JSON.parse(asked[0].OPTIONS).map((o: { id: string }) => o.id)).toEqual([d.id]);
+    expect(opts()['Pro 600'].ruledOut).toBeUndefined();
+    expect(lastWords()).toContain('the limit "under $400" is "under $600" now; the next search uses it; brought Pro 600 back to check it again');
+
+    // A limit and the check that applies it change together: both, and every option is checked on the new check.
+    asked.length = 0;
+    const both = await correct('Up to $700 is fine', { type: 'limit', target_id: 'limit:0', old_value: 'under $600', new_value: 'under $700' }, [{ object_id: 'check:0', action: 'reevaluate', reason: 'it applies the budget', new_value: 'Under $700' }]);
+    expect(both.rationale).toBe('Limit: under $600 → under $700. Changes 1 more rule with it, checks the options against it, looks again at 2; everything else stays as it is.');
+    expect(both.surfaceChanges![1]).toEqual({ what: 'check', before: 'Under $400', after: 'Under $700' });
+    checkerReply = (inputs) => { asked.push(inputs); return `<notebook>${JSON.stringify({ facts: [] })}</notebook>`; };
+    applyNotebookCorrection(ctx, thread, both, (p) => { done = p; });
+    await done;
+    expect(s.get(nb.id)!).toMatchObject({ params: ['under $700'], checks: ['Under $700', 'Bowl of 4 qt or more'] });
+    expect(JSON.parse(asked[0].OPTIONS).map((o: { left: string[] }) => o.left[0])).toEqual(['Under $700', 'Under $700', 'Under $700']);
+    expect(lastWords()).toContain('the limit "under $600" is "under $700" now; the check "Under $400" is "Under $700" now; the next search uses it');
+
+    // A done-when taken out: just that.
+    const crit = await correct("We don't need it by Friday", { type: 'criterion', target_id: 'criterion:1', old_value: 'Bought by Friday', new_value: '' });
+    expect(crit.rationale).toBe('Done when: Bought by Friday → taken out. Nothing else changes.');
+    expect(applyNotebookCorrection(ctx, thread, crit).summary).toBe('Took out the done-when "Bought by Friday".');
+    expect(s.get(nb.id)!.criteria.map((x) => x.text)).toEqual(['One picked']);
+    // A card made before the rule changed again finds it by its words, or refuses.
+    expect(applyNotebookCorrection(ctx, thread, crit)).toMatchObject({ status: 'failed', refusalReason: 'That rule has changed since this was worked out. Ask again.' });
+    checkerReply = undefined;
+    correctionReply = undefined;
+  });
 });

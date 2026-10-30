@@ -409,6 +409,7 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
 /** How checking some of the options reads: the ones an update found, or the ones you corrected. */
 const NEW_ONES = { these: 'the new ones', each: 'new', none: 'Nothing new to check' };
 const CORRECTED = { these: 'what you corrected', each: 'corrected', none: 'Nothing left to check on what you corrected' };
+const CHANGED = { these: 'against the changed check', each: '', none: 'Nothing to check against the changed check' };
 
 async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>, words = NEW_ONES): Promise<string> {
   let nb = store.get(notebookId)!;
@@ -444,7 +445,7 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   store.finishPass(passId, passNote(agentId, out));
   nb = store.get(notebookId)!;
   const open = left(nb, store.entries(nb.id, 1000)).filter((x) => ids.has(x.o.id)).length;
-  const done = `${String(todo.length - open)} of ${String(todo.length)} ${words.each} checked`;
+  const done = `${String(todo.length - open)} of ${String(todo.length)}${words.each ? ` ${words.each}` : ''} checked`;
   store.noteRun(notebookId, `${step.title}: ${done}`);
   return `Checked ${words.these}${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
 }
@@ -452,19 +453,23 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
 /**
  * Check these options again (a fact they rested on was corrected), with the
  * notebook's check step and its agent: just the checks they have left, in
- * or out of its top N. The caller holds the notebook's run. Never throws.
+ * or out of its top N. `'all'`: a check changed, so every option in the
+ * running (in its top N) is checked on what it has left. The caller holds
+ * the notebook's run. Never throws.
  */
-export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly string[]): Promise<string> {
+export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly string[] | 'all'): Promise<string> {
   const store = stores(ctx);
   const nb = store.get(notebookId);
   const step = nb?.steps?.find((s) => s.kind === 'check');
   if (!nb || !step) return 'there is no check step to check it again';
   const agent = stepAgent(ctx, step, notebookId);
   if (!agent.agentId) return `couldn't check it again: ${agent.reason ?? 'the check step has no agent'}`;
-  const want = new Set(ids);
-  const had = new Set(store.entries(notebookId, 1000).filter((e) => e.kind === 'option' && !want.has(e.id)).map((e) => e.id));
+  const want = new Set(ids === 'all' ? [] : ids);
+  const had = new Set(ids === 'all' ? [] : store.entries(notebookId, 1000).filter((e) => e.kind === 'option' && !want.has(e.id)).map((e) => e.id));
   try {
-    return await checkNew(ctx, store, notebookId, { ...step, top: undefined }, agent.agentId, had, CORRECTED);
+    return ids === 'all'
+      ? await checkNew(ctx, store, notebookId, step, agent.agentId, had, CHANGED)
+      : await checkNew(ctx, store, notebookId, { ...step, top: undefined }, agent.agentId, had, CORRECTED);
   } catch (err) {
     return `couldn't check it again: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`;
   }

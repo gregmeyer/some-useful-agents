@@ -115,6 +115,14 @@ nodes:
       ("option:<id>:check:<n>") rest on that fact: a corrected price
       touches its price check, not its size check. Its pick and rule-out
       are looked at again on their own.
+      For a limit, name the options it ruled out ("option:<id>:ruled-out",
+      by their reason: "over budget", "too far") and the check results that
+      apply it. For a check, its results on each option are looked at again
+      on their own; name only what else rests on it.
+      When another rule has to change with it (a limit and the check that
+      applies it, "under $400" and "Under $400"), list that rule with
+      "action": "reevaluate" and its own "new_value", in its own words
+      ("Under $600"; "" to take it out). Only rules carry a "new_value".
 
       Reply with only this, as valid JSON:
       <correction>
