@@ -10,7 +10,7 @@
  * The change shows as a card (`notebook-correct-apply`); nothing changes
  * until you apply it.
  */
-import { clipWords, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry} from '@some-useful-agents/core';
+import { clipWords, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -20,6 +20,7 @@ import { strikePoints, writeBriefing } from './notebook-write.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
 import { formatFieldValue } from './field-format.js';
+import { YOUR_PICTURE, keepGivenPicture } from './notebook-profile.js';
 import { recheckOptions } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -66,7 +67,23 @@ const optionId = (id: string) => `option:${id}`;
  * (each one's facts, check results, rule-out and pick), what sua wrote
  * (talking points, questions, findings, plan items) and its notes. Pure.
  */
-export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[], focus?: string): CorrectionPart[] {
+/** The pictures a notebook keeps of them (a person's photo, a company's logo), where each came from. */
+export type CorrectionPictures = Partial<Record<NotebookAboutWho, { sourceUrl: string; page?: string; why?: string }>>;
+
+/** A part that's a picture of them, and facts that are only a picture's link (the page shows them as text). */
+const PICTURE_KEY = 'photo';
+const PICTURE_LINK_FACT = /^(image|photo_url|picture|headshot|portrait|profile_photo)$/;
+
+export function picturesOf(store: NotebookStore, notebookId: string): CorrectionPictures {
+  const out: CorrectionPictures = {};
+  for (const who of ['person', 'company'] as const) {
+    const p = store.aboutPhoto(notebookId, who);
+    if (p) out[who] = { sourceUrl: p.sourceUrl, ...(p.page ? { page: p.page } : {}), ...(p.why ? { why: p.why } : {}) };
+  }
+  return out;
+}
+
+export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[], focus?: string, pictures: CorrectionPictures = {}): CorrectionPart[] {
   const parts: CorrectionPart[] = [];
   nb.params.forEach((p, i) => parts.push({ id: `limit:${String(i)}`, role: 'rule', kind: 'limit', text: p }));
   nb.checks.forEach((c, i) => parts.push({ id: `check:${String(i)}`, role: 'rule', kind: 'check', text: c }));
@@ -83,6 +100,9 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
         ...(f.source ? { source: f.source } : {}), ...(f.quote ? { quote: f.quote } : {}),
       });
     }
+    // The picture the page shows of them: a part of its own ("use this picture instead").
+    const pic = pictures[who];
+    if (pic) parts.push({ id: `about:${who}:${PICTURE_KEY}`, role: 'evidence', kind: who === 'person' ? 'photo' : 'logo', text: `${one.name ? `${one.name}, ` : ''}${who === 'person' ? 'Photo' : 'Logo'}: ${pic.sourceUrl}${pic.page ? ` (on ${pic.page})` : ''}${pic.why === YOUR_PICTURE ? ' (you picked it)' : ''}`, source: pic.page ?? pic.sourceUrl });
   }
   const checkIndex = (check: string) => nb.checks.findIndex((c) => lower(c) === lower(check));
   const options = entries.filter((e) => e.kind === 'option');
@@ -125,9 +145,9 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
 }
 
 /** What the correction agent reads. Pure. */
-export function correctionInputs(nb: Notebook, entries: readonly NotebookEntry[], instruction: string, conversation: string, focus?: string): Record<string, string> {
+export function correctionInputs(nb: Notebook, entries: readonly NotebookEntry[], instruction: string, conversation: string, focus?: string, pictures: CorrectionPictures = {}): Record<string, string> {
   return {
-    NOTEBOOK: JSON.stringify({ title: nb.title, for: nb.statement, ...(nb.about?.person ? { person: nb.about.person.name } : {}), ...(nb.about?.company ? { company: nb.about.company.name } : {}), parts: correctionParts(nb, entries, focus) }),
+    NOTEBOOK: JSON.stringify({ title: nb.title, for: nb.statement, ...(nb.about?.person ? { person: nb.about.person.name } : {}), ...(nb.about?.company ? { company: nb.about.company.name } : {}), parts: correctionParts(nb, entries, focus, pictures) }),
     INSTRUCTION: instruction,
     CONVERSATION: conversation,
     FOCUS: focus ? optionId(focus) : '',
@@ -182,10 +202,10 @@ export type CheckedCorrection = { correction: Correction } | { question: string 
  * was checked on), and evidence never invalidated by another part's
  * change. Pure.
  */
-export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[], c: Correction, focus?: string): CheckedCorrection {
+export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[], c: Correction, focus?: string, pictures: CorrectionPictures = {}): CheckedCorrection {
   const ask = c.clarification_question || 'Which part of the notebook is wrong, and what should it say?';
   if (c.clarification_required) return { question: ask };
-  const parts = correctionParts(nb, entries, focus);
+  const parts = correctionParts(nb, entries, focus, pictures);
   const byId = new Map(parts.map((p) => [p.id, p]));
   let d = c.semantic_delta;
   const m = /^about:(person|company):([a-z][a-z0-9_]{0,39})$/.exec(d.target_id);
@@ -196,12 +216,15 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
         : d.type === 'written' ? !!target && /^(point|question|finding|plan):\d+$/.test(d.target_id)
           : false;
   if (!ok) return { question: ask };
+  // A picture is changed to one at a link (the picture, or a page it's on), or taken out.
+  const picture = d.type === 'about-fact' && m?.[2] === PICTURE_KEY;
+  if (picture && d.new_value && !/^https?:\/\/\S+$/i.test(d.new_value.trim())) return { question: 'Send me a link to the picture to use: the picture itself, or a page it’s on.' };
   // Just the values, when the agent gave the part's whole text ("Extend, Salary: $225,000").
   const label = d.type === 'option-fact' ? nb.fields.find((f) => f.key === d.target_id.split(':')[2])?.label : d.type === 'about-fact' ? (d.label ?? target?.text.split(': ')[0].split(', ').at(-1)) : undefined;
   const bare = (v: string) => { const i = label ? v.lastIndexOf(`${label}: `) : -1; return i >= 0 ? v.slice(i + label!.length + 2).trim() : v; };
-  if (label) c = { ...c, semantic_delta: { ...d, old_value: bare(d.old_value), new_value: bare(d.new_value) } };
+  if (label && !picture) c = { ...c, semantic_delta: { ...d, old_value: bare(d.old_value), new_value: bare(d.new_value) } };
   d = c.semantic_delta;
-  if (d.type === 'about-fact' && target && lower(d.new_value) === lower(/: (.*?)(?: \(|$)/.exec(target.text)?.[1] ?? '')) return { question: `The notebook already says ${d.label ?? 'that'} is ${d.new_value}. What should change?` };
+  if (d.type === 'about-fact' && !picture && target && lower(d.new_value) === lower(/: (.*?)(?: \(|$)/.exec(target.text)?.[1] ?? '')) return { question: `The notebook already says ${d.label ?? 'that'} is ${d.new_value}. What should change?` };
 
   const impact = new Map<string, CorrectionImpact>();
   const put = (x: CorrectionImpact) => {
@@ -233,6 +256,13 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   // Evidence stays unless the change is to that very fact.
   for (const [id, x] of impact) {
     if (byId.get(id)?.role === 'evidence' && x.action === 'invalidate') impact.set(id, { ...x, action: 'reevaluate' });
+  }
+  // A picture's link kept as a fact about them is the picture, not a fact: it goes with the picture's change.
+  if (picture) {
+    for (const p of parts) {
+      const k = /^about:(?:person|company):(.+)$/.exec(p.id)?.[1];
+      if (k && PICTURE_LINK_FACT.test(k) && p.id.startsWith(`about:${m![1]}:`)) impact.set(p.id, { object_id: p.id, action: 'invalidate', reason: "a picture's link, not a fact about them" });
+    }
   }
   // Something sua wrote that's wrong is itself what changes: rewritten, or out.
   const list = [...impact.values()];
@@ -266,11 +296,15 @@ export function describeCorrection(nb: Notebook, entries: readonly NotebookEntry
     : RULE_WORDS[d.type] ?? (d.label || (d.type === 'written' ? cardText(partText(nb, entries, d.target_id)) : d.type.replace('-', ' ')));
   const rows: Array<{ what: string; before: string; after: string }> = [];
   // A rule's words as the notebook has them (the agent may say less).
-  const old = RULE_WORDS[d.type] ? cardText(partText(nb, entries, d.target_id)).replace(/ \(met\)$/, '') : d.old_value;
-  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type === 'option-fact' ? name : RULE_WORDS[d.type]?.toLowerCase() ?? d.type, before: old || '—', after: d.new_value || '(take it out)' });
+  // A picture's link reads as where it is ("the picture on gregmeyer.com").
+  const picture = d.type === 'about-fact' && d.target_id.endsWith(`:${PICTURE_KEY}`);
+  const asSite = (u: string) => { if (!picture || !u) return u; try { return `the picture on ${new URL(u).hostname.replace(/^www\./, '')}`; } catch { return u; } };
+  const old = RULE_WORDS[d.type] ? cardText(partText(nb, entries, d.target_id)).replace(/ \(met\)$/, '') : asSite(d.old_value);
+  const now = asSite(d.new_value);
+  if (d.type !== 'written') rows.push({ what: d.type === 'about-fact' ? (d.label ?? 'fact') : d.type === 'option-fact' ? name : RULE_WORDS[d.type]?.toLowerCase() ?? d.type, before: old || '—', after: now || '(take it out)' });
   const touched = c.impact.filter((x) => x.action !== 'keep');
   // Each touched part's row: evidence it flags isn't changed (only you or a new look change what was found), said so.
-  const whatOf = (id: string, action: CorrectionAction) => RULE_ID.test(id) ? 'rule' : /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(id) ? 'may be out of date'
+  const whatOf = (id: string, action: CorrectionAction) => RULE_ID.test(id) ? 'rule' : action === 'invalidate' && id.startsWith('about:') ? 'take out' : /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(id) ? 'may be out of date'
     : action === 'invalidate' ? 'take out' : /^(point|finding|plan):/.test(id) ? 'rewrite' : /^question:/.test(id) ? 'take out' : 'look again';
   const all = touched.map((x) => ({ x, what: whatOf(x.object_id, x.action) }));
   // A changed check can touch every option: the first few by name, then how many more.
@@ -294,7 +328,7 @@ export function describeCorrection(nb: Notebook, entries: readonly NotebookEntry
   // A count of every part kept (facts, check results…) means nothing to read: say the rest stays.
   const head = d.type === 'written'
     ? `"${name.slice(0, 80)}" is wrong`
-    : `${d.type === 'option-fact' || RULE_WORDS[d.type] ? name : d.label ?? name}: ${old || '—'} → ${d.new_value || 'taken out'}`;
+    : `${d.type === 'option-fact' || RULE_WORDS[d.type] ? name : d.label ?? name}: ${old || '—'} → ${now || 'taken out'}`;
   rows.push({ what: 'keeps', before: '—', after: touched.length ? 'everything else in the notebook as it is' : 'everything else: nothing rests on it' });
   return { rows, summary: `${head}. ${changes ? `${capital(changes)}; everything else stays as it is.` : 'Nothing else changes.'}` };
 }
@@ -332,7 +366,7 @@ export function startNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   const focus = threadOptionFocus(ctx.inboxStore?.get(messageId)?.contextJson);
   const work = (async () => {
     const entries = store.entries(nb.id, 1000);
-    const { result, error } = await runCorrectionAgent(ctx, correctionInputs(nb, entries, instruction, recentTurns(ctx, messageId), focus));
+    const { result, error } = await runCorrectionAgent(ctx, correctionInputs(nb, entries, instruction, recentTurns(ctx, messageId), focus, picturesOf(store, nb.id)));
     const c = result ? parseCorrection(result) : undefined;
     if (!c) {
       say(ctx, messageId, `I couldn't work out what that changes in the notebook${error ? ` (${error.slice(0, 160)})` : ''}. Nothing changed. Say which part is wrong and what it should be.`);
@@ -340,7 +374,7 @@ export function startNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
     const now = store.get(nb.id) ?? nb;
     const nowEntries = store.entries(nb.id, 1000);
-    const checked = checkCorrection(now, nowEntries, c, focus);
+    const checked = checkCorrection(now, nowEntries, c, focus, picturesOf(store, nb.id));
     if ('question' in checked) {
       say(ctx, messageId, checked.question);
       ctx.inboxStore?.updateStatus(messageId, 'awaiting_user');
@@ -393,8 +427,19 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   if (!APPLIES.has(d.type)) return { status: 'failed', refusalReason: 'sua can\'t apply that kind of correction yet.' };
   if (ctx.notebookPipelines?.has(nb.id)) return { status: 'failed', refusalReason: 'The notebook is running a step. Apply this when it\'s done.' };
   const said: string[] = [];
+  // A picture at a link to keep (fetched in the background).
+  let pictureLink: { who: NotebookAboutWho; link: string } | undefined;
   try {
-    if (d.type === 'about-fact') {
+    if (d.type === 'about-fact' && d.target_id.endsWith(`:${PICTURE_KEY}`)) {
+      const who = d.target_id.split(':')[1] as NotebookAboutWho;
+      const word = who === 'person' ? 'photo' : 'logo';
+      if (d.new_value) pictureLink = { who, link: d.new_value.trim() };
+      else said.push(store.rejectAboutPhoto(nb.id, who) ? `took out the ${word}; it won't be used again` : `there was no ${word} to take out`);
+      // A picture's link kept as a fact goes (it isn't a fact about them).
+      const links = c.impact.filter((x) => x.action === 'invalidate' && PICTURE_LINK_FACT.test(x.object_id.split(':')[2] ?? '') && x.object_id.startsWith(`about:${who}:`) && nb.about?.[who]?.facts.some((f) => f.key === x.object_id.split(':')[2]));
+      for (const x of links) store.correctAbout(nb.id, who, x.object_id.split(':')[2], { value: '', why: meta.inputs.INSTRUCTION });
+      if (links.length) said.push(`took out the picture's link from what it knows about them`);
+    } else if (d.type === 'about-fact') {
       const [, who, key] = d.target_id.split(':') as [string, NotebookAboutWho, string];
       store.correctAbout(nb.id, who, key, { value: d.new_value, ...(d.label ? { label: d.label } : {}), why: meta.inputs.INSTRUCTION });
       said.push(d.new_value ? `${d.label ?? key.replace(/_/g, ' ')} is ${d.new_value} now, as you said` : `took out ${d.label ?? key.replace(/_/g, ' ')}`);
@@ -485,7 +530,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   const redo = strike.filter((x) => x.redo).length;
   // A check that changed applies to every option: all of them (in the check step's top N) are checked on it.
   const recheckAll = ruleChanges(c).some((r) => r.id.startsWith('check:') && !!r.value) && !!fresh.steps?.some((s) => s.kind === 'check');
-  if (!strike.length && !rewriteWhole.length && !recheck.size && !recheckAll) {
+  if (!strike.length && !rewriteWhole.length && !recheck.size && !recheckAll && !pictureLink) {
     store.noteRun(nb.id, `Corrected: ${said.join('; ')}`);
     return { status: 'completed', summary: `${capital(said.join('; ') || 'nothing to change')}.` };
   }
@@ -495,6 +540,11 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   ctx.notebookPipelines.set(nb.id, running);
   const work = (async () => {
     const out: string[] = [];
+    if (pictureLink) {
+      const r = await keepGivenPicture(ctx, store, nb.id, pictureLink.who, pictureLink.link);
+      const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } };
+      out.push('from' in r ? `kept the ${pictureLink.who === 'person' ? 'photo' : 'logo'} from ${host(r.from)}, as you picked` : `couldn't use that picture: ${r.why}`);
+    }
     if (recheck.size || recheckAll) {
       const inBefore = new Set((recheckAll ? store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id) : [...recheck.keys()]).filter((id) => !optionNow(id)?.ruledOut));
       out.push((await recheckOptions(ctx, nb.id, recheckAll ? 'all' : [...recheck.keys()])).replace(/\.$/, ''));
@@ -537,6 +587,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   });
   done?.(work);
   const next = [
+    pictureLink ? 'fetching the picture' : '',
     recheckAll ? 'checking the options against it' : recheck.size ? `checking ${recheck.size === 1 ? 'it' : `${String(recheck.size)} options`} again` : '',
     redo ? `rewriting ${String(redo)} talking point${redo === 1 ? '' : 's'}` : strike.length ? `striking ${String(strike.length)} talking point${strike.length === 1 ? '' : 's'}` : '',
     rewriteWhole.length ? 'writing it again' : '',

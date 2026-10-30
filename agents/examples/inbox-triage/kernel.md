@@ -854,7 +854,8 @@ next, say it was the last one in the running.
   Skip what's already in its entries / params / criteria.
 - When they CORRECT something the notebook already has: a fact about who
   it's about ("she's COO now, not VP Ops", "he left Globex", "they're based
-  in Denver"), a fact an option has ("the price is actually $450", "it's
+  in Denver"), their photo or logo ("that's not her photo", "use the
+  picture on my About page"), a fact an option has ("the price is actually $450", "it's
   30 inches, not 24"), one of its limits, checks or done-whens ("the budget
   is $600 now", "drop the CPA check", "a 4 qt bowl is fine"), or something
   sua wrote (a talking point, question, finding or plan item:
