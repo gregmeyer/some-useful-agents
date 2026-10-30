@@ -43,6 +43,9 @@ let pageReply: ((inputs: Record<string, string>) => string | undefined) | undefi
 /** sua's writer's answer in a write step (none: no answer), and what it was asked. */
 let writerReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
 const writerAsked: Array<Record<string, string>> = [];
+/** sua's correction agent's answer (none: no answer), and what it was asked. */
+let correctionReply: ((inputs: Record<string, string>) => string | undefined) | undefined;
+const correctionAsked: Array<Record<string, string>> = [];
 const pageAsked: Array<Record<string, string>> = [];
 let agentStore: AgentStore;
 let packsStore: PacksStore;
@@ -104,6 +107,7 @@ async function makeApp(opts: { schedule?: string; allowHighFrequency?: boolean }
     notebookFacetsRun: async (inputs) => { facetsAsked.push(inputs); return facetsReply?.(inputs); },
     notebookPageRun: async (inputs) => { pageAsked.push(inputs); return pageReply?.(inputs); },
     notebookWriterRun: async (inputs) => { writerAsked.push(inputs); return writerReply?.(inputs); },
+    notebookCorrectionRun: async (inputs) => { correctionAsked.push(inputs); return correctionReply?.(inputs); },
     // Nor a real checker: tests set checkerReply.
     notebookCheckerRun: async (inputs) => checkerReply?.(inputs),
     // Nor a real finder: tests set finderReply.
@@ -4640,6 +4644,93 @@ describe('editing the talking points', () => {
     expect(JSON.parse(writerAsked[0].NOTEBOOK)).toMatchObject({ skip: ['Confirm her current role at Acme'] });
     expect(JSON.parse(writerAsked[0].NOTEBOOK).keep).toBeUndefined();
     expect(s.get(nb.id)!.briefing!.struck).toEqual(['Confirm her current role at Acme']);
+    writerReply = undefined;
+  });
+
+  it('a correction in the conversation: worked out as a card, applied, what rests on it rewritten, and kept when research looks again', async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection, applyNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Dana Reyes' });
+    s.setFields(nb.id, [{ key: 'theme', label: 'Theme', type: 'text' }]);
+    const a = s.upsertOption(nb.id, { title: 'Running ops', by: 'agent:x', data: { theme: 'Running ops' } }).entry;
+    s.setSteps(nb.id, [{ title: 'Find what she said', kind: 'find', target: 1, status: 'done' }, { title: 'Write the talking points', kind: 'write', target: 3, status: 'done' }]);
+    s.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Ops' }, { key: 'location', label: 'Based in', value: 'Austin' }] });
+    s.setBriefing(nb.id, {
+      points: [{ text: 'Open with her drafts', from: [a.id] }, { text: 'Ask how she runs ops as VP Ops', from: [a.id] }, { text: 'Ask what comes next', from: [] }],
+      questions: ['As VP Ops, what keeps you up at night?', 'Who else should I meet?'], watch: [], at: '2026-10-26T12:00:00Z', by: 'notebook-writer',
+    });
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    const said = "She's COO now, not VP Ops";
+    const lastAction = () => JSON.parse([...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action')!.metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    const lastWords = () => [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'triage')!.body;
+
+    // Triage hands it over in their words; working it out changes nothing (a read).
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const parsed = parseProposedActions([{ type: 'notebook-correct', rationale: 'A correction', inputs: { NOTEBOOK: nb.id, INSTRUCTION: ` ${said} ` } }, { type: 'notebook-correct', inputs: { NOTEBOOK: nb.id } }], [], []);
+    expect(parsed.accepted[0]).toMatchObject({ agentId: 'notebook-correct', effect: 'read', inputs: { NOTEBOOK: nb.id, INSTRUCTION: said } });
+    expect(parsed.rejected[0].reason).toBe('notebook-correct needs inputs.NOTEBOOK and inputs.INSTRUCTION');
+
+    // Worked out: the agent names the change; the points and questions that say the old role come along by their words.
+    correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: { type: 'about-fact', target_id: 'about:person:role', old_value: 'VP Ops', new_value: 'COO', label: 'Role' }, impact: [{ object_id: 'point:2', action: 'keep', reason: 'not about her role' }, { object_id: 'about:person:location', action: 'invalidate', reason: 'x' }], clarification_required: false, clarification_question: '' })}</correction>`;
+    let work: Promise<void> | undefined;
+    expect(startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: said } }, (p) => { work = p; })).toMatchObject({ status: 'completed' });
+    await work;
+    expect(correctionAsked[0].INSTRUCTION).toBe(said);
+    expect(JSON.parse(correctionAsked[0].NOTEBOOK).parts).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'about:person:role', role: 'evidence' }), expect.objectContaining({ id: 'point:1', role: 'judgment', from: [`option:${a.id}`] })]));
+    const card = lastAction();
+    expect(card).toMatchObject({ agentId: 'notebook-correct-apply', status: 'proposed', ctaLabel: 'Apply' });
+    expect(card.surfaceChanges).toEqual(expect.arrayContaining([
+      { what: 'Role', before: 'VP Ops', after: 'COO' },
+      expect.objectContaining({ what: 'rewrite', before: 'Ask how she runs ops as VP Ops' }),
+      expect.objectContaining({ what: 'take out', before: 'As VP Ops, what keeps you up at night?' }),
+      // A fact about them isn't dropped by another fact's change: looked at again, not taken out.
+      expect.objectContaining({ what: 'look again', before: 'Dana Reyes, Based in: Austin' }),
+    ]));
+    expect(card.rationale).toBe('Role: VP Ops → COO. Rewrites 1, takes out 1, looks again at 1; everything else stays as it is.');
+    // Nothing changed yet.
+    expect(s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'role')!.value).toBe('VP Ops');
+
+    // Applied: the fact now, the question out, the point written again in its place.
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'Ask how she runs ops as COO', from: [a.id] }] })}</briefing>`;
+    writerAsked.length = 0;
+    let wrote: Promise<void> | undefined;
+    const applied = applyNotebookCorrection(ctx, thread, card, (p) => { wrote = p; });
+    expect(applied).toMatchObject({ status: 'completed' });
+    expect(applied.summary).toBe('Role is COO now, as you said; took out 1 question; rewriting 1 talking point…');
+    await wrote;
+    const after = s.get(nb.id)!;
+    expect(after.about!.person!.facts.find((f) => f.key === 'role')).toMatchObject({ value: 'COO', was: { value: 'VP Ops' } });
+    expect(after.about!.person!.facts.find((f) => f.key === 'location')!.value).toBe('Austin');
+    expect(after.briefing!.points.map((p) => p.text)).toEqual(['Open with her drafts', 'Ask how she runs ops as COO', 'Ask what comes next']);
+    expect(after.briefing).toMatchObject({ questions: ['Who else should I meet?'], struck: ['Ask how she runs ops as VP Ops'] });
+    expect(writerAsked[0].COUNT).toBe('1');
+    expect(JSON.parse(writerAsked[0].NOTEBOOK)).toMatchObject({ keep: ['Open with her drafts', 'Ask what comes next'], person: { facts: expect.arrayContaining(['Role: COO']) } });
+    expect(lastWords()).toContain('Corrected **Meet Dana Reyes**');
+    expect(ctx.notebookPipelines?.has(nb.id)).toBeFalsy();
+
+    // Research looking again doesn't change it back.
+    s.setAbout(nb.id, 'person', { facts: [{ key: 'role', label: 'Role', value: 'VP Ops' }, { key: 'location', label: 'Based in', value: 'Denver' }] });
+    expect(s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'role')!.value).toBe('COO');
+    expect(s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'location')!.value).toBe('Denver');
+
+    // Unclear: the agent's question, and no card.
+    const cards = inbox.listResponses(thread).filter((r) => r.role === 'action').length;
+    correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: { type: 'other', target_id: '', old_value: '', new_value: '' }, impact: [], clarification_required: true, clarification_question: 'Which point do you mean?' })}</correction>`;
+    startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: "that's wrong" } }, (p) => { work = p; });
+    await work;
+    expect(lastWords()).toBe('Which point do you mean?');
+    // A part the notebook doesn't have is a question too, never a guess.
+    correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: { type: 'written', target_id: 'point:9', old_value: 'x', new_value: '' }, impact: [] })}</correction>`;
+    startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: 'drop the one about boats' } }, (p) => { work = p; });
+    await work;
+    expect(lastWords()).toBe('Which part of the notebook is wrong, and what should it say?');
+    expect(inbox.listResponses(thread).filter((r) => r.role === 'action').length).toBe(cards);
+    correctionReply = undefined;
     writerReply = undefined;
   });
 });

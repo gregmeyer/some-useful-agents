@@ -528,6 +528,17 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `notebook-correct` hands a correction to sua's correction agent: what they
+    // said (INSTRUCTION) is worked out against the notebook, then shown as a
+    // card to apply, or a question. Working it out changes nothing.
+    if (type === 'notebook-correct') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const nbId = typeof raw.NOTEBOOK === 'string' ? raw.NOTEBOOK : '';
+      const said = typeof raw.INSTRUCTION === 'string' ? raw.INSTRUCTION.trim() : '';
+      if (!nbId || !said) { rejected.push({ agentId: type, reason: 'notebook-correct needs inputs.NOTEBOOK and inputs.INSTRUCTION' }); continue; }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { NOTEBOOK: nbId, INSTRUCTION: said.slice(0, 1000) }, rationale: rationaleRaw || undefined, ctaLabel: 'Work it out' });
+      continue;
+    }
     // `notebook-create` starts a notebook from one of their templates (TEMPLATES),
     // with what's different this time; a card to approve, after sua has asked.
     if (type === 'notebook-create') {

@@ -277,6 +277,8 @@ export interface DashboardContext {
   notebookConflictChecks?: Set<string>;
   /** Tests only: answer for the notebook-writer agent (a write step) instead of running it. */
   notebookWriterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: answer for the notebook-correction agent (lib/notebook-correction.ts) instead of running it. */
+  notebookCorrectionRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-page agent instead of running it. */
   notebookPageRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** "What do you want to do?" answers on /agents, by id and by question (lib/agent-find.ts). */

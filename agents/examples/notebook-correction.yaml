@@ -1,0 +1,119 @@
+# Notebook Correction — you correct a notebook in its conversation ("she's
+# COO now, not VP Ops", "that point is wrong, she never said that"): from
+# the notebook as it is (every part with an id, each marked evidence,
+# judgment or rule) it works out the smallest change you meant and what
+# that change touches: what to keep, what to look at again, what no longer
+# holds. Or, when it can't tell what you meant, the one question to ask.
+# It changes nothing itself: sua shows the change as a card, and applies
+# it when you say so (dashboard lib/notebook-correction.ts).
+# Route-dispatched only, from triage's notebook-correct action; never
+# proposed itself.
+
+id: notebook-correction
+name: Notebook Correction
+description: >
+  Works out what a correction to a notebook changes: the smallest change
+  you meant, and for each part of the notebook it touches, whether to keep
+  it, look at it again, or drop it. Asks instead when it can't tell.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: "JSON: the notebook as it is, every part with an id and a role (evidence, judgment, rule) and what it rests on."
+  INSTRUCTION:
+    type: string
+    required: true
+    description: What the person said.
+  CONVERSATION:
+    type: string
+    required: false
+    default: ""
+    description: The last few turns of the notebook's conversation, for what "that" or "this one" means.
+  FOCUS:
+    type: string
+    required: false
+    default: ""
+    description: The id of the option the person is looking at, if any.
+
+nodes:
+  - id: correct
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<correction>[\s\S]*?</correction>'
+      description: a <correction> JSON block
+    prompt: |
+      You are evaluating the impact of a person's correction on a
+      persistent research notebook.
+
+      The notebook as it is now (JSON). Every part has an "id" and a
+      "role":
+      - "evidence": what was found and where (facts about them, an option's
+        facts, notes), with its source and quote when there is one;
+      - "judgment": what was concluded from the evidence (an option passing
+        or failing a check, being ruled out or picked, talking points,
+        questions, findings, plan items), with what it rests on ("from",
+        option ids);
+      - "rule": what the person set (limits, checks, done-whens).
+      {{inputs.NOTEBOOK}}
+
+      The conversation so far (newest last):
+      {{inputs.CONVERSATION}}
+
+      The option they're looking at, if any: {{inputs.FOCUS}}
+
+      What they just said:
+      {{inputs.INSTRUCTION}}
+
+      Your job:
+      - Infer the smallest change they meant: one part of the notebook
+        whose value is wrong, and what it should be.
+      - Don't rewrite anything unrelated. Everything you don't list is kept.
+      - Identify which parts are affected by the change: the judgments that
+        rest on it, directly or through what they cite.
+      - Keep evidence unless the change says the fact itself is wrong. A
+        quote someone said is still what they said, even when a judgment
+        drawn from it no longer holds.
+      - Tell evidence apart from the judgments drawn from it. A judgment
+        that rests on the corrected fact is "reevaluate" (it may still hold
+        once it's looked at again with the right fact) or "invalidate" (it
+        can't hold any more: it states the wrong fact, or says what they
+        said is untrue).
+      - Flag ambiguity instead of guessing: when you can't tell which part
+        they mean, or what the right value is, ask one short question in
+        their words ("Which talking point do you mean, the one about the
+        board seat or the podcast?"). Never invent a value.
+
+      The change ("semantic_delta"):
+      - "type": one of
+        - "about-fact": a fact about who the notebook is about
+          (target_id like "about:person:role"). A fact it doesn't have yet
+          is fine: use "about:person:<lowercase_snake key>" and give
+          "label". new_value "" when they say the fact is simply wrong;
+        - "option-fact": one fact on one option ("option:<id>:<key>");
+        - "limit", "check", "criterion": a rule (its id). new_value "" to
+          take it out;
+        - "written": something sua wrote (a "point:", "question:",
+          "finding:" or "plan:" id) is wrong. new_value "" when it should
+          just go, or what it should say instead;
+        - "other": anything else. Then ask what they mean.
+      - "target_id": the id from the notebook (exactly as given).
+      - "old_value": what it says now. "new_value": what it should say.
+      - "label": the fact's name, for an about-fact.
+
+      The impact: each part the change touches, with "object_id" (exactly
+      as given), "action" ("keep", "reevaluate" or "invalidate") and
+      "reason" (a short phrase). List "keep" only for a part you'd
+      expect to be touched that isn't. Don't list the target itself.
+
+      Reply with only this, as valid JSON:
+      <correction>
+      {"semantic_delta": {"type": "about-fact", "target_id": "about:person:role", "old_value": "VP Ops", "new_value": "COO", "label": "Role"},
+       "impact": [{"object_id": "point:1", "action": "reevaluate", "reason": "it calls her VP Ops"}],
+       "clarification_required": false,
+       "clarification_question": ""}
+      </correction>

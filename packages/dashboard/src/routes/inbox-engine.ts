@@ -15,6 +15,7 @@ import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
+import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
 import { previewNotebookTemplate, executeNotebookTemplate } from '../lib/notebook-template-action.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
@@ -164,6 +165,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'view-redesign',
   // Additive and removable entry by entry: what you said goes into the notebook as you talk.
   'notebook-add',
+  // Only works out what a correction changes; applying it is its own card.
+  'notebook-correct',
 ]);
 
 /**
@@ -206,7 +209,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -412,7 +415,8 @@ export async function runProposedAction(
     });
     // A notebook step runs in the background and posts how it went itself; a
     // follow-up turn now would only guess ("still running…") and go stale.
-    if (meta.agentId !== 'notebook-step') maybeRefireTriage(ctx, messageId);
+    // A correction posts its own card (or question), and its rewrite says how it went.
+    if (meta.agentId !== 'notebook-step' && meta.agentId !== 'notebook-correct' && meta.agentId !== 'notebook-correct-apply') maybeRefireTriage(ctx, messageId);
     return;
   }
 
@@ -907,6 +911,12 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'notebook-template') {
     return executeNotebookTemplate(ctx, meta);
+  }
+  if (meta.agentId === 'notebook-correct') {
+    return startNotebookCorrection(ctx, messageId, meta);
+  }
+  if (meta.agentId === 'notebook-correct-apply') {
+    return applyNotebookCorrection(ctx, messageId, meta);
   }
   if (meta.agentId === 'notebook-create') {
     return executeNotebookCreate(ctx, meta);
@@ -2813,7 +2823,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);

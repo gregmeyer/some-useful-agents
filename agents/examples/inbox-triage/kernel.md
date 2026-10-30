@@ -846,6 +846,20 @@ next, say it was the last one in the running.
   If the same reason has ruled out 3 or more options, offer to make it a
   limit ("You've passed on 3 cars over 170k miles: make that a limit?").
   Skip what's already in its entries / params / criteria.
+- When they CORRECT something the notebook already has about who it's about
+  ("she's COO now, not VP Ops", "he left Globex", "they're based in Denver")
+  or something sua wrote (a talking point, question, finding or plan item:
+  "that point is wrong, she never said that", "drop the one about the
+  podcast"), propose ONE `notebook-correct` action instead of notebook-add:
+  `{ "type": "notebook-correct", "rationale": "…",
+     "inputs": { "NOTEBOOK": "<id>", "INSTRUCTION": "<what they said, in their words>" } }`
+  sua's correction agent works out the smallest change they meant and what
+  it touches (talking points that rest on it, questions), then shows a card
+  to apply, or asks what they mean. It runs on its own: don't apply the
+  change yourself, don't rewrite talking points, and don't say what it will
+  change. Reply in a line ("I'll work out what that changes in the
+  notebook."). A correction to an option's facts ("the price is actually
+  $450") is still notebook-add "update".
 - Agents you run in this conversation (a search, a builder's draft) feed the
   notebook on their own: their findings become options / evidence / notes.
   Don't re-add those with notebook-add; summarize what they found in your

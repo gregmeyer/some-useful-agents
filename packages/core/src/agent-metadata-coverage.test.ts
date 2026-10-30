@@ -71,6 +71,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-facets': 'notebook only: groups long facts into short filter labels, never proposed',
   'notebook-page': 'notebook only: decides a new notebook\'s page from what it\'s for, never proposed',
   'notebook-writer': 'notebook only: a write step\'s talking points, run by the step runner, never proposed',
+  'notebook-correction': 'notebook only: works out what a correction in a notebook\'s conversation changes, from triage\'s notebook-correct, never proposed',
   'notebook-reconciler': 'notebook only: checks who it\'s about against what was found, run after steps, never proposed',
   'notebook-checker': 'notebook only: checks options against the notebook\'s checks in a check step, never proposed',
   'notebook-finder': 'notebook only: a find step without its own agent, several narrow searches at once, never proposed',

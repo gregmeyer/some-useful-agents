@@ -81,6 +81,19 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 - **Agents sua runs in the conversation feed the notebook.** A search becomes options, evidence, or a note such as "Searched Seattle Craigslist for Foresters: nothing that fits yet", each linked to its run. When sua builds an agent for the notebook, it offers to add it to the pipeline.
 - **New limits replace the ones they contradict** ("budget is now $3–6k" drops the old range).
 - **Corrections change the option itself.** Say "the price is actually $136.64" or "it's 30 inches, not 24", and sua updates that option's facts, so its card, its page, the chart and the stats change too. It isn't filed as a separate note. The option's history shows **Corrected**, with what it replaced ("Price $4,023 → $136.64"). The old source and estimate mark for that fact go. A correction stands over the option's own title and earlier searches. A corrected price starts the price history over, so fixing a wrong price doesn't read as a price drop.
+- **Correct something, and sua works out what it changes.** Say "she's COO now, not VP Ops", "he's based in Denver", or "that talking point is wrong, she never said that". sua's correction agent (`notebook-correction`) reads the notebook part by part: what was found (evidence), what was concluded from it (check results, picks, talking points, findings), and the rules you set. It names the smallest change you meant and what rests on it.
+  - **A card shows it before anything changes:**
+    - the change ("Role: VP Ops → COO");
+    - each part it rewrites, takes out or looks at again, and why;
+    - how many parts it keeps as they are.
+  - **What was found stays.** A quote is still what they said, even when a point drawn from it no longer holds.
+  - **When it can't tell** which part you mean, or what it should say, sua asks instead.
+  - **Apply:**
+    - The fact changes, and stays yours: a later **Look again** or **Update** doesn't change it back, and sources that disagree only on the value you said is wrong don't raise it again. Say a fact is simply wrong, and it goes.
+    - Questions that rest on the old value come out.
+    - Talking points that rest on it are written again in their places (the rest stay).
+    - Findings and plan items you say are wrong come out, and aren't written again.
+  - For now this covers facts about who the notebook is about, and what sua wrote. See [ADR-0063](adr/0063-notebook-corrections.md).
 - **The notebook keeps its conversation.** the page shows sua's latest message, **Continue the conversation** reopens it, and a conversation started from the notebook's page belongs to it. To add an entry yourself, use **+ Add entry** in the notebook's header.
 
 - **A conversation that turns to a notebook** sees it too. Ask "which notebook should I work on next?" anywhere, pick one, and once sua's reply links just that notebook, sua has its options, steps and fields for the rest of the conversation, as if you'd asked on its page. sua sees every option still in the running, however long the notebook's history, so its count matches the page's. Results of searches you run there still go into the notebook only from its own conversation.
