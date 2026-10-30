@@ -15,7 +15,9 @@ describe('TemporalProvider.submitDagRun resume', () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-tp-resume-'));
     const dbPath = join(dir, 'runs.db');
     const seed = new RunStore(dbPath);
-    seed.createRun({ id: 'run-w', agentName: 'asker', status: 'waiting', startedAt: '2026-09-29T10:00:00.000Z', triggeredBy: 'dashboard' });
+    // An hour ago, not a fixed date: opening the store sweeps runs past its retention (30 days).
+    const startedAt = new Date(Date.now() - 3_600_000).toISOString();
+    seed.createRun({ id: 'run-w', agentName: 'asker', status: 'waiting', startedAt, triggeredBy: 'dashboard' });
     seed.close();
 
     const provider = new TemporalProvider({ dbPath, secretsPath: join(dir, 'secrets.enc') });
@@ -33,7 +35,7 @@ describe('TemporalProvider.submitDagRun resume', () => {
     const run = await provider.submitDagRun(agent, { runId: 'run-w', resume: true, triggeredBy: 'dashboard' });
 
     expect(run.id).toBe('run-w');
-    expect(run.startedAt).toBe('2026-09-29T10:00:00.000Z');
+    expect(run.startedAt).toBe(startedAt);
     expect(started).toHaveLength(1);
     expect(started[0].workflowId).toBe('sua-run-run-w');
     expect(started[0].args[0].runId).toBe('run-w');
