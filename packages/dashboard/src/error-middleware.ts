@@ -14,7 +14,8 @@
  * minimal-but-informative 500 to the client.
  */
 
-import type { ErrorRequestHandler } from 'express';
+import type { ErrorRequestHandler, RequestHandler } from 'express';
+import { SESSION_COOKIE } from './session.js';
 
 export function buildDashboardErrorHandler(): ErrorRequestHandler {
   return (err, req, res, _next) => {
@@ -32,5 +33,29 @@ export function buildDashboardErrorHandler(): ErrorRequestHandler {
       `Internal Server Error\n\nThe dashboard hit an unhandled error on ${req.method} ${req.originalUrl}. ` +
       `Check the dashboard log for the stack trace.`,
     );
+  };
+}
+
+/**
+ * Logs a button press the dashboard refused or failed (a POST, PUT, PATCH or
+ * DELETE that ended 400 or above): method, path, status, and whether it came
+ * with a session cookie and from where. Without this, a press that never did
+ * anything (signed out, a foreign Origin, a card that's gone) left nothing in
+ * the dashboard log to tell why. The path only, never the query or body: no
+ * token or text you typed is written.
+ *
+ * Register it first, so it also sees what requireAuth and the Origin check
+ * turn away.
+ */
+export function buildRefusedWriteLogger(write: (line: string) => void = (l) => { process.stderr.write(l); }): RequestHandler {
+  return (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') { next(); return; }
+    res.on('finish', () => {
+      if (res.statusCode < 400) return;
+      const cookie = (req.headers.cookie ?? '').split(';').some((c) => c.trim().startsWith(`${SESSION_COOKIE}=`)) ? 'with' : 'without';
+      const origin = typeof req.headers.origin === 'string' ? `, from ${req.headers.origin}` : '';
+      write(`[${new Date().toISOString()}] REFUSED ${req.method} ${req.path} → ${String(res.statusCode)} (${cookie} a session cookie${origin})\n`);
+    });
+    next();
   };
 }

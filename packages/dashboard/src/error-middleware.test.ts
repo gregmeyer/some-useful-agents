@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { buildDashboardErrorHandler } from './error-middleware.js';
+import { buildDashboardErrorHandler, buildRefusedWriteLogger } from './error-middleware.js';
 
 function makeApp() {
   const app = express();
@@ -81,4 +81,21 @@ describe('buildDashboardErrorHandler', () => {
     expect(logged).toMatch(/→ 403: forbidden by policy/);
   });
 
+});
+
+describe('refused presses are logged', () => {
+  it('logs a POST that ends 400 or above, by path only, and leaves the rest alone', async () => {
+    const lines: string[] = [];
+    const app = express();
+    app.use(buildRefusedWriteLogger((l) => lines.push(l)));
+    app.post('/inbox/t/actions/c/run', (_req, res) => { res.status(403).json({ error: 'Origin not allowed' }); });
+    app.post('/ok', (_req, res) => { res.status(204).end(); });
+    app.get('/missing', (_req, res) => { res.status(404).end(); });
+    await request(app).post('/inbox/t/actions/c/run?token=secret').set('Origin', 'http://evil.example').set('Cookie', 'sua_dashboard_session=abc').expect(403);
+    await request(app).post('/ok').expect(204);
+    await request(app).get('/missing').expect(404);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/REFUSED POST \/inbox\/t\/actions\/c\/run → 403 \(with a session cookie, from http:\/\/evil\.example\)\n$/);
+    expect(lines[0]).not.toContain('secret');
+  });
 });

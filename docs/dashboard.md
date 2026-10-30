@@ -24,6 +24,8 @@ Run it on the machine hosting the dashboard and open the link it prints. That
 link carries the bearer token, so treat it like a password — and note that
 `sua mcp rotate-token` invalidates every existing session immediately.
 
+When a button press doesn't go through (a card's Apply or Run it, a list row's button), a message shows under the buttons saying why: signed out, no longer there, an error number, or sua not reachable. The dashboard log (`data/daemon/logs/dashboard.log`) gets a `REFUSED` line for every press it turned away or failed. The line has the path, the status, and whether a session cookie came with it; it never has the query or the body.
+
 Dark mode by default. JetBrains Mono. The design system source-of-truth is [DESIGN.md](../DESIGN.md).
 
 The footer shows a **build stamp** (`sua vX · <sha>`) so you can tell which build the running daemon is serving; `-dirty` means uncommitted changes were in the build tree. The same stamp is exposed at `GET /health` as `{ commit, builtAt }`, alongside `runs_last_hour`, the scheduler's heartbeat, and `reaper`: what the boot reaper and the stuck-run watchdog have cleaned up since the dashboard started (counts only). See [Build from a goal § Build stamp](build-from-goal.md#build-stamp).
