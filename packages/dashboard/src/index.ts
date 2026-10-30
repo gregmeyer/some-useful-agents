@@ -44,7 +44,7 @@ import { requireAuth, readCookie } from './auth-middleware.js';
 import { hooksRouter, hooksErrorHandler } from './routes/hooks.js';
 import { connectModelRouter, MODEL_GATE_SKIP_COOKIE } from './routes/connect-model.js';
 import { getProviderReadiness, warmProviderReadiness } from './lib/provider-readiness.js';
-import { buildDashboardErrorHandler } from './error-middleware.js';
+import { buildDashboardErrorHandler, buildRefusedWriteLogger } from './error-middleware.js';
 import { healthRouter } from './routes/health.js';
 import { authRouter } from './routes/auth.js';
 import { sessionRouter } from './routes/session.js';
@@ -169,6 +169,8 @@ export interface DashboardHandle {
 export function buildDashboardApp(ctx: DashboardContext): Application {
   const app = express();
   app.locals = ctx as unknown as Application['locals'];
+  // A press the dashboard turned away says why in the log (error-middleware.ts).
+  app.use(buildRefusedWriteLogger());
 
   // Inbound webhooks: before the body parsers (a GitHub signature covers the
   // raw bytes) and before the session check (callers are outside services;

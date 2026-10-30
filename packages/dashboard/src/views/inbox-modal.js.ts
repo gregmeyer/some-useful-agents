@@ -713,6 +713,37 @@ export const INBOX_MODAL_JS = `
   }
 
 
+  /**
+   * A press that didn't go through says so, under its buttons. Without this
+   * the button just came back on and the press looked like it did nothing.
+   * err.status is the HTTP status; none means sua couldn't be reached.
+   */
+  function pressFailedText(err) {
+    var st = err && err.status;
+    if (st === 401) return 'You\u2019ve been signed out. Sign in again, then press it once more.';
+    if (st === 404) return 'That isn\u2019t there any more. Reload the page to see where things are.';
+    if (st) return 'That didn\u2019t go through (error ' + st + '). Try again, or reload the page.';
+    return 'Couldn\u2019t reach sua. Check it\u2019s running, then try again.';
+  }
+  function sayPressFailed(form, err) {
+    var host = (form.closest && (form.closest('.act-card__foot') || form.closest('.inbox-action__controls') || form.closest('.panel-row__acts'))) || form;
+    var where = host.parentNode;
+    if (!where) return;
+    var old = where.querySelector('[data-press-failed]');
+    if (old) old.remove();
+    var p = document.createElement('p');
+    p.className = 'press-failed';
+    p.setAttribute('role', 'alert');
+    p.setAttribute('data-press-failed', '');
+    p.textContent = pressFailedText(err);
+    host.insertAdjacentElement('afterend', p);
+  }
+  function statusError(r, what) {
+    var e = new Error(what + ' ' + r.status);
+    e.status = r.status;
+    return e;
+  }
+
   function stopPoll() {
     if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
   }
@@ -1160,7 +1191,7 @@ export const INBOX_MODAL_JS = `
             'X-Requested-With': 'fetch',
           },
         }).then(function (r) {
-          if (!r.ok) throw new Error('mutation failed: ' + r.status);
+          if (!r.ok) throw statusError(r, 'mutation failed:');
         });
     sending
       .then(function () {
@@ -1175,9 +1206,10 @@ export const INBOX_MODAL_JS = `
           refresh();
         }
       })
-      .catch(function () {
+      .catch(function (err) {
         form.removeAttribute('data-inflight');
         for (var i = 0; i < submits.length; i++) submits[i].disabled = false;
+        sayPressFailed(form, err);
         // Rollback the optimistic UI so the operator can edit and
         // retry instead of losing their text.
         if (pendingEntry && pendingEntry.parentNode) {
@@ -1692,7 +1724,7 @@ export const INBOX_MODAL_JS = `
     if (btn) btn.disabled = true;
     fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
       .then(function (r) {
-        if (!r.ok) throw new Error('act ' + r.status);
+        if (!r.ok) throw statusError(r, 'act');
         // An action that settles the item (making a draft active): no more buttons to press.
         if (pane && form.hasAttribute('data-item-resolves')) {
           var acts = pane.querySelector('.item-pane__actions');
@@ -1712,8 +1744,9 @@ export const INBOX_MODAL_JS = `
         }
         refreshPanelList();
       })
-      .catch(function () {
+      .catch(function (err) {
         if (status) status.textContent = 'That didn\u2019t work. Try again, or open the page from the links above.';
+        else sayPressFailed(form, err);
         if (btn) btn.disabled = false;
       });
   });
