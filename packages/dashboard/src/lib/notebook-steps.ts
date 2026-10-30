@@ -406,7 +406,11 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
  * run of its agent on just those, still to check (in its top N, when it has
  * one); the step stays where it is.
  */
-async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>): Promise<string> {
+/** How checking some of the options reads: the ones an update found, or the ones you corrected. */
+const NEW_ONES = { these: 'the new ones', each: 'new', none: 'Nothing new to check' };
+const CORRECTED = { these: 'what you corrected', each: 'corrected', none: 'Nothing left to check on what you corrected' };
+
+async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>, words = NEW_ONES): Promise<string> {
   let nb = store.get(notebookId)!;
   const where = step.top ? ` in the top ${String(step.top)}` : '';
   if (!nb.checks.length) return `Skipped **${step.title}**: the notebook has no checks.`;
@@ -417,7 +421,7 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
     return (step.top ? ranked.slice(0, step.top) : ranked).filter((o) => !had.has(o.id)).map((o) => ({ o, checks: checksLeft(n, o) })).filter((x) => x.checks.length);
   };
   const todo = left(nb, entries);
-  if (!todo.length) return `Nothing new to check${where} (**${step.title}**).`;
+  if (!todo.length) return `${words.none}${where} (**${step.title}**).`;
   const missing = todo.map((x) => `${x.o.name} — ${x.checks.join(', ')}`);
   const ids = new Set(todo.map((x) => x.o.id));
   const p = stepProgress(nb, entries, step);
@@ -429,20 +433,41 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   store.addRunToPass(passId, run.id);
   if (run.status === 'cancelled' || running?.stopped) {
     store.finishPass(passId, `${agentId}: stopped`);
-    return `You stopped checking the new ones (**${step.title}**).`;
+    return `You stopped checking ${words.these} (**${step.title}**).`;
   }
   if (run.status !== 'completed') {
     const why = `${agentId}: ${run.status}${run.error ? ` (${run.error.slice(0, 80)})` : ''}`;
     store.finishPass(passId, why);
-    return `Checking the new ones (**${step.title}**) didn't finish (${why}).`;
+    return `Checking ${words.these} (**${step.title}**) didn't finish (${why}).`;
   }
   const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
   store.finishPass(passId, passNote(agentId, out));
   nb = store.get(notebookId)!;
   const open = left(nb, store.entries(nb.id, 1000)).filter((x) => ids.has(x.o.id)).length;
-  const done = `${String(todo.length - open)} of ${String(todo.length)} new checked`;
+  const done = `${String(todo.length - open)} of ${String(todo.length)} ${words.each} checked`;
   store.noteRun(notebookId, `${step.title}: ${done}`);
-  return `Checked the new ones${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
+  return `Checked ${words.these}${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
+}
+
+/**
+ * Check these options again (a fact they rested on was corrected), with the
+ * notebook's check step and its agent: just the checks they have left, in
+ * or out of its top N. The caller holds the notebook's run. Never throws.
+ */
+export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly string[]): Promise<string> {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  const step = nb?.steps?.find((s) => s.kind === 'check');
+  if (!nb || !step) return 'there is no check step to check it again';
+  const agent = stepAgent(ctx, step, notebookId);
+  if (!agent.agentId) return `couldn't check it again: ${agent.reason ?? 'the check step has no agent'}`;
+  const want = new Set(ids);
+  const had = new Set(store.entries(notebookId, 1000).filter((e) => e.kind === 'option' && !want.has(e.id)).map((e) => e.id));
+  try {
+    return await checkNew(ctx, store, notebookId, { ...step, top: undefined }, agent.agentId, had, CORRECTED);
+  } catch (err) {
+    return `couldn't check it again: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`;
+  }
 }
 
 /**
