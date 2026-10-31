@@ -47,6 +47,10 @@ The bearer token's only job is to gate *any process that can hit localhost* from
 
 Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents` and `run-agent` tools. Agents without the flag respond as "not found" — not "forbidden" — so a compromised MCP client cannot enumerate the user's full catalog. Use `sua agent list` from the CLI to see everything.
 
+### Notebooks over MCP
+
+`notebook-read` lets an MCP client read any notebook, archived ones included: its facts and their sources, what it wrote, its options and its notes. It can't change anything. Anyone holding the token can read your research, so to keep a notebook out, deny `notebook-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).
+
 ### Shell agent gate (v0.6.0)
 
 Shell-type agents sourced from `community/` refuse to run unless the caller has explicitly opted in. The CLI surfaces this as `--allow-untrusted-shell <name>` on `sua agent run` and `sua schedule start` (repeatable, per-agent, not global). Library consumers pass `LocalProvider({ allowUntrustedShell: Set<string> })` or the equivalent on `TemporalProvider`. The executor throws `UntrustedCommunityShellError` before `spawn` is called, and the provider records a failed run in the store so the refusal shows up in history.

@@ -7,14 +7,14 @@ import { getBuiltinTool, listBuiltinTools, isBuiltinTool, assertSafeUrl } from '
 import { MemorySecretsStore } from './secrets-store.js';
 
 describe('Builtin tool registry', () => {
-  it('lists all 19 built-in tools', () => {
+  it('lists all 20 built-in tools', () => {
     const tools = listBuiltinTools();
-    expect(tools.length).toBe(19);
+    expect(tools.length).toBe(20);
     const ids = tools.map((t) => t.id).sort();
     expect(ids).toEqual([
       'ask-human', 'board-place', 'board-read', 'csv-to-chart-json', 'file-read', 'file-write', 'http-get',
       'http-post', 'json-parse', 'json-path', 'memory-forget',
-      'memory-save', 'memory-search', 'oauth-loopback',
+      'memory-save', 'memory-search', 'notebook-read', 'oauth-loopback',
       'shell-exec', 'template', 'web-fetch', 'web-scrape', 'web-screenshot',
     ]);
   });

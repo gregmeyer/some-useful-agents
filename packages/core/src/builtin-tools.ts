@@ -18,6 +18,7 @@ import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
 import { screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js';
 import { saveRunFile } from './run-files.js';
+import { findNotebook, notebookReadoutJson, notebookReadoutText, NOTEBOOK_READ_PARTS, type NotebookReadPart } from './notebook-readout.js';
 
 /**
  * SSRF guard: resolve the hostname to an IP and reject private, loopback,
@@ -1037,9 +1038,61 @@ function parseCsvLine(line: string): string[] {
   return out.map((s) => s.trim());
 }
 
+/**
+ * notebook-read — what a notebook knows, for an agent, another notebook's
+ * conversation, or an MCP client: what it's for, who it's about, what it
+ * wrote, its options with facts and sources, its notes. Read only; archived
+ * notebooks too. See notebook-readout.ts / docs/tools/notebook-read.md.
+ */
+const NOTEBOOK_TOOLS: BuiltinToolEntry[] = [
+  def(
+    'notebook-read',
+    'Read a notebook',
+    'Read what a notebook knows: what it is for, the facts it learned about who it is about (with sources), the answer, talking points or plan it wrote, its options with their facts, sources and check results, and its notes. Give the notebook as its id, a /notebooks/<id> link, or words from its title; leave it empty to list notebooks. Read only.',
+    {
+      notebook: { type: 'string', description: 'The notebook: its id, a /notebooks/<id> link, or words from its title. Empty lists them.' },
+      part: { type: 'string', description: `One part only: ${NOTEBOOK_READ_PARTS.join(', ')} (default all). "written" is its answer, talking points and plan.` },
+      format: { type: 'string', description: 'text (default) or json.' },
+    },
+    {
+      notebook: { type: 'object', description: 'The notebook as JSON (with format json).' },
+      notebooks: { type: 'array', description: 'When listing, or when several match: [{id, title, status, archived}].' },
+    },
+    async (inputs, ctx) => {
+      if (!ctx.notebooks) return { result: 'Notebooks are not available in this run.', isError: true };
+      const store = ctx.notebooks;
+      const listed = (nbs: readonly { id: string; title: string; status: string; archivedAt?: string }[]) =>
+        nbs.map((n) => ({ id: n.id, title: n.title, status: n.status, archived: !!n.archivedAt }));
+      const lines = (nbs: ReturnType<typeof listed>) => nbs.map((n) => `${n.id} — ${n.title} (${n.status}${n.archived ? ', archived' : ''})`).join('\n');
+      const ask = String(inputs.notebook ?? '').trim();
+      if (!ask) {
+        const notebooks = listed(store.list({ archived: 'include' }));
+        return { notebooks, result: notebooks.length ? lines(notebooks) : 'There are no notebooks yet.' };
+      }
+      const partIn = String(inputs.part ?? 'all').trim().toLowerCase() || 'all';
+      if (!(NOTEBOOK_READ_PARTS as readonly string[]).includes(partIn)) return { result: `Unknown part "${partIn}". Use one of: ${NOTEBOOK_READ_PARTS.join(', ')}.`, isError: true };
+      const part = partIn as NotebookReadPart;
+      const found = findNotebook(store, ask);
+      if (!found) return { result: `There's no notebook "${ask}". Call notebook-read with no notebook to list them.`, isError: true };
+      if ('matches' in found) {
+        const notebooks = listed(found.matches);
+        return { notebooks, result: `Several notebooks match "${ask}"; read one by its id:\n${lines(notebooks)}` };
+      }
+      const nb = found.notebook;
+      const entries = store.entries(nb.id, 500);
+      if (String(inputs.format ?? '').trim().toLowerCase() === 'json') {
+        const notebook = notebookReadoutJson(nb, entries, part);
+        return { notebook, result: JSON.stringify(notebook) };
+      }
+      return { result: notebookReadoutText(nb, entries, part) };
+    },
+  ),
+];
+
 const REGISTRY = new Map<string, BuiltinToolEntry>();
 BUILTINS.push(...MEMORY_TOOLS);
 BUILTINS.push(...BOARD_TOOLS);
+BUILTINS.push(...NOTEBOOK_TOOLS);
 
 /**
  * ask-human — the model asks the person something mid-step. The question
