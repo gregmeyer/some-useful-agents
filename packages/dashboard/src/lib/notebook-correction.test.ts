@@ -99,6 +99,18 @@ describe('notebook corrections', () => {
     expect(checkCorrection(withLink, entries, delta({ type: 'about-fact', target_id: 'about:company:image', old_value: '', new_value: 'https://old.example/logo.png' }), undefined, pictures)).toHaveProperty('question');
   });
 
+  it("an answer's steps and rubric rows are parts too, each with what it rests on, and one said wrong is taken out", () => {
+    const withParts = { ...nb, answer: { ...nb.answer!, sections: [
+      { kind: 'steps', title: 'Buy it', items: [{ text: 'Check the bowl size', from: ['a'] }, { text: 'Order the Artisan', from: ['a'] }] },
+      { kind: 'table', title: 'Rubric', columns: ['If', 'Then'], rows: [{ cells: ['You bake bread', 'A 5 qt bowl'], from: [] }] },
+    ] } } as unknown as Notebook;
+    const parts = Object.fromEntries(correctionParts(withParts, entries).map((p) => [p.id, p]));
+    expect(parts['section:0:1']).toMatchObject({ kind: 'answer step (Buy it)', text: 'Order the Artisan', from: ['option:a'] });
+    expect(parts['section:1:0']).toMatchObject({ kind: 'row of Rubric', text: 'You bake bread · A 5 qt bowl' });
+    const out = checkCorrection(withParts, entries, delta({ type: 'written', target_id: 'section:0:1', old_value: 'Order the Artisan', new_value: '' }));
+    expect('correction' in out && out.correction.impact).toEqual([{ object_id: 'section:0:1', action: 'invalidate', reason: "you said it's wrong" }]);
+  });
+
   it('asks instead of guessing: when the agent asks, or names a part the notebook doesn\'t have', () => {
     expect(checkCorrection(nb, entries, { ...delta({}), clarification_required: true, clarification_question: 'The Artisan or the Classic?' })).toEqual({ question: 'The Artisan or the Classic?' });
     expect(checkCorrection(nb, entries, delta({ target_id: 'option:zz:price' }))).toEqual({ question: 'Which part of the notebook is wrong, and what should it say?' });

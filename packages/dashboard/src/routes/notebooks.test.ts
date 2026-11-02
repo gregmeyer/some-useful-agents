@@ -4524,6 +4524,41 @@ describe('a write step', () => {
     writerReply = undefined;
   });
 
+  it('an answer gives the parts it was asked for: a rubric and steps, on the page and in the brief, and its done-when ticks', async () => {
+    const app = await makeApp();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'CD ladders for $25,000', statement: 'A report on CD ladders and a simple rubric for $25,000', criteria: ['A simple decision rubric written for the $25,000'] });
+    const cd = s.upsertOption(nb.id, { title: 'Example Bank 12-month CD', by: 'agent:x' }).entry;
+    s.setSteps(nb.id, [{ title: 'Find', kind: 'find', target: 1, status: 'done' }, { title: 'Write the report and rubric', kind: 'write', shape: 'answer' }]);
+    // A page saved before answers had parts: it gets them anyway.
+    const old = layoutPreset('answer')!.layout;
+    s.setLayout(nb.id, { ...old, components: old.components.filter((c) => c.component !== 'AnswerSections' && c.id !== 'sections_p').map((c) => (c.id === 'answer_col' ? { ...c, children: ['answer', 'findings_p'] } : c)) }, 'notebook');
+    writerReply = () => `<answer>${JSON.stringify({
+      answer: 'Split it into **five CDs**.', confidence: 'medium', findings: [{ text: 'A 12-month CD pays 4.4%.', from: [cd.id] }], open: [],
+      sections: [
+        { kind: 'table', title: 'Rubric for the $25,000', delivers: 'A simple decision rubric written for the $25,000', columns: ['If…', 'Then…', 'Why'], rows: [{ cells: ['You may need it within a year', '**No-penalty CD**', 'You can take it out'], from: [cd.id] }] },
+        { kind: 'steps', title: 'Open the ladder', items: [{ text: 'Check each bank is insured', from: [] }, { text: 'Open five CDs', detail: '$5,000 each', from: [cd.id] }] },
+      ],
+    })}</answer>`;
+    expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(JSON.parse(writerAsked.at(-1)!.NOTEBOOK).doneWhen).toEqual(['A simple decision rubric written for the $25,000']);
+    const page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('"component":"AnswerSections"');
+    expect(page).toContain('"title":"Rubric for the $25,000"');
+    // The rubric written, its done-when ticked itself.
+    expect(s.get(nb.id)!.criteria[0].met).toBe(true);
+    const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('<div class="eyebrow">Rubric for the $25,000</div>');
+    expect(brief).toContain('<td><strong>No-penalty CD</strong></td>');
+    expect(brief).toContain('<ol class="steps">');
+    expect(brief).toContain('(Example Bank 12-month CD)');
+    writerReply = undefined;
+  });
+
   it('writes the plan for a trip: the Plan page shows it day by day with what it uses, what to book first and what is open', async () => {
     const app = await makeApp();
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

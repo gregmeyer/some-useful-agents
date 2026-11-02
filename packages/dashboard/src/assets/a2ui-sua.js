@@ -1298,6 +1298,50 @@ const Itinerary = define('Itinerary', 'sua-a2ui-itinerary',
     </div>`;
   });
 
+// **bold** in text as lit parts, never markup.
+const boldParts = (s) => String(s ?? '').split(/\*\*([^*\n]+)\*\*/g).map((t, i) => (i % 2 ? html`<strong>${t}</strong>` : t));
+
+// The parts an answer was asked for, in order: the steps to take (numbered),
+// a table (a rubric, a comparison), a short explanation. Each step and row
+// links what it rests on.
+const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional() }).strict(),
+  css`${sectionHead}
+    .sec + .sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); }
+    ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
+    ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 2px 10px; }
+    ol.steps > li::before { content: counter(step); grid-row: span 3; font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); }
+    .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
+    .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
+    .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
+    .refs a { text-decoration: none; }
+    .wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); line-height: 1.45; }
+    th { text-align: left; font: 600 var(--font-size-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); padding: 0 12px 6px 0; border-bottom: 1px solid var(--color-border); }
+    td { vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); }
+    td:first-child { font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+    td .refs { margin-top: 4px; }
+    p.body { margin: 0; font-size: var(--font-size-sm); line-height: 1.6; color: var(--color-text); }
+    p.foot { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  (p) => {
+    const sections = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
+    if (!sections.length) return html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
+    const refs = (it) => {
+      const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
+      return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
+    };
+    const part = (x) => {
+      if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
+      if (x.kind === 'table') {
+        const cols = Array.isArray(x.columns) ? x.columns : [];
+        return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}`;
+      }
+      return html`<p class="body">${boldParts(x.body)}</p>`;
+    };
+    return html`<div>${sections.map((x) => html`<section class="sec"><h4 class="h">${x.title}</h4>${part(x)}</section>`)}</div>`;
+  });
+
 // A notebook page's header is drawn by the page itself (its buttons are forms
 // the page's scripts handle); in the layout it only says how. Nothing here.
 const NotebookHeader = define('NotebookHeader', 'sua-a2ui-notebook-header',
@@ -1544,7 +1588,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

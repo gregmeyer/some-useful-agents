@@ -10,6 +10,7 @@ import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
   notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, notebookReadoutText, type NotebookMeeting,
+  answerSectionLines,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -394,7 +395,11 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       return [w, { name: one.name, facts: one.facts.slice(0, 10).map((f) => `${f.label}: ${f.value}`), ...(open.length ? { notSettled: open.map((c) => ({ fact: c.label, question: c.question, sides: c.claims.map((x) => x.value) })) } : {}) }];
     })) } : {}),
     ...(nb.plan?.items.length ? { plan: { summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open } } : {}),
-    ...(nb.answer?.text ? { answer: { text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open } } : {}),
+    ...(nb.answer?.text ? { answer: {
+      text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open,
+      // Its steps and rubric rows too, so sua knows the answer has them (and can name one to change).
+      ...(nb.answer.sections?.length ? { sections: nb.answer.sections.map((x) => ({ title: x.title, kind: x.kind, lines: answerSectionLines(x).map((t) => t.slice(0, 200)) })).filter((_, i, all) => JSON.stringify(all.slice(0, i + 1)).length < 1500) } : {}),
+    } } : {}),
     // Where the steps are now, as the notebook's page shows them: running, or the card waiting on the operator.
     ...(nb.steps?.length ? { stepNow: ((): Record<string, unknown> => {
       const cur = nb.steps.find((x) => x.status !== 'done');

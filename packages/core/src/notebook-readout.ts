@@ -4,7 +4,7 @@
  * about who it's about, what it wrote, its options with their facts and
  * sources, and its notes. Text for a model, JSON for code. Pure.
  */
-import { fieldNumber, openConflicts, rankBy, type Notebook, type NotebookAboutOne, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from './notebooks.js';
+import { answerSectionLines, fieldNumber, openConflicts, rankBy, type Notebook, type NotebookAboutOne, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from './notebooks.js';
 import { formatFieldValue } from './notebook-field-format.js';
 
 export const NOTEBOOK_READ_PARTS = ['all', 'about', 'written', 'options', 'notes'] as const;
@@ -48,7 +48,7 @@ export interface NotebookReadoutJson {
     otherCompanies: Array<{ name: string; role?: string; what?: string }>;
     open: string[];
   }>>;
-  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[] };
+  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[]; sections?: Array<{ title: string; kind: string; columns?: string[]; lines: string[] }> };
   briefing?: { points: Array<{ text: string; why?: string; ask?: string }>; questions: string[]; watch: string[] };
   plan?: { summary: string; items: Array<{ when: string; title: string; detail?: string }>; before: string[]; open: string[] };
   options?: { inTheRunning: NotebookReadoutOption[]; ruledOut: Array<{ id: string; title: string; reason: string }>; more: number };
@@ -116,7 +116,11 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
     const a = nb.answer;
     if (a) {
       const struck = new Set(a.struck ?? []);
-      out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open };
+      const sections = (a.sections ?? []).map((x) => ({
+        title: x.title, kind: x.kind, ...(x.kind === 'table' ? { columns: x.columns } : {}),
+        lines: answerSectionLines(x).filter((t) => !struck.has(t)),
+      })).filter((x) => x.lines.length);
+      out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}) };
     }
     const b = nb.briefing;
     if (b && (b.points.length || b.questions.length || b.watch.length)) {
@@ -180,6 +184,11 @@ export function notebookReadoutText(nb: Notebook, entries: readonly NotebookEntr
     lines.push('', `## Answer (${j.answer.confidence} confidence)`, `Q: ${j.answer.question}`, j.answer.text);
     for (const f of j.answer.findings) lines.push(`- ${f}`);
     for (const o of j.answer.open) lines.push(`- Open: ${o}`);
+    for (const x of j.answer.sections ?? []) {
+      lines.push('', `### ${x.title}`);
+      if (x.columns) lines.push(`(${x.columns.join(' · ')})`);
+      x.lines.forEach((l, i) => lines.push(x.kind === 'steps' ? `${String(i + 1)}. ${l}` : x.kind === 'text' ? l : `- ${l}`));
+    }
   }
   if (j.briefing) {
     lines.push('', '## Talking points');

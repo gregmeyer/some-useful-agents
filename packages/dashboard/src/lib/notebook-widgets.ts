@@ -160,6 +160,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
+    /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
+    answerSections: Array<{ title: string; kind: 'steps' | 'table' | 'text'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string }>;
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
     planIntro: { label: string; text: string; next?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
@@ -618,12 +620,16 @@ function changesViews(nb: Notebook, options: readonly NotebookViewOption[], hist
 function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[]): (from: readonly string[]) => Array<{ label: string; href: string }> {
   const byId = new Map(active.map((o) => [o.id, o]));
   const sources = new Map(entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => [e.id, e]));
-  return (from) => from.flatMap((id) => {
-    const o = byId.get(id);
-    if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
-    const e = sources.get(id);
-    return e ? [{ label: sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
-  });
+  return (from) => {
+    const out = from.flatMap((id) => {
+      const o = byId.get(id);
+      if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
+      const e = sources.get(id);
+      return e ? [{ label: sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
+    });
+    // Two pages of one site: "finra.org", "finra.org (2)".
+    return out.map((r, i) => { const n = out.slice(0, i).filter((x) => x.label === r.label).length; return n ? { ...r, label: `${r.label} (${String(n + 1)})` } : r; });
+  };
 }
 
 /** A source page's site, for its link ("consumerfinance.gov"). */
@@ -633,15 +639,23 @@ const sourceLabel = (url: string) => { try { return new URL(url).hostname.replac
 const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
 
 /** The answer for the Answer page: what sua wrote, each finding linked to the options it rests on; before then, where it stands. */
-function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions'> {
+function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections'> {
   const a = nb.answer;
   const question = nb.statement || nb.title;
-  if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [] };
+  if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [] };
   const refs = answerRefs(nb, active, entries);
+  // A step or row you struck is gone from the page (and isn't written again).
+  const struck = new Set(a.struck ?? []);
+  const answerSections = (a.sections ?? []).map((x): NotebookWidgetData['notebook']['answerSections'][number] => {
+    if (x.kind === 'steps') return { title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from) })) };
+    if (x.kind === 'table') return { title: x.title, kind: x.kind, columns: x.columns, rows: x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from) })), ...(x.note ? { note: x.note } : {}) };
+    return { title: x.title, kind: x.kind, body: x.body };
+  }).filter((x) => (x.items ?? x.rows ?? [x.body]).length);
   return {
     answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:' },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
     openQuestions: a.open.map((text) => ({ text })),
+    answerSections,
   };
 }
 

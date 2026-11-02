@@ -71,6 +71,12 @@ const L = (key: NotebookLayoutValueKey) => ({ path: `/notebook/layout/${key}` })
 const panel = (id: string, title: string, child: string, note?: unknown): ViewComponent =>
   ({ id, component: 'Panel', title, child, ...(note !== undefined ? { note } : {}) });
 
+/** The parts an answer was asked for (a rubric, the steps), in a feature panel: `id` and its AnswerSections. */
+const answerSectionsPart = (id: string): ViewComponent[] => [
+  { ...panel(id, 'The details', `${id}_s`), treatment: 'feature', when: 'answered' },
+  { id: `${id}_s`, component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
+];
+
 /**
  * Every notebook's page until now, as a document: where it stands beside
  * done-when, the map beside the funnel, the shortlist, the checklist beside
@@ -221,8 +227,9 @@ const ANSWER: ViewComponent[] = [
   { id: 'root', component: 'Column', children: ['header', 'top', 'evidence_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Answer', steps: 'fold', cover: 'none' },
   { id: 'top', component: 'Columns', children: ['answer_col', 'steps_panel'], widths: [2, 1], align: 'start' },
-  { id: 'answer_col', component: 'Column', children: ['answer', 'findings_p'] },
+  { id: 'answer_col', component: 'Column', children: ['answer', 'sections_p', 'findings_p'] },
   { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' } },
+  ...answerSectionsPart('sections_p'),
   { ...panel('findings_p', 'What it rests on', 'findings'), treatment: 'feature', when: 'answered' },
   {
     id: 'findings', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
@@ -444,6 +451,23 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
 }
 
 /**
+ * A page that shows the answer shows the parts it was asked for too (the
+ * rubric, the steps), just after the answer: pages drawn before answers had
+ * them get the panel, once. A page that already has it is left as it is.
+ */
+export function withAnswerSections(components: readonly ViewComponent[]): ViewComponent[] {
+  if (components.some((c) => c.component === 'AnswerSections')) return [...components];
+  const answer = components.find((c) => c.component === 'Callout' && (c.text as { path?: unknown } | undefined)?.path === '/notebook/answer/text');
+  const parent = answer && components.find((c) => Array.isArray(c.children) && (c.children as string[]).includes(answer.id));
+  if (!answer || !parent) return [...components];
+  let id = 'answer_sections_p';
+  while (components.some((c) => c.id === id || c.id === `${id}_s`)) id = `${id}_`;
+  const children = [...(parent.children as string[])];
+  children.splice(children.indexOf(answer.id) + 1, 0, id);
+  return [...components.map((c) => (c === parent ? { ...c, children } : c)), ...answerSectionsPart(id)];
+}
+
+/**
  * An agenda of the notebook's talking points shows what to watch for too,
  * an Edit link once sua has written them, and Replace on each (pages drawn
  * before there was any of these).
@@ -471,7 +495,8 @@ export function resolveNotebookLayout(
   values: Partial<Record<NotebookLayoutValueKey, unknown>>,
   opts: { data?: unknown } = {},
 ): ViewComponent[] {
-  const byId = new Map(components.map((c) => [c.id, c]));
+  const all = withAnswerSections(components);
+  const byId = new Map(all.map((c) => [c.id, c]));
   const out = new Map<string, ViewComponent>();
   const visit = (id: string): boolean => {
     const c = byId.get(id);
@@ -497,7 +522,7 @@ export function resolveNotebookLayout(
   };
   visit('root');
   // In the document's own order.
-  return components.filter((c) => out.has(c.id)).map((c) => out.get(c.id)!);
+  return all.filter((c) => out.has(c.id)).map((c) => out.get(c.id)!);
 }
 
 /**
@@ -682,6 +707,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/next': 'Why that confidence; before an answer, what\'s next (Callout next).',
   '/notebook/answer/nextLabel': '"How sure:" with an answer, else "Next:" (Callout nextLabel).',
   '/notebook/findings': 'The findings the answer rests on, each linked to the options (sources) it came from (Agenda points).',
+  '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections).',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
   '/notebook/planIntro/text': 'The plan in a sentence or two; before then, where the notebook stands (Callout text).',

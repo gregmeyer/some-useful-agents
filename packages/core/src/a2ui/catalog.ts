@@ -288,6 +288,17 @@ const SUA_COMPONENTS = [
     }).strict(),
   },
   {
+    name: 'AnswerSections',
+    summary: 'The parts an answer was asked for, in order: `sections` [{title, kind: steps|table|text, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body}]; steps numbered, tables as a table, **bold** in text; refs [{label, href}] link what each rests on.',
+    example: { id: 'details', component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
+    schema: Common.extend({
+      sections: CS.DynamicValue,
+      title: Str.optional(),
+      /** What it says with nothing yet. */
+      empty: Str.optional(),
+    }).strict(),
+  },
+  {
     name: 'Agenda',
     summary: 'What to talk about: numbered `points` (strings or {text, note?, refs?: [{label, href}]}) to tick off as you go (kept in this browser), then `questions` to ask and things to `watch` for (strings or {text}), with Copy as text, Edit when `editHref` is given, and Replace on each point when `replaceHref` is (it posts the point\'s place `at` and `text` there).',
     example: { id: 'agenda', component: 'Agenda', points: { path: '/notebook/talkingPoints' }, questions: { path: '/notebook/questions' }, maxQuestions: 3 },
