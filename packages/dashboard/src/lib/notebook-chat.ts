@@ -296,19 +296,46 @@ export function notebookTalkedAbout(ctx: Ctx, threadId: string): Notebook | unde
 const LINKED_MAX = 2;
 const LINKED_CHARS = 6000;
 
+/** Words that don't tell one notebook from another ("Prepare for meeting with …", "Brief: …"). */
+const NAME_FILLER = new Set(['the', 'and', 'for', 'with', 'about', 'from', 'into', 'prepare', 'meeting', 'brief', 'briefing', 'notebook', 'research', 'buy', 'find', 'new', 'my', 'our']);
+
+function nameWords(name: string): string[] {
+  // "collective.com" is named as "collective".
+  return name.toLowerCase().split(/[^a-z0-9.]+/).map((w) => w.split('.')[0]).filter((w) => w.length > 2 && !NAME_FILLER.has(w));
+}
+
+/**
+ * The notebooks `said` names without linking ("what did we learn about Greg
+ * Meyer?"): every telling word of its title, or of who or what it's about,
+ * is there. Archived ones too; named by title before named by who it's
+ * about (a meeting with someone at Northwind is about Northwind too).
+ */
+function notebooksNamed(store: NotebookStore, said: string): string[] {
+  const words = new Set(nameWords(said));
+  const named = (name: string | undefined) => { const w = nameWords(name ?? ''); return w.length > 0 && w.every((x) => words.has(x)); };
+  const all = store.list({ archived: 'include' });
+  const byTitle = all.filter((n) => named(n.title));
+  const byAbout = all.filter((n) => !byTitle.includes(n) && Object.values(n.about ?? {}).some((one) => named(one?.name)));
+  return [...byTitle, ...byAbout].map((n) => n.id);
+}
+
 /**
  * The notebooks a thread links (yours or sua's, newest first, archived ones
- * too), as notebook-read reads them, for NOTEBOOKS_LINKED: so "use my
- * Northwind notebook" in any thread can use what it knows. The thread's own
- * notebook (`skip`) is left out: NOTEBOOK_FOCUS has it.
+ * too), then any `named` names, as notebook-read reads them, for
+ * NOTEBOOKS_LINKED: so "use my Northwind notebook" in any thread can use what
+ * it knows. The thread's own notebook (`skip`) is left out: NOTEBOOK_FOCUS
+ * has it.
  */
-export function notebooksLinked(ctx: Ctx, texts: readonly string[], skip?: string): string {
+export function notebooksLinked(ctx: Ctx, texts: readonly string[], skip?: string, named: readonly string[] = []): string {
   const store = notebooksOf(ctx);
   const ids: string[] = [];
   for (const text of texts) {
     for (const m of [...text.matchAll(/\/notebooks\/([A-Za-z0-9_-]+)/g)].reverse()) {
       if (m[1] !== skip && !ids.includes(m[1])) ids.push(m[1]);
     }
+  }
+  for (const said of named) {
+    for (const id of notebooksNamed(store, said)) if (id !== skip && !ids.includes(id)) ids.push(id);
   }
   const out: string[] = [];
   for (const id of ids) {

@@ -690,14 +690,15 @@ evidence, and finally a decision. They are listed in NOTEBOOKS.
 - NOTEBOOKS lists only the 20 newest that aren't archived. When they name a
   notebook that isn't there, look in NOTEBOOKS_ARCHIVED before saying
   there's none: an archived notebook is kept whole. Link it
-  `[title](/notebooks/<id>)` and say it's archived; linked, it's read into
-  NOTEBOOKS_LINKED on the next turn. Several could be it: ask which, with
-  their links.
+  `[title](/notebooks/<id>)` and say it's archived. A notebook they name
+  by its title or by who it's about is already read into NOTEBOOKS_LINKED;
+  one you link is read on the next turn. Several could be it: ask which,
+  with their links.
 
 USING A NOTEBOOK ELSEWHERE — "use my Northwind notebook to…"
-- NOTEBOOKS_LINKED has the notebooks this thread links, as they read now:
-  what each is for, who it's about (facts with their sources), what it
-  wrote, its options and notes. It's what the notebook knows: answer from
+- NOTEBOOKS_LINKED has the notebooks this thread links or they name, as
+  they read now: what each is for, who it's about (facts with their
+  sources), what it wrote, its options and notes. It's what the notebook knows: answer from
   it first and say so ("Your Northwind notebook has…"), with its sources.
   Never say a notebook's contents aren't available when it's there.
 - It isn't this thread's own notebook (that's NOTEBOOK_FOCUS): don't
