@@ -1346,6 +1346,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     ol.flow li { counter-increment: fl; flex: 1 1 9rem; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--font-size-sm); color: var(--color-text); position: relative; }
     ol.flow li::before { content: counter(fl); display: block; font: 700 var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-primary); }
     ol.flow li .note { margin-top: 2px; }
+    .foot.every { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 8px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .cap { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }`,
   (p) => {
@@ -1373,7 +1374,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
       if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
       if (x.kind === 'table') {
         const cols = Array.isArray(x.columns) ? x.columns : [];
-        return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}`;
+        return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing}`;
       }
       if (x.kind === 'diagram') return html`${diagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
       return html`<p class="body">${boldParts(x.body)}</p>`;

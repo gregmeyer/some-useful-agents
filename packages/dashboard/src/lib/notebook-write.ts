@@ -122,7 +122,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
       const block = extractTaggedJson(result, 'plan');
       let raw: unknown;
       try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
-      const plan = cleanPlan(raw, ids, NOTEBOOK_WRITER_ID);
+      const plan = cleanPlan(raw, ids, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text), amounts: notebookAmounts(nb) });
       if (!plan) return [`${NOTEBOOK_WRITER_ID}: no plan came back`];
       store.setPlan(nb.id, plan);
       const days = new Set(plan.items.map((i) => i.when)).size;

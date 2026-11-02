@@ -163,9 +163,11 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
-    answerSections: Array<{ title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string }>;
+    answerSections: Array<{ title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
+    /** A plan's parts besides its days (AnswerSections), the same shapes as an answer's. */
+    planSections: NotebookWidgetData['notebook']['answerSections'];
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
-    planIntro: { label: string; text: string; next?: string };
+    planIntro: { label: string; text: string; next?: string; cover?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
     planDays: Array<{ when: string; items: Array<{ text: string; note?: string; refs: Array<{ label: string; href: string }> }> }>;
     /** To book or do first, and what's still open (Itinerary before / open). */
@@ -407,7 +409,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       summary,
       next,
       ...answerViews(nb, active, summary, next, entries),
-      ...planViews(nb, active, summary, next),
+      ...planViews(nb, active, summary, next, entries),
       ...changesViews(nb, v.options, history, summary, next),
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
@@ -564,17 +566,21 @@ export function handStagesHidden(nb: { steps?: Notebook['steps'] }): boolean {
 type LayoutNotebook = Pick<Notebook, 'fields' | 'stages' | 'steps'> & { id?: string; status?: Notebook['status']; layout?: NotebookLayout; about?: Notebook['about']; answer?: Notebook['answer']; plan?: Notebook['plan'] };
 
 /** The plan for the Plan page: what sua wrote, in its order, grouped by day or slot, each item linked to the options it uses; before then, where it stands. */
-function planViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined): Pick<NotebookWidgetData['notebook'], 'planIntro' | 'planDays' | 'planBefore' | 'planOpen'> {
+function planViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'planIntro' | 'planDays' | 'planBefore' | 'planOpen' | 'planSections'> {
   const p = nb.plan;
-  if (!p?.items.length) return { planIntro: { label: 'Where it stands', text: summary, ...(next ? { next } : {}) }, planDays: [], planBefore: [], planOpen: [] };
-  const byId = new Map(active.map((o) => [o.id, o]));
+  if (!p?.items.length) return { planIntro: { label: 'Where it stands', text: summary, ...(next ? { next } : {}) }, planDays: [], planBefore: [], planOpen: [], planSections: [] };
+  const refs = answerRefs(nb, active, entries);
   const days: NotebookWidgetData['notebook']['planDays'] = [];
   for (const it of p.items) {
     // Items keep the writer's order; one day's run of items is one group.
     const day = days.at(-1)?.when === it.when ? days.at(-1)! : (days.push({ when: it.when, items: [] }), days.at(-1)!);
-    day.items.push({ text: it.title, ...(it.detail ? { note: it.detail } : {}), refs: it.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: notebookOptionPath(nb.id, o.id) })) });
+    day.items.push({ text: it.title, ...(it.detail ? { note: it.detail } : {}), refs: refs(it.from) });
   }
-  return { planIntro: { label: 'The plan', text: p.summary || `${String(p.items.length)} things, in order.` }, planDays: days, planBefore: p.before.map((text) => ({ text })), planOpen: p.open.map((text) => ({ text })) };
+  return {
+    planIntro: { label: 'The plan', text: p.summary || `${String(p.items.length)} things, in order.`, cover: answerCover(nb).src },
+    planDays: days, planBefore: p.before.map((text) => ({ text })), planOpen: p.open.map((text) => ({ text })),
+    planSections: sectionViews(p.sections, p.struck, refs),
+  };
 }
 
 const shortDay = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -615,6 +621,33 @@ function changesViews(nb: Notebook, options: readonly NotebookViewOption[], hist
   return { changesIntro: { label: `Since ${shortDay(c.since!)} · checked ${shortDay(c.at)}`, text }, changes };
 }
 
+type SectionView = NotebookWidgetData['notebook']['answerSections'][number];
+type Ref = { label: string; href: string };
+
+/**
+ * An answer's or plan's parts for AnswerSections, without what you struck
+ * (and isn't written again); a diagram laid out to draw as HTML. A table
+ * whose every row cites the same sources says them once, under the table.
+ */
+function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sections']> | undefined, struckList: readonly string[] | undefined, refs: (from: readonly string[]) => Ref[]): SectionView[] {
+  const struck = new Set(struckList ?? []);
+  return (sections ?? []).map((x): SectionView => {
+    if (x.kind === 'steps') return { title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from) })) };
+    if (x.kind === 'table') {
+      const rows = x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from) }));
+      const every = rows.length > 1 ? rows[0].refs.filter((f) => rows.every((r) => r.refs.some((g) => g.href === f.href))) : [];
+      const shared = new Set(every.map((f) => f.href));
+      return {
+        title: x.title, kind: x.kind, columns: x.columns, rows: rows.map((r) => ({ ...r, refs: r.refs.filter((f) => !shared.has(f.href)) })),
+        ...(x.note ? { note: x.note } : {}), ...(every.length ? { refs: every } : {}),
+      };
+    }
+    // Struck, a diagram is gone whole.
+    if (x.kind === 'diagram') return { title: x.title, kind: x.kind, ...(answerSectionLines(x).some((t) => struck.has(t)) ? { items: [] } : { diagram: answerDiagramView(x.diagram) }), ...(x.caption ? { caption: x.caption } : {}) };
+    return { title: x.title, kind: x.kind, body: x.body };
+  }).filter((x) => (x.items ?? x.rows ?? [x.body ?? x.diagram]).length);
+}
+
 /**
  * What an answer's part rests on, as links: an option to its page, evidence
  * from a page (a source that explains) to that page.
@@ -646,15 +679,7 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   const question = nb.statement || nb.title;
   if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [] };
   const refs = answerRefs(nb, active, entries);
-  // A step or row you struck is gone from the page (and isn't written again).
-  const struck = new Set(a.struck ?? []);
-  const answerSections = (a.sections ?? []).map((x): NotebookWidgetData['notebook']['answerSections'][number] => {
-    if (x.kind === 'steps') return { title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from) })) };
-    if (x.kind === 'table') return { title: x.title, kind: x.kind, columns: x.columns, rows: x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from) })), ...(x.note ? { note: x.note } : {}) };
-    // A diagram is laid out here and drawn as HTML; struck, it's gone whole.
-    if (x.kind === 'diagram') return { title: x.title, kind: x.kind, ...(answerSectionLines(x).some((t) => struck.has(t)) ? { items: [] } : { diagram: answerDiagramView(x.diagram) }), ...(x.caption ? { caption: x.caption } : {}) };
-    return { title: x.title, kind: x.kind, body: x.body };
-  }).filter((x) => (x.items ?? x.rows ?? [x.body ?? x.diagram]).length);
+  const answerSections = sectionViews(a.sections, a.struck, refs);
   return {
     answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: answerCover(nb).src },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),

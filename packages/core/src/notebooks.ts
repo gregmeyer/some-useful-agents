@@ -532,11 +532,13 @@ export interface NotebookPlan {
   /** To book, buy or do before it starts. */
   before: string[];
   open: string[];
+  /** The parts it was asked for beside the days, like an answer's: a cost table, how the budget splits, steps to get ready. */
+  sections?: NotebookAnswerSection[];
   at: string;
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
   previous?: NotebookWrittenBefore;
-  /** Plan items you said are wrong: the writer doesn't plan them again. Newest last. */
+  /** Plan items (and section steps and rows) you said are wrong: the writer doesn't plan them again. Newest last. */
   struck?: string[];
 }
 
@@ -3518,7 +3520,7 @@ export function isMeetingNotebook(nb: Pick<Notebook, 'layout' | 'steps' | 'meeti
  * `from` only names options the notebook has; at most 40 items, 8 things to
  * do before and 5 open questions. Pure.
  */
-export function cleanPlan(raw: unknown, optionIds: ReadonlySet<string>, by: string, at = new Date().toISOString()): NotebookPlan | undefined {
+export function cleanPlan(raw: unknown, optionIds: ReadonlySet<string>, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[]; amounts?: readonly number[] } = {}): NotebookPlan | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
   const line = (x: unknown, n: number) => {
@@ -3538,7 +3540,8 @@ export function cleanPlan(raw: unknown, optionIds: ReadonlySet<string>, by: stri
   }).filter((i): i is NotebookPlanItem => !!i).slice(0, 40);
   if (!items.length) return undefined;
   const lines = (x: unknown, n: number) => (Array.isArray(x) ? x : []).map((q) => line(q, 240)).filter(Boolean).slice(0, n);
-  return { summary: line(v.summary, 600), items, before: lines(v.before, 8), open: lines(v.open, 5), at, by };
+  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? []);
+  return { summary: line(v.summary, 600), items, before: lines(v.before, 8), open: lines(v.open, 5), ...(sections.length ? { sections } : {}), at, by };
 }
 
 /** The facts a source step looks up that an option doesn't have yet. */
@@ -3722,7 +3725,7 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
 }
 
 /** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
-const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
+const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -3755,13 +3758,14 @@ export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebo
 
 /** Whether the notebook's work meets a done-when (see criterionLink); false when it can't tell. */
 export function criterionMet(nb: Notebook, entries: readonly NotebookEntry[], text: string): boolean {
-  // A part of the answer that says it gives this one ("Account terms and tradeoffs compared"), however it's worded.
-  if (nb.answer?.sections?.some((x) => x.delivers?.toLowerCase() === text.trim().toLowerCase())) return true;
+  // A part of the answer or plan that says it gives this one ("Account terms and tradeoffs compared"), however it's worded.
+  const parts = [...(nb.answer?.sections ?? []), ...(nb.plan?.sections ?? [])];
+  if (parts.some((x) => x.delivers?.toLowerCase() === text.trim().toLowerCase())) return true;
   const link = criterionLink(nb, text);
   if (!link) return false;
   if (link.kind === 'decide') return nb.status === 'decided';
   if (link.kind === 'written') {
-    const sections = nb.answer?.sections ?? [];
+    const sections = parts;
     // One of the kind it names; "the plan written" by a plan.
     if (link.what === 'any') return !!nb.answer?.text || !!nb.plan?.items.length;
     return sections.some((x) => x.kind === link.what) || (link.what === 'steps' && !!nb.plan?.items.length) || (link.what === 'text' && !!nb.answer?.text);

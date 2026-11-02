@@ -4573,7 +4573,7 @@ describe('a write step', () => {
     const { startNotebookStep } = await import('../lib/notebook-steps.js');
     const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
     const s = NotebookStore.fromHandle(runStore.databaseHandle());
-    const nb = s.create({ title: 'Plan 2 days in Porto', statement: 'Two easy days in Porto for two', params: ['$600'] });
+    const nb = s.create({ title: 'Plan 2 days in Porto', statement: 'Two easy days in Porto for two', params: ['$600'], criteria: ['The Porto plan written', 'Costs for two written'] });
     s.setFields(nb.id, [{ key: 'area', label: 'Area', type: 'text', role: 'place' }, { key: 'link', label: 'Link', type: 'url', role: 'link' }]);
     const a = s.upsertOption(nb.id, { title: 'Ribeira walk', by: 'agent:x', data: { area: 'Ribeira', link: 'https://example.com/ribeira' } }).entry;
     const b = s.upsertOption(nb.id, { title: 'Port cellar tour', by: 'agent:x', data: { area: 'Gaia', link: 'https://example.com/cellar' } }).entry;
@@ -4586,6 +4586,11 @@ describe('a write step', () => {
       summary: 'The river first, then **port across the bridge**.',
       items: [{ when: 'Day 1', title: 'Walk the Ribeira', from: [a.id] }, { when: 'Day 1', title: 'Dinner by the river' }, { when: 'Day 2', title: 'Port cellar tour', detail: 'Book a 3pm slot.', from: [b.id, 'made-up'] }],
       before: ['Book the cellar tour'], open: ['Rain plan?'],
+      sections: [
+        { kind: 'table', title: 'Costs for two', delivers: 'Costs for two written', columns: ['What', 'Cost'], rows: [{ cells: ['Cellar tour', '$60'], from: [b.id, a.id] }, { cells: ['Ribeira walk', 'Free'], from: [a.id] }] },
+        { kind: 'diagram', title: 'The $600', diagram: { type: 'split', total: 600, parts: [{ label: 'Hotel', amount: 400 }, { label: 'Food and tours', amount: 200 }] } },
+        { kind: 'diagram', title: 'Made-up total', diagram: { type: 'split', parts: [{ label: 'Hotel', amount: 900 }, { label: 'Food', amount: 300 }] } },
+      ],
     })}</plan>`;
     expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true, step: { kind: 'write', shape: 'plan' } });
     for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
@@ -4593,7 +4598,14 @@ describe('a write step', () => {
     const after = s.get(nb.id)!;
     expect(after.steps![1]).toMatchObject({ status: 'met', note: 'plan written' });
     const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
-    expect(d.planIntro).toEqual({ label: 'The plan', text: 'The river first, then **port across the bridge**.' });
+    expect(d.planIntro).toEqual({ label: 'The plan', text: 'The river first, then **port across the bridge**.', cover: expect.stringMatching(/^data:image\/svg\+xml;base64,/) });
+    // Its parts besides the days: the cost table (the source every row cites, said once) and the $600 split; a split off the $600 isn't drawn.
+    expect(d.planSections.map((x) => x.title)).toEqual(['Costs for two', 'The $600']);
+    expect(d.planSections[0].refs).toEqual([{ label: 'Ribeira walk', href: `/notebooks/${nb.id}/entries/${a.id}` }]);
+    expect(d.planSections[0].rows!.map((r) => r.refs.map((f) => f.label))).toEqual([['Port cellar tour'], []]);
+    expect(d.planSections[1].diagram).toMatchObject({ type: 'split', total: '$600' });
+    // Both done-whens tick: the plan is written, and the part that gives the costs.
+    expect(s.autoMeetCriteria(nb.id).nb.criteria.map((c) => c.met)).toEqual([true, true]);
     expect(d.planDays).toEqual([
       { when: 'Day 1', items: [{ text: 'Walk the Ribeira', refs: [{ label: 'Ribeira walk', href: `/notebooks/${nb.id}/entries/${a.id}` }] }, { text: 'Dinner by the river', refs: [] }] },
       { when: 'Day 2', items: [{ text: 'Port cellar tour', note: 'Book a 3pm slot.', refs: [{ label: 'Port cellar tour', href: `/notebooks/${nb.id}/entries/${b.id}` }] }] },
@@ -4601,7 +4613,11 @@ describe('a write step', () => {
     expect(d.planBefore).toEqual([{ text: 'Book the cellar tour' }]);
     page = (await get(`/notebooks/${nb.id}`)).text;
     expect(page).toContain('"component":"Itinerary"');
+    expect(page).toContain('"title":"Also for the plan"');
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('<div class="eyebrow">Costs for two</div>');
+    expect(brief).toContain('Every row: Ribeira walk');
+    expect(brief).toContain('<div class="split-bar">');
     expect(brief).toContain('<b>Port cellar tour</b> <span class="muted">Book a 3pm slot.</span> <span class="muted">(Port cellar tour)</span>');
     expect(brief).toContain('Before you start');
     s.updateStep(nb.id, after.steps![1].id, { status: 'done' });
