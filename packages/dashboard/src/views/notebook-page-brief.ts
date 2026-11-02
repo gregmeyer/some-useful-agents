@@ -35,6 +35,23 @@ const items = (v: unknown): Array<Record<string, unknown> & { text: string }> =>
   .map((x) => (typeof x === 'string' ? { text: x } : x && typeof x === 'object' ? { ...(x as Record<string, unknown>), text: text((x as { text?: unknown; label?: unknown }).text ?? (x as { label?: unknown }).label) } : { text: '' }))
   .filter((x) => x.text);
 
+/** An answer's diagram, as laid out (answer-art.ts), in plain HTML: bars on a month axis, a split bar, numbered boxes. */
+function briefDiagram(raw: unknown): SafeHtml {
+  const d = (raw ?? {}) as { type?: unknown; rungs?: unknown; axis?: unknown; parts?: unknown; total?: unknown; nodes?: unknown };
+  const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
+  if (d.type === 'ladder') {
+    return html`<div class="lad">${(list(d.rungs) as Array<{ label?: unknown; left?: unknown; width?: unknown; note?: unknown }>).map((r) => html`<div class="lad-row"><span class="lad-lab">${text(r.label)}</span><span class="lad-track"><i style="left:${String(n(r.left))}%;width:${String(n(r.width))}%"></i></span><span class="fine">${text(r.note)}</span></div>`) as unknown as SafeHtml[]}
+      <div class="lad-axis">${(list(d.axis) as Array<{ at?: unknown; label?: unknown }>).map((t) => html`<span style="left:${String(n(t.at))}%">${text(t.label)}</span>`) as unknown as SafeHtml[]}</div></div>`;
+  }
+  if (d.type === 'split') {
+    const parts = list(d.parts) as Array<{ label?: unknown; width?: unknown; amount?: unknown; note?: unknown }>;
+    return html`<div class="split"><div class="split-bar">${parts.map((x) => html`<i style="width:${String(n(x.width))}%"></i>`) as unknown as SafeHtml[]}</div>
+      <ul class="plain">${parts.map((x) => html`<li><b>${text(x.amount)}</b> ${text(x.label)}${text(x.note) ? html` <span class="muted">${text(x.note)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul><p class="fine">Total ${text(d.total)}</p></div>`;
+  }
+  if (d.type === 'flow') return html`<ol class="steps flow">${(list(d.nodes) as Array<{ label?: unknown; note?: unknown }>).map((x) => html`<li><b>${text(x.label)}</b>${text(x.note) ? html` <span class="muted">${text(x.note)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
+  return html``;
+}
+
 /** A link as words: the site and its path ("linkedin.com/in/steven-gelley"). */
 const linkWords = (u: string) => { try { const x = new URL(u); return `${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`; } catch { return u; } };
 
@@ -88,7 +105,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<section class="part part--${t}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${node(p, c.child as string)}</section>`;
     }
     case 'Disclosure': return html`<section class="part part--aside"><div class="part__head"><h2>${text(v('label'))}</h2></div>${node(p, c.child as string)}</section>`;
-    case 'Callout': return html`<div class="callout">${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
+    case 'Callout': return html`<div class="callout">${/^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(text(v('image'))) ? html`<img class="art" src="${text(v('image'))}" alt="">` : html``}${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
     case 'Text': return html`<p>${text(v('text'))}</p>`;
     case 'Metric': return html`<p class="metric"><span class="eyebrow">${text(v('label'))}</span> <b>${text(v('value'))}${text(v('unit'))}</b></p>`;
     case 'Badge': return html`<span class="chip">${text(v('text'))}</span>`;
@@ -204,6 +221,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
             <tbody>${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}</section>`;
         }
+        if (x.kind === 'diagram') return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div>${briefDiagram((x as { diagram?: unknown }).diagram)}${text((x as { caption?: unknown }).caption) ? html`<p class="fine">${text((x as { caption?: unknown }).caption)}</p>` : html``}</section>`;
         return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><p>${boldOnly(text(x.body))}</p></section>`;
       }) as unknown as SafeHtml[]}`;
     }
@@ -315,6 +333,19 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .steps li { counter-increment: st; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); column-gap: 0.5rem; font-size: 0.875rem; }
 .steps li::before { content: counter(st); grid-row: span 3; font: 700 0.875rem var(--mono); color: var(--accent); }
 .steps li > * { grid-column: 2; }
+.callout .art { float: right; width: 6rem; height: 4.5rem; margin: 0 0 0.5rem 1rem; border-radius: 8px; }
+.lad { display: grid; gap: 0.4rem; margin: 0.25rem 0; }
+.lad-row { display: grid; grid-template-columns: minmax(7rem, 28%) minmax(0, 1fr) minmax(7rem, 24%); gap: 0.6rem; align-items: center; font-size: 0.875rem; }
+.lad-lab { font-weight: 600; }
+.lad-track { position: relative; height: 1.1rem; background: var(--raised); border-radius: 3px; }
+.lad-track i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 3px; }
+.lad-axis { position: relative; height: 1rem; margin: 0 calc(24% + 0.6rem) 0 calc(28% + 0.6rem); font: 0.6875rem var(--mono); color: var(--muted); }
+.lad-axis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.lad-axis span:first-child { transform: none; } .lad-axis span:last-child { transform: translateX(-100%); }
+.split-bar { display: flex; gap: 2px; height: 1.4rem; border-radius: 3px; overflow: hidden; }
+.split-bar i { background: var(--accent); } .split-bar i:nth-child(even) { background: var(--muted); }
+.split ul { margin-top: 0.5rem; } .split b { font-family: var(--mono); color: var(--accent); }
+.lad, .split, .flow { break-inside: avoid; }
 .quotes { display: grid; gap: 1rem; }
 .quotes figure { margin: 0; padding-left: 0.75rem; border-left: 2px solid var(--line); }
 .quotes figure.lead { border-left: 3px solid var(--accent); } .quotes figure.lead blockquote { font-size: 1.1875rem; }

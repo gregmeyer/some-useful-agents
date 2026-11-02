@@ -12,7 +12,7 @@
  * open (Notebook.answer); the Answer page and the brief show it.
  */
 import { notebookAffiliations } from './notebook-widgets.js';
-import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -132,7 +132,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
       const block = extractTaggedJson(result, 'answer');
       let raw: unknown;
       try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
-      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text) });
+      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text), amounts: notebookAmounts(nb) });
       if (!answer) return [`${NOTEBOOK_WRITER_ID}: no answer came back`];
       store.setAnswer(nb.id, answer);
       const parts = (answer.sections ?? []).map((x) => x.title.toLowerCase());

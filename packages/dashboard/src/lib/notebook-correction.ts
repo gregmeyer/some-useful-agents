@@ -141,8 +141,8 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
   nb.answer?.findings.forEach((f, i) => parts.push({ id: `finding:${String(i)}`, role: 'judgment', kind: 'finding', text: f.text, ...cites(f.from) }));
   // The answer's own parts: each step and rubric row, and its explanation.
   nb.answer?.sections?.forEach((x, si) => {
-    const from = x.kind === 'steps' ? x.items.map((i) => i.from) : x.kind === 'table' ? x.rows.map((r) => r.from) : [[]];
-    answerSectionLines(x).forEach((t, i) => parts.push({ id: `section:${String(si)}:${String(i)}`, role: 'judgment', kind: x.kind === 'steps' ? `answer step (${x.title})` : x.kind === 'table' ? `row of ${x.title}` : `answer text (${x.title})`, text: t, ...cites(from[i] ?? []) }));
+    const from: string[][] = x.kind === 'steps' ? x.items.map((i) => i.from) : x.kind === 'table' ? x.rows.map((r) => r.from) : [];
+    answerSectionLines(x).forEach((t, i) => parts.push({ id: `section:${String(si)}:${String(i)}`, role: 'judgment', kind: x.kind === 'steps' ? `answer step (${x.title})` : x.kind === 'table' ? `row of ${x.title}` : x.kind === 'diagram' ? `part of the diagram ${x.title}` : `answer text (${x.title})`, text: t, ...cites(from[i] ?? []) }));
   });
   nb.plan?.items.forEach((x, i) => parts.push({ id: `plan:${String(i)}`, role: 'judgment', kind: 'plan item', text: `${x.when}: ${x.title}${x.detail ? ` (${x.detail})` : ''}`, ...cites(x.from) }));
   for (const e of entries.filter((x) => x.kind === 'note' || x.kind === 'evidence').slice(0, 20)) {
@@ -526,7 +526,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     if (now.answer && gone.size) {
       const sections = (now.answer.sections ?? []).map((x) => (x.kind === 'steps' ? { ...x, items: x.items.filter((i) => !gone.has(i.text)) }
         : x.kind === 'table' ? { ...x, rows: x.rows.filter((r) => !gone.has(r.cells.join(' · '))) } : x))
-        .filter((x) => (x.kind === 'steps' ? x.items.length : x.kind === 'table' ? x.rows.length : !gone.has(x.body)));
+        .filter((x) => (x.kind === 'steps' ? x.items.length : x.kind === 'table' ? x.rows.length : !answerSectionLines(x).some((t) => gone.has(t))));
       store.setAnswer(nb.id, { ...now.answer, sections, struck: [...(now.answer.struck ?? []), ...gone] }, { swap: true });
       said.push(`took out ${String(gone.size)} of the answer's step${gone.size === 1 ? '' : 's'} and rows`);
     }

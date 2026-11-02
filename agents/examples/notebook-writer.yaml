@@ -92,7 +92,19 @@ nodes:
               order)};
             - "text" for an explanation the short answer can't hold (at
               most one): {"kind": "text", "title": "…", "body": up to 4
-              short sentences, **bold** allowed}.
+              short sentences, **bold** allowed};
+            - "diagram" when a picture says it better, and only with
+              numbers from above or the ask (at most two; sua draws it):
+              a ladder of terms or maturities, {"kind": "diagram",
+              "title": "…", "diagram": {"type": "ladder", "rungs":
+              [{"label": "…", "start": month it starts (0 = now), "end":
+              month it ends, "amount": number, "rate": "4.4% APY"}]}}
+              (2 to 8 rungs); how an amount splits, {"type": "split",
+              "total": the whole amount, "parts": [{"label": "…",
+              "amount": number, "note": "…"}]} (2 to 6, adding up to the
+              whole); or a decision in order, {"type": "flow", "nodes":
+              [{"label": "…", "note": "…"}]} (2 to 7). Add "caption", a
+              sentence on how to read it.
           When a section gives one of the notebook's done-whens, put that
           done-when's words in "delivers", exactly as the notebook says
           it. Each row and step cites the ids it rests on; a row or step

@@ -182,9 +182,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Callout',
-    summary: 'A highlighted paragraph with a small label (e.g. "Where it stands"), and an optional "Next:" line (`nextLabel` renames it, e.g. "How sure:"); text may use **bold**.',
+    summary: 'A highlighted paragraph with a small label (e.g. "Where it stands"), and an optional "Next:" line (`nextLabel` renames it, e.g. "How sure:"); text may use **bold**; `image`, a small drawing beside it (sua\'s own, a data: SVG).',
     example: { id: 'c', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
-    schema: Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional() }).strict(),
+    schema: Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional(), image: Str.optional() }).strict(),
   },
   {
     name: 'StatStrip',
@@ -289,7 +289,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'AnswerSections',
-    summary: 'The parts an answer was asked for, in order: `sections` [{title, kind: steps|table|text, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body}]; steps numbered, tables as a table, **bold** in text; refs [{label, href}] link what each rests on.',
+    summary: 'The parts an answer was asked for, in order: `sections` [{title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on.',
     example: { id: 'details', component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
     schema: Common.extend({
       sections: CS.DynamicValue,

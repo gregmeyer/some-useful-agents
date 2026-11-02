@@ -4467,7 +4467,7 @@ describe('a write step', () => {
     expect(after.answer!.findings.map((f) => f.from)).toEqual([[a.id], [b.id]]);
 
     const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
-    expect(d.answer).toEqual({ question: 'What do 10-person sales teams pay for a CRM in 2026?', label: 'Answer · fairly sure', text: 'Most pay **$20–40 a seat a month**; a 10-person team spends about $250–400.', next: 'A vendor page and one survey agree; no invoices.', nextLabel: 'How sure:' });
+    expect(d.answer).toEqual({ question: 'What do 10-person sales teams pay for a CRM in 2026?', label: 'Answer · fairly sure', text: 'Most pay **$20–40 a seat a month**; a 10-person team spends about $250–400.', next: 'A vendor page and one survey agree; no invoices.', nextLabel: 'How sure:', cover: expect.stringMatching(/^data:image\/svg\+xml;base64,/) });
     expect(d.findings[1]).toEqual({ text: 'Teams surveyed pay $20–40.', refs: [{ label: 'Survey of 200 teams', href: `/notebooks/${nb.id}/entries/${b.id}` }] });
     expect(d.openQuestions).toEqual([{ text: 'Do annual plans cut it further?' }]);
     page = (await get(`/notebooks/${nb.id}`)).text;
@@ -4541,6 +4541,7 @@ describe('a write step', () => {
       sections: [
         { kind: 'table', title: 'Rubric for the $25,000', delivers: 'A simple decision rubric written for the $25,000', columns: ['If…', 'Then…', 'Why'], rows: [{ cells: ['You may need it within a year', '**No-penalty CD**', 'You can take it out'], from: [cd.id] }] },
         { kind: 'steps', title: 'Open the ladder', items: [{ text: 'Check each bank is insured', from: [] }, { text: 'Open five CDs', detail: '$5,000 each', from: [cd.id] }] },
+        { kind: 'diagram', title: 'The ladder', diagram: { type: 'ladder', rungs: [{ label: '12-month CD', start: 0, end: 12, amount: 5000 }, { label: '24-month CD', start: 0, end: 24, amount: 5000 }] }, caption: 'One comes due each year.' },
       ],
     })}</answer>`;
     expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true });
@@ -4556,6 +4557,12 @@ describe('a write step', () => {
     expect(brief).toContain('<td><strong>No-penalty CD</strong></td>');
     expect(brief).toContain('<ol class="steps">');
     expect(brief).toContain('(Example Bank 12-month CD)');
+    // The ladder, drawn from its own numbers, and a drawing beside the answer (on a page saved before either).
+    expect(page).toContain('"type":"ladder"');
+    expect(page).toContain('"cover":"data:image/svg+xml;base64,');
+    expect(brief).toContain('<span class="lad-lab">24-month CD</span>');
+    expect(brief).toContain('<i style="left:0%;width:50%"></i>');
+    expect(brief).toMatch(/<img class="art" src="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+" alt="">/);
     writerReply = undefined;
   });
 

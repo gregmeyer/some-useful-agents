@@ -12,11 +12,13 @@
  *   Before you decide (1/3)        | How we got here (timeline, 2/3)
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
+import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
 import { rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
+  answerSectionLines,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
@@ -155,13 +157,13 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** Where to strike one and have sua write a new one in its place (an open notebook with a talking-points write step) (Agenda replaceHref). */
     talkingPointsReplace?: string;
     /** The answer a write step wrote, as a Callout; before then, where it stands (the Answer page). */
-    answer: { question: string; label: string; text: string; next?: string; nextLabel: string };
+    answer: { question: string; label: string; text: string; next?: string; nextLabel: string; cover?: string };
     /** The findings the answer rests on, each linked to its sources (Agenda points). */
     findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
-    answerSections: Array<{ title: string; kind: 'steps' | 'table' | 'text'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string }>;
+    answerSections: Array<{ title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string }>;
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
     planIntro: { label: string; text: string; next?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
@@ -649,10 +651,12 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   const answerSections = (a.sections ?? []).map((x): NotebookWidgetData['notebook']['answerSections'][number] => {
     if (x.kind === 'steps') return { title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from) })) };
     if (x.kind === 'table') return { title: x.title, kind: x.kind, columns: x.columns, rows: x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from) })), ...(x.note ? { note: x.note } : {}) };
+    // A diagram is laid out here and drawn as HTML; struck, it's gone whole.
+    if (x.kind === 'diagram') return { title: x.title, kind: x.kind, ...(answerSectionLines(x).some((t) => struck.has(t)) ? { items: [] } : { diagram: answerDiagramView(x.diagram) }), ...(x.caption ? { caption: x.caption } : {}) };
     return { title: x.title, kind: x.kind, body: x.body };
-  }).filter((x) => (x.items ?? x.rows ?? [x.body]).length);
+  }).filter((x) => (x.items ?? x.rows ?? [x.body ?? x.diagram]).length);
   return {
-    answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:' },
+    answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: answerCover(nb).src },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
     openQuestions: a.open.map((text) => ({ text })),
     answerSections,
