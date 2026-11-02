@@ -4495,6 +4495,35 @@ describe('a write step', () => {
     writerReply = undefined;
   });
 
+  it('an answer rests on the pages its research found that explain: the writer reads and cites them, each linked to its page', async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'How do CD ladders work?', statement: 'How does a CD ladder work for $25,000?' });
+    s.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', target: 2, status: 'done' }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    // The finder files a learn search's page as evidence with its page; the same page again is a repeat.
+    const block = (title: string, url: string) => `<notebook>${JSON.stringify({ entries: [{ kind: 'evidence', title, body: '"Staggered maturity dates." (found by the Ladder guidance search)', fingerprint: url }] })}</notebook>`;
+    applyKeeperResult(s, s.get(nb.id)!, 'notebook-finder', 'run-1', block('A ladder staggers maturities so part comes due each year.', 'https://regulator.example/cd-ladders'));
+    applyKeeperResult(s, s.get(nb.id)!, 'notebook-finder', 'run-2', block('Ladders stagger when CDs come due.', 'https://www.regulator.example/cd-ladders/'));
+    const evidence = s.entries(nb.id).filter((e) => e.kind === 'evidence');
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0].fingerprint).toBe('https://regulator.example/cd-ladders');
+
+    writerReply = () => `<answer>${JSON.stringify({ answer: 'Split it into **five CDs** that come due a year apart.', confidence: 'medium', findings: [{ text: 'A ladder staggers maturities.', from: [evidence[0].id] }], open: [] })}</answer>`;
+    expect(startNotebookStep(ctxForDrain! as never, nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    // With no options at all, it still answers: from what explains.
+    const themes = JSON.parse(writerAsked.at(-1)!.THEMES) as Array<Record<string, unknown>>;
+    expect(themes).toEqual([{ id: evidence[0].id, title: 'A ladder staggers maturities so part comes due each year.', said: '"Staggered maturity dates." (found by the Ladder guidance search)', source: 'https://regulator.example/cd-ladders', explains: true }]);
+    const after = s.get(nb.id)!;
+    expect(after.answer!.findings[0].from).toEqual([evidence[0].id]);
+    expect(notebookWidgetData(after, s.entries(nb.id)).notebook.findings[0].refs).toEqual([{ label: 'regulator.example', href: 'https://regulator.example/cd-ladders' }]);
+    writerReply = undefined;
+  });
+
   it('writes the plan for a trip: the Plan page shows it day by day with what it uses, what to book first and what is open', async () => {
     const app = await makeApp();
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

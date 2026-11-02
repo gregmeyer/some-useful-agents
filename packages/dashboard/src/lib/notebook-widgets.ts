@@ -402,7 +402,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       bands: limitBands(nb),
       summary,
       next,
-      ...answerViews(nb, active, summary, next),
+      ...answerViews(nb, active, summary, next, entries),
       ...planViews(nb, active, summary, next),
       ...changesViews(nb, v.options, history, summary, next),
       statItems: [
@@ -611,18 +611,36 @@ function changesViews(nb: Notebook, options: readonly NotebookViewOption[], hist
   return { changesIntro: { label: `Since ${shortDay(c.since!)} · checked ${shortDay(c.at)}`, text }, changes };
 }
 
+/**
+ * What an answer's part rests on, as links: an option to its page, evidence
+ * from a page (a source that explains) to that page.
+ */
+function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[]): (from: readonly string[]) => Array<{ label: string; href: string }> {
+  const byId = new Map(active.map((o) => [o.id, o]));
+  const sources = new Map(entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => [e.id, e]));
+  return (from) => from.flatMap((id) => {
+    const o = byId.get(id);
+    if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
+    const e = sources.get(id);
+    return e ? [{ label: sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
+  });
+}
+
+/** A source page's site, for its link ("consumerfinance.gov"). */
+const sourceLabel = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'source'; } };
+
 /** How sure an answer is, in plain words. */
 const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
 
 /** The answer for the Answer page: what sua wrote, each finding linked to the options it rests on; before then, where it stands. */
-function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions'> {
+function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions'> {
   const a = nb.answer;
   const question = nb.statement || nb.title;
   if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [] };
-  const byId = new Map(active.map((o) => [o.id, o]));
+  const refs = answerRefs(nb, active, entries);
   return {
     answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:' },
-    findings: a.findings.map((f) => ({ text: f.text, refs: f.from.map((id) => byId.get(id)).filter((o): o is NotebookViewOption => !!o).map((o) => ({ label: o.name, href: notebookOptionPath(nb.id, o.id) })) })),
+    findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
     openQuestions: a.open.map((text) => ({ text })),
   };
 }

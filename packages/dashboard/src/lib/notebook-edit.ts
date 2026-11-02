@@ -390,7 +390,7 @@ const ABOUT_THE_PAGE = /\b(page|layout|look|looks|show|shows|showing|display|top
 export const ENHANCE_ASK = `Enhance this notebook: make its definition a better prompt for what it's for, the way a careful editor would, from what it already says.
 - What it's for: one specific sentence (what, for whom, where, by when) from what's there; no new goals.
 - Limits: concrete and checkable (numbers, places, dates), only ones it states or clearly implies; no duplicates.
-- Done when: 2 to 4 outcomes someone could tick off, each one its steps can reach (no "a decision recorded" without a decide step; for talking points, "talking points written").
+- Done when: 2 to 4 outcomes someone could tick off, each one its steps can reach (no "a decision recorded" without a decide step; for talking points, "talking points written"; for a question or plan, what's written as they asked for it: "a rubric written", "steps written").
 - Facts each option notes: the ones that decide it, each with the right type, unit and role (price, measure, place, link, when, quote…); drop vague or repeated ones.
 - Checks: what to confirm with a source before deciding, each one checkable.
 - Steps: the kinds and order that fit the goal (a choice ends with decide; a question with write, shape answer; a plan with write, shape plan; a meeting with write, talking points; a watch has a schedule and no decide), with fitting targets; keep agents that fit.
