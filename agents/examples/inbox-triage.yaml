@@ -128,7 +128,8 @@ inputs:
     default: ""
     description: >
       Other notebooks this thread links (by the operator or sua, archived
-      ones too), each as notebook-read reads it: what it's for, who it's
+      ones too) or the operator names by title or by who it's about, each as
+      notebook-read reads it: what it's for, who it's
       about with sources, what it wrote, its options and notes. Empty when
       none is linked.
   NOTEBOOKS_ARCHIVED:

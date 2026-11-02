@@ -2507,6 +2507,32 @@ describe('a conversation that turns to a notebook', () => {
     expect(notebooksLinked(ctx, ['/notebooks/nope', `/notebooks/${car.id}`, `/notebooks/${briefing.id}`, `/notebooks/${own.id}`]).split('────────')).toHaveLength(2);
   });
 
+  it('reads a notebook you name without linking it, by its title or who it is about, archived too', async () => {
+    await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { notebooksLinked } = await import('../lib/notebook-chat.js');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const meeting = nbs.create({ title: 'Prepare for meeting with Dana Whitfield' });
+    nbs.addEntry(meeting.id, { kind: 'note', title: 'Ran sales at Northwind', by: 'you' });
+    nbs.archive(meeting.id);
+    const brief = nbs.create({ title: 'Brief: northwind.example' });
+    nbs.setAbout(brief.id, 'company', { name: 'Northwind Traders', facts: [] });
+    nbs.create({ title: 'Prepare for meeting with Sam Ortiz' });
+    // "Prepare", "meeting" and "brief" don't name one; the person's name does.
+    expect(notebooksLinked(ctx, [], undefined, ['help me prepare for a meeting brief'])).toBe('');
+    const read = notebooksLinked(ctx, [], undefined, ['tell me what you learned about Dana Whitfield when we ran a meeting brief']);
+    expect(read).toContain('# Prepare for meeting with Dana Whitfield');
+    expect(read).toContain('Ran sales at Northwind');
+    expect(read).not.toContain('Sam Ortiz');
+    // By its domain, or by who it's about.
+    expect(notebooksLinked(ctx, [], undefined, ['what does my Northwind notebook say'])).toContain('# Brief: northwind.example');
+    expect(notebooksLinked(ctx, [], undefined, ['how big is northwind traders?'])).toContain('# Brief: northwind.example');
+    // A meeting with someone there is about Northwind too, but the notebook its title names comes first.
+    nbs.setAbout(meeting.id, 'company', { name: 'Northwind', facts: [] });
+    expect(notebooksLinked(ctx, [], undefined, ['what does my Northwind notebook say']).indexOf('# Brief: northwind.example')).toBe(0);
+  });
+
   it('shows sua every option still in the running, however many notes came after', async () => {
     await makeApp();
     const ctx = currentCtx!;

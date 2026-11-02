@@ -2600,9 +2600,9 @@ export async function runTriageAgent(
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
           NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
-          // Other notebooks this thread links (yours or sua's, archived too), as notebook-read reads them.
+          // Other notebooks this thread links (yours or sua's, archived too), or that you name, as notebook-read reads them.
           NOTEBOOKS_LINKED: (() => {
-            try { return notebooksLinked(ctx, [currentRequest, ...responsesSnapshot.map((r) => r.body).reverse(), message.body], threadNotebook?.id); } catch { return ''; }
+            try { return notebooksLinked(ctx, [currentRequest, ...responsesSnapshot.map((r) => r.body).reverse(), message.body], threadNotebook?.id, [currentRequest]); } catch { return ''; }
           })(),
           // How to draw a notebook's page (notebook-layout), only in a notebook's conversation.
           LAYOUT_GUIDE: threadNotebook ? notebookLayoutGuide(suaComponentDocs()) : '',
