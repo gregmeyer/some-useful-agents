@@ -65,6 +65,10 @@ inputs:
     type: number
     default: 5
     description: Most candidate products or options to return for a shopping or comparison topic.
+  KNOWN:
+    type: string
+    default: ""
+    description: What's already known (from a notebook, with its sources), so the research builds on it instead of finding it again. Optional.
 
 outputs:
   headline:
@@ -144,6 +148,10 @@ nodes:
       Topic: {{inputs.TOPIC}}
       Depth: {{inputs.DEPTH}} (quick: 3 angles; thorough: up to 5)
 
+      Already known (empty: nothing). Don't plan angles that only find this
+      again; plan what's new, and what it means given this:
+      {{inputs.KNOWN}}
+
       Split this into research angles a careful person would want covered
       separately, each small enough for a few searches and page opens:
         - one or more "main" angles: the direct question, what it asks for,
@@ -159,7 +167,7 @@ nodes:
       Important planning rules:
         - Do not name specific products, candidates, prices, retailers, stock
           status, specs, sources, citations, or URLs unless they already appear
-          verbatim in the Topic.
+          verbatim in the Topic or in what's already known.
         - Do not invent examples.
         - Describe what to search for and verify, not what the answer is.
 
@@ -298,6 +306,11 @@ nodes:
     dependsOn: [findings]
     prompt: |
       Topic: {{inputs.TOPIC}}
+
+      Already known before this research (empty: nothing), with its sources.
+      Use it as background to frame the brief; every bullet still rests on
+      one of the findings below:
+      {{inputs.KNOWN}}
 
       The research, by angle ("main" angles answer the topic; the "counter"
       angle is the skeptical read). Each finding has an id (F1, F2, …), the
