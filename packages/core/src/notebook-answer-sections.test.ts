@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanAnswer, criterionLink, criterionMet, type Notebook } from './notebooks.js';
+import { cleanAnswer, criterionLink, criterionMet, notebookAmounts, answerSectionLines, type Notebook } from './notebooks.js';
 import { withAnswerSections, layoutPreset, resolveNotebookLayout } from './notebook-layout.js';
 import { notebookReadoutJson, notebookReadoutText } from './notebook-readout.js';
 
@@ -82,5 +82,37 @@ describe('answer sections', () => {
     const text = notebookReadoutText(nb, []);
     expect(text).toContain('### Open the ladder\n1. Check insurance');
     expect(text).toContain('### Rubric\n(If · Then)\n- Need it soon · No-penalty CD');
+  });
+
+  it('keeps a diagram only when its numbers hold: a ladder that runs forward, a split that adds up to the amount asked about', () => {
+    const rung = (label: string, start: number, end: number) => ({ label, start, end, amount: 5000, rate: '4.4% APY' });
+    const diagrams = (d: unknown[]) => cleanAnswer({ answer: 'x', findings: [], sections: d.map((diagram, i) => ({ kind: 'diagram', title: `D${String(i)}`, diagram, caption: 'Read left to right.' })) }, ids, 'q', 'w', 'x', { amounts: [25000] })?.sections ?? [];
+    const ok = diagrams([{ type: 'ladder', rungs: [rung('12-month CD', 0, 12), rung('24-month CD', 0, 24)] }]);
+    expect(ok).toEqual([{ kind: 'diagram', title: 'D0', caption: 'Read left to right.', diagram: { type: 'ladder', rungs: [rung('12-month CD', 0, 12), rung('24-month CD', 0, 24)] } }]);
+    expect(answerSectionLines(ok[0])).toEqual(['12-month CD: months 0–12, $5,000 at 4.4% APY', '24-month CD: months 0–24, $5,000 at 4.4% APY']);
+    // Backwards, made-up, negative, or one rung: not drawn.
+    expect(diagrams([{ type: 'ladder', rungs: [rung('a', 12, 6), rung('b', 0, 12)] }])).toEqual([]);
+    expect(diagrams([{ type: 'ladder', rungs: [{ label: 'a', start: 0, end: 12, amount: 'lots' }, rung('b', 0, 24)] }])).toEqual([]);
+    expect(diagrams([{ type: 'split', parts: [{ label: 'a', amount: -1 }, { label: 'b', amount: 2 }] }])).toEqual([]);
+    expect(diagrams([{ type: 'flow', nodes: [{ label: 'only one' }] }])).toEqual([]);
+    // A split of the $25,000 adds up to it; one that doesn't isn't drawn.
+    expect(diagrams([{ type: 'split', total: 25000, parts: [{ label: 'No-penalty CD', amount: 5000 }, { label: 'Ladder', amount: '$20,000' }] }])[0]).toMatchObject({ diagram: { type: 'split', total: 25000, parts: [{ amount: 5000 }, { amount: 20000 }] } });
+    expect(diagrams([{ type: 'split', parts: [{ label: 'a', amount: 5000 }, { label: 'b', amount: 15000 }] }])).toEqual([]);
+    // At most two.
+    const flow = { type: 'flow', nodes: [{ label: 'a' }, { label: 'b' }] };
+    expect(diagrams([flow, flow, flow])).toHaveLength(2);
+    expect(notebookAmounts({ title: 'CD ladders for $25,000', statement: 'Invest $25k', params: ['$1.5M max', 'no amount'] }).sort((a, b) => a - b)).toEqual([25000, 1500000]);
+    const nb = { checks: [], steps: [{ kind: 'write', shape: 'answer' }] } as unknown as Notebook;
+    expect(criterionLink(nb, 'A ladder diagram drawn')).toEqual({ kind: 'written', what: 'diagram' });
+  });
+
+  it('the answer gets its drawing too, but not on a page that shows who it is about', () => {
+    const page = [
+      { id: 'root', component: 'Column', children: ['answer'] },
+      { id: 'answer', component: 'Callout', text: { path: '/notebook/answer/text' } },
+    ];
+    expect(withAnswerSections(page).find((c) => c.id === 'answer')!.image).toEqual({ path: '/notebook/answer/cover' });
+    const company = [...page, { id: 'who', component: 'ProfileCard', profile: { path: '/notebook/company' } }];
+    expect(withAnswerSections(company).find((c) => c.id === 'answer')!.image).toBeUndefined();
   });
 });

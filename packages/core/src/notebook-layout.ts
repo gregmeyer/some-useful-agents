@@ -228,7 +228,7 @@ const ANSWER: ViewComponent[] = [
   { id: 'header', component: 'NotebookHeader', subtitle: 'Answer', steps: 'fold', cover: 'none' },
   { id: 'top', component: 'Columns', children: ['answer_col', 'steps_panel'], widths: [2, 1], align: 'start' },
   { id: 'answer_col', component: 'Column', children: ['answer', 'sections_p', 'findings_p'] },
-  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' } },
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
   ...answerSectionsPart('sections_p'),
   { ...panel('findings_p', 'What it rests on', 'findings'), treatment: 'feature', when: 'answered' },
   {
@@ -455,9 +455,13 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
  * rubric, the steps), just after the answer: pages drawn before answers had
  * them get the panel, once. A page that already has it is left as it is.
  */
-export function withAnswerSections(components: readonly ViewComponent[]): ViewComponent[] {
-  if (components.some((c) => c.component === 'AnswerSections')) return [...components];
-  const answer = components.find((c) => c.component === 'Callout' && (c.text as { path?: unknown } | undefined)?.path === '/notebook/answer/text');
+export function withAnswerSections(given: readonly ViewComponent[]): ViewComponent[] {
+  const isAnswer = (c: ViewComponent) => c.component === 'Callout' && (c.text as { path?: unknown } | undefined)?.path === '/notebook/answer/text';
+  // Its drawing beside the answer too, unless the page shows who it's about (their photo or logo is the picture).
+  const components = given.some((c) => c.component === 'ProfileCard') ? [...given]
+    : given.map((c) => (isAnswer(c) && c.image === undefined ? { ...c, image: { path: '/notebook/answer/cover' } } : c));
+  if (components.some((c) => c.component === 'AnswerSections')) return components;
+  const answer = components.find(isAnswer);
   const parent = answer && components.find((c) => Array.isArray(c.children) && (c.children as string[]).includes(answer.id));
   if (!answer || !parent) return [...components];
   let id = 'answer_sections_p';
@@ -707,6 +711,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/next': 'Why that confidence; before an answer, what\'s next (Callout next).',
   '/notebook/answer/nextLabel': '"How sure:" with an answer, else "Next:" (Callout nextLabel).',
   '/notebook/findings': 'The findings the answer rests on, each linked to the options (sources) it came from (Agenda points).',
+  '/notebook/answer/cover': 'A small drawing of what the question is about, beside the answer (Callout image).',
   '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections).',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',

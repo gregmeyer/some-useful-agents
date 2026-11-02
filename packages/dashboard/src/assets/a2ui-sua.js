@@ -787,16 +787,18 @@ const Panel = define('Panel', 'sua-a2ui-panel',
 // **bold** only; everything else escaped (same rule as Text's markdown).
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
 const Callout = define('Callout', 'sua-a2ui-callout',
-  Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional() }).strict(),
+  Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional(), image: Str.optional() }).strict(),
   css`
     :host { display: block; }
     .box { padding: var(--space-4, 16px); background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md, 10px); }
+    .art { float: right; width: 96px; height: 72px; margin: 0 0 8px 16px; border-radius: 8px; }
+    @media (max-width: 560px) { .art { display: none; } }
     .label { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-primary); }
     .text { margin: 8px 0 0; font-size: var(--font-size-lg, 17px); line-height: 1.45; color: var(--color-text); }
     .text strong { font-weight: 600; }
     .next { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .next b { color: var(--color-text); }`,
-  function () { return html`<div class="box">${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>${this.controller.props.nextLabel ?? 'Next:'}</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
+  function () { const img = this.controller?.props?.image; return html`<div class="box">${typeof img === 'string' && /^data:image\/svg\+xml;base64,/.test(img) ? html`<img class="art" src=${img} alt="">` : nothing}${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>${this.controller.props.nextLabel ?? 'Next:'}</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
   { updated() { const el = this.renderRoot.querySelector('.text'); const v = this.controller?.props?.text ?? ''; if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
 
 const StatStrip = define('StatStrip', 'sua-a2ui-stat-strip',
@@ -1323,9 +1325,45 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     tr:last-child td { border-bottom: 0; }
     td .refs { margin-top: 4px; }
     p.body { margin: 0; font-size: var(--font-size-sm); line-height: 1.6; color: var(--color-text); }
-    p.foot { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+    p.foot { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .lad { display: grid; gap: 8px; }
+    .lad .row { display: grid; grid-template-columns: minmax(6rem, 30%) minmax(0, 1fr); gap: 10px; align-items: center; }
+    .lad .lab { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); overflow-wrap: anywhere; }
+    .lad .track { position: relative; height: 26px; border-radius: 4px; background: var(--color-surface-raised); }
+    .lad .bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: var(--color-primary); }
+    .lad .bn { position: absolute; top: 50%; transform: translateY(-50%); font: 600 var(--font-size-xs)/1 var(--font-mono); color: var(--color-text); white-space: nowrap; }
+    .lad .bn.in { color: var(--color-surface); }
+    .lad .axis { position: relative; height: 16px; margin-left: calc(min(30%, 100%) + 10px); }
+    .lad .tick { position: absolute; transform: translateX(-50%); font: 400 var(--font-size-xs)/1 var(--font-mono); color: var(--color-text-muted); white-space: nowrap; }
+    .lad .tick:first-child { transform: none; } .lad .tick:last-child { transform: translateX(-100%); }
+    .split .bars { display: flex; height: 30px; border-radius: 4px; overflow: hidden; gap: 2px; }
+    .split .seg { background: var(--color-primary); min-width: 4px; }
+    .split .seg:nth-child(even) { background: var(--color-primary-strong, var(--color-text-muted)); }
+    .split ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: var(--font-size-sm); }
+    .split li b { font-family: var(--font-mono); color: var(--color-primary); margin-right: 6px; }
+    .split .tot { font: 600 var(--font-size-xs)/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); margin-bottom: 6px; }
+    ol.flow { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; counter-reset: fl; }
+    ol.flow li { counter-increment: fl; flex: 1 1 9rem; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 6px; font-size: var(--font-size-sm); color: var(--color-text); position: relative; }
+    ol.flow li::before { content: counter(fl); display: block; font: 700 var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-primary); }
+    ol.flow li .note { margin-top: 2px; }
+    .cap { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }`,
   (p) => {
     const sections = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
+    const n = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
+    const diagram = (d) => {
+      const text = html`<ul class="sr">${(Array.isArray(d?.lines) ? d.lines : []).map((l) => html`<li>${l}</li>`)}</ul>`;
+      if (d?.type === 'ladder') {
+        return html`<div class="lad" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.rungs ?? []).map((r) => html`<div class="row"><div class="lab">${r.label}</div><div class="track"><div class="bar" style=${`left:${n(r.left)}%;width:${n(r.width)}%`}></div><span class=${n(r.left) + n(r.width) > 62 ? 'bn in' : 'bn'} style=${n(r.left) + n(r.width) > 62 ? `right:${100 - n(r.left) - n(r.width)}%;margin-right:8px` : `left:${n(r.left) + n(r.width)}%;margin-left:6px`}>${r.note}</span></div></div>`)}
+          <div class="axis" aria-hidden="true">${(d.axis ?? []).map((t) => html`<span class="tick" style=${`left:${n(t.at)}%`}>${t.label}</span>`)}</div></div>${text}`;
+      }
+      if (d?.type === 'split') {
+        return html`<div class="split"><div class="tot">${d.total}</div><div class="bars" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.parts ?? []).map((x) => html`<span class="seg" style=${`flex:0 0 ${n(x.width)}%`} title=${`${x.label}: ${x.amount}`}></span>`)}</div>
+          <ul>${(d.parts ?? []).map((x) => html`<li><b>${x.amount}</b>${x.label}${x.note ? html` <span class="note">${x.note}</span>` : nothing}</li>`)}</ul></div>`;
+      }
+      if (d?.type === 'flow') return html`<ol class="flow">${(d.nodes ?? []).map((x) => html`<li>${x.label}${x.note ? html`<div class="note">${x.note}</div>` : nothing}</li>`)}</ol>`;
+      return nothing;
+    };
     if (!sections.length) return html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
     const refs = (it) => {
       const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
@@ -1337,6 +1375,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
         const cols = Array.isArray(x.columns) ? x.columns : [];
         return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}`;
       }
+      if (x.kind === 'diagram') return html`${diagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
       return html`<p class="body">${boldParts(x.body)}</p>`;
     };
     return html`<div>${sections.map((x) => html`<section class="sec"><h4 class="h">${x.title}</h4>${part(x)}</section>`)}</div>`;

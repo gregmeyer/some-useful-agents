@@ -485,12 +485,33 @@ export type NotebookAnswerSection = { title: string; delivers?: string } & (
   | { kind: 'steps'; items: Array<{ text: string; detail?: string; from: string[] }> }
   | { kind: 'table'; columns: string[]; rows: Array<{ cells: string[]; from: string[] }>; note?: string }
   | { kind: 'text'; body: string }
+  | { kind: 'diagram'; diagram: NotebookAnswerDiagram; caption?: string }
 );
+
+/**
+ * A diagram an answer draws from its own numbers (sua draws it, never a
+ * model): a ladder of terms on a month axis, how an amount splits, or the
+ * steps of a decision in order.
+ */
+export type NotebookAnswerDiagram =
+  | { type: 'ladder'; rungs: Array<{ label: string; start: number; end: number; amount?: number; rate?: string }> }
+  | { type: 'split'; total?: number; parts: Array<{ label: string; amount: number; note?: string }> }
+  | { type: 'flow'; nodes: Array<{ label: string; note?: string }> };
+
+const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+
+/** A diagram in words, a line a part: its text version (alt text, other readers, what a strike names). */
+export function answerDiagramLines(d: NotebookAnswerDiagram): string[] {
+  if (d.type === 'ladder') return d.rungs.map((r) => `${r.label}: months ${String(r.start)}–${String(r.end)}${r.amount !== undefined ? `, ${money(r.amount)}` : ''}${r.rate ? ` at ${r.rate}` : ''}`);
+  if (d.type === 'split') return d.parts.map((p) => `${p.label}: ${money(p.amount)}${p.note ? ` (${p.note})` : ''}`);
+  return d.nodes.map((n, i) => `${String(i + 1)}. ${n.label}${n.note ? ` (${n.note})` : ''}`);
+}
 
 /** An answer section's steps or rows as lines of text: what a strike names, and what other readers see. */
 export function answerSectionLines(s: NotebookAnswerSection): string[] {
   if (s.kind === 'steps') return s.items.map((i) => i.text);
   if (s.kind === 'table') return s.rows.map((r) => r.cells.join(' · '));
+  if (s.kind === 'diagram') return answerDiagramLines(s.diagram);
   return [s.body];
 }
 
@@ -3330,7 +3351,7 @@ export function cleanBriefing(raw: unknown, optionIds: ReadonlySet<string>, by: 
  * has; at most 6 findings and 5 open questions; confidence is high, medium
  * or low (else low). Pure.
  */
-export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[] } = {}): NotebookAnswer | undefined {
+export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[]; amounts?: readonly number[] } = {}): NotebookAnswer | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
   const line = (x: unknown, n: number) => {
@@ -3351,7 +3372,7 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     return { text: t, from: [...new Set(from)].slice(0, 4) };
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
-  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line);
+  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? []);
   return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(sections.length ? { sections } : {}), at, by };
 }
 
@@ -3361,7 +3382,7 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
  * could cite, a table's rows as wide as its columns, and `delivers` only a
  * done-when the notebook has (as the notebook words it). Unknown kinds go.
  */
-function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string): NotebookAnswerSection[] {
+function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string, amounts: readonly number[] = []): NotebookAnswerSection[] {
   const cites = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, 4);
   const out: NotebookAnswerSection[] = [];
   for (const r of Array.isArray(raw) ? raw : []) {
@@ -3390,6 +3411,10 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
       }).filter((row): row is NonNullable<typeof row> => !!row).slice(0, 12);
       const note = line(o.note, 240);
       if (rows.length) out.push({ ...head, kind: 'table', columns, rows, ...(note ? { note } : {}) });
+    } else if (o.kind === 'diagram' && out.filter((x) => x.kind === 'diagram').length < 2) {
+      const diagram = cleanAnswerDiagram(o.diagram, line, amounts);
+      const caption = line(o.caption, 200);
+      if (diagram) out.push({ ...head, kind: 'diagram', diagram, ...(caption ? { caption } : {}) });
     } else if (o.kind === 'text' && !out.some((x) => x.kind === 'text')) {
       const body = line(o.body ?? o.text, 700);
       if (body) out.push({ ...head, kind: 'text', body });
@@ -3397,6 +3422,63 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
     if (out.length >= 5) break;
   }
   return out;
+}
+
+/**
+ * A diagram as a writer gave it, only when its numbers hold: real,
+ * not negative, a ladder's terms start before they end (within 30 years),
+ * and a split adds up to the amount the notebook names (within 1%), when
+ * it names one, so a made-up total never gets drawn.
+ */
+function cleanAnswerDiagram(raw: unknown, line: (x: unknown, n: number) => string, amounts: readonly number[]): NotebookAnswerDiagram | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const d = raw as Record<string, unknown>;
+  const num = (x: unknown): number | undefined => { const n = typeof x === 'number' ? x : typeof x === 'string' && x.trim() ? Number(x.replace(/[$,\s]/g, '')) : NaN; return Number.isFinite(n) && n >= 0 ? n : undefined; };
+  const list = (x: unknown) => (Array.isArray(x) ? x : []).filter((v): v is Record<string, unknown> => !!v && typeof v === 'object');
+  if (d.type === 'ladder') {
+    const rungs = [];
+    for (const r of list(d.rungs).slice(0, 8)) {
+      const label = line(r.label, 60); const start = num(r.start); const end = num(r.end);
+      if (!label || start === undefined || end === undefined || start >= end || end > 360) return undefined;
+      const amount = r.amount === undefined || r.amount === null || r.amount === '' ? undefined : num(r.amount);
+      if (r.amount !== undefined && r.amount !== null && r.amount !== '' && amount === undefined) return undefined;
+      const rate = line(r.rate, 20);
+      rungs.push({ label, start, end, ...(amount !== undefined ? { amount } : {}), ...(rate ? { rate } : {}) });
+    }
+    return rungs.length >= 2 ? { type: 'ladder', rungs } : undefined;
+  }
+  if (d.type === 'split') {
+    const parts = [];
+    for (const p of list(d.parts).slice(0, 6)) {
+      const label = line(p.label, 60); const amount = num(p.amount);
+      if (!label || amount === undefined) return undefined;
+      const note = line(p.note, 80);
+      parts.push({ label, amount, ...(note ? { note } : {}) });
+    }
+    if (parts.length < 2) return undefined;
+    const sum = parts.reduce((t, p) => t + p.amount, 0);
+    if (!(sum > 0)) return undefined;
+    const total = num(d.total);
+    if (total !== undefined && Math.abs(total - sum) > total * 0.01) return undefined;
+    if (amounts.length === 1 && Math.abs(amounts[0] - sum) > amounts[0] * 0.01) return undefined;
+    return { type: 'split', ...(total !== undefined ? { total } : {}), parts };
+  }
+  if (d.type === 'flow') {
+    const nodes = list(d.nodes).slice(0, 7).map((n) => ({ label: line(n.label, 60), note: line(n.note, 80) })).filter((n) => n.label).map((n) => ({ label: n.label, ...(n.note ? { note: n.note } : {}) }));
+    return nodes.length >= 2 ? { type: 'flow', nodes } : undefined;
+  }
+  return undefined;
+}
+
+/** The money amounts a notebook names ("$25,000 investable budget"): what a split must add up to. Pure. */
+export function notebookAmounts(nb: Pick<Notebook, 'statement' | 'title' | 'params'>): number[] {
+  const text = [nb.statement, nb.title, ...nb.params].join(' ');
+  const out = new Set<number>();
+  for (const m of text.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*([kKmM])?\b/g)) {
+    const n = Number(m[1].replace(/,/g, '')) * (m[2]?.toLowerCase() === 'k' ? 1000 : m[2]?.toLowerCase() === 'm' ? 1_000_000 : 1);
+    if (Number.isFinite(n) && n > 0) out.add(n);
+  }
+  return [...out];
 }
 
 const MEETING_WHEN = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/;
@@ -3640,7 +3722,7 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
 }
 
 /** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
-const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report)\b.*\b(written|recorded|included|drafted|given|laid out|in place)\b/;
+const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -3652,13 +3734,14 @@ const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(
  * sourced for each"), or one of its checks ("clean title" for "Clean title
  * (VIN)"). Anything else is yours to tick.
  */
-export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebook, 'steps'>>, text: string): { kind: 'decide' } | { kind: 'count'; n: number } | { kind: 'source' } | { kind: 'check'; check: string } | { kind: 'written'; what: 'table' | 'steps' | 'text' | 'any' } | undefined {
+export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebook, 'steps'>>, text: string): { kind: 'decide' } | { kind: 'count'; n: number } | { kind: 'source' } | { kind: 'check'; check: string } | { kind: 'written'; what: 'table' | 'steps' | 'text' | 'diagram' | 'any' } | undefined {
   const t = text.toLowerCase();
   const check = nb.checks.find((c) => { const a = loose(c); const b = loose(text); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); });
   if (check) return { kind: 'check', check };
   // In a notebook that ends in a written answer or plan, "A decision rubric written" is something written, not a decision.
   if ((nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan')) && WRITTEN_DELIVERABLE.test(t)) {
-    const what = /\b(rubric|scorecard|framework|comparison|table|matrix)\b/.test(t) ? 'table'
+    const what = /\b(diagram|chart|timeline|flowchart)\b/.test(t) || /\b(ladder|split|allocation|schedule)\b.*\b(drawn|shown|mapped)\b/.test(t) ? 'diagram'
+      : /\b(rubric|scorecard|framework|comparison|table|matrix)\b/.test(t) ? 'table'
       : /\b(steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions)\b/.test(t) ? 'steps'
         : /\b(explanation|summary|overview|report)\b/.test(t) ? 'text' : 'any';
     return { kind: 'written', what };
