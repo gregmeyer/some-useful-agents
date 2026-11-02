@@ -277,6 +277,11 @@ export function policyResource(toolId: string, args: Record<string, unknown>, wo
     case 'board-read':
     case 'board-place':
       return str(args.board);
+    case 'notebook-read': {
+      // The notebook's id when it's given as an id or a /notebooks/<id> link; otherwise the words asked.
+      const n = str(args.notebook).trim();
+      return /\/notebooks\/([A-Za-z0-9_-]+)/.exec(n)?.[1] ?? n;
+    }
     default:
       return '';
   }

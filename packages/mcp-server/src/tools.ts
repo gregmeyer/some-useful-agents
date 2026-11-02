@@ -25,6 +25,9 @@ import {
   UndeclaredInputError,
   SensitiveInputNameError,
   BoardsStore,
+  NotebookStore,
+  NOTEBOOK_READ_PARTS,
+  type BuiltinToolContext,
   BoardBuildStore,
   queueBoardBuild,
   type DashboardsStore,
@@ -397,17 +400,38 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   const boardsStore = (() => {
     try { return opts.runStore ? new BoardsStore(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
   })();
-  const runBoardTool = async (toolId: 'board-read' | 'board-place', args: Record<string, unknown>) => {
-    if (!boardsStore) return errorResult('Boards are not available on this server.');
+  // Notebooks: what one knows (notebook-read), for an MCP client the same as for an agent. Read only.
+  const notebookStore = (() => {
+    try { return opts.runStore ? NotebookStore.fromHandle(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
+  })();
+  // A builtin, behind the same tool policy an agent's call goes through.
+  const runBuiltinTool = async (toolId: 'board-read' | 'board-place' | 'notebook-read', args: Record<string, unknown>, ctx: BuiltinToolContext) => {
     if (opts.dataRoot) {
       const decision = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), {
         toolId, resource: policyResource(toolId, args), agentSource: 'local', agentId: 'mcp',
       });
       if (decision.effect === 'deny') return errorResult(decision.reason ?? `Policy denies "${toolId}".`);
     }
-    const out = await getBuiltinTool(toolId)!.execute(args, { boards: boardsStore });
+    const out = await getBuiltinTool(toolId)!.execute(args, ctx);
     return { content: [{ type: 'text' as const, text: String(out.result ?? '') }], ...(out.isError ? { isError: true } : {}) };
   };
+  const runBoardTool = async (toolId: 'board-read' | 'board-place', args: Record<string, unknown>) =>
+    boardsStore ? runBuiltinTool(toolId, args, { boards: boardsStore }) : errorResult('Boards are not available on this server.');
+
+  server.registerTool(
+    'notebook-read',
+    {
+      description: getBuiltinTool('notebook-read')!.definition.description,
+      inputSchema: {
+        notebook: z.string().optional().describe('The notebook: its id, a /notebooks/<id> link, or words from its title. Omit to list notebooks.'),
+        part: z.enum(NOTEBOOK_READ_PARTS).optional().describe('One part only (default all). "written" is its answer, talking points and plan.'),
+        format: z.enum(['text', 'json']).optional().describe('text (default) or json.'),
+      },
+    },
+    async ({ notebook, part, format }) => notebookStore
+      ? runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore })
+      : errorResult('Notebooks are not available on this server.'),
+  );
 
   server.registerTool(
     'board-read',

@@ -250,6 +250,7 @@ export interface ToolExecutorOptions {
   /** Agent memory for memory-save / memory-search / memory-forget. */
   memory?: BuiltinToolContext['memory'];
   boards?: BuiltinToolContext['boards'];
+  notebooks?: BuiltinToolContext['notebooks'];
   runFiles?: BuiltinToolContext['runFiles'];
   /** The ask-human tool's context. */
   askHuman?: BuiltinToolContext['askHuman'];
@@ -316,6 +317,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
       secretsStore: opts.secretsStore,
       memory: opts.memory,
       boards: opts.boards,
+      notebooks: opts.notebooks,
       runFiles: opts.runFiles,
       askHuman: opts.askHuman,
     };

@@ -1,4 +1,5 @@
 import type { BoardsStore } from './boards.js';
+import type { NotebookStore } from './notebooks.js';
 /**
  * Tool types. A tool is a named, reusable unit of work that a node invokes
  * by reference. It declares typed inputs + structured outputs; the executor
@@ -207,6 +208,8 @@ export interface BuiltinToolContext {
    */
   /** Boards, for board-read / board-place (see boards.ts). */
   boards?: BoardsStore;
+  /** Notebooks, for notebook-read (see notebook-readout.ts). */
+  notebooks?: NotebookStore;
   /**
    * Where this node keeps files with its run (web-screenshot's pictures; see
    * run-files.ts). Set by the executor when it has a data root.

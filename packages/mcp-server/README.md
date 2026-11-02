@@ -31,6 +31,8 @@ Binds `127.0.0.1:3003` by default. Bearer token auth via `~/.sua/mcp-token`.
 
 `surface-read` and `surface-apply` read and change how Home is arranged (its goal, rules, pins and hides; changes to its sections are left to the person). `items-read` lists what needs the person's attention right now, most urgent first: threads waiting on them, questions runs are waiting on, agents that keep failing or missed their outcome, drafts, board builds and the scheduler's health. Each item has a stable id and the actions it supports. See [docs/surfaces.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/surfaces.md).
 
+`notebook-read` reads what a notebook knows (who it's about, what it wrote, its options with their facts and sources, its notes), by id, link or name, archived notebooks included. It only reads. See [docs/tools/notebook-read.md](https://github.com/gregmeyer/some-useful-agents/blob/main/docs/tools/notebook-read.md).
+
 See the [main repo README](https://github.com/gregmeyer/some-useful-agents) for full documentation.
 
 ## License

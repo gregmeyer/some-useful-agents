@@ -923,15 +923,23 @@ function templateRecord(r: Record<string, unknown>): NotebookTemplate | undefine
 
 export class NotebookStore {
   private db: DatabaseSync;
+  private ownsConnection?: boolean;
 
   constructor(dbPath: string) {
     this.db = openStoreDb(dbPath);
+    this.ownsConnection = true;
     this.ensureSchema();
+  }
+
+  /** Closes the connection it opened (one from fromHandle is the caller's). */
+  close(): void {
+    if (this.ownsConnection) this.db.close();
   }
 
   static fromHandle(db: DatabaseSync): NotebookStore {
     const store = Object.create(NotebookStore.prototype) as NotebookStore;
     (store as unknown as { db: DatabaseSync }).db = db;
+    store.ownsConnection = false;
     store.ensureSchema();
     return store;
   }

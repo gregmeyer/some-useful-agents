@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
-import { AgentStore, SessionStore, parseAgent } from '@some-useful-agents/core';
+import { AgentStore, NotebookStore, SessionStore, parseAgent } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
@@ -504,6 +504,34 @@ describe('MCP board tools', () => {
       const json = JSON.parse(text(await c.callTool({ name: 'items-read', arguments: { kind: ['decision'], format: 'json' } }))) as Array<{ id: string }>;
       expect(json.map((i) => i.id)).toEqual(['agent:sketch:draft']);
       expect(text(await c.callTool({ name: 'items-read', arguments: { kind: ['question'] } }))).toBe('Nothing needs attention right now.');
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('notebook-read reads a notebook by id or name, archived too; a policy deny rule blocks one', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const notebooks = new NotebookStore(dbPath);
+    const nb = notebooks.create({ title: 'Brief: collective.com', statement: 'Meet the Collective team' });
+    notebooks.addEntry(nb.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
+    notebooks.archive(nb.id);
+    notebooks.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      expect(text(await c.callTool({ name: 'notebook-read', arguments: {} }))).toContain(`${nb.id} — Brief: collective.com (active, archived)`);
+      const read = await c.callTool({ name: 'notebook-read', arguments: { notebook: 'collective' } });
+      expect(read.isError).toBeFalsy();
+      expect(text(read)).toContain('# Brief: collective.com');
+      expect(text(read)).toContain('They raised a Series B');
+      const json = JSON.parse(text(await c.callTool({ name: 'notebook-read', arguments: { notebook: nb.id, format: 'json', part: 'notes' } }))) as { archived: boolean; notes: { items: unknown[] } };
+      expect(json).toMatchObject({ archived: true, notes: { items: [expect.objectContaining({ title: 'They raised a Series B' })] } });
+
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-read', resources: [nb.id], effect: 'deny', reason: 'That one stays private.' }] }));
+      const denied = await c.callTool({ name: 'notebook-read', arguments: { notebook: `/notebooks/${nb.id}` } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('That one stays private.');
     } finally {
       await c.close();
     }
