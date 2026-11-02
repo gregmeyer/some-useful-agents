@@ -299,7 +299,7 @@ const LINKED_CHARS = 6000;
 /**
  * The notebooks a thread links (yours or sua's, newest first, archived ones
  * too), as notebook-read reads them, for NOTEBOOKS_LINKED: so "use my
- * Collective notebook" in any thread can use what it knows. The thread's own
+ * Northwind notebook" in any thread can use what it knows. The thread's own
  * notebook (`skip`) is left out: NOTEBOOK_FOCUS has it.
  */
 export function notebooksLinked(ctx: Ctx, texts: readonly string[], skip?: string): string {

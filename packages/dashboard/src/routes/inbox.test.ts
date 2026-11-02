@@ -2491,20 +2491,20 @@ describe('a conversation that turns to a notebook', () => {
     const { NotebookStore } = await import('@some-useful-agents/core');
     const { notebooksLinked } = await import('../lib/notebook-chat.js');
     const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-    const collective = nbs.create({ title: 'Brief: collective.com', statement: 'A sourced company briefing' });
-    nbs.addEntry(collective.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
-    nbs.archive(collective.id);
+    const briefing = nbs.create({ title: 'Brief: northwind.example', statement: 'A sourced company briefing' });
+    nbs.addEntry(briefing.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
+    nbs.archive(briefing.id);
     const car = nbs.create({ title: 'Car' });
     const own = nbs.create({ title: 'Own' });
-    expect(notebooksLinked(ctx, ['research Intuit as an investor'])).toBe('');
-    const read = notebooksLinked(ctx, [`here's the notebook http://127.0.0.1:3000/notebooks/${collective.id}`, `see [Car](/notebooks/${car.id}) and [Own](/notebooks/${own.id})`], own.id);
-    expect(read.indexOf('# Brief: collective.com')).toBe(0);
+    expect(notebooksLinked(ctx, ['research Acme Ventures as an investor'])).toBe('');
+    const read = notebooksLinked(ctx, [`here's the notebook http://127.0.0.1:3000/notebooks/${briefing.id}`, `see [Car](/notebooks/${car.id}) and [Own](/notebooks/${own.id})`], own.id);
+    expect(read.indexOf('# Brief: northwind.example')).toBe(0);
     expect(read).toContain('(active, archived)');
     expect(read).toContain('They raised a Series B');
     expect(read).toContain('# Car');
     expect(read).not.toContain('# Own');
     // At most two, and an unknown id is skipped.
-    expect(notebooksLinked(ctx, ['/notebooks/nope', `/notebooks/${car.id}`, `/notebooks/${collective.id}`, `/notebooks/${own.id}`]).split('────────')).toHaveLength(2);
+    expect(notebooksLinked(ctx, ['/notebooks/nope', `/notebooks/${car.id}`, `/notebooks/${briefing.id}`, `/notebooks/${own.id}`]).split('────────')).toHaveLength(2);
   });
 
   it('shows sua every option still in the running, however many notes came after', async () => {

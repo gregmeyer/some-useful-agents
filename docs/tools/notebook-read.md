@@ -15,8 +15,8 @@ nodes:
     type: llm-prompt
     tools: [notebook-read]
     prompt: |
-      Read the notebook "brief-collective-com". From what it knows about the
-      company, its competitors and its investors, say what adding Intuit as an
+      Read the notebook "brief-northwind-example". From what it knows about the
+      company, its competitors and its investors, say what adding Acme Ventures as an
       investor would change. Say which parts rest on the notebook's sources.
 ```
 

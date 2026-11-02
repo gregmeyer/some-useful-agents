@@ -512,17 +512,17 @@ describe('MCP board tools', () => {
   it('notebook-read reads a notebook by id or name, archived too; a policy deny rule blocks one', async () => {
     const dbPath = join(dataDir, 'runs.db');
     const notebooks = new NotebookStore(dbPath);
-    const nb = notebooks.create({ title: 'Brief: collective.com', statement: 'Meet the Collective team' });
+    const nb = notebooks.create({ title: 'Brief: northwind.example', statement: 'Meet the Northwind team' });
     notebooks.addEntry(nb.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
     notebooks.archive(nb.id);
     notebooks.close();
     serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
     const c = await client();
     try {
-      expect(text(await c.callTool({ name: 'notebook-read', arguments: {} }))).toContain(`${nb.id} — Brief: collective.com (active, archived)`);
-      const read = await c.callTool({ name: 'notebook-read', arguments: { notebook: 'collective' } });
+      expect(text(await c.callTool({ name: 'notebook-read', arguments: {} }))).toContain(`${nb.id} — Brief: northwind.example (active, archived)`);
+      const read = await c.callTool({ name: 'notebook-read', arguments: { notebook: 'northwind' } });
       expect(read.isError).toBeFalsy();
-      expect(text(read)).toContain('# Brief: collective.com');
+      expect(text(read)).toContain('# Brief: northwind.example');
       expect(text(read)).toContain('They raised a Series B');
       const json = JSON.parse(text(await c.callTool({ name: 'notebook-read', arguments: { notebook: nb.id, format: 'json', part: 'notes' } }))) as { archived: boolean; notes: { items: unknown[] } };
       expect(json).toMatchObject({ archived: true, notes: { items: [expect.objectContaining({ title: 'They raised a Series B' })] } });

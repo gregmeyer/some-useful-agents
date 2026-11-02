@@ -59,19 +59,19 @@ describe('notebook-read tool', () => {
   const read = getBuiltinTool('notebook-read')!;
   function setup() {
     const store = new NotebookStore(join(mkdtempSync(join(tmpdir(), 'sua-notebook-read-')), 'runs.db'));
-    const collective = store.create({ title: 'Brief: collective.com', statement: 'Meet the Collective team' });
-    store.addEntry(collective.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
-    store.archive(collective.id);
+    const briefing = store.create({ title: 'Brief: northwind.example', statement: 'Meet the Northwind team' });
+    store.addEntry(briefing.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
+    store.archive(briefing.id);
     store.create({ title: 'Buy a used car' });
     store.create({ title: 'Buy a stand mixer' });
-    return { store, id: collective.id };
+    return { store, id: briefing.id };
   }
 
   it('lists notebooks, archived too, and reads one by id, link or name', async () => {
     const { store, id } = setup();
     const list = await read.execute({}, { notebooks: store });
-    expect(list.result).toContain(`${id} — Brief: collective.com (active, archived)`);
-    for (const ask of [id, `http://127.0.0.1:3000/notebooks/${id}?tab=page`, 'collective']) {
+    expect(list.result).toContain(`${id} — Brief: northwind.example (active, archived)`);
+    for (const ask of [id, `http://127.0.0.1:3000/notebooks/${id}?tab=page`, 'northwind']) {
       const out = await read.execute({ notebook: ask }, { notebooks: store });
       expect(out.isError).toBeFalsy();
       expect(out.result).toContain('They raised a Series B');
@@ -88,13 +88,13 @@ describe('notebook-read tool', () => {
     expect(several.notebooks).toHaveLength(2);
     expect(findNotebook(store, 'buy a used car')).toHaveProperty('notebook');
     expect((await read.execute({ notebook: 'nothing like it' }, { notebooks: store })).isError).toBe(true);
-    expect((await read.execute({ notebook: 'collective', part: 'everything' }, { notebooks: store })).isError).toBe(true);
+    expect((await read.execute({ notebook: 'northwind', part: 'everything' }, { notebooks: store })).isError).toBe(true);
     expect((await read.execute({ notebook: 'x' }, {})).result).toBe('Notebooks are not available in this run.');
     store.close();
   });
 
   it('policy sees the notebook id, from a link too', () => {
-    expect(policyResource('notebook-read', { notebook: 'http://127.0.0.1:3000/notebooks/brief-collective-com' })).toBe('brief-collective-com');
-    expect(policyResource('notebook-read', { notebook: 'collective' })).toBe('collective');
+    expect(policyResource('notebook-read', { notebook: 'http://127.0.0.1:3000/notebooks/brief-northwind-example' })).toBe('brief-northwind-example');
+    expect(policyResource('notebook-read', { notebook: 'northwind' })).toBe('northwind');
   });
 });
