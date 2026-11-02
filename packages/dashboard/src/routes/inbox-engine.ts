@@ -17,7 +17,7 @@ import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-creat
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
 import { previewNotebookTemplate, executeNotebookTemplate } from '../lib/notebook-template-action.js';
-import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
+import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, notebooksLinked, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
@@ -2600,6 +2600,10 @@ export async function runTriageAgent(
           FOCUS_AGENT_OUTCOME: focusAgentOutcome,
           BOARD_OUTLINE: boardOutline,
           NOTEBOOK_FOCUS: threadNotebook ? describeNotebookForTriage(ctx, threadNotebook, threadOptionFocus(message.contextJson)) : '',
+          // Other notebooks this thread links (yours or sua's, archived too), as notebook-read reads them.
+          NOTEBOOKS_LINKED: (() => {
+            try { return notebooksLinked(ctx, [currentRequest, ...responsesSnapshot.map((r) => r.body).reverse(), message.body], threadNotebook?.id); } catch { return ''; }
+          })(),
           // How to draw a notebook's page (notebook-layout), only in a notebook's conversation.
           LAYOUT_GUIDE: threadNotebook ? notebookLayoutGuide(suaComponentDocs()) : '',
           // Their templates: start a notebook like one they've done (NOTEBOOK TEMPLATES).
@@ -2622,6 +2626,13 @@ export async function runTriageAgent(
                 entries: nbs.entries(n.id, 500).length, ...(n.decision ? { decision: n.decision } : {}),
                 link: `/notebooks/${encodeURIComponent(n.id)}`,
               })));
+            } catch { return '[]'; }
+          })(),
+          // Archived notebooks, by name only: kept whole, just out of lists.
+          NOTEBOOKS_ARCHIVED: (() => {
+            try {
+              return JSON.stringify(NotebookStore.fromHandle(ctx.runStore.databaseHandle()).list({ archived: 'only' }).slice(0, 40)
+                .map((n) => ({ id: n.id, title: n.title, link: `/notebooks/${encodeURIComponent(n.id)}` })));
             } catch { return '[]'; }
           })(),
           // Home as it is now (goal, rules, items with their ids), for adjust-surface.

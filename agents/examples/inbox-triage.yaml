@@ -122,6 +122,22 @@ inputs:
       When this conversation belongs to a notebook: that notebook as JSON
       (what it's for, parameters, criteria, pipeline, its entries). Empty
       otherwise.
+  NOTEBOOKS_LINKED:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Other notebooks this thread links (by the operator or sua, archived
+      ones too), each as notebook-read reads it: what it's for, who it's
+      about with sources, what it wrote, its options and notes. Empty when
+      none is linked.
+  NOTEBOOKS_ARCHIVED:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Archived notebooks (JSON: id, title, link). Kept whole, just out of
+      lists; one linked in the thread is read into NOTEBOOKS_LINKED.
   LAYOUT_GUIDE:
     type: string
     required: false
@@ -376,6 +392,12 @@ nodes:
 
       Their notebooks (see GOALS AND NOTEBOOKS):
       {{inputs.NOTEBOOKS}}
+
+      Their archived notebooks (see GOALS AND NOTEBOOKS):
+      {{inputs.NOTEBOOKS_ARCHIVED}}
+
+      Notebooks this thread links, as they read now (see USING A NOTEBOOK ELSEWHERE):
+      {{inputs.NOTEBOOKS_LINKED}}
 
       Their notebook templates (see NOTEBOOK TEMPLATES):
       {{inputs.TEMPLATES}}

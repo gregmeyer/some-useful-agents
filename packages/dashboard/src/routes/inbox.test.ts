@@ -2485,6 +2485,28 @@ describe('a conversation that turns to a notebook', () => {
     expect(notebookTalkedAbout(ctx, t.id)?.id).toBe(car.id);
   });
 
+  it('reads the other notebooks a thread links, archived too, newest first, leaving out its own', async () => {
+    await makeApp();
+    const ctx = currentCtx!;
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { notebooksLinked } = await import('../lib/notebook-chat.js');
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const briefing = nbs.create({ title: 'Brief: northwind.example', statement: 'A sourced company briefing' });
+    nbs.addEntry(briefing.id, { kind: 'note', title: 'They raised a Series B', by: 'you' });
+    nbs.archive(briefing.id);
+    const car = nbs.create({ title: 'Car' });
+    const own = nbs.create({ title: 'Own' });
+    expect(notebooksLinked(ctx, ['research Acme Ventures as an investor'])).toBe('');
+    const read = notebooksLinked(ctx, [`here's the notebook http://127.0.0.1:3000/notebooks/${briefing.id}`, `see [Car](/notebooks/${car.id}) and [Own](/notebooks/${own.id})`], own.id);
+    expect(read.indexOf('# Brief: northwind.example')).toBe(0);
+    expect(read).toContain('(active, archived)');
+    expect(read).toContain('They raised a Series B');
+    expect(read).toContain('# Car');
+    expect(read).not.toContain('# Own');
+    // At most two, and an unknown id is skipped.
+    expect(notebooksLinked(ctx, ['/notebooks/nope', `/notebooks/${car.id}`, `/notebooks/${briefing.id}`, `/notebooks/${own.id}`]).split('────────')).toHaveLength(2);
+  });
+
   it('shows sua every option still in the running, however many notes came after', async () => {
     await makeApp();
     const ctx = currentCtx!;

@@ -9,7 +9,7 @@ import { meetingWhenWords } from './notebook-edit.js';
 import {
   NotebookStore, entryKey, NOTEBOOK_ENTRY_KINDS, validateScheduleInterval, cronToHuman, notebookViewData, rankOptions,
   type InboxActionMeta, type Notebook, type NotebookEntryKind, type NotebookFieldValue, type NotebookField, type NotebookStep,
-  notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, type NotebookMeeting,
+  notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, notebookReadoutText, type NotebookMeeting,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -290,6 +290,35 @@ export function notebookTalkedAbout(ctx: Ctx, threadId: string): Notebook | unde
     return nb && !nb.archivedAt ? nb : undefined;
   }
   return undefined;
+}
+
+/** At most this many linked notebooks are read into a thread, each cut to this many characters. */
+const LINKED_MAX = 2;
+const LINKED_CHARS = 6000;
+
+/**
+ * The notebooks a thread links (yours or sua's, newest first, archived ones
+ * too), as notebook-read reads them, for NOTEBOOKS_LINKED: so "use my
+ * Northwind notebook" in any thread can use what it knows. The thread's own
+ * notebook (`skip`) is left out: NOTEBOOK_FOCUS has it.
+ */
+export function notebooksLinked(ctx: Ctx, texts: readonly string[], skip?: string): string {
+  const store = notebooksOf(ctx);
+  const ids: string[] = [];
+  for (const text of texts) {
+    for (const m of [...text.matchAll(/\/notebooks\/([A-Za-z0-9_-]+)/g)].reverse()) {
+      if (m[1] !== skip && !ids.includes(m[1])) ids.push(m[1]);
+    }
+  }
+  const out: string[] = [];
+  for (const id of ids) {
+    if (out.length >= LINKED_MAX) break;
+    const nb = store.get(id);
+    if (!nb) continue;
+    const text = notebookReadoutText(nb, store.entries(nb.id, 500));
+    out.push(text.length > LINKED_CHARS ? `${text.slice(0, LINKED_CHARS)}\n…(cut short; the rest is on its page)` : text);
+  }
+  return out.join('\n\n────────\n\n');
 }
 
 /** The options before and after one in the running, as sua links them. */
