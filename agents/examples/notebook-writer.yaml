@@ -42,7 +42,7 @@ nodes:
   - id: write
     type: llm-prompt
     maxTurns: 1
-    timeout: 180
+    timeout: 240
     outputContract:
       mustMatch: '<(briefing|answer|plan)>[\s\S]*?</(briefing|answer|plan)>'
       description: a <briefing>, <answer> or <plan> JSON block
@@ -77,14 +77,38 @@ nodes:
           more, only ids given above)}; most important first;
         - "open": up to 5 questions it couldn't settle, or what to check or
           do next, one sentence each.
+        - "sections": the parts the ask and its done-whens ask for, beyond
+          the short answer (none when it only asks a question). Up to 5,
+          each with a "title" and one "kind":
+            - "table" for a rubric, a framework, a scorecard, "how to think
+              about…" or a comparison: {"kind": "table", "title": "…",
+              "columns": 2 to 5 short headers (for a rubric, e.g. "If…",
+              "Then…", "Why"), "rows": [{"cells": one per column, "from":
+              ["id"]}] (up to 12), "note": optional, one sentence};
+            - "steps" for "how do I…", steps, an SOP, a playbook or a
+              checklist: {"kind": "steps", "title": "…", "items": [{"text":
+              what to do, one line, "detail": optional, one sentence (how,
+              when, what to watch for), "from": ["id"]}] (2 to 10, in
+              order)};
+            - "text" for an explanation the short answer can't hold (at
+              most one): {"kind": "text", "title": "…", "body": up to 4
+              short sentences, **bold** allowed}.
+          When a section gives one of the notebook's done-whens, put that
+          done-when's words in "delivers", exactly as the notebook says
+          it. Each row and step cites the ids it rests on; a row or step
+          that nothing above supports is left out. Any number in a section
+          (a rate, an amount, a term) is one from above or from the ask,
+          never a new one: for "$25,000 across 5 CDs" you may write
+          "$5,000 each", not a rate the sources don't give.
 
-      When the notebook has "skip", those are findings the person said
-      are wrong: don't write them, or one that says the same, again.
+      When the notebook has "skip", those are findings, steps or rows the
+      person said are wrong: don't write them, or one that says the same,
+      again.
 
       Use only what's above: don't invent facts, numbers, dates or sources.
       Reply with only this, as valid JSON:
       <answer>
-      {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"]}
+      {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"], "sections": [{"kind": "table", "title": "…", "delivers": "…", "columns": ["…", "…"], "rows": [{"cells": ["…", "…"], "from": ["id"]}]}, {"kind": "steps", "title": "…", "items": [{"text": "…", "detail": "…", "from": ["id"]}]}]}
       </answer>
 
       If what to write is "plan": make the plan the notebook is for

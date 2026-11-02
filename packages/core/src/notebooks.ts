@@ -465,12 +465,33 @@ export interface NotebookAnswer {
   findings: NotebookAnswerFinding[];
   /** What's still open: questions it couldn't settle, or what to do next. */
   open: string[];
+  /** What the answer was asked to give, as its own parts: the steps to take, a rubric or comparison, a few paragraphs. */
+  sections?: NotebookAnswerSection[];
   at: string;
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
   previous?: NotebookWrittenBefore;
-  /** Findings you said are wrong: the writer doesn't write them again. Newest last. */
+  /** Findings (and section steps and rows) you said are wrong: the writer doesn't write them again. Newest last. */
   struck?: string[];
+}
+
+/**
+ * One part of an answer: the steps to take (an SOP), a table (a rubric, a
+ * comparison), or a few short paragraphs. `delivers` is the done-when it
+ * gives, word for word ("A simple rubric written"), which then ticks itself.
+ * Every step and row cites what it rests on, by entry id, like a finding.
+ */
+export type NotebookAnswerSection = { title: string; delivers?: string } & (
+  | { kind: 'steps'; items: Array<{ text: string; detail?: string; from: string[] }> }
+  | { kind: 'table'; columns: string[]; rows: Array<{ cells: string[]; from: string[] }>; note?: string }
+  | { kind: 'text'; body: string }
+);
+
+/** An answer section's steps or rows as lines of text: what a strike names, and what other readers see. */
+export function answerSectionLines(s: NotebookAnswerSection): string[] {
+  if (s.kind === 'steps') return s.items.map((i) => i.text);
+  if (s.kind === 'table') return s.rows.map((r) => r.cells.join(' · '));
+  return [s.body];
 }
 
 /** One thing in a plan: when, what, and the options (places, things found) it uses, by entry id. */
@@ -3309,7 +3330,7 @@ export function cleanBriefing(raw: unknown, optionIds: ReadonlySet<string>, by: 
  * has; at most 6 findings and 5 open questions; confidence is high, medium
  * or low (else low). Pure.
  */
-export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString()): NotebookAnswer | undefined {
+export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[] } = {}): NotebookAnswer | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
   const line = (x: unknown, n: number) => {
@@ -3330,7 +3351,52 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     return { text: t, from: [...new Set(from)].slice(0, 4) };
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
-  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, at, by };
+  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line);
+  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(sections.length ? { sections } : {}), at, by };
+}
+
+/**
+ * An answer's sections as a writer gave them, kept only as far as they
+ * hold: at most 5 (one of them text), each cut to size, every cite one it
+ * could cite, a table's rows as wide as its columns, and `delivers` only a
+ * done-when the notebook has (as the notebook words it). Unknown kinds go.
+ */
+function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string): NotebookAnswerSection[] {
+  const cites = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, 4);
+  const out: NotebookAnswerSection[] = [];
+  for (const r of Array.isArray(raw) ? raw : []) {
+    if (!r || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    const title = line(o.title, 90);
+    if (!title) continue;
+    const want = line(o.delivers, 240).toLowerCase();
+    const delivers = want ? criteria.find((c) => c.trim().toLowerCase() === want) : undefined;
+    const head = { title, ...(delivers ? { delivers } : {}) };
+    if (o.kind === 'steps') {
+      const items = (Array.isArray(o.items) ? o.items : []).map((i) => {
+        const x = (typeof i === 'string' ? { text: i } : i ?? {}) as Record<string, unknown>;
+        const text = line(x.text, 240);
+        const detail = line(x.detail, 400);
+        return text ? { text, ...(detail ? { detail } : {}), from: cites(x.from) } : undefined;
+      }).filter((i): i is NonNullable<typeof i> => !!i).slice(0, 10);
+      if (items.length >= 2) out.push({ ...head, kind: 'steps', items });
+    } else if (o.kind === 'table') {
+      const columns = (Array.isArray(o.columns) ? o.columns : []).map((c) => line(c, 40)).filter(Boolean).slice(0, 5);
+      if (columns.length < 2) continue;
+      const rows = (Array.isArray(o.rows) ? o.rows : []).map((row) => {
+        const x = (Array.isArray(row) ? { cells: row } : row ?? {}) as Record<string, unknown>;
+        const cells = columns.map((_, i) => line(Array.isArray(x.cells) ? x.cells[i] : undefined, 200));
+        return cells.some(Boolean) ? { cells, from: cites(x.from) } : undefined;
+      }).filter((row): row is NonNullable<typeof row> => !!row).slice(0, 12);
+      const note = line(o.note, 240);
+      if (rows.length) out.push({ ...head, kind: 'table', columns, rows, ...(note ? { note } : {}) });
+    } else if (o.kind === 'text' && !out.some((x) => x.kind === 'text')) {
+      const body = line(o.body ?? o.text, 700);
+      if (body) out.push({ ...head, kind: 'text', body });
+    }
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 const MEETING_WHEN = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/;
@@ -3573,6 +3639,9 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
   return `﻿${lines.map((l) => l.join(',')).join('\r\n')}\r\n`;
 }
 
+/** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
+const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report)\b.*\b(written|recorded|included|drafted|given|laid out|in place)\b/;
+
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -3583,10 +3652,17 @@ const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(
  * sourced for each"), or one of its checks ("clean title" for "Clean title
  * (VIN)"). Anything else is yours to tick.
  */
-export function criterionLink(nb: Pick<Notebook, 'checks'>, text: string): { kind: 'decide' } | { kind: 'count'; n: number } | { kind: 'source' } | { kind: 'check'; check: string } | undefined {
+export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebook, 'steps'>>, text: string): { kind: 'decide' } | { kind: 'count'; n: number } | { kind: 'source' } | { kind: 'check'; check: string } | { kind: 'written'; what: 'table' | 'steps' | 'text' | 'any' } | undefined {
   const t = text.toLowerCase();
   const check = nb.checks.find((c) => { const a = loose(c); const b = loose(text); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); });
   if (check) return { kind: 'check', check };
+  // In a notebook that ends in a written answer or plan, "A decision rubric written" is something written, not a decision.
+  if ((nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan')) && WRITTEN_DELIVERABLE.test(t)) {
+    const what = /\b(rubric|scorecard|framework|comparison|table|matrix)\b/.test(t) ? 'table'
+      : /\b(steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions)\b/.test(t) ? 'steps'
+        : /\b(explanation|summary|overview|report)\b/.test(t) ? 'text' : 'any';
+    return { kind: 'written', what };
+  }
   if (/\b(decid\w*|decision)\b/.test(t) || /\bfinal\b.*\b(recorded|chosen|picked)\b/.test(t)) return { kind: 'decide' };
   const count = /\bat least (\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/.exec(t);
   if (count) return { kind: 'count', n: NUMBER_WORDS[count[1]] ?? Number(count[1]) };
@@ -3596,9 +3672,17 @@ export function criterionLink(nb: Pick<Notebook, 'checks'>, text: string): { kin
 
 /** Whether the notebook's work meets a done-when (see criterionLink); false when it can't tell. */
 export function criterionMet(nb: Notebook, entries: readonly NotebookEntry[], text: string): boolean {
+  // A part of the answer that says it gives this one ("Account terms and tradeoffs compared"), however it's worded.
+  if (nb.answer?.sections?.some((x) => x.delivers?.toLowerCase() === text.trim().toLowerCase())) return true;
   const link = criterionLink(nb, text);
   if (!link) return false;
   if (link.kind === 'decide') return nb.status === 'decided';
+  if (link.kind === 'written') {
+    const sections = nb.answer?.sections ?? [];
+    // One of the kind it names; "the plan written" by a plan.
+    if (link.what === 'any') return !!nb.answer?.text || !!nb.plan?.items.length;
+    return sections.some((x) => x.kind === link.what) || (link.what === 'steps' && !!nb.plan?.items.length) || (link.what === 'text' && !!nb.answer?.text);
+  }
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
   if (link.kind === 'count') return options.length >= link.n;
   if (link.kind === 'source') {

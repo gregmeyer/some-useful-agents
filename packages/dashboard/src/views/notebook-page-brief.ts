@@ -191,6 +191,22 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k.label}</th>`) as unknown as SafeHtml[]}</tr></thead>
         <tbody>${shown.map((r) => html`<tr>${cols.map((k) => html`<td>${cell(r[k.key])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>`;
     }
+    case 'AnswerSections': {
+      // The parts the answer was asked for: steps numbered, a rubric as a table, each with where it comes from.
+      const secs = list(v('sections')) as Array<{ title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown }>;
+      const from = (x: unknown) => list((x as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+      return html`${secs.filter((x) => text(x.title)).map((x) => {
+        if (x.kind === 'steps') {
+          return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${from(it).length ? html` <span class="fine">(${from(it).join(', ')})</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+        }
+        if (x.kind === 'table') {
+          const cols = list(x.columns).map(text);
+          return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
+            <tbody>${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}</section>`;
+        }
+        return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><p>${boldOnly(text(x.body))}</p></section>`;
+      }) as unknown as SafeHtml[]}`;
+    }
     case 'Timeline': {
       // A search that found nothing says nothing to the reader: the brief leaves it out.
       const ev = (list(v('events')) as Array<{ at?: unknown; title?: unknown; body?: unknown; empty?: unknown }>).filter((e) => !e.empty);
@@ -294,6 +310,11 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .agenda ol.numerals li::before { font-size: 1.75rem; line-height: 1; }
 .agenda ol li span { grid-column: 2; font-size: 0.875rem; }
 .agenda ul { margin: 0 0 1rem; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+.sec + .sec { margin-top: 1rem; }
+.steps { margin: 0 0 0.5rem; padding: 0; list-style: none; counter-reset: st; display: grid; gap: 0.5rem; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); column-gap: 0.5rem; font-size: 0.875rem; }
+.steps li::before { content: counter(st); grid-row: span 3; font: 700 0.875rem var(--mono); color: var(--accent); }
+.steps li > * { grid-column: 2; }
 .quotes { display: grid; gap: 1rem; }
 .quotes figure { margin: 0; padding-left: 0.75rem; border-left: 2px solid var(--line); }
 .quotes figure.lead { border-left: 3px solid var(--accent); } .quotes figure.lead blockquote { font-size: 1.1875rem; }
@@ -330,7 +351,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   body { font-size: 10.5pt; }
   .brief { max-width: none; padding: 0; gap: 1rem; }
   /* Small things stay whole; a part may split across pages (kept whole inside a grid column, Chrome moves it to the next page and prints what follows over it). */
-  figure, .profile, .agenda li, .facts dt, .facts dd, .plain li, tr, .full { break-inside: avoid; }
+  figure, .profile, .agenda li, .facts dt, .facts dd, .plain li, tr, .full, .steps li { break-inside: avoid; }
   .facts dt { break-after: avoid; }
   /* Columns as flex, not grid: Chrome doesn't grow a grid row when a part in it is pushed to the next page, so what follows prints over it. */
   .cols { display: flex !important; align-items: flex-start; }

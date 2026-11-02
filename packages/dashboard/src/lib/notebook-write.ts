@@ -132,10 +132,11 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
       const block = extractTaggedJson(result, 'answer');
       let raw: unknown;
       try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
-      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID);
+      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text) });
       if (!answer) return [`${NOTEBOOK_WRITER_ID}: no answer came back`];
       store.setAnswer(nb.id, answer);
-      return [`wrote the answer (${answer.confidence} confidence) with ${String(answer.findings.length)} finding${answer.findings.length === 1 ? '' : 's'}`];
+      const parts = (answer.sections ?? []).map((x) => x.title.toLowerCase());
+      return [`wrote the answer (${answer.confidence} confidence) with ${String(answer.findings.length)} finding${answer.findings.length === 1 ? '' : 's'}${parts.length ? `, and ${parts.join(', ')}` : ''}`];
     }
     const block = extractTaggedJson(result, 'briefing');
     let raw: unknown;

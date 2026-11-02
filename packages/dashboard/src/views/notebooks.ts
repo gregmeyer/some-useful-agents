@@ -98,6 +98,7 @@ export function criterionHint(nb: Notebook, c: NotebookCriterion): string | unde
   if (link.kind === 'decide') return 'Ticks itself when you decide.';
   if (link.kind === 'count') return `Ticks itself at ${String(link.n)} in the running.`;
   if (link.kind === 'source') return 'Ticks itself when every fact is sourced.';
+  if (link.kind === 'written') return 'Ticks itself when the answer has it.';
   return `Ticks itself when every option you choose passes "${link.check}".`;
 }
 

@@ -22,6 +22,7 @@ function glyph(c: ViewComponent | undefined): SafeHtml {
     case 'Funnel': return html`<span class="lk-g lk-g--funnel">${[100, 70, 40].map((w) => html`<i class="lk-bar" style="width:${String(w)}%"></i>`) as unknown as SafeHtml[]}</span>`;
     case 'Timeline': return html`<span class="lk-g lk-g--time">${lines(3)}</span>`;
     case 'Changes': return html`<span class="lk-g lk-g--agenda">${['+', '↓', '×'].map((m) => html`<span class="lk-pt"><b>${m}</b>${lines(1)}</span>`) as unknown as SafeHtml[]}</span>`;
+    case 'AnswerSections': return html`<span class="lk-g lk-g--table">${lines(3, 'is-row')}</span>`;
     case 'Itinerary': return html`<span class="lk-g lk-g--agenda">${['1', '2', '3'].map((n) => html`<span class="lk-pt"><b>${n}</b>${lines(2)}</span>`) as unknown as SafeHtml[]}</span>`;
     case 'Callout': return html`<span class="lk-g lk-g--callout">${lines(2)}</span>`;
     case 'StatStrip': return html`<span class="lk-g lk-g--stats">${Array.from({ length: 4 }, () => html`<i class="lk-box"></i>`) as unknown as SafeHtml[]}</span>`;
