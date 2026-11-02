@@ -2354,17 +2354,19 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string; runId?: string }): NotebookEntry {
+  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string; runId?: string; source?: string }): NotebookEntry {
     this.mustGet(notebookId);
     if (!(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(input.kind)) throw new Error(`Not an entry kind: ${input.kind}.`);
     const title = input.title.replace(/\s+/g, ' ').trim().slice(0, 160);
     if (!title) throw new Error('An entry needs a line of text.');
+    // Evidence from a page keeps the page, as its fingerprint (an option's is how it's matched; evidence's is where it's from).
+    const source = input.kind !== 'option' && input.source && /^https?:\/\//i.test(input.source.trim()) ? input.source.trim().slice(0, 1000) : undefined;
     const entry: NotebookEntry = {
       id: randomUUID(), notebookId, kind: input.kind, title, body: (input.body ?? '').trim().slice(0, 8000), by: input.by,
-      ...(input.runId ? { runId: input.runId } : {}), createdAt: new Date().toISOString(),
+      ...(input.runId ? { runId: input.runId } : {}), ...(source ? { fingerprint: source } : {}), createdAt: new Date().toISOString(),
     };
-    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, run_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.runId ?? null, entry.createdAt);
+    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, run_id, fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.runId ?? null, source ?? null, entry.createdAt);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(entry.createdAt, notebookId);
     return entry;
   }

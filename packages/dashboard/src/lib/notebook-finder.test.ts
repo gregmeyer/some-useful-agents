@@ -93,6 +93,26 @@ describe('notebook-finder', () => {
     expect(line).toBe('1 new option from 2 searches run at once. 1 just outside the limits is filed ruled out, with the limit it misses.');
   });
 
+  it('files what a learn search found as evidence with its source, not options, and counts it', () => {
+    const plan = JSON.stringify({ searches: [{ where: 'Bank CDs' }, { where: 'Ladder guidance', kind: 'learn' }] });
+    const items = [
+      { where: 'Bank CDs', candidates: [{ title: 'Example Bank 12-month CD, 4.40% APY', url: 'https://bank.example/cd12' }] },
+      'Out of turns. ' + JSON.stringify({ where: 'Ladder guidance', learned: [
+        { title: 'CD ladders explained', url: 'https://regulator.example/cd-ladders', quote: 'A ladder staggers maturity dates.', takeaway: 'A CD ladder staggers maturities so part of the money comes due each year.' },
+        { title: 'Same page again', url: 'https://www.regulator.example/cd-ladders/', takeaway: 'A repeat' },
+        { title: 'No page', takeaway: 'Nothing to cite' },
+      ], note: 'opened 2 guides' }),
+    ];
+    const { line, block } = merge({ UPSTREAM_PLAN_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS: '[]', OPTIONS: '[]' });
+    expect(block.entries.filter((e) => e.kind === 'option').map((e) => e.title)).toEqual(['Example Bank 12-month CD, 4.40% APY']);
+    expect(block.entries.filter((e) => e.kind === 'evidence')).toEqual([{
+      kind: 'evidence', title: 'A CD ladder staggers maturities so part of the money comes due each year.',
+      body: '"A ladder staggers maturity dates." CD ladders explained (found by the Ladder guidance search)', fingerprint: 'https://regulator.example/cd-ladders',
+    }]);
+    expect(block.sources[1]).toEqual({ name: 'Ladder guidance', found: 1, status: 'found', note: 'opened 2 guides' });
+    expect(line).toBe('1 new option and 1 source that explains from 2 searches run at once.');
+  });
+
   it('cuts a long title at a word', () => {
     const long = 'Controller at Attivo Partners (remote fractional CFO and accounting firm), $170k–$200k plus 10% bonus, manages accounting staff';
     const { block } = merge({ UPSTREAM_PLAN_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [{ candidates: [{ title: long, url: 'https://x.example/1' }] }] }), FIELDS: '[]', OPTIONS: '[]' });

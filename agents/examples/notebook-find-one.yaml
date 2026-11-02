@@ -4,6 +4,8 @@
 # from its own page. Out of turns, it answers with what it found (#915).
 # Near misses (the right thing, just outside one limit) come back under
 # "near"; notebook-finder files them ruled out, with the limit they miss.
+# A learn search (KIND "learn") returns pages that explain instead, which
+# notebook-finder files as evidence with their source.
 # Run only by notebook-finder's loop; never proposed in triage.
 
 id: notebook-find-one
@@ -27,6 +29,12 @@ inputs:
     type: string
     default: ""
     description: What this search covers that the others don't.
+  KIND:
+    type: string
+    default: ""
+    description: >
+      "learn" for a search for pages that explain (how it works, what to
+      weigh), whose answer is "learned" sources, not candidates.
   NOTEBOOK:
     type: string
     required: true
@@ -83,7 +91,15 @@ nodes:
       - Every fact comes from a page you opened. Leave out what the page
         doesn't say; never guess.
 
-      Reply with only this JSON, on one line, and nothing else:
+      If this is a LEARN search (kind: "{{inputs.KIND}}" is "learn"), skip
+      candidates and the facts above: find up to 4 pages that explain what
+      the notebook needs to know (how it works, the steps, what to weigh,
+      the rules), from regulators, official bodies and reputable guides
+      first. Open each one. Reply with only this JSON, on one line:
+      {"where":"{{inputs.WHERE}}","learned":[{"title":"the page's title","url":"the page","quote":"a sentence copied from the page","takeaway":"what it says that the notebook can use, in one plain sentence"}],"note":"what you searched and opened"}
+      Each takeaway says only what its page says.
+
+      Otherwise, reply with only this JSON, on one line, and nothing else:
       {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"near":[{"title":"…","url":"its own page","facts":{},"misses":"which limit and by how much"}],"note":"what you searched and opened, and what you couldn't cover"}
       In "facts", use the field keys above: numbers as plain numbers (no $
       or commas), a span as {"min": 180000, "max": 220000}, links as full

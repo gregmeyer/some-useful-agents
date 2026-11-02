@@ -57,6 +57,12 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(Object.keys(rest).length ? { facts: rest } : {}),
     };
   });
+  // An answer or plan also rests on the pages its research found that explain (evidence with its page), cited by id like an option.
+  const explains = step.shape === 'answer' || step.shape === 'plan'
+    ? entries.filter((e) => e.kind === 'evidence' && e.fingerprint).slice(0, 12).map((e) => ({
+      id: e.id, title: e.title, ...(e.body ? { said: e.body.replace(/\s+/g, ' ').slice(0, 500) } : {}), source: e.fingerprint!, explains: true,
+    }))
+    : [];
   const person = about('person');
   const company = about('company');
   // An answer also reads the notes its research left (what a search said it found, or couldn't).
@@ -78,7 +84,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(struckOf(nb, step).length ? { skip: struckOf(nb, step) } : {}),
       ...(opts.keep ? { keep: opts.keep } : {}),
     }),
-    THEMES: JSON.stringify(themes.slice(0, 30)),
+    THEMES: JSON.stringify([...themes.slice(0, 30 - Math.min(explains.length, 8)), ...explains.slice(0, 8)]),
     COUNT: opts.keep ? String(Math.max(1, opts.count ?? 1)) : String(Math.min(8, Math.max(3, step.target ?? 4))),
     SHAPE: step.shape === 'answer' ? 'answer' : step.shape === 'plan' ? 'plan' : 'talking points',
   };
@@ -106,7 +112,8 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
   const nb = store.get(notebookId);
   if (!nb) return [];
   const entries = store.entries(nb.id, 1000);
-  const ids = new Set(entries.filter((e) => e.kind === 'option' && !e.ruledOut).map((e) => e.id));
+  // What it may cite: the options in the running, and for an answer or plan the pages found that explain.
+  const ids = new Set(entries.filter((e) => (e.kind === 'option' && !e.ruledOut) || (!!step.shape && e.kind === 'evidence' && !!e.fingerprint)).map((e) => e.id));
   if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : step.shape === 'plan' ? 'there is nothing to plan with yet: nothing found is in the running' : 'there is nothing to write from yet: no themes in the running'];
   try {
     const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step), onRun);

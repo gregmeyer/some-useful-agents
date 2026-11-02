@@ -78,7 +78,11 @@ nodes:
       - "criteria": 2–4 "done when" checks, the last a decision
         ("At least one car that fits", "Clean title on the top pick",
         "A decision recorded"). Put a deadline they gave on the decision
-        ("A decision recorded by Oct 15").
+        ("A decision recorded by Oct 15"). A question or a plan (one that
+        ends in write) has no decision: its last check names what's
+        written, the way they asked for it ("A rubric for the $25,000
+        written", "Steps to open the accounts written", "The plan
+        written"), never "a decision recorded".
       - "fields": the 4–8 facts to note for each option, each {"key":
         lowercase_snake, "label", "type": money|number|text|url|image|date,
         "unit"?, "role"?, "better"?, "range"?}. Roles, at most one each:

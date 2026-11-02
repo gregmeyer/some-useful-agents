@@ -92,9 +92,15 @@ nodes:
       Never name a specific option, company, price or address as a result:
       say where and how to look, not what you'll find.
 
+      When the notebook says it ends with a written answer or plan, make 1
+      or 2 of the searches LEARN searches, with "kind": "learn": they look
+      for pages that explain (how it works, the steps, what to weigh, the
+      rules), from regulators, official bodies and reputable guides, not
+      options. The rest look for options as usual.
+
       Reply with one short line saying how you split it. Then, on the LAST
       line, ONLY this JSON on one line:
-      {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers"}]}
+      {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers","kind":"learn, only for a learn search"}]}
 
   # 3. The searches, three at a time. A failed one is null; merge says so.
   - id: search
@@ -109,6 +115,7 @@ nodes:
         WHERE: "$item.where"
         QUERY: "$item.query"
         WHY: "$item.why"
+        KIND: "$item.kind"
         NOTEBOOK: "{{inputs.NOTEBOOK}}"
         HAVE: "$upstream.have.result"
         FIELDS: "{{inputs.FIELDS}}"
@@ -163,8 +170,31 @@ nodes:
           items = []
 
       entries, sources, seen, dupes, known = [], [], set(), 0, 0
+      learned, seen_pages = [], set()
       for i, raw in enumerate(items):
           where = (searches[i].get("where") if i < len(searches) and isinstance(searches[i], dict) else None) or f"Search {i + 1}"
+          # A learn search: pages that explain, filed as evidence with their source, not options.
+          if i < len(searches) and isinstance(searches[i], dict) and searches[i].get("kind") == "learn":
+              got = last_json(raw, "learned")
+              if got is None:
+                  sources.append({"name": where, "found": 0, "status": "blocked", "note": "The search didn't finish." if raw is None else "Its answer couldn't be read."})
+                  continue
+              found = 0
+              for c in got.get("learned") or []:
+                  if not isinstance(c, dict):
+                      continue
+                  url, takeaway = (c.get("url") or "").strip(), (c.get("takeaway") or c.get("title") or "").strip()
+                  if not url.startswith("http") or not takeaway or norm_url(url) in seen_pages:
+                      continue
+                  seen_pages.add(norm_url(url))
+                  quote = c["quote"].strip() if isinstance(c.get("quote"), str) else ""
+                  title = takeaway if len(takeaway) <= 150 else takeaway[:148].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…"
+                  body = " ".join(x for x in [f"\"{quote}\"" if quote else "", f"{(c.get('title') or '').strip()} (found by the {where} search)"] if x)
+                  learned.append({"kind": "evidence", "title": title, "body": body[:1500], "fingerprint": url})
+                  found += 1
+              note = (got.get("note") or "").strip()
+              sources.append({"name": where, "found": found, "status": "found" if found else "none", **({"note": note[:300]} if note else {})})
+              continue
           got = last_json(raw, "candidates")
           if got is None:
               sources.append({"name": where, "found": 0, "status": "blocked", "note": "The search didn't finish." if raw is None else "Its answer couldn't be read."})
@@ -215,6 +245,8 @@ nodes:
       # Ones that fit first, so the cap never drops one for a near miss.
       entries = sorted(entries, key=lambda e: "ruleOut" in e)[:30]
       near_n = sum(1 for e in entries if "ruleOut" in e)
+      option_n = len(entries) - near_n
+      entries += learned[:8]
       empty = [s["name"] for s in sources if s["status"] == "none" and not s.get("near")]
       unfinished = [s["name"] for s in sources if s["status"] == "blocked"]
       tail = []
@@ -228,8 +260,11 @@ nodes:
           tail.append(f"{known} {'was' if known == 1 else 'were'} already in the notebook.")
       bits = [f"Searched {len(sources)} places at once: " + ", ".join(f"{s['name']} ({s['found']})" for s in sources) + "."] + tail
       entries.append({"kind": "note", "title": " ".join(bits)[:400]})
+      learned_n = len(learned[:8])
       out = {"entries": entries, "sources": sources,
-             "summary": f"{len(entries) - 1 - near_n} new option{'s' if len(entries) - near_n != 2 else ''} from {len(sources)} searches run at once."}
+             "summary": f"{option_n} new option{'s' if option_n != 1 else ''}"
+                        + (f" and {learned_n} source{'s' if learned_n != 1 else ''} that explain{'s' if learned_n == 1 else ''}" if learned_n else "")
+                        + f" from {len(sources)} searches run at once."}
       print(" ".join([out["summary"]] + tail))
       print("<notebook>" + json.dumps(out) + "</notebook>")
       PYEOF

@@ -93,6 +93,9 @@ export function stepLine(nb: Notebook, job: StepJob): string {
 }
 
 /** The notebook in a few lines, for an agent's goal-like inputs; with `entries`, also what it has and what's missing; with a step, that step's job first. */
+/** A page's address without its scheme, www, fragment or trailing slash, to tell one page from another. */
+const pageKey = (u: string) => u.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('#')[0].replace(/\/+$/, '');
+
 export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): string {
   return [
     job ? stepLine(nb, job) : '',
@@ -101,6 +104,10 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
     nb.meeting?.goal ? `The meeting is for: ${nb.meeting.goal}. Find what bears on that.` : '',
     nb.params.length ? `Parameters: ${nb.params.join('; ')}` : '',
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
+    // A notebook that ends in a written answer or plan needs pages that explain, not only options.
+    (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'))
+      ? `It ends with a written ${(nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'plan') ? 'plan' : 'answer'}: besides options, it needs sources that explain how it works and what to weigh.`
+      : '',
     entries ? notebookGaps(nb, entries) : '',
   ].filter(Boolean).join('\n');
 }
@@ -268,7 +275,9 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     if (!Object.keys(data).length && typeof x.fingerprint !== 'string') continue;
     if (store.setOptionFacts(nb.id, x.id, data, typeof x.fingerprint === 'string' ? x.fingerprint : undefined)) factsSet++;
   }
-  const seen = new Set(store.entries(nb.id, 1000).map((e) => entryKey(e.title)));
+  const had = store.entries(nb.id, 1000);
+  const seen = new Set(had.map((e) => entryKey(e.title)));
+  const evidencePages = new Set(had.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => pageKey(e.fingerprint!)));
   let added = 0;
   let refreshed = 0;
   let skipped = 0;
@@ -300,12 +309,16 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
       continue;
     }
     if (!key || seen.has(key)) { skipped++; continue; }
+    // Evidence from a page it already has evidence from is a repeat (a search run again).
+    const source = x.kind === 'evidence' && typeof x.fingerprint === 'string' && /^https?:\/\//i.test(x.fingerprint) ? x.fingerprint : undefined;
+    if (source && evidencePages.has(pageKey(source))) { skipped++; continue; }
     // "Ruled out: Vena, …" about an option the notebook has: a model's text
     // can't rule it out (you decide those, and it may be chosen), and a
     // ruling that didn't happen only contradicts the page. Left out.
     if (!opts.trusted && x.kind === 'decision' && rulesOutExisting(store, nb, x.title)) { skipped++; continue; }
     seen.add(key);
-    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId });
+    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId, ...(source ? { source } : {}) });
+    if (source) evidencePages.add(pageKey(source));
     added++;
   }
   // The search counts even when everything it found was known: that's how a

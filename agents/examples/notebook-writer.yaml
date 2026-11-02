@@ -26,7 +26,7 @@ inputs:
   THEMES:
     type: string
     required: true
-    description: "JSON list: each theme's id, title, what they said (said), its question, source, when, whether it was chosen or checked, and its other facts."
+    description: "JSON list: each theme's id, title, what they said (said), its question, source, when, whether it was chosen or checked, and its other facts; pages that explain are marked explains."
   COUNT:
     type: string
     required: false
@@ -54,7 +54,10 @@ nodes:
 
       What sua found, each with an id (JSON). For a meeting these are
       themes: what the person has written or said. For a question they are
-      the sources and findings its steps found and checked:
+      the sources and findings its steps found and checked; one marked
+      "explains": true is a page that explains (how it works, what to
+      weigh), which an answer or plan leans on for how and why, citing it
+      by its id like any other:
       {{inputs.THEMES}}
 
       If what to write is "answer": answer the question the notebook is for
