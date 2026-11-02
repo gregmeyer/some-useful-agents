@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanAnswer, criterionLink, criterionMet, notebookAmounts, answerSectionLines, type Notebook } from './notebooks.js';
+import { cleanAnswer, cleanPlan, criterionLink, criterionMet, notebookAmounts, answerSectionLines, type Notebook } from './notebooks.js';
 import { withAnswerSections, layoutPreset, resolveNotebookLayout } from './notebook-layout.js';
 import { notebookReadoutJson, notebookReadoutText } from './notebook-readout.js';
 
@@ -114,5 +114,22 @@ describe('answer sections', () => {
     expect(withAnswerSections(page).find((c) => c.id === 'answer')!.image).toEqual({ path: '/notebook/answer/cover' });
     const company = [...page, { id: 'who', component: 'ProfileCard', profile: { path: '/notebook/company' } }];
     expect(withAnswerSections(company).find((c) => c.id === 'answer')!.image).toBeUndefined();
+  });
+
+  it('a plan has parts too, its page gets them after the days, and "the plan written" ticks once it is', () => {
+    const plan = cleanPlan({ summary: 's', items: [{ when: 'Day 1', title: 'Walk' }], sections: [{ kind: 'steps', title: 'Get ready', delivers: 'packing list written', items: ['Pack', 'Book'] }] }, ids, 'w', 'x', { criteria: ['Packing list written'] })!;
+    expect(plan.sections).toEqual([{ kind: 'steps', title: 'Get ready', delivers: 'Packing list written', items: [{ text: 'Pack', from: [] }, { text: 'Book', from: [] }] }]);
+    const nb = { checks: [], status: 'active', criteria: [], fields: [], steps: [{ kind: 'write', shape: 'plan' }] } as unknown as Notebook;
+    expect(criterionLink(nb, 'The 3-day Lisbon plan written')).toEqual({ kind: 'written', what: 'any' });
+    expect(criterionMet(nb, [], 'The 3-day Lisbon plan written')).toBe(false);
+    expect(criterionMet({ ...nb, plan } as Notebook, [], 'The 3-day Lisbon plan written')).toBe(true);
+    expect(criterionMet({ ...nb, plan } as Notebook, [], 'Packing list written')).toBe(true);
+    // A plan page saved before: the parts after the days' panel, and the drawing beside the plan.
+    const saved = layoutPreset('plan')!.layout.components.filter((c) => c.id !== 'plan_sections_p' && c.id !== 'plan_sections_p_s')
+      .map((c) => (c.id === 'plan_col' ? { ...c, children: ['intro', 'days_p'] } : c.id === 'intro' ? { ...c, image: undefined } : c));
+    const up = withAnswerSections(saved);
+    expect(up.find((c) => c.id === 'plan_col')!.children).toEqual(['intro', 'days_p', 'plan_sections_p']);
+    expect(up.find((c) => c.id === 'intro')!.image).toEqual({ path: '/notebook/planIntro/cover' });
+    expect(withAnswerSections(up)).toEqual(up);
   });
 });

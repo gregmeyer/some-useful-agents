@@ -394,7 +394,10 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       const open = openConflicts(one);
       return [w, { name: one.name, facts: one.facts.slice(0, 10).map((f) => `${f.label}: ${f.value}`), ...(open.length ? { notSettled: open.map((c) => ({ fact: c.label, question: c.question, sides: c.claims.map((x) => x.value) })) } : {}) }];
     })) } : {}),
-    ...(nb.plan?.items.length ? { plan: { summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open } } : {}),
+    ...(nb.plan?.items.length ? { plan: {
+      summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open,
+      ...(nb.plan.sections?.length ? { sections: nb.plan.sections.map((x) => ({ title: x.title, kind: x.kind, lines: answerSectionLines(x).map((t) => t.slice(0, 200)) })).filter((_, i, all) => JSON.stringify(all.slice(0, i + 1)).length < 1500) } : {}),
+    } } : {}),
     ...(nb.answer?.text ? { answer: {
       text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open,
       // Its steps and rubric rows too, so sua knows the answer has them (and can name one to change).

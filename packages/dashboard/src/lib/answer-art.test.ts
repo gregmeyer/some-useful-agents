@@ -22,6 +22,7 @@ describe('answer art', () => {
     expect(answerArtKind({ title: 'Research CD ladders for $25,000', statement: '' })).toBe('money');
     expect(answerArtKind({ title: '4 days in Lisbon', statement: 'A trip in March' })).toBe('travel');
     expect(answerArtKind({ title: 'Which mixer?', statement: '' })).toBe('thing');
+    expect(answerArtKind({ title: 'Compare Notion, Obsidian and Logseq', statement: 'for personal notes' })).toBe('tech');
     const { src } = answerCover({ title: 'CD ladders', statement: '' });
     expect(src).toMatch(/^data:image\/svg\+xml;base64,/);
     const svg = Buffer.from(src.split(',')[1], 'base64').toString('utf8');

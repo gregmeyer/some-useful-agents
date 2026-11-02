@@ -140,10 +140,13 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
   nb.briefing?.questions.forEach((q, i) => parts.push({ id: `question:${String(i)}`, role: 'judgment', kind: 'question', text: q }));
   nb.answer?.findings.forEach((f, i) => parts.push({ id: `finding:${String(i)}`, role: 'judgment', kind: 'finding', text: f.text, ...cites(f.from) }));
   // The answer's own parts: each step and rubric row, and its explanation.
-  nb.answer?.sections?.forEach((x, si) => {
-    const from: string[][] = x.kind === 'steps' ? x.items.map((i) => i.from) : x.kind === 'table' ? x.rows.map((r) => r.from) : [];
-    answerSectionLines(x).forEach((t, i) => parts.push({ id: `section:${String(si)}:${String(i)}`, role: 'judgment', kind: x.kind === 'steps' ? `answer step (${x.title})` : x.kind === 'table' ? `row of ${x.title}` : x.kind === 'diagram' ? `part of the diagram ${x.title}` : `answer text (${x.title})`, text: t, ...cites(from[i] ?? []) }));
-  });
+  // The plan's too, as plansection:<s>:<i>.
+  for (const [prefix, of, sections] of [['section', 'answer', nb.answer?.sections], ['plansection', 'plan', nb.plan?.sections]] as const) {
+    sections?.forEach((x, si) => {
+      const from: string[][] = x.kind === 'steps' ? x.items.map((i) => i.from) : x.kind === 'table' ? x.rows.map((r) => r.from) : [];
+      answerSectionLines(x).forEach((t, i) => parts.push({ id: `${prefix}:${String(si)}:${String(i)}`, role: 'judgment', kind: x.kind === 'steps' ? `${of} step (${x.title})` : x.kind === 'table' ? `row of ${x.title}` : x.kind === 'diagram' ? `part of the diagram ${x.title}` : `${of} text (${x.title})`, text: t, ...cites(from[i] ?? []) }));
+    });
+  }
   nb.plan?.items.forEach((x, i) => parts.push({ id: `plan:${String(i)}`, role: 'judgment', kind: 'plan item', text: `${x.when}: ${x.title}${x.detail ? ` (${x.detail})` : ''}`, ...cites(x.from) }));
   for (const e of entries.filter((x) => x.kind === 'note' || x.kind === 'evidence').slice(0, 20)) {
     parts.push({ id: `entry:${e.id}`, role: 'evidence', kind: e.kind, text: `${e.title}${e.body ? `: ${line(e.body, 200)}` : ''}` });
@@ -228,7 +231,7 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   const ok = d.type === 'about-fact' ? !!m && !!nb.about?.[m[1] as NotebookAboutWho] && (!!target || !!d.new_value)
     : d.type === 'option-fact' ? !!target && target.kind === 'option fact'
       : d.type === 'limit' || d.type === 'check' || d.type === 'criterion' ? !!target && d.target_id.startsWith(`${d.type}:`)
-        : d.type === 'written' ? !!target && /^((point|question|finding|plan):\d+|section:\d+:\d+)$/.test(d.target_id)
+        : d.type === 'written' ? !!target && /^((point|question|finding|plan):\d+|(plan)?section:\d+:\d+)$/.test(d.target_id)
           : false;
   if (!ok) return { question: ask };
   // A picture is changed to one at a link (the picture, or a page it's on), or taken out.
@@ -249,7 +252,7 @@ export function checkCorrection(nb: Notebook, entries: readonly NotebookEntry[],
   };
   for (const x of c.impact) put(x);
   // What follows by the notebook's own links.
-  const written = parts.filter((p) => /^(point|question|finding|plan|section):/.test(p.id));
+  const written = parts.filter((p) => /^(point|question|finding|plan|section|plansection):/.test(p.id));
   if (d.type === 'about-fact' && d.old_value.length >= 3) {
     for (const p of written) if (lower(p.text).includes(lower(d.old_value))) put({ object_id: p.id, action: 'reevaluate', reason: `it says ${d.old_value}` });
   }
@@ -320,7 +323,7 @@ export function describeCorrection(nb: Notebook, entries: readonly NotebookEntry
   const touched = c.impact.filter((x) => x.action !== 'keep');
   // Each touched part's row: evidence it flags isn't changed (only you or a new look change what was found), said so.
   const whatOf = (id: string, action: CorrectionAction) => RULE_ID.test(id) ? 'rule' : action === 'invalidate' && id.startsWith('about:') ? 'take out' : /^(about|entry):|^option:[^:]+(:(?!check:|ruled-out$|pick$)[^:]+)?$/.test(id) ? 'may be out of date'
-    : action === 'invalidate' ? 'take out' : /^(point|finding|plan|section):/.test(id) ? 'rewrite' : /^question:/.test(id) ? 'take out' : 'look again';
+    : action === 'invalidate' ? 'take out' : /^(point|finding|plan|section|plansection):/.test(id) ? 'rewrite' : /^question:/.test(id) ? 'take out' : 'look again';
   const all = touched.map((x) => ({ x, what: whatOf(x.object_id, x.action) }));
   // A changed check can touch every option: the first few by name, then how many more.
   const isResult = (id: string) => /^option:[^:]+:check:\d+$/.test(id);
@@ -519,17 +522,19 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     said.push(`took out ${String(out.size)} ${kind === 'answer' ? 'finding' : 'plan item'}${out.size === 1 ? '' : 's'}`);
   }
   // The answer's steps and rows that are wrong come out the same way, remembered by their words.
-  {
+  for (const of of ['answer', 'plan'] as const) {
     const now = store.get(nb.id)!;
-    const lines = (now.answer?.sections ?? []).flatMap(answerSectionLines);
-    const gone = new Set(touched('section').map((x) => lines[placeNow(lines, x.object_id, texts)]).filter((t): t is string => !!t));
-    if (now.answer && gone.size) {
-      const sections = (now.answer.sections ?? []).map((x) => (x.kind === 'steps' ? { ...x, items: x.items.filter((i) => !gone.has(i.text)) }
-        : x.kind === 'table' ? { ...x, rows: x.rows.filter((r) => !gone.has(r.cells.join(' · '))) } : x))
-        .filter((x) => (x.kind === 'steps' ? x.items.length : x.kind === 'table' ? x.rows.length : !answerSectionLines(x).some((t) => gone.has(t))));
-      store.setAnswer(nb.id, { ...now.answer, sections, struck: [...(now.answer.struck ?? []), ...gone] }, { swap: true });
-      said.push(`took out ${String(gone.size)} of the answer's step${gone.size === 1 ? '' : 's'} and rows`);
-    }
+    const written = of === 'answer' ? now.answer : now.plan;
+    const lines = (written?.sections ?? []).flatMap(answerSectionLines);
+    const gone = new Set(touched(of === 'answer' ? 'section' : 'plansection').map((x) => lines[placeNow(lines, x.object_id, texts)]).filter((t): t is string => !!t));
+    if (!written || !gone.size) continue;
+    const sections = (written.sections ?? []).map((x) => (x.kind === 'steps' ? { ...x, items: x.items.filter((i) => !gone.has(i.text)) }
+      : x.kind === 'table' ? { ...x, rows: x.rows.filter((r) => !gone.has(r.cells.join(' · '))) } : x))
+      .filter((x) => (x.kind === 'steps' ? x.items.length : x.kind === 'table' ? x.rows.length : !answerSectionLines(x).some((t) => gone.has(t))));
+    const struck = [...(written.struck ?? []), ...gone];
+    if (of === 'answer' && now.answer) store.setAnswer(nb.id, { ...now.answer, sections, struck }, { swap: true });
+    else if (now.plan) store.setPlan(nb.id, { ...now.plan, sections, struck }, { swap: true });
+    said.push(`took out ${String(gone.size)} of the ${of}'s step${gone.size === 1 ? '' : 's'} and rows`);
   }
   // Options whose check results, rule-out or pick rest on it: those results are forgotten and they're checked again.
   const recheck = new Map<string, Set<string>>();
@@ -554,7 +559,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
   }
   const pointStep = fresh.steps?.find((s) => s.kind === 'write' && !s.shape);
-  const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => (shape === 'answer' ? touched('finding', 'reevaluate').length + touched('section', 'reevaluate').length : touched('plan', 'reevaluate').length) && fresh.steps?.some((s) => s.kind === 'write' && s.shape === shape));
+  const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => (shape === 'answer' ? touched('finding', 'reevaluate').length + touched('section', 'reevaluate').length : touched('plan', 'reevaluate').length + touched('plansection', 'reevaluate').length) && fresh.steps?.some((s) => s.kind === 'write' && s.shape === shape));
   const redo = strike.filter((x) => x.redo).length;
   // A check that changed applies to every option: all of them (in the check step's top N) are checked on it.
   const recheckAll = ruleChanges(c).some((r) => r.id.startsWith('check:') && !!r.value) && !!fresh.steps?.some((s) => s.kind === 'check');

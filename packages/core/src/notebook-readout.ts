@@ -48,9 +48,9 @@ export interface NotebookReadoutJson {
     otherCompanies: Array<{ name: string; role?: string; what?: string }>;
     open: string[];
   }>>;
-  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[]; sections?: Array<{ title: string; kind: string; columns?: string[]; lines: string[] }> };
+  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[]; sections?: ReadoutSection[] };
   briefing?: { points: Array<{ text: string; why?: string; ask?: string }>; questions: string[]; watch: string[] };
-  plan?: { summary: string; items: Array<{ when: string; title: string; detail?: string }>; before: string[]; open: string[] };
+  plan?: { summary: string; items: Array<{ when: string; title: string; detail?: string }>; before: string[]; open: string[]; sections?: ReadoutSection[] };
   options?: { inTheRunning: NotebookReadoutOption[]; ruledOut: Array<{ id: string; title: string; reason: string }>; more: number };
   notes?: { items: Array<{ kind: string; title: string; body?: string; by: string; at: string }>; more: number };
 }
@@ -133,7 +133,8 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
     const p = nb.plan;
     if (p) {
       const struck = new Set(p.struck ?? []);
-      out.plan = { summary: p.summary, items: p.items.filter((i) => !struck.has(i.title)).map((i) => ({ when: i.when, title: i.title, ...(i.detail ? { detail: i.detail } : {}) })), before: p.before, open: p.open };
+      const sections = (p.sections ?? []).map((x) => ({ title: x.title, kind: x.kind, ...(x.kind === 'table' ? { columns: x.columns } : {}), lines: answerSectionLines(x).filter((t) => !struck.has(t)) })).filter((x) => x.lines.length);
+      out.plan = { summary: p.summary, items: p.items.filter((i) => !struck.has(i.title)).map((i) => ({ when: i.when, title: i.title, ...(i.detail ? { detail: i.detail } : {}) })), before: p.before, open: p.open, ...(sections.length ? { sections } : {}) };
     }
   }
   if (want('options')) {
@@ -160,6 +161,17 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
   return out;
 }
 
+/** An answer's or plan's part, as text (notebook-read). */
+type ReadoutSection = { title: string; kind: string; columns?: string[]; lines: string[] };
+
+function sectionLines(lines: string[], sections: readonly ReadoutSection[] | undefined): void {
+  for (const x of sections ?? []) {
+    lines.push('', `### ${x.title}`);
+    if (x.columns) lines.push(`(${x.columns.join(' · ')})`);
+    x.lines.forEach((l, i) => lines.push(x.kind === 'steps' ? `${String(i + 1)}. ${l}` : x.kind === 'text' ? l : `- ${l}`));
+  }
+}
+
 /** The same, as text a model reads (Markdown). */
 export function notebookReadoutText(nb: Notebook, entries: readonly NotebookEntry[], part: NotebookReadPart = 'all'): string {
   const j = notebookReadoutJson(nb, entries, part);
@@ -184,11 +196,7 @@ export function notebookReadoutText(nb: Notebook, entries: readonly NotebookEntr
     lines.push('', `## Answer (${j.answer.confidence} confidence)`, `Q: ${j.answer.question}`, j.answer.text);
     for (const f of j.answer.findings) lines.push(`- ${f}`);
     for (const o of j.answer.open) lines.push(`- Open: ${o}`);
-    for (const x of j.answer.sections ?? []) {
-      lines.push('', `### ${x.title}`);
-      if (x.columns) lines.push(`(${x.columns.join(' · ')})`);
-      x.lines.forEach((l, i) => lines.push(x.kind === 'steps' ? `${String(i + 1)}. ${l}` : x.kind === 'text' ? l : `- ${l}`));
-    }
+    sectionLines(lines, j.answer.sections);
   }
   if (j.briefing) {
     lines.push('', '## Talking points');
@@ -201,6 +209,7 @@ export function notebookReadoutText(nb: Notebook, entries: readonly NotebookEntr
     for (const i of j.plan.items) lines.push(`- ${i.when}: ${i.title}${i.detail ? ` — ${i.detail}` : ''}`);
     for (const b of j.plan.before) lines.push(`- Before: ${b}`);
     for (const o of j.plan.open) lines.push(`- Open: ${o}`);
+    sectionLines(lines, j.plan.sections);
   }
   if (j.options) {
     lines.push('', `## Options (${j.options.inTheRunning.length} in the running)`);

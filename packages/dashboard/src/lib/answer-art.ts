@@ -59,7 +59,7 @@ export function answerArtKind(nb: Pick<Notebook, 'title' | 'statement'>): Answer
   if (/\b(house|home|apartment|rent\w*|move|moving|condo|renovat\w*|garden)\b/.test(s)) return 'home';
   if (/\b(health|doctor|diet|sleep|fitness|exercise|medical|therapy|nutrition)\b/.test(s)) return 'health';
   if (/\b(trip|travel|flight|hotel|vacation|holiday|visit)\b/.test(s)) return 'travel';
-  if (/\b(software|app|laptop|computer|ai|crm|saas|tool|tools|code|data)\b/.test(s)) return 'tech';
+  if (/\b(software|apps?|laptop|computer|ai|crm|saas|tool|tools|code|data|notes?|note-taking|notion|obsidian|logseq|productivity|phone|tablet|website)\b/.test(s)) return 'tech';
   if (/\b(learn\w*|course|school|study|class|degree|book|read)\b/.test(s)) return 'learning';
   return 'thing';
 }

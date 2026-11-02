@@ -141,11 +141,23 @@ nodes:
       When the notebook has "skip", those are plan items the person said
       are wrong: don't plan them again.
 
+        - "sections": besides the days, the parts the ask or its
+          done-whens call for, in the same shapes as an answer's sections
+          above: a "table" of costs (what, for whom, cost, from where) when
+          the plan has a budget, "steps" to get ready, and a "diagram" of
+          type "split" of the budget when the costs above add up to it
+          (only real costs, its parts adding up to the whole) or "ladder"
+          for a schedule over weeks or months. Each row and step cites
+          ids; "delivers" names a done-when it gives, word for word. None
+          when the days say it all.
+
       Use only what's above: don't invent places, prices, hours or dates
-      the items don't give; leave out what you can't place.
+      the items don't give; leave out what you can't place. A cost you
+      don't have is left out of the table and said in "open", never
+      guessed.
       Reply with only this, as valid JSON:
       <plan>
-      {"summary": "…", "items": [{"when": "Day 1", "title": "…", "detail": "…", "from": ["id"]}], "before": ["…"], "open": ["…"]}
+      {"summary": "…", "items": [{"when": "Day 1", "title": "…", "detail": "…", "from": ["id"]}], "before": ["…"], "open": ["…"], "sections": [{"kind": "table", "title": "…", "delivers": "…", "columns": ["…", "…"], "rows": [{"cells": ["…", "…"], "from": ["id"]}]}]}
       </plan>
 
       Otherwise (talking points), someone is getting ready for a meeting,

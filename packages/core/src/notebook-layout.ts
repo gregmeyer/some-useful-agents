@@ -72,9 +72,9 @@ const panel = (id: string, title: string, child: string, note?: unknown): ViewCo
   ({ id, component: 'Panel', title, child, ...(note !== undefined ? { note } : {}) });
 
 /** The parts an answer was asked for (a rubric, the steps), in a feature panel: `id` and its AnswerSections. */
-const answerSectionsPart = (id: string): ViewComponent[] => [
-  { ...panel(id, 'The details', `${id}_s`), treatment: 'feature', when: 'answered' },
-  { id: `${id}_s`, component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
+const answerSectionsPart = (id: string, of: 'answer' | 'plan' = 'answer'): ViewComponent[] => [
+  { ...panel(id, of === 'plan' ? 'Also for the plan' : 'The details', `${id}_s`), treatment: 'feature', when: of === 'plan' ? 'planned' : 'answered' },
+  { id: `${id}_s`, component: 'AnswerSections', sections: { path: of === 'plan' ? '/notebook/planSections' : '/notebook/answerSections' } },
 ];
 
 /**
@@ -259,9 +259,10 @@ const PLAN: ViewComponent[] = [
   { id: 'root', component: 'Column', children: ['header', 'top', 'found_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Plan', steps: 'fold', cover: 'none' },
   { id: 'top', component: 'Columns', children: ['plan_col', 'steps_panel'], widths: [2, 1], align: 'start' },
-  { id: 'plan_col', component: 'Column', children: ['intro', 'days_p'] },
-  { id: 'intro', component: 'Callout', label: { path: '/notebook/planIntro/label' }, text: { path: '/notebook/planIntro/text' }, next: { path: '/notebook/planIntro/next' } },
+  { id: 'plan_col', component: 'Column', children: ['intro', 'days_p', 'plan_sections_p'] },
+  { id: 'intro', component: 'Callout', label: { path: '/notebook/planIntro/label' }, text: { path: '/notebook/planIntro/text' }, next: { path: '/notebook/planIntro/next' }, image: { path: '/notebook/planIntro/cover' } },
   { ...panel('days_p', 'Day by day', 'days'), treatment: 'feature', when: 'planned' },
+  ...answerSectionsPart('plan_sections_p', 'plan'),
   { id: 'days', component: 'Itinerary', title: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },
   panel('steps_panel', 'Done when', 'steps'),
   { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
@@ -456,19 +457,31 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
  * them get the panel, once. A page that already has it is left as it is.
  */
 export function withAnswerSections(given: readonly ViewComponent[]): ViewComponent[] {
-  const isAnswer = (c: ViewComponent) => c.component === 'Callout' && (c.text as { path?: unknown } | undefined)?.path === '/notebook/answer/text';
-  // Its drawing beside the answer too, unless the page shows who it's about (their photo or logo is the picture).
-  const components = given.some((c) => c.component === 'ProfileCard') ? [...given]
-    : given.map((c) => (isAnswer(c) && c.image === undefined ? { ...c, image: { path: '/notebook/answer/cover' } } : c));
-  if (components.some((c) => c.component === 'AnswerSections')) return components;
-  const answer = components.find(isAnswer);
-  const parent = answer && components.find((c) => Array.isArray(c.children) && (c.children as string[]).includes(answer.id));
-  if (!answer || !parent) return [...components];
-  let id = 'answer_sections_p';
-  while (components.some((c) => c.id === id || c.id === `${id}_s`)) id = `${id}_`;
-  const children = [...(parent.children as string[])];
-  children.splice(children.indexOf(answer.id) + 1, 0, id);
-  return [...components.map((c) => (c === parent ? { ...c, children } : c)), ...answerSectionsPart(id)];
+  const bound = (v: unknown, path: string) => (v as { path?: unknown } | undefined)?.path === path;
+  const isAnswer = (c: ViewComponent) => c.component === 'Callout' && bound(c.text, '/notebook/answer/text');
+  const isPlanIntro = (c: ViewComponent) => c.component === 'Callout' && bound(c.text, '/notebook/planIntro/text');
+  // Its drawing beside the answer or plan too, unless the page shows who it's about (their photo or logo is the picture).
+  let components = given.some((c) => c.component === 'ProfileCard') ? [...given]
+    : given.map((c) => (c.image === undefined && (isAnswer(c) || isPlanIntro(c)) ? { ...c, image: { path: isAnswer(c) ? '/notebook/answer/cover' : '/notebook/planIntro/cover' } } : c));
+  const has = (path: string) => components.some((c) => c.component === 'AnswerSections' && bound(c.sections, path));
+  const parentOf = (id: string) => components.find((c) => Array.isArray(c.children) && (c.children as string[]).includes(id));
+  // Just after `after` in its row or column, once.
+  const insert = (after: ViewComponent | undefined, base: string, of: 'answer' | 'plan') => {
+    const parent = after && parentOf(after.id);
+    if (!after || !parent) return;
+    let id = base;
+    while (components.some((c) => c.id === id || c.id === `${id}_s`)) id = `${id}_`;
+    const children = [...(parent.children as string[])];
+    children.splice(children.indexOf(after.id) + 1, 0, id);
+    components = [...components.map((c) => (c === parent ? { ...c, children } : c)), ...answerSectionsPart(id, of)];
+  };
+  // An answer's parts after the answer; a plan's after its days (the panel the Itinerary is in, else the Itinerary).
+  if (!has('/notebook/answerSections')) insert(components.find(isAnswer), 'answer_sections_p', 'answer');
+  if (!has('/notebook/planSections')) {
+    const days = components.find((c) => c.component === 'Itinerary');
+    insert(days && (components.find((c) => c.child === days.id) ?? days), 'plan_sections_p', 'plan');
+  }
+  return components;
 }
 
 /**
@@ -712,6 +725,8 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/nextLabel': '"How sure:" with an answer, else "Next:" (Callout nextLabel).',
   '/notebook/findings': 'The findings the answer rests on, each linked to the options (sources) it came from (Agenda points).',
   '/notebook/answer/cover': 'A small drawing of what the question is about, beside the answer (Callout image).',
+  '/notebook/planIntro/cover': 'A small drawing of what the plan is for, beside it (Callout image).',
+  '/notebook/planSections': 'The parts a plan was asked for besides its days: a cost table, how the budget splits, steps to get ready (AnswerSections).',
   '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections).',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',

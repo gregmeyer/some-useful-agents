@@ -219,7 +219,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         if (x.kind === 'table') {
           const cols = list(x.columns).map(text);
           return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
-            <tbody>${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}</section>`;
+            <tbody>${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${from(x).length ? html`<p class="fine">Every row: ${from(x).join(', ')}</p>` : html``}</section>`;
         }
         if (x.kind === 'diagram') return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div>${briefDiagram((x as { diagram?: unknown }).diagram)}${text((x as { caption?: unknown }).caption) ? html`<p class="fine">${text((x as { caption?: unknown }).caption)}</p>` : html``}</section>`;
         return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><p>${boldOnly(text(x.body))}</p></section>`;
