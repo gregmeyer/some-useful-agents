@@ -11,12 +11,13 @@
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
-import { isListPage, isRange, rankOptions, readOptionText, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
+import { isListPage, isRange, rankOptions, readOptionText, writesUp, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { decisionPicks, formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
 import { bodyWithLinks } from './notebooks.js';
+import { briefPart, type BriefSection } from './notebook-page-brief.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -269,6 +270,8 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const { nb } = args;
   const now = args.now ?? new Date();
   const d = notebookWidgetData(nb, args.entries, args.history).notebook;
+  // Written up (a write step, shape writeup): the lay of the land leads in place of where it stands, its findings are the key findings, and its parts follow the shortlist.
+  const writeup = writesUp(nb) && nb.answer?.text && !args.latest ? d.answer : undefined;
   // Best first, by the notebook's own ranking (fit, else price); once decided, the chosen first.
   const ranked = rankOptions(nb, d.options);
   const chosen = ranked.filter((o) => o.chosen);
@@ -302,6 +305,24 @@ h1 { margin: 0.5rem 0 0; font: 700 1.75rem/1.2 var(--display); text-wrap: balanc
 .goal { margin: 0.75rem 0 0; color: var(--muted); max-width: 65ch; }
 .stands { margin: 0; padding: 1rem 1.25rem; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; max-width: 65ch; }
 .stands strong { font-weight: 650; }
+.stands .eyebrow { margin-bottom: 0.35rem; }
+.stands p { margin: 0; }
+.stands .muted { margin-top: 0.5rem; font-size: 0.875rem; }
+.stands .fine { margin-top: 0.5rem; }
+.muted { color: var(--muted); }
+.fine { font-size: 0.75rem; color: var(--muted); margin: 0.35rem 0 0; }
+.findings .from { color: var(--muted); font-size: 0.8125rem; }
+.open { margin: 0.75rem 0 0; }
+.open h3 { margin: 0 0 0.35rem; font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.open ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; font-size: 0.875rem; max-width: 70ch; }
+.sec + .sec { margin-top: 1rem; }
+.sec .eyebrow { margin-bottom: 0.5rem; }
+.steps { margin: 0 0 0.5rem; padding: 0; list-style: none; counter-reset: st; display: grid; gap: 0.5rem; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); column-gap: 0.5rem; font-size: 0.875rem; }
+.steps li::before { content: counter(st); grid-row: span 3; font: 700 0.875rem var(--mono); color: var(--accent); }
+.steps li > * { grid-column: 2; }
+.rubric__row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 0.25rem 1rem; padding: 0.6rem 0; border-top: 1px solid var(--line); font-size: 0.875rem; }
+.rubric__row:first-child { border-top: 0; padding-top: 0; } .rubric__then { font-weight: 600; color: var(--accent); }
 .decision { padding: 1rem 1.25rem; border-radius: 10px; background: var(--accent-soft); display: grid; gap: 0.6rem; }
 .decision__head { margin: 0; font-size: 0.9375rem; }
 .decision__head b { font: 600 0.6875rem/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-right: 0.5rem; }
@@ -433,18 +454,28 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
           ? html`<ul>${picks.picks.map((p) => html`<li><strong>${p.name}</strong>${p.what ? html` <span>${p.what}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>${picks.why ? html`<p>${picks.why}</p>` : html``}`
           : html`<p>${nb.decision}</p>`}
       </section>`
-    : html`<p class="stands">${inline(d.summary)}</p>`}
+    : html``}
+  ${writeup
+    ? html`<section class="stands" aria-label="The lay of the land"><div class="eyebrow">${writeup.label}</div><p>${inline(writeup.text)}</p>${writeup.next ? html`<p class="muted"><b>${writeup.nextLabel}</b> ${writeup.next}</p>` : html``}<p class="fine">${inline(d.summary)}</p></section>`
+    : decided && nb.decision ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
   ${args.latest ? html`<p class="stands">${active.length
     ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
     : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}
   <section aria-labelledby="b-find">
     <h2 id="b-find">Key findings${args.latest ? html`<span class="count">the whole notebook</span>` : html``}</h2>
-    <ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>
+    ${writeup && d.findings.length
+      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${f.refs.length ? html` <span class="from">From ${f.refs.map((r) => r.label).join(', ')}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>`
+      : html`<ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>`}
+    ${writeup && d.openQuestions.length ? html`<div class="open"><h3>Still open</h3><ul>${d.openQuestions.map((q) => html`<li>${q.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>
   ${active.length ? html`<section aria-labelledby="b-table">
     <h2 id="b-table">${args.latest ? 'New in the last run' : decided && chosen.length ? 'The final set, and the rest in the running' : 'The shortlist'}<span class="count">${args.latest ? `${String(active.length)} new` : decided && chosen.length ? `${String(chosen.length)} chosen of ${String(active.length)}` : `${String(active.length)} in the running`}</span></h2>
     ${table(nb, active, pic)}
   </section>
+  ${writeup && d.answerSections.length ? html`<section aria-labelledby="b-writeup">
+    <h2 id="b-writeup">The write-up</h2>
+    ${(d.answerSections as unknown as BriefSection[]).filter((x) => typeof x.title === 'string' && x.title).map((x) => html`<section class="sec"><div class="eyebrow">${String(x.title)}</div>${briefPart(x, 'auto')}</section>`) as unknown as SafeHtml[]}
+  </section>` : html``}
   ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
     <ol class="opts">${detailed.map((o, i) => optionRow(nb, o, i + 1)) as unknown as SafeHtml[]}</ol>

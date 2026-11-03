@@ -89,7 +89,7 @@ function kids(c: ViewComponent): string[] {
   return [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])];
 }
 
-type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
+export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
 
 /** A field's number: a number, a numeric string, or a range's midpoint. */
 function briefNumber(v: unknown): number | undefined {
@@ -99,8 +99,8 @@ function briefNumber(v: unknown): number | undefined {
   return undefined;
 }
 
-/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. */
-function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtml {
+/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. The shortlist brief prints a write-up's parts with it too. */
+export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtml {
   const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
   const from = (y: unknown) => list((y as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
   if (x.kind === 'steps') {

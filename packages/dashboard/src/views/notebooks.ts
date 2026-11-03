@@ -984,7 +984,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
     </section>`;
   const prompt = html`
     <section class="nbe-prompt" aria-label="The notebook as a document">
-      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>.</p>
+      <p class="nbe-prompt__lede">The whole notebook as a document. Change anything, then show it in the preview; nothing is saved until you save. A section you leave out stays as it was. Steps read <code>Title (kind target; about who; facts a, b; top 5; with agent)</code>; a write step that answers the question reads <code>(write; answer)</code>, one that makes a plan <code>(write; plan)</code>, one that writes a shortlist up <code>(write; writeup)</code>.</p>
       ${(() => {
         // Enhance: while sua works, say so; once back, what it made sharper (the preview shows the rest).
         const lastTurn = args.turns.at(-1);

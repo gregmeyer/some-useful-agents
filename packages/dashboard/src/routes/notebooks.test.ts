@@ -4733,6 +4733,20 @@ describe('a write step', () => {
     const cids = notebookWidgetComponents(after, undefined, notebookWidgetData(after, s.entries(nb.id), s)).map((c) => c.id);
     expect(cids).toEqual(expect.arrayContaining(['lay', 'numbers_p', 'writeup_p', 'writeup_p_s', 'rests_p']));
     expect(cids).not.toContain('callout');
+    // The brief (and the extended one) leads with the lay of the land, its findings and what's open, and prints its parts after the shortlist.
+    for (const q of ['', '?full=1']) {
+      const brief = (await get(`/notebooks/${nb.id}/brief.html${q}`)).text;
+      expect(brief).toContain('The lay of the land · fairly sure');
+      expect(brief).toContain('<b>How well checked:</b> Two checked with sources.');
+      expect(brief).toContain('The two strongest own an agent platform outright.');
+      expect(brief).toContain('Still open');
+      expect(brief).toContain('>The write-up<');
+      expect(brief).toContain('The field in groups');
+      expect(brief).toContain('The top three and why');
+      expect(brief).toContain('Apply to Top Co first');
+    }
+    // What's new is about the options, not the write-up.
+    expect((await get(`/notebooks/${nb.id}/brief.html?latest=1`)).text).not.toContain('>The write-up<');
     // Read back, it is the write-up, not an answer to a question.
     const text = notebookReadoutText(after, s.entries(nb.id), 'written');
     expect(text).toContain('## Write-up (medium confidence)');
