@@ -2798,7 +2798,7 @@ describe('a notebook\'s page, drawn by sua', () => {
 
     const card = withEditorBase(ctx, accepted[0]);
     expect(card.inputs.NOTEBOOK_TITLE).toBe(nb.title);
-    expect(card.surfaceChanges).toContainEqual({ what: 'top to bottom', before: 'top → mid → shortlist_panel → head_p → low → ctx', after: 'who → time' });
+    expect(card.surfaceChanges).toContainEqual({ what: 'top to bottom', before: 'top → mid → shortlist_panel → head_p → writeup_p → rests_p → low → ctx', after: 'who → time' });
     expect(card.surfaceChanges).toContainEqual({ what: 'adds', before: '—', after: 'Callout “Who they are”, Timeline' });
 
     expect(executeNotebookLayout(ctx, card)).toMatchObject({ status: 'completed' });
@@ -4678,7 +4678,8 @@ describe('a write step', () => {
     const post = (path: string, body: Record<string, unknown>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
     const { NotebookStore, notebookReadoutText, criterionMet } = await import('@some-useful-agents/core');
     const { startNotebookStep } = await import('../lib/notebook-steps.js');
-    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const { notebookWidgetData, notebookWidgetComponents } = await import('../lib/notebook-widgets.js');
+    const { written } = await import('../lib/notebook-page.js');
     const s = NotebookStore.fromHandle(runStore.databaseHandle());
     const nb = s.create({ title: 'Staff PM roles', statement: 'Find the 3 best Staff PM roles owning an AI platform' });
     s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
@@ -4725,6 +4726,13 @@ describe('a write step', () => {
     expect(criterionMet(after, s.entries(nb.id), 'A final list of 3 roles recorded')).toBe(true);
     const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
     expect(d.findings[0].refs.map((r) => r.label)).toEqual(['Principal PM, Top Co', 'Staff PM, Mid Co']);
+    // The shortlist page leads with the lay of the land (no cover art), keeps the counts under the strip, and shows the write-up and what it rests on after Head to head.
+    expect(d.answer).toMatchObject({ label: 'The lay of the land · fairly sure', nextLabel: 'How well checked:' });
+    expect(d.answer.cover).toBeUndefined();
+    expect(written(after)).toMatchObject({ kind: 'writeup', findings: 1, open: 1 });
+    const cids = notebookWidgetComponents(after, undefined, notebookWidgetData(after, s.entries(nb.id), s)).map((c) => c.id);
+    expect(cids).toEqual(expect.arrayContaining(['lay', 'numbers_p', 'writeup_p', 'writeup_p_s', 'rests_p']));
+    expect(cids).not.toContain('callout');
     // Read back, it is the write-up, not an answer to a question.
     const text = notebookReadoutText(after, s.entries(nb.id), 'written');
     expect(text).toContain('## Write-up (medium confidence)');

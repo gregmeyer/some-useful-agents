@@ -64,7 +64,11 @@ nodes:
 
       First decide the outcome the person is after:
         - choosing one or a few among many options (a car, a job, a flat,
-          accounts to call): use the ready-made "shortlist";
+          accounts to call): use the ready-made "shortlist", also when a
+          write step writes the field up ("shape": "writeup"): the
+          shortlist page shows the write-up once it's written (the lay
+          of the land in place of where it stands, its parts and what it
+          rests on after the head-to-head);
         - getting ready for something (a meeting, a call, an interview):
           a briefing: who they are, what they said or care about (quotes),
           what to talk about and ask, then where it came from;
@@ -122,6 +126,16 @@ nodes:
           Agenda) and the evidence (OptionGrid, low), and fold the
           research as the ready-made page does.
       Say in "about" what leads ("the ladder first, then the rubric").
+      A shortlist's write-up ("written" of kind "writeup") is the one
+      exception: it has no hero and the page keeps its kind. The
+      ready-made shortlist is left as it is ({"preset": "shortlist"});
+      a page drawn for the notebook gets the write-up added where it
+      reads: a Callout of /notebook/answer/* (label, text, next,
+      nextLabel) near the top in place of the where-it-stands callout,
+      an AnswerSections of /notebook/answerSections ("rubric": "auto")
+      in a feature Panel after the options, and an Agenda of
+      /notebook/findings with /notebook/openQuestions ("What it rests
+      on"), each "when": "answered"; everything else stays.
 
       Drawing a page:
       {{inputs.GUIDE}}

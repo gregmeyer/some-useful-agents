@@ -87,6 +87,57 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
     },
   },
   {
+    id: 'job-writeup',
+    job: 'find a job, written up',
+    expect: { page: 'shortlist' },
+    seed(s, { data }) {
+      const nb = s.create({ title: 'Find a staff PM role owning a platform', statement: 'The 3 best Staff PM roles that own an AI platform', params: ['remote', '$200k+'], criteria: ['A final list of 3 roles recorded'] });
+      s.setFields(nb.id, [
+        { key: 'company', label: 'Company', type: 'text', role: 'org' },
+        { key: 'fit', label: 'Fit', type: 'number', role: 'score', better: 'higher' },
+        { key: 'location', label: 'Location', type: 'text', role: 'place' },
+        { key: 'url', label: 'Posting', type: 'url', role: 'link' },
+      ]);
+      s.setChecks(nb.id, ['Open to U.S. remote']);
+      s.setSteps(nb.id, [
+        { title: 'Find 10 roles', kind: 'find', target: 10 },
+        { title: 'Check remote', kind: 'check' },
+        { title: 'Write up the field', kind: 'write', shape: 'writeup' },
+        { title: 'Pick 3 to apply to', kind: 'decide', target: 3 },
+      ]);
+      if (data) {
+        const [a, b, c] = options(s, nb.id, [
+          ['Principal PM, Platform, Contoso', { company: 'Contoso', fit: 96, location: 'Remote (US)', url: src('jobs/p1') }],
+          ['Staff PM, Agent Platform, Fabrikam', { company: 'Fabrikam', fit: 88, location: 'Hybrid, Austin', url: src('jobs/p2') }],
+          ['Staff PM, Growth, Northwind', { company: 'Northwind', fit: 61, location: 'Remote', url: src('jobs/p3') }],
+        ]);
+        s.checkOption(nb.id, a, 'Open to U.S. remote', true);
+        s.failCheck(nb.id, b, 'Open to U.S. remote', 'Hybrid, Austin');
+        s.recordSearch(nb.id, 'example-finder', 'run-job-w-1', 3, AT, [{ name: 'Greenhouse', status: 'found', found: 2 }, { name: 'Lever', status: 'found', found: 1 }]);
+        s.setAnswer(nb.id, {
+          question: 'The 3 best Staff PM roles that own an AI platform', text: 'Three roles in the running, and **two of them own a platform outright**; the third is a feature role. One of the two is hybrid.',
+          confidence: 'medium', basis: 'Two checked against the posting; one still unread.',
+          findings: [{ text: 'The two strongest own the platform roadmap, not a feature on it.', from: [a, b] }, { text: 'Remote is the open question for the hybrid one.', from: [b] }],
+          open: ['Would Fabrikam take a remote hire?'],
+          sections: [
+            { kind: 'table', title: 'The field in groups', delivers: 'A final list of 3 roles recorded', columns: ['Group', 'Which', 'What they share'], rows: [
+              { cells: ['Platform owners', 'Contoso, Fabrikam', 'Own the roadmap and the evals'], from: [a, b] },
+              { cells: ['Feature roles', 'Northwind', 'A product on the platform'], from: [c] },
+            ] },
+            { kind: 'steps', title: 'The top three and why', items: [
+              { text: 'Principal PM, Contoso: owns the platform and is remote', detail: 'Posted 6 weeks ago', from: [a] },
+              { text: 'Staff PM, Fabrikam: owns the agent platform', detail: 'Hybrid in Austin', from: [b] },
+              { text: 'Staff PM, Northwind: growth on the platform', detail: 'A feature role', from: [c] },
+            ] },
+            { kind: 'steps', title: 'What to do next', items: [{ text: 'Apply to Contoso first', from: [a] }, { text: 'Ask Fabrikam about remote before applying', from: [b] }] },
+          ],
+          at: AT, by: 'notebook-writer',
+        });
+      }
+      return nb.id;
+    },
+  },
+  {
     id: 'accounts',
     job: 'find accounts that fit',
     expect: { page: 'shortlist' },

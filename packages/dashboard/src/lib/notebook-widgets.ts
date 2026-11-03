@@ -18,7 +18,7 @@ import { rankBy, rankOptions, isRange,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
-  answerSectionLines, sectionKey,
+  answerSectionLines, sectionKey, writesUp,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
@@ -729,15 +729,23 @@ const sourceLabel = (url: string) => { try { return new URL(url).hostname.replac
 /** How sure an answer is, in plain words. */
 const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
 
-/** The answer for the Answer page: what sua wrote, each finding linked to the options it rests on; before then, where it stands. */
+/**
+ * The answer for the Answer page: what sua wrote, each finding linked to the
+ * options it rests on; before then, where it stands. On a shortlist that
+ * gets written up, the same payload is the write-up: the lay of the land,
+ * how well checked, no cover art (the page's bars and head-to-head draw it).
+ */
 function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections'> {
   const a = nb.answer;
   const question = nb.statement || nb.title;
   if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [] };
   const refs = answerRefs(nb, active, entries);
   const answerSections = sectionViews(a.sections, a.struck, refs);
+  const writeup = writesUp(nb);
   return {
-    answer: { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: answerCover(nb).src },
+    answer: writeup
+      ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
+      : { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: answerCover(nb).src },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
     openQuestions: a.open.map((text) => ({ text })),
     answerSections,

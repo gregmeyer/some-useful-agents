@@ -346,6 +346,32 @@ describe('the ready-made pages and the representation parts', () => {
     expect(ids(none)).not.toEqual(expect.arrayContaining(['leads', 'head_p', 'bars_p']));
   });
 
+  it('written up, the shortlist leads with the lay of the land, keeps the counts under the strip, and shows the write-up and what it rests on after the head-to-head', () => {
+    const base = { options: true, steps: true, funnel: true, numbers: true, bars: true };
+    const values = { leadField: 'fit', leadLabel: 'Fit', sort: 'fit' };
+    const before = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, base, values);
+    expect(ids(before)).toEqual(expect.arrayContaining(['callout', 'stats', 'head_p']));
+    expect(ids(before)).not.toEqual(expect.arrayContaining(['lay', 'numbers_p', 'writeup_p', 'rests_p']));
+    const after = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { ...base, answered: true }, values);
+    expect(ids(after)).toEqual(expect.arrayContaining(['lay', 'stats', 'numbers_p', 'head_p', 'writeup_p', 'writeup_p_s', 'rests_p', 'rests']));
+    expect(ids(after)).not.toContain('callout');
+    expect(after.find((c) => c.id === 'lay')).toMatchObject({ component: 'Callout', text: { path: '/notebook/answer/text' }, image: { path: '/notebook/answer/cover' } });
+    expect(after.find((c) => c.id === 'story')!.children).toEqual(['lay', 'stats', 'numbers_p']);
+    expect(after.find((c) => c.id === 'rail')!.children).toEqual(['steps_panel', 'leads']);
+    expect(after.find((c) => c.id === 'root')!.children).toEqual(['top', 'mid', 'shortlist_panel', 'head_p', 'writeup_p', 'rests_p', 'low', 'ctx']);
+    expect(after.find((c) => c.id === 'writeup_p')).toMatchObject({ title: 'The write-up', treatment: 'feature' });
+    expect(after.find((c) => c.id === 'writeup_p_s')).toMatchObject({ component: 'AnswerSections', rubric: 'auto' });
+    // One set of written parts: withAnswerSections sees the shortlist's own and adds none.
+    expect(after.filter((c) => c.component === 'AnswerSections')).toHaveLength(1);
+    // With the data: before anything is written, the parts wait; written, they draw.
+    const data = { notebook: { summary: '3 in the running', answer: { label: 'The lay of the land · fairly sure', text: 'Three roles.' }, answerSections: [{ kind: 'steps', title: 'The top three and why', items: [{ text: 'A' }] }], findings: [{ text: 'A pattern.' }], openQuestions: [] } };
+    const empty = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { ...base, answered: true }, values, { data: { notebook: { summary: '3 in the running', answer: {}, answerSections: [], findings: [], openQuestions: [] } } });
+    expect(ids(empty)).not.toEqual(expect.arrayContaining(['writeup_p', 'rests_p']));
+    const drawn = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { ...base, answered: true }, values, { data });
+    expect(ids(drawn)).toEqual(expect.arrayContaining(['lay', 'numbers_p', 'writeup_p', 'rests_p']));
+    expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
+  });
+
   it('the answer and the plan lead with one hero, full width, and their tables read as rubrics when they look like one', () => {
     for (const id of ['answer', 'plan']) {
       const cs = layoutPreset(id)!.layout.components;

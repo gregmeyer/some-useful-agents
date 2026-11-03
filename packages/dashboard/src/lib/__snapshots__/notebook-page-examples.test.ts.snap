@@ -99,6 +99,45 @@ exports[`a notebook to job > keeps the same outline unless it was changed on pur
       ChipList"
 `;
 
+exports[`a notebook to job-writeup > keeps the same outline unless it was changed on purpose 1`] = `
+"Column
+  Columns 2:1
+    Column
+      Callout
+      StatStrip
+      Panel treatment=aside "By the numbers"
+        Text
+    Column
+      Panel "Done when"
+        Steps "Progress"
+      Columns 1:1
+        Lead
+        Lead
+  Columns 2:1
+    Panel "Side by side"
+      Bars
+    Panel "How far they got"
+      Funnel
+  Panel "Shortlist"
+    OptionGrid
+  Panel treatment=feature "Head to head"
+    Compare
+  Panel treatment=feature "The write-up"
+    AnswerSections
+  Panel treatment=feature "What it rests on"
+    Agenda "Key findings"
+  Columns 1:2
+    Panel "Before you decide"
+      Checklist
+    Panel "How we got here"
+      Timeline max=8
+  Columns 1:1
+    Panel "Where sua looked"
+      Coverage
+    Panel "Limits"
+      ChipList"
+`;
+
 exports[`a notebook to meet-company > keeps the same outline unless it was changed on purpose 1`] = `
 "Column
   NotebookHeader subtitle=Meeting briefing cover=none steps=fold

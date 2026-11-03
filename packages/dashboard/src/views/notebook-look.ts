@@ -77,7 +77,7 @@ export function lookThumb(components: readonly ViewComponent[]): SafeHtml {
 
 /** What each ready-made look is for, in plain words. */
 const LOOK_FOR: Record<string, string> = {
-  shortlist: 'For choosing one among many: ranks them, maps them by price, narrows them to a pick.',
+  shortlist: 'For choosing one among many: ranks them, maps them by price, narrows them to a pick; written up, it leads with the lay of the land.',
   dossier: 'For getting ready to meet someone: who they are, what they said, what to talk about.',
   company: 'For getting to know a company: who it is, its facts and competitors, what the research found, the sources.',
   answer: 'For a question: the answer and how sure, the findings it rests on with their sources, what\'s still open.',

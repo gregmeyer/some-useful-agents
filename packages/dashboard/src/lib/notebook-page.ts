@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, pageRhythm, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs, sectionKey,
+  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, pageRhythm, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs, sectionKey, writesUp,
   type Notebook, type NotebookLayout,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -41,9 +41,10 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
  * What was written, as its shape (never its words): the answer's or plan's
  * parts with their keys, kinds and sizes, and what each delivers, so the page
  * can be composed around them (a hero, the rest placed), plus how much it
- * rests on. Undefined before a write step wrote anything. Pure.
+ * rests on. A shortlist's write-up is kind "writeup": the page keeps its
+ * kind and shows it. Undefined before a write step wrote anything. Pure.
  */
-export function written(nb: Pick<Notebook, 'answer' | 'plan'>): Record<string, unknown> | undefined {
+export function written(nb: Pick<Notebook, 'answer' | 'plan' | 'steps'>): Record<string, unknown> | undefined {
   const a = nb.answer;
   const p = nb.plan;
   const sections = a?.text ? a.sections : p?.items.length ? p.sections : undefined;
@@ -51,7 +52,7 @@ export function written(nb: Pick<Notebook, 'answer' | 'plan'>): Record<string, u
   const size = (s: NonNullable<typeof sections>[number]) =>
     s.kind === 'steps' ? { steps: s.items.length } : s.kind === 'table' ? { rows: s.rows.length, columns: s.columns } : s.kind === 'diagram' ? { diagram: s.diagram.type, parts: s.diagram.type === 'ladder' ? s.diagram.rungs.length : s.diagram.type === 'split' ? s.diagram.parts.length : s.diagram.nodes.length, ...(s.diagram.type !== 'flow' && s.diagram.params?.length ? { whatIf: s.diagram.params.map((p) => p.key) } : {}) } : { words: s.body.split(/\s+/).length };
   return {
-    kind: a?.text ? 'answer' : 'plan',
+    kind: a?.text ? (writesUp(nb) ? 'writeup' : 'answer') : 'plan',
     ...(a?.text ? { confidence: a.confidence, findings: a.findings.length, open: a.open.length } : {}),
     ...(p?.items.length ? { days: new Set(p.items.map((i) => i.when)).size, before: p.before.length, open: p.open.length } : {}),
     parts: (sections ?? []).map((s) => ({ key: sectionKey(s), title: s.title, kind: s.kind, ...size(s), ...(s.delivers ? { delivers: s.delivers } : {}) })),
@@ -159,7 +160,7 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   if (ctx.notebookPages.has(notebookId)) return 'skipped';
   ctx.notebookPages.add(notebookId);
   try {
-    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs), opts.keep ? { request: KEEP_AND_COMPOSE, ...(nb.layout ? { current: nb.layout } : {}) } : {});
+    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs), opts.keep ? { request: writesUp(nb) && nb.answer?.text ? KEEP_AND_ADD_WRITEUP : KEEP_AND_COMPOSE, ...(nb.layout ? { current: nb.layout } : {}) } : {});
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';
@@ -194,3 +195,5 @@ export function pageIsPicked(nb: Pick<Notebook, 'layout' | 'layoutBy'>): boolean
 
 /** What the page agent is asked when a picked page is composed around what was written. */
 export const KEEP_AND_COMPOSE = 'Keep this page\'s kind and its parts, but compose it around what was written: one hero (a diagram or a rubric as a Figure, or the answer), each written part placed by its key, a Lead where a number decides it, the rest as it is.';
+/** A drawn page gets the write-up's parts added (no hero; the page keeps its kind), ADR-0069. */
+export const KEEP_AND_ADD_WRITEUP = 'Keep this page\'s kind and its parts, and add the write-up where it reads: its Callout (/notebook/answer/*) near the top in place of where it stands, its parts (AnswerSections of /notebook/answerSections) in a feature Panel after the options, and what it rests on (an Agenda of /notebook/findings and /notebook/openQuestions), each "when": "answered". No hero; everything else stays.';

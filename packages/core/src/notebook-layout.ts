@@ -86,14 +86,22 @@ const answerSectionsPart = (id: string, of: 'answer' | 'plan' = 'answer'): ViewC
  * Every notebook's page until now, as a document: where it stands beside
  * done-when, the map beside the funnel, the shortlist, the checklist beside
  * the timeline, coverage beside the limits. For choosing among many options.
+ * Once the field is written up (a write step, shape writeup), the write-up's
+ * lay of the land leads in place of the formula (which moves under the strip),
+ * and its parts and what it rests on follow the head-to-head.
  */
 const SHORTLIST: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['top', 'mid', 'shortlist_panel', 'head_p', 'low', 'ctx'] },
+  { id: 'root', component: 'Column', children: ['top', 'mid', 'shortlist_panel', 'head_p', 'writeup_p', 'rests_p', 'low', 'ctx'] },
   { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1] },
-  { id: 'story', component: 'Column', children: ['callout', 'stats'] },
+  // The story: the write-up's lay of the land once there is one, else where it stands; the strip; written up, the counts under it.
+  { id: 'story', component: 'Column', children: ['lay', 'callout', 'stats', 'numbers_p'] },
   // The rail: done-when, then the one number that matters (and how many have one), so it runs as long as the story beside it.
   { id: 'rail', component: 'Column', children: ['steps_panel', 'leads'] },
-  { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
+  { id: 'lay', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, when: 'answered' },
+  { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' }, when: '!answered' },
+  // Written up, the counts keep a place under the strip, so the story runs as long as the rail.
+  { ...panel('numbers_p', 'By the numbers', 'numbers', { path: '/notebook/next' }), treatment: 'aside', when: 'answered' },
+  { id: 'numbers', component: 'Text', text: { path: '/notebook/summary' } },
   // The one number that matters, set large: the best by the deciding field, and how many have one.
   { id: 'leads', component: 'Columns', children: ['lead_best', 'lead_count'], widths: [1, 1], when: 'numbers' },
   { id: 'lead_best', component: 'Lead', stat: { path: '/notebook/numbers/lead/best' } },
@@ -122,6 +130,13 @@ const SHORTLIST: ViewComponent[] = [
   // The top three by the deciding field, their facts ruled line by line.
   { ...panel('head_p', 'Head to head', 'head', 'the top three'), treatment: 'feature', when: 'numbers' },
   { id: 'head', component: 'Compare', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, by: L('leadField'), top: 3 },
+  // The write-up's parts (the field in groups, the top three and why, what to do next) and what it rests on.
+  ...answerSectionsPart('writeup_p').map((c) => (c.id === 'writeup_p' ? { ...c, title: 'The write-up' } : { ...c, rubric: 'auto' })),
+  { ...panel('rests_p', 'What it rests on', 'rests'), treatment: 'feature', when: 'answered' },
+  {
+    id: 'rests', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
+    questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
+  },
   { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
   panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
   { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
