@@ -873,7 +873,7 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
         ${row(html`<a class="btn btn--sm nbe-manage__act" href="/notebooks/${id}/template">Save as a template…</a>`, 'Start new notebooks set up like this one, saying what changes each time (like who you\'re meeting).')}
         <li class="nbe-manage__row">
           <details class="nbe-manage__delete">
-            <summary><span class="btn btn--sm nbe-manage__act">Run again as a new notebook…</span><span class="nbe-manage__what">A fresh notebook with the same setup and none of what this one found; this one ${nb.archivedAt ? 'stays' : 'is'} archived.</span></summary>
+            <summary><span class="btn btn--sm nbe-manage__act">Clear and run again…</span><span class="nbe-manage__what">A fresh notebook with the same setup and none of what this one found; this one ${nb.archivedAt ? 'stays' : 'is'} archived.</span></summary>
             <form method="POST" action="/notebooks/${id}/rerun" class="nb-delete__form">
               <p class="nb-delete__what">A new notebook with the same setup (what it's for, limits, done-whens, checks, steps, its page) starts its first step. This one ${nb.archivedAt ? 'stays' : 'is'} archived with its options, notes, answer and history; nothing is deleted. No template is made.</p>
               <button type="submit" class="btn btn--sm btn--primary">Run it again</button>
