@@ -49,7 +49,7 @@ export function written(nb: Pick<Notebook, 'answer' | 'plan'>): Record<string, u
   const sections = a?.text ? a.sections : p?.items.length ? p.sections : undefined;
   if (!a?.text && !p?.items.length) return undefined;
   const size = (s: NonNullable<typeof sections>[number]) =>
-    s.kind === 'steps' ? { steps: s.items.length } : s.kind === 'table' ? { rows: s.rows.length, columns: s.columns } : s.kind === 'diagram' ? { diagram: s.diagram.type, parts: s.diagram.type === 'ladder' ? s.diagram.rungs.length : s.diagram.type === 'split' ? s.diagram.parts.length : s.diagram.nodes.length } : { words: s.body.split(/\s+/).length };
+    s.kind === 'steps' ? { steps: s.items.length } : s.kind === 'table' ? { rows: s.rows.length, columns: s.columns } : s.kind === 'diagram' ? { diagram: s.diagram.type, parts: s.diagram.type === 'ladder' ? s.diagram.rungs.length : s.diagram.type === 'split' ? s.diagram.parts.length : s.diagram.nodes.length, ...(s.diagram.type !== 'flow' && s.diagram.params?.length ? { whatIf: s.diagram.params.map((p) => p.key) } : {}) } : { words: s.body.split(/\s+/).length };
   return {
     kind: a?.text ? 'answer' : 'plan',
     ...(a?.text ? { confidence: a.confidence, findings: a.findings.length, open: a.open.length } : {}),

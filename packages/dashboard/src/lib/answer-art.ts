@@ -5,16 +5,23 @@
  * cover picture of what the question is about, drawn in code like an
  * option's illustration (a model's SVG was a box with two circles).
  */
-import { answerDiagramLines, type Notebook, type NotebookAnswerDiagram } from '@some-useful-agents/core';
+import { answerDiagramLines, diagramParamWords, type Notebook, type NotebookAnswerDiagram, type NotebookDiagramParam } from '@some-useful-agents/core';
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 const pct = (n: number) => Math.round(n * 1000) / 10;
 
-/** A diagram ready to draw: where each bar goes (in % of the width), its words, and its text version. */
-export type AnswerDiagramView =
+/**
+ * A diagram ready to draw: where each bar goes (in % of the width), its
+ * words, and its text version. One with what-ifs (`params`) also carries
+ * its `source`, the diagram as written, so the page can recompute and lay
+ * it out again in the browser (assets/diagram-math.js, the same arithmetic)
+ * as the reader moves a value; each param says its value in words.
+ */
+export type AnswerDiagramView = (
   | { type: 'ladder'; axis: Array<{ at: number; label: string }>; rungs: Array<{ label: string; left: number; width: number; note: string }>; lines: string[] }
   | { type: 'split'; total: string; parts: Array<{ label: string; width: number; amount: string; note?: string }>; lines: string[] }
-  | { type: 'flow'; nodes: Array<{ label: string; note?: string }>; lines: string[] };
+  | { type: 'flow'; nodes: Array<{ label: string; note?: string }>; lines: string[] }
+) & { source?: NotebookAnswerDiagram; params?: Array<NotebookDiagramParam & { words: string }> };
 
 /** A ladder's month marks: 0, a few round steps, the last end. */
 function monthTicks(max: number): number[] {
@@ -26,8 +33,15 @@ function monthTicks(max: number): number[] {
 
 const monthWords = (m: number) => (m === 0 ? 'Now' : m % 12 === 0 ? `${String(m / 12)} yr` : `${String(m)} mo`);
 
-/** Lays out a diagram. Pure. */
+/** Lays out a diagram; one with what-ifs carries its source and params too. Pure. */
 export function answerDiagramView(d: NotebookAnswerDiagram): AnswerDiagramView {
+  const view = layoutDiagram(d);
+  const params = d.type !== 'flow' ? d.params : undefined;
+  return params?.length ? { ...view, source: d, params: params.map((p) => ({ ...p, words: diagramParamWords(p.key, p.value) })) } : view;
+}
+
+/** Where each bar goes. Mirrored in assets/diagram-math.js; a test keeps the two the same. */
+function layoutDiagram(d: NotebookAnswerDiagram): AnswerDiagramView {
   const lines = answerDiagramLines(d);
   if (d.type === 'ladder') {
     const max = Math.max(...d.rungs.map((r) => r.end));

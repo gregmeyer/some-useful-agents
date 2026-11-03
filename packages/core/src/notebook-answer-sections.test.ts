@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanAnswer, cleanPlan, criterionLink, criterionMet, notebookAmounts, answerSectionLines, type Notebook } from './notebooks.js';
+import { cleanAnswer, cleanPlan, criterionLink, criterionMet, notebookAmounts, answerSectionLines, recomputeDiagram, diagramParamRange, diagramParamWords, type Notebook, type NotebookAnswerDiagram, type NotebookDiagramParam } from './notebooks.js';
 import { withAnswerSections, layoutPreset, resolveNotebookLayout } from './notebook-layout.js';
 import { notebookReadoutJson, notebookReadoutText } from './notebook-readout.js';
 
@@ -98,7 +98,62 @@ describe('answer sections', () => {
     // A split of the $25,000 adds up to it; one that doesn't isn't drawn.
     expect(diagrams([{ type: 'split', total: 25000, parts: [{ label: 'No-penalty CD', amount: 5000 }, { label: 'Ladder', amount: '$20,000' }] }])[0]).toMatchObject({ diagram: { type: 'split', total: 25000, parts: [{ amount: 5000 }, { amount: 20000 }] } });
     expect(diagrams([{ type: 'split', parts: [{ label: 'a', amount: 5000 }, { label: 'b', amount: 15000 }] }])).toEqual([]);
-    // At most two.
+  });
+
+  it('keeps the what-ifs a writer names, each at the diagram\'s own value with a range that holds it', () => {
+    const rung = (label: string, start: number, end: number) => ({ label, start, end, amount: 5000 });
+    const one = (diagram: unknown) => cleanAnswer({ answer: 'x', findings: [], sections: [{ kind: 'diagram', title: 'D', diagram }] }, ids, 'q', 'w', 'x', { amounts: [25000] })?.sections?.[0];
+    const ladder = one({ type: 'ladder', rungs: [12, 24, 36, 48, 60].map((m) => rung(`${String(m)}-month CD`, 0, m)), params: [{ key: 'amount', label: 'Amount to ladder' }, { key: 'months', min: 12, max: 120 }, { key: 'count' }, 'bogus'] });
+    expect(ladder && ladder.kind === 'diagram' && ladder.diagram.type === 'ladder' ? ladder.diagram.params : undefined).toEqual([
+      // The value is the ladder's own: $25,000 across the rungs; sua's range, $500 steps.
+      { key: 'amount', label: 'Amount to ladder', value: 25000, min: 5000, max: 75000, step: 500 },
+      // A range the writer gave holds the value, so it's kept; at most two.
+      { key: 'months', label: 'Longest term', value: 60, min: 12, max: 120, step: 1 },
+    ]);
+    // A range that doesn't hold the value is replaced by sua's; a key the diagram can't move is dropped; a bad one too.
+    const split = one({ type: 'split', total: 25000, parts: [{ label: 'a', amount: 5000 }, { label: 'b', amount: 20000 }], params: [{ key: 'months' }, { key: 'amount', min: 30000, max: 1000 }, { key: 'amount' }] });
+    expect(split && split.kind === 'diagram' && split.diagram.type === 'split' ? split.diagram.params : undefined).toEqual([{ key: 'amount', label: 'Amount', value: 25000, min: 5000, max: 75000, step: 500 }]);
+    // A ladder without every rung's amount can't move the amount; none named, none kept.
+    const bare = one({ type: 'ladder', rungs: [{ label: 'a', start: 0, end: 12 }, { label: 'b', start: 0, end: 24 }], params: [{ key: 'amount' }] });
+    expect(bare && bare.kind === 'diagram' ? bare.diagram : undefined).toEqual({ type: 'ladder', rungs: [{ label: 'a', start: 0, end: 12 }, { label: 'b', start: 0, end: 24 }] });
+    expect(diagramParamRange('count', 5)).toEqual({ min: 2, max: 8, step: 1 });
+    expect(diagramParamWords('months', 18)).toBe('18 mo');
+    expect(diagramParamWords('months', 24)).toBe('2 yr');
+    expect(diagramParamWords('count', 5)).toBe('5 rungs');
+  });
+
+  it('recomputes a diagram at other values, and gives it back as written at its own', () => {
+    const rung = (label: string, end: number, amount: number) => ({ label, start: 0, end, amount, rate: '4% APY' });
+    const ladder: NotebookAnswerDiagram = { type: 'ladder', rungs: [rung('1 yr', 12, 5000), rung('2 yr', 24, 5000), rung('3 yr', 36, 5000)], params: [{ key: 'amount', label: 'Amount', value: 15000, min: 3000, max: 45000, step: 500 }, { key: 'months', label: 'Longest term', value: 36, min: 9, max: 72, step: 1 }] };
+    expect(recomputeDiagram(ladder, { amount: 15000, months: 36 })).toBe(ladder);
+    expect(recomputeDiagram(ladder, {})).toBe(ladder);
+    // The amount re-divides in the rungs' own proportions, whole dollars, the last taking the rounding.
+    expect(recomputeDiagram(ladder, { amount: 20000 }).type === 'ladder' && (recomputeDiagram(ladder, { amount: 20000 }) as Extract<NotebookAnswerDiagram, { type: 'ladder' }>).rungs.map((r) => r.amount)).toEqual([6667, 6667, 6666]);
+    // The longest term scales every rung; rates stay.
+    const longer = recomputeDiagram(ladder, { months: 72 }) as Extract<NotebookAnswerDiagram, { type: 'ladder' }>;
+    expect(longer.rungs.map((r) => [r.end, r.rate])).toEqual([[24, '4% APY'], [48, '4% APY'], [72, '4% APY']]);
+    // Out of range is clamped; a key the diagram has no what-if for is ignored.
+    expect((recomputeDiagram(ladder, { months: 1000 }) as Extract<NotebookAnswerDiagram, { type: 'ladder' }>).rungs[2].end).toBe(72);
+    expect(recomputeDiagram(ladder, { count: 5 })).toBe(ladder);
+    // Another count of rungs rebuilds the ladder as equal rungs up to the longest term; no rate can be known.
+    const count: NotebookDiagramParam = { key: 'count', label: 'Rungs', value: 3, min: 2, max: 8, step: 1 };
+    const five: NotebookAnswerDiagram = { ...ladder, params: [...ladder.params!, count].slice(1) };
+    const rebuilt = recomputeDiagram(five, { count: 5 }) as Extract<NotebookAnswerDiagram, { type: 'ladder' }>;
+    expect(rebuilt.rungs).toEqual([
+      { label: '7 mo rung', start: 0, end: 7, amount: 3000 }, { label: '14 mo rung', start: 0, end: 14, amount: 3000 }, { label: '22 mo rung', start: 0, end: 22, amount: 3000 },
+      { label: '29 mo rung', start: 0, end: 29, amount: 3000 }, { label: '3 yr rung', start: 0, end: 36, amount: 3000 },
+    ]);
+    // A split re-divides its amount.
+    const split: NotebookAnswerDiagram = { type: 'split', total: 1500, parts: [{ label: 'Dinners', amount: 600 }, { label: 'Days out', amount: 500 }, { label: 'Loose', amount: 400 }], params: [{ key: 'amount', label: 'Budget', value: 1500, min: 300, max: 4500, step: 50 }] };
+    expect(recomputeDiagram(split, { amount: 2000 })).toEqual({ ...split, total: 2000, parts: [{ label: 'Dinners', amount: 800 }, { label: 'Days out', amount: 667 }, { label: 'Loose', amount: 533 }] });
+    expect(recomputeDiagram(split, { amount: 1500 })).toBe(split);
+    // A flow has nothing to move.
+    const flow: NotebookAnswerDiagram = { type: 'flow', nodes: [{ label: 'a' }, { label: 'b' }] };
+    expect(recomputeDiagram(flow, { amount: 5 })).toBe(flow);
+  });
+
+  it('draws at most two diagrams, reads the amounts a notebook names, and links a drawn done-when', () => {
+    const diagrams = (d: unknown[]) => cleanAnswer({ answer: 'x', findings: [], sections: d.map((diagram, i) => ({ kind: 'diagram', title: `D${String(i)}`, diagram })) }, ids, 'q', 'w', 'x', { amounts: [25000] })?.sections ?? [];
     const flow = { type: 'flow', nodes: [{ label: 'a' }, { label: 'b' }] };
     expect(diagrams([flow, flow, flow])).toHaveLength(2);
     expect(notebookAmounts({ title: 'CD ladders for $25,000', statement: 'Invest $25k', params: ['$1.5M max', 'no amount'] }).sort((a, b) => a - b)).toEqual([25000, 1500000]);

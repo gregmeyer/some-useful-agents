@@ -494,9 +494,19 @@ export type NotebookAnswerSection = { title: string; delivers?: string; /** A sh
  * steps of a decision in order.
  */
 export type NotebookAnswerDiagram =
-  | { type: 'ladder'; rungs: Array<{ label: string; start: number; end: number; amount?: number; rate?: string }> }
-  | { type: 'split'; total?: number; parts: Array<{ label: string; amount: number; note?: string }> }
+  | { type: 'ladder'; rungs: Array<{ label: string; start: number; end: number; amount?: number; rate?: string }>; params?: NotebookDiagramParam[] }
+  | { type: 'split'; total?: number; parts: Array<{ label: string; amount: number; note?: string }>; params?: NotebookDiagramParam[] }
   | { type: 'flow'; nodes: Array<{ label: string; note?: string }> };
+
+/**
+ * A number a reader may move on a diagram and watch it follow (a what-if):
+ * the amount a split or ladder divides, a ladder's longest term in months,
+ * or how many rungs it has. `value` is what was written (the diagram as
+ * stored is the diagram at `value`); the page recomputes in the browser
+ * and never writes anything back. The writer names which; sua fills the
+ * value from the diagram and a sensible range when none is given.
+ */
+export type NotebookDiagramParam = { key: 'amount' | 'months' | 'count'; label: string; value: number; min: number; max: number; step: number };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -505,6 +515,95 @@ export function answerDiagramLines(d: NotebookAnswerDiagram): string[] {
   if (d.type === 'ladder') return d.rungs.map((r) => `${r.label}: months ${String(r.start)}–${String(r.end)}${r.amount !== undefined ? `, ${money(r.amount)}` : ''}${r.rate ? ` at ${r.rate}` : ''}`);
   if (d.type === 'split') return d.parts.map((p) => `${p.label}: ${money(p.amount)}${p.note ? ` (${p.note})` : ''}`);
   return d.nodes.map((n, i) => `${String(i + 1)}. ${n.label}${n.note ? ` (${n.note})` : ''}`);
+}
+
+const monthWord = (m: number) => (m % 12 === 0 ? `${String(m / 12)} yr` : `${String(m)} mo`);
+
+/** The value a diagram has for a what-if key now: the amount it divides, its longest term, its rung count. */
+export function diagramParamValue(d: NotebookAnswerDiagram, key: NotebookDiagramParam['key']): number | undefined {
+  if (d.type === 'split') return key === 'amount' ? d.total ?? d.parts.reduce((t, p) => t + p.amount, 0) : undefined;
+  if (d.type !== 'ladder') return undefined;
+  if (key === 'months') return Math.max(...d.rungs.map((r) => r.end));
+  if (key === 'count') return d.rungs.length;
+  return d.rungs.every((r) => r.amount !== undefined) ? d.rungs.reduce((t, r) => t + (r.amount ?? 0), 0) : undefined;
+}
+
+/** A round step for a slider over an amount: 1, 2 or 5 × 10^k, about a fiftieth of the value ($25,000 → $500). */
+function amountStep(value: number): number {
+  const raw = Math.max(1, value / 50);
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? 10 * mag;
+}
+
+/** A what-if's range when the writer gave none: an amount from a fifth to three times, a term from a quarter to twice (at most 30 years), 2 to 8 rungs. */
+export function diagramParamRange(key: NotebookDiagramParam['key'], value: number): Pick<NotebookDiagramParam, 'min' | 'max' | 'step'> {
+  if (key === 'amount') { const step = amountStep(value); return { min: Math.max(step, Math.round(value / 5 / step) * step), max: Math.round((value * 3) / step) * step, step }; }
+  if (key === 'months') return { min: Math.max(1, Math.round(value / 4)), max: Math.min(360, Math.max(value * 2, 12)), step: 1 };
+  return { min: 2, max: 8, step: 1 };
+}
+
+const PARAM_LABEL: Record<NotebookDiagramParam['key'], string> = { amount: 'Amount', months: 'Longest term', count: 'Rungs' };
+
+/** A what-if's value in words: "$25,000", "5 yr", "5 rungs". */
+export function diagramParamWords(key: NotebookDiagramParam['key'], value: number): string {
+  if (key === 'amount') return money(value);
+  if (key === 'months') return monthWord(value);
+  return `${String(value)} rung${value === 1 ? '' : 's'}`;
+}
+
+/**
+ * The diagram at other values of its what-ifs (`{ amount: 30000 }`), pure:
+ * a split re-divides the amount in the parts' own proportions; a ladder
+ * scales its rungs' amounts and terms the same way, and a different count
+ * of rungs rebuilds it as equal rungs up to the longest term (their labels
+ * say the term; a rate can't be known). Whole dollars and whole months; the
+ * last part takes the rounding so the whole still adds up. At the written
+ * values, the diagram comes back as it was. A flow has nothing to move.
+ */
+export function recomputeDiagram(d: NotebookAnswerDiagram, values: Partial<Record<NotebookDiagramParam['key'], number>>): NotebookAnswerDiagram {
+  const want = (key: NotebookDiagramParam['key']) => {
+    const v = values[key];
+    const p = d.type !== 'flow' ? d.params?.find((x) => x.key === key) : undefined;
+    return p && typeof v === 'number' && Number.isFinite(v) ? Math.max(p.min, Math.min(p.max, v)) : undefined;
+  };
+  const share = (amounts: number[], total: number): number[] => {
+    const sum = amounts.reduce((t, a) => t + a, 0);
+    if (!(sum > 0)) return amounts.map(() => Math.round(total / amounts.length));
+    const out = amounts.map((a) => Math.round((a / sum) * total));
+    out[out.length - 1] += Math.round(total) - out.reduce((t, a) => t + a, 0);
+    return out;
+  };
+  if (d.type === 'split') {
+    const amount = want('amount');
+    const now = diagramParamValue(d, 'amount') ?? 0;
+    if (amount === undefined || amount === now) return d;
+    const amounts = share(d.parts.map((p) => p.amount), amount);
+    return { ...d, total: amount, parts: d.parts.map((p, i) => ({ ...p, amount: amounts[i] })) };
+  }
+  if (d.type !== 'ladder') return d;
+  const months = want('months') ?? diagramParamValue(d, 'months') ?? 0;
+  const count = want('count') ?? d.rungs.length;
+  const total = want('amount') ?? diagramParamValue(d, 'amount');
+  const longest = diagramParamValue(d, 'months') ?? 0;
+  if (months === longest && count === d.rungs.length && total === diagramParamValue(d, 'amount')) return d;
+  if (count !== d.rungs.length) {
+    const each = total !== undefined ? share(Array.from({ length: count }, () => 1), total) : [];
+    const rungs = Array.from({ length: count }, (_, i) => {
+      const end = Math.max(i + 1, Math.round((months * (i + 1)) / count));
+      return { label: `${monthWord(end)} rung`, start: 0, end, ...(total !== undefined ? { amount: each[i] } : {}) };
+    });
+    return { ...d, rungs };
+  }
+  const amounts = total !== undefined ? share(d.rungs.map((r) => r.amount ?? 0), total) : [];
+  const scale = longest > 0 ? months / longest : 1;
+  return {
+    ...d,
+    rungs: d.rungs.map((r, i) => {
+      const start = Math.round(r.start * scale);
+      const end = Math.max(start + 1, Math.round(r.end * scale));
+      return { ...r, start, end, ...(total !== undefined ? { amount: amounts[i] } : {}) };
+    }),
+  };
 }
 
 /**
@@ -3458,6 +3557,7 @@ function cleanAnswerDiagram(raw: unknown, line: (x: unknown, n: number) => strin
   const d = raw as Record<string, unknown>;
   const num = (x: unknown): number | undefined => { const n = typeof x === 'number' ? x : typeof x === 'string' && x.trim() ? Number(x.replace(/[$,\s]/g, '')) : NaN; return Number.isFinite(n) && n >= 0 ? n : undefined; };
   const list = (x: unknown) => (Array.isArray(x) ? x : []).filter((v): v is Record<string, unknown> => !!v && typeof v === 'object');
+  const withParams = (out: Exclude<NotebookAnswerDiagram, { type: 'flow' }>): NotebookAnswerDiagram => { const params = cleanDiagramParams(d.params, out, line, num); return params.length ? { ...out, params } : out; };
   if (d.type === 'ladder') {
     const rungs = [];
     for (const r of list(d.rungs).slice(0, 8)) {
@@ -3468,7 +3568,7 @@ function cleanAnswerDiagram(raw: unknown, line: (x: unknown, n: number) => strin
       const rate = line(r.rate, 20);
       rungs.push({ label, start, end, ...(amount !== undefined ? { amount } : {}), ...(rate ? { rate } : {}) });
     }
-    return rungs.length >= 2 ? { type: 'ladder', rungs } : undefined;
+    return rungs.length >= 2 ? withParams({ type: 'ladder', rungs }) : undefined;
   }
   if (d.type === 'split') {
     const parts = [];
@@ -3484,13 +3584,42 @@ function cleanAnswerDiagram(raw: unknown, line: (x: unknown, n: number) => strin
     const total = num(d.total);
     if (total !== undefined && Math.abs(total - sum) > total * 0.01) return undefined;
     if (amounts.length === 1 && Math.abs(amounts[0] - sum) > amounts[0] * 0.01) return undefined;
-    return { type: 'split', ...(total !== undefined ? { total } : {}), parts };
+    return withParams({ type: 'split', ...(total !== undefined ? { total } : {}), parts });
   }
   if (d.type === 'flow') {
     const nodes = list(d.nodes).slice(0, 7).map((n) => ({ label: line(n.label, 60), note: line(n.note, 80) })).filter((n) => n.label).map((n) => ({ label: n.label, ...(n.note ? { note: n.note } : {}) }));
     return nodes.length >= 2 ? { type: 'flow', nodes } : undefined;
   }
   return undefined;
+}
+
+/**
+ * A diagram's what-ifs as the writer named them ({"key": "amount", "label":
+ * "Amount to ladder", "min": …, "max": …, "step": …}): at most two, each a
+ * key the diagram can move (a split: amount; a ladder: amount, months,
+ * count; a ladder without every rung's amount can't move the amount), its
+ * value always the diagram's own, a range given only kept when it holds the
+ * value (else sua's), so the slider's rest is always what was written.
+ */
+function cleanDiagramParams(raw: unknown, d: NotebookAnswerDiagram, line: (x: unknown, n: number) => string, num: (x: unknown) => number | undefined): NotebookDiagramParam[] {
+  const keys: NotebookDiagramParam['key'][] = d.type === 'split' ? ['amount'] : d.type === 'ladder' ? ['amount', 'months', 'count'] : [];
+  const out: NotebookDiagramParam[] = [];
+  for (const p of (Array.isArray(raw) ? raw : []).slice(0, 4)) {
+    const o = (typeof p === 'string' ? { key: p } : p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+    const key = keys.find((k) => k === o.key);
+    if (!key || out.some((x) => x.key === key)) continue;
+    const value = diagramParamValue(d, key);
+    if (value === undefined || !(value > 0)) continue;
+    const given = { min: num(o.min), max: num(o.max), step: num(o.step) };
+    const range = diagramParamRange(key, value);
+    const min = given.min !== undefined && given.min <= value ? given.min : range.min;
+    const max = given.max !== undefined && given.max >= value && given.max <= (key === 'months' ? 360 : key === 'count' ? 8 : Infinity) ? given.max : range.max;
+    const step = given.step !== undefined && given.step > 0 && given.step <= max - min ? given.step : range.step;
+    const label = line(o.label, 40) || PARAM_LABEL[key];
+    out.push({ key, label, value, min: key === 'count' ? Math.max(2, min) : min, max, step });
+    if (out.length >= 2) break;
+  }
+  return out;
 }
 
 /** The money amounts a notebook names ("$25,000 investable budget"): what a split must add up to. Pure. */

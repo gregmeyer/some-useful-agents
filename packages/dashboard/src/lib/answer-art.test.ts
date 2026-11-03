@@ -18,6 +18,14 @@ describe('answer art', () => {
     expect(answerDiagramView({ type: 'flow', nodes: [{ label: 'Decide what you may need' }, { label: 'Split the rest' }] }).lines).toEqual(['1. Decide what you may need', '2. Split the rest']);
   });
 
+  it('carries a diagram\'s source and what-ifs, each with its value in words, so the page can move it', () => {
+    const d = { type: 'split' as const, total: 1500, parts: [{ label: 'Dinners', amount: 600 }, { label: 'Loose', amount: 900 }], params: [{ key: 'amount' as const, label: 'Budget', value: 1500, min: 300, max: 4500, step: 50 }] };
+    const v = answerDiagramView(d);
+    expect(v).toMatchObject({ type: 'split', total: '$1,500', source: d, params: [{ key: 'amount', label: 'Budget', value: 1500, words: '$1,500' }] });
+    // Without what-ifs, no source rides along.
+    expect(answerDiagramView({ type: 'split', parts: d.parts })).not.toHaveProperty('source');
+  });
+
   it('draws a cover for what the question is about, as an image with nothing that runs', () => {
     expect(answerArtKind({ title: 'Research CD ladders for $25,000', statement: '' })).toBe('money');
     expect(answerArtKind({ title: '4 days in Lisbon', statement: 'A trip in March' })).toBe('travel');
