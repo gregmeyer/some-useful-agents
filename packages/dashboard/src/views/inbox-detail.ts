@@ -195,7 +195,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build',
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -907,6 +907,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                         ? html`${meta.status === 'completed' ? 'Corrected' : 'Correct'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-create'
                         ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`
+                      : meta.agentId === 'notebook-rerun'
+                        ? html`${meta.status === 'completed' ? 'Ran' : 'Run'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span> again as a new notebook`
               : meta.agentId === 'agent-schedule'
                 ? html`Change when <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> runs`
                 : html`Run <span class="mono">${meta.agentId}</span>`}
