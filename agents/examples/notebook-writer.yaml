@@ -104,7 +104,16 @@ nodes:
               "amount": number, "note": "…"}]} (2 to 6, adding up to the
               whole); or a decision in order, {"type": "flow", "nodes":
               [{"label": "…", "note": "…"}]} (2 to 7). Add "caption", a
-              sentence on how to read it.
+              sentence on how to read it. A ladder or a split may name up
+              to two "params", numbers the reader can move on the page
+              and watch the drawing follow (sua recomputes it; nothing is
+              written): [{"key": "amount" | "months" | "count", "label":
+              "Amount to ladder"}] ("amount" the whole it divides, for a
+              split or a ladder whose every rung has an amount; "months"
+              a ladder's longest term; "count" its number of rungs). The
+              value is the diagram's own; a "min", "max" and "step" are
+              optional. Name them when the ask turns on that number (how
+              much, how long, how many rungs).
           When a section gives one of the notebook's done-whens, put that
           done-when's words in "delivers", exactly as the notebook says
           it. Each row and step cites the ids it rests on; a row or step
@@ -146,8 +155,10 @@ nodes:
           above: a "table" of costs (what, for whom, cost, from where) when
           the plan has a budget, "steps" to get ready, and a "diagram" of
           type "split" of the budget when the costs above add up to it
-          (only real costs, its parts adding up to the whole) or "ladder"
-          for a schedule over weeks or months. Each row and step cites
+          (only real costs, its parts adding up to the whole; "params":
+          [{"key": "amount", "label": "Budget"}] lets the reader move the
+          budget on the page) or "ladder" for a schedule over weeks or
+          months. Each row and step cites
           ids; "delivers" names a done-when it gives, word for word. None
           when the days say it all.
 

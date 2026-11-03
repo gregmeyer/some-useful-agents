@@ -115,7 +115,11 @@ function briefPart(x: BriefSection, rubric: boolean): SafeHtml {
     return html`<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
       <tbody>${rows.map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
   }
-  if (x.kind === 'diagram') return html`${briefDiagram(x.diagram)}${text(x.caption) ? html`<p class="fine">${text(x.caption)}</p>` : html``}`;
+  if (x.kind === 'diagram') {
+    // A diagram with what-ifs prints as written; the page is where it moves.
+    const moves = list((x.diagram as { params?: unknown } | undefined)?.params).map((p) => text((p as { label?: unknown }).label).toLowerCase()).filter(Boolean);
+    return html`${briefDiagram(x.diagram)}${text(x.caption) ? html`<p class="fine">${text(x.caption)}</p>` : html``}${moves.length ? html`<p class="fine">Change the ${moves.join(' or ')} on the notebook page.</p>` : html``}`;
+  }
   return html`<p>${boldOnly(text(x.body))}</p>`;
 }
 

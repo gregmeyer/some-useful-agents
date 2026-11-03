@@ -748,6 +748,13 @@ assetsRouter.get('/assets/chart-math.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(CHART_MATH_JS);
 });
 
+// An answer diagram's what-if arithmetic (recompute, lay out), imported by a2ui-sua.js.
+const DIAGRAM_MATH_JS = readAsset('diagram-math.js');
+assetsRouter.get('/assets/diagram-math.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(DIAGRAM_MATH_JS);
+});
+
 // An options grid's filters (choices, which options they keep), imported by a2ui-sua.js.
 const OPTION_FILTERS_JS = readAsset('option-filters.js');
 assetsRouter.get('/assets/option-filters.js', (_req: Request, res: Response) => {

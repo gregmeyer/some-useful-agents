@@ -205,6 +205,17 @@ describe('a page composed around what was written', () => {
     expect(pageRhythm(nb.layout!.components)).toEqual([]);
   });
 
+  it('a diagram with what-ifs tells the page agent so, and the brief says where it moves', async () => {
+    const ex = WRITTEN.find((e) => e.id === 'trip')!;
+    const { s, nb } = await decided(ex, true);
+    const w = written(nb) as { parts: Array<{ key: string; whatIf?: string[] }> };
+    expect(w.parts.find((p) => p.whatIf)).toMatchObject({ key: 'how-the-1-500-splits', whatIf: ['amount'] });
+    const data = notebookWidgetData(nb, s.entries(nb.id), s);
+    expect(data.notebook.section['how-the-1-500-splits'].diagram).toMatchObject({ source: { type: 'split', total: 1500 }, params: [{ key: 'amount', label: 'Budget', words: '$1,500' }] });
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    expect(brief).toContain('Change the budget on the notebook page.');
+  });
+
   it('a part written later shows in the leftovers, and one that is gone leaves its place empty', async () => {
     const ex = WRITTEN.find((e) => e.id === 'question')!;
     const { s, nb } = await decided(ex, true);

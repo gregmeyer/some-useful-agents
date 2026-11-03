@@ -94,7 +94,8 @@ nodes:
       or "plan" page and:
         - pick ONE hero, the part that says the most at a glance: a
           diagram (a ladder, a split) over a table, a rubric table over
-          steps, the answer itself when no part stands out. Give it a
+          steps, the answer itself when no part stands out; a diagram
+          with "whatIf" (numbers the reader can move) first of all. Give it a
           full-width Panel of its own right after the answer, "hero":
           true, treatment "lede" or "feature", titled with the part's
           title, holding a Figure with "size": "hero" bound to

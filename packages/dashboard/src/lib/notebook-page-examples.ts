@@ -314,7 +314,7 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
           before: ['Book the fado dinner', 'Buy Sintra palace tickets online'], open: ['Which palace in Sintra?'],
           // Besides the days: how the budget splits (the hero once the page is composed around it) and what it costs.
           sections: [
-            { kind: 'diagram', title: 'How the $1,500 splits', diagram: { type: 'split', total: 1500, parts: [{ label: 'Dinners', amount: 600 }, { label: 'Days out', amount: 500, note: 'tickets and trains' }, { label: 'Kept loose', amount: 400 }] } },
+            { kind: 'diagram', title: 'How the $1,500 splits', diagram: { type: 'split', total: 1500, parts: [{ label: 'Dinners', amount: 600 }, { label: 'Days out', amount: 500, note: 'tickets and trains' }, { label: 'Kept loose', amount: 400 }], params: [{ key: 'amount', label: 'Budget', value: 1500, min: 300, max: 4500, step: 50 }] } },
             { kind: 'table', title: 'What it costs', columns: ['Day', 'What', 'For two'], rows: [{ cells: ['Day 1', 'Castle and fado', '$150'], from: [alfama, fado] }, { cells: ['Day 2', 'Belém', '$45'], from: [belem] }, { cells: ['Day 3', 'Sintra', '$80'], from: [sintra] }] },
           ],
           at: AT, by: 'notebook-writer',

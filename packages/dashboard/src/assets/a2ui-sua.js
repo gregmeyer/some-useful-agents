@@ -13,6 +13,7 @@ import {
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v0_9.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
+import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
 import { groupBy, matchQuote, monogram, sourceName, textItems, agendaText, planText } from '/assets/briefing.js';
@@ -1352,6 +1353,15 @@ const sectionStyles = css`${sectionHead}
     ol.flow li .note { margin-top: 2px; }
     .foot.every { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 8px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .cap { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    /* what-if: a value the reader can move, the drawing following; mono values, one control height (DESIGN.md). */
+    .whatif { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: end; margin: 0 0 12px; }
+    .whatif .wi { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; flex: 1 1 14rem; max-width: 24rem; }
+    .whatif .wl { grid-column: 1 / -1; font: 600 var(--font-size-xs)/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    .whatif input[type=range] { width: 100%; margin: 0; height: var(--control-h-sm, 28px); accent-color: var(--color-primary); }
+    .whatif .wv { font: 600 var(--font-size-sm)/1 var(--font-mono); color: var(--color-primary); min-width: 5ch; text-align: right; white-space: nowrap; }
+    .whatif .reset { height: var(--control-h-sm, 28px); padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; background: transparent; font: 500 var(--font-size-sm)/1 inherit; color: var(--color-text-muted); cursor: pointer; }
+    .whatif .reset:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+    .big .whatif .wv { font-size: var(--font-size-md, 15px); }
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     /* rubric: an If / Then / Why table as ruled decision rows, not a grid. */
     .rubric { display: grid; gap: 0; }
@@ -1381,16 +1391,47 @@ const sectionStyles = css`${sectionHead}
     .big p.body { font-size: var(--font-size-md, 15px); line-height: 1.6; }`;
 
 const pctClamp = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
+
+// A diagram's what-ifs, per reader: what they moved it to is kept in this
+// browser only (by notebook page and part), never written to the notebook.
+const whatIfKey = (key) => `sua.whatif:${location.pathname}:${String(key)}`;
+function whatIfRead(key) {
+  try { const v = JSON.parse(localStorage.getItem(whatIfKey(key)) ?? 'null'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+function whatIfWrite(key, values) {
+  try { if (Object.keys(values).length) localStorage.setItem(whatIfKey(key), JSON.stringify(values)); else localStorage.removeItem(whatIfKey(key)); } catch { /* private window, blocked storage: the page still moves */ }
+}
+/**
+ * A diagram with what-ifs (its `source` and `params`, lib/answer-art.ts),
+ * at the values this reader moved it to: a row of sliders above it, the
+ * drawing recomputed and laid out again here (assets/diagram-math.js), and
+ * Reset back to what was written. `host` is the element keeping the state.
+ */
+function whatIf(d, host, key) {
+  const params = Array.isArray(d?.params) && d.source ? d.params.filter((p) => p && typeof p.key === 'string') : [];
+  if (!params.length || !host) return { view: d, controls: nothing };
+  host._whatIf ??= {};
+  const values = host._whatIf[key] ??= whatIfRead(key);
+  const at = (p) => (typeof values[p.key] === 'number' ? Math.max(p.min, Math.min(p.max, values[p.key])) : p.value);
+  const changed = params.some((p) => at(p) !== p.value);
+  const set = (p, v) => { const n = Number(v); if (!Number.isFinite(n)) return; if (n === p.value) delete values[p.key]; else values[p.key] = n; whatIfWrite(key, values); host.requestUpdate(); };
+  const reset = () => { for (const p of params) delete values[p.key]; whatIfWrite(key, values); host.requestUpdate(); };
+  const view = changed ? { ...layoutDiagram(recomputeDiagram(d.source, Object.fromEntries(params.map((p) => [p.key, at(p)])))), source: d.source, params } : d;
+  const controls = html`<div class="whatif" role="group" aria-label="What if">${params.map((p) => html`<label class="wi"><span class="wl">${p.label}</span><input type="range" min=${p.min} max=${p.max} step=${p.step} .value=${String(at(p))} aria-valuetext=${diagramParamWords(p.key, at(p))} @input=${(e) => set(p, e.target.value)}><output class="wv">${diagramParamWords(p.key, at(p))}</output></label>`)}${changed ? html`<button type="button" class="reset" @click=${reset}>Reset</button>` : nothing}</div>`;
+  return { view, controls };
+}
+
 /** A diagram sua laid out (lib/answer-art.ts): a ladder on a month axis, a split bar, or a flow of boxes; with a text version for screen readers. */
-function drawDiagram(d) {
+function drawDiagram(given, host, key) {
+  const { view: d, controls } = whatIf(given, host, key);
   const n = pctClamp;
   const text = html`<ul class="sr">${(Array.isArray(d?.lines) ? d.lines : []).map((l) => html`<li>${l}</li>`)}</ul>`;
   if (d?.type === 'ladder') {
-    return html`<div class="lad" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.rungs ?? []).map((r) => html`<div class="row"><div class="lab">${r.label}</div><div class="track"><div class="bar" style=${`left:${n(r.left)}%;width:${n(r.width)}%`}></div><span class=${n(r.left) + n(r.width) > 62 ? 'bn in' : 'bn'} style=${n(r.left) + n(r.width) > 62 ? `right:${100 - n(r.left) - n(r.width)}%;margin-right:8px` : `left:${n(r.left) + n(r.width)}%;margin-left:6px`}>${r.note}</span></div></div>`)}
+    return html`${controls}<div class="lad" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.rungs ?? []).map((r) => html`<div class="row"><div class="lab">${r.label}</div><div class="track"><div class="bar" style=${`left:${n(r.left)}%;width:${n(r.width)}%`}></div><span class=${n(r.left) + n(r.width) > 62 ? 'bn in' : 'bn'} style=${n(r.left) + n(r.width) > 62 ? `right:${100 - n(r.left) - n(r.width)}%;margin-right:8px` : `left:${n(r.left) + n(r.width)}%;margin-left:6px`}>${r.note}</span></div></div>`)}
       <div class="axis" aria-hidden="true">${(d.axis ?? []).map((t) => html`<span class="tick" style=${`left:${n(t.at)}%`}>${t.label}</span>`)}</div></div>${text}`;
   }
   if (d?.type === 'split') {
-    return html`<div class="split"><div class="tot">${d.total}</div><div class="bars" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.parts ?? []).map((x) => html`<span class="seg" style=${`flex:0 0 ${n(x.width)}%`} title=${`${x.label}: ${x.amount}`}></span>`)}</div>
+    return html`${controls}<div class="split"><div class="tot">${d.total}</div><div class="bars" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.parts ?? []).map((x) => html`<span class="seg" style=${`flex:0 0 ${n(x.width)}%`} title=${`${x.label}: ${x.amount}`}></span>`)}</div>
       <ul>${(d.parts ?? []).map((x) => html`<li><b>${x.amount}</b>${x.label}${x.note ? html` <span class="note">${x.note}</span>` : nothing}</li>`)}</ul></div>`;
   }
   if (d?.type === 'flow') return html`<ol class="flow">${(d.nodes ?? []).map((x) => html`<li>${x.label}${x.note ? html`<div class="note">${x.note}</div>` : nothing}</li>`)}</ol>`;
@@ -1401,7 +1442,7 @@ const sectionRefs = (it) => {
   return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
 };
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph. */
-function drawPart(x, { rubric = false } = {}) {
+function drawPart(x, { rubric = false, host } = {}) {
   const refs = sectionRefs;
   if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
   if (x.kind === 'table') {
@@ -1413,14 +1454,14 @@ function drawPart(x, { rubric = false } = {}) {
     }
     return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
   }
-  if (x.kind === 'diagram') return html`${drawDiagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
+  if (x.kind === 'diagram') return html`${drawDiagram(x.diagram, host, x.key)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
   return html`<p class="body">${boldParts(x.body)}</p>`;
 }
 
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
   Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.boolean().optional() }).strict(),
   sectionStyles,
-  (p) => {
+  function (p) {
     const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
     // Placed by key ("only", in that order), or everything another part of the page didn't place ("skip").
     const only = Array.isArray(p.only) ? p.only : undefined;
@@ -1429,7 +1470,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     // One part on its own: the panel around it says its title.
     const untitled = !!only && only.length === 1;
     if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
-    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: !!p.rubric })}</section>`)}</div>`;
+    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: !!p.rubric, host: this })}</section>`)}</div>`;
   });
 
 // One written part (/notebook/section/<key>) on its own, drawn large when it
@@ -1438,12 +1479,12 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
 const Figure = define('Figure', 'sua-a2ui-figure',
   Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.boolean().optional() }).strict(),
   sectionStyles,
-  (p) => {
+  function (p) {
     const x = p.section && typeof p.section === 'object' && typeof p.section.kind === 'string' ? p.section : undefined;
     if (!x) return nothing;
     const big = (p.size ?? 'inline') === 'hero';
     const cap = typeof p.caption === 'string' && p.caption ? p.caption : undefined;
-    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: !!p.rubric })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
+    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: !!p.rubric, host: this })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
   });
 
 // The one number that matters, set large: a stat {value, label, note?, href?,
