@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { layoutPreset, type NotebookStep } from '@some-useful-agents/core';
-import { notebookToMarkdown, notebookFromMarkdown, describeSetupChange, keepStepProgress, pageName, ABOUT_THE_PAGE, type NotebookSetup } from './notebook-edit.js';
+import { notebookToMarkdown, notebookFromMarkdown, describeSetupChange, keepStepProgress, pageName, layoutOwner, ABOUT_THE_PAGE, type NotebookSetup } from './notebook-edit.js';
 
 const step = (id: string, title: string, kind: NotebookStep['kind'], extra: Partial<NotebookStep> = {}): NotebookStep => ({ id, title, kind, status: 'todo', tries: 0, ...extra });
 
@@ -74,6 +74,16 @@ describe('a notebook as a document', () => {
     expect(notebookFromMarkdown(notebookToMarkdown(SETUP, undefined).replace('Schedule: when you ask', 'Schedule: whenever'), SETUP, undefined, AGENTS)).toEqual({ error: expect.stringContaining('"whenever" isn\'t a schedule') });
     const daily = notebookFromMarkdown(notebookToMarkdown(SETUP, undefined).replace('Schedule: when you ask', 'Schedule: 0 7 * * *'), SETUP, undefined, AGENTS);
     expect('setup' in daily && daily.setup.cadence).toBe('0 7 * * *');
+  });
+});
+
+describe('whose the saved page is', () => {
+  it('a ready-made page (or the shortlist) is picked, sua\'s own pick is the notebook\'s, anything else is yours', () => {
+    expect(layoutOwner({ layout: layoutPreset('answer')!.layout })).toBe('picked');
+    expect(layoutOwner({ layout: { ...layoutPreset('plan')!.layout, about: 'a plan' } })).toBe('picked');
+    expect(layoutOwner({ layout: null })).toBe('picked');
+    expect(layoutOwner({ layout: { components: [{ id: 'root', component: 'Column', children: [] }], about: 'drawn' }, layoutBy: 'notebook' })).toBe('notebook');
+    expect(layoutOwner({ layout: { components: [{ id: 'root', component: 'Column', children: [] }], about: 'drawn' } })).toBe('you');
   });
 });
 

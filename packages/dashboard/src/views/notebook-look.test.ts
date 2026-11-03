@@ -17,3 +17,16 @@ describe('a look drawn small', () => {
     expect(shortlist).not.toContain('lk-g--profile');
   });
 });
+
+describe('the cards', () => {
+  it('say which ready-made pages sua composes once written, and when a page is left as you asked', async () => {
+    const { notebookLooks } = await import('./notebook-look.js');
+    const drawn = { components: [{ id: 'root', component: 'Column', children: [] }], about: 'a page sua drew' };
+    const yours = render(notebookLooks('nb', { now: drawn, by: 'you', working: false, undos: 0 }));
+    expect(yours).toContain('Once it&#39;s written, sua composes the page around the answer.');
+    expect(yours).toContain('Once it&#39;s written, sua composes the page around the plan.');
+    expect(yours).toContain('As you asked: sua leaves it be.');
+    const suas = render(notebookLooks('nb', { now: drawn, by: 'notebook', working: false, undos: 0 }));
+    expect(suas).not.toContain('As you asked');
+  });
+});

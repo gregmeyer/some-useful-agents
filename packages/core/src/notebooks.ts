@@ -714,6 +714,13 @@ export interface Notebook {
    * shortlist), `template`. None: never set. Only a page it decided itself is
    * decided again.
    */
+  /**
+   * Whose page it is: `notebook` (sua's own pick: decided again after the
+   * first step and composed around what's written), `picked` (a ready-made
+   * page you picked on Edit: composed around what's written once it is, but
+   * never swapped for another kind), `you` (changed to your ask, or undone:
+   * left as it is), `template` (from a template), `sua` (set in conversation).
+   */
   layoutBy?: string;
   /** Who it's about, when it's about someone (a profile step learns it): the person, their company. */
   about?: NotebookAbout;

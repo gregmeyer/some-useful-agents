@@ -23,7 +23,7 @@ import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
 import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
-import { decideNotebookPage, pageIsItsOwn } from './notebook-page.js';
+import { decideNotebookPage, pageIsItsOwn, pageIsPicked } from './notebook-page.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, NOTEBOOK_WRITER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
 
 export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepAgent, suaStepAgentName };
@@ -862,9 +862,10 @@ async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: st
  */
 export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
   const nb = store.get(notebookId);
-  if (!nb || !pageIsItsOwn(nb) || (!nb.answer?.text && !nb.plan?.items.length)) return;
+  if (!nb || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
   const was = JSON.stringify(nb.layout ?? null);
-  const outcome = await decideNotebookPage(ctx, notebookId, { again: true }).catch(() => 'failed' as const);
+  // A ready-made page you picked is composed around what was written but keeps its kind.
+  const outcome = await decideNotebookPage(ctx, notebookId, { again: true, ...(pageIsPicked(nb) ? { keep: true } : {}) }).catch(() => 'failed' as const);
   const now = store.get(notebookId);
   if (outcome !== 'drawn' || !now?.layout || JSON.stringify(now.layout) === was || !ctx.inboxStore) return;
   const threadId = notebookThread(ctx, now);

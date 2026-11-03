@@ -2917,7 +2917,8 @@ describe('a profile step', () => {
     expect(edit).toContain('aria-label="Look like: Meeting briefing"');
     await post(`/notebooks/${nb.id}/edit/look`, { look: 'dossier' });
     await post(`/notebooks/${nb.id}/edit/save`);
-    expect(store.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
+    // A ready-made page you picked: sua still composes it around what's written, so it's "picked", not yours.
+    expect(store.get(nb.id)).toMatchObject({ layoutBy: 'picked', layout: { preset: 'dossier' } });
     expect((await get(`/notebooks/${nb.id}/edit?tab=looks`)).text).toContain('aria-label="Meeting briefing, how it looks"');
   });
 
@@ -2936,7 +2937,7 @@ describe('a profile step', () => {
     pageAsked.length = 0;
     pageReply = () => `<page>${JSON.stringify({ about: 'a briefing: who they are', components: page })}</page>`;
     const store = NotebookStore.fromHandle(runStore.databaseHandle());
-    const run = async (title: string, layoutBy?: 'you') => {
+    const run = async (title: string, layoutBy?: 'you' | 'picked') => {
       const nb = store.create({ title });
       store.setSteps(nb.id, [{ title: 'Learn about them', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Find 5 themes', kind: 'find', target: 5 }]);
       if (layoutBy) store.setLayout(nb.id, null, layoutBy);
@@ -2960,6 +2961,43 @@ describe('a profile step', () => {
     expect(yours.steps![0].status).toBe('met');
     expect(pageAsked).toHaveLength(0);
     expect(yours.layout).toBeUndefined();
+    // A ready-made page you picked: never swapped for another kind either.
+    const picked = await run('Prepare for a call with Lee', 'picked');
+    expect(picked.steps![0].status).toBe('met');
+    expect(pageAsked).toHaveLength(0);
+    expect(picked.layoutBy).toBe('picked');
+    pageReply = undefined;
+  });
+
+  it('composes a ready-made page you picked around what was written, keeping its kind; one you asked for stays', async () => {
+    const app = await makeApp();
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { pageAfterWritten } = await import('../lib/notebook-steps.js');
+    const { KEEP_AND_COMPOSE } = await import('../lib/notebook-page.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const composed = { about: 'the ladder first, then the rubric', components: [...layoutPreset('answer')!.layout.components] };
+    pageAsked.length = 0;
+    pageReply = () => `<page>${JSON.stringify(composed)}</page>`;
+    const written = (title: string, by: 'picked' | 'you') => {
+      const nb = store.create({ title });
+      store.setLayout(nb.id, layoutPreset('answer')!.layout, by);
+      store.setAnswer(nb.id, { text: 'Ladder it.', confidence: 'medium', basis: 'x', findings: [], open: [], sections: [], askedAt: new Date().toISOString(), by: 'agent:notebook-writer' } as never);
+      return nb.id;
+    };
+    const picked = written('Research CD ladders', 'picked');
+    await pageAfterWritten(ctx, store, picked);
+    expect(pageAsked).toHaveLength(1);
+    expect(pageAsked[0].ASK).toBe(KEEP_AND_COMPOSE);
+    expect(JSON.parse(pageAsked[0].CURRENT)[0]).toMatchObject({ id: 'root' });
+    expect(store.get(picked)).toMatchObject({ layoutBy: 'picked', layout: { about: 'the ladder first, then the rubric' } });
+    // Yours: not touched.
+    pageAsked.length = 0;
+    const yours = written('Research CD ladders again', 'you');
+    await pageAfterWritten(ctx, store, yours);
+    expect(pageAsked).toHaveLength(0);
+    expect(store.get(yours)).toMatchObject({ layoutBy: 'you', layout: { preset: 'answer' } });
     pageReply = undefined;
   });
 
@@ -4058,7 +4096,7 @@ describe('changing a notebook by saying what to change, or as a document', () =>
     expect(after.criteria.map((c) => c.text)).toEqual(['Talking points chosen', 'Questions ready']);
     expect(after.steps!.map((x) => [x.id, x.kind])).toEqual([['s2', 'profile'], ['s1', 'find']]);
     expect(after.layout?.preset).toBe('dossier');
-    expect(after.layoutBy).toBe('you');
+    expect(after.layoutBy).toBe('picked');
     // The notebook says it was saved.
     expect((await get(saved.headers.location)).text).toContain('Saved 3 changes.');
     expect((await get(`/notebooks/${nb.id}/edit`)).text).toContain('as it is now');
@@ -4353,7 +4391,8 @@ describe('how a notebook looks, picked from pictures', () => {
     expect(page).toContain('How it looks: Shortlist → Meeting briefing');
     pageReply = undefined;
     await post(`/notebooks/${nb.id}/edit/save`, {});
-    expect(s.get(nb.id)).toMatchObject({ layoutBy: 'you', layout: { preset: 'dossier' } });
+    // sua's own pick, saved: the notebook's, as at setup (decided again and composed as sua sees fit).
+    expect(s.get(nb.id)).toMatchObject({ layoutBy: 'notebook', layout: { preset: 'dossier' } });
   });
 });
 
