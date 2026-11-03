@@ -29,6 +29,11 @@ function glyph(c: ViewComponent | undefined): SafeHtml {
     case 'FactSheet': case 'KeyValue': return html`<span class="lk-g lk-g--facts">${lines(3, 'is-ruled')}</span>`;
     case 'Steps': case 'Checklist': return html`<span class="lk-g lk-g--checks">${lines(3, 'is-check')}</span>`;
     case 'ChipList': return html`<span class="lk-g lk-g--chips">${Array.from({ length: 3 }, () => html`<i class="lk-chip"></i>`) as unknown as SafeHtml[]}</span>`;
+    // The representation parts: a lead number, bars by a field, a head-to-head, a figure drawn large.
+    case 'Lead': return html`<span class="lk-g lk-g--lead"><i class="lk-line" style="width:40%"></i><b class="lk-num"></b></span>`;
+    case 'Bars': return html`<span class="lk-g lk-g--bars">${[90, 65, 45].map((w) => html`<i class="lk-bar" style="width:${String(w)}%"></i>`) as unknown as SafeHtml[]}</span>`;
+    case 'Compare': return html`<span class="lk-g lk-g--compare">${[0, 1].map(() => html`<span>${lines(3, 'is-ruled')}</span>`) as unknown as SafeHtml[]}</span>`;
+    case 'Figure': return html`<span class="lk-g lk-g--figure">${[100, 70, 40].map((w) => html`<i class="lk-track"><i class="lk-bar" style="width:${String(w)}%"></i></i>`) as unknown as SafeHtml[]}</span>`;
     default: return html`<span class="lk-g">${lines(2)}</span>`;
   }
 }
@@ -47,9 +52,15 @@ export function lookThumb(components: readonly ViewComponent[]): SafeHtml {
     if (c.component === 'Disclosure') return html`<span class="lk-fold">▸ <i class="lk-line" style="width:50%"></i></span>`;
     if (c.component === 'Panel') {
       const inner = byId.get(String(c.child));
-      return html`<span class="lk-part lk-part--${typeof c.treatment === 'string' ? c.treatment : 'plain'}"><i class="lk-title"></i>${inner?.component === 'Column' ? kids(inner).map((k) => glyph(byId.get(k))) as unknown as SafeHtml[] : glyph(inner)}</span>`;
+      return html`<span class="lk-part lk-part--${typeof c.treatment === 'string' ? c.treatment : 'plain'}${c.hero === true ? ' lk-part--hero' : ''}"><i class="lk-title"></i>${inner?.component === 'Column' ? kids(inner).map((k) => glyph(byId.get(k))) as unknown as SafeHtml[] : glyph(inner)}</span>`;
     }
     if (c.component === 'Column') return html`<span class="lk-stack">${kids(c).map(part) as unknown as SafeHtml[]}</span>`;
+    // Columns inside a column (two leads side by side): a small row of their own.
+    if (c.component === 'Columns') {
+      const ks = kids(c);
+      const w = ks.map((_, i) => Number((c.widths as number[] | undefined)?.[i] ?? 1));
+      return html`<span class="lk-row lk-row--in" style="grid-template-columns:${w.map((n) => `${String(n)}fr`).join(' ')}">${ks.map(part) as unknown as SafeHtml[]}</span>`;
+    }
     return html`<span class="lk-part">${glyph(c)}</span>`;
   };
   const rows = kids(byId.get('root')).map((id) => byId.get(id)).filter((c): c is ViewComponent => !!c && c.component !== 'NotebookHeader').slice(0, 5);

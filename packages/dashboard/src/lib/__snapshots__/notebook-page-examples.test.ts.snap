@@ -6,13 +6,21 @@ exports[`a notebook to accounts > keeps the same outline unless it was changed o
     Column
       Callout "Where it stands"
       StatStrip
-    Panel "Done when"
-      Steps "Progress"
-  Columns 1
+    Column
+      Panel "Done when"
+        Steps "Progress"
+      Columns 1:1
+        Lead
+        Lead
+  Columns 2:1
+    Panel "Side by side"
+      Bars
     Panel "How far they got"
       Funnel
   Panel "Shortlist"
     OptionGrid
+  Panel treatment=feature "Head to head"
+    Compare
   Columns 1:2
     Panel "Before you decide"
       Checklist
@@ -31,8 +39,12 @@ exports[`a notebook to car > keeps the same outline unless it was changed on pur
     Column
       Callout "Where it stands"
       StatStrip
-    Panel "Done when"
-      Steps "Progress"
+    Column
+      Panel "Done when"
+        Steps "Progress"
+      Columns 1:1
+        Lead
+        Lead
   Columns 2:1
     Panel "Where they sit"
       Scatter "name"
@@ -40,6 +52,8 @@ exports[`a notebook to car > keeps the same outline unless it was changed on pur
       Funnel
   Panel "Shortlist"
     OptionGrid
+  Panel treatment=feature "Head to head"
+    Compare
   Columns 1:2
     Panel "Before you decide"
       Checklist
@@ -58,13 +72,21 @@ exports[`a notebook to job > keeps the same outline unless it was changed on pur
     Column
       Callout "Where it stands"
       StatStrip
-    Panel "Done when"
-      Steps "Progress"
-  Columns 1
+    Column
+      Panel "Done when"
+        Steps "Progress"
+      Columns 1:1
+        Lead
+        Lead
+  Columns 2:1
+    Panel "Side by side"
+      Bars
     Panel "How far they got"
       Funnel
   Panel "Shortlist"
     OptionGrid
+  Panel treatment=feature "Head to head"
+    Compare
   Columns 1:2
     Panel "Before you decide"
       Checklist
@@ -126,8 +148,12 @@ exports[`a notebook to product > keeps the same outline unless it was changed on
     Column
       Callout "Where it stands"
       StatStrip
-    Panel "Done when"
-      Steps "Progress"
+    Column
+      Panel "Done when"
+        Steps "Progress"
+      Columns 1:1
+        Lead
+        Lead
   Columns 2:1
     Panel "Where they sit"
       Scatter "name"
@@ -135,6 +161,8 @@ exports[`a notebook to product > keeps the same outline unless it was changed on
       Funnel
   Panel "Shortlist"
     OptionGrid
+  Panel treatment=feature "Head to head"
+    Compare
   Columns 1:2
     Panel "Before you decide"
       Checklist
@@ -201,7 +229,9 @@ exports[`a notebook to watch > keeps the same outline unless it was changed on p
   NotebookHeader subtitle=Watch cover=none steps=fold
   Columns 2:1
     Column
-      Callout
+      Columns 2:1
+        Callout
+        Lead
       Panel treatment=feature "What changed"
         Changes
     Panel "Done when"

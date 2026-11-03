@@ -302,15 +302,15 @@ const SUA_COMPONENTS = [
       rest: z.boolean().optional(),
       /** Every part but these, by key. */
       skip: z.array(Str).optional(),
-      /** Draw tables as ruled decision rows (if… → then…, why beneath) instead of a grid: for a rubric. */
-      rubric: z.boolean().optional(),
+      /** Draw tables as ruled decision rows (if… → then…, why beneath) instead of a grid: for a rubric. "auto": only a table whose first column is a condition (If…, When…). */
+      rubric: z.union([z.boolean(), z.literal('auto')]).optional(),
     }).strict(),
   },
   {
     name: 'Figure',
     summary: 'One written part on its own (`section`: /notebook/section/<key>, the same shape as an AnswerSections item), drawn large when `size` is "hero" (a ladder with tall bars, a split as a wide band, a rubric as ruled rows); `caption` under it; `rubric: true` for a table of decisions. Its title comes from the Panel around it.',
     example: { id: 'fig', component: 'Figure', section: { path: '/notebook/section/one-way-to-ladder-25-000' }, size: 'hero' },
-    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.boolean().optional() }).strict(),
+    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
   },
   {
     name: 'Lead',

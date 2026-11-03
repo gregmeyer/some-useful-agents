@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { NotebookStore } from './notebooks.js';
-import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, pageRhythm, layoutPreset, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
+import { checkNotebookLayout, describeLayoutChange, notebookLayoutGuide, cleanLayout, looksLikeRubric, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, pageRhythm, layoutPreset, DEFAULT_NOTEBOOK_LAYOUT, NOTEBOOK_LAYOUT_PRESETS } from './notebook-layout.js';
 import type { ViewComponent } from './a2ui/view.js';
 
 let dir: string | undefined;
@@ -47,7 +47,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(checkNotebookLayout(page).ok).toBe(true);
     expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }]))
-      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written (or !one).'] });
+      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars (or !one).'] });
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }]).ok).toBe(false);
     expect(checkNotebookLayout('no').ok).toBe(false);
     expect(cleanLayout('shortlist')).toBe(DEFAULT_NOTEBOOK_LAYOUT);
@@ -71,7 +71,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.get(nb.id)!.layout).toEqual({ components: page });
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toEqual({ components: page });
     expect(() => s.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }] }))
-      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written (or !one).');
+      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written, numbers, bars (or !one).');
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });
@@ -322,5 +322,50 @@ describe('parts filling in while a step runs', () => {
     const held = resolveNotebookLayout(page, { written: true }, {}, { data: placed, pending: true });
     expect(held.map((c) => c.id)).toEqual(['root', 'row', 'hero_p', 'hero', 'side_p', 'side']);
     expect(held.some((c) => c.pending === true)).toBe(false);
+  });
+});
+
+describe('the ready-made pages and the representation parts', () => {
+  const ids = (cs: ViewComponent[]) => cs.map((c) => c.id);
+  it('the shortlist leads with the deciding number, weighs the top three, and bars stand in for the map', () => {
+    const base = { options: true, steps: true, funnel: true };
+    const values = { leadField: 'price', leadLabel: 'Price', sort: 'price' };
+    const withMap = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { ...base, numbers: true, map: true }, values);
+    expect(ids(withMap)).toEqual(expect.arrayContaining(['leads', 'lead_best', 'lead_count', 'map_panel', 'head_p', 'head']));
+    expect(ids(withMap)).not.toContain('bars_p');
+    expect(withMap.find((c) => c.id === 'head')).toMatchObject({ component: 'Compare', by: 'price', top: 3 });
+    expect(withMap.find((c) => c.id === 'mid')).toMatchObject({ widths: [2, 1] });
+    const noMap = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, { ...base, numbers: true, bars: true }, values);
+    expect(ids(noMap)).toContain('bars_p');
+    expect(ids(noMap)).not.toContain('map_panel');
+    expect(noMap.find((c) => c.id === 'bars')).toMatchObject({ component: 'Bars', by: 'price', top: 8 });
+    expect(noMap.find((c) => c.id === 'bars_p')).toMatchObject({ note: 'Price' });
+    // No numbers at all: the strip says it all, as before.
+    const none = resolveNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components, base, {});
+    expect(ids(none)).toEqual(expect.arrayContaining(['callout', 'stats', 'steps_panel']));
+    expect(ids(none)).not.toEqual(expect.arrayContaining(['leads', 'head_p', 'bars_p']));
+  });
+
+  it('the answer and the plan lead with one hero, full width, and their tables read as rubrics when they look like one', () => {
+    for (const id of ['answer', 'plan']) {
+      const cs = layoutPreset(id)!.layout.components;
+      const heroes = cs.filter((c) => c.hero === true);
+      expect(heroes).toHaveLength(1);
+      expect(cs.find((c) => c.id === 'root')!.children).toContain(heroes[0].id);
+      expect(pageRhythm(cs).filter((m) => /hero/.test(m))).toEqual([]);
+      expect(cs.find((c) => c.component === 'AnswerSections')).toMatchObject({ rubric: 'auto' });
+      expect(checkNotebookLayout(cs).ok).toBe(true);
+    }
+    expect(looksLikeRubric(['If…', 'Then…', 'Why'])).toBe(true);
+    expect(looksLikeRubric(['When you need it', 'Pick'])).toBe(true);
+    expect(looksLikeRubric(['Bank', 'APY', 'Term'])).toBe(false);
+    expect(looksLikeRubric(['If', 'a', 'b', 'c'])).toBe(false);
+  });
+
+  it('the watch page opens with what changed beside the lowest now', () => {
+    const cs = resolveNotebookLayout(layoutPreset('watch')!.layout.components, { options: true, numbers: true }, {});
+    expect(cs.find((c) => c.id === 'intro_row')).toMatchObject({ children: ['intro', 'lead_low'], widths: [2, 1] });
+    expect(cs.find((c) => c.id === 'lead_low')).toMatchObject({ component: 'Lead', stat: { path: '/notebook/numbers/lead/best' } });
+    expect(resolveNotebookLayout(layoutPreset('watch')!.layout.components, { options: true }, {}).find((c) => c.id === 'intro_row')!.children).toEqual(['intro']);
   });
 });

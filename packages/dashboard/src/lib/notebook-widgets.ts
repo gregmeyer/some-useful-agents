@@ -134,6 +134,11 @@ export interface NotebookLeadStat { value: string; label: string; note?: string;
  * higher otherwise), the high, the low, and how many have it. A range counts
  * as its midpoint. Pure.
  */
+/** The deciding field: the score, else the price, else the first money or number field (what Bars, Compare and the lead number go by). */
+export function leadFieldOf(nb: Pick<Notebook, 'fields'>): NotebookField | undefined {
+  return rankBy(nb).field ?? nb.fields.find((f) => f.role === 'price') ?? nb.fields.find((f) => f.type === 'money' || f.type === 'number');
+}
+
 export function notebookNumbers(nb: Pick<Notebook, 'id' | 'fields'>, active: ReadonlyArray<NotebookViewOption & { page?: string }>): NotebookWidgetData['notebook']['numbers'] {
   const out: NotebookWidgetData['notebook']['numbers'] = {};
   const num = (v: unknown): number | undefined => {
@@ -160,6 +165,9 @@ export function notebookNumbers(nb: Pick<Notebook, 'id' | 'fields'>, active: Rea
       count: { value: String(rows.length), label: `with ${word}`, note: `of ${String(active.length)} in the running`, tone: 'neutral' },
     };
   }
+  // The deciding field's, at a fixed path for pages that can't know its key.
+  const lead = leadFieldOf(nb);
+  if (lead && out[lead.key]) out.lead = out[lead.key];
   return out;
 }
 
@@ -277,6 +285,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   const rank = rankBy(nb);
   const better = rank.better;
   const active = rankOptions(nb, v.options);
+  const numbers = notebookNumbers(nb, active.map((o) => ({ ...o, page: notebookOptionPath(nb.id, o.id) })));
   const best = active.find((o) => (rank.by === 'score' ? o.score : o.price) !== undefined);
   const furthest = [...v.funnel].reverse().find((s) => s.here > 0)?.stage ?? '';
   const nextCriterion = v.criteria.find((c) => !c.met)?.text;
@@ -453,13 +462,15 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       next,
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
-      numbers: notebookNumbers(nb, active.map((o) => ({ ...o, page: notebookOptionPath(nb.id, o.id) }))),
+      numbers,
       ...changesViews(nb, v.options, history, summary, next),
+      // With a lead number on the page (numbers.lead), the strip doesn't say the best again.
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
-        rank.by === 'score'
+        ...(numbers.lead ? [] : [rank.by === 'score'
           ? { label: `best ${(rank.field?.label ?? 'fit').toLowerCase()}`, value: best?.score !== undefined ? best.score.toLocaleString('en-US') : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) }
           : { label: `best ${better === 'higher' ? (priceF?.label ?? 'pay').toLowerCase() : (priceF?.label ?? 'price').toLowerCase()}`, value: best ? money(priceF, best.price) : '—', ...(best ? { sub: best.name.split(' ').slice(0, 3).join(' ') } : {}) },
+        ]),
         { label: 'furthest along', value: furthest || '—' },
         { label: 'ruled out', value: String(v.ruledOutCount), ...(v.ruledOutCount ? { tone: 'warn' } : {}) },
       ],
@@ -771,6 +782,8 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     answered: !!nb.answer?.text,
     planned: !!nb.plan?.items.length,
     written: !!nb.answer?.text || !!nb.plan?.items.length,
+    numbers: !!leadFieldOf(nb),
+    bars: !!leadFieldOf(nb) && !(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
   };
 }
 
@@ -788,6 +801,7 @@ export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<Noteboo
     ...(handStagesHidden(nb) ? { stageChips: false } : {}),
     ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}),
     ...(nb.status === 'decided' ? { onlyChosen: true } : {}),
+    ...(leadFieldOf(nb) ? { leadField: leadFieldOf(nb)!.key, leadLabel: leadFieldOf(nb)!.label } : {}),
   };
 }
 

@@ -34,6 +34,8 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   answered: 'It has a written answer (a write step that answers its question).',
   planned: 'It has a written plan (a write step that makes its plan).',
   written: 'It has a written answer or plan: its parts (/notebook/section/<key>) are there to place.',
+  numbers: 'It has a money or number field its options can be led, barred and compared by (/notebook/numbers/lead, layout leadField).',
+  bars: 'It has numbers but no map (no price and measure both): bars by the deciding field stand in for the map.',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -48,6 +50,8 @@ export const NOTEBOOK_LAYOUT_VALUES = {
   csvHref: 'The shortlist CSV link.',
   stageChips: 'false when its steps say how far each got (no stage chips).',
   onlyChosen: 'true once decided: show the chosen ones first.',
+  leadField: 'The deciding field\'s key (the score, else the price, else the first money or number field): what Bars and Compare go by.',
+  leadLabel: 'The deciding field\'s label ("Price", "APY").',
 } as const;
 export type NotebookLayoutValueKey = keyof typeof NOTEBOOK_LAYOUT_VALUES;
 
@@ -84,15 +88,24 @@ const answerSectionsPart = (id: string, of: 'answer' | 'plan' = 'answer'): ViewC
  * the timeline, coverage beside the limits. For choosing among many options.
  */
 const SHORTLIST: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['top', 'mid', 'shortlist_panel', 'low', 'ctx'] },
-  { id: 'top', component: 'Columns', children: ['story', 'steps_panel'], widths: [2, 1] },
+  { id: 'root', component: 'Column', children: ['top', 'mid', 'shortlist_panel', 'head_p', 'low', 'ctx'] },
+  { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1] },
   { id: 'story', component: 'Column', children: ['callout', 'stats'] },
+  // The rail: done-when, then the one number that matters (and how many have one), so it runs as long as the story beside it.
+  { id: 'rail', component: 'Column', children: ['steps_panel', 'leads'] },
   { id: 'callout', component: 'Callout', label: 'Where it stands', text: { path: '/notebook/summary' }, next: { path: '/notebook/next' } },
+  // The one number that matters, set large: the best by the deciding field, and how many have one.
+  { id: 'leads', component: 'Columns', children: ['lead_best', 'lead_count'], widths: [1, 1], when: 'numbers' },
+  { id: 'lead_best', component: 'Lead', stat: { path: '/notebook/numbers/lead/best' } },
+  { id: 'lead_count', component: 'Lead', stat: { path: '/notebook/numbers/lead/count' } },
   { id: 'stats', component: 'StatStrip', items: { path: '/notebook/statItems' } },
   panel('steps_panel', 'Done when', 'steps'),
   { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
-  { id: 'mid', component: 'Columns', children: ['map_panel', 'funnel_panel'], widths: [2, 1] },
+  { id: 'mid', component: 'Columns', children: ['map_panel', 'bars_p', 'funnel_panel'], widths: [2, 2, 1] },
   { ...panel('map_panel', 'Where they sit', 'map', L('mapNote')), when: 'map' },
+  // No map (no price and measure both): the options as bars by the deciding field instead.
+  { ...panel('bars_p', 'Side by side', 'bars', L('leadLabel')), when: 'bars' },
+  { id: 'bars', component: 'Bars', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, by: L('leadField'), top: 8 },
   {
     id: 'map', component: 'Scatter', points: { path: '/notebook/options' }, x: 'measure', y: 'price', label: 'name', href: 'page',
     xLabel: L('xLabel'), yLabel: L('yLabel'), xFormat: L('xFormat'), yFormat: L('yFormat'),
@@ -106,6 +119,9 @@ const SHORTLIST: ViewComponent[] = [
     id: 'shortlist', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
     layout: 'grid', sort: L('sort'), actions: true, filters: L('filters'), stageChips: L('stageChips'), csvHref: L('csvHref'), onlyChosen: L('onlyChosen'),
   },
+  // The top three by the deciding field, their facts ruled line by line.
+  { ...panel('head_p', 'Head to head', 'head', 'the top three'), treatment: 'feature', when: 'numbers' },
+  { id: 'head', component: 'Compare', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, by: L('leadField'), top: 3 },
   { id: 'low', component: 'Columns', children: ['check_panel', 'time_panel'], widths: [1, 2], align: 'start' },
   panel('check_panel', 'Before you decide', 'checklist', 'for the top two'),
   { id: 'checklist', component: 'Checklist', groups: { path: '/notebook/checklist' }, actions: true },
@@ -225,12 +241,12 @@ const COMPANY: ViewComponent[] = [
  * found as a table, and the research folded at the end.
  */
 const ANSWER: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'top', 'evidence_p', 'more'] },
+  { id: 'root', component: 'Column', children: ['header', 'top', 'sections_p', 'findings_p', 'evidence_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Answer', steps: 'fold', cover: 'none' },
-  { id: 'top', component: 'Columns', children: ['answer_col', 'steps_panel'], widths: [2, 1], align: 'start' },
-  { id: 'answer_col', component: 'Column', children: ['answer', 'sections_p', 'findings_p'] },
+  { id: 'top', component: 'Columns', children: ['answer', 'steps_panel'], widths: [2, 1], align: 'start' },
   { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
-  ...answerSectionsPart('sections_p'),
+  // The parts it was asked for lead the page, full width: a rubric as ruled rows, a diagram large.
+  ...answerSectionsPart('sections_p').map((c) => (c.id === 'sections_p' ? { ...c, hero: true } : { ...c, rubric: 'auto' })),
   { ...panel('findings_p', 'What it rests on', 'findings'), treatment: 'feature', when: 'answered' },
   {
     id: 'findings', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
@@ -257,13 +273,13 @@ const ANSWER: ViewComponent[] = [
  * it draws on (the places and things found) and the research, folded.
  */
 const PLAN: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'top', 'found_p', 'more'] },
+  { id: 'root', component: 'Column', children: ['header', 'top', 'days_p', 'plan_sections_p', 'found_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Plan', steps: 'fold', cover: 'none' },
-  { id: 'top', component: 'Columns', children: ['plan_col', 'steps_panel'], widths: [2, 1], align: 'start' },
-  { id: 'plan_col', component: 'Column', children: ['intro', 'days_p', 'plan_sections_p'] },
+  { id: 'top', component: 'Columns', children: ['intro', 'steps_panel'], widths: [2, 1], align: 'start' },
   { id: 'intro', component: 'Callout', label: { path: '/notebook/planIntro/label' }, text: { path: '/notebook/planIntro/text' }, next: { path: '/notebook/planIntro/next' }, image: { path: '/notebook/planIntro/cover' } },
-  { ...panel('days_p', 'Day by day', 'days'), treatment: 'feature', when: 'planned' },
-  ...answerSectionsPart('plan_sections_p', 'plan'),
+  // The plan day by day leads the page, full width; its other parts after it.
+  { ...panel('days_p', 'Day by day', 'days'), treatment: 'feature', hero: true, when: 'planned' },
+  ...answerSectionsPart('plan_sections_p', 'plan').map((c) => (c.component === 'AnswerSections' ? { ...c, rubric: 'auto' } : c)),
   { id: 'days', component: 'Itinerary', title: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },
   panel('steps_panel', 'Done when', 'steps'),
   { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
@@ -288,8 +304,11 @@ const WATCH: ViewComponent[] = [
   { id: 'root', component: 'Column', children: ['header', 'top', 'all_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Watch', steps: 'fold', cover: 'none' },
   { id: 'top', component: 'Columns', children: ['changes_col', 'steps_panel'], widths: [2, 1], align: 'start' },
-  { id: 'changes_col', component: 'Column', children: ['intro', 'changes_p'] },
+  { id: 'changes_col', component: 'Column', children: ['intro_row', 'changes_p'] },
+  // What changed, beside the one number a watch is about: the lowest (or best) now.
+  { id: 'intro_row', component: 'Columns', children: ['intro', 'lead_low'], widths: [2, 1], align: 'start' },
   { id: 'intro', component: 'Callout', label: { path: '/notebook/changesIntro/label' }, text: { path: '/notebook/changesIntro/text' }, next: { path: '/notebook/changesIntro/next' } },
+  { id: 'lead_low', component: 'Lead', stat: { path: '/notebook/numbers/lead/best' }, when: 'numbers' },
   { ...panel('changes_p', 'What changed', 'changes'), treatment: 'feature', when: 'options' },
   { id: 'changes', component: 'Changes', items: { path: '/notebook/changes' }, empty: 'Nothing changed since the search before.' },
   panel('steps_panel', 'Done when', 'steps'),
@@ -501,6 +520,15 @@ function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data:
  * rubric, the steps), just after the answer: pages drawn before answers had
  * them get the panel, once. A page that already has it is left as it is.
  */
+/**
+ * Whether a table reads as a rubric (If… / Then… / Why): 2 or 3 columns, the
+ * first a condition. For `rubric: "auto"` on AnswerSections and Figure; the
+ * client (assets/a2ui-sua.js) has the same test.
+ */
+export function looksLikeRubric(columns: readonly unknown[]): boolean {
+  return columns.length >= 2 && columns.length <= 3 && typeof columns[0] === 'string' && /^(if|when|need|you|your)\b/i.test(columns[0].trim());
+}
+
 export function withAnswerSections(given: readonly ViewComponent[]): ViewComponent[] {
   const bound = (v: unknown, path: string) => (v as { path?: unknown } | undefined)?.path === path;
   const isAnswer = (c: ViewComponent) => c.component === 'Callout' && bound(c.text, '/notebook/answer/text');
@@ -710,7 +738,7 @@ const SAMPLE_FLAGS = Object.fromEntries(Object.keys(NOTEBOOK_LAYOUT_FLAGS).map((
 const SAMPLE_VALUES: Record<NotebookLayoutValueKey, unknown> = {
   mapNote: 'price by measure', xLabel: 'Measure', yLabel: 'Price', xFormat: 'number', yFormat: 'money',
   xBetter: 'higher', yBetter: 'lower', sort: 'price', filters: ['added'], csvHref: '/notebooks/x/shortlist.csv',
-  stageChips: false, onlyChosen: true,
+  stageChips: false, onlyChosen: true, leadField: 'price', leadLabel: 'Price',
 };
 
 /**
@@ -801,6 +829,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/planSections': 'The parts a plan was asked for besides its days: a cost table, how the budget splits, steps to get ready (AnswerSections).',
   '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections). Each has a `key`; an AnswerSections with `only: ["key"]` draws just those, in that order, and one with `rest: true` draws the ones no other part of the page places.',
   '/notebook/numbers': 'The notebook\'s numbers by field key, worked out from the options in the running: /notebook/numbers/<field>/best (the best by that field\'s better way), /high, /low and /count, each {value, label, note, href?} (Lead stat). Only money and number fields.',
+  '/notebook/numbers/lead': 'The deciding field\'s numbers ({best, high, low, count}: the same as /notebook/numbers/<leadField>): a fixed path for a page that can\'t know the field\'s key (the ready-made shortlist and watch).',
   '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out. A diagram with what-ifs (the written part says "whatIf") draws its own sliders; nothing to add.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',

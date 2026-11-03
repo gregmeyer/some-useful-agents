@@ -1445,7 +1445,9 @@ const sectionRefs = (it) => {
   const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
   return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
 };
-/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph. */
+/** A table that reads as a rubric: 2–3 columns, the first a condition (core looksLikeRubric). */
+const looksLikeRubric = (cols) => cols.length >= 2 && cols.length <= 3 && typeof cols[0] === 'string' && /^(if|when|need|you|your)\b/i.test(cols[0].trim());
+/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. */
 function drawPart(x, { rubric = false, host } = {}) {
   const refs = sectionRefs;
   if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
@@ -1453,7 +1455,7 @@ function drawPart(x, { rubric = false, host } = {}) {
     const cols = Array.isArray(x.columns) ? x.columns : [];
     const every = Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing;
     // A rubric: each row reads "if… → then…", with why beneath; the first column is the condition.
-    if (rubric && cols.length >= 2) {
+    if ((rubric === true || (rubric === 'auto' && looksLikeRubric(cols))) && cols.length >= 2) {
       return html`<div class="rubric">${(x.rows ?? []).map((r) => html`<div class="r"><div class="if">${boldParts(r.cells?.[0] ?? '')}</div><div class="then">${boldParts(r.cells?.[1] ?? '')}</div>${cols.length > 2 && (r.cells ?? []).slice(2).some(Boolean) ? html`<div class="why">${(r.cells ?? []).slice(2).filter(Boolean).map((c, i) => html`${i ? ' · ' : ''}${boldParts(c)}`)}</div>` : nothing}${refs(r)}</div>`)}</div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
     }
     return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
@@ -1463,7 +1465,7 @@ function drawPart(x, { rubric = false, host } = {}) {
 }
 
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
-  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.boolean().optional() }).strict(),
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
   sectionStyles,
   function (p) {
     const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
@@ -1474,21 +1476,21 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     // One part on its own: the panel around it says its title.
     const untitled = !!only && only.length === 1;
     if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
-    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: !!p.rubric, host: this })}</section>`)}</div>`;
+    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}</section>`)}</div>`;
   });
 
 // One written part (/notebook/section/<key>) on its own, drawn large when it
 // is the page's hero: a ladder with tall bars, a split as a wide band, a rubric
 // as ruled rows. Its title comes from the Panel around it.
 const Figure = define('Figure', 'sua-a2ui-figure',
-  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.boolean().optional() }).strict(),
+  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
   sectionStyles,
   function (p) {
     const x = p.section && typeof p.section === 'object' && typeof p.section.kind === 'string' ? p.section : undefined;
     if (!x) return nothing;
     const big = (p.size ?? 'inline') === 'hero';
     const cap = typeof p.caption === 'string' && p.caption ? p.caption : undefined;
-    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: !!p.rubric, host: this })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
+    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
   });
 
 // The one number that matters, set large: a stat {value, label, note?, href?,

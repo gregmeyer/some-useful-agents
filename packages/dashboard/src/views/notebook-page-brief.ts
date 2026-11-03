@@ -10,7 +10,7 @@
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
-import { notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent } from '@some-useful-agents/core';
+import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -100,7 +100,8 @@ function briefNumber(v: unknown): number | undefined {
 }
 
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. */
-function briefPart(x: BriefSection, rubric: boolean): SafeHtml {
+function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtml {
+  const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
   const from = (y: unknown) => list((y as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
   if (x.kind === 'steps') {
     return html`<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${from(it).length ? html` <span class="fine">(${from(it).join(', ')})</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
@@ -252,13 +253,13 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const skip = Array.isArray(c.skip) ? c.skip as unknown[] : [];
       const secs = only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key));
       const untitled = !!only && only.length === 1;
-      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === true)}</section>`) as unknown as SafeHtml[]}`;
+      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true)}</section>`) as unknown as SafeHtml[]}`;
     }
     case 'Figure': {
       const x = v('section') as BriefSection | undefined;
       if (!x || typeof x !== 'object' || !text(x.kind)) return html``;
       const cap = text(v('caption'));
-      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === true)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
+      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
     }
     case 'Lead': {
       const st = (v('stat') ?? {}) as { value?: unknown; label?: unknown; note?: unknown; href?: unknown };
