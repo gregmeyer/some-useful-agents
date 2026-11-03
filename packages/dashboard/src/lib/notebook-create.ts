@@ -102,19 +102,19 @@ export function rerunSetup(nb: Notebook): NewNotebookSetup {
 /**
  * Run a notebook again as a new one: a fresh notebook with its setup and
  * none of its content, each noting the other, the old one archived (its
- * options, notes, answer and history stay there; Restore brings it back),
- * and the new one's first step started. No template is made.
+ * options, notes, answer and history stay there; Restore brings it back;
+ * one already archived stays so), and the new one's first step started.
+ * No template is made.
  */
 export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Notebook; started: boolean; reason?: string } {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const old = store.get(notebookId);
   if (!old) throw new Error('No such notebook.');
-  if (old.archivedAt) throw new Error('It\'s archived. Restore it first, then run it again.');
   const made = createNotebookFrom(ctx, rerunSetup(old));
   const link = (n: Notebook) => `[${n.title}](/notebooks/${encodeURIComponent(n.id)})`;
   store.addEntry(made.id, { kind: 'note', title: 'Started again', body: `Started again from ${link(old)}, with its setup and none of what it found. The old one is archived.`, by: 'you' });
-  store.addEntry(old.id, { kind: 'note', title: 'Run again', body: `Run again as ${link(made)}; this one is archived.`, by: 'you' });
-  store.archive(old.id);
+  store.addEntry(old.id, { kind: 'note', title: 'Run again', body: `Run again as ${link(made)}; this one ${old.archivedAt ? 'stays' : 'is'} archived.`, by: 'you' });
+  if (!old.archivedAt) store.archive(old.id);
   const fresh = store.get(made.id)!;
   if (!fresh.fields.length || !fresh.steps?.length) return { notebook: fresh, started: false, reason: fresh.steps?.length ? 'sua is still setting it up; start its first step from the page once it has.' : 'It has no steps; start a search from its page.' };
   const out = startNotebookStep(ctx, made.id);
