@@ -4,7 +4,7 @@
  * about who it's about, what it wrote, its options with their facts and
  * sources, and its notes. Text for a model, JSON for code. Pure.
  */
-import { answerSectionLines, fieldNumber, openConflicts, rankBy, type Notebook, type NotebookAboutOne, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from './notebooks.js';
+import { answerSectionLines, fieldNumber, openConflicts, rankBy, writesUp, type Notebook, type NotebookAboutOne, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from './notebooks.js';
 import { formatFieldValue } from './notebook-field-format.js';
 
 export const NOTEBOOK_READ_PARTS = ['all', 'about', 'written', 'options', 'notes'] as const;
@@ -121,7 +121,7 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
         lines: answerSectionLines(x).filter((t) => !struck.has(t)),
       })).filter((x) => x.lines.length);
       // A shortlist written up is kept as the answer (ADR-0069); it reads as the write-up.
-      const writeup = !!nb.steps?.some((s) => s.kind === 'write' && s.shape === 'writeup') && !nb.steps?.some((s) => s.kind === 'write' && s.shape === 'answer');
+      const writeup = writesUp(nb);
       out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}), ...(writeup ? { writeup: true } : {}) };
     }
     const b = nb.briefing;

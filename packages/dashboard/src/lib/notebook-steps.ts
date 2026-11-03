@@ -12,7 +12,7 @@
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, notebookViewData, rankOptions, sourceJobs, stepProgress, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, checksLeft, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { swapTalkingPoint, writeBriefing } from './notebook-write.js';
@@ -904,7 +904,7 @@ export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookI
   const nb = store.get(notebookId);
   if (!nb || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
   // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
-  const writeup = !!nb.steps?.some((s) => s.kind === 'write' && s.shape === 'writeup') && !nb.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'));
+  const writeup = writesUp(nb);
   if (writeup && !nb.layout) return;
   const was = JSON.stringify(nb.layout ?? null);
   // A ready-made page you picked is composed around what was written but keeps its kind.

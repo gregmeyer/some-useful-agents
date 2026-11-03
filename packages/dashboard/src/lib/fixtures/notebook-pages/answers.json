@@ -10,6 +10,11 @@
       "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing a few roles to apply to\"}\n</page>"
     ]
   },
+  "job-writeup": {
+    "replies": [
+      "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist written up: the lay of the land leads, the write-up after the head-to-head\"}\n</page>"
+    ]
+  },
   "accounts": {
     "replies": [
       "<page>\n{\"preset\": \"shortlist\", \"about\": \"a shortlist: choosing among many\"}\n</page>"

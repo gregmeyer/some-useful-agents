@@ -19,6 +19,9 @@ describe('a look drawn small', () => {
     expect(shortlist).toContain('lk-g--lead');
     expect(shortlist).toContain('lk-g--bars');
     expect(shortlist).toContain('lk-g--compare');
+    // Written up: its lay of the land and the write-up's parts (what it rests on is past the five rows a thumbnail shows).
+    expect(shortlist).toContain('lk-g--callout');
+    expect(shortlist).toContain('lk-g--table');
     const answer = render(lookThumb(layoutPreset('answer')!.layout.components));
     expect(answer).toContain('lk-part--hero');
     expect(render(lookThumb([{ id: 'root', component: 'Column', children: ['f'] }, { id: 'f', component: 'Figure', section: { path: '/notebook/section/x' } }]))).toContain('lk-g--figure');

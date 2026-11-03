@@ -3671,6 +3671,15 @@ export function notebookGivenLinks(nb: Pick<Notebook, 'statement' | 'params' | '
   return [...new Set(urls)];
 }
 
+/**
+ * A shortlist that gets written up: its write step has shape writeup and
+ * none has shape answer or plan (a notebook has one answer, ADR-0069).
+ */
+export function writesUp(nb: Pick<Notebook, 'steps'>): boolean {
+  const steps = nb.steps ?? [];
+  return steps.some((s) => s.kind === 'write' && s.shape === 'writeup') && !steps.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'));
+}
+
 /** Whether a notebook prepares for a meeting: the meeting briefing page, or a write step that writes talking points. */
 export function isMeetingNotebook(nb: Pick<Notebook, 'layout' | 'steps' | 'meeting'>): boolean {
   return !!nb.meeting || nb.layout?.preset === 'dossier' || !!nb.steps?.some((s) => s.kind === 'write' && !s.shape);
