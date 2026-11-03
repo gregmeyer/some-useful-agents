@@ -809,17 +809,17 @@ export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: un
 }
 
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
-function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown): ReturnType<typeof splitNotebookHeader> {
+function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
   const layout = notebookLayoutOf(nb);
-  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), emptyPartsGo(layout, data)));
+  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}) }));
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
-export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): unknown[] | undefined {
+export function notebookWidgetMessages(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, opts: { /** A step is running: empty parts keep their place as skeletons. */ pending?: boolean } = {}): unknown[] | undefined {
   // The shortlist needs fields and options; a page drawn for this notebook shows what it has.
   if (!nb.layout && (nb.fields.length === 0 || !entries.some((e) => e.kind === 'option'))) return undefined;
   const data = notebookWidgetData(nb, entries, history);
-  const v = validateViewComponents(resolvedPage(nb, entries, data).rest);
+  const v = validateViewComponents(resolvedPage(nb, entries, data, opts.pending === true).rest);
   if (!v.ok) return undefined;
   return viewToMessages(`notebook-${nb.id}`, v.components, data);
 }

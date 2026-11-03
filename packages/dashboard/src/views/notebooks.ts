@@ -702,14 +702,14 @@ function entryCard(nb: Notebook, e: NotebookEntry, v?: NotebookViewOption): Safe
     </li>`;
 }
 
-function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): SafeHtml {
+function surfaceColumn(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false): SafeHtml {
   const note = settingUp
     ? html`<p class="nb-setup" role="status"><span class="working__spin" aria-hidden="true"></span>sua is setting up this notebook: what each option records, the stages they go through, and a page that fits what it's for. This page updates when it's done.</p>`
     : html``;
-  return html`${note}${surfaceColumnBody(nb, compiled, entries, history)}`;
+  return html`${note}${surfaceColumnBody(nb, compiled, entries, history, running)}`;
 }
 
-function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory): SafeHtml {
+function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, running = false): SafeHtml {
   const byId = new Map(entries.map((e) => [`nbentry:${e.id}`, e]));
   const views = new Map(notebookViewData(nb, entries, history).notebook.options.map((o) => [o.id, o]));
   const canPhoto = nb.fields.some((f) => f.role === 'image' || f.role === 'link') || entries.some((e) => e.kind === 'option' && optionLink(nb.fields, e.data));
@@ -729,7 +729,8 @@ function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: Not
   const out = (id: string) => (byId.get(id)?.ruledOut ? 1 : 0);
   // With fields, options are drawn as widgets (summary, stats, funnel, map,
   // shortlist); the cards stay for notes, evidence and notebooks without fields.
-  const widgets = notebookWidgetMessages(nb, entries, history);
+  // While a step runs, a part with nothing yet keeps its place as a skeleton.
+  const widgets = notebookWidgetMessages(nb, entries, history, { pending: running });
   if (widgets) {
     // The widgets tell the whole story (the timeline has the notes and decisions): no second list.
     const rest: typeof regions = [];
@@ -1172,17 +1173,17 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
-    ${args.running || args.busy?.length ? unsafeHtml('<script>setTimeout(function () { if (!document.querySelector("textarea:focus, input:focus")) location.reload(); }, 6000);</script>') : html``}
+    
     <div class="nb-body">
-      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp)}</div>
+      <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk)}</aside>
     </div>
   `));
 }
 
 /** The notebook's sections alone (GET /notebooks/:id/main), for live updates. */
-export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false): string {
-  return render(surfaceColumn(nb, compiled, entries, history, settingUp));
+export function renderNotebookMain(nb: Notebook, compiled: CompiledSurface, entries: NotebookEntry[], history?: NotebookViewHistory, settingUp = false, running = false): string {
+  return render(surfaceColumn(nb, compiled, entries, history, settingUp, running));
 }
 
 /** A notebook on the list page: its cover picture and what it holds. */

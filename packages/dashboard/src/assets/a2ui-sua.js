@@ -768,7 +768,7 @@ const Columns = define('Columns', 'sua-a2ui-columns',
 // plain is a frame; lede, feature and aside are unframed and set apart by
 // type and rules; band is a full-width tinted strip.
 const Panel = define('Panel', 'sua-a2ui-panel',
-  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), hero: z.boolean().optional() }).strict(),
+  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), hero: z.boolean().optional(), pending: z.boolean().optional() }).strict(),
   css`
     :host { display: block; min-width: 0; height: 100%; }
     /* hero: the one part a composed page leads with; its title in display type. */
@@ -787,8 +787,12 @@ const Panel = define('Panel', 'sua-a2ui-panel',
     .band h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
     /* hero: the one part a composed page leads with; its title in display type, whatever its treatment. */
     .frame.hero h3 { font: 700 var(--font-size-2xl, 28px)/1.15 var(--font-display, var(--font-mono)); letter-spacing: -.01em; text-transform: none; color: var(--color-text); }
-    .frame.hero .head { margin-bottom: var(--space-4, 16px); }`,
-  function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''} ${p.hero ? 'hero' : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
+    .frame.hero .head { margin-bottom: var(--space-4, 16px); }
+    /* pending: a step is running and this part has nothing yet; its title and grey rules hold its place. No motion. */
+    .skel { display: grid; gap: 10px; padding: 4px 0; }
+    .skel i { display: block; height: 10px; border-radius: 4px; background: var(--color-surface-raised); }
+    .skel i:nth-child(1) { width: 88%; } .skel i:nth-child(2) { width: 64%; } .skel i:nth-child(3) { width: 42%; }`,
+  function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''} ${p.hero ? 'hero' : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${p.pending ? html`<div class="skel" role="status" aria-busy="true" aria-label="Not yet"><i></i><i></i><i></i></div>` : this.renderNode(p.child)}</section>`; });
 
 // **bold** only; everything else escaped (same rule as Text's markdown).
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
@@ -1853,12 +1857,32 @@ export function mountSurface(host) {
   });
   const el = document.createElement('a2ui-surface');
   processor.onSurfaceCreated((s) => { el.surface = s; });
+  // Its components as sent (before the processor works on them), so the same surface can take new data in place (updateSurface).
+  const components = componentsKey(messages);
   try { processor.processMessages(messages); }
   catch (e) {
     host.insertAdjacentHTML('beforeend', `<p class="flash flash--error">This widget couldn't be drawn: ${esc(e.message)}</p>`);
     return;
   }
   host.appendChild(el);
+  host._a2ui = { processor, components };
+}
+
+const componentsKey = (messages) => JSON.stringify((Array.isArray(messages) ? messages : []).filter((m) => m && m.updateComponents).map((m) => m.updateComponents.components));
+
+/**
+ * New messages for a mounted surface whose components haven't changed: only
+ * its data model is sent again, so every element stays where it is (a figure
+ * you moved keeps its what-if, nothing jumps). False when the components
+ * differ or the host isn't mounted; the caller redraws the whole thing then.
+ */
+export function updateSurface(host, messages) {
+  const kept = host?._a2ui;
+  if (!kept || !Array.isArray(messages) || componentsKey(messages) !== kept.components) return false;
+  const data = messages.filter((m) => m && m.updateDataModel);
+  if (!data.length) return false;
+  try { kept.processor.processMessages(data); return true; }
+  catch { return false; }
 }
 
 export function mountSurfaces(root = document) {
@@ -1868,4 +1892,4 @@ export function mountSurfaces(root = document) {
 mountSurfaces();
 // Surfaces added later (a chat reply re-rendered from source) mount themselves.
 new MutationObserver(() => mountSurfaces()).observe(document.body, { childList: true, subtree: true });
-window.suaA2ui = { mountSurfaces, suaCatalog };
+window.suaA2ui = { mountSurfaces, updateSurface, suaCatalog };

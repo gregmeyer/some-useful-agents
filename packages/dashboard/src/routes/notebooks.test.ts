@@ -346,14 +346,16 @@ describe('filing into a notebook of organizations', () => {
     expect(html).toMatch(/data-working-since="\d{4}-\d\d-\d\dT/);
     // Scrolled past it, a pinned line keeps it in view (hidden until then).
     expect(html).toContain('data-nb-live-pin hidden');
-    expect(html).toContain('location.reload()');
+    // The page says something is running; its script redraws the working panel in place (no reload).
+    expect(html).toContain('data-nb-running="1"');
+    expect(html).not.toContain('location.reload(); }, 6000)');
 
-    // Only background work: still says so, and still reloads.
+    // Only background work: still says so.
     ctx.notebookPipelines.delete(nb.id);
     html = await page();
     expect(html).toContain('<p class="working__title">Finding photos…</p>');
     expect(html).not.toContain('data-working-since');
-    expect(html).toContain('location.reload()');
+    expect(html).toContain('data-nb-running="1"');
     ctx.notebookPictures.delete(nb.id);
   });
 

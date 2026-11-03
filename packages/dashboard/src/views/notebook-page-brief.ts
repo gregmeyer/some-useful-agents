@@ -136,6 +136,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${String(n)}fr)`).join(' ')}">${ks.map((k, i) => html`<div style="--w: ${String(w[i])}">${node(p, k)}</div>`) as unknown as SafeHtml[]}</div>`;
     }
     case 'Panel': {
+      if (c.pending === true) return html``;
       const t = text(c.treatment) || 'plain';
       return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${node(p, c.child as string)}</section>`;
     }

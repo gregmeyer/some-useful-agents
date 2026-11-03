@@ -288,3 +288,39 @@ describe('the hero of a composed page', () => {
     expect(notebookLayoutGuide([]).includes('/notebook/numbers')).toBe(true);
   });
 });
+
+describe('parts filling in while a step runs', () => {
+  const section = (key: string, title: string) => ({ key, title, kind: 'text', body: 'x' });
+  const page: ViewComponent[] = [
+    { id: 'root', component: 'Column', children: ['row', 'rest_p'] },
+    { id: 'row', component: 'Row', children: ['hero_p', 'side_p'], widths: [2, 1] },
+    { id: 'hero_p', component: 'Panel', title: 'The ladder', child: 'hero', treatment: 'feature', when: 'written' },
+    { id: 'hero', component: 'Figure', section: { path: '/notebook/section/ladder' }, size: 'hero' },
+    { id: 'side_p', component: 'Panel', title: 'What it rests on', child: 'side', treatment: 'aside' },
+    { id: 'side', component: 'Agenda', points: { path: '/notebook/findings' } },
+    { id: 'rest_p', component: 'Panel', title: 'Also written', child: 'rest', treatment: 'aside', when: 'written' },
+    { id: 'rest', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, rest: true },
+  ];
+  const data = { notebook: { answerSections: [section('rubric', 'The rubric')], section: { rubric: section('rubric', 'The rubric') }, findings: [] } };
+
+  it('keeps an empty Panel as a skeleton (pending) in its place, so the row keeps its shape', () => {
+    // Not running: the empty parts go, and the row narrows to what is left.
+    const gone = resolveNotebookLayout(page, { written: true }, {}, { data });
+    expect(gone.map((c) => c.id)).toEqual(['root', 'rest_p', 'rest']);
+    // Running: the ladder's Panel and the findings' Panel hold their places, marked pending, their children drawn with them.
+    const held = resolveNotebookLayout(page, { written: true }, {}, { data, pending: true });
+    expect(held.map((c) => c.id)).toEqual(['root', 'row', 'hero_p', 'hero', 'side_p', 'side', 'rest_p', 'rest']);
+    expect(held.find((c) => c.id === 'hero_p')).toMatchObject({ pending: true, treatment: 'feature' });
+    expect(held.find((c) => c.id === 'side_p')).toMatchObject({ pending: true });
+    expect(held.find((c) => c.id === 'row')).toMatchObject({ widths: [2, 1] });
+    // "Also written" has something, so it isn't pending; nothing else is marked.
+    expect(held.filter((c) => c.pending === true).map((c) => c.id)).toEqual(['hero_p', 'side_p']);
+  });
+
+  it('never holds a place for "the parts I didn\'t place" when everything is placed', () => {
+    const placed = { notebook: { answerSections: [section('ladder', 'The ladder')], section: { ladder: section('ladder', 'The ladder') }, findings: [{ text: 'f' }] } };
+    const held = resolveNotebookLayout(page, { written: true }, {}, { data: placed, pending: true });
+    expect(held.map((c) => c.id)).toEqual(['root', 'row', 'hero_p', 'hero', 'side_p', 'side']);
+    expect(held.some((c) => c.pending === true)).toBe(false);
+  });
+});

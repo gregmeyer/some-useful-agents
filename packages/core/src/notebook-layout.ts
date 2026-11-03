@@ -555,30 +555,40 @@ export function resolveNotebookLayout(
   components: readonly ViewComponent[],
   flags: Partial<Record<NotebookLayoutFlag, boolean>>,
   values: Partial<Record<NotebookLayoutValueKey, unknown>>,
-  opts: { data?: unknown } = {},
+  opts: { data?: unknown; /** A step is running: an empty Panel keeps its place as a skeleton (`pending`) instead of going, so the page's shape shows from the first minute. */ pending?: boolean } = {},
 ): ViewComponent[] {
   const all = withAnswerSections(components);
   const byId = new Map(all.map((c) => [c.id, c]));
   const placed = placedSectionKeys(all);
   const out = new Map<string, ViewComponent>();
-  const visit = (id: string): boolean => {
+  // A Panel kept as a skeleton while a step runs: empty by its data, but not "the parts I didn't place" (that one is rightly empty when everything is placed).
+  const skeleton = (c: ViewComponent): boolean => {
+    if (!opts.pending || c.component !== 'Panel' || typeof c.child !== 'string') return false;
+    const kid = byId.get(c.child);
+    return !(kid?.component === 'AnswerSections' && (kid.rest === true || Array.isArray(kid.skip)));
+  };
+  const visit = (id: string, lax = false): boolean => {
     const c = byId.get(id);
     if (!c || !whenHolds(c.when, flags)) return false;
-    if (opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) return false;
-    if (opts.data !== undefined && sectionPartEmpty(c, opts.data, placed)) return false;
+    let pending = false;
+    if (!lax && opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) { if (!skeleton(c)) return false; pending = true; }
+    if (!lax && !pending && opts.data !== undefined && sectionPartEmpty(c, opts.data, placed)) return false;
+    const kid = c.component === 'Panel' && typeof c.child === 'string' ? byId.get(c.child) : undefined;
+    if (!lax && !pending && opts.data !== undefined && kid && skeleton(c) && sectionPartEmpty(kid, opts.data, placed)) pending = true;
     const { when: _w, rest: wantsRest, ...rest } = c;
+    if (pending) rest.pending = true;
     // "The parts I didn't place": the written parts no other part of the page binds.
     if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) rest.skip = [...placed];
     const next = withWatch(capLength(resolveValues(rest, values) as ViewComponent));
     if (Array.isArray(c.children)) {
       const kids = c.children as string[];
-      const kept = kids.filter((k) => visit(k));
+      const kept = kids.filter((k) => visit(k, lax || pending));
       if (!kept.length && id !== 'root') return false;
       next.children = kept;
       if (Array.isArray(c.widths) && kept.length !== kids.length) {
         next.widths = kept.length === 1 ? [1] : kept.map((k) => (c.widths as number[])[kids.indexOf(k)] ?? 1);
       }
-    } else if (typeof c.child === 'string' && !visit(c.child)) {
+    } else if (typeof c.child === 'string' && !visit(c.child, lax || pending)) {
       return false;
     }
     // The header's side part: drawn if it holds, else the header goes without it.

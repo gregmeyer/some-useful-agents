@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunStore, NotebookStore, validateViewComponents } from '@some-useful-agents/core';
+import { RunStore, NotebookStore, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
 import { limitBands, limitChips, notebookWidgetData, notebookWidgetComponents, notebookWidgetMessages, defaultFilters } from './notebook-widgets.js';
 
 let dir: string;
@@ -95,6 +95,31 @@ describe('notebook widgets', () => {
     const car = notebookWidgetComponents({ fields: [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'miles', label: 'Miles', type: 'number', role: 'measure' }], stages: ['Found', 'Checked'] });
     expect(car.find((c) => c.id === 'top')).toMatchObject({ widths: [2, 1] });
     expect(car.find((c) => c.id === 'mid')).toMatchObject({ widths: [2, 1] });
+  });
+
+  it('holds an empty part\'s place as a skeleton while a step runs, and lets it go otherwise', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbw-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb0 = s.create({ title: 'Car', params: ['$3k-$6k budget'], criteria: ['clean title'] });
+    s.setFields(nb0.id, CAR);
+    s.upsertOption(nb0.id, { title: '2010 RAV4, Lynnwood', by: 'agent:x', data: { price: 4023, miles: 149652 } });
+    const entries = s.entries(nb0.id);
+    const nb = {
+      ...s.get(nb0.id)!,
+      layout: { about: 'a test', components: [
+        { id: 'root', component: 'Column', children: ['p', 'q'] },
+        { id: 'p', component: 'Panel', title: 'Findings', child: 'a', treatment: 'feature' },
+        { id: 'a', component: 'Agenda', points: { path: '/notebook/findings' } },
+        { id: 'q', component: 'Panel', title: 'Options', child: 'g' },
+        { id: 'g', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' } },
+      ] },
+    } as unknown as Notebook;
+    const parts = (m: unknown[] | undefined) => ((m?.[1] as { updateComponents: { components: ViewComponent[] } }).updateComponents.components);
+    expect(parts(notebookWidgetMessages(nb, entries)).map((c) => c.id)).toEqual(['root', 'q', 'g']);
+    const held = parts(notebookWidgetMessages(nb, entries, undefined, { pending: true }));
+    expect(held.map((c) => c.id)).toEqual(['root', 'p', 'a', 'q', 'g']);
+    expect(held.find((c) => c.id === 'p')).toMatchObject({ pending: true });
   });
 
   it('draws a notebook’s own A2UI layout, with its whens and settings worked out for it', () => {

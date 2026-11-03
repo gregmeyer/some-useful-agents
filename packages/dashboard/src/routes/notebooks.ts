@@ -1140,5 +1140,5 @@ notebooksRouter.get('/notebooks/:id/main', (req: Request, res: Response) => {
   const live = notebookLive(ctx, s.get(nb.id) ?? nb, running ? { step: running.step, of: running.of, startedAt: running.startedAt } : undefined, []);
   res.setHeader('X-Notebook-Live', encodeURIComponent(notebookLiveKey(live)));
   res.setHeader('X-Notebook-Waiting', live.talk?.state === 'waiting' ? encodeURIComponent(live.talk.kind === 'step' ? `Your step: ${live.talk.text}` : live.talk.text) : '');
-  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp));
+  res.type('html').send(renderNotebookMain(nb, compileSurface(surface.doc, notebookEntryItems(nb, entries)), entries, widgetHistory(ctx, s), settingUp, !!running));
 });
