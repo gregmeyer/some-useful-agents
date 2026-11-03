@@ -638,6 +638,14 @@ export function pageRhythm(components: readonly ViewComponent[]): string[] {
   if (framed.length > 3) out.push(`${String(framed.length)} parts are framed (plain); at most 3. Give the others a treatment: lede, feature, aside or band.`);
   const ledes = panels.filter((c) => c.treatment === 'lede');
   if (ledes.length > 1) out.push(`${String(ledes.length)} ledes (${ledes.map((c) => c.id).join(', ')}); a page has one.`);
+  // A page composed around written parts leads with one hero, full width.
+  const heroes = panels.filter((c) => c.hero === true);
+  const composed = components.some((c) => c.component === 'Figure' || (c.component === 'AnswerSections' && Array.isArray(c.only)));
+  if (heroes.length > 1) out.push(`${String(heroes.length)} heroes (${heroes.map((c) => c.id).join(', ')}); a page leads with one.`);
+  if (composed && !heroes.length) out.push('The page places written parts but none is the hero; mark the one that says the most ("hero": true on its Panel, full width, near the top).');
+  const rootKids = (byId.get('root')?.children as string[] | undefined) ?? [];
+  for (const h of heroes) if (!rootKids.includes(h.id)) out.push(`${h.id} is the hero but sits inside a row; a hero takes a full-width row of its own.`);
+  for (const h of heroes) if (h.treatment === 'aside' || h.treatment === 'band') out.push(`${h.id} is the hero as an ${h.treatment}; a hero is a lede or a feature.`);
   const holds = (id: unknown, seen = new Set<string>()): string | undefined => {
     const c = typeof id === 'string' ? byId.get(id) : undefined;
     if (!c || seen.has(c.id)) return undefined;
@@ -659,7 +667,7 @@ export function pageRhythm(components: readonly ViewComponent[]): string[] {
     return n.map((x) => String(x / g)).join(':');
   };
   // A short part beside a long one leaves a hole under the short one (a cover beside a long agenda).
-  const SHORT = new Set(['ProfileCard', 'Callout', 'StatStrip', 'ChipList', 'Metric', 'Badge', 'KeyValue', 'Text', 'Image', 'Link']);
+  const SHORT = new Set(['ProfileCard', 'Callout', 'StatStrip', 'ChipList', 'Metric', 'Badge', 'KeyValue', 'Text', 'Image', 'Link', 'Lead']);
   const kinds = (id: unknown, seen = new Set<string>()): Set<string> => {
     const c = typeof id === 'string' ? byId.get(id) : undefined;
     const out = new Set<string>();
@@ -782,6 +790,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/planIntro/cover': 'A small drawing of what the plan is for, beside it (Callout image).',
   '/notebook/planSections': 'The parts a plan was asked for besides its days: a cost table, how the budget splits, steps to get ready (AnswerSections).',
   '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections). Each has a `key`; an AnswerSections with `only: ["key"]` draws just those, in that order, and one with `rest: true` draws the ones no other part of the page places.',
+  '/notebook/numbers': 'The notebook\'s numbers by field key, worked out from the options in the running: /notebook/numbers/<field>/best (the best by that field\'s better way), /high, /low and /count, each {value, label, note, href?} (Lead stat). Only money and number fields.',
   '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
@@ -843,7 +852,9 @@ Rules:
 - Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. Never put a short part (a cover, a callout, a few stats) beside a long one (an agenda, quotes, a table): it leaves a hole. Pair a cover with the facts about them. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
 - Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
-- Once the notebook is written (its "written" part lists the answer's or plan's parts, each with a key, kind and size), compose the page around them: pick ONE hero (its diagram, its rubric table, or the answer itself) and give it the lede or a full-width feature near the top; place each other part where it reads best with an AnswerSections whose "only" names its key (one key: the Panel's title is the part's title); fold a long table (over 8 rows) in a Disclosure or put it low; and end the written parts with one AnswerSections with "rest": true, so a part written later still shows. The answer's Callout, "what it rests on" (findings, Agenda) and the evidence (OptionGrid) stay; keep the evidence and the research low or folded.
+- Once the notebook is written (its "written" part lists the answer's or plan's parts, each with a key, kind and size), compose the page around them: pick ONE hero (its diagram, its rubric table, or the answer itself) and give it a full-width Panel of its own near the top, "hero": true, treatment lede or feature, titled with the part's title, holding a Figure size "hero" bound to /notebook/section/<key> (rubric: true for an If/Then/Why table); place each other part where it reads best with an AnswerSections whose "only" names its key (one key: the Panel's title is the part's title; rubric: true for a table of decisions); fold a long table (over 8 rows) in a Disclosure or put it low; and end the written parts with one AnswerSections with "rest": true, so a part written later still shows. The answer's Callout, "what it rests on" (findings, Agenda) and the evidence (OptionGrid) stay; keep the evidence and the research low or folded.
+- Say it with a number or a drawing when one carries the point: a Lead for the one number that matters (/notebook/numbers/<field>/best when a money or number field decides it: the highest APY, the lowest price), Bars by that field when the options differ on it (by: its key), Compare for the top two or three; a Scatter takes any two numeric fields as fields.<key>. These draw from the options as they are now; never type a value in.
+- Page shapes, from the top: "hero + rail" (the hero full width, then a 2:1 row: the story beside the facts), "story + rail" (a feature column with asides beside it), or a "band" opener (a Lead or StatStrip row, then the story). Pick one; keep the rows below varied as above.
 - Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.
 - Use each component's props exactly as named above; a prop it doesn't have fails the whole page. "when" takes only the flags above.
 - Keep every id unique (short word characters), at most about 60 components.`;

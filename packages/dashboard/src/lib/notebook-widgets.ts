@@ -125,6 +125,44 @@ const fmtAge = (iso: string, now: number) => {
   return m < 60 ? `${String(m)}m ago` : m < 48 * 60 ? `${String(Math.round(m / 60))}h ago` : `${String(Math.round(m / 1440))}d ago`;
 };
 
+/** A number set large (Lead): its value as text, what it is, and a line on which option it is, linked. */
+export interface NotebookLeadStat { value: string; label: string; note?: string; href?: string; tone?: 'ok' | 'neutral' | 'warn' }
+
+/**
+ * The notebook's numbers, one set per money or number field, from the options
+ * in the running: the best by the field's better way (lower for a price,
+ * higher otherwise), the high, the low, and how many have it. A range counts
+ * as its midpoint. Pure.
+ */
+export function notebookNumbers(nb: Pick<Notebook, 'id' | 'fields'>, active: ReadonlyArray<NotebookViewOption & { page?: string }>): NotebookWidgetData['notebook']['numbers'] {
+  const out: NotebookWidgetData['notebook']['numbers'] = {};
+  const num = (v: unknown): number | undefined => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+    if (isRange(v)) return (v.min + v.max) / 2;
+    if (typeof v === 'string' && v.trim()) { const n = Number(v.replace(/[$,%\s]/g, '').replace(/[a-zA-Z]+$/, '')); return Number.isFinite(n) ? n : undefined; }
+    return undefined;
+  };
+  for (const f of nb.fields) {
+    if (f.type !== 'money' && f.type !== 'number') continue;
+    const rows = active.map((o) => ({ o, n: num(o.fields[f.key]), raw: o.fields[f.key] })).filter((r): r is typeof r & { n: number } => r.n !== undefined);
+    if (!rows.length) continue;
+    const lower = f.better === 'lower' || (!f.better && f.role === 'price');
+    const asc = [...rows].sort((a, b) => a.n - b.n);
+    const low = asc[0];
+    const high = asc[asc.length - 1];
+    const best = lower ? low : high;
+    const word = f.label.toLowerCase();
+    const stat = (r: typeof low, label: string): NotebookLeadStat => ({ value: formatFieldValue(f, r.raw), label, note: r.o.name, ...(r.o.page ? { href: r.o.page } : {}), tone: 'ok' });
+    out[f.key] = {
+      best: stat(best, `${lower ? 'Lowest' : 'Highest'} ${word}`),
+      high: stat(high, `Highest ${word}`),
+      low: stat(low, `Lowest ${word}`),
+      count: { value: String(rows.length), label: `with ${word}`, note: `of ${String(active.length)} in the running`, tone: 'neutral' },
+    };
+  }
+  return out;
+}
+
 export interface NotebookWidgetData extends NotebookViewData {
   notebook: Omit<NotebookViewData['notebook'], 'options'> & {
     /**
@@ -168,6 +206,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     planSections: NotebookWidgetData['notebook']['answerSections'];
     /** Each written part by its key (`/notebook/section/<key>`), an answer's and a plan's, for a page composed around them. */
     section: Record<string, NotebookWidgetData['notebook']['answerSections'][number]>;
+    /** The notebook's numbers by field key, from the options in the running: the best by the field's better way, the high, the low, the count (Lead stat). Money and number fields only. */
+    numbers: Record<string, { best: NotebookLeadStat; high: NotebookLeadStat; low: NotebookLeadStat; count: NotebookLeadStat }>;
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
     planIntro: { label: string; text: string; next?: string; cover?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
@@ -413,6 +453,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       next,
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
+      numbers: notebookNumbers(nb, active.map((o) => ({ ...o, page: notebookOptionPath(nb.id, o.id) }))),
       ...changesViews(nb, v.options, history, summary, next),
       statItems: [
         { label: 'in the running', value: String(active.length), tone: 'ok' },
