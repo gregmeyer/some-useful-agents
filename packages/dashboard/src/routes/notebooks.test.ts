@@ -5139,9 +5139,13 @@ describe('run a notebook again as a new notebook', () => {
     expect(old.archivedAt).toBeTruthy();
     expect(store.entries(nb.id).find((e) => e.title === 'Run again')!.body).toContain(`/notebooks/${newId}`);
     expect(store.entries(nb.id).some((e) => e.title === 'Marcus 12-month')).toBe(true);
-    expect((await get(app, `/notebooks/${nb.id}/edit`)).text).not.toContain('Run again as a new notebook…');
+    // Archived, it can still be run again (a fresh copy); it stays archived.
+    expect((await get(app, `/notebooks/${nb.id}/edit`)).text).toContain('this one stays archived');
     const again = await post(app, `/notebooks/${nb.id}/rerun`, {});
-    expect(decodeURIComponent(again.headers.location)).toContain("Couldn't run it again: It's archived. Restore it first");
+    const where2 = decodeURIComponent(again.headers.location);
+    expect(where2).toContain('Started again as a new notebook');
+    expect(store.get(nb.id)!.archivedAt).toBeTruthy();
+    expect(store.get(where2.split('/notebooks/')[1].split('?')[0])!.title).toBe(nb.title);
 
     // Said to sua: a card that does the same.
     const { accepted, rejected } = parseProposedActions([{ type: 'notebook-rerun', rationale: 'Start over', inputs: { NOTEBOOK: newId } }, { type: 'notebook-rerun', inputs: {} }], [], []);

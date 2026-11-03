@@ -871,15 +871,15 @@ function notebookMoreActions(nb: Notebook): SafeHtml {
           ? row(post('status', 'status', 'stopped', 'Stop'), 'Pause it: no more searches or steps. Everything stays, and you can reopen it.')
           : row(post('status', 'status', 'active', 'Reopen'), 'Make it active again, to keep searching and working through its steps.')}
         ${row(html`<a class="btn btn--sm nbe-manage__act" href="/notebooks/${id}/template">Save as a template…</a>`, 'Start new notebooks set up like this one, saying what changes each time (like who you\'re meeting).')}
-        ${nb.archivedAt ? html`` : html`<li class="nbe-manage__row">
+        <li class="nbe-manage__row">
           <details class="nbe-manage__delete">
-            <summary><span class="btn btn--sm nbe-manage__act">Run again as a new notebook…</span><span class="nbe-manage__what">A fresh notebook with the same setup and none of what this one found; this one is archived.</span></summary>
+            <summary><span class="btn btn--sm nbe-manage__act">Run again as a new notebook…</span><span class="nbe-manage__what">A fresh notebook with the same setup and none of what this one found; this one ${nb.archivedAt ? 'stays' : 'is'} archived.</span></summary>
             <form method="POST" action="/notebooks/${id}/rerun" class="nb-delete__form">
-              <p class="nb-delete__what">A new notebook with the same setup (what it's for, limits, done-whens, checks, steps, its page) starts its first step. This one is archived with its options, notes, answer and history; nothing is deleted. No template is made.</p>
+              <p class="nb-delete__what">A new notebook with the same setup (what it's for, limits, done-whens, checks, steps, its page) starts its first step. This one ${nb.archivedAt ? 'stays' : 'is'} archived with its options, notes, answer and history; nothing is deleted. No template is made.</p>
               <button type="submit" class="btn btn--sm btn--primary">Run it again</button>
             </form>
           </details>
-        </li>`}
+        </li>
         ${nb.archivedAt
           ? row(post('archive', 'archived', '0', 'Restore'), 'Show it again in your notebooks, Home and Today.')
           : row(post('archive', 'archived', '1', 'Archive'), 'Hide it from your notebooks, Home and Today, and stop its schedule. Nothing is deleted.')}
