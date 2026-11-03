@@ -176,9 +176,9 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Panel',
-    summary: 'A titled part of a page: a mono title, an optional note on the right, and its child. `treatment` sets how it reads: plain (a frame, the default), lede (no frame, a teal eyebrow: the opening part), feature (no frame, a rule above: the main story), aside (a hairline rule on its left: facts and context), band (full width, tinted: a strip).',
+    summary: 'A titled part of a page: a mono title, an optional note on the right, and its child. `treatment` sets how it reads: plain (a frame, the default), lede (no frame, a teal eyebrow: the opening part), feature (no frame, a rule above: the main story), aside (a hairline rule on its left: facts and context), band (full width, tinted: a strip). `hero: true` marks the one part a composed page leads with (its title set in display type); a page has at most one.',
     example: { id: 'p', component: 'Panel', title: 'Shortlist', note: 'ranked by price', child: 'p_body', treatment: 'plain' },
-    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional() }).strict(),
+    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), /** The one part a composed notebook page leads with: its title in display type. */ hero: z.boolean().optional() }).strict(),
   },
   {
     name: 'Callout',
@@ -302,7 +302,33 @@ const SUA_COMPONENTS = [
       rest: z.boolean().optional(),
       /** Every part but these, by key. */
       skip: z.array(Str).optional(),
+      /** Draw tables as ruled decision rows (if… → then…, why beneath) instead of a grid: for a rubric. */
+      rubric: z.boolean().optional(),
     }).strict(),
+  },
+  {
+    name: 'Figure',
+    summary: 'One written part on its own (`section`: /notebook/section/<key>, the same shape as an AnswerSections item), drawn large when `size` is "hero" (a ladder with tall bars, a split as a wide band, a rubric as ruled rows); `caption` under it; `rubric: true` for a table of decisions. Its title comes from the Panel around it.',
+    example: { id: 'fig', component: 'Figure', section: { path: '/notebook/section/one-way-to-ladder-25-000' }, size: 'hero' },
+    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.boolean().optional() }).strict(),
+  },
+  {
+    name: 'Lead',
+    summary: 'The one number that matters, set large in display type with a small label and a line under it: `stat` {value, label, note?, href?, tone?} from the notebook (/notebook/numbers/<field>/best, /high, /low, /count), or `value`, `label`, `note` given.',
+    example: { id: 'lead', component: 'Lead', stat: { path: '/notebook/numbers/apy/best' } },
+    schema: Common.extend({ stat: CS.DynamicValue.optional(), value: Str.optional(), label: Str.optional(), note: Str.optional(), tone: Tone.optional(), href: Str.optional() }).strict(),
+  },
+  {
+    name: 'Bars',
+    summary: 'Options as horizontal bars by one numeric field (`by`: a field key; APY by account, salary by role, price by listing), best first and marked, from `options` and `fields` (/notebook/options, /notebook/fields); `top` (default 8); ruled-out options left out.',
+    example: { id: 'bars', component: 'Bars', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, by: 'apy', top: 8 },
+    schema: Common.extend({ options: CS.DynamicValue, fields: CS.DynamicValue.optional(), by: z.string().min(1).max(64), top: z.number().int().min(2).max(20).optional(), label: z.string().max(64).optional(), empty: Str.optional() }).strict(),
+  },
+  {
+    name: 'Compare',
+    summary: 'Two or three options side by side, their facts ruled line by line: the `top` (default 2) as the notebook ranks them, or by one field (`by`); `facts` names the field keys to show (else every short fact they have).',
+    example: { id: 'cmp', component: 'Compare', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, top: 2 },
+    schema: Common.extend({ options: CS.DynamicValue, fields: CS.DynamicValue.optional(), top: z.number().int().min(2).max(3).optional(), by: z.string().max(64).optional(), facts: z.array(z.string().max(64)).max(8).optional(), empty: Str.optional() }).strict(),
   },
   {
     name: 'Agenda',

@@ -303,3 +303,26 @@ describe('a briefing from a notebook\'s options', () => {
     expect([d.quotes, d.talkingPoints, d.questions]).toEqual([[], [], []]);
   });
 });
+
+describe('the notebook\'s numbers (Lead)', () => {
+  it('gives the best, high, low and count per money or number field, by its better way, from the options in the running', async () => {
+    const { notebookNumbers } = await import('./notebook-widgets.js');
+    const nb = {
+      id: 'n', fields: [
+        { key: 'apy', label: 'APY', type: 'number', unit: '%', better: 'higher' },
+        { key: 'price', label: 'Price', type: 'money', role: 'price' },
+        { key: 'term', label: 'Term', type: 'text' },
+      ],
+    } as never;
+    const o = (id: string, name: string, fields: Record<string, unknown>) => ({ id, name, title: name, fields, checked: [], failed: [], body: '', page: `/notebooks/n/options/${id}` }) as never;
+    const n = notebookNumbers(nb, [o('a', 'Marcus', { apy: 4.4, price: 500, term: '12 months' }), o('b', 'Popular', { apy: '4.8 %', price: { min: 10000, max: 12000 } }), o('c', 'None', { term: 'x' })]);
+    expect(Object.keys(n)).toEqual(['apy', 'price']);
+    expect(n.apy.best).toEqual({ value: '4.8 %', label: 'Highest apy', note: 'Popular', href: '/notebooks/n/options/b', tone: 'ok' });
+    expect(n.apy.low.note).toBe('Marcus');
+    expect(n.apy.count).toEqual({ value: '2', label: 'with apy', note: 'of 3 in the running', tone: 'neutral' });
+    // A price: lower is better; a range counts as its midpoint but shows as written.
+    expect(n.price.best).toMatchObject({ label: 'Lowest price', note: 'Marcus', value: '$500' });
+    expect(n.price.high).toMatchObject({ note: 'Popular', value: '$10,000–$12,000' });
+    expect(notebookNumbers(nb, [])).toEqual({});
+  });
+});

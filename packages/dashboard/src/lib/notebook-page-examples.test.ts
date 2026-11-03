@@ -178,20 +178,30 @@ describe('a page composed around what was written', () => {
     expect(nb.layout?.preset).toBeUndefined();
     const parts = nb.layout!.components.filter((c) => c.component === 'AnswerSections');
     expect(parts.some((c) => c.rest === true)).toBe(true);
-    const placed = parts.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : []));
+    // The hero: one Panel marked so, full width, holding a Figure drawn large.
+    const heroes = nb.layout!.components.filter((c) => c.component === 'Panel' && c.hero === true);
+    expect(heroes.length).toBe(1);
+    const fig = nb.layout!.components.find((c) => c.id === heroes[0].child)!;
+    expect(fig).toMatchObject({ component: 'Figure', size: 'hero' });
+    const placed = [...parts.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : [])), ...nb.layout!.components.filter((c) => c.component === 'Figure').map((c) => String((c.section as { path: string }).path.split('/').pop()))];
     expect(new Set(placed).size).toBe(placed.length);
     // Drawn: every written part is on the page exactly once (the leftovers block skips the placed ones).
     const data = notebookWidgetData(nb, s.entries(nb.id), s);
     const page = notebookWidgetComponents(nb, undefined, data);
     const drawn = page.filter((c) => c.component === 'AnswerSections');
     const keys = Object.keys(data.notebook.section);
-    const shown = drawn.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : keys.filter((k) => !(c.skip as string[] | undefined ?? []).includes(k))));
+    const figures = page.filter((c) => c.component === 'Figure').map((c) => String((c.section as { path: string }).path.split('/').pop()));
+    const shown = [...figures, ...drawn.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : keys.filter((k) => !(c.skip as string[] | undefined ?? []).includes(k))))];
     expect([...shown].sort()).toEqual([...keys].sort());
     // Everything placed: the leftovers block has nothing to show, so the drawn page leaves it out.
     expect(drawn.some((c) => Array.isArray(c.skip))).toBe(false);
     // On the page as written, the hero (the first placed part) comes before the leftovers.
     const order = nb.layout!.components.map((c) => c.id);
-    expect(order.indexOf(parts.find((c) => Array.isArray(c.only))!.id)).toBeLessThan(order.indexOf(parts.find((c) => c.rest === true)!.id));
+    expect(order.indexOf(heroes[0].id)).toBeLessThan(order.indexOf(parts.find((c) => c.rest === true)!.id));
+    // The brief prints the hero large, and the figure in it.
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    expect(brief).toContain('part--hero');
+    expect(brief).toContain('fig--hero');
     expect(pageRhythm(nb.layout!.components)).toEqual([]);
   });
 
@@ -209,6 +219,8 @@ describe('a page composed around what was written', () => {
     s.setAnswer(nb.id, { ...nb.answer!, sections: sections.filter((x) => x.kind !== 'table') });
     page = notebookWidgetComponents(s.get(nb.id)!, undefined, notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s));
     expect(page.some((c) => c.id === 'rubric_p' || c.id === 'rubric')).toBe(false);
+    // The leftovers now hold the dropped key? No: it is gone, not placed; what is left is still placed elsewhere, so no leftovers block either.
+    expect(page.some((c) => c.component === 'AnswerSections' && Array.isArray(c.skip))).toBe(false);
     expect(page.some((c) => c.id === 'how_p')).toBe(true);
     expect(validateViewComponents(splitNotebookHeader(page).rest).ok).toBe(true);
   });

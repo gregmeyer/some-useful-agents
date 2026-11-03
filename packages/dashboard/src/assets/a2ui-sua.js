@@ -767,9 +767,11 @@ const Columns = define('Columns', 'sua-a2ui-columns',
 // plain is a frame; lede, feature and aside are unframed and set apart by
 // type and rules; band is a full-width tinted strip.
 const Panel = define('Panel', 'sua-a2ui-panel',
-  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional() }).strict(),
+  Common.extend({ title: Str, note: Str.optional(), child: CommonSchemas.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), hero: z.boolean().optional() }).strict(),
   css`
     :host { display: block; min-width: 0; height: 100%; }
+    /* hero: the one part a composed page leads with; its title in display type. */
+
     .frame { box-sizing: border-box; height: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg, 14px); padding: var(--space-4, 16px); }
     .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: var(--space-3, 12px); }
     h3 { margin: 0; font: 700 15px/1.2 var(--font-mono); color: var(--color-text); }
@@ -781,8 +783,11 @@ const Panel = define('Panel', 'sua-a2ui-panel',
     .aside { border-left: 1px solid var(--color-border-strong, var(--color-border)); padding-left: var(--space-4, 16px); }
     .aside h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
     .band { border: 0; border-radius: var(--radius-md, 10px); background: var(--color-surface-raised); padding: var(--space-3, 12px) var(--space-4, 16px); }
-    .band h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }`,
-  function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
+    .band h3 { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    /* hero: the one part a composed page leads with; its title in display type, whatever its treatment. */
+    .frame.hero h3 { font: 700 var(--font-size-2xl, 28px)/1.15 var(--font-display, var(--font-mono)); letter-spacing: -.01em; text-transform: none; color: var(--color-text); }
+    .frame.hero .head { margin-bottom: var(--space-4, 16px); }`,
+  function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''} ${p.hero ? 'hero' : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${this.renderNode(p.child)}</section>`; });
 
 // **bold** only; everything else escaped (same rule as Text's markdown).
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
@@ -1303,12 +1308,11 @@ const Itinerary = define('Itinerary', 'sua-a2ui-itinerary',
 // **bold** in text as lit parts, never markup.
 const boldParts = (s) => String(s ?? '').split(/\*\*([^*\n]+)\*\*/g).map((t, i) => (i % 2 ? html`<strong>${t}</strong>` : t));
 
-// The parts an answer was asked for, in order: the steps to take (numbered),
-// a table (a rubric, a comparison), a short explanation. Each step and row
-// links what it rests on.
-const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
-  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional() }).strict(),
-  css`${sectionHead}
+// The parts an answer was asked for: the steps to take (numbered), a table
+// (a rubric, a comparison), a short explanation, a diagram sua laid out. The
+// styles and drawing are shared by AnswerSections (several parts) and Figure
+// (one part, drawn large as a page's hero).
+const sectionStyles = css`${sectionHead}
     .sec + .sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); }
     ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
     ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 2px 10px; }
@@ -1348,7 +1352,74 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     ol.flow li .note { margin-top: 2px; }
     .foot.every { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 8px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .cap { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
-    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }`,
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    /* rubric: an If / Then / Why table as ruled decision rows, not a grid. */
+    .rubric { display: grid; gap: 0; }
+    .rubric .r { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 4px 16px; padding: 10px 0; border-top: 1px solid var(--color-border); }
+    .rubric .r:first-child { border-top: 0; padding-top: 0; }
+    .rubric .if { font-size: var(--font-size-md, 15px); font-weight: 700; line-height: 1.35; color: var(--color-text); }
+    .rubric .then { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-primary); }
+    .rubric .why { grid-column: 2; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
+    .rubric .r .refs { grid-column: 2; }
+    @media (max-width: 560px) { .rubric .r { grid-template-columns: 1fr; } .rubric .why, .rubric .r .refs { grid-column: 1; } }
+    /* big: a hero figure (Figure size "hero"): taller bars, larger labels, more air. */
+    .big .lad { gap: 12px; }
+    .big .lad .track { height: 36px; border-radius: 6px; }
+    .big .lad .bar { border-radius: 6px; }
+    .big .lad .lab { font-size: var(--font-size-md, 15px); }
+    .big .lad .bn { font-size: var(--font-size-sm); }
+    .big .lad .axis { height: 20px; }
+    .big .lad .tick { font-size: var(--font-size-sm); }
+    .big .split .bars { height: 44px; border-radius: 6px; }
+    .big .split ul { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; font-size: var(--font-size-md, 15px); }
+    .big .split li b { font-size: var(--font-size-lg, 17px); }
+    .big ol.flow li { flex-basis: 12rem; padding: 12px 14px; font-size: var(--font-size-md, 15px); }
+    .big ol.steps { gap: 16px; }
+    .big ol.steps > li { grid-template-columns: 2.25rem minmax(0, 1fr); }
+    .big ol.steps > li::before { font-size: var(--font-size-lg, 17px); }
+    .big .t, .big td, .big .rubric .if { font-size: var(--font-size-md, 15px); }
+    .big p.body { font-size: var(--font-size-md, 15px); line-height: 1.6; }`;
+
+const pctClamp = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
+/** A diagram sua laid out (lib/answer-art.ts): a ladder on a month axis, a split bar, or a flow of boxes; with a text version for screen readers. */
+function drawDiagram(d) {
+  const n = pctClamp;
+  const text = html`<ul class="sr">${(Array.isArray(d?.lines) ? d.lines : []).map((l) => html`<li>${l}</li>`)}</ul>`;
+  if (d?.type === 'ladder') {
+    return html`<div class="lad" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.rungs ?? []).map((r) => html`<div class="row"><div class="lab">${r.label}</div><div class="track"><div class="bar" style=${`left:${n(r.left)}%;width:${n(r.width)}%`}></div><span class=${n(r.left) + n(r.width) > 62 ? 'bn in' : 'bn'} style=${n(r.left) + n(r.width) > 62 ? `right:${100 - n(r.left) - n(r.width)}%;margin-right:8px` : `left:${n(r.left) + n(r.width)}%;margin-left:6px`}>${r.note}</span></div></div>`)}
+      <div class="axis" aria-hidden="true">${(d.axis ?? []).map((t) => html`<span class="tick" style=${`left:${n(t.at)}%`}>${t.label}</span>`)}</div></div>${text}`;
+  }
+  if (d?.type === 'split') {
+    return html`<div class="split"><div class="tot">${d.total}</div><div class="bars" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.parts ?? []).map((x) => html`<span class="seg" style=${`flex:0 0 ${n(x.width)}%`} title=${`${x.label}: ${x.amount}`}></span>`)}</div>
+      <ul>${(d.parts ?? []).map((x) => html`<li><b>${x.amount}</b>${x.label}${x.note ? html` <span class="note">${x.note}</span>` : nothing}</li>`)}</ul></div>`;
+  }
+  if (d?.type === 'flow') return html`<ol class="flow">${(d.nodes ?? []).map((x) => html`<li>${x.label}${x.note ? html`<div class="note">${x.note}</div>` : nothing}</li>`)}</ol>`;
+  return nothing;
+}
+const sectionRefs = (it) => {
+  const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
+  return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
+};
+/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph. */
+function drawPart(x, { rubric = false } = {}) {
+  const refs = sectionRefs;
+  if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
+  if (x.kind === 'table') {
+    const cols = Array.isArray(x.columns) ? x.columns : [];
+    const every = Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing;
+    // A rubric: each row reads "if… → then…", with why beneath; the first column is the condition.
+    if (rubric && cols.length >= 2) {
+      return html`<div class="rubric">${(x.rows ?? []).map((r) => html`<div class="r"><div class="if">${boldParts(r.cells?.[0] ?? '')}</div><div class="then">${boldParts(r.cells?.[1] ?? '')}</div>${cols.length > 2 && (r.cells ?? []).slice(2).some(Boolean) ? html`<div class="why">${(r.cells ?? []).slice(2).filter(Boolean).map((c, i) => html`${i ? ' · ' : ''}${boldParts(c)}`)}</div>` : nothing}${refs(r)}</div>`)}</div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
+    }
+    return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
+  }
+  if (x.kind === 'diagram') return html`${drawDiagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
+  return html`<p class="body">${boldParts(x.body)}</p>`;
+}
+
+const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.boolean().optional() }).strict(),
+  sectionStyles,
   (p) => {
     const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
     // Placed by key ("only", in that order), or everything another part of the page didn't place ("skip").
@@ -1357,35 +1428,124 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     const sections = only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key));
     // One part on its own: the panel around it says its title.
     const untitled = !!only && only.length === 1;
-    const n = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
-    const diagram = (d) => {
-      const text = html`<ul class="sr">${(Array.isArray(d?.lines) ? d.lines : []).map((l) => html`<li>${l}</li>`)}</ul>`;
-      if (d?.type === 'ladder') {
-        return html`<div class="lad" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.rungs ?? []).map((r) => html`<div class="row"><div class="lab">${r.label}</div><div class="track"><div class="bar" style=${`left:${n(r.left)}%;width:${n(r.width)}%`}></div><span class=${n(r.left) + n(r.width) > 62 ? 'bn in' : 'bn'} style=${n(r.left) + n(r.width) > 62 ? `right:${100 - n(r.left) - n(r.width)}%;margin-right:8px` : `left:${n(r.left) + n(r.width)}%;margin-left:6px`}>${r.note}</span></div></div>`)}
-          <div class="axis" aria-hidden="true">${(d.axis ?? []).map((t) => html`<span class="tick" style=${`left:${n(t.at)}%`}>${t.label}</span>`)}</div></div>${text}`;
-      }
-      if (d?.type === 'split') {
-        return html`<div class="split"><div class="tot">${d.total}</div><div class="bars" role="img" aria-label=${(d.lines ?? []).join('; ')}>${(d.parts ?? []).map((x) => html`<span class="seg" style=${`flex:0 0 ${n(x.width)}%`} title=${`${x.label}: ${x.amount}`}></span>`)}</div>
-          <ul>${(d.parts ?? []).map((x) => html`<li><b>${x.amount}</b>${x.label}${x.note ? html` <span class="note">${x.note}</span>` : nothing}</li>`)}</ul></div>`;
-      }
-      if (d?.type === 'flow') return html`<ol class="flow">${(d.nodes ?? []).map((x) => html`<li>${x.label}${x.note ? html`<div class="note">${x.note}</div>` : nothing}</li>`)}</ol>`;
-      return nothing;
-    };
     if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
-    const refs = (it) => {
-      const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
-      return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
-    };
-    const part = (x) => {
-      if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
-      if (x.kind === 'table') {
-        const cols = Array.isArray(x.columns) ? x.columns : [];
-        return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing}`;
-      }
-      if (x.kind === 'diagram') return html`${diagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
-      return html`<p class="body">${boldParts(x.body)}</p>`;
-    };
-    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${part(x)}</section>`)}</div>`;
+    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: !!p.rubric })}</section>`)}</div>`;
+  });
+
+// One written part (/notebook/section/<key>) on its own, drawn large when it
+// is the page's hero: a ladder with tall bars, a split as a wide band, a rubric
+// as ruled rows. Its title comes from the Panel around it.
+const Figure = define('Figure', 'sua-a2ui-figure',
+  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.boolean().optional() }).strict(),
+  sectionStyles,
+  (p) => {
+    const x = p.section && typeof p.section === 'object' && typeof p.section.kind === 'string' ? p.section : undefined;
+    if (!x) return nothing;
+    const big = (p.size ?? 'inline') === 'hero';
+    const cap = typeof p.caption === 'string' && p.caption ? p.caption : undefined;
+    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: !!p.rubric })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
+  });
+
+// The one number that matters, set large: a stat {value, label, note?, href?,
+// tone?} from the notebook (/notebook/numbers/<field>/best), or given.
+const Lead = define('Lead', 'sua-a2ui-lead',
+  Common.extend({ stat: CommonSchemas.DynamicValue.optional(), value: Str.optional(), label: Str.optional(), note: Str.optional(), tone: Str.optional(), href: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .label { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    .value { margin-top: 6px; font: 700 var(--font-size-2xl, 28px)/1.1 var(--font-display, var(--font-mono)); letter-spacing: -.01em; color: var(--color-primary); overflow-wrap: anywhere; }
+    .value.neutral { color: var(--color-text); } .value.warn { color: var(--color-warn); } .value.err { color: var(--color-err); }
+    .note { margin-top: 6px; font-size: var(--font-size-sm); line-height: 1.45; color: var(--color-text-muted); }
+    .note a { color: inherit; }`,
+  (p) => {
+    const st = p.stat && typeof p.stat === 'object' ? p.stat : {};
+    const value = p.value ?? st.value;
+    if (value === undefined || value === null || value === '') return nothing;
+    const label = p.label ?? st.label;
+    const note = p.note ?? st.note;
+    const href = p.href ?? st.href;
+    const t = p.tone ?? st.tone ?? 'ok';
+    return html`${label ? html`<div class="label">${label}</div>` : nothing}<div class="value ${tone(t)}">${value}</div>${note ? html`<div class="note">${href && safeUrl(href) ? outLink(href, note) : note}</div>` : nothing}`;
+  });
+
+/** A field's numeric value: a number, a numeric string ("4.4 %", "$5,000"), or a range's midpoint. */
+function fieldNumber(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
+  if (v && typeof v === 'object' && typeof v.min === 'number' && typeof v.max === 'number') return (v.min + v.max) / 2;
+  if (typeof v === 'string') { const n = Number(v.replace(/[$,%\s]/g, '').replace(/[a-zA-Z]+$/, '')); return Number.isFinite(n) && v.trim() !== '' ? n : undefined; }
+  return undefined;
+}
+
+// Options as horizontal bars by one numeric field (APY by account, salary by
+// role, price by listing): code sorts, formats and marks the best; the page
+// only names the field. Ruled-out options are left out.
+const Bars = define('Bars', 'sua-a2ui-bars',
+  Common.extend({ options: CommonSchemas.DynamicValue, fields: CommonSchemas.DynamicValue.optional(), by: z.string().min(1).max(64), top: z.number().int().min(2).max(20).optional(), label: z.string().max(64).optional(), empty: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .bars { display: grid; gap: 8px; }
+    .row { display: grid; grid-template-columns: minmax(6rem, 32%) minmax(0, 1fr); gap: 10px; align-items: center; }
+    .lab { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lab a { color: inherit; text-decoration: none; } .lab a:hover { text-decoration: underline; }
+    .track { position: relative; height: 24px; border-radius: 4px; background: var(--color-surface-raised); }
+    .bar { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 4px; background: var(--color-text-muted); opacity: .55; }
+    .best .bar { background: var(--color-primary); opacity: 1; }
+    .val { position: absolute; top: 50%; transform: translateY(-50%); font: 600 var(--font-size-xs)/1 var(--font-mono); color: var(--color-text); white-space: nowrap; }
+    .val.in { color: var(--color-surface); }
+    .best .lab { color: var(--color-primary); }
+    .foot { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  (p) => {
+    const fields = Array.isArray(p.fields) ? p.fields : [];
+    const f = fields.find((x) => x && x.key === p.by);
+    const rows = (Array.isArray(p.options) ? p.options : []).filter((o) => o && !o.ruledOut)
+      .map((o) => ({ o, n: fieldNumber(getPath(o, `fields.${p.by}`) ?? o[p.by]), raw: getPath(o, `fields.${p.by}`) ?? o[p.by] }))
+      .filter((r) => r.n !== undefined);
+    if (!rows.length) return html`<p class="empty">${p.empty ?? `Nothing to draw yet: options need ${f?.label ?? p.by}.`}</p>`;
+    const lower = f?.better === 'lower' || (!f?.better && f?.role === 'price');
+    rows.sort((a, b) => (lower ? a.n - b.n : b.n - a.n));
+    const shown = rows.slice(0, p.top ?? 8);
+    const max = Math.max(...rows.map((r) => r.n), 0);
+    const fmt = (r) => (f ? fmtField(f, r.raw) : typeof r.raw === 'string' ? r.raw : nfmt(r.n));
+    const name = (o) => (p.label ? String(getPath(o, p.label) ?? o.name ?? '') : o.name ?? o.title ?? '');
+    return html`<div class="bars" role="list">${shown.map((r, i) => { const w = max > 0 ? Math.max(2, (r.n / max) * 100) : 0; const inside = w > 60; return html`<div class="row ${i === 0 ? 'best' : ''}" role="listitem"><div class="lab">${r.o.page ? outLink(r.o.page, name(r.o)) : name(r.o)}</div><div class="track"><div class="bar" style=${`width:${w}%`}></div><span class=${inside ? 'val in' : 'val'} style=${inside ? `right:${100 - w}%;margin-right:8px` : `left:${w}%;margin-left:6px`}>${fmt(r)}</span></div></div>`; })}</div>
+      ${rows.length > shown.length ? html`<p class="foot">${shown.length} of ${rows.length}, ${lower ? 'lowest' : 'highest'} ${f?.label ?? p.by} first.</p>` : html`<p class="foot">${lower ? 'Lowest' : 'Highest'} ${f?.label ?? p.by} first.</p>`}`;
+  });
+
+// Two or three options side by side, their facts ruled line by line: the top
+// ones as the notebook ranks them (or by one field), so a reader can see the
+// choice at a glance.
+const Compare = define('Compare', 'sua-a2ui-compare',
+  Common.extend({ options: CommonSchemas.DynamicValue, fields: CommonSchemas.DynamicValue.optional(), top: z.number().int().min(2).max(3).optional(), by: z.string().max(64).optional(), facts: z.array(z.string().max(64)).max(8).optional(), empty: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); line-height: 1.45; table-layout: fixed; }
+    th { text-align: left; vertical-align: bottom; padding: 0 12px 8px 0; border-bottom: 2px solid var(--color-text); }
+    th.k { width: 28%; }
+    th .nm { font: 700 var(--font-size-md, 15px)/1.3 var(--font-mono); color: var(--color-text); }
+    th .nm a { color: inherit; text-decoration: none; } th .nm a:hover { text-decoration: underline; }
+    th .sub { display: block; font: 400 var(--font-size-xs)/1.3 var(--font-mono); color: var(--color-text-muted); margin-top: 2px; }
+    td { vertical-align: top; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--color-border); color: var(--color-text); overflow-wrap: anywhere; }
+    td.k { font: 600 11px/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+    tr:last-child td { border-bottom: 0; }
+    .empty { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }`,
+  (p) => {
+    const fields = (Array.isArray(p.fields) ? p.fields : []).filter((f) => f && f.key);
+    let opts = (Array.isArray(p.options) ? p.options : []).filter((o) => o && !o.ruledOut);
+    if (p.by) {
+      const f = fields.find((x) => x.key === p.by);
+      const lower = f?.better === 'lower' || (!f?.better && f?.role === 'price');
+      opts = opts.map((o) => ({ o, n: fieldNumber(getPath(o, `fields.${p.by}`)) })).filter((r) => r.n !== undefined).sort((a, b) => (lower ? a.n - b.n : b.n - a.n)).map((r) => r.o);
+    }
+    const shown = opts.slice(0, p.top ?? 2);
+    if (shown.length < 2) return html`<p class="empty">${p.empty ?? 'Nothing to compare yet: it takes two options.'}</p>`;
+    // The facts to show: the ones named, else every field that's not a link or a long text, that at least one of them has.
+    const keys = (Array.isArray(p.facts) && p.facts.length ? p.facts : fields.filter((f) => f.type !== 'url' && f.type !== 'image' && f.role !== 'quote').map((f) => f.key))
+      .filter((k) => shown.some((o) => { const v = getPath(o, `fields.${k}`); return v !== undefined && v !== null && v !== ''; }));
+    const fmt = (k, v) => { const f = fields.find((x) => x.key === k); return v === undefined || v === null || v === '' ? '—' : f ? fmtField(f, v) : String(v); };
+    return html`<div class="wrap"><table><thead><tr><th class="k"></th>${shown.map((o) => html`<th><span class="nm">${o.page ? outLink(o.page, o.name ?? o.title ?? '') : (o.name ?? o.title ?? '')}</span>${o.org || o.place ? html`<span class="sub">${o.org ?? o.place}</span>` : nothing}</th>`)}</tr></thead>
+      <tbody>${keys.map((k) => html`<tr><td class="k">${fields.find((x) => x.key === k)?.label ?? k}</td>${shown.map((o) => html`<td>${fmt(k, getPath(o, `fields.${k}`))}</td>`)}</tr>`)}</tbody></table></div>`;
   });
 
 // A notebook page's header is drawn by the page itself (its buttons are forms
@@ -1634,7 +1794,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

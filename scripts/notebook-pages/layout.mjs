@@ -25,7 +25,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const core = await import(join(ROOT, 'packages/core/dist/index.js'));
 const dash = await import(join(ROOT, 'packages/dashboard/dist/index.js'));
 const { MemorySecretsSession } = await import(join(ROOT, 'packages/dashboard/dist/secrets-session.js'));
-const { drawNotebookPage } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page.js'));
+const { drawNotebookPage, written } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page.js'));
 const { NOTEBOOK_PAGE_EXAMPLES } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page-examples.js'));
 const { chromium } = await import('playwright');
 
@@ -64,7 +64,8 @@ const ids = {};
 for (const ex of examples) {
   const id = ex.seed(store, { data: true });
   store.markSetup?.(id);
-  const replies = ANSWERS[ex.id]?.replies ?? [];
+  // Written (an answer or a plan): the page composed around it, as the tests draw it.
+  const replies = (written(store.get(id)) && ANSWERS[ex.id]?.written) || ANSWERS[ex.id]?.replies || [];
   let n = 0;
   const drawn = await drawNotebookPage(store.get(id), async () => replies[Math.min(n++, replies.length - 1)]);
   if ('layout' in drawn.answer) store.setLayout(id, drawn.answer.layout, 'notebook');

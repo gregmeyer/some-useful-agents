@@ -95,14 +95,26 @@ nodes:
         - pick ONE hero, the part that says the most at a glance: a
           diagram (a ladder, a split) over a table, a rubric table over
           steps, the answer itself when no part stands out. Give it a
-          full-width feature Panel right after the answer (or the lede,
-          with the answer beside it in an aside when the answer is short
-          and the hero is tall), an AnswerSections with "only": [its key]
-          inside, the Panel titled with the part's title;
+          full-width Panel of its own right after the answer, "hero":
+          true, treatment "lede" or "feature", titled with the part's
+          title, holding a Figure with "size": "hero" bound to
+          /notebook/section/<its key> ("rubric": true for an If/Then/Why
+          table of decisions). A page has one hero, never inside a row;
+        - when a money or number fact decides it (the highest APY, the
+          lowest price), say it with a number: a Lead bound to
+          /notebook/numbers/<field key>/best beside the answer, and Bars
+          by that field (by: its key) or a Compare of the top two where
+          the options are weighed. These draw from the options as they
+          are now; never type a value in;
         - place each other part where it reads best, each in its own
-          Panel with an AnswerSections "only": [key]: steps beside the
-          findings, a long table (over 8 rows) low in a feature or folded
-          in a Disclosure, a text part as an aside;
+          Panel with an AnswerSections "only": [key] ("rubric": true for
+          a table of decisions): steps beside the findings, a long table
+          (over 8 rows) low in a feature or folded in a Disclosure, a
+          text part as an aside;
+        - shape the page from the top as "hero + rail" (the hero full
+          width, then a 2:1 row), "story + rail" (a feature column with
+          asides beside it) or a "band" opener (a Lead or StatStrip row,
+          then the story), and vary the rows below;
         - keep one AnswerSections with "rest": true in a feature Panel
           ("Also written"), low, so a part written later still shows;
         - keep the answer's Callout, "What it rests on" (the findings

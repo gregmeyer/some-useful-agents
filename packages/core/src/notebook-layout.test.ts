@@ -261,3 +261,30 @@ describe('a page composed around what was written', () => {
     expect(notebookLayoutGuide([]).includes('/notebook/section')).toBe(true);
   });
 });
+
+describe('the hero of a composed page', () => {
+  const page = (hero: Record<string, unknown>, extra: ViewComponent[] = [], rootKids = ['hero_p', 'row']): ViewComponent[] => [
+    { id: 'root', component: 'Column', children: rootKids },
+    { id: 'hero_p', component: 'Panel', title: 'The ladder', child: 'fig', treatment: 'feature', ...hero },
+    { id: 'fig', component: 'Figure', section: { path: '/notebook/section/ladder' }, size: 'hero' },
+    { id: 'row', component: 'Columns', children: ['a_p', 'b_p'], widths: [2, 1] },
+    { id: 'a_p', component: 'Panel', title: 'Steps', child: 'a', treatment: 'feature' },
+    { id: 'a', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, only: ['steps'] },
+    { id: 'b_p', component: 'Panel', title: 'Also', child: 'b', treatment: 'aside' },
+    { id: 'b', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, rest: true },
+    ...extra,
+  ];
+  it('a page that places written parts leads with one hero, full width, a lede or a feature', () => {
+    expect(pageRhythm(page({ hero: true }))).toEqual([]);
+    expect(pageRhythm(page({}))).toEqual(['The page places written parts but none is the hero; mark the one that says the most ("hero": true on its Panel, full width, near the top).']);
+    expect(pageRhythm(page({ hero: true }, [{ id: 'two_p', component: 'Panel', title: 'Two', child: 'b', hero: true, treatment: 'feature' }], ['hero_p', 'row', 'two_p'])))
+      .toEqual(['2 heroes (hero_p, two_p); a page leads with one.']);
+    expect(pageRhythm(page({ hero: true, treatment: 'aside' }))).toEqual(['hero_p is the hero as an aside; a hero is a lede or a feature.']);
+    // Inside a row: not full width.
+    const inRow = page({ hero: true }, [], ['row']).map((c) => (c.id === 'row' ? { ...c, children: ['hero_p', 'b_p'] } : c));
+    expect(pageRhythm(inRow)).toEqual(['hero_p is the hero but sits inside a row; a hero takes a full-width row of its own.']);
+    // A Lead beside a long list counts as a short part.
+    expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['l'] }, { id: 'l', component: 'Lead', stat: { path: '/notebook/numbers/apy/best' } }]).ok).toBe(true);
+    expect(notebookLayoutGuide([]).includes('/notebook/numbers')).toBe(true);
+  });
+});
