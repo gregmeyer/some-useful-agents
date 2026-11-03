@@ -33,6 +33,7 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   affiliations: 'It knows other companies the person leads, founded or works with.',
   answered: 'It has a written answer (a write step that answers its question).',
   planned: 'It has a written plan (a write step that makes its plan).',
+  written: 'It has a written answer or plan: its parts (/notebook/section/<key>) are there to place.',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -375,6 +376,50 @@ export function notebookLayoutOf(nb: { layout?: NotebookLayout }): NotebookLayou
 }
 
 const LAYOUT_PATH = /^\/notebook\/layout\/([A-Za-z]+)$/;
+const SECTION_PATH = /^\/notebook\/section\/([a-z0-9-]+)(?:\/|$)/;
+
+/** The keys of the written parts a page places on its own: AnswerSections `only` lists, and anything bound to `/notebook/section/<key>`. */
+function placedSectionKeys(components: readonly ViewComponent[]): Set<string> {
+  const out = new Set<string>();
+  const collect = (v: unknown) => {
+    if (Array.isArray(v)) { v.forEach(collect); return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (typeof o.path === 'string' && Object.keys(o).length === 1) { const m = SECTION_PATH.exec(o.path); if (m) out.add(m[1]); return; }
+    Object.values(o).forEach(collect);
+  };
+  for (const c of components) {
+    if (c.component === 'AnswerSections' && Array.isArray(c.only)) for (const k of c.only as unknown[]) if (typeof k === 'string') out.add(k);
+    collect(c);
+  }
+  return out;
+}
+
+/**
+ * A part bound to written parts that aren't there: an AnswerSections whose
+ * `only` keys are all missing, or whose `skip` leaves nothing, or any other
+ * part bound to `/notebook/section/<key>` paths that are all empty. Pure.
+ */
+function sectionPartEmpty(c: ViewComponent, data: unknown, placed: ReadonlySet<string>): boolean {
+  if (c.component === 'AnswerSections') {
+    const all = resolvePointer(data, (c.sections as { path?: string } | undefined)?.path ?? '');
+    const keys = new Set((Array.isArray(all) ? all : []).map((s) => (s as { key?: unknown }).key).filter((k): k is string => typeof k === 'string'));
+    if (Array.isArray(c.only)) return !(c.only as unknown[]).some((k) => typeof k === 'string' && keys.has(k));
+    const skip = Array.isArray(c.skip) ? c.skip as unknown[] : c.rest === true ? [...placed] : undefined;
+    if (skip) return ![...keys].some((k) => !skip.includes(k));
+    return false;
+  }
+  const paths: string[] = [];
+  const collect = (v: unknown) => {
+    if (Array.isArray(v)) { v.forEach(collect); return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (typeof o.path === 'string' && Object.keys(o).length === 1) { if (SECTION_PATH.test(o.path)) paths.push(o.path); return; }
+    Object.values(o).forEach(collect);
+  };
+  collect(c);
+  return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
+}
 
 function whenHolds(when: unknown, flags: Partial<Record<NotebookLayoutFlag, boolean>>): boolean {
   if (typeof when !== 'string') return true;
@@ -514,12 +559,16 @@ export function resolveNotebookLayout(
 ): ViewComponent[] {
   const all = withAnswerSections(components);
   const byId = new Map(all.map((c) => [c.id, c]));
+  const placed = placedSectionKeys(all);
   const out = new Map<string, ViewComponent>();
   const visit = (id: string): boolean => {
     const c = byId.get(id);
     if (!c || !whenHolds(c.when, flags)) return false;
     if (opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) return false;
-    const { when: _w, ...rest } = c;
+    if (opts.data !== undefined && sectionPartEmpty(c, opts.data, placed)) return false;
+    const { when: _w, rest: wantsRest, ...rest } = c;
+    // "The parts I didn't place": the written parts no other part of the page binds.
+    if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) rest.skip = [...placed];
     const next = withWatch(capLength(resolveValues(rest, values) as ViewComponent));
     if (Array.isArray(c.children)) {
       const kids = c.children as string[];
@@ -660,6 +709,11 @@ export function checkNotebookLayout(components: unknown): { ok: true; components
       if (!(w in NOTEBOOK_LAYOUT_FLAGS)) errors.push(`${String(c.id)}: "when" must be one of ${Object.keys(NOTEBOOK_LAYOUT_FLAGS).join(', ')} (or !one).`);
     }
   }
+  for (const c of components as Array<Record<string, unknown>>) {
+    if (!c || typeof c !== 'object') continue;
+    if (c.only !== undefined && (!Array.isArray(c.only) || !c.only.length || !c.only.every((k) => typeof k === 'string' && SECTION_PATH.test(`/notebook/section/${k}`)))) errors.push(`${String(c.id)}: "only" is a list of section keys (lowercase words and dashes, as the notebook's written parts are keyed).`);
+    if (c.only !== undefined && c.rest !== undefined) errors.push(`${String(c.id)}: "only" and "rest" don't go together; "only" names the parts, "rest" means the ones nothing else places.`);
+  }
   const headers = (components as Array<Record<string, unknown>>).filter((c) => c && c.component === 'NotebookHeader');
   if (headers.length > 1) errors.push('A page has at most one NotebookHeader.');
   for (const h of headers) {
@@ -727,7 +781,8 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/cover': 'A small drawing of what the question is about, beside the answer (Callout image).',
   '/notebook/planIntro/cover': 'A small drawing of what the plan is for, beside it (Callout image).',
   '/notebook/planSections': 'The parts a plan was asked for besides its days: a cost table, how the budget splits, steps to get ready (AnswerSections).',
-  '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections).',
+  '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections). Each has a `key`; an AnswerSections with `only: ["key"]` draws just those, in that order, and one with `rest: true` draws the ones no other part of the page places.',
+  '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
   '/notebook/planIntro/text': 'The plan in a sentence or two; before then, where the notebook stands (Callout text).',
@@ -788,6 +843,7 @@ Rules:
 - Vary the page: open with a row of 2–3 short parts side by side (Columns), never two long lists stacked at the top. Never put a short part (a cover, a callout, a few stats) beside a long one (an agenda, quotes, a table): it leaves a hole. Pair a cover with the facts about them. A list longer than about 6 rows goes lower, or in a Disclosure. Lists are cut to a few rows with "Show N more" (QuoteList 4–6, Agenda questions 3–5, Timeline 6–8, Table 8–12).
 - Lead with what the notebook is for (a briefing leads with what to talk about and what they said; a shortlist with where it stands), then the detail. Summary, next and the stats are written for a shortlist: use them only on one.
 - Panel (title, child, note) frames a part; Columns (children, widths) puts parts side by side.
+- Once the notebook is written (its "written" part lists the answer's or plan's parts, each with a key, kind and size), compose the page around them: pick ONE hero (its diagram, its rubric table, or the answer itself) and give it the lede or a full-width feature near the top; place each other part where it reads best with an AnswerSections whose "only" names its key (one key: the Panel's title is the part's title); fold a long table (over 8 rows) in a Disclosure or put it low; and end the written parts with one AnswerSections with "rest": true, so a part written later still shows. The answer's Callout, "what it rests on" (findings, Agenda) and the evidence (OptionGrid) stay; keep the evidence and the research low or folded.
 - Bind to paths; never type a value from today's data into the layout: it is redrawn as the notebook changes.
 - Use each component's props exactly as named above; a prop it doesn't have fails the whole page. "when" takes only the flags above.
 - Keep every id unique (short word characters), at most about 60 components.`;

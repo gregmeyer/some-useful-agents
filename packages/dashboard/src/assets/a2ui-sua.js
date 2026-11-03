@@ -1307,7 +1307,7 @@ const boldParts = (s) => String(s ?? '').split(/\*\*([^*\n]+)\*\*/g).map((t, i) 
 // a table (a rubric, a comparison), a short explanation. Each step and row
 // links what it rests on.
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
-  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional() }).strict(),
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional() }).strict(),
   css`${sectionHead}
     .sec + .sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); }
     ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
@@ -1350,7 +1350,13 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     .cap { margin: 8px 0 0; font-size: var(--font-size-xs); color: var(--color-text-muted); }
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }`,
   (p) => {
-    const sections = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
+    const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
+    // Placed by key ("only", in that order), or everything another part of the page didn't place ("skip").
+    const only = Array.isArray(p.only) ? p.only : undefined;
+    const skip = Array.isArray(p.skip) ? p.skip : [];
+    const sections = only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key));
+    // One part on its own: the panel around it says its title.
+    const untitled = !!only && only.length === 1;
     const n = (x) => (typeof x === 'number' && Number.isFinite(x) ? Math.max(0, Math.min(100, x)) : 0);
     const diagram = (d) => {
       const text = html`<ul class="sr">${(Array.isArray(d?.lines) ? d.lines : []).map((l) => html`<li>${l}</li>`)}</ul>`;
@@ -1365,7 +1371,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
       if (d?.type === 'flow') return html`<ol class="flow">${(d.nodes ?? []).map((x) => html`<li>${x.label}${x.note ? html`<div class="note">${x.note}</div>` : nothing}</li>`)}</ol>`;
       return nothing;
     };
-    if (!sections.length) return html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
+    if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
     const refs = (it) => {
       const r = (Array.isArray(it?.refs) ? it.refs : []).filter((x) => x && safeUrl(x.href) && x.label).slice(0, 4);
       return r.length ? html`<div class="refs">${r.map((x) => outLink(x.href, x.label))}</div>` : nothing;
@@ -1379,7 +1385,7 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
       if (x.kind === 'diagram') return html`${diagram(x.diagram)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
       return html`<p class="body">${boldParts(x.body)}</p>`;
     };
-    return html`<div>${sections.map((x) => html`<section class="sec"><h4 class="h">${x.title}</h4>${part(x)}</section>`)}</div>`;
+    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${part(x)}</section>`)}</div>`;
   });
 
 // A notebook page's header is drawn by the page itself (its buttons are forms

@@ -28,7 +28,9 @@ import { randomUUID } from 'node:crypto';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const core = await import(join(ROOT, 'packages/core/dist/index.js'));
-const { drawNotebookPage } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page.js'));
+const { drawNotebookPage, written } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page.js'));
+// Its page for its job is decided from its setup, before anything is written; once written, it is composed again (below).
+const bare = (nb) => ({ ...nb, answer: undefined, plan: undefined });
 const { NOTEBOOK_PAGE_EXAMPLES } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-page-examples.js'));
 const { notebookWidgetComponents } = await import(join(ROOT, 'packages/dashboard/dist/lib/notebook-widgets.js'));
 
@@ -63,7 +65,7 @@ for (const ex of examples) {
     const id = ex.seed(store, { data: true });
     const replies = [];
     const started = Date.now();
-    const drawn = await drawNotebookPage(store.get(id), async (inputs) => { const reply = await ask(inputs); replies.push(reply ?? ''); return reply; });
+    const drawn = await drawNotebookPage(bare(store.get(id)), async (inputs) => { const reply = await ask(inputs); replies.push(reply ?? ''); return reply; });
     const kind = kindOf(drawn.answer);
     let parts = true;
     let rhythm = [];
@@ -74,8 +76,18 @@ for (const ex of examples) {
       if (!drawn.answer.layout.preset) rhythm = core.pageRhythm(drawn.answer.layout.components);
     }
     tries.push({ kind, right: kind === ex.expect.page, first: drawn.tries === 1, usable: kind !== 'none', parts, rhythm, notes: drawn.firstNotes, seconds: Math.round((Date.now() - started) / 1000), about: 'layout' in drawn.answer ? drawn.answer.layout.about : drawn.answer.about });
-    if (r === 0 && flag('record') && kind !== 'none') recorded[ex.id] = { replies };
+    if (r === 0 && flag('record') && kind !== 'none') recorded[ex.id] = { ...(recorded[ex.id] ?? {}), replies };
     process.stderr.write(`${ex.id} run ${r + 1}: ${kind}${drawn.tries > 1 ? ' (2 tries)' : ''}\n`);
+    // Written (an answer or a plan with its parts): asked again, the page is composed around them: drawn, each part placed, a place for the rest.
+    if (written(store.get(id))) {
+      const again = [];
+      const composed = await drawNotebookPage(store.get(id), async (inputs) => { const reply = await ask(inputs); again.push(reply ?? ''); return reply; });
+      const parts = 'layout' in composed.answer ? composed.answer.layout.components.filter((c) => c.component === 'AnswerSections') : [];
+      const ok = parts.some((c) => Array.isArray(c.only)) && parts.some((c) => c.rest === true) && !composed.answer.layout?.preset;
+      tries[tries.length - 1].composed = ok;
+      if (r === 0 && flag('record') && ok) recorded[ex.id] = { ...(recorded[ex.id] ?? {}), written: again };
+      process.stderr.write(`${ex.id} run ${r + 1}, written: ${ok ? 'composed' : kindOf(composed.answer)}\n`);
+    }
   }
   const rate = (k) => tries.filter((t) => t[k]).length / tries.length;
   rows.push({ id: ex.id, job: ex.job, expect: ex.expect.page, got: tries.map((t) => t.kind), right: rate('right'), first: rate('first'), usable: rate('usable'), parts: rate('parts'), same: new Set(tries.map((t) => t.kind)).size === 1 ? 1 : 0, tries });

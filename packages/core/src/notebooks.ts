@@ -481,7 +481,7 @@ export interface NotebookAnswer {
  * gives, word for word ("A simple rubric written"), which then ticks itself.
  * Every step and row cites what it rests on, by entry id, like a finding.
  */
-export type NotebookAnswerSection = { title: string; delivers?: string } & (
+export type NotebookAnswerSection = { title: string; delivers?: string; /** A short name a page binds the part by (`/notebook/section/<key>`), from its title; stays across rewrites while the title does. */ key?: string } & (
   | { kind: 'steps'; items: Array<{ text: string; detail?: string; from: string[] }> }
   | { kind: 'table'; columns: string[]; rows: Array<{ cells: string[]; from: string[] }>; note?: string }
   | { kind: 'text'; body: string }
@@ -505,6 +505,19 @@ export function answerDiagramLines(d: NotebookAnswerDiagram): string[] {
   if (d.type === 'ladder') return d.rungs.map((r) => `${r.label}: months ${String(r.start)}–${String(r.end)}${r.amount !== undefined ? `, ${money(r.amount)}` : ''}${r.rate ? ` at ${r.rate}` : ''}`);
   if (d.type === 'split') return d.parts.map((p) => `${p.label}: ${money(p.amount)}${p.note ? ` (${p.note})` : ''}`);
   return d.nodes.map((n, i) => `${String(i + 1)}. ${n.label}${n.note ? ` (${n.note})` : ''}`);
+}
+
+/**
+ * A section's key: the one it was given, else one from its title ("A simple
+ * rubric for the $25,000" → "a-simple-rubric-for-the-25-000"), so a page
+ * drawn around a part finds it again after a rewrite that keeps its title.
+ */
+export function sectionKey(s: Pick<NotebookAnswerSection, 'title' | 'key'>): string {
+  return s.key ?? sectionSlug(s.title);
+}
+
+function sectionSlug(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '') || 'part';
 }
 
 /** An answer section's steps or rows as lines of text: what a strike names, and what other readers see. */
@@ -3423,7 +3436,15 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
     }
     if (out.length >= 5) break;
   }
-  return out;
+  // Each part a key of its own, from its title; a second part with the same title gets "-2".
+  const keys = new Set<string>();
+  return out.map((s) => {
+    const base = sectionSlug(s.title);
+    let key = base;
+    for (let n = 2; keys.has(key); n++) key = `${base}-${String(n)}`;
+    keys.add(key);
+    return { ...s, key };
+  });
 }
 
 /**

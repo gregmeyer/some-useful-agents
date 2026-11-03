@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePageAnswer, notebookForPage } from './notebook-page.js';
+import { parsePageAnswer, notebookForPage, written } from './notebook-page.js';
 import type { Notebook } from '@some-useful-agents/core';
 
 const page = (v: unknown) => `Here it is.\n<page>\n${JSON.stringify(v)}\n</page>`;
@@ -35,5 +35,35 @@ describe('a notebook deciding its page', () => {
       facts: [{ key: 'theme', label: 'Theme', type: 'text' }, { key: 'evidence', label: 'Evidence', type: 'text', role: 'quote' }],
       steps: [{ title: 'Find 5 themes', kind: 'find', target: 5 }],
     });
+  });
+});
+
+describe('what was written, as the page agent sees it', () => {
+  it('is the shape of the parts (keys, kinds, sizes, what they deliver), never their words; nothing before a write', () => {
+    expect(written({})).toBeUndefined();
+    expect(written({ answer: { question: 'q', text: '', confidence: 'low', findings: [], open: [], at: '', by: '' } })).toBeUndefined();
+    const w = written({
+      answer: {
+        question: 'q', text: 'Split it into **five CDs**.', confidence: 'medium', findings: [{ text: 'f', from: [] }], open: ['o1', 'o2'], at: '', by: '',
+        sections: [
+          { kind: 'table', title: 'A simple rubric', delivers: 'A rubric written', columns: ['If', 'Then'], rows: [{ cells: ['a', 'b'], from: [] }] },
+          { kind: 'diagram', title: 'One way to ladder $25,000', diagram: { type: 'ladder', rungs: [{ label: 'a', start: 0, end: 12 }, { label: 'b', start: 0, end: 24 }] } },
+          { kind: 'steps', title: 'How a ladder works', items: [{ text: 's1', from: [] }, { text: 's2', from: [] }, { text: 's3', from: [] }] },
+          { kind: 'text', title: 'Why', body: 'one two three' },
+        ],
+      },
+    });
+    expect(w).toEqual({
+      kind: 'answer', confidence: 'medium', findings: 1, open: 2,
+      parts: [
+        { key: 'a-simple-rubric', title: 'A simple rubric', kind: 'table', rows: 1, columns: ['If', 'Then'], delivers: 'A rubric written' },
+        { key: 'one-way-to-ladder-25-000', title: 'One way to ladder $25,000', kind: 'diagram', diagram: 'ladder', parts: 2 },
+        { key: 'how-a-ladder-works', title: 'How a ladder works', kind: 'steps', steps: 3 },
+        { key: 'why', title: 'Why', kind: 'text', words: 3 },
+      ],
+    });
+    expect(JSON.stringify(w)).not.toContain('five CDs');
+    expect(written({ plan: { summary: 's', items: [{ when: 'Day 1', title: 't', from: [] }, { when: 'Day 2', title: 't', from: [] }], before: ['b'], open: [], at: '', by: '' } }))
+      .toEqual({ kind: 'plan', days: 2, before: 1, open: 0, parts: [] });
   });
 });

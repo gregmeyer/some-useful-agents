@@ -86,6 +86,30 @@ nodes:
       the answer or the plan); start from its page and change it
       when it nearly fits; draw one only when none does.
 
+      Once the notebook is WRITTEN (its "written" part above lists the
+      answer's or plan's parts: each with a key, its kind, its size, and
+      the done-when it delivers), don't keep the ready-made page as it
+      is: compose the page around what was written, the way an editor
+      lays out a story from the copy. Start from the ready-made "answer"
+      or "plan" page and:
+        - pick ONE hero, the part that says the most at a glance: a
+          diagram (a ladder, a split) over a table, a rubric table over
+          steps, the answer itself when no part stands out. Give it a
+          full-width feature Panel right after the answer (or the lede,
+          with the answer beside it in an aside when the answer is short
+          and the hero is tall), an AnswerSections with "only": [its key]
+          inside, the Panel titled with the part's title;
+        - place each other part where it reads best, each in its own
+          Panel with an AnswerSections "only": [key]: steps beside the
+          findings, a long table (over 8 rows) low in a feature or folded
+          in a Disclosure, a text part as an aside;
+        - keep one AnswerSections with "rest": true in a feature Panel
+          ("Also written"), low, so a part written later still shows;
+        - keep the answer's Callout, "What it rests on" (the findings
+          Agenda) and the evidence (OptionGrid, low), and fold the
+          research as the ready-made page does.
+      Say in "about" what leads ("the ladder first, then the rubric").
+
       Drawing a page:
       {{inputs.GUIDE}}
 

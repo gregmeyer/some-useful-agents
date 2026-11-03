@@ -12,11 +12,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunStore, NotebookStore, notebookGivenLinks, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePointer, splitNotebookHeader, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
-import { drawNotebookPage, type DrawnPage } from './notebook-page.js';
+import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookLayoutFlags } from './notebook-widgets.js';
 import { renderPageBrief, briefIsPage, briefQuotes } from '../views/notebook-page-brief.js';
 
-const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[] }>;
+const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[]; written?: string[] }>;
 
 let dir: string | undefined;
 let runs: RunStore | undefined;
@@ -28,11 +28,16 @@ function store(): NotebookStore {
   return NotebookStore.fromHandle(runs.databaseHandle());
 }
 
-/** The example, its page decided from the recorded answer (the agent reads its setup, never its options), with what its steps found when `data`. */
+/**
+ * The example, its page decided from the recorded answer (the agent reads its
+ * setup, never its options), with what its steps found when `data`. Once
+ * written (an answer or a plan with its parts), the page is composed around
+ * them, from the `written` answer recorded for it.
+ */
 async function decided(ex: NotebookPageExample, data: boolean): Promise<{ s: NotebookStore; nb: Notebook; drawn: DrawnPage }> {
   const s = store();
   const id = ex.seed(s, { data });
-  const replies = ANSWERS[ex.id]?.replies ?? [];
+  const replies = (data && written(s.get(id)!) && ANSWERS[ex.id]?.written) || ANSWERS[ex.id]?.replies || [];
   let n = 0;
   const drawn = await drawNotebookPage(s.get(id)!, async () => replies[Math.min(n++, replies.length - 1)]);
   if ('layout' in drawn.answer) s.setLayout(id, drawn.answer.layout, 'notebook');
@@ -151,6 +156,61 @@ describe.each(NOTEBOOK_PAGE_EXAMPLES.map((ex) => [ex.id, ex] as const))('a noteb
     const at = titles.map((t) => brief.indexOf(`>${t.replace(/&/g, '&amp;').replace(/'/g, '&#39;')}<`));
     expect(titles.filter((_, i) => at[i] < 0)).toEqual([]);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+});
+
+describe('a page composed around what was written', () => {
+  const WRITTEN = NOTEBOOK_PAGE_EXAMPLES.filter((ex) => ANSWERS[ex.id]?.written);
+  it('the question and the trip are written once their steps ran, and their parts have keys', () => {
+    expect(WRITTEN.map((ex) => ex.id)).toEqual(['question', 'trip']);
+    for (const ex of WRITTEN) {
+      const s = store();
+      const nb = s.get(ex.seed(s, { data: true }))!;
+      const w = written(nb) as { kind: string; parts: Array<{ key: string; kind: string }> };
+      expect(w.kind).toBe(ex.id === 'trip' ? 'plan' : 'answer');
+      expect(w.parts.length).toBeGreaterThan(1);
+      expect(w.parts.every((p) => /^[a-z0-9-]+$/.test(p.key))).toBe(true);
+    }
+  });
+
+  it.each(WRITTEN.map((ex) => [ex.id, ex] as const))('%s: places each part once, a hero first, and keeps a place for parts written later', async (_id, ex) => {
+    const { s, nb } = await decided(ex, true);
+    expect(nb.layout?.preset).toBeUndefined();
+    const parts = nb.layout!.components.filter((c) => c.component === 'AnswerSections');
+    expect(parts.some((c) => c.rest === true)).toBe(true);
+    const placed = parts.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : []));
+    expect(new Set(placed).size).toBe(placed.length);
+    // Drawn: every written part is on the page exactly once (the leftovers block skips the placed ones).
+    const data = notebookWidgetData(nb, s.entries(nb.id), s);
+    const page = notebookWidgetComponents(nb, undefined, data);
+    const drawn = page.filter((c) => c.component === 'AnswerSections');
+    const keys = Object.keys(data.notebook.section);
+    const shown = drawn.flatMap((c) => (Array.isArray(c.only) ? c.only as string[] : keys.filter((k) => !(c.skip as string[] | undefined ?? []).includes(k))));
+    expect([...shown].sort()).toEqual([...keys].sort());
+    // Everything placed: the leftovers block has nothing to show, so the drawn page leaves it out.
+    expect(drawn.some((c) => Array.isArray(c.skip))).toBe(false);
+    // On the page as written, the hero (the first placed part) comes before the leftovers.
+    const order = nb.layout!.components.map((c) => c.id);
+    expect(order.indexOf(parts.find((c) => Array.isArray(c.only))!.id)).toBeLessThan(order.indexOf(parts.find((c) => c.rest === true)!.id));
+    expect(pageRhythm(nb.layout!.components)).toEqual([]);
+  });
+
+  it('a part written later shows in the leftovers, and one that is gone leaves its place empty', async () => {
+    const ex = WRITTEN.find((e) => e.id === 'question')!;
+    const { s, nb } = await decided(ex, true);
+    const sections = nb.answer!.sections!;
+    // A new part: nothing on the page names it, so the leftovers block draws it.
+    s.setAnswer(nb.id, { ...nb.answer!, sections: [...sections, { kind: 'text', title: 'A note on sizing', body: 'Size to the design load, not the furnace.' }] });
+    let page = notebookWidgetComponents(s.get(nb.id)!, undefined, notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s));
+    const rest = page.find((c) => c.component === 'AnswerSections' && Array.isArray(c.skip))!;
+    expect(rest.skip).toEqual(expect.arrayContaining(['when-a-heat-pump-pays-off']));
+    expect((rest.skip as string[]).includes('a-note-on-sizing')).toBe(false);
+    // The rubric gone: its panel goes with it; the leftovers block stays for what is left.
+    s.setAnswer(nb.id, { ...nb.answer!, sections: sections.filter((x) => x.kind !== 'table') });
+    page = notebookWidgetComponents(s.get(nb.id)!, undefined, notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s));
+    expect(page.some((c) => c.id === 'rubric_p' || c.id === 'rubric')).toBe(false);
+    expect(page.some((c) => c.id === 'how_p')).toBe(true);
+    expect(validateViewComponents(splitNotebookHeader(page).rest).ok).toBe(true);
   });
 });
 
