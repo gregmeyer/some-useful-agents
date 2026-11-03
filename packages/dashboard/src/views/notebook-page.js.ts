@@ -153,6 +153,9 @@ export const NOTEBOOK_PAGE_JS = `
     var id = main.getAttribute('data-nb-main');
     var count = Number(main.getAttribute('data-nb-count')) || 0;
     var changed = main.getAttribute('data-nb-changed') || '';
+    // Something is running (a step, photos, a check): the working panel is redrawn every few
+    // seconds so its clock moves, in place; the page itself no longer reloads for that.
+    var running = main.getAttribute('data-nb-running') === '1';
     // The widgets' Move / Rule out / Bring back: save it, then redraw.
     var base = '/notebooks/' + encodeURIComponent(id) + '/entries/';
     document.addEventListener('a2ui-action', function (e) {
@@ -197,6 +200,7 @@ export const NOTEBOOK_PAGE_JS = `
             var lv = decodeURIComponent(res.lv || '');
             if (lv !== (main.getAttribute('data-nb-live') || '')) {
               main.setAttribute('data-nb-live', lv);
+              if (lv) running = true;
               redrawLive();
               if (res.wt) showWaitingToast(decodeURIComponent(res.wt));
               else hideWaitingToast();
@@ -216,17 +220,57 @@ export const NOTEBOOK_PAGE_JS = `
           main.setAttribute('data-nb-count', String(count));
           // The first entries also bring the conversation box to the side: reload once.
           if (wasEmpty) { window.location.reload(); return; }
-          main.innerHTML = res.t;
+          fillMain(res.t);
         })
         .catch(function () { /* keep what's shown */ });
     }
+    // The page's new copy, filled in place when it can be: the same parts in the same places
+    // take their new data without being redrawn (nothing jumps, a figure keeps its what-if);
+    // anything else (a part appeared or went, the shape changed) redraws the whole column.
+    function fillMain(t) {
+      var fresh = new DOMParser().parseFromString('<div id="nb-fresh">' + t + '</div>', 'text/html').getElementById('nb-fresh');
+      var api = window.suaA2ui;
+      var why = !fresh ? 'unreadable' : !(api && api.updateSurface) ? 'no-a2ui' : shell(fresh) !== shell(main) ? 'shell' : '';
+      if (!why) {
+        var hosts = fresh.querySelectorAll('[data-a2ui-surface]');
+        var ok = true;
+        var updates = [];
+        for (var i = 0; i < hosts.length && ok; i++) {
+          var sid = hosts[i].getAttribute('data-surface-id') || '';
+          var now = /^[\\w.:-]+$/.test(sid) ? main.querySelector('[data-a2ui-surface][data-surface-id="' + sid + '"]') : null;
+          var script = hosts[i].querySelector('script[type="application/json"]');
+          var messages = null;
+          try { messages = JSON.parse(script ? script.textContent : '[]'); } catch (_) { ok = false; }
+          if (!now || !messages) ok = false;
+          else updates.push([now, messages]);
+        }
+        if (ok) {
+          for (var j = 0; j < updates.length; j++) if (!api.updateSurface(updates[j][0], updates[j][1])) { ok = false; break; }
+          if (ok) { main.setAttribute('data-nb-fill', 'place'); return; }
+        }
+        why = ok ? 'surface' : 'messages';
+      }
+      // How the last refresh landed (place / shell / surface / …): for tests and a look in the inspector.
+      main.innerHTML = t;
+      main.setAttribute('data-nb-fill', why);
+    }
+    // The column with its surfaces' insides taken out: what must match for a fill in place.
+    function shell(root) {
+      var copy = root.cloneNode(true);
+      var hosts = copy.querySelectorAll('[data-a2ui-surface]');
+      for (var i = 0; i < hosts.length; i++) { hosts[i].innerHTML = ''; hosts[i].removeAttribute('data-a2ui-mounted'); }
+      return copy.innerHTML;
+    }
     setInterval(refresh, 5000);
+    setInterval(function () { if (running && document.visibilityState === 'visible') redrawLive(); }, 6000);
     // The page's live bar and Talk card from a fresh copy of the page (not while you type in it).
     function redrawLive() {
       fetch('/notebooks/' + encodeURIComponent(id), { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.text(); })
         .then(function (t) {
           var doc = new DOMParser().parseFromString(t, 'text/html');
+          var freshMain = doc.querySelector('[data-nb-main]');
+          if (freshMain) running = freshMain.getAttribute('data-nb-running') === '1';
           var bar = doc.querySelector('[data-nb-live-bar]');
           var nowBar = document.querySelector('[data-nb-live-bar]');
           if (bar && nowBar) nowBar.replaceWith(document.importNode(bar, true));

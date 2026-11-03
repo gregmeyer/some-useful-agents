@@ -178,7 +178,7 @@ const SUA_COMPONENTS = [
     name: 'Panel',
     summary: 'A titled part of a page: a mono title, an optional note on the right, and its child. `treatment` sets how it reads: plain (a frame, the default), lede (no frame, a teal eyebrow: the opening part), feature (no frame, a rule above: the main story), aside (a hairline rule on its left: facts and context), band (full width, tinted: a strip). `hero: true` marks the one part a composed page leads with (its title set in display type); a page has at most one.',
     example: { id: 'p', component: 'Panel', title: 'Shortlist', note: 'ranked by price', child: 'p_body', treatment: 'plain' },
-    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), /** The one part a composed notebook page leads with: its title in display type. */ hero: z.boolean().optional() }).strict(),
+    schema: Common.extend({ title: Str, note: Str.optional(), child: CS.ComponentId, treatment: z.enum(['plain', 'lede', 'feature', 'aside', 'band']).optional(), /** The one part a composed notebook page leads with: its title in display type. */ hero: z.boolean().optional(), /** Set by the page while a step runs and the part has nothing yet: its title and a skeleton in place of its child. Never written by a model. */ pending: z.boolean().optional() }).strict(),
   },
   {
     name: 'Callout',
