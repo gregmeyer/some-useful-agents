@@ -75,7 +75,7 @@ for (const ex of examples) {
       parts = (ex.expect.needs ?? []).every((n) => names.has(n));
       if (!drawn.answer.layout.preset) rhythm = core.pageRhythm(drawn.answer.layout.components);
     }
-    tries.push({ kind, right: kind === ex.expect.page, first: drawn.tries === 1, usable: kind !== 'none', parts, rhythm, notes: drawn.firstNotes, seconds: Math.round((Date.now() - started) / 1000), about: 'layout' in drawn.answer ? drawn.answer.layout.about : drawn.answer.about });
+    tries.push({ kind, right: kind === ex.expect.page || kind === `preset:${ex.expect.page}`, first: drawn.tries === 1, usable: kind !== 'none', parts, rhythm, notes: drawn.firstNotes, seconds: Math.round((Date.now() - started) / 1000), about: 'layout' in drawn.answer ? drawn.answer.layout.about : drawn.answer.about });
     if (r === 0 && flag('record') && kind !== 'none') recorded[ex.id] = { ...(recorded[ex.id] ?? {}), replies };
     process.stderr.write(`${ex.id} run ${r + 1}: ${kind}${drawn.tries > 1 ? ' (2 tries)' : ''}\n`);
     // Written (an answer or a plan with its parts): asked again, the page is composed around them: drawn, each part placed, a place for the rest.
@@ -100,9 +100,9 @@ const pct = (x) => `${Math.round(x * 100)}%`;
 
 const base = existsSync(BASELINE) ? JSON.parse(readFileSync(BASELINE, 'utf8')) : undefined;
 console.log(`\nNotebook pages: ${rows.length} examples × ${runs} runs\n`);
-console.log('| notebook | wants | got | right | first try | has parts |');
-console.log('|---|---|---|---|---|---|');
-for (const r of rows) console.log(`| ${r.id} (${r.job}) | ${r.expect} | ${r.got.join(', ')} | ${pct(r.right)} | ${pct(r.first)} | ${pct(r.parts)} |`);
+console.log('| notebook | wants | got | right | first try | has parts | composed once written |');
+console.log('|---|---|---|---|---|---|---|');
+for (const r of rows) console.log(`| ${r.id} (${r.job}) | ${r.expect} | ${r.got.join(', ')} | ${pct(r.right)} | ${pct(r.first)} | ${pct(r.parts)} | ${r.tries.some((t) => 'composed' in t) ? r.tries.map((t) => (t.composed === undefined ? '' : t.composed ? 'yes' : 'no')).filter(Boolean).join(', ') : '—'} |`);
 console.log(`\n| overall | ${METRICS.join(' | ')} |\n|---|${METRICS.map(() => '---').join('|')}|`);
 console.log(`| now | ${METRICS.map((k) => pct(totals[k])).join(' | ')} |`);
 let worse = [];
