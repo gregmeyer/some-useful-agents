@@ -33,7 +33,7 @@ import {
 } from '@some-useful-agents/core';
 import { cleanBriefing, loadBrandTheme } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { createNotebookFrom } from '../lib/notebook-create.js';
+import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
@@ -590,6 +590,20 @@ notebooksRouter.post('/notebooks/templates/:tid/archive', (req: Request, res: Re
 notebooksRouter.post('/notebooks/templates/:tid/delete', (req: Request, res: Response) => {
   const gone = store(req).deleteTemplate(String(req.params.tid));
   res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(gone ? 'Template removed. Notebooks made from it stay.' : 'No such template.')}`);
+});
+
+// Run it again as a new notebook: the same setup, none of the content; this one archived.
+notebooksRouter.post('/notebooks/:id/rerun', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const ctx = getContext(req.app.locals);
+  try {
+    const { notebook, started, reason } = rerunNotebook(ctx, id);
+    const first = notebook.steps?.[0];
+    const words = started && first ? `Started again as a new notebook; its first step, ${first.title}, is running.` : `Started again as a new notebook.${reason ? ` ${reason}` : ''}`;
+    res.redirect(303, back(notebook.id, `${words} The one before is archived (Restore on its Edit page).`));
+  } catch (err) {
+    res.redirect(303, `/notebooks/${encodeURIComponent(id)}/edit?flash=${encodeURIComponent(`Couldn't run it again: ${err instanceof Error ? err.message : String(err)}`)}`);
+  }
 });
 
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {

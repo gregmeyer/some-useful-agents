@@ -5077,3 +5077,81 @@ describe('editing the talking points', () => {
     correctionReply = undefined;
   });
 });
+
+describe('run a notebook again as a new notebook', () => {
+  const post = (app: Awaited<ReturnType<typeof makeApp>>, path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  it('copies the setup and the page, none of the content, archives the old one, links the two and starts the first step', async () => {
+    const app = await makeApp();
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { rerunSetup } = await import('../lib/notebook-create.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { executeNotebookRerun } = await import('./inbox-engine.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Research CD ladders for $25,000', statement: 'Where to put $25,000 in CDs', params: ['$25,000', 'FDIC insured'], criteria: ['A simple rubric written'], pipeline: [], cadence: '' });
+    store.setFields(nb0.id, [{ key: 'apy', label: 'APY', type: 'number', unit: '%', better: 'higher' }, { key: 'url', label: 'Page', type: 'url', role: 'link' }]);
+    store.setStages(nb0.id, ['Found', 'Checked']);
+    store.setChecks(nb0.id, ['FDIC insured']);
+    store.setSteps(nb0.id, [{ title: 'Find 5 CDs', kind: 'find', target: 5 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    store.setLayout(nb0.id, layoutPreset('answer')!.layout, 'picked');
+    store.upsertOption(nb0.id, { title: 'Marcus 12-month', by: 'agent:x', data: { apy: 4.4 } });
+    store.addEntry(nb0.id, { kind: 'note', title: 'A note', by: 'you' });
+    store.setAnswer(nb0.id, { text: 'Ladder it.', confidence: 'medium', basis: 'x', findings: [], open: [], sections: [], askedAt: new Date().toISOString(), by: 'agent:notebook-writer' } as never);
+    store.updateStep(nb0.id, store.get(nb0.id)!.steps![0].id, { status: 'met' });
+    const nb = store.get(nb0.id)!;
+
+    // The setup, and nothing it found.
+    const setup = rerunSetup(nb);
+    expect(setup).toMatchObject({ title: nb.title, statement: nb.statement, params: nb.params, criteria: ['A simple rubric written'], checks: ['FDIC insured'], stages: ['Found', 'Checked'], layoutBy: 'picked' });
+    expect(setup.steps!.map((s) => [s.title, s.status, s.tries])).toEqual([['Find 5 CDs', 'todo', 0], ['Write the answer', 'todo', 0]]);
+    expect(setup.fields!.map((f) => (f as { key: string }).key)).toEqual(['apy', 'url']);
+    expect(Object.keys(setup)).not.toEqual(expect.arrayContaining(['answer', 'about', 'entries']));
+
+    // The Edit page offers it; an archived one doesn't.
+    const edit = (await get(app, `/notebooks/${nb.id}/edit`)).text;
+    expect(edit).toContain('Run again as a new notebook…');
+    expect(edit).toContain(`action="/notebooks/${nb.id}/rerun"`);
+
+    finderReply = () => `Found 1.\n<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'Ally 24-month', data: { apy: 4.3 } }] })}</notebook>`;
+    const res = await post(app, `/notebooks/${nb.id}/rerun`, {});
+    const where = decodeURIComponent(res.headers.location);
+    expect(where).toContain('Started again as a new notebook; its first step, Find 5 CDs, is running. The one before is archived');
+    const newId = where.split('/notebooks/')[1].split('?')[0];
+    expect(newId).not.toBe(nb.id);
+    const made = store.get(newId)!;
+    expect(made).toMatchObject({ title: nb.title, statement: nb.statement, params: nb.params, checks: ['FDIC insured'], stages: ['Found', 'Checked'], layoutBy: 'picked', layout: { preset: 'answer' } });
+    expect(made.criteria.map((c) => `${c.text}:${String(c.met)}`)).toEqual(['A simple rubric written:false']);
+    expect(made.fields.map((f) => f.key)).toEqual(['apy', 'url']);
+    expect(made.steps!.map((s) => [s.title, s.kind])).toEqual([['Find 5 CDs', 'find'], ['Write the answer', 'write']]);
+    // Its first step was started (the stubbed finder may already have finished it).
+    expect(made.steps![0].status).not.toBe('todo');
+    expect(made.answer).toBeUndefined();
+    for (let i = 0; i < 200 && store.get(newId)!.steps![0].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    const after = store.entries(newId);
+    // Its own note of where it came from, and then what its own search found: nothing from the old one.
+    expect(after.filter((e) => e.kind === 'note').map((e) => e.title)).toContain('Started again');
+    expect(after.some((e) => e.kind === 'option' && e.title === 'Marcus 12-month')).toBe(false);
+    expect(after.find((e) => e.title === 'Started again')!.body).toContain(`[${nb.title}](/notebooks/${nb.id})`);
+    // The old one: archived, with a note of the new one, everything it found still there.
+    const old = store.get(nb.id)!;
+    expect(old.archivedAt).toBeTruthy();
+    expect(store.entries(nb.id).find((e) => e.title === 'Run again')!.body).toContain(`/notebooks/${newId}`);
+    expect(store.entries(nb.id).some((e) => e.title === 'Marcus 12-month')).toBe(true);
+    expect((await get(app, `/notebooks/${nb.id}/edit`)).text).not.toContain('Run again as a new notebook…');
+    const again = await post(app, `/notebooks/${nb.id}/rerun`, {});
+    expect(decodeURIComponent(again.headers.location)).toContain("Couldn't run it again: It's archived. Restore it first");
+
+    // Said to sua: a card that does the same.
+    const { accepted, rejected } = parseProposedActions([{ type: 'notebook-rerun', rationale: 'Start over', inputs: { NOTEBOOK: newId } }, { type: 'notebook-rerun', inputs: {} }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-rerun', effect: 'write', ctaLabel: 'Run it again', inputs: { NOTEBOOK: newId } });
+    expect(rejected[0].reason).toBe('notebook-rerun needs inputs.NOTEBOOK');
+    const done = executeNotebookRerun(ctx, accepted[0]);
+    expect(done.status).toBe('completed');
+    expect(done.summary).toMatch(/^Started again as \[Research CD ladders for \$25,000\]\(\/notebooks\/[^)]+\): the same setup, none of what the old one found\. Its first step, \*\*Find 5 CDs\*\*, is running\. The one before is archived/);
+    expect(store.get(newId)!.archivedAt).toBeTruthy();
+    expect(executeNotebookRerun(ctx, { ...accepted[0], inputs: { NOTEBOOK: 'nope' } })).toMatchObject({ status: 'failed', refusalReason: 'No such notebook.' });
+    finderReply = undefined;
+  });
+});

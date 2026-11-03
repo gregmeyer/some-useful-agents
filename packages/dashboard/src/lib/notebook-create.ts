@@ -6,8 +6,8 @@
  * steps. Then it decides its page (unless it came with one, a template's),
  * and sua says hello in the notebook's conversation.
  */
-import { NotebookStore, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
-import { fitStepAgents } from './notebook-steps.js';
+import { NotebookStore, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
+import { fitStepAgents, startNotebookStep } from './notebook-steps.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
@@ -32,6 +32,8 @@ export interface NewNotebookSetup {
   steps?: NotebookStep[];
   /** Its page's layout (a template's); without it, the default. */
   layout?: NotebookLayout;
+  /** Whose the page is (`layoutBy`): a template's unless said (a rerun keeps the old notebook's, so sua still composes it). */
+  layoutBy?: string;
   /** The meeting it prepares for. */
   meeting?: NotebookMeeting;
 }
@@ -56,7 +58,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   // A page reader can't find or check: those steps go to sua's finder or checker.
   const steps = input.steps?.length ? fitStepAgents(ctx, input.steps).steps : undefined;
   if (steps) store.setSteps(nb.id, steps);
-  if (input.layout) store.setLayout(nb.id, input.layout, 'template');
+  if (input.layout) store.setLayout(nb.id, input.layout, input.layoutBy ?? 'template');
   if (input.meeting) store.setMeeting(nb.id, input.meeting);
   // sua sets up what options record and the stages they go through, from the
   // goal (unless that came with it), then says hello in the notebook's
@@ -78,4 +80,43 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   };
   if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
   return store.get(nb.id)!;
+}
+
+/**
+ * A notebook's setup for running it again as a new notebook: what a
+ * template keeps (what it's for, limits, done-whens, checks, stages, fields,
+ * steps reset to todo with their agents, schedule, pipeline, its page) plus
+ * its title, meeting and whose the page is. None of its content: options,
+ * notes, decision, answer or plan, who it's about, photos, history. Pure.
+ */
+export function rerunSetup(nb: Notebook): NewNotebookSetup {
+  const t = templateFromNotebook(nb);
+  return {
+    title: nb.title, statement: t.statement, params: t.params, criteria: t.criteria, pipeline: t.pipeline, cadence: t.cadence,
+    fields: t.fields, stages: t.stages, checks: t.checks, steps: t.steps,
+    ...(t.layout ? { layout: t.layout, ...(nb.layoutBy ? { layoutBy: nb.layoutBy } : {}) } : {}),
+    ...(nb.meeting ? { meeting: nb.meeting } : {}),
+  };
+}
+
+/**
+ * Run a notebook again as a new one: a fresh notebook with its setup and
+ * none of its content, each noting the other, the old one archived (its
+ * options, notes, answer and history stay there; Restore brings it back),
+ * and the new one's first step started. No template is made.
+ */
+export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Notebook; started: boolean; reason?: string } {
+  const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const old = store.get(notebookId);
+  if (!old) throw new Error('No such notebook.');
+  if (old.archivedAt) throw new Error('It\'s archived. Restore it first, then run it again.');
+  const made = createNotebookFrom(ctx, rerunSetup(old));
+  const link = (n: Notebook) => `[${n.title}](/notebooks/${encodeURIComponent(n.id)})`;
+  store.addEntry(made.id, { kind: 'note', title: 'Started again', body: `Started again from ${link(old)}, with its setup and none of what it found. The old one is archived.`, by: 'you' });
+  store.addEntry(old.id, { kind: 'note', title: 'Run again', body: `Run again as ${link(made)}; this one is archived.`, by: 'you' });
+  store.archive(old.id);
+  const fresh = store.get(made.id)!;
+  if (!fresh.fields.length || !fresh.steps?.length) return { notebook: fresh, started: false, reason: fresh.steps?.length ? 'sua is still setting it up; start its first step from the page once it has.' : 'It has no steps; start a search from its page.' };
+  const out = startNotebookStep(ctx, made.id);
+  return { notebook: store.get(made.id)!, started: out.started, ...(out.started ? {} : { reason: out.reason ?? 'Its first step didn\'t start; start it from the page.' }) };
 }

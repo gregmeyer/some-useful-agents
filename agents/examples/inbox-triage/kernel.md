@@ -998,6 +998,17 @@ next, say it was the last one in the running.
   nothing is. Don't answer from what the notebook already has: it only
   knows what's new by running again. With only one such step, use AGAIN on
   that step.
+- RUN IT AGAIN AS A NEW NOTEBOOK. When they say to clear it and run again,
+  start over, start fresh, run it again from scratch, or run it again as a
+  new notebook ("clear this data and run again", "start this one over"),
+  propose ONE card:
+  `{ "type": "notebook-rerun", "inputs": { "NOTEBOOK": "<id>" } }`
+  It makes a new notebook with the same setup (what it's for, limits,
+  done-whens, checks, steps, its page) and none of what this one found,
+  starts its first step, and archives this one (its options, notes, answer
+  and history stay there; Restore brings it back). No template is made.
+  Say that in a line. Not UPDATE "1": that keeps what it has and looks for
+  what's new; this starts empty.
 - One write per turn: prefer notebook-add; propose the pipeline or steps on
   a turn with nothing new to file.
 

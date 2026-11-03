@@ -557,6 +557,15 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Create notebook' });
       continue;
     }
+    // `notebook-rerun` runs a notebook again as a new one: the same setup, none
+    // of its content, the old one archived. A card to approve (it archives).
+    if (type === 'notebook-rerun') {
+      const raw = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) ? e.inputs as Record<string, unknown> : {};
+      const nbId = typeof raw.NOTEBOOK === 'string' ? raw.NOTEBOOK : '';
+      if (!nbId) { rejected.push({ agentId: type, reason: 'notebook-rerun needs inputs.NOTEBOOK' }); continue; }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'write', inputs: { NOTEBOOK: nbId }, rationale: rationaleRaw || undefined, ctaLabel: 'Run it again' });
+      continue;
+    }
     // `notebook-step` acts on the notebook's current step: MOVE "1" moves on
     // from it with what it found (when they say to stop, skip or move on), else
     // it runs it (Continue, Try again). AGAIN "1" runs a done find step again

@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
-import { createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
+import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
 import { previewNotebookTemplate, executeNotebookTemplate } from '../lib/notebook-template-action.js';
@@ -209,7 +209,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -921,6 +921,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'notebook-create') {
     return executeNotebookCreate(ctx, meta);
   }
+  if (meta.agentId === 'notebook-rerun') {
+    return executeNotebookRerun(ctx, meta);
+  }
   if (meta.agentId === 'board-build') {
     return executeBoardBuild(ctx, meta);
   }
@@ -1281,6 +1284,26 @@ export function executeNotebookCreate(
     return {
       status: 'completed',
       summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) from your ${made.template.name} template (${made.template.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
+    };
+  } catch (err) {
+    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Run a notebook again as a new one (a card sua proposed): the same setup, none of its content; the old one archived. */
+export function executeNotebookRerun(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const id = meta.inputs.NOTEBOOK;
+  const old = id ? notebooksOf(ctx).get(id) : undefined;
+  if (!old) return { status: 'failed', refusalReason: 'No such notebook.' };
+  try {
+    const { notebook, started, reason } = rerunNotebook(ctx, id!);
+    const first = notebook.steps?.[0];
+    return {
+      status: 'completed',
+      summary: `Started again as [${notebook.title}](/notebooks/${encodeURIComponent(notebook.id)}): the same setup, none of what the old one found.${started && first ? ` Its first step, **${first.title}**, is running.` : reason ? ` ${reason}` : ''} The one before is archived; Restore on its Edit page brings it back.`,
     };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
@@ -2834,7 +2857,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
     );
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
