@@ -15,6 +15,13 @@ describe('a look drawn small', () => {
     expect(shortlist).toContain('lk-g--map');
     expect(shortlist).toContain('lk-g--grid');
     expect(shortlist).not.toContain('lk-g--profile');
+    // The representation parts have glyphs of their own, and a hero part a heavier title.
+    expect(shortlist).toContain('lk-g--lead');
+    expect(shortlist).toContain('lk-g--bars');
+    expect(shortlist).toContain('lk-g--compare');
+    const answer = render(lookThumb(layoutPreset('answer')!.layout.components));
+    expect(answer).toContain('lk-part--hero');
+    expect(render(lookThumb([{ id: 'root', component: 'Column', children: ['f'] }, { id: 'f', component: 'Figure', section: { path: '/notebook/section/x' } }]))).toContain('lk-g--figure');
   });
 });
 

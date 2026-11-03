@@ -56,8 +56,13 @@ describe('answer sections', () => {
   });
 
   it('pages drawn before sections get the panel after the answer, once', () => {
-    const saved = layoutPreset('answer')!.layout.components.filter((c) => c.component !== 'AnswerSections' && c.id !== 'sections_p')
-      .map((c) => (c.id === 'answer_col' ? { ...c, children: ['answer', 'findings_p'] } : c));
+    // An answer page as it was drawn before sections: the answer and the findings in a column beside the steps.
+    const saved = [
+      { id: 'root', component: 'Column', children: ['top'] },
+      { id: 'top', component: 'Columns', children: ['answer_col', 'steps_panel'], widths: [2, 1] },
+      { id: 'answer_col', component: 'Column', children: ['answer', 'findings_p'] },
+      ...layoutPreset('answer')!.layout.components.filter((c) => ['answer', 'findings_p', 'findings', 'steps_panel', 'steps'].includes(c.id)),
+    ];
     const up = withAnswerSections(saved);
     expect(up.find((c) => c.id === 'answer_col')!.children).toEqual(['answer', 'answer_sections_p', 'findings_p']);
     expect(up.filter((c) => c.component === 'AnswerSections')).toHaveLength(1);
@@ -180,8 +185,12 @@ describe('answer sections', () => {
     expect(criterionMet({ ...nb, plan } as Notebook, [], 'The 3-day Lisbon plan written')).toBe(true);
     expect(criterionMet({ ...nb, plan } as Notebook, [], 'Packing list written')).toBe(true);
     // A plan page saved before: the parts after the days' panel, and the drawing beside the plan.
-    const saved = layoutPreset('plan')!.layout.components.filter((c) => c.id !== 'plan_sections_p' && c.id !== 'plan_sections_p_s')
-      .map((c) => (c.id === 'plan_col' ? { ...c, children: ['intro', 'days_p'] } : c.id === 'intro' ? { ...c, image: undefined } : c));
+    const saved = [
+      { id: 'root', component: 'Column', children: ['top'] },
+      { id: 'top', component: 'Columns', children: ['plan_col', 'steps_panel'], widths: [2, 1] },
+      { id: 'plan_col', component: 'Column', children: ['intro', 'days_p'] },
+      ...layoutPreset('plan')!.layout.components.filter((c) => ['intro', 'days_p', 'days', 'steps_panel', 'steps'].includes(c.id)).map((c) => (c.id === 'intro' ? { ...c, image: undefined } : c.id === 'days_p' ? { ...c, hero: undefined } : c)),
+    ];
     const up = withAnswerSections(saved);
     expect(up.find((c) => c.id === 'plan_col')!.children).toEqual(['intro', 'days_p', 'plan_sections_p']);
     expect(up.find((c) => c.id === 'intro')!.image).toEqual({ path: '/notebook/planIntro/cover' });

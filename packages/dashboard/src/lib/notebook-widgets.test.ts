@@ -47,7 +47,9 @@ describe('notebook widgets', () => {
     expect(d.summary).toBe('**1 in the running**, 1 ruled out. The best lead is the **2010 RAV4, Lynnwood**: $4,023, 149,652 mi. Furthest along: Checked.');
     expect(d.next).toBe('check still listed and clean title on the top one before you contact anyone.');
     expect(d.stats).toEqual({ active: '1', best: '$4,023', bestLabel: 'Best price', furthest: 'Checked', ruledOut: '1' });
-    expect(d.statItems.map((x) => `${x.label}=${x.value}`)).toEqual(['in the running=1', 'best price=$4,023', 'furthest along=Checked', 'ruled out=1']);
+    // The best price is the page's lead number (numbers.lead), so the strip doesn't say it again.
+    expect(d.statItems.map((x) => `${x.label}=${x.value}`)).toEqual(['in the running=1', 'furthest along=Checked', 'ruled out=1']);
+    expect(d.numbers.lead).toMatchObject({ best: { value: '$4,023', label: 'Lowest price', note: '2010 RAV4, Lynnwood' }, count: { value: '1' } });
     expect(d.checklist).toEqual([{ id: rav.id, title: '#1 · 2010 RAV4, Lynnwood', items: [{ text: 'Still listed', done: false }, { text: 'Clean title', done: false }] }]);
     s.checkOption(nb.id, rav.id, 'Still listed', true);
     expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id), s).notebook.checklist[0].items[0]).toEqual({ text: 'Still listed', done: true });
@@ -241,7 +243,9 @@ describe('a notebook ranked by fit', () => {
     const d = notebookWidgetData(nb, entries).notebook;
     expect(d.summary).toContain('The best fit is the **Ledgerline**: fit 88, 140 employees.');
     expect(d.summary).toContain('Next best: Closewise (fit 74).');
-    expect(d.statItems[1]).toMatchObject({ label: 'best fit', value: '88' });
+    // The fit leads the page as a number; the strip doesn't repeat it.
+    expect(d.numbers.lead.best).toMatchObject({ value: '88', label: 'Highest fit', note: 'Ledgerline' });
+    expect(d.statItems.map((x) => x.label)).not.toContain('best fit');
     expect(d.shortlistNote).toBe('ranked by fit, highest first');
     expect(notebookWidgetComponents(nb).find((c) => c.id === 'shortlist')).toMatchObject({ sort: 'fit desc' });
 
@@ -341,7 +345,9 @@ describe('the notebook\'s numbers (Lead)', () => {
     } as never;
     const o = (id: string, name: string, fields: Record<string, unknown>) => ({ id, name, title: name, fields, checked: [], failed: [], body: '', page: `/notebooks/n/options/${id}` }) as never;
     const n = notebookNumbers(nb, [o('a', 'Marcus', { apy: 4.4, price: 500, term: '12 months' }), o('b', 'Popular', { apy: '4.8 %', price: { min: 10000, max: 12000 } }), o('c', 'None', { term: 'x' })]);
-    expect(Object.keys(n)).toEqual(['apy', 'price']);
+    // "lead" is the deciding field's (the price), at a fixed path for the ready-made pages.
+    expect(Object.keys(n)).toEqual(['apy', 'price', 'lead']);
+    expect(n.lead).toBe(n.price);
     expect(n.apy.best).toEqual({ value: '4.8 %', label: 'Highest apy', note: 'Popular', href: '/notebooks/n/options/b', tone: 'ok' });
     expect(n.apy.low.note).toBe('Marcus');
     expect(n.apy.count).toEqual({ value: '2', label: 'with apy', note: 'of 3 in the running', tone: 'neutral' });
