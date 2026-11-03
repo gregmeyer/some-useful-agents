@@ -1048,10 +1048,10 @@ const NOTEBOOK_TOOLS: BuiltinToolEntry[] = [
   def(
     'notebook-read',
     'Read a notebook',
-    'Read what a notebook knows: what it is for, the facts it learned about who it is about (with sources), the answer, talking points or plan it wrote, its options with their facts, sources and check results, and its notes. Give the notebook as its id, a /notebooks/<id> link, or words from its title; leave it empty to list notebooks. Read only.',
+    'Read what a notebook knows: what it is for, the facts it learned about who it is about (with sources), the answer, write-up, talking points or plan it wrote, its options with their facts, sources and check results, and its notes. Give the notebook as its id, a /notebooks/<id> link, or words from its title; leave it empty to list notebooks. Read only.',
     {
       notebook: { type: 'string', description: 'The notebook: its id, a /notebooks/<id> link, or words from its title. Empty lists them.' },
-      part: { type: 'string', description: `One part only: ${NOTEBOOK_READ_PARTS.join(', ')} (default all). "written" is its answer, talking points and plan.` },
+      part: { type: 'string', description: `One part only: ${NOTEBOOK_READ_PARTS.join(', ')} (default all). "written" is its answer, write-up, talking points and plan.` },
       format: { type: 'string', description: 'text (default) or json.' },
     },
     {

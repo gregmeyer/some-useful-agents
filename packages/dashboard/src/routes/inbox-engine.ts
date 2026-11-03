@@ -1342,7 +1342,7 @@ async function notebookStepOutcome(
   if (meta.inputs.AGAIN === '1') {
     const a = searchAgain(ctx, meta.inputs.NOTEBOOK ?? '', { stepId: meta.inputs.STEP });
     if (!a.started) return { status: 'failed', refusalReason: a.reason ?? 'It could not start.' };
-    const doing = a.step!.kind === 'write' ? `Writing again: **${a.step!.title}**. ${a.step!.shape === 'answer' ? 'The answer is' : a.step!.shape === 'plan' ? 'The plan is' : 'The talking points are'} replaced when it's done.`
+    const doing = a.step!.kind === 'write' ? `Writing again: **${a.step!.title}**. ${a.step!.shape === 'answer' ? 'The answer is' : a.step!.shape === 'plan' ? 'The plan is' : a.step!.shape === 'writeup' ? 'The write-up is' : 'The talking points are'} replaced when it's done.`
       : a.step!.kind === 'profile' ? `Looking again: **${a.step!.title}**. I'll say here what's new.`
       : `Searching again: **${a.step!.title}**. I'll say here how many are new.`;
     return { status: 'completed', summary: doing };

@@ -11,8 +11,8 @@
  * why, the findings it rests on (by id, the same way), and what's still
  * open (Notebook.answer); the Answer page and the brief show it.
  */
-import { notebookAffiliations } from './notebook-widgets.js';
-import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
+import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -32,7 +32,12 @@ export function daysUntil(when: string, now = new Date()): number {
 export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], step: Pick<NotebookStep, 'target' | 'shape'>, opts: { keep?: string[]; count?: number } = {}): Record<string, string> {
   const quoteF = nb.fields.find((f) => f.role === 'quote');
   const askF = nb.fields.find((f) => f.role === 'ask');
-  const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
+  const all = notebookViewData(nb, entries).notebook.options;
+  // A write-up reads the field ranked (the best first) and a few of the ruled out, with why, so it can say what rules the rest out.
+  const options = step.shape === 'writeup'
+    ? [...rankOptions(nb, all).filter((o) => !o.ruledOut), ...all.filter((o) => o.ruledOut).slice(0, 5)]
+    : all.filter((o) => !o.ruledOut);
+  const failedF = (id: string): string[] => (step.shape === 'writeup' ? Object.entries(entries.find((e) => e.id === id)?.failedChecks ?? {}).map(([c, why]) => `${c}: ${why}`) : []);
   const about = (who: 'person' | 'company') => {
     const one = nb.about?.[who];
     // A fact sources disagree on isn't stated as true: the writer gets both sides.
@@ -55,10 +60,14 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(o.link ? { source: o.link } : {}), ...(o.when ? { when: o.when } : {}),
       ...(o.chosen ? { chosen: true } : {}), ...(o.checked.length ? { checked: o.checked } : {}),
       ...(Object.keys(rest).length ? { facts: rest } : {}),
+      // A write-up also sees what failed, what ruled one out, and the short labels its facets give (ready-made groups).
+      ...(failedF(o.id).length ? { failed: failedF(o.id) } : {}),
+      ...(step.shape === 'writeup' && o.ruledOut ? { ruledOut: o.ruledOut.reason || 'ruled out' } : {}),
+      ...(step.shape === 'writeup' && Object.keys(optionFacets(nb, o) ?? {}).length ? { groups: optionFacets(nb, o) } : {}),
     };
   });
-  // An answer or plan also rests on the pages its research found that explain (evidence with its page), cited by id like an option.
-  const explains = step.shape === 'answer' || step.shape === 'plan'
+  // An answer or plan (or a write-up) also rests on the pages its research found that explain (evidence with its page), cited by id like an option.
+  const explains = step.shape === 'answer' || step.shape === 'plan' || step.shape === 'writeup'
     ? entries.filter((e) => e.kind === 'evidence' && e.fingerprint).slice(0, 12).map((e) => ({
       id: e.id, title: e.title, ...(e.body ? { said: e.body.replace(/\s+/g, ' ').slice(0, 500) } : {}), source: e.fingerprint!, explains: true,
     }))
@@ -66,7 +75,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   const person = about('person');
   const company = about('company');
   // An answer also reads the notes its research left (what a search said it found, or couldn't).
-  const notes = step.shape === 'answer' || step.shape === 'plan'
+  const notes = step.shape === 'answer' || step.shape === 'plan' || step.shape === 'writeup'
     ? entries.filter((e) => e.kind === 'note' && !/^Met: /.test(e.title)).slice(0, 12).map((e) => `${e.title}${e.body ? `: ${e.body}` : ''}`.replace(/\s+/g, ' ').slice(0, 400))
     : [];
   // The meeting it prepares for: when (and how soon), your goal, what you know.
@@ -86,13 +95,13 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
     }),
     THEMES: JSON.stringify([...themes.slice(0, 30 - Math.min(explains.length, 8)), ...explains.slice(0, 8)]),
     COUNT: opts.keep ? String(Math.max(1, opts.count ?? 1)) : String(Math.min(8, Math.max(3, step.target ?? 4))),
-    SHAPE: step.shape === 'answer' ? 'answer' : step.shape === 'plan' ? 'plan' : 'talking points',
+    SHAPE: step.shape === 'answer' ? 'answer' : step.shape === 'plan' ? 'plan' : step.shape === 'writeup' ? 'write-up' : 'talking points',
   };
 }
 
-/** What you struck from what this step writes. */
+/** What you struck from what this step writes (a write-up is kept as the answer). */
 const struckOf = (nb: Notebook, step: Pick<NotebookStep, 'shape'>): string[] =>
-  (step.shape === 'answer' ? nb.answer?.struck : step.shape === 'plan' ? nb.plan?.struck : nb.briefing?.struck) ?? [];
+  (step.shape === 'answer' || step.shape === 'writeup' ? nb.answer?.struck : step.shape === 'plan' ? nb.plan?.struck : nb.briefing?.struck) ?? [];
 
 async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runId: string) => void): Promise<{ result?: string; error?: string }> {
   if (ctx.notebookWriterRun) return { result: await ctx.notebookWriterRun(inputs) };
@@ -114,7 +123,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
   const entries = store.entries(nb.id, 1000);
   // What it may cite: the options in the running, and for an answer or plan the pages found that explain.
   const ids = new Set(entries.filter((e) => (e.kind === 'option' && !e.ruledOut) || (!!step.shape && e.kind === 'evidence' && !!e.fingerprint)).map((e) => e.id));
-  if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : step.shape === 'plan' ? 'there is nothing to plan with yet: nothing found is in the running' : 'there is nothing to write from yet: no themes in the running'];
+  if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : step.shape === 'plan' ? 'there is nothing to plan with yet: nothing found is in the running' : step.shape === 'writeup' ? 'there is nothing to write up yet: no options in the running' : 'there is nothing to write from yet: no themes in the running'];
   try {
     const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step), onRun);
     if (!result) return [`${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
@@ -128,15 +137,16 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
       const days = new Set(plan.items.map((i) => i.when)).size;
       return [`wrote the plan: ${String(plan.items.length)} thing${plan.items.length === 1 ? '' : 's'} over ${String(days)} day${days === 1 ? '' : 's'} or slots`];
     }
-    if (step.shape === 'answer') {
+    if (step.shape === 'answer' || step.shape === 'writeup') {
+      // A write-up (a shortlist written up) is an answer in shape, kept as one (ADR-0069).
       const block = extractTaggedJson(result, 'answer');
       let raw: unknown;
       try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
       const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text), amounts: notebookAmounts(nb) });
-      if (!answer) return [`${NOTEBOOK_WRITER_ID}: no answer came back`];
+      if (!answer) return [`${NOTEBOOK_WRITER_ID}: no ${step.shape === 'writeup' ? 'write-up' : 'answer'} came back`];
       store.setAnswer(nb.id, answer);
       const parts = (answer.sections ?? []).map((x) => x.title.toLowerCase());
-      return [`wrote the answer (${answer.confidence} confidence) with ${String(answer.findings.length)} finding${answer.findings.length === 1 ? '' : 's'}${parts.length ? `, and ${parts.join(', ')}` : ''}`];
+      return [`wrote the ${step.shape === 'writeup' ? 'write-up' : 'answer'} (${answer.confidence} confidence) with ${String(answer.findings.length)} finding${answer.findings.length === 1 ? '' : 's'}${parts.length ? `, and ${parts.join(', ')}` : ''}`];
     }
     const block = extractTaggedJson(result, 'briefing');
     let raw: unknown;

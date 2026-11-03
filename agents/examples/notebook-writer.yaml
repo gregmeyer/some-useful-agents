@@ -36,7 +36,7 @@ inputs:
     type: string
     required: false
     default: "talking points"
-    description: 'What to write: "talking points" (for a meeting), "answer" (to the question the notebook is for) or "plan" (a plan in order).'
+    description: 'What to write: "talking points" (for a meeting), "answer" (to the question the notebook is for), "plan" (a plan in order) or "write-up" (a shortlist written up: the lay of the land, its groups, the top three and why, what to do next).'
 
 nodes:
   - id: write
@@ -131,6 +131,54 @@ nodes:
       <answer>
       {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"], "sections": [{"kind": "table", "title": "…", "delivers": "…", "columns": ["…", "…"], "rows": [{"cells": ["…", "…"], "from": ["id"]}]}, {"kind": "steps", "title": "…", "items": [{"text": "…", "detail": "…", "from": ["id"]}]}]}
       </answer>
+
+      If what to write is "write-up": write up the field for a shortlist,
+      in the same <answer> JSON as an answer (the same keys; "sections"
+      of kind "table", "steps" and "text" only, no diagrams). What's
+      above are the options, the best first by how the notebook ranks
+      them, each with its facts, what it passed ("checked"), what it
+      failed ("failed"), its "groups" (short labels the notebook gave its
+      long facts), and whether it's "chosen"; a few marked "ruledOut"
+      with why; and pages that explain what to weigh ("explains"). Say
+      what the field looks like to someone deciding, not what each option
+      is (the page shows them):
+        - "answer": the lay of the land, 2 to 4 sentences, **bold** the
+          key part: how many and of what kind, where they cluster (the
+          groups), what the strongest share, what's thin or missing. When
+          some are chosen, lead with those and why they stood out;
+        - "confidence": how well checked the field is ("high" when the
+          top ones passed every check with sources; "low" when few were
+          checked or the search was thin); "basis": one sentence why;
+        - "findings": 3 to 6 patterns across the field (what the top ones
+          have in common, where the money or the fit is, what the
+          limits rule out), each citing the ids it rests on;
+        - "open": up to 5 things to check or decide next;
+        - "sections", in this order:
+            1. {"kind": "table", "title": "The field in groups",
+               "columns": ["Group", "Which", "What they share"], "rows":
+               2 to 6, one per group (by what they are, who they're
+               with, where, what they cost, or by the ask's own
+               distinctions); "Which" names them, "from" their ids};
+            2. {"kind": "steps", "title": "The top three and why" (when
+               some are chosen, "Why these", those instead), "items": 3
+               (fewer when the field is smaller), in rank order, each
+               "text": the option's name and, in a clause, why it leads;
+               "detail": its tradeoff or what's unconfirmed; "from": its
+               id};
+            3. {"kind": "steps", "title": "What to do next", "items": 2
+               to 6, in order: which to pursue first and how, what to
+               check before that, each "from" the ids it concerns};
+            4. optionally, a {"kind": "table"} rubric titled "What to
+               weigh" when the ask or a done-when asks how to think about
+               it, citing "explains" pages and options.
+          When a section gives one of the notebook's done-whens ("a
+          final list of 10 recorded", "a shortlist written"), put that
+          done-when's words in "delivers", exactly as the notebook says
+          it; a done-when about a list is given by the groups table.
+          Every row, item and finding cites ids from above; numbers (a
+          salary, a price, a count) only as the facts give them. When
+          the notebook has "skip", those are findings or rows the person
+          struck: don't write them, or one that says the same, again.
 
       If what to write is "plan": make the plan the notebook is for
       ("for", within its limits: dates, budget, where, who), from the

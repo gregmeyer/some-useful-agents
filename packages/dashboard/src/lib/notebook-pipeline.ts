@@ -107,7 +107,9 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
     // A notebook that ends in a written answer or plan needs pages that explain, not only options.
     (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'))
       ? `It ends with a written ${(nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'plan') ? 'plan' : 'answer'}: besides options, it needs sources that explain how it works and what to weigh.`
-      : '',
+      : (nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'writeup')
+        ? 'Its shortlist gets written up: besides options, a page or two that explain what to weigh help.'
+        : '',
     entries ? notebookGaps(nb, entries) : '',
   ].filter(Boolean).join('\n');
 }

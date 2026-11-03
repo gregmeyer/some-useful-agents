@@ -769,8 +769,13 @@ export interface NotebookStep {
   top?: number;
   /** profile: who to learn about ("Dana Reyes", "Acme Robotics"). None: from what the notebook is for. */
   subject?: string;
-  /** write: what it writes. "answer": the answer to the question the notebook is for; "plan": a plan in order (a trip, a week); else talking points for a meeting. */
-  shape?: 'answer' | 'plan';
+  /**
+   * write: what it writes. "answer": the answer to the question the notebook
+   * is for; "plan": a plan in order (a trip, a week); "writeup": a shortlist
+   * written up (the lay of the land, its groups, the top three and why, what
+   * to do next; kept as `answer`, ADR-0069); else talking points for a meeting.
+   */
+  shape?: 'answer' | 'plan' | 'writeup';
   status: NotebookStepStatus;
   /** Runs toward its goal so far. */
   tries: number;
@@ -3338,7 +3343,7 @@ export function cleanSteps(list: readonly unknown[], prior: readonly NotebookSte
       ...(facts.length ? { facts } : {}),
       ...((kind === 'source' || kind === 'check') && top !== undefined ? { top } : {}),
       ...(kind === 'profile' && typeof x.subject === 'string' && x.subject.trim() ? { subject: x.subject.replace(/\s+/g, ' ').trim().slice(0, 80) } : {}),
-      ...(kind === 'write' && (x.shape === 'answer' || x.shape === 'plan') ? { shape: x.shape } : {}),
+      ...(kind === 'write' && (x.shape === 'answer' || x.shape === 'plan' || x.shape === 'writeup') ? { shape: x.shape } : {}),
       ...(note ? { note } : {}),
       ...(status === 'stuck' && stalled ? { stalled: true } : {}),
       ...(status === 'done' && movedOn ? { movedOn: true } : {}),
@@ -3394,10 +3399,10 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const have = nb.plan?.items.length ? 1 : 0;
     return { met: have === 1, have, want: 1, missing: have ? [] : ['the plan'] };
   }
-  if (step.kind === 'write' && step.shape === 'answer') {
-    // About the notebook, not its options: the answer written.
+  if (step.kind === 'write' && (step.shape === 'answer' || step.shape === 'writeup')) {
+    // About the notebook, not its options: the answer (or the shortlist's write-up, kept as one) written.
     const have = nb.answer?.text ? 1 : 0;
-    return { met: have === 1, have, want: 1, missing: have ? [] : ['the answer'] };
+    return { met: have === 1, have, want: 1, missing: have ? [] : [step.shape === 'writeup' ? 'the write-up' : 'the answer'] };
   }
   if (step.kind === 'write') {
     // About the notebook, not its options: enough talking points written.
@@ -3883,6 +3888,8 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
 
 /** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
 const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
+/** "A final list of 10 recorded", "Recommendations written": in a notebook that writes up its shortlist, the write-up's own table gives these. */
+const WRITEUP_DELIVERABLE = /\b(list|shortlist|write-?up|recommendations?|ranking)\b.*\b(written|recorded|included|drafted|given|laid out|in place|shown)\b/;
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 const loose = (t: string) => t.toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -3898,8 +3905,11 @@ export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebo
   const t = text.toLowerCase();
   const check = nb.checks.find((c) => { const a = loose(c); const b = loose(text); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); });
   if (check) return { kind: 'check', check };
-  // In a notebook that ends in a written answer or plan, "A decision rubric written" is something written, not a decision.
-  if ((nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan')) && WRITTEN_DELIVERABLE.test(t)) {
+  // In a notebook that ends in a written answer or plan (or writes up its shortlist), "A decision rubric written" is something written, not a decision.
+  const writes = (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan' || s.shape === 'writeup'));
+  const writesUp = (nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'writeup');
+  if (writesUp && WRITEUP_DELIVERABLE.test(t) && !WRITTEN_DELIVERABLE.test(t)) return { kind: 'written', what: /\b(list|shortlist|ranking)\b/.test(t) ? 'table' : 'any' };
+  if (writes && WRITTEN_DELIVERABLE.test(t)) {
     const what = /\b(diagram|chart|timeline|flowchart)\b/.test(t) || /\b(ladder|split|allocation|schedule)\b.*\b(drawn|shown|mapped)\b/.test(t) ? 'diagram'
       : /\b(rubric|scorecard|framework|comparison|table|matrix)\b/.test(t) ? 'table'
       : /\b(steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions)\b/.test(t) ? 'steps'

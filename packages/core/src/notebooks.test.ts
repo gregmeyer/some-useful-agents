@@ -1328,9 +1328,19 @@ describe('an answer a write step wrote', () => {
     expect(cleanAnswer({ answer: 'Yes.', confidence: 'certain' }, ids, 'q', 'w')!.confidence).toBe('low');
   });
 
-  it('a write step keeps shape "answer" or "plan"; other steps never have one', () => {
-    const steps = cleanSteps([{ title: 'Write the answer', kind: 'write', shape: 'answer' }, { title: 'Find', kind: 'find', shape: 'answer' }, { title: 'Write points', kind: 'write', shape: 'poem' }, { title: 'Write the plan', kind: 'write', shape: 'plan' }]);
-    expect(steps.map((x) => x.shape)).toEqual(['answer', undefined, undefined, 'plan']);
+  it('a write step keeps shape "answer", "plan" or "writeup"; other steps never have one', () => {
+    const steps = cleanSteps([{ title: 'Write the answer', kind: 'write', shape: 'answer' }, { title: 'Find', kind: 'find', shape: 'answer' }, { title: 'Write points', kind: 'write', shape: 'poem' }, { title: 'Write the plan', kind: 'write', shape: 'plan' }, { title: 'Write up the field', kind: 'write', shape: 'writeup' }]);
+    expect(steps.map((x) => x.shape)).toEqual(['answer', undefined, undefined, 'plan', 'writeup']);
+  });
+
+  it('a write-up step (a shortlist written up) is met by the answer it is kept as, and asks for "the write-up"', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-notebooks-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Roles' });
+    expect(stepProgress(nb, [], { kind: 'write', shape: 'writeup', status: 'todo' })).toEqual({ met: false, have: 0, want: 1, missing: ['the write-up'] });
+    const written = s.setAnswer(nb.id, { question: 'q', text: 'Twenty-three roles, **most of them agent platforms**.', confidence: 'medium', findings: [], open: [], at: 'x', by: 'w' });
+    expect(stepProgress(written, [], { kind: 'write', shape: 'writeup', status: 'todo' }).met).toBe(true);
   });
 
   it('keeps a plan in its order, a missing day joining the one before, using only options the notebook has', () => {

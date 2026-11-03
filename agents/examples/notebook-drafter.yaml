@@ -130,8 +130,13 @@ nodes:
         to them and a question to ask; "target": how many points, 3 to 5;
         for a question, the answer: "shape": "answer", no target;
         for a plan, the plan in order: "shape": "plan", no target;
-        "agent": ""; last).
-        Start with find (after profile, when there is one); end with decide,
+        for a shortlist, the field written up ("Write up the field"): the
+        lay of the land, its groups, the top three and why, what to do
+        next: "shape": "writeup", no target, after check (and source) and
+        before decide; "agent": ""; last, except before decide).
+        Start with find (after profile, when there is one); end with decide
+        (after write, "shape": "writeup", whenever they pick from more than
+        a handful: jobs, cars, vendors, places),
         or, when it prepares them for a meeting or a call, with write
         ("Write the talking points"): they don't pick from what was found,
         sua writes the points from it. When the goal is a question to
