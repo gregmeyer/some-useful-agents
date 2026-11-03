@@ -4670,6 +4670,122 @@ describe('a write step', () => {
     expect('setup' in back && back.setup.steps[1].shape).toBe('plan');
     writerReply = undefined;
   });
+
+  it('writes up a shortlist: the field ranked with what failed and what was ruled out, kept as the answer, read as the write-up, and written again when you decide', async () => {
+    const app = await makeApp();
+    const ctx = ctxForDrain!;
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, unknown>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const { NotebookStore, notebookReadoutText, criterionMet } = await import('@some-useful-agents/core');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Staff PM roles', statement: 'Find the 3 best Staff PM roles owning an AI platform' });
+    s.setFields(nb.id, [{ key: 'company', label: 'Company', type: 'text' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    s.setChecks(nb.id, ['Open to U.S. remote']);
+    s.setCriteria(nb.id, ['A final list of 3 roles recorded']);
+    const low = s.upsertOption(nb.id, { title: 'Staff PM, Low Co', by: 'agent:x', data: { company: 'Low Co', fit: 60, posting_url: 'https://jobs.example/low' } }).entry;
+    const top = s.upsertOption(nb.id, { title: 'Principal PM, Top Co', by: 'agent:x', data: { company: 'Top Co', fit: 98, posting_url: 'https://jobs.example/top' } }).entry;
+    const mid = s.upsertOption(nb.id, { title: 'Staff PM, Mid Co', by: 'agent:x', data: { company: 'Mid Co', fit: 80, posting_url: 'https://jobs.example/mid' } }).entry;
+    s.failCheck(nb.id, mid.id, 'Open to U.S. remote', 'Hybrid, Austin');
+    const out = s.upsertOption(nb.id, { title: 'PM, Out Co', by: 'agent:x', data: { company: 'Out Co', fit: 40, posting_url: 'https://jobs.example/out' } }).entry;
+    s.ruleOut(nb.id, out.id, 'Senior, not Staff', 'you');
+    s.addEntry(nb.id, { kind: 'evidence', title: 'Empowered product teams', body: 'The team decides how to solve the problems it is assigned.', by: 'agent:x', source: 'https://guide.example/empowered' });
+    s.setSteps(nb.id, [{ title: 'Find roles', kind: 'find', target: 3, status: 'done' }, { title: 'Write up the field', kind: 'write', shape: 'writeup' }, { title: 'Pick 2', kind: 'decide', target: 2 }]);
+    const wid = s.get(nb.id)!.steps![1].id;
+
+    let page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('no write-up yet');
+    writerReply = (inputs) => `<answer>${JSON.stringify({
+      answer: 'Three roles in the running, **two of them platform ownership**; one is hybrid.',
+      confidence: 'medium', basis: 'Two checked with sources.',
+      findings: [{ text: 'The two strongest own an agent platform outright.', from: [top.id, mid.id] }],
+      open: ['Is Mid Co remote after all?'],
+      sections: [
+        { kind: 'table', title: 'The field in groups', delivers: 'A final list of 3 roles recorded', columns: ['Group', 'Which', 'What they share'], rows: [{ cells: ['Platform owners', 'Top Co, Mid Co', 'Own the roadmap'], from: [top.id, mid.id] }, { cells: ['Feature roles', 'Low Co', 'A backlog'], from: [low.id] }] },
+        { kind: 'steps', title: 'The top three and why', items: [{ text: 'Principal PM, Top Co: owns the platform and the evals', detail: 'Posted months ago', from: [top.id] }, { text: 'Staff PM, Mid Co: owns a shared gateway', detail: 'Hybrid, Austin', from: [mid.id] }, { text: 'Staff PM, Low Co: a backlog', from: [low.id] }] },
+        { kind: 'steps', title: 'What to do next', items: [{ text: 'Apply to Top Co first', from: [top.id] }, { text: 'Ask Mid Co about remote', from: [mid.id] }] },
+      ],
+    })}</answer>${inputs.SHAPE}`;
+    expect(startNotebookStep(ctx as never, nb.id)).toMatchObject({ started: true, step: { kind: 'write', shape: 'writeup' } });
+    for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
+    // The writer was asked for a write-up: the field ranked (the best first), what failed, a ruled-out one with why, the page that explains.
+    const asked = writerAsked.at(-1)!;
+    expect(asked.SHAPE).toBe('write-up');
+    const themes = JSON.parse(asked.THEMES) as Array<Record<string, unknown>>;
+    expect(themes.map((t) => t.title)).toEqual(['Principal PM, Top Co', 'Staff PM, Mid Co', 'Staff PM, Low Co', 'PM, Out Co', 'Empowered product teams']);
+    expect(themes[1]).toMatchObject({ failed: ['Open to U.S. remote: Hybrid, Austin'] });
+    expect(themes[3]).toMatchObject({ ruledOut: 'Senior, not Staff' });
+    expect(themes[4]).toMatchObject({ explains: true });
+    // Kept as the answer; the step is met; the done-when the groups table gives is met.
+    const after = s.get(nb.id)!;
+    expect(after.steps![1]).toMatchObject({ status: 'met', note: 'write-up written' });
+    expect(after.answer).toMatchObject({ confidence: 'medium', by: 'notebook-writer' });
+    expect(after.answer!.sections!.map((x) => x.title)).toEqual(['The field in groups', 'The top three and why', 'What to do next']);
+    expect(criterionMet(after, s.entries(nb.id), 'A final list of 3 roles recorded')).toBe(true);
+    const d = notebookWidgetData(after, s.entries(nb.id)).notebook;
+    expect(d.findings[0].refs.map((r) => r.label)).toEqual(['Principal PM, Top Co', 'Staff PM, Mid Co']);
+    // Read back, it is the write-up, not an answer to a question.
+    const text = notebookReadoutText(after, s.entries(nb.id), 'written');
+    expect(text).toContain('## Write-up (medium confidence)');
+    expect(text).not.toContain('Q: ');
+    expect(text).toContain('### The top three and why');
+    // Done, it offers Write up again.
+    s.updateStep(nb.id, wid, { status: 'done' });
+    page = (await get(`/notebooks/${nb.id}`)).text;
+    expect(page).toContain('Write up again →');
+    // The document form and the drafter keep the shape.
+    const { notebookToMarkdown, notebookFromMarkdown, setupOf } = await import('../lib/notebook-edit.js');
+    const md = notebookToMarkdown(setupOf(s.get(nb.id)!), s.get(nb.id)!.layout);
+    expect(md).toContain('2. Write up the field (write; writeup)');
+    const back = notebookFromMarkdown(md.replace('(write; writeup)', '(write; write-up)'), setupOf(s.get(nb.id)!), s.get(nb.id)!.layout, new Set());
+    expect('setup' in back && back.setup.steps[1].shape).toBe('writeup');
+    const { draftSteps } = await import('../lib/notebook-draft.js');
+    expect(draftSteps([{ title: 'Write up the field', kind: 'write', agent: '', shape: 'writeup' }], new Set()).steps!.map((x) => x.shape)).toEqual(['writeup']);
+
+    // Deciding writes it once more, around the picks; the flash says so.
+    const before = writerAsked.length;
+    const res = await post(`/notebooks/${nb.id}/decide`, { decision: 'These two.', chosen: [top.id, mid.id] });
+    expect(decodeURIComponent(res.headers.location)).toContain('The write-up is being written again around your picks.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(writerAsked.length).toBe(before + 1);
+    const again = JSON.parse(writerAsked.at(-1)!.THEMES) as Array<Record<string, unknown>>;
+    expect(again.filter((t) => t.chosen).map((t) => t.title)).toEqual(['Principal PM, Top Co', 'Staff PM, Mid Co']);
+    expect(s.get(nb.id)!.lastRunNote).toContain('written again now that you decided');
+    writerReply = undefined;
+  });
+
+  it('a scheduled search that finds new ones writes the shortlist up again; one that finds nothing new leaves it', async () => {
+    const app = await makeApp();
+    const ctx = app.locals as never as Parameters<typeof import('../lib/notebook-cadence.js')['runNotebookCadenceOnce']>[0];
+    const { runNotebookCadenceOnce } = await import('../lib/notebook-cadence.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Roles every morning', statement: 'Find Staff PM roles', cadence: '0 7 * * *' });
+    s.setFields(nb.id, [{ key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    s.upsertOption(nb.id, { title: 'Staff PM, Old Co', by: 'agent:x', data: { posting_url: 'https://jobs.example/old' }, fingerprint: 'https://jobs.example/old' });
+    s.setSteps(nb.id, [{ title: 'Find roles', kind: 'find', target: 2, status: 'done' }, { title: 'Write up the field', kind: 'write', shape: 'writeup', status: 'done' }]);
+    s.setAnswer(nb.id, { question: 'Find Staff PM roles', text: 'One role.', confidence: 'low', findings: [], open: [], at: new Date().toISOString(), by: 'notebook-writer' });
+    const at = (x: string) => new Date(x);
+    const idle = async () => { for (let i = 0; i < 200 && ctx.notebookPipelines?.size; i++) await new Promise((r) => setTimeout(r, 20)); };
+    writerReply = () => `<answer>${JSON.stringify({ answer: 'Two roles now, **one new**.', confidence: 'low', findings: [], open: [] })}</answer>`;
+    const before = writerAsked.length;
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-07T08:00:00')).get(nb.id)).toBe('first-seen');
+    // Nothing new: the write-up stands.
+    finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"Staff PM, Old Co","fingerprint":"https://jobs.example/old"}]}</notebook>';
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-08T07:01:00')).get(nb.id)).toBe('started');
+    await idle();
+    expect(writerAsked.length).toBe(before);
+    expect(s.get(nb.id)!.answer!.text).toBe('One role.');
+    // A new one: written again.
+    finderReply = () => '<notebook>{"entries":[{"kind":"option","title":"Staff PM, New Co","fingerprint":"https://jobs.example/new"}]}</notebook>';
+    expect(runNotebookCadenceOnce(ctx, at('2026-10-09T07:01:00')).get(nb.id)).toBe('started');
+    await idle();
+    expect(writerAsked.length).toBe(before + 1);
+    expect(s.get(nb.id)!.answer!.text).toBe('Two roles now, **one new**.');
+    finderReply = undefined;
+    writerReply = undefined;
+  });
 });
 
 describe('editing the talking points', () => {

@@ -34,7 +34,7 @@ import {
 import { cleanBriefing, loadBrandTheme } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
@@ -907,12 +907,15 @@ notebooksRouter.post('/notebooks/:id/decide', (req: Request, res: Response) => {
       const running = s.entries(id, 1000).filter((e) => e.kind === 'option' && !e.ruledOut);
       for (const o of running) if (!!o.chosenAt !== chosen.includes(o.id)) s.choose(id, o.id, chosen.includes(o.id));
       const n = running.filter((o) => chosen.includes(o.id)).length;
-      res.redirect(303, back(id, n ? `Picked ${String(n)}. The notebook stays open.` : 'No picks now.'));
+      // Picks changed: a write-up says why these.
+      const w = n ? rewriteAfterDecide(getContext(req.app.locals), id) : { started: false };
+      res.redirect(303, back(id, n ? `Picked ${String(n)}. The notebook stays open.${w.started ? ' The write-up is being written again around them.' : ''}` : 'No picks now.'));
       return;
     }
     store(req).decide(id, str(req.body?.decision), 'you', chosen);
     reconcileStepCards(getContext(req.app.locals), id);
-    res.redirect(303, back(id, 'Decided. The notebook is closed; reopen it any time.'));
+    const w = rewriteAfterDecide(getContext(req.app.locals), id);
+    res.redirect(303, back(id, `Decided. The notebook is closed; reopen it any time.${w.started ? ' The write-up is being written again around your picks.' : ''}`));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }

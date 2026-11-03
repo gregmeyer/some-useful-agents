@@ -92,8 +92,9 @@ nodes:
       Never name a specific option, company, price or address as a result:
       say where and how to look, not what you'll find.
 
-      When the notebook says it ends with a written answer or plan, make 1
-      or 2 of the searches LEARN searches, with "kind": "learn": they look
+      When the notebook says it ends with a written answer or plan (or
+      that its shortlist gets written up), make 1 or 2 of the searches
+      LEARN searches, with "kind": "learn": they look
       for pages that explain (how it works, the steps, what to weigh, the
       rules), from regulators, official bodies and reputable guides, not
       options. The rest look for options as usual.

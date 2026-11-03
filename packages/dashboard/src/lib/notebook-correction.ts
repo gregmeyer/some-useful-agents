@@ -559,7 +559,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
   }
   const pointStep = fresh.steps?.find((s) => s.kind === 'write' && !s.shape);
-  const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => (shape === 'answer' ? touched('finding', 'reevaluate').length + touched('section', 'reevaluate').length : touched('plan', 'reevaluate').length + touched('plansection', 'reevaluate').length) && fresh.steps?.some((s) => s.kind === 'write' && s.shape === shape));
+  const rewriteWhole = (['answer', 'plan'] as const).filter((shape) => (shape === 'answer' ? touched('finding', 'reevaluate').length + touched('section', 'reevaluate').length : touched('plan', 'reevaluate').length + touched('plansection', 'reevaluate').length) && fresh.steps?.some((s) => s.kind === 'write' && (s.shape === shape || (shape === 'answer' && s.shape === 'writeup'))));
   const redo = strike.filter((x) => x.redo).length;
   // A check that changed applies to every option: all of them (in the check step's top N) are checked on it.
   const recheckAll = ruleChanges(c).some((r) => r.id.startsWith('check:') && !!r.value) && !!fresh.steps?.some((s) => s.kind === 'check');
@@ -607,7 +607,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
       }
     }
     for (const shape of rewriteWhole) {
-      const step = store.get(nb.id)!.steps!.find((s) => s.kind === 'write' && s.shape === shape)!;
+      const step = store.get(nb.id)!.steps!.find((s) => s.kind === 'write' && (s.shape === shape || (shape === 'answer' && s.shape === 'writeup')))!;
       out.push(...await writeBriefing(ctx, store, nb.id, step));
     }
     store.noteRun(nb.id, `Corrected: ${[...said, ...out].join('; ')}`);

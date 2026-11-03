@@ -424,7 +424,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
       description: getBuiltinTool('notebook-read')!.definition.description,
       inputSchema: {
         notebook: z.string().optional().describe('The notebook: its id, a /notebooks/<id> link, or words from its title. Omit to list notebooks.'),
-        part: z.enum(NOTEBOOK_READ_PARTS).optional().describe('One part only (default all). "written" is its answer, talking points and plan.'),
+        part: z.enum(NOTEBOOK_READ_PARTS).optional().describe('One part only (default all). "written" is its answer, write-up, talking points and plan.'),
         format: z.enum(['text', 'json']).optional().describe('text (default) or json.'),
       },
     },

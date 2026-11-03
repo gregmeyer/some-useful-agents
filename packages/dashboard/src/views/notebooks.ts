@@ -265,8 +265,8 @@ function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof
     ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Learn about them once more: new facts, and a photo that's clearly them; what it learned stays">Look again →</button></form>`
     : html``}
   ${!running && nb.status === 'active' && step.kind === 'write' && (step.status === 'done' || step.status === 'met')
-    ? step.shape === 'answer' || step.shape === 'plan'
-      ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the ${step.shape} once more, from what the notebook has now; this one is replaced">${step.shape === 'plan' ? 'Plan again' : 'Answer again'} →</button></form>`
+    ? step.shape === 'answer' || step.shape === 'plan' || step.shape === 'writeup'
+      ? html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="Write the ${step.shape === 'writeup' ? 'write-up' : step.shape} once more, from what the notebook has now; this one is replaced">${step.shape === 'plan' ? 'Plan again' : step.shape === 'writeup' ? 'Write up again' : 'Answer again'} →</button></form>`
       : html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" class="nb-step__focus"><button type="submit" class="nb-step__focus-btn" title="${nb.briefing?.by === 'you' ? 'Write the talking points once more, from what the notebook has now; your edits are replaced' : 'Write the talking points once more, from what the notebook has now; these are replaced'}">Write again →</button></form>${nb.briefing?.points.length ? html`<a class="nb-step__focus-btn" href="/notebooks/${encodeURIComponent(nb.id)}/talking-points" title="Reword, reorder, remove or add talking points">Edit the points →</a>` : html``}`
     : html``}
   ${!running && nb.status === 'active' && step === current && (step.kind === 'decide' || step.kind === 'narrow')
@@ -332,6 +332,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
         : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
           : step.kind === 'write' && step.shape === 'answer' ? (p.have ? 'answer written' : 'no answer yet')
           : step.kind === 'write' && step.shape === 'plan' ? (p.have ? 'plan written' : 'no plan yet')
+          : step.kind === 'write' && step.shape === 'writeup' ? (p.have ? 'write-up written' : 'no write-up yet')
           : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
       const state = step.movedOn ? 'moved on' : STEP_STATUS[step.status];
       const stateKind = step.movedOn ? 'moved' : step.status;

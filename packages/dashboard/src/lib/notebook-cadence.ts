@@ -40,7 +40,8 @@ export function runNotebookCadenceOnce(ctx: Ctx, now: Date = new Date()): Map<st
       continue;
     }
     if (Date.parse(nb.cadenceFiredAt) >= Date.parse(slot)) { out.set(nb.id, 'waiting'); continue; }
-    const r = viaStep ? searchAgain(ctx, nb.id) : startNotebookPipeline(ctx, nb.id, { scheduled: true });
+    // A scheduled search that finds new ones also writes the shortlist's write-up again (when it has one).
+    const r = viaStep ? searchAgain(ctx, nb.id, { thenWrite: true }) : startNotebookPipeline(ctx, nb.id, { scheduled: true });
     // Already running (someone pressed Run, or a step is working): try again next tick. Anything else is settled for this slot.
     if (!r.started && (r.reason === 'Its pipeline is already running.' || r.reason === 'It’s already running.')) { out.set(nb.id, 'busy'); continue; }
     store.markCadenceFired(nb.id, slot);

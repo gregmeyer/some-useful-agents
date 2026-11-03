@@ -275,7 +275,7 @@ function parseStep(line: string, agentIds: ReadonlySet<string>): StepIn | undefi
     if (facts) out.facts = facts[1].split(',').map((x) => x.trim()).filter(Boolean);
     const top = /^top\s+(\d+)$/i.exec(p);
     if (top) out.top = Number(top[1]);
-    if (/^(answer|plan)$/i.test(p) && kind === 'write') out.shape = p.toLowerCase() as 'answer' | 'plan';
+    if (/^(answer|plan|write-?up)$/i.test(p) && kind === 'write') out.shape = p.toLowerCase().replace('write-up', 'writeup') as 'answer' | 'plan' | 'writeup';
   }
   return out;
 }
@@ -395,7 +395,7 @@ export const ENHANCE_ASK = `Enhance this notebook: make its definition a better 
 - Done when: 2 to 4 outcomes someone could tick off, each one its steps can reach (no "a decision recorded" without a decide step; for talking points, "talking points written"; for a question or plan, what's written as they asked for it: "a rubric written", "steps written").
 - Facts each option notes: the ones that decide it, each with the right type, unit and role (price, measure, place, link, when, quote…); drop vague or repeated ones.
 - Checks: what to confirm with a source before deciding, each one checkable.
-- Steps: the kinds and order that fit the goal (a choice ends with decide; a question with write, shape answer; a plan with write, shape plan; a meeting with write, talking points; a watch has a schedule and no decide), with fitting targets; keep agents that fit.
+- Steps: the kinds and order that fit the goal (a choice has write, shape writeup, before decide; a question ends with write, shape answer; a plan with write, shape plan; a meeting with write, talking points; a watch has a schedule and no decide), with fitting targets; keep agents that fit.
 Keep its title unless it's vague. Don't invent facts, places, prices or dates. In "why", say in one sentence what you made sharper.`;
 
 /**

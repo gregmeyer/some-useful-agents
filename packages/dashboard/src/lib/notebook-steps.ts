@@ -70,6 +70,7 @@ function yoursReason(step: Pick<NotebookStep, 'kind'>): string {
 export function progressWords(step: Pick<NotebookStep, 'kind'> & { shape?: NotebookStep['shape'] }, p: Pick<NotebookStepProgress, 'have' | 'want'>): string {
   if (step.kind === 'write' && step.shape === 'answer') return p.have ? 'answer written' : 'no answer yet';
   if (step.kind === 'write' && step.shape === 'plan') return p.have ? 'plan written' : 'no plan yet';
+  if (step.kind === 'write' && step.shape === 'writeup') return p.have ? 'write-up written' : 'no write-up yet';
   if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} found`;
   const unit = step.kind === 'profile' ? 'facts learned' : step.kind === 'write' ? 'points written' : step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
@@ -272,7 +273,7 @@ export function fitStepAgents<T>(ctx: Ctx, steps: readonly T[]): { steps: T[]; n
  * how many are new. A find step that isn't met yet just runs (Try again).
  * `stepId` is the step's id or title; without it, the first find step.
  */
-export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: string } = {}): { started: boolean; reason?: string; step?: NotebookStep } {
+export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: string; thenWrite?: boolean } = {}): { started: boolean; reason?: string; step?: NotebookStep } {
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
@@ -318,7 +319,14 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   ctx.notebookPipelines ??= new Map();
   ctx.notebookPipelines.set(notebookId, { agentId: resolved.agentId, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
   const agentId = resolved.agentId;
-  void runAgain(ctx, store, nb.id, step, agentId).catch((err: unknown) => {
+  const had = store.entries(nb.id, 1000).filter((e) => e.kind === 'option').length;
+  void runAgain(ctx, store, nb.id, step, agentId).then(async () => {
+    // A scheduled search that found new ones: the shortlist's write-up is written again so it names them.
+    const now = store.get(notebookId);
+    const writeup = opts.thenWrite && now ? writeupStep(now) : undefined;
+    if (!writeup || store.entries(notebookId, 1000).filter((e) => e.kind === 'option').length <= had) return;
+    await writeAgain(ctx, store, notebookId, writeup);
+  }).catch((err: unknown) => {
     try { store.noteRun(notebookId, `${step.title}, again: ${err instanceof Error ? err.message.slice(0, 160) : 'it failed'}`); } catch { /* the notebook is gone */ }
   }).finally(() => {
     ctx.notebookPipelines?.delete(notebookId);
@@ -532,8 +540,40 @@ async function writeAgain(ctx: Ctx, store: NotebookStore, notebookId: string, st
   store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`);
   store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`);
   // Written once more: its parts may have changed (a new diagram, a table gone), so the page is composed again.
-  if (step.shape === 'answer' || step.shape === 'plan') void pageAfterWritten(ctx, store, notebookId).catch(() => undefined);
+  if (WRITTEN_SHAPES.has(step.shape ?? '')) void pageAfterWritten(ctx, store, notebookId).catch(() => undefined);
   return `Wrote again (**${step.title}**)${said.length ? `: ${said.join('; ')}` : ''}.`;
+}
+
+/** The write shapes the page is composed around (talking points have their own page). */
+const WRITTEN_SHAPES = new Set(['answer', 'plan', 'writeup']);
+
+/** A done write-up step (a shortlist written up), when the notebook has one. */
+const writeupStep = (nb: Notebook): NotebookStep | undefined => nb.steps?.find((s) => s.kind === 'write' && s.shape === 'writeup' && s.status === 'done');
+
+/**
+ * Decided (or picks changed): a shortlist's write-up is written once more
+ * so it says why these, leaving the steps where they are. Nothing when the
+ * notebook has no done write-up step or is already running.
+ */
+export function rewriteAfterDecide(ctx: Ctx, notebookId: string): { started: boolean; reason?: string } {
+  const store = stores(ctx);
+  const nb = store.get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  const step = writeupStep(nb);
+  if (!step) return { started: false, reason: 'The notebook has no write-up to write again.' };
+  if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
+  const writer = stepAgent(ctx, step, nb.id);
+  if (!writer.agentId) return { started: false, reason: writer.reason };
+  const index = (nb.steps ?? []).findIndex((s) => s.id === step.id);
+  ctx.notebookPipelines ??= new Map();
+  ctx.notebookPipelines.set(notebookId, { agentId: NOTEBOOK_WRITER_ID, step: index + 1, of: nb.steps!.length, startedAt: Date.now(), again: true });
+  void writeAgain(ctx, store, nb.id, step).then(() => {
+    store.noteRun(notebookId, `${step.title}: written again now that you decided`);
+  }).catch(() => undefined).finally(() => {
+    ctx.notebookPipelines?.delete(notebookId);
+    reconcileStepCards(ctx, notebookId);
+  });
+  return { started: true };
 }
 
 /**
@@ -831,8 +871,8 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   // What it found may disagree with who it's about (a new employer, a move): checked in the background.
   if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') void reconcileAbout(ctx, store, notebookId).catch(() => undefined);
   if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
-  // Written (an answer or a plan): the page can be composed around its parts.
-  else if (p.met && step.kind === 'write' && (step.shape === 'answer' || step.shape === 'plan')) void pageAfterWritten(ctx, store, notebookId);
+  // Written (an answer, a plan, a write-up): the page can be composed around its parts.
+  else if (p.met && step.kind === 'write' && WRITTEN_SHAPES.has(step.shape ?? '')) void pageAfterWritten(ctx, store, notebookId);
 }
 
 /**
@@ -863,9 +903,12 @@ async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: st
 export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
   const nb = store.get(notebookId);
   if (!nb || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
+  // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
+  const writeup = !!nb.steps?.some((s) => s.kind === 'write' && s.shape === 'writeup') && !nb.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'));
+  if (writeup && !nb.layout) return;
   const was = JSON.stringify(nb.layout ?? null);
   // A ready-made page you picked is composed around what was written but keeps its kind.
-  const outcome = await decideNotebookPage(ctx, notebookId, { again: true, ...(pageIsPicked(nb) ? { keep: true } : {}) }).catch(() => 'failed' as const);
+  const outcome = await decideNotebookPage(ctx, notebookId, { again: true, ...(pageIsPicked(nb) || writeup ? { keep: true } : {}) }).catch(() => 'failed' as const);
   const now = store.get(notebookId);
   if (outcome !== 'drawn' || !now?.layout || JSON.stringify(now.layout) === was || !ctx.inboxStore) return;
   const threadId = notebookThread(ctx, now);

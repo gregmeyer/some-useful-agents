@@ -41,6 +41,14 @@ describe('answer sections', () => {
     expect(criterionLink(answerNb, 'Steps to open the accounts written')).toEqual({ kind: 'written', what: 'steps' });
     expect(criterionLink(answerNb, 'A decision recorded')).toEqual({ kind: 'decide' });
     expect(criterionLink(shortlist, 'A simple decision rubric written for the $25,000')).toEqual({ kind: 'decide' });
+    // A shortlist that writes itself up: "a final list recorded" is the write-up's groups table; a rubric is still one it can write. Without the step, as before.
+    const writesUp = { checks: [], steps: [{ id: 'w', title: 'Write up the field', kind: 'write', shape: 'writeup' }, { id: 's', title: 'Decide', kind: 'decide' }] } as unknown as Notebook;
+    expect(criterionLink(writesUp, 'A final list of 10 roles recorded')).toEqual({ kind: 'written', what: 'table' });
+    expect(criterionLink(writesUp, 'Recommendations written')).toEqual({ kind: 'written', what: 'any' });
+    expect(criterionLink(writesUp, 'A simple decision rubric written')).toEqual({ kind: 'written', what: 'table' });
+    expect(criterionLink(writesUp, 'A decision recorded')).toEqual({ kind: 'decide' });
+    expect(criterionLink(shortlist, 'A final list of 10 roles recorded')).toEqual({ kind: 'decide' });
+    expect(criterionLink(answerNb, 'A final list of 10 roles recorded')).toEqual({ kind: 'decide' });
 
     const nb = { ...answerNb, status: 'active', criteria: [], fields: [], answer: { question: 'q', text: 'x', confidence: 'low', findings: [], open: [], at: 'x', by: 'w' } } as unknown as Notebook;
     expect(criterionMet(nb, [], 'A simple decision rubric written for the $25,000')).toBe(false);

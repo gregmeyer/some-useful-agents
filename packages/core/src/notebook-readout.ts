@@ -48,7 +48,7 @@ export interface NotebookReadoutJson {
     otherCompanies: Array<{ name: string; role?: string; what?: string }>;
     open: string[];
   }>>;
-  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[]; sections?: ReadoutSection[] };
+  answer?: { question: string; text: string; confidence: string; findings: string[]; open: string[]; sections?: ReadoutSection[]; writeup?: boolean };
   briefing?: { points: Array<{ text: string; why?: string; ask?: string }>; questions: string[]; watch: string[] };
   plan?: { summary: string; items: Array<{ when: string; title: string; detail?: string }>; before: string[]; open: string[]; sections?: ReadoutSection[] };
   options?: { inTheRunning: NotebookReadoutOption[]; ruledOut: Array<{ id: string; title: string; reason: string }>; more: number };
@@ -120,7 +120,9 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
         title: x.title, kind: x.kind, ...(x.kind === 'table' ? { columns: x.columns } : {}),
         lines: answerSectionLines(x).filter((t) => !struck.has(t)),
       })).filter((x) => x.lines.length);
-      out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}) };
+      // A shortlist written up is kept as the answer (ADR-0069); it reads as the write-up.
+      const writeup = !!nb.steps?.some((s) => s.kind === 'write' && s.shape === 'writeup') && !nb.steps?.some((s) => s.kind === 'write' && s.shape === 'answer');
+      out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}), ...(writeup ? { writeup: true } : {}) };
     }
     const b = nb.briefing;
     if (b && (b.points.length || b.questions.length || b.watch.length)) {
@@ -193,7 +195,8 @@ export function notebookReadoutText(nb: Notebook, entries: readonly NotebookEntr
     for (const q of a.open) lines.push(`- Not settled: ${q}`);
   }
   if (j.answer) {
-    lines.push('', `## Answer (${j.answer.confidence} confidence)`, `Q: ${j.answer.question}`, j.answer.text);
+    if (j.answer.writeup) lines.push('', `## Write-up (${j.answer.confidence} confidence)`, j.answer.text);
+    else lines.push('', `## Answer (${j.answer.confidence} confidence)`, `Q: ${j.answer.question}`, j.answer.text);
     for (const f of j.answer.findings) lines.push(`- ${f}`);
     for (const o of j.answer.open) lines.push(`- Open: ${o}`);
     sectionLines(lines, j.answer.sections);

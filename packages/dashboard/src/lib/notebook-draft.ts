@@ -87,7 +87,7 @@ export function draftSteps(raw: unknown, agentIds: ReadonlySet<string>): { steps
     if (!x || typeof x !== 'object') return x;
     const o = x as Record<string, unknown>;
     const agent = typeof o.agentId === 'string' ? o.agentId : typeof o.agent === 'string' ? o.agent : '';
-    return { title: o.title, kind: o.kind, ...(agentIds.has(agent) ? { agentId: agent } : {}), ...(o.target !== undefined && o.target !== '' ? { target: Number(o.target) } : {}), ...(Array.isArray(o.facts) ? { facts: o.facts } : {}), ...(typeof o.subject === 'string' ? { subject: o.subject } : {}), ...(o.shape === 'answer' || o.shape === 'plan' ? { shape: o.shape } : {}) };
+    return { title: o.title, kind: o.kind, ...(agentIds.has(agent) ? { agentId: agent } : {}), ...(o.target !== undefined && o.target !== '' ? { target: Number(o.target) } : {}), ...(Array.isArray(o.facts) ? { facts: o.facts } : {}), ...(typeof o.subject === 'string' ? { subject: o.subject } : {}), ...(o.shape === 'answer' || o.shape === 'plan' || o.shape === 'writeup' ? { shape: o.shape } : {}) };
   });
   const steps = cleanSteps(list).map(({ status: _s, tries: _t, note: _n, doneAt: _d, ...rest }) => ({ ...rest, status: 'todo' as const, tries: 0 }));
   return steps.length ? { steps } : {};
