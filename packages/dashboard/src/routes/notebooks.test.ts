@@ -5111,7 +5111,7 @@ describe('run a notebook again as a new notebook', () => {
 
     // The Edit page offers it; an archived one doesn't.
     const edit = (await get(app, `/notebooks/${nb.id}/edit`)).text;
-    expect(edit).toContain('Run again as a new notebook…');
+    expect(edit).toContain('Clear and run again…');
     expect(edit).toContain(`action="/notebooks/${nb.id}/rerun"`);
 
     finderReply = () => `Found 1.\n<notebook>${JSON.stringify({ entries: [{ kind: 'option', title: 'Ally 24-month', data: { apy: 4.3 } }] })}</notebook>`;
