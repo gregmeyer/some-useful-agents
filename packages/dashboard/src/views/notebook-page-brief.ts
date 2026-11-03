@@ -210,19 +210,24 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     }
     case 'AnswerSections': {
       // The parts the answer was asked for: steps numbered, a rubric as a table, each with where it comes from.
-      const secs = list(v('sections')) as Array<{ title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown }>;
+      const given = list(v('sections')) as Array<{ key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown }>;
+      // Placed by key ("only", in that order), or the parts no other part of the page placed ("skip"); one part on its own takes its panel's title.
+      const only = Array.isArray(c.only) ? (c.only as unknown[]).filter((k): k is string => typeof k === 'string') : undefined;
+      const skip = Array.isArray(c.skip) ? c.skip as unknown[] : [];
+      const secs = only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key));
+      const head = (x: { title?: unknown }) => (only && only.length === 1 ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`);
       const from = (x: unknown) => list((x as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
       return html`${secs.filter((x) => text(x.title)).map((x) => {
         if (x.kind === 'steps') {
-          return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${from(it).length ? html` <span class="fine">(${from(it).join(', ')})</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+          return html`<section class="sec">${head(x)}<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${from(it).length ? html` <span class="fine">(${from(it).join(', ')})</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
         }
         if (x.kind === 'table') {
           const cols = list(x.columns).map(text);
-          return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
+          return html`<section class="sec">${head(x)}<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
             <tbody>${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${from(x).length ? html`<p class="fine">Every row: ${from(x).join(', ')}</p>` : html``}</section>`;
         }
-        if (x.kind === 'diagram') return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div>${briefDiagram((x as { diagram?: unknown }).diagram)}${text((x as { caption?: unknown }).caption) ? html`<p class="fine">${text((x as { caption?: unknown }).caption)}</p>` : html``}</section>`;
-        return html`<section class="sec"><div class="eyebrow">${text(x.title)}</div><p>${boldOnly(text(x.body))}</p></section>`;
+        if (x.kind === 'diagram') return html`<section class="sec">${head(x)}${briefDiagram((x as { diagram?: unknown }).diagram)}${text((x as { caption?: unknown }).caption) ? html`<p class="fine">${text((x as { caption?: unknown }).caption)}</p>` : html``}</section>`;
+        return html`<section class="sec">${head(x)}<p>${boldOnly(text(x.body))}</p></section>`;
       }) as unknown as SafeHtml[]}`;
     }
     case 'Timeline': {

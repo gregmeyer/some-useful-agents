@@ -23,12 +23,12 @@ describe('answer sections', () => {
     }, ids, 'q', 'notebook-writer', 'x', { criteria })!;
     expect(a.sections).toEqual([
       {
-        kind: 'table', title: 'Rubric', delivers: 'A simple decision rubric written for the $25,000', columns: ['If…', 'Then…', 'Why', 'x', 'y'],
+        key: 'rubric', kind: 'table', title: 'Rubric', delivers: 'A simple decision rubric written for the $25,000', columns: ['If…', 'Then…', 'Why', 'x', 'y'],
         rows: [{ cells: ['You need it within a year', 'A no-penalty CD', 'No penalty to take it out', 'extra', ''], from: ['a'] }, { cells: ['Not for 2 years', '24-month CD', '', '', ''], from: [] }],
       },
-      { kind: 'steps', title: 'Open the ladder', items: [{ text: 'Check each bank is insured', from: [] }, { text: 'Open five CDs', detail: '$5,000 each', from: ['b'] }] },
-      { kind: 'text', title: 'How it works', body: 'Each CD comes due a year apart.' },
-      { kind: 'table', title: 'Says it gives one the notebook does not have', columns: ['A', 'B'], rows: [{ cells: ['1', '2'], from: [] }] },
+      { key: 'open-the-ladder', kind: 'steps', title: 'Open the ladder', items: [{ text: 'Check each bank is insured', from: [] }, { text: 'Open five CDs', detail: '$5,000 each', from: ['b'] }] },
+      { key: 'how-it-works', kind: 'text', title: 'How it works', body: 'Each CD comes due a year apart.' },
+      { key: 'says-it-gives-one-the-notebook-does-not-have', kind: 'table', title: 'Says it gives one the notebook does not have', columns: ['A', 'B'], rows: [{ cells: ['1', '2'], from: [] }] },
     ]);
     // No sections: none kept.
     expect(cleanAnswer({ answer: 'Yes.', findings: [] }, ids, 'q', 'w')).not.toHaveProperty('sections');
@@ -88,7 +88,7 @@ describe('answer sections', () => {
     const rung = (label: string, start: number, end: number) => ({ label, start, end, amount: 5000, rate: '4.4% APY' });
     const diagrams = (d: unknown[]) => cleanAnswer({ answer: 'x', findings: [], sections: d.map((diagram, i) => ({ kind: 'diagram', title: `D${String(i)}`, diagram, caption: 'Read left to right.' })) }, ids, 'q', 'w', 'x', { amounts: [25000] })?.sections ?? [];
     const ok = diagrams([{ type: 'ladder', rungs: [rung('12-month CD', 0, 12), rung('24-month CD', 0, 24)] }]);
-    expect(ok).toEqual([{ kind: 'diagram', title: 'D0', caption: 'Read left to right.', diagram: { type: 'ladder', rungs: [rung('12-month CD', 0, 12), rung('24-month CD', 0, 24)] } }]);
+    expect(ok).toEqual([{ key: 'd0', kind: 'diagram', title: 'D0', caption: 'Read left to right.', diagram: { type: 'ladder', rungs: [rung('12-month CD', 0, 12), rung('24-month CD', 0, 24)] } }]);
     expect(answerSectionLines(ok[0])).toEqual(['12-month CD: months 0–12, $5,000 at 4.4% APY', '24-month CD: months 0–24, $5,000 at 4.4% APY']);
     // Backwards, made-up, negative, or one rung: not drawn.
     expect(diagrams([{ type: 'ladder', rungs: [rung('a', 12, 6), rung('b', 0, 12)] }])).toEqual([]);
@@ -118,7 +118,7 @@ describe('answer sections', () => {
 
   it('a plan has parts too, its page gets them after the days, and "the plan written" ticks once it is', () => {
     const plan = cleanPlan({ summary: 's', items: [{ when: 'Day 1', title: 'Walk' }], sections: [{ kind: 'steps', title: 'Get ready', delivers: 'packing list written', items: ['Pack', 'Book'] }] }, ids, 'w', 'x', { criteria: ['Packing list written'] })!;
-    expect(plan.sections).toEqual([{ kind: 'steps', title: 'Get ready', delivers: 'Packing list written', items: [{ text: 'Pack', from: [] }, { text: 'Book', from: [] }] }]);
+    expect(plan.sections).toEqual([{ key: 'get-ready', kind: 'steps', title: 'Get ready', delivers: 'Packing list written', items: [{ text: 'Pack', from: [] }, { text: 'Book', from: [] }] }]);
     const nb = { checks: [], status: 'active', criteria: [], fields: [], steps: [{ kind: 'write', shape: 'plan' }] } as unknown as Notebook;
     expect(criterionLink(nb, 'The 3-day Lisbon plan written')).toEqual({ kind: 'written', what: 'any' });
     expect(criterionMet(nb, [], 'The 3-day Lisbon plan written')).toBe(false);

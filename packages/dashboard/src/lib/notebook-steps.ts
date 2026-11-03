@@ -531,6 +531,8 @@ async function writeAgain(ctx: Ctx, store: NotebookStore, notebookId: string, st
   const said = await writeBriefing(ctx, store, notebookId, step, (runId) => store.addRunToPass(passId, runId));
   store.finishPass(passId, `${NOTEBOOK_WRITER_ID}, again: ${sentenceOf(said) || 'wrote'}`);
   store.noteRun(notebookId, `${step.title}, again: ${said.join('; ')}`);
+  // Written once more: its parts may have changed (a new diagram, a table gone), so the page is composed again.
+  if (step.shape === 'answer' || step.shape === 'plan') void pageAfterWritten(ctx, store, notebookId).catch(() => undefined);
   return `Wrote again (**${step.title}**)${said.length ? `: ${said.join('; ')}` : ''}.`;
 }
 
@@ -829,6 +831,8 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
   // What it found may disagree with who it's about (a new employer, a move): checked in the background.
   if (step.kind === 'find' || step.kind === 'source' || step.kind === 'profile') void reconcileAbout(ctx, store, notebookId).catch(() => undefined);
   if (p.met && nb.steps?.[0]?.id === step.id) void pageAfterFirstStep(ctx, store, notebookId);
+  // Written (an answer or a plan): the page can be composed around its parts.
+  else if (p.met && step.kind === 'write' && (step.shape === 'answer' || step.shape === 'plan')) void pageAfterWritten(ctx, store, notebookId);
 }
 
 /**
@@ -846,6 +850,26 @@ async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: st
   const threadId = notebookThread(ctx, now);
   if (!threadId) return;
   const msg = ctx.inboxStore.addResponse(threadId, 'triage', `Now that it knows more, I redrew its page: ${now.layout.about ?? 'one that fits what it found'}. Undo puts the old one back, on **Edit**.`);
+  publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
+  store.touch(notebookId);
+}
+
+/**
+ * Its answer or plan is written: the page agent sees the parts it has (a
+ * diagram, a rubric, the steps; their keys and sizes) and composes the page
+ * around them, a hero first, unless you changed the page. Said in its
+ * conversation when the page changed. Write again composes it again.
+ */
+export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
+  const nb = store.get(notebookId);
+  if (!nb || !pageIsItsOwn(nb) || (!nb.answer?.text && !nb.plan?.items.length)) return;
+  const was = JSON.stringify(nb.layout ?? null);
+  const outcome = await decideNotebookPage(ctx, notebookId, { again: true }).catch(() => 'failed' as const);
+  const now = store.get(notebookId);
+  if (outcome !== 'drawn' || !now?.layout || JSON.stringify(now.layout) === was || !ctx.inboxStore) return;
+  const threadId = notebookThread(ctx, now);
+  if (!threadId) return;
+  const msg = ctx.inboxStore.addResponse(threadId, 'triage', `Now that it's written, I laid the page out around it: ${now.layout.about ?? 'what it wrote first, then what it rests on'}. Undo puts the old one back, on **Edit**.`);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: msg.id, role: 'triage', body: msg.body, createdAt: msg.createdAt });
   store.touch(notebookId);
 }

@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, pageRhythm, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs,
+  NotebookStore, NOTEBOOK_LAYOUT_PRESETS, checkNotebookLayout, pageRhythm, cleanLayout, executeAgentDag, extractTaggedJson, notebookLayoutGuide, suaComponentDocs, sectionKey,
   type Notebook, type NotebookLayout,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -33,6 +33,28 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
     ...(nb.stages.length ? { stages: nb.stages } : {}),
     // A notebook that searches on a schedule is likely keeping watch.
     ...(nb.cadence ? { searchesOnASchedule: nb.cadence } : {}),
+    ...(written(nb) ? { written: written(nb) } : {}),
+  };
+}
+
+/**
+ * What was written, as its shape (never its words): the answer's or plan's
+ * parts with their keys, kinds and sizes, and what each delivers, so the page
+ * can be composed around them (a hero, the rest placed), plus how much it
+ * rests on. Undefined before a write step wrote anything. Pure.
+ */
+export function written(nb: Pick<Notebook, 'answer' | 'plan'>): Record<string, unknown> | undefined {
+  const a = nb.answer;
+  const p = nb.plan;
+  const sections = a?.text ? a.sections : p?.items.length ? p.sections : undefined;
+  if (!a?.text && !p?.items.length) return undefined;
+  const size = (s: NonNullable<typeof sections>[number]) =>
+    s.kind === 'steps' ? { steps: s.items.length } : s.kind === 'table' ? { rows: s.rows.length, columns: s.columns } : s.kind === 'diagram' ? { diagram: s.diagram.type, parts: s.diagram.type === 'ladder' ? s.diagram.rungs.length : s.diagram.type === 'split' ? s.diagram.parts.length : s.diagram.nodes.length } : { words: s.body.split(/\s+/).length };
+  return {
+    kind: a?.text ? 'answer' : 'plan',
+    ...(a?.text ? { confidence: a.confidence, findings: a.findings.length, open: a.open.length } : {}),
+    ...(p?.items.length ? { days: new Set(p.items.map((i) => i.when)).size, before: p.before.length, open: p.open.length } : {}),
+    parts: (sections ?? []).map((s) => ({ key: sectionKey(s), title: s.title, kind: s.kind, ...size(s), ...(s.delivers ? { delivers: s.delivers } : {}) })),
   };
 }
 

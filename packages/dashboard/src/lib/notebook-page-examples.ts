@@ -259,7 +259,18 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
           question: 'Find out whether a cold-climate heat pump pays off for a 1,800 sq ft house in Minneapolis', text: 'Yes, in about **7 to 12 years** against gas at today’s prices, and sooner with a rebate.',
           confidence: 'medium', basis: 'One field study and one calculator; prices change.',
           findings: [{ text: 'Cold-climate units kept homes warm down to -13°F.', from: [study] }, { text: 'Rebates cover $2,000-$8,000.', from: [rebates] }, { text: 'Payback is 7-12 years against gas.', from: [payback] }],
-          open: ['What does the house’s own gas bill say?'], at: AT, by: 'notebook-writer',
+          open: ['What does the house’s own gas bill say?'],
+          // The parts it was asked for: a rubric (the hero, once the page is composed around it), the decision in order, the steps.
+          sections: [
+            { kind: 'table', title: 'When a heat pump pays off', delivers: 'An answer with the payback in years', columns: ['If…', 'Then…', 'Why'], rows: [
+              { cells: ['Your furnace is near the end of its life', 'Replace it with a cold-climate heat pump', 'The install cost is one you would pay anyway'], from: [payback] },
+              { cells: ['You qualify for the income-based rebate', 'Payback drops to about 5 years', 'Up to $8,000 off the install'], from: [rebates] },
+              { cells: ['Winters often go below -15°F', 'Keep a backup heat source', 'The field study saw backup used below -13°F'], from: [study] },
+            ] },
+            { kind: 'diagram', title: 'How to decide', diagram: { type: 'flow', nodes: [{ label: 'Get the gas bill' }, { label: 'Price a cold-climate unit', note: 'two quotes' }, { label: 'Check the rebate' }, { label: 'Compare payback to the furnace\u2019s years left' }] }, caption: 'Each step narrows the payback.' },
+            { kind: 'steps', title: 'Getting quotes', items: [{ text: 'Ask two installers for a cold-climate model sized to 1,800 sq ft', from: [study] }, { text: 'Ask each to list the rebates they file for you', from: [rebates] }] },
+          ],
+          at: AT, by: 'notebook-writer',
         });
       }
       return nb.id;
@@ -300,7 +311,13 @@ export const NOTEBOOK_PAGE_EXAMPLES: readonly NotebookPageExample[] = [
             { when: 'Day 3', title: 'Train to Sintra for the palaces', detail: 'Leave early; about $80 for two.', from: [sintra] },
             { when: 'Day 4', title: 'Free day: markets and a last walk', from: [] },
           ],
-          before: ['Book the fado dinner', 'Buy Sintra palace tickets online'], open: ['Which palace in Sintra?'], at: AT, by: 'notebook-writer',
+          before: ['Book the fado dinner', 'Buy Sintra palace tickets online'], open: ['Which palace in Sintra?'],
+          // Besides the days: how the budget splits (the hero once the page is composed around it) and what it costs.
+          sections: [
+            { kind: 'diagram', title: 'How the $1,500 splits', diagram: { type: 'split', total: 1500, parts: [{ label: 'Dinners', amount: 600 }, { label: 'Days out', amount: 500, note: 'tickets and trains' }, { label: 'Kept loose', amount: 400 }] } },
+            { kind: 'table', title: 'What it costs', columns: ['Day', 'What', 'For two'], rows: [{ cells: ['Day 1', 'Castle and fado', '$150'], from: [alfama, fado] }, { cells: ['Day 2', 'Belém', '$45'], from: [belem] }, { cells: ['Day 3', 'Sintra', '$80'], from: [sintra] }] },
+          ],
+          at: AT, by: 'notebook-writer',
         });
       }
       return nb.id;

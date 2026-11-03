@@ -151,12 +151,19 @@ exports[`a notebook to question > keeps the same outline unless it was changed o
 "Column
   NotebookHeader subtitle=Answer cover=none steps=fold
   Columns 2:1
+    Callout
+    Panel treatment=aside "How to decide"
+      AnswerSections
+  Panel treatment=feature "When a heat pump pays off"
+    AnswerSections
+  Columns 3:2
+    Panel treatment=feature "What it rests on"
+      Agenda "Key findings"
     Column
-      Callout
-      Panel treatment=feature "What it rests on"
-        Agenda "Key findings"
-    Panel "Done when"
-      Steps "Progress"
+      Panel treatment=aside "Getting quotes"
+        AnswerSections
+      Panel "Done when"
+        Steps "Progress"
   Panel treatment=feature "The evidence"
     OptionGrid
   Columns 1:1
@@ -169,13 +176,16 @@ exports[`a notebook to question > keeps the same outline unless it was changed o
 exports[`a notebook to trip > keeps the same outline unless it was changed on purpose 1`] = `
 "Column
   NotebookHeader subtitle=Plan cover=none steps=fold
+  Callout
+  Panel treatment=lede "How the $1,500 splits"
+    AnswerSections
   Columns 2:1
-    Column
-      Callout
-      Panel treatment=feature "Day by day"
-        Itinerary "Itinerary"
+    Panel treatment=feature "Day by day"
+      Itinerary
     Panel "Done when"
       Steps "Progress"
+  Panel treatment=aside "What it costs"
+    AnswerSections
   Panel treatment=feature "What it draws on"
     OptionGrid
   Columns 1:1

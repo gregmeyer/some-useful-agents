@@ -47,7 +47,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(checkNotebookLayout(page).ok).toBe(true);
     expect(checkNotebookLayout(DEFAULT_NOTEBOOK_LAYOUT.components).ok).toBe(true);
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }]))
-      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned (or !one).'] });
+      .toEqual({ ok: false, errors: ['x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written (or !one).'] });
     expect(checkNotebookLayout([{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Nope' }]).ok).toBe(false);
     expect(checkNotebookLayout('no').ok).toBe(false);
     expect(cleanLayout('shortlist')).toBe(DEFAULT_NOTEBOOK_LAYOUT);
@@ -71,7 +71,7 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(s.get(nb.id)!.layout).toEqual({ components: page });
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toEqual({ components: page });
     expect(() => s.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'hi', when: 'sunny' }] }))
-      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned (or !one).');
+      .toThrow('That layout can\'t be drawn: x: "when" must be one of map, funnel, steps, options, decided, about, person, company, competitors, affiliations, answered, planned, written (or !one).');
     expect(s.setLayout(nb.id, null).layout).toBeUndefined();
     expect(s.saveTemplate('Car search', nb.id).setup.layout).toBeUndefined();
   });
@@ -217,5 +217,47 @@ describe('balance', () => {
     ];
     expect(pageRhythm(page)).toEqual(['row puts a short part (who_p) beside a long one (talk_p), which leaves a hole under who_p. Pair who_p with facts or other short parts, and give talk_p a row or a column of its own.']);
     expect(pageRhythm(layoutPreset('dossier')!.layout.components)).toEqual([]);
+  });
+});
+
+describe('a page composed around what was written', () => {
+  const section = (key: string, title: string) => ({ key, title, kind: 'text', body: 'x' });
+  const page: ViewComponent[] = [
+    { id: 'root', component: 'Column', children: ['hero_p', 'fig', 'rest_p'] },
+    { id: 'hero_p', component: 'Panel', title: 'The rubric', child: 'hero', treatment: 'feature', when: 'written' },
+    { id: 'hero', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, only: ['rubric'] },
+    { id: 'fig', component: 'Callout', label: 'A part by its path', text: { path: '/notebook/section/ladder/title' } },
+    { id: 'rest_p', component: 'Panel', title: 'Also written', child: 'rest', treatment: 'aside', when: 'written' },
+    { id: 'rest', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, rest: true },
+  ];
+
+  it('"rest" becomes "skip" of every key the page places, by "only" or by path', () => {
+    const out = resolveNotebookLayout(page, { written: true }, {});
+    expect(out.find((c) => c.id === 'rest')).toEqual({ id: 'rest', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, skip: ['rubric', 'ladder'] });
+    expect(out.find((c) => c.id === 'hero')).toEqual({ id: 'hero', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, only: ['rubric'] });
+    // Not written yet: the parts wait.
+    expect(resolveNotebookLayout(page, {}, {}).map((c) => c.id)).toEqual(['root', 'fig']);
+  });
+
+  it('with the data, a part whose keys are gone goes (its panel too), and the leftovers go when nothing is left', () => {
+    const data = (sections: unknown[], extra: Record<string, unknown> = {}) => ({ notebook: { answerSections: sections, section: Object.fromEntries(sections.map((s) => [(s as { key: string }).key, s])), ...extra } });
+    const all = resolveNotebookLayout(page, { written: true }, {}, { data: data([section('rubric', 'The rubric'), section('ladder', 'The ladder'), section('more', 'More')]) });
+    expect(all.map((c) => c.id)).toEqual(['root', 'hero_p', 'hero', 'fig', 'rest_p', 'rest']);
+    // The rubric gone: its panel goes; the ladder (bound by path) gone: that part goes; the leftovers still have "more".
+    const some = resolveNotebookLayout(page, { written: true }, {}, { data: data([section('more', 'More')]) });
+    expect(some.map((c) => c.id)).toEqual(['root', 'rest_p', 'rest']);
+    // Everything placed: the leftovers block has nothing to show, so it goes.
+    const placed = resolveNotebookLayout(page, { written: true }, {}, { data: data([section('rubric', 'The rubric'), section('ladder', 'The ladder')]) });
+    expect(placed.map((c) => c.id)).toEqual(['root', 'hero_p', 'hero', 'fig']);
+  });
+
+  it('checks "only" names keys, and never with "rest"', () => {
+    const bad = (c: Record<string, unknown>) => checkNotebookLayout([{ id: 'root', component: 'Column', children: ['s'] }, { id: 's', component: 'AnswerSections', sections: { path: '/notebook/answerSections' }, ...c }]);
+    expect(bad({ only: ['The Rubric'] })).toEqual({ ok: false, errors: [expect.stringContaining('"only" is a list of section keys')] });
+    expect(bad({ only: [] })).toEqual({ ok: false, errors: [expect.stringContaining('"only" is a list of section keys')] });
+    expect(bad({ only: ['rubric'], rest: true })).toEqual({ ok: false, errors: [expect.stringContaining('"only" and "rest" don\'t go together')] });
+    expect(bad({ only: ['rubric'] }).ok).toBe(true);
+    expect(bad({ rest: true }).ok).toBe(true);
+    expect(notebookLayoutGuide([]).includes('/notebook/section')).toBe(true);
   });
 });

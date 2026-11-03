@@ -289,13 +289,19 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'AnswerSections',
-    summary: 'The parts an answer was asked for, in order: `sections` [{title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on.',
+    summary: 'The parts an answer was asked for, in order: `sections` [{key, title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on. `only: ["key"]` draws just those parts, in that order (one key: without its own title, the Panel\'s says it); `rest: true` draws the parts no other part of the page places.',
     example: { id: 'details', component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
     schema: Common.extend({
       sections: CS.DynamicValue,
       title: Str.optional(),
       /** What it says with nothing yet. */
       empty: Str.optional(),
+      /** Only these parts, by key, in this order. */
+      only: z.array(Str).optional(),
+      /** The parts no other part of the page places (a notebook page resolves it to `skip`). */
+      rest: z.boolean().optional(),
+      /** Every part but these, by key. */
+      skip: z.array(Str).optional(),
     }).strict(),
   },
   {
