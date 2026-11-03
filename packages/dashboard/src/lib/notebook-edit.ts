@@ -39,6 +39,8 @@ export interface NotebookEdit {
   setup: NotebookSetup;
   /** The page it would have: undefined, the page it has; null, the shortlist. */
   layout?: NotebookLayout | null;
+  /** Whose the page in `layout` is when saved: `notebook` when sua picked it ("Let sua pick"). Else: a ready-made page is `picked`, anything other is `you`. */
+  layoutBy?: 'notebook';
   turns: NotebookEditTurn[];
   status: 'ready' | 'working';
   updatedAt: string;
@@ -551,7 +553,7 @@ export function startEditPick(ctx: Ctx, nb: Notebook): { ok: true } | { error: s
     const changes = describeSetupChange(working.setup, working.setup, before, layout === undefined ? nb.layout ?? null : layout);
     const about = 'layout' in drawn.answer ? drawn.answer.layout.about : drawn.answer.about;
     writeEdit(ctx, nb.id, {
-      setup: working.setup, ...(layout !== undefined ? { layout } : {}), status: 'ready', updatedAt: new Date().toISOString(),
+      setup: working.setup, ...(layout !== undefined ? { layout, layoutBy: 'notebook' } : {}), status: 'ready', updatedAt: new Date().toISOString(),
       turns: last({ changes, sua: changes.length ? (about ? `It fits as ${about}.` : 'Here\'s a look that fits.') : 'The look it has fits what it\'s for.' }),
     });
   })().catch(() => undefined);
@@ -559,6 +561,19 @@ export function startEditPick(ctx: Ctx, nb: Notebook): { ok: true } | { error: s
 }
 
 // ---- Save ------------------------------------------------------------------------
+
+/**
+ * Whose the saved page is: sua's when sua picked it here; `picked` for a
+ * ready-made page (or the shortlist) you chose, which sua still composes
+ * around what's written; `you` for one changed to your ask, which is left
+ * as you asked.
+ */
+export function layoutOwner(edit: Pick<NotebookEdit, 'layout' | 'layoutBy'>): 'notebook' | 'picked' | 'you' {
+  if (edit.layoutBy === 'notebook') return 'notebook';
+  const l = edit.layout;
+  if (l === null || l === undefined) return 'picked';
+  return NOTEBOOK_LAYOUT_PRESETS.some((p) => sameLayout(p.layout, l)) ? 'picked' : 'you';
+}
 
 /** Make the proposal the notebook. Returns what changed; throws when it can't be (a running step removed). */
 export function saveEdit(ctx: Ctx, notebookId: string): { changes: string[]; notes: string[] } {
@@ -591,7 +606,7 @@ export function saveEdit(ctx: Ctx, notebookId: string): { changes: string[]; not
     confirmDoneStepsAndSay(ctx, notebookId);
     notes = fit.notes;
   }
-  if (edit.layout !== undefined && JSON.stringify(edit.layout ?? null) !== JSON.stringify(nb.layout ?? null)) s.setLayout(notebookId, edit.layout, 'you');
+  if (edit.layout !== undefined && JSON.stringify(edit.layout ?? null) !== JSON.stringify(nb.layout ?? null)) s.setLayout(notebookId, edit.layout, layoutOwner(edit));
   discardEdit(ctx, notebookId);
   return { changes, notes };
 }

@@ -151,7 +151,7 @@ export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string
  * already (Edit's "Let it pick its page"); otherwise a notebook with a page
  * (a template's, or one drawn since) keeps it. Never throws.
  */
-export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { again?: boolean } = {}): Promise<PageOutcome> {
+export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { again?: boolean; /** Compose the page it has (a ready-made one you picked) around what's written, keeping its kind; saved as `picked`. */ keep?: boolean } = {}): Promise<PageOutcome> {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb || (nb.layout && !opts.again)) return 'skipped';
@@ -159,16 +159,17 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   if (ctx.notebookPages.has(notebookId)) return 'skipped';
   ctx.notebookPages.add(notebookId);
   try {
-    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs));
+    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs), opts.keep ? { request: KEEP_AND_COMPOSE, ...(nb.layout ? { current: nb.layout } : {}) } : {});
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';
     if ('error' in answer) return 'failed';
     if ('keep' in answer) {
-      if (now.layout) store.setLayout(notebookId, undefined, 'notebook');
+      // A picked page that sua would keep as is: it stays yours as picked.
+      if (now.layout && !opts.keep) store.setLayout(notebookId, undefined, 'notebook');
       return 'kept';
     }
-    store.setLayout(notebookId, answer.layout, 'notebook');
+    store.setLayout(notebookId, answer.layout, opts.keep ? 'picked' : 'notebook');
     return 'drawn';
   } catch {
     return 'failed';
@@ -185,3 +186,11 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
 export function pageIsItsOwn(nb: Pick<Notebook, 'layout' | 'layoutBy'>): boolean {
   return nb.layoutBy === 'notebook' || (!nb.layout && !nb.layoutBy);
 }
+
+/** A ready-made page you picked on Edit: sua composes it around what's written, but never swaps it for another kind. */
+export function pageIsPicked(nb: Pick<Notebook, 'layout' | 'layoutBy'>): boolean {
+  return nb.layoutBy === 'picked';
+}
+
+/** What the page agent is asked when a picked page is composed around what was written. */
+export const KEEP_AND_COMPOSE = 'Keep this page\'s kind and its parts, but compose it around what was written: one hero (a diagram or a rubric as a Figure, or the answer), each written part placed by its key, a Lead where a number decides it, the rest as it is.';
