@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, fullUpstreamResult, PROMPT_UPSTREAM_CAP, shouldFallback, spawnNodeReal, timeoutError, validateOutputContract, type SpawnResult } from './node-spawner.js';
+import { appleFoundationModelsSpawner, buildProviderChain, claudeSpawner, codexSpawner, classifyLlmFailure, fullUpstreamResult, llmChildEnv, PROMPT_INPUT_ENV_CAP, PROMPT_UPSTREAM_CAP, shouldFallback, spawnNodeReal, timeoutError, validateOutputContract, type SpawnResult } from './node-spawner.js';
 
 function r(partial: Partial<SpawnResult>): SpawnResult {
   return {
@@ -466,6 +466,23 @@ describe('spawnNodeReal — unresolved tool node', () => {
   it('keeps "has no command" for a plain shell node with no tool', async () => {
     const res = await spawnNodeReal({ id: 'x', type: 'shell' }, {}, opts);
     expect(res.error).toBe('Shell node "x" has no command');
+  });
+});
+
+describe('llmChildEnv (what an LLM node\'s child gets in its env)', () => {
+  it('leaves out the upstream copies and the big inputs the prompt already carries; keeps small ones and everything the prompt doesn\'t name', () => {
+    const big = 'k'.repeat(PROMPT_INPUT_ENV_CAP + 1);
+    const env = {
+      PATH: '/usr/bin', STATE_DIR: '/tmp/s',
+      TRIAGE_KERNEL: big, LAYOUT_GUIDE: big, MESSAGE_BODY: 'hi', OTHER_BIG: big,
+      UPSTREAM_PLAN_RESULT: 'x', UPSTREAM_PLAN_OUTPUTS: '{}', UPSTREAM_PLAN_RESULT_FILE: '/tmp/p.txt',
+    };
+    const out = llmChildEnv(env, 'Kernel: {{inputs.TRIAGE_KERNEL}}\nGuide: {{inputs.LAYOUT_GUIDE}}\nSaid: {{inputs.MESSAGE_BODY}}');
+    expect(Object.keys(out).sort()).toEqual(['MESSAGE_BODY', 'OTHER_BIG', 'PATH', 'STATE_DIR', 'UPSTREAM_PLAN_RESULT_FILE']);
+    // No prompt: only the upstream copies go.
+    expect(Object.keys(llmChildEnv(env, undefined)).sort()).toEqual(['LAYOUT_GUIDE', 'MESSAGE_BODY', 'OTHER_BIG', 'PATH', 'STATE_DIR', 'TRIAGE_KERNEL', 'UPSTREAM_PLAN_RESULT_FILE']);
+    // At the cap exactly, it stays.
+    expect(llmChildEnv({ A: 'a'.repeat(PROMPT_INPUT_ENV_CAP) }, '{{inputs.A}}')).toEqual({ A: 'a'.repeat(PROMPT_INPUT_ENV_CAP) });
   });
 });
 
