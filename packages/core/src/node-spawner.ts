@@ -1187,16 +1187,10 @@ export async function spawnNodeReal(
     resolvedPrompt = `${_opts.behaviorPreamble}\n${resolvedPrompt}`;
   }
 
-  // Strip UPSTREAM_*_RESULT env vars before exec: claude-code consumed
-  // them via {{upstream.X.field}} substitution above (lines 228-233), so
-  // the raw env-var copies are now dead weight. Leaving them in argv+env
-  // total contributes to E2BIG when execve()'s argv+env exceeds ARG_MAX.
-  // Shell nodes still receive these env vars — they're the intended
-  // consumer (`$UPSTREAM_<ID>_RESULT` references in the command).
-  const childEnv: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (!/^UPSTREAM_[A-Z0-9_]+_(RESULT|OUTPUTS)$/.test(k)) childEnv[k] = v;
-  }
+  // The child's env: the upstream copies and the big inputs the prompt
+  // already carries are left out (llmChildEnv). Shell nodes still receive
+  // every env var: they're the intended consumer.
+  const childEnv = llmChildEnv(env, node.prompt);
 
   const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);
 
@@ -2107,6 +2101,32 @@ export function validateOutputContract(
 }
 
 // ── Process spawner ────────────────────────────────────────────────────
+
+/**
+ * An input the prompt substitutes ({{inputs.NAME}}) rides in the child's env
+ * too, for a prompt that says `$NAME`; past this size it doesn't: the prompt
+ * (on stdin) already has it. A triage turn's env (the kernel, a notebook's
+ * guide, its page) otherwise passes ARG_MAX on a long conversation.
+ */
+export const PROMPT_INPUT_ENV_CAP = 8 * 1024;
+
+/**
+ * The env an LLM node's child gets: without UPSTREAM_*_RESULT / _OUTPUTS
+ * (consumed by {{upstream.X}} substitution; the raw copies are dead weight
+ * that counts toward execve()'s argv+env limit), and without any input the
+ * prompt template substitutes whose value is over PROMPT_INPUT_ENV_CAP.
+ * Pure.
+ */
+export function llmChildEnv(env: Record<string, string>, prompt: string | undefined): Record<string, string> {
+  const inPrompt = new Set([...(prompt ?? '').matchAll(/\{\{inputs\.([A-Z_][A-Z0-9_]*)\}\}/g)].map((m) => m[1]));
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (/^UPSTREAM_[A-Z0-9_]+_(RESULT|OUTPUTS)$/.test(k)) continue;
+    if (inPrompt.has(k) && v.length > PROMPT_INPUT_ENV_CAP) continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 export interface SpawnProcessOptions {
   cwd?: string;
