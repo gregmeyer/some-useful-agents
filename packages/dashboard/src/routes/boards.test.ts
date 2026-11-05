@@ -117,6 +117,16 @@ describe('boards are canvases', () => {
     expect((await get(app, '/boards/tile/ghost.json')).status).toBe(404);
   });
 
+  it('a tile may run the agents placed on its board: a named board\'s placements, or everything Pulse shows', async () => {
+    await setup();
+    const { boardRunTargets } = await import('./boards.js');
+    expect([...boardRunTargets(ctx, 'user:morning')]).toEqual(['news', 'weather', 'ghost']);
+    expect([...boardRunTargets(ctx, 'pulse')].sort()).toEqual(['news', 'notes', 'weather']);
+    ctx.agentStore.updateAgentMeta('notes', { pulseVisible: false });
+    expect([...boardRunTargets(ctx, 'pulse')].sort()).toEqual(['news', 'weather']); // hidden from Pulse: not a target there
+    expect([...boardRunTargets(ctx, 'user:nope')]).toEqual([]);
+  });
+
   it('redirects /boards/<id> (and the old /canvas preview address) to the page', async () => {
     const app = await setup();
     expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');

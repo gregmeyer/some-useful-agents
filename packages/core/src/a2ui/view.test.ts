@@ -184,6 +184,17 @@ describe('Table link columns', () => {
   });
 });
 
+describe('Table row actions', () => {
+  it('accept { name, agent?, inputs: { INPUT: row field } } and refuse bindings or extra keys', async () => {
+    const { validateViewComponents } = await import('./view.js');
+    const table = (rowAction: unknown) => validateViewComponents([{ id: 'root', component: 'Table', rows: { path: '/outputs/rows' }, columns: [{ key: 'league', label: 'League' }], rowAction }]);
+    expect(table({ name: 'run-agent', agent: 'details', inputs: { LEAGUE: 'league', GAME_URL: 'link' } }).ok).toBe(true);
+    expect(table({ name: 'run-agent' }).ok).toBe(true);
+    expect(table({ name: 'run-agent', inputs: { LEAGUE: { path: 'league' } } }).ok).toBe(false); // a row field name, not a binding
+    expect(table({ name: 'run-agent', context: { LEAGUE: 'league' } }).ok).toBe(false);
+  });
+});
+
 describe('Table column labels', () => {
   it('may be empty (the row-heading column of a comparison table)', async () => {
     const { validateViewComponents } = await import('./view.js');

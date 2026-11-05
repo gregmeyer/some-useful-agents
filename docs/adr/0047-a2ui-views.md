@@ -92,3 +92,27 @@ an agent):
 readable for replies saved before this; nothing new writes it. Plain-text views of a conversation
 (the history sua sees, list previews, thread summaries) drop widget blocks. The CLI and MCP still
 get text only. A new speaker in a conversation must use this format rather than add its own.
+
+## Amendment (2026-11-05): a tile may run another tile on its board
+
+- Status: accepted
+- Deciders: Greg Meyer
+
+**Context.** A run action in a view was pinned to the view's own agent (`pinRunActions`) so a
+model-written view could never start an arbitrary agent. That left a board unable to wire two of
+its tiles together: a scoreboard's row could link to ESPN but not run the game-details agent
+beside it, and sua, asked to add that, could only report the gap (inbox thread, 2026-11-04).
+
+**Decision.** The pin stays everywhere, with one exception: on a board, a `run-agent` action (a
+Button's, or a Table's new `rowAction`) may name another agent placed on that same board, and that
+agent's tile runs and refreshes. The server decides which targets are allowed (`runTargets`: the
+board's placements, or everything Pulse shows) when it draws the tile, so the browser never sees an
+unpinned target it shouldn't; an agent not on the board is pinned back to the view's own. The run
+still goes through the widget-run route with its usual checks. A `rowAction` carries row field
+names (plain strings), not bindings, so the renderer leaves them to the Table, which reads the
+clicked row.
+
+**Consequences.** Boards can be wired tile to tile by whoever placed the tiles, with no new
+permission: the board owner chose both agents. A tile reloaded after a run (`/boards/tile/:id.json`)
+needs its board (`?board=`) to keep the same targets. Off a board (the agent page, the run page, an
+inbox thread) nothing changes.

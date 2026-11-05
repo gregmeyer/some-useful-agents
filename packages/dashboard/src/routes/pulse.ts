@@ -33,8 +33,18 @@ function autoImportSignalExamples(ctx: ReturnType<typeof getContext>): void {
 
 // ── Tile building ────────────────────────────────────────────────────────
 
-function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeof getContext>): PulseTile {
-  return buildPulseTile(agent, { runStore: ctx.runStore });
+function buildTile(agent: Agent & { signal: AgentSignal }, ctx: ReturnType<typeof getContext>, runTargets?: ReadonlySet<string>): PulseTile {
+  return buildPulseTile(agent, { runStore: ctx.runStore, ...(runTargets ? { runTargets } : {}) });
+}
+
+/** Whether an agent is hidden from Pulse: `pulseVisible: false` (the master switch), else the legacy `signal.hidden`. */
+function pulseHidden(agent: Agent): boolean {
+  return agent.pulseVisible === false || (agent.pulseVisible === undefined && agent.signal?.hidden === true);
+}
+
+/** The agents Pulse shows (not archived, with a tile, not hidden): what a tile's row or Run action may run. */
+export function pulseAgentIds(ctx: ReturnType<typeof getContext>): Set<string> {
+  return new Set(ctx.agentStore.listAgents().filter((a) => a.status !== 'archived').map(withTileSignal).filter((a) => a.signal && !pulseHidden(a)).map((a) => a.id));
 }
 
 // ── Virtual system tiles ─────────────────────────────────────────────────
@@ -153,17 +163,16 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
   //  - `pulseVisible: false` is the explicit master switch (top-level).
   //  - `signal.hidden: true` is the legacy per-tile toggle (kept for back-compat).
   // pulseVisible takes precedence when set.
+  const shown = new Set(agents.filter((a) => a.signal && !pulseHidden(a)).map((a) => a.id));
   for (const agent of agents) {
     if (!agent.signal) continue;
-    const pulseHidden = agent.pulseVisible === false
-      || (agent.pulseVisible === undefined && agent.signal.hidden === true);
-    if (pulseHidden) {
+    if (!shown.has(agent.id)) {
       // Hidden agents are surfaced only as a count + bulk-restore link
       // in the view — skip the (expensive) buildTile call so the page
       // doesn't load their data needlessly.
       hiddenTiles.push({} as unknown as typeof tiles[number]);
     } else {
-      tiles.push(buildTile(agent as Agent & { signal: AgentSignal }, ctx));
+      tiles.push(buildTile(agent as Agent & { signal: AgentSignal }, ctx, shown));
     }
   }
 
