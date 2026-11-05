@@ -30,6 +30,8 @@ export function renderSurfaceHost(surfaceId: string, messages: unknown[], opts: 
 export interface RunViewOptions {
   runStore?: Pick<RunStore, 'queryRuns' | 'listNodeExecutions'>;
   history?: Parameters<typeof resolveAgentView>[1]['history'];
+  /** On a board: the other agents placed on it, which a run action may target (see pinRunActions). */
+  runTargets?: ReadonlySet<string>;
 }
 
 /**
@@ -53,12 +55,25 @@ export function viewHistory(
   }
 }
 
-/** A Run button in an agent's view always runs that agent (whatever the view, or a model that wrote it, says). */
-function pinRunActions(components: ViewComponent[], agentId: string): ViewComponent[] {
+/**
+ * A Run button (or a Table's row action) in an agent's view runs that agent,
+ * whatever the view, or a model that wrote it, says. The one exception: on a
+ * board, it may name another agent placed on that board (`runTargets`), so a
+ * scoreboard's row can run the game-details tile beside it.
+ */
+export function pinRunActions(components: ViewComponent[], agentId: string, runTargets?: ReadonlySet<string>): ViewComponent[] {
+  const target = (named: unknown): string => (typeof named === 'string' && named !== agentId && runTargets?.has(named) ? named : agentId);
   return components.map((c) => {
     const event = (c as { action?: { event?: { name?: unknown; context?: Record<string, unknown> } } }).action?.event;
-    if (!event || event.name !== 'run-agent') return c;
-    return { ...c, action: { ...(c as unknown as { action: object }).action, event: { ...event, context: { ...(event.context ?? {}), agent: agentId } } } } as unknown as ViewComponent;
+    const row = (c as { rowAction?: { name?: unknown; agent?: unknown } }).rowAction;
+    let out = c;
+    if (event && event.name === 'run-agent') {
+      out = { ...out, action: { ...(c as unknown as { action: object }).action, event: { ...event, context: { ...(event.context ?? {}), agent: target(event.context?.agent) } } } } as unknown as ViewComponent;
+    }
+    if (row && row.name === 'run-agent') {
+      out = { ...out, rowAction: { ...row, agent: target(row.agent) } } as unknown as ViewComponent;
+    }
+    return out;
   });
 }
 
@@ -95,7 +110,7 @@ export function runViewMessages(
   const resolved = resolveAgentView(agent, { run, nodeExecutions, history, agent: { id: agent.id, ...(agent.name ? { name: agent.name } : {}) } });
   if (!resolved) return undefined;
   if (!resolved.ok) return { error: resolved.errors[0] ?? 'invalid view' };
-  const components = pinRunActions(prepareViewForRender(resolved.components, resolved.dataModel), agent.id);
+  const components = pinRunActions(prepareViewForRender(resolved.components, resolved.dataModel), agent.id, opts.runTargets);
   return { messages: viewToMessages(surfaceId, components, resolved.dataModel) };
 }
 

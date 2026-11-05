@@ -26,7 +26,7 @@ import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, st
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
-import { buildPulseBoardData } from './pulse.js';
+import { buildPulseBoardData, pulseAgentIds } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
@@ -57,6 +57,25 @@ export interface ResolvedBoard {
   pulse?: ReturnType<typeof buildPulseBoardData>;
 }
 
+/** The agents placed on a named board (its sections, items and canvas), in placement order. */
+function placedAgentIds(stored: Board | undefined, dashboard: { layout: { sections: Array<{ agentIds: string[] }> } } | null | undefined): Set<string> {
+  const agentIds = new Set<string>();
+  for (const s of dashboard?.layout.sections ?? []) s.agentIds.forEach((a) => agentIds.add(a));
+  for (const it of stored?.items ?? []) if (it.kind === 'agent') agentIds.add(it.agentId);
+  for (const a of stored?.doc ? boardDocAgentIds(stored.doc) : []) agentIds.add(a);
+  return agentIds;
+}
+
+/**
+ * The agents a board's tiles may run from a row or a Run button: every agent
+ * placed on it (on Pulse, every agent it shows). A tile's run actions are
+ * pinned to its own agent otherwise (lib/a2ui-surface.ts pinRunActions).
+ */
+export function boardRunTargets(ctx: ReturnType<typeof getContext>, id: string): Set<string> {
+  if (id === PULSE_BOARD_ID) return pulseAgentIds(ctx);
+  return placedAgentIds(boardsOf(ctx).get(id), ctx.dashboardsStore?.getDashboard(id));
+}
+
 /** A board with the tiles it needs, or undefined when there's no such board. */
 export function resolveBoard(ctx: ReturnType<typeof getContext>, id: string): ResolvedBoard | undefined {
   const stored = boardsOf(ctx).get(id);
@@ -81,15 +100,12 @@ export function resolveBoard(ctx: ReturnType<typeof getContext>, id: string): Re
   const dashboard = ctx.dashboardsStore?.getDashboard(id);
   if (!dashboard && !stored) return undefined;
   const tiles = new Map<string, PulseTile>();
-  const agentIds = new Set<string>();
-  for (const s of dashboard?.layout.sections ?? []) s.agentIds.forEach((a) => agentIds.add(a));
-  for (const it of stored?.items ?? []) if (it.kind === 'agent') agentIds.add(it.agentId);
-  for (const a of stored?.doc ? boardDocAgentIds(stored.doc) : []) agentIds.add(a);
+  const agentIds = placedAgentIds(stored, dashboard);
   const built: PulseTile[] = [];
   for (const agentId of agentIds) {
     const agent = withTileSignal(ctx.agentStore.getAgent(agentId));
     if (!agent?.signal) continue;
-    const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore });
+    const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, runTargets: agentIds });
     built.push(tile);
     tiles.set(agentId, tile);
   }
@@ -363,11 +379,12 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
     }
   }
   const tiles = new Map(r.tiles);
+  const onBoard = new Set([...tiles.keys(), ...boardDocAgentIds(doc)]);
   for (const agentId of boardDocAgentIds(doc)) {
     if (tiles.has(agentId)) continue;
     const agent = withTileSignal(ctx.agentStore.getAgent(agentId));
     if (!agent?.signal) continue;
-    const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore });
+    const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, runTargets: onBoard });
     attachLayoutHints([tile], ctx.layoutHintsStore);
     tiles.set(agentId, tile);
   }
@@ -446,7 +463,9 @@ boardsRouter.get('/boards/tile/:tileId.json', (req: Request, res: Response) => {
   else {
     const agent = withTileSignal(ctx.agentStore.getAgent(tileId));
     if (agent?.signal) {
-      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore });
+      // Refreshed on its board: its run actions may still target the tiles beside it.
+      const board = typeof req.query.board === 'string' ? req.query.board : '';
+      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, ...(board ? { runTargets: boardRunTargets(ctx, board) } : {}) });
       attachLayoutHints([tile], ctx.layoutHintsStore);
     }
   }

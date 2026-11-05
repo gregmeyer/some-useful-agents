@@ -131,11 +131,16 @@ const Table = define('Table', 'sua-a2ui-table',
     filterColumns: z.array(z.string()).max(12).optional(),
     filterPlaceholder: z.string().max(80).optional(),
     pageSize: z.number().int().min(1).max(200).optional(),
+    // Clicking a row sends this action with the row's fields as inputs (plain strings: the Table reads the row, not the renderer).
+    rowAction: z.object({ name: z.string().min(1).max(64), agent: z.string().min(1).max(128).optional(), inputs: z.record(z.string(), z.string()).optional() }).strict().optional(),
   }).strict(),
   css`
     /* A block, so a table wider than its place (a narrow panel) scrolls sideways instead of being cut off. */
     :host { display: block; max-width: 100%; overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: var(--font-size-sm); }
+    tr.act { cursor: pointer; }
+    tr.act:hover td, tr.act:focus-visible td { background: var(--color-surface-raised); }
+    tr.act:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
     th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: break-word; }
@@ -184,10 +189,27 @@ const Table = define('Table', 'sua-a2ui-table',
       const next = active && this._sort.dir === 'asc' ? 'desc' : 'asc';
       return html`<th aria-sort="${active ? (this._sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}"><button @click=${() => set('_sort', { col: c.key, dir: next })}>${c.label}${active ? (this._sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>`;
     };
+    // A row action: each input is read from the clicked row (a {label, url} cell sends its url). A click on a link in the row is the link's.
+    const act = p.rowAction;
+    const fire = (row, e) => {
+      if (e.target?.closest?.('a')) return;
+      if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      const context = act.agent ? { agent: act.agent } : {};
+      for (const [input, field] of Object.entries(act.inputs ?? {})) {
+        const v = row?.[field];
+        const text = v && typeof v === 'object' ? String(v.url ?? v.href ?? v.label ?? v.text ?? '') : v == null ? '' : String(v);
+        if (text !== '') context['in_' + input] = text;
+      }
+      this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: act.name, context } }));
+    };
+    const tr = (r) => (act
+      ? html`<tr class="act" tabindex="0" role="button" @click=${(e) => fire(r, e)} @keydown=${(e) => fire(r, e)}>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`
+      : html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`);
     return html`
       ${filterCols.length ? html`<div class="tools"><input type="search" aria-label="${p.filterPlaceholder ?? 'Filter'}" placeholder="${p.filterPlaceholder ?? 'Filter…'}" .value=${this._filter ?? ''} @input=${(e) => { this._page = 0; set('_filter', e.target.value); }}></div>` : nothing}
       <table><thead><tr>${p.columns.map(header)}</tr></thead>
-        <tbody>${visible.map((r) => html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`)}</tbody></table>
+        <tbody>${visible.map(tr)}</tbody></table>
       ${pages > 1 ? html`<div class="pager"><button ?disabled=${page === 0} @click=${() => set('_page', page - 1)}>‹ Prev</button><span>${page + 1} / ${pages}</span><button ?disabled=${page >= pages - 1} @click=${() => set('_page', page + 1)}>Next ›</button></div>` : nothing}`;
   });
 
@@ -1744,6 +1766,9 @@ function tileBody(t) {
   return note(t.empty || 'No output yet.');
 }
 
+/** The agent tiles on this page by agent id, so a tile's action can run (and refresh) another tile on the same board. */
+const agentTiles = new Map();
+
 const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
   Common.extend({ agentId: z.string().min(1).max(128), palette: z.string().optional() }).strict(),
   tileStyles,
@@ -1777,13 +1802,18 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
   },
   {
     wire(agentId, t) {
+      agentTiles.set(agentId, this);
       if (!this._listening) {
-        // Run actions from inside the nested surface (forms, "Run again") run in this tile.
+        // Run actions from inside the nested surface (forms, "Run again", a
+        // table row) run in this tile, or, when the server let the action name
+        // another agent placed on this board, in that agent's tile.
         this._listening = true;
         this.addEventListener('a2ui-action', (e) => {
           const a = e.detail || {};
           const c = a.context || {};
-          if (a.name !== 'run-agent' || c.agent !== agentId) return;
+          if (a.name !== 'run-agent') return;
+          const target = c.agent === agentId ? this : agentTiles.get(c.agent);
+          if (!target) return;
           e.stopPropagation();
           const body = new URLSearchParams();
           for (const k of Object.keys(c)) {
@@ -1791,12 +1821,17 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
             let v = c[k]; if (Array.isArray(v)) v = v[0];
             if (v !== undefined && v !== null && String(v) !== '') body.append('input_' + k.slice(3), String(v));
           }
-          this.runTile(agentId, body.toString());
+          if (target !== this) target.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+          target.runTile(c.agent, body.toString());
         });
       }
       if (t.refreshMs && !this._timer) this._timer = setInterval(() => { if (!this._running && document.visibilityState === 'visible') this.reload(agentId); }, t.refreshMs);
     },
-    disconnectedCallback() { A2uiLitElement.prototype.disconnectedCallback?.call(this); if (this._timer) { clearInterval(this._timer); this._timer = undefined; } },
+    disconnectedCallback() {
+      A2uiLitElement.prototype.disconnectedCallback?.call(this);
+      if (this._timer) { clearInterval(this._timer); this._timer = undefined; }
+      for (const [id, el] of agentTiles) if (el === this) agentTiles.delete(id);
+    },
     async reload(agentId) {
       const res = await fetch(`/boards/tile/${encodeURIComponent(agentId)}.json?board=${encodeURIComponent(boardId())}`);
       if (res.ok) { this._entry = await res.json(); this.requestUpdate(); }

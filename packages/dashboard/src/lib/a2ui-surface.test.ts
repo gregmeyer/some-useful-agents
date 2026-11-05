@@ -60,6 +60,23 @@ describe('history, series and Run buttons in views', () => {
     expect(html).toContain('"context":{"agent":"w","in_CITY":"Lisbon"}');
     expect(html).not.toContain('someone-else');
   });
+
+  it('on a board, a run action may target another agent placed there; a Table row action is pinned the same way', () => {
+    const view = { components: [
+      { id: 'root', component: 'Column', children: ['rows', 'b1', 'b2'] },
+      { id: 'rows', component: 'Table', rows: { path: '/outputs/games' }, columns: [{ key: 'league', label: 'League' }], rowAction: { name: 'run-agent', agent: 'details', inputs: { LEAGUE: 'league', GAME_URL: 'link' } } },
+      { id: 'b1', component: 'Button', child: 'l', action: { event: { name: 'run-agent', context: { agent: 'details' } } } },
+      { id: 'b2', component: 'Button', child: 'l', action: { event: { name: 'run-agent', context: { agent: 'elsewhere' } } } },
+      { id: 'l', component: 'Text', text: 'Run' },
+    ] };
+    const comps = (targets?: Set<string>) => {
+      const out = runViewMessages({ id: 'w', view }, run, [], 's', targets ? { runTargets: targets } : {}) as { messages: Array<{ updateComponents?: { components: Array<Record<string, unknown>> } }> };
+      const byId = new Map(out.messages.find((m) => m.updateComponents)!.updateComponents!.components.map((c) => [c.id, c]));
+      return { row: (byId.get('rows') as { rowAction: { agent: string } }).rowAction.agent, b1: (byId.get('b1') as { action: { event: { context: { agent: string } } } }).action.event.context.agent, b2: (byId.get('b2') as { action: { event: { context: { agent: string } } } }).action.event.context.agent };
+    };
+    expect(comps()).toEqual({ row: 'w', b1: 'w', b2: 'w' }); // off a board: always its own agent
+    expect(comps(new Set(['w', 'details']))).toEqual({ row: 'details', b1: 'details', b2: 'w' }); // on the board with details, not elsewhere
+  });
 });
 
 describe('widget actions as messages', () => {

@@ -32,6 +32,8 @@ export function withTileSignal<A extends Agent | null | undefined>(agent: A): A 
 
 export interface BuildTileDeps {
   runStore: RunStore;
+  /** The board this tile is drawn on: the agents placed there, which its run actions may target. */
+  runTargets?: ReadonlySet<string>;
 }
 
 export function buildPulseTile(
@@ -51,10 +53,11 @@ export function buildPulseTile(
       const execs = deps.runStore.listNodeExecutions(lastRun.id);
       if (agent.view) {
         const history = viewHistory(agent, lastRun, deps.runStore);
-        viewMessages = runViewMessages(agent, lastRun, execs, `tile-${agent.id}`, { history });
+        const opts = { history, ...(deps.runTargets ? { runTargets: deps.runTargets } : {}) };
+        viewMessages = runViewMessages(agent, lastRun, execs, `tile-${agent.id}`, opts);
         viewHtml = viewMessages && 'messages' in viewMessages
           ? renderSurfaceHost(`tile-${agent.id}`, viewMessages.messages, { label: `${agent.id} widget`, agentId: agent.id })
-          : renderRunView(agent, lastRun, execs, `tile-${agent.id}`, { history });
+          : renderRunView(agent, lastRun, execs, `tile-${agent.id}`, opts);
       }
       const lastExec = execs.filter((e) => e.status === 'completed').pop();
       if (lastExec?.outputsJson) outputsJson = lastExec.outputsJson;

@@ -7,6 +7,7 @@ Pulse (`/pulse`) and every named dashboard (`/dashboards/<id>`) are **boards**. 
 Each tile shows an agent's latest result, drawn with the agent's view (or its widget, converted), and keeps its controls:
 
 - **Run** in the footer runs the agent in place and refreshes only that tile; **Run…** opens the agent page when it needs input first. An agent whose own view has a form or **Run again** runs from there instead, also in place.
+- A tile can run another tile on the same board: a view's Run button or a table's row action may name an agent placed there (`context.agent`, or a Table's `rowAction.agent`), and that tile runs with the row's values and refreshes. Anywhere else, and for an agent not on the board, the action runs the view's own agent. See [a2ui-views.md](a2ui-views.md#what-a-view-can-bind-to).
 - **⚙** configures the tile (template, title, size, accent).
 - **×** on Pulse hides the agent from Pulse (restore it from the hidden section at the bottom). On a dashboard, remove a tile by arranging the board.
 - A tile refreshes itself on the agent's `refresh` interval, and keeps its palette and accent.

@@ -84,6 +84,17 @@ const SUA_COMPONENTS = [
       filterPlaceholder: z.string().max(80).optional(),
       /** Rows per page, with a pager when there are more. */
       pageSize: z.number().int().min(1).max(200).optional(),
+      /**
+       * Clicking a row sends this action with the row's fields as inputs:
+       * `{ name: 'run-agent', agent?, inputs: { LEAGUE: 'league' } }` sends
+       * `in_LEAGUE` = the row's `league`. Plain strings (not bindings), so the
+       * renderer leaves them to the Table, which reads the clicked row.
+       */
+      rowAction: z.object({
+        name: z.string().min(1).max(64),
+        agent: z.string().min(1).max(128).optional(),
+        inputs: z.record(z.string().min(1).max(64), z.string().min(1).max(64)).optional(),
+      }).strict().optional(),
     }).strict(),
   },
   {
