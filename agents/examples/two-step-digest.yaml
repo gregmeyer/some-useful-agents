@@ -1,5 +1,6 @@
 # Tutorial step 2: Chain two nodes — fetch data, then format it.
-# Teaches: dependsOn, upstream output passing ($UPSTREAM_<ID>_RESULT).
+# Teaches: dependsOn, upstream output passing ($UPSTREAM_<ID>_RESULT), and a
+# view that draws structured output (one row per headline).
 # Run: sua workflow run two-step-digest
 id: two-step-digest
 name: Two-step digest
@@ -36,18 +37,31 @@ inputs:
       outcome. Empty on the first run and after any run that succeeded.
 
 outputs:
-  result:
+  headlines:
+    type: array
+    description: The headlines read from the source file, each with title, source and category.
+  count:
+    type: number
+    description: How many headlines were loaded.
+  summary:
     type: string
-    description: Formatted digest text — first 5 headlines plus a count line.
+    description: The count line, e.g. "10 headlines loaded."
+  note:
+    type: string
+    description: What the previous run missed, when it missed its outcome (empty otherwise).
 signal:
   title: Daily Digest
   icon: "\U0001F4F0"
-  format: text
-  template: text-headline
-  mapping:
-    headline: Daily Digest
-    body: result
+  template: widget
   size: 2x1
+# The view draws every run (the run page, the agent's board tile, chat): a
+# table of headlines, then the count line. It binds the JSON fields the
+# summarise step prints — never the raw text.
+view:
+  components:
+    - { id: root, component: Column, children: [rows, count_line] }
+    - { id: rows, component: Table, rows: { path: /outputs/headlines }, columns: [{ key: title, label: Headline }, { key: source, label: Source }], maxRows: 10 }
+    - { id: count_line, component: Text, text: { path: /outputs/summary }, variant: caption }
 # OutcomeDetection: what this agent is supposed to RESULT in, and what
 # counts as evidence of it. Inert unless the caller passes an
 # `onRunComplete: outcomeDetectionHook({ outcomeStore })` dep — adding this
@@ -89,18 +103,21 @@ nodes:
       path: agents/examples/data/sample-headlines.json
   - id: summarise
     type: shell
+    # The fetch node's result (the file's text) arrives as $UPSTREAM_FETCH_RESULT.
+    # Print the digest as JSON so the view can draw one row per headline:
+    # a step whose result is a JSON object exposes its fields at /outputs/<field>.
+    # Last run's shortfall ($OUTCOME_FEEDBACK) is passed on as `note`, so the
+    # feedback loop is visible end to end. A real agent would ACT on it
+    # (widen the query, pick another source) rather than just reporting it.
     command: |
-      echo "=== Daily Digest ==="
-      # Echo last run's shortfall so the feedback loop is visible end to end.
-      # A real agent would ACT on this (widen the query, pick another source)
-      # rather than just printing it.
-      if [ -n "$OUTCOME_FEEDBACK" ]; then
-        echo "[note] the previous run missed its outcome:"
-        echo "$OUTCOME_FEEDBACK" | head -3
-        echo "---"
-      fi
-      echo "$UPSTREAM_FETCH_RESULT" | head -5
-      echo "---"
-      TOTAL=$(echo "$UPSTREAM_FETCH_RESULT" | grep -c '"title"' || echo 0)
-      echo "$TOTAL headlines loaded."
+      node -e '
+        let headlines = [];
+        try { headlines = JSON.parse(process.env.UPSTREAM_FETCH_RESULT || "{}").headlines ?? []; } catch {}
+        console.log(JSON.stringify({
+          headlines: headlines.map((h) => ({ title: h.title, source: h.source, category: h.category })),
+          count: headlines.length,
+          summary: `${headlines.length} headlines loaded.`,
+          note: process.env.OUTCOME_FEEDBACK || "",
+        }, null, 2));
+      '
     dependsOn: [fetch]

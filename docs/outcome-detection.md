@@ -53,8 +53,11 @@ nodes:
     type: shell
     dependsOn: [fetch]
     command: |
-      echo "$UPSTREAM_FETCH_RESULT" | head -5
-      echo "$(echo "$UPSTREAM_FETCH_RESULT" | grep -c '"title"') headlines loaded."
+      node -e '
+        let headlines = [];
+        try { headlines = JSON.parse(process.env.UPSTREAM_FETCH_RESULT || "{}").headlines ?? []; } catch {}
+        console.log(JSON.stringify({ headlines, count: headlines.length, summary: `${headlines.length} headlines loaded.` }));
+      '
 ```
 
 The dashboard, the scheduler daemon, and `sua workflow run` already have the
