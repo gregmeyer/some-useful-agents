@@ -34,6 +34,9 @@ function glyph(c: ViewComponent | undefined): SafeHtml {
     case 'Bars': return html`<span class="lk-g lk-g--bars">${[90, 65, 45].map((w) => html`<i class="lk-bar" style="width:${String(w)}%"></i>`) as unknown as SafeHtml[]}</span>`;
     case 'Compare': return html`<span class="lk-g lk-g--compare">${[0, 1].map(() => html`<span>${lines(3, 'is-ruled')}</span>`) as unknown as SafeHtml[]}</span>`;
     case 'Figure': return html`<span class="lk-g lk-g--figure">${[100, 70, 40].map((w) => html`<i class="lk-track"><i class="lk-bar" style="width:${String(w)}%"></i></i>`) as unknown as SafeHtml[]}</span>`;
+    // A board's parts: a tile (a small framed box), a grid of tiles.
+    case 'AgentTile': case 'SystemTile': return html`<span class="lk-g lk-g--tile"><i class="lk-box"></i></span>`;
+    case 'Grid': return html`<span class="lk-g lk-g--grid">${Array.from({ length: 4 }, () => html`<i class="lk-box"></i>`) as unknown as SafeHtml[]}</span>`;
     default: return html`<span class="lk-g">${lines(2)}</span>`;
   }
 }
@@ -55,6 +58,9 @@ export function lookThumb(components: readonly ViewComponent[]): SafeHtml {
       return html`<span class="lk-part lk-part--${typeof c.treatment === 'string' ? c.treatment : 'plain'}${c.hero === true ? ' lk-part--hero' : ''}"><i class="lk-title"></i>${inner?.component === 'Column' ? kids(inner).map((k) => glyph(byId.get(k))) as unknown as SafeHtml[] : glyph(inner)}</span>`;
     }
     if (c.component === 'Column') return html`<span class="lk-stack">${kids(c).map(part) as unknown as SafeHtml[]}</span>`;
+    // A board's section: its title over its grid (a Cell is its tile).
+    if (c.component === 'Section') return html`<span class="lk-part lk-part--plain"><i class="lk-title"></i>${glyph(byId.get(String(c.child)))}</span>`;
+    if (c.component === 'Cell') return part(String(c.child));
     // Columns inside a column (two leads side by side): a small row of their own.
     if (c.component === 'Columns') {
       const ks = kids(c);

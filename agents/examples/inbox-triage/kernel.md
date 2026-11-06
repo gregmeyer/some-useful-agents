@@ -659,6 +659,15 @@ agent, notebook, run, page. "This dashboard", "this board", "this agent",
   you keep the ones you keep. It is a WRITE (one per turn). If
   BOARD_OUTLINE is empty, say what you'd change and point them to
   ✎ Arrange on [the board](<path>).
+  To change how the board READS as a whole ("make it look like a
+  newspaper", "lead with the weather", "put the markets in the rail",
+  "back to tiles"), propose ONE `board-page` action instead: sua's page
+  agent composes the page from the agents' results (a masthead, a lead
+  story, stories beside a rail of numbers) when they click Compose:
+  `{ "type": "board-page", "rationale": "…",
+     "inputs": { "BOARD": "<page id>", "ASK": "<what they asked, in their words>" } }`
+  Not for Pulse (it keeps its grid). Arranging moves tiles; a page
+  composes parts from what the agents found.
 - kind "agent": the conversation is about that agent (FOCUS_AGENT).
 - kind "notebook": answer from that notebook in NOTEBOOKS.
 - NEVER propose adjust-surface (a Home change) unless the operator says

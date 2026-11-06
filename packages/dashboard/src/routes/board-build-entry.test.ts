@@ -40,6 +40,8 @@ async function setup() {
     allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   } as DashboardContext;
+  // No model in tests: a built board keeps its grid unless a test answers for the page agent.
+  ctx.boardPageRun = async () => undefined;
   const add = (id: string, size?: string) => ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
     nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: id, template: 'text-headline', mapping: { headline: 'result' }, ...(size ? { size } : {}) } } as never, 'cli');
   add('news'); add('weather', '2x1'); add('notes');
@@ -156,5 +158,28 @@ describe('other ways to build a board', { timeout: 30_000 }, () => {
     const store = new BoardBuildStore(ctx.runStore.databaseHandle());
     for (let i = 0; i < 100 && store.get(build.id)!.failed.length; i++) await new Promise((r) => setTimeout(r, 100));
     expect(store.get(build.id)).toMatchObject({ failed: [], detail: 'All tiles ran.' });
+  });
+});
+
+describe('a built board decides its page (ADR-0070)', { timeout: 30_000 }, () => {
+  it('composes the page once its tiles have run, as the board\'s own; Ask sua proposes board-page from words', async () => {
+    await setup();
+    standInBuilder(['news', 'weather']);
+    const asked: Record<string, string>[] = [];
+    ctx.boardPageRun = async (inputs) => { asked.push(inputs); return '<page>{"preset":"front-page","about":"news leads"}</page>'; };
+    const { boardId, build } = queueBoardBuild(ctx.runStore.databaseHandle(), ctx.dashboardsStore!, { request: 'a morning read with the news and the weather', queued: true, origin: 'mcp' });
+    expect(startQueuedBoardBuilds(ctx)).toBe(1);
+    expect(await waitDone(build.id)).toMatchObject({ phase: 'done', placed: ['news', 'weather'] });
+    const board = new BoardsStore(ctx.runStore.databaseHandle()).get(boardId)!;
+    expect(board.layoutMeta).toEqual({ preset: 'front-page', about: 'news leads', layoutBy: 'board' });
+    expect(board.doc!.components.find((c) => c.id === 'masthead')).toBeTruthy();
+    expect(JSON.parse(asked[0].BOARD)).toMatchObject({ for: 'a morning read with the news and the weather', agents: [{ id: 'news', ran: true }, { id: 'weather', ran: true }] });
+    const { accepted, rejected } = parseProposedActions([
+      { type: 'board-page', rationale: 'They want it to read like a paper', inputs: { BOARD: boardId, ASK: 'make it read like a newspaper' } },
+      { type: 'board-page', inputs: { BOARD: 'pulse', ASK: 'x' } },
+      { type: 'board-page', inputs: { BOARD: boardId } },
+    ], []);
+    expect(accepted).toEqual([expect.objectContaining({ agentId: 'board-page', effect: 'write', ctaLabel: 'Compose the page', inputs: { BOARD: boardId, ASK: 'make it read like a newspaper' } })]);
+    expect(rejected.map((r) => r.reason)).toEqual([expect.stringContaining('Pulse keeps its grid'), expect.stringContaining('needs inputs.BOARD and inputs.ASK')]);
   });
 });

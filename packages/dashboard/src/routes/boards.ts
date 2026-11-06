@@ -24,6 +24,8 @@ import { layout } from '../views/layout.js';
 import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
 import { boardPageData, boardRefreshMs } from '../lib/board-widgets.js';
+import { setBoardLook } from '../lib/board-page.js';
+import { boardLooks } from '../views/board-look.js';
 import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, startBoardBuild } from '../lib/board-build.js';
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
@@ -348,6 +350,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <button type="submit" class="btn btn--ghost btn--sm" title="Hide this board from your lists; restore it any time">Archive</button>
       </form>` : html``}
     </div>
+    ${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>
       <aside class="canvas-outline" data-canvas-outline hidden aria-label="Board outline"></aside>
@@ -404,6 +407,18 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
     }),
   };
 }
+
+/**
+ * "How it looks" (ADR-0070): the grid, the front page, or let sua pick.
+ * Saves a new version of the board and comes back to it with what happened.
+ */
+boardsRouter.post('/boards/:id/look', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const look = String((req.body as { look?: unknown } | undefined)?.look ?? '');
+  const out = await setBoardLook(ctx, id, look);
+  res.redirect(303, `${boardPageUrl(id)}?${out.ok ? 'ok' : 'error'}=${encodeURIComponent(out.text)}`);
+});
 
 /**
  * The board's canvas again (messages + tile registry), for a composed page
