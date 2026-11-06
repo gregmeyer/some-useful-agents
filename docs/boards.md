@@ -91,7 +91,7 @@ A board's document can be more than sections of tiles: composed like a front pag
 
 | Path | What it is |
 |---|---|
-| `/board/name`, `/board/date`, `/board/updated` | The board's name, today written out, how long ago the newest result arrived |
+| `/board/name`, `/board/date`, `/board/updated` | The board's name, today written out, how fresh the newest result is ("Updated 12m ago") |
 | `/board/agents/<id>/outputs/<field>` | A field of the agent's latest result (its declared outputs, or what its last run printed) |
 | `/board/agents/<id>/run/age`, `/status`, `/href`, `/running` | Its latest completed run, and whether a new one is going |
 | `/board/agents/<id>/stats/<field>` | A numeric output as a `Lead` stat (`{ value, label, note, href }`) |

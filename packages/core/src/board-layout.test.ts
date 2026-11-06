@@ -49,16 +49,21 @@ describe('the front page, filled for a board', () => {
     expect(byId.get('lede_world_news_brief_c')).toMatchObject({ component: 'Callout', text: { path: '/board/agents/world-news-brief/outputs/lead_headline' }, next: { path: '/board/agents/world-news-brief/outputs/lead_summary' } });
     // Story beside rail, 2:1: the agents that are numbers and facts (no lists) in the rail, a Lead over the tile when a number reads as one (a temperature, a change; not humidity or a count).
     expect(byId.get('top')).toMatchObject({ component: 'Columns', widths: [2, 1] });
-    expect(byId.get('rail')!.children).toEqual(['aside_weather_forecast', 'aside_markets_today']);
     expect(byId.get('aside_weather_forecast_lead')).toMatchObject({ component: 'Lead', stat: { path: '/board/agents/weather-forecast/stats/temp_f' } });
     expect(byId.get('aside_markets_today_lead')).toMatchObject({ component: 'Lead', stat: { path: '/board/agents/markets-today/stats/nasdaq_change_pct' } });
     expect(byId.get('aside_markets_today_tile')).toMatchObject({ component: 'AgentTile', agentId: 'markets-today', chrome: 'bare' });
-    // The digest carries a list (and a count): it's a story, not a figure.
-    expect(byId.get('story')!.children).toEqual(['feature_world_news_brief', 'feature_two_step_digest', 'feature_multi_sport_scoreboard']);
+    // The digest carries a list (and a count): it's a story, not a figure. The lead agent's own tile goes last, as "More from".
+    expect(byId.get('story')!.children).toEqual(['feature_two_step_digest', 'feature_multi_sport_scoreboard', 'feature_world_news_brief']);
+    expect(byId.get('feature_world_news_brief')!.title).toBe('More from World News');
     expect(byId.get('feature_two_step_digest_lead')).toBeUndefined();
-    // Two agents with a number that matters: a band of figures.
-    expect(root.at(-1)).toBe('band');
-    expect(byId.get('band')!.when).toBe('numbers:weather-forecast');
+    // Two agents with a number that matters: a band of figures, at the end of the rail since the story column is longer.
+    expect(root.at(-1)).toBe('top');
+    expect(byId.get('rail')!.children).toEqual(['aside_weather_forecast', 'aside_markets_today', 'band']);
+    expect(byId.get('band')).toMatchObject({ treatment: 'aside', when: 'numbers:weather-forecast' });
+    // With a short story column, the band takes a full-width row of its own.
+    const even = frontPageDoc(MORNING.filter((a) => a.id !== 'two-step-digest' && a.id !== 'multi-sport-scoreboard'));
+    expect((even.find((c) => c.id === 'root')!.children as string[]).at(-1)).toBe('band');
+    expect(even.find((c) => c.id === 'band')!.treatment).toBe('band');
     expect(byId.get('band_stats')).toMatchObject({ component: 'StatStrip', items: { path: '/board/statItems' } });
   });
 
@@ -72,7 +77,7 @@ describe('the front page, filled for a board', () => {
     expect(drawnIds).not.toContain('feature_multi_sport_scoreboard');
     expect(drawnIds).toContain('lede_world_news_brief');
     expect(drawnIds).toContain('band');
-    expect(drawn.find((c) => c.id === 'story')!.children).toEqual(['feature_world_news_brief', 'feature_two_step_digest']);
+    expect(drawn.find((c) => c.id === 'story')!.children).toEqual(['feature_two_step_digest', 'feature_world_news_brief']);
     expect(drawn.every((c) => c.when === undefined)).toBe(true);
     expect(validateBoardDoc({ components: drawn }).ok).toBe(true);
     // A bound part with nothing yet goes; while its agent's run is going it stays, as a skeleton. (A tile part is never empty: it draws itself.)
@@ -127,7 +132,7 @@ describe('a composed page as a board document', () => {
     const { doc } = applyBoardOps({ components: page }, [{ op: 'set', id: 'band', props: { title: 'Figures' } }, { op: 'move', id: 'aside_markets_today', parent: 'story', index: 0 }]);
     const byId = new Map(doc.components.map((c) => [c.id, c]));
     expect(byId.get('band')!.title).toBe('Figures');
-    expect(byId.get('story')!.children).toEqual(['aside_markets_today', 'feature_world_news_brief', 'feature_two_step_digest', 'feature_multi_sport_scoreboard']);
+    expect(byId.get('story')!.children).toEqual(['aside_markets_today', 'feature_two_step_digest', 'feature_multi_sport_scoreboard', 'feature_world_news_brief']);
     expect(byId.get('top')!.component).toBe('Columns');
     expect(doc.components.length).toBe(page.length);
     const outline = describeBoardDoc(doc, (id) => MORNING.find((a) => a.id === id)?.title);

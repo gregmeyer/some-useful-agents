@@ -15,7 +15,7 @@ import { resolveLayout, checkLayout, hasSomething } from './layout-resolve.js';
 export const BOARD_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/board/name': "The board's name.",
   '/board/date': 'Today, written out ("Thursday 6 November").',
-  '/board/updated': 'How long ago the newest result arrived ("12m ago"; "never").',
+  '/board/updated': 'How fresh the newest result is ("Updated 12m ago"; "Nothing has run yet").',
   '/board/agentIds': "The agents on the board, in the document's order.",
   '/board/statItems': "The numbers that matter across the agents (a change, a price, a score; up to 2 per agent) as StatStrip rows, {label, value, sub}, at most 8.",
   '/board/agents/<id>/title': "The agent's tile title.",
@@ -232,25 +232,37 @@ export function frontPageDoc(agents: readonly BoardAgentShape[]): ViewComponent[
     rootKids.push(id);
   }
 
-  const story = agents.filter((a) => !boardInRail(a));
+  // The lead agent's own tile repeats its headline: it goes last in the story column, as "More from …".
+  const story = [...agents.filter((a) => !boardInRail(a) && a !== lead), ...(lead && !boardInRail(lead) ? [lead] : [])];
   const rail = agents.filter((a) => boardInRail(a));
   const tilePart = (a: BoardAgentShape, treatment: 'feature' | 'aside'): string => {
     const id = `${treatment}_${slug(a.id)}`;
-    const lead = treatment === 'aside' ? boardLeadNumber(a) : undefined;
+    const leadField = treatment === 'aside' ? boardLeadNumber(a) : undefined;
     const kids: string[] = [];
-    if (lead) {
-      parts.push({ id: `${id}_lead`, component: 'Lead', stat: { path: `/board/agents/${a.id}/stats/${lead}` } });
+    if (leadField) {
+      parts.push({ id: `${id}_lead`, component: 'Lead', stat: { path: `/board/agents/${a.id}/stats/${leadField}` } });
       kids.push(`${id}_lead`);
     }
     parts.push({ id: `${id}_tile`, component: 'AgentTile', agentId: a.id, chrome: 'bare' });
     kids.push(`${id}_tile`);
     const child = kids.length === 1 ? kids[0] : `${id}_col`;
     if (kids.length > 1) parts.push({ id: `${id}_col`, component: 'Column', children: kids });
-    parts.push({ id, component: 'Panel', title: a.title, child, treatment, when: boardFlag(a.id) });
+    parts.push({ id, component: 'Panel', title: a === lead && treatment === 'feature' ? `More from ${a.title}` : a.title, child, treatment, when: boardFlag(a.id) });
     return id;
   };
   const storyIds = story.map((a) => tilePart(a, 'feature'));
   const railIds = rail.map((a) => tilePart(a, 'aside'));
+  // A band of figures when two or more agents have a number that matters: at the end of the
+  // rail when the story column is the longer one (so the rail doesn't end early), else full width.
+  const withLead = rail.filter((a) => boardLeadNumber(a));
+  const bandInRail = withLead.length >= 2 && storyIds.length > railIds.length;
+  if (withLead.length >= 2) {
+    parts.push(
+      { id: 'band', component: 'Panel', title: 'By the numbers', child: 'band_stats', treatment: bandInRail ? 'aside' : 'band', when: boardFlag(withLead[0].id, 'numbers') },
+      { id: 'band_stats', component: 'StatStrip', items: { path: '/board/statItems' } },
+    );
+    if (bandInRail) railIds.push('band');
+  }
   if (storyIds.length && railIds.length) {
     parts.push(
       { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1], align: 'start' },
@@ -267,14 +279,7 @@ export function frontPageDoc(agents: readonly BoardAgentShape[]): ViewComponent[
     rootKids.push(...ids.slice(abreast.length));
   }
 
-  const withLead = rail.filter((a) => boardLeadNumber(a));
-  if (withLead.length >= 2) {
-    parts.push(
-      { id: 'band', component: 'Panel', title: 'By the numbers', child: 'band_stats', treatment: 'band', when: boardFlag(withLead[0].id, 'numbers') },
-      { id: 'band_stats', component: 'StatStrip', items: { path: '/board/statItems' } },
-    );
-    rootKids.push('band');
-  }
+  if (withLead.length >= 2 && !bandInRail) rootKids.push('band');
   return [{ id: 'root', component: 'Column', children: rootKids }, ...parts];
 }
 

@@ -24,7 +24,7 @@ describe('a board\'s data model', () => {
     expect(asNumber('12%')).toBe(12);
     expect(asNumber('53°F')).toBeUndefined();
     expect(asNumber('Patchy rain')).toBeUndefined();
-    expect(fieldLabel('nasdaq_change_pct')).toBe('Nasdaq change pct');
+    expect(fieldLabel('nasdaq_change_pct')).toBe('Nasdaq change %');
     expect(outputShapes({ headlines: [1, 2], count: 10, summary: 'ten', meta: { a: 1 }, result: 'raw' })).toEqual([
       { name: 'headlines', type: 'list', length: 2 }, { name: 'count', type: 'number' }, { name: 'summary', type: 'string', length: 3 }, { name: 'meta', type: 'object' },
     ]);
@@ -43,11 +43,11 @@ describe('a board\'s data model', () => {
     expect(page.data.name).toBe('Morning Brief');
     expect(page.data.date).toBe('Friday 6 November');
     expect(page.data.agentIds).toEqual(['markets-today', 'weather-forecast', 'multi-sport-scoreboard']);
-    expect(page.data.updated).toMatch(/ ago$/);
+    expect(page.data.updated).toMatch(/^Updated .* ago$/);
     const m = page.data.agents['markets-today'];
     expect(m.outputs).toMatchObject({ headline: 'Markets', nasdaq_change_pct: -8.17 });
-    expect(m.stats.nasdaq_change_pct).toMatchObject({ value: '-8.17', label: 'Nasdaq change pct', note: expect.stringMatching(/^Markets · /) });
-    expect(m.statItems.map((s) => s.label)).toEqual(['Nasdaq change pct', 'Dow change pct']);
+    expect(m.stats.nasdaq_change_pct).toMatchObject({ value: '-8.17', label: 'Nasdaq change %', note: expect.stringMatching(/^Markets · /) });
+    expect(m.statItems.map((s) => s.label)).toEqual(['Nasdaq change %', 'Dow change %']);
     expect(m.run).toMatchObject({ status: 'completed', running: false });
     expect(m.run.href).toMatch(/^\/runs\//);
     expect(page.data.agents['weather-forecast'].stats).toEqual({});
