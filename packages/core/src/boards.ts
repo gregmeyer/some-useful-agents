@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { openStoreDb } from './sqlite-open.js';
 import type { DashboardSection } from './packs-store.js';
 import { validateViewComponents, type ViewComponent } from './a2ui/view.js';
+import { boardDocBoundAgentIds, checkBoardLayout, isComposedBoardDoc } from './board-layout.js';
 
 export const BOARD_COLUMNS = 12;
 /** Height of one grid row, in CSS pixels. */
@@ -53,6 +54,26 @@ export interface Board {
   hasPrevious?: boolean;
   /** The canvas document, once the board has been saved as one (else derive it from `items`). */
   doc?: BoardDoc;
+  /** How the document came to be a composed page (ADR-0070); absent on a plain grid of tiles. */
+  layoutMeta?: BoardLayoutMeta;
+}
+
+/** Who composed a board's page and from what: a preset, sua's own ("board"), picked by the user ("picked"), or asked for in words ("you"). */
+export interface BoardLayoutMeta {
+  preset?: 'grid' | 'front-page';
+  /** sua's line on the page it drew. */
+  about?: string;
+  layoutBy?: 'board' | 'picked' | 'you';
+}
+
+export function cleanBoardLayoutMeta(raw: unknown): BoardLayoutMeta | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const out: BoardLayoutMeta = {};
+  if (r.preset === 'grid' || r.preset === 'front-page') out.preset = r.preset;
+  if (typeof r.about === 'string' && r.about.trim()) out.about = r.about.trim().slice(0, 400);
+  if (r.layoutBy === 'board' || r.layoutBy === 'picked' || r.layoutBy === 'you') out.layoutBy = r.layoutBy;
+  return Object.keys(out).length ? out : undefined;
 }
 
 /** A save from an older version of the board than the one stored. */
@@ -219,13 +240,22 @@ export interface BoardDoc {
 /** Validate a board document (strict A2UI processor, board limits). */
 export function validateBoardDoc(doc: unknown): { ok: true; doc: BoardDoc } | { ok: false; errors: string[] } {
   const components = doc && typeof doc === 'object' ? (doc as { components?: unknown }).components : undefined;
+  // A composed page (parts with `when`, or bound to /board/...) is checked as
+  // a board with everything would draw it; the document keeps its extensions.
+  if (Array.isArray(components) && isComposedBoardDoc(components as ViewComponent[])) {
+    const agents = [...new Set([...boardDocAgentIds({ components: components as ViewComponent[] }), ...boardDocBoundAgentIds(components as ViewComponent[])])];
+    const v = checkBoardLayout(components, agents);
+    return v.ok ? { ok: true, doc: { components: v.components } } : v;
+  }
   const v = validateViewComponents(components, { board: true });
   return v.ok ? { ok: true, doc: { components: v.components } } : v;
 }
 
 /** Agent ids a board document shows (AgentTile leaves), in document order. */
 export function boardDocAgentIds(doc: BoardDoc): string[] {
-  return doc.components.flatMap((c) => (c.component === 'AgentTile' && typeof c.agentId === 'string' ? [c.agentId] : []));
+  const tiles = doc.components.flatMap((c) => (c.component === 'AgentTile' && typeof c.agentId === 'string' ? [c.agentId] : []));
+  // A composed page's parts bound to an agent count too (its data is on the board even without a tile).
+  return [...new Set([...tiles, ...boardDocBoundAgentIds(doc.components)])];
 }
 
 /** System tile ids a board document shows. */
@@ -350,11 +380,14 @@ export class BoardsStore {
     const cols = new Set((this.db.prepare("SELECT name FROM pragma_table_info('boards')").all() as Array<{ name: string }>).map((r) => r.name));
     if (!cols.has('doc_json')) this.db.exec('ALTER TABLE boards ADD COLUMN doc_json TEXT');
     if (!cols.has('previous_doc_json')) this.db.exec('ALTER TABLE boards ADD COLUMN previous_doc_json TEXT');
+    // A composed page's meta (ADR-0070): who drew it, from what preset.
+    if (!cols.has('layout_meta_json')) this.db.exec('ALTER TABLE boards ADD COLUMN layout_meta_json TEXT');
+    if (!cols.has('previous_layout_meta_json')) this.db.exec('ALTER TABLE boards ADD COLUMN previous_layout_meta_json TEXT');
   }
 
   get(id: string): Board | undefined {
-    const row = this.db.prepare('SELECT id, name, pack_id, items_json, doc_json, (previous_items_json IS NOT NULL OR previous_doc_json IS NOT NULL) AS has_previous, version, updated_at FROM boards WHERE id = ?').get(id) as
-      | { id: string; name: string; pack_id: string | null; items_json: string; doc_json: string | null; has_previous: number; version: number; updated_at: number }
+    const row = this.db.prepare('SELECT id, name, pack_id, items_json, doc_json, layout_meta_json, (previous_items_json IS NOT NULL OR previous_doc_json IS NOT NULL) AS has_previous, version, updated_at FROM boards WHERE id = ?').get(id) as
+      | { id: string; name: string; pack_id: string | null; items_json: string; doc_json: string | null; layout_meta_json: string | null; has_previous: number; version: number; updated_at: number }
       | undefined;
     if (!row) return undefined;
     let items: BoardItem[] = [];
@@ -363,7 +396,11 @@ export class BoardsStore {
     if (row.doc_json) {
       try { const v = validateBoardDoc(JSON.parse(row.doc_json)); if (v.ok) doc = v.doc; } catch { doc = undefined; }
     }
-    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at, hasPrevious: row.has_previous === 1, ...(doc ? { doc } : {}) };
+    let layoutMeta: BoardLayoutMeta | undefined;
+    if (row.layout_meta_json && doc) {
+      try { layoutMeta = cleanBoardLayoutMeta(JSON.parse(row.layout_meta_json)); } catch { layoutMeta = undefined; }
+    }
+    return { id: row.id, name: row.name, packId: row.pack_id, items, version: row.version, updatedAt: row.updated_at, hasPrevious: row.has_previous === 1, ...(doc ? { doc } : {}), ...(layoutMeta ? { layoutMeta } : {}) };
   }
 
   /**
@@ -393,20 +430,22 @@ export class BoardsStore {
    * Save a board's canvas document (validated). Same version rule as save();
    * the previous document is kept for one-step Undo.
    */
-  saveDoc(args: { id: string; name: string; packId?: string | null; doc: unknown; expectedVersion?: number }): Board {
+  saveDoc(args: { id: string; name: string; packId?: string | null; doc: unknown; expectedVersion?: number; /** The page's meta: given, replaces it (null clears it); left out, a composed page keeps its meta and a plain grid loses it. */ meta?: BoardLayoutMeta | null }): Board {
     const v = validateBoardDoc(args.doc);
     if (!v.ok) throw new Error(`That board layout isn't valid: ${v.errors[0]}`);
     const current = this.get(args.id);
     const currentVersion = current?.version ?? 0;
     if (args.expectedVersion !== undefined && args.expectedVersion !== currentVersion) throw new BoardConflictError(args.id, currentVersion);
     const json = JSON.stringify(v.doc);
+    const meta = args.meta === undefined ? (isComposedBoardDoc(v.doc.components) ? current?.layoutMeta : undefined) : args.meta ?? undefined;
+    const metaJson = meta ? JSON.stringify(meta) : null;
     const now = Date.now();
     if (current) {
-      this.db.prepare('UPDATE boards SET name = ?, previous_doc_json = COALESCE(doc_json, ?), doc_json = ?, version = version + 1, updated_at = ? WHERE id = ?')
-        .run(args.name, JSON.stringify(boardDocFromItems(current.items)), json, now, args.id);
+      this.db.prepare('UPDATE boards SET name = ?, previous_doc_json = COALESCE(doc_json, ?), doc_json = ?, previous_layout_meta_json = layout_meta_json, layout_meta_json = ?, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(args.name, JSON.stringify(boardDocFromItems(current.items)), json, metaJson, now, args.id);
     } else {
-      this.db.prepare("INSERT INTO boards (id, name, pack_id, items_json, doc_json, version, updated_at) VALUES (?, ?, ?, '[]', ?, 1, ?)")
-        .run(args.id, args.name, args.packId ?? null, json, now);
+      this.db.prepare("INSERT INTO boards (id, name, pack_id, items_json, doc_json, layout_meta_json, version, updated_at) VALUES (?, ?, ?, '[]', ?, ?, 1, ?)")
+        .run(args.id, args.name, args.packId ?? null, json, metaJson, now);
     }
     return this.get(args.id)!;
   }
@@ -425,7 +464,7 @@ export class BoardsStore {
     if (!row || (!row.previous_items_json && !row.previous_doc_json)) throw new Error('There is no earlier layout to go back to.');
     if (expectedVersion !== undefined && expectedVersion !== row.version) throw new BoardConflictError(id, row.version);
     if (row.previous_doc_json) {
-      this.db.prepare('UPDATE boards SET doc_json = previous_doc_json, previous_doc_json = doc_json, version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), id);
+      this.db.prepare('UPDATE boards SET doc_json = previous_doc_json, previous_doc_json = doc_json, layout_meta_json = previous_layout_meta_json, previous_layout_meta_json = layout_meta_json, version = version + 1, updated_at = ? WHERE id = ?').run(Date.now(), id);
     } else {
       this.db.prepare('UPDATE boards SET items_json = previous_items_json, previous_items_json = items_json, version = version + 1, updated_at = ? WHERE id = ?')
         .run(Date.now(), id);

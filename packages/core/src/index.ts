@@ -19,6 +19,8 @@ export * from './notebooks.js';
 export * from './notebook-field-format.js';
 export * from './notebook-readout.js';
 export * from './notebook-layout.js';
+export { resolveLayout, checkLayout, whenHolds, type ResolveLayoutOptions, type ListCap } from './layout-resolve.js';
+export * from './board-layout.js';
 export * from './notebook-changes.js';
 export * from './notebook-lineage.js';
 export * from './webhooks.js';

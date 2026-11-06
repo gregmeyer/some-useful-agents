@@ -15,8 +15,11 @@ import {
   boardDocAgentIds,
   boardDocSystemTileIds,
   validateBoardDoc,
+  isComposedBoardDoc,
+  resolveBoardLayout,
   type BoardDoc,
 } from '@some-useful-agents/core';
+import type { BoardData } from './board-widgets.js';
 import { tileSurfaceMessages } from '../views/pulse-renderers.js';
 import { normalizeSignal, TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
 import { resolveAutoPalette, tileRendersOwnRunControl } from '../views/pulse.js';
@@ -102,6 +105,11 @@ export interface CanvasInput {
   /** Pulse: tiles the document doesn't place, shown in an "Everything else" section. */
   unplaced?: PulseTile[];
   systemTileIds?: string[];
+  /** The board's data (lib/board-widgets.ts), sent as the surface's data model; a composed page's parts bind to it. */
+  data?: BoardData;
+  /** The board's `when` flags and the agents whose run is going (a composed page's parts are resolved with them). */
+  flags?: Record<string, boolean>;
+  running?: ReadonlySet<string>;
 }
 
 /**
@@ -144,7 +152,13 @@ export function assembleCanvas(input: CanvasInput): { messages: unknown[]; tiles
       if (root && Array.isArray(root.children)) root.children = [...(root.children as string[]), 'rest'];
     }
   }
-  const v = validateBoardDoc({ components });
+  // A composed page (ADR-0070): parts whose agent hasn't run go, empties go,
+  // a part of an agent whose run is going stays as a skeleton. A grid of
+  // tiles is left as it is.
+  const resolved = !isPulse && isComposedBoardDoc(components)
+    ? resolveBoardLayout(components, input.flags ?? {}, input.data ? { board: input.data } : undefined, { ...(input.running ? { running: input.running } : {}) })
+    : components;
+  const v = validateBoardDoc({ components: resolved });
   const final = v.ok ? v.doc.components : input.doc.components;
   const tiles: Record<string, CanvasTileEntry> = {};
   for (const c of final) {
@@ -158,6 +172,7 @@ export function assembleCanvas(input: CanvasInput): { messages: unknown[]; tiles
     messages: [
       { version: A2UI_PROTOCOL_VERSION, createSurface: { surfaceId, catalogId: SUA_CATALOG_ID } },
       { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components: final } },
+      ...(input.data ? [{ version: A2UI_PROTOCOL_VERSION, updateDataModel: { surfaceId, value: { board: input.data } } }] : []),
     ],
     tiles,
     errors: v.ok ? [] : v.errors,

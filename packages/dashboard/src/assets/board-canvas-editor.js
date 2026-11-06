@@ -31,8 +31,9 @@ function init(data) {
 
   const say = (msg, isError) => { status.textContent = msg || ''; status.classList.toggle('board-toolbar__status--error', Boolean(isError)); };
   const byId = () => new Map(doc.components.map((c) => [c.id, c]));
-  const LIST = new Set(['Column', 'Row', 'Grid', 'List']);
-  const SINGLE = new Set(['Section', 'Card', 'Cell', 'Disclosure']);
+  // The same containers as core board-tree.ts (Columns and Panel: a composed page's row and part).
+  const LIST = new Set(['Column', 'Row', 'Grid', 'List', 'Columns']);
+  const SINGLE = new Set(['Section', 'Card', 'Cell', 'Disclosure', 'Panel']);
   const kids = (c) => (LIST.has(c.component) ? (c.children || []) : SINGLE.has(c.component) ? (c.child ? [c.child] : []) : c.component === 'Tabs' ? (c.tabs || []).map((t) => t.child) : []);
   const isContainer = (c) => c && (LIST.has(c.component) || SINGLE.has(c.component) || c.component === 'Tabs');
   function parents() {
@@ -53,6 +54,8 @@ function init(data) {
     switch (c.component) {
       case 'Column': return pre + (c.id === 'root' ? 'Board' : 'Column');
       case 'Section': return pre + `Section “${c.title}”`;
+      case 'Panel': return pre + `Panel “${typeof c.title === 'string' ? c.title : (c.title && c.title.path === '/board/name' ? 'masthead' : 'untitled')}”${c.treatment ? ` · ${c.treatment}` : ''}`;
+      case 'Columns': return pre + `Columns ${Array.isArray(c.widths) ? c.widths.join(':') : ''}`.trim();
       case 'Grid': return pre + 'Grid';
       case 'Row': return pre + 'Row';
       case 'Tabs': return pre + 'Tabs';
@@ -155,7 +158,7 @@ function init(data) {
     const text = (value, onChange) => { const i = document.createElement('input'); i.type = 'text'; i.value = value || ''; i.addEventListener('change', () => onChange(i.value.trim())); return i; };
     const sel = (opts, value, onChange) => { const s = document.createElement('select'); for (const [v, t] of opts) s.append(new Option(t, v, false, String(v) === String(value))); s.addEventListener('change', () => onChange(s.value)); return s; };
     box.append(heading('Selected: ' + label(c)));
-    if (tile?.component === 'Section') box.append(field('Title', text(tile.title, (v) => v && apply([{ op: 'set', id: tile.id, props: { title: v } }], { keep: true }))));
+    if (tile?.component === 'Section' || (tile?.component === 'Panel' && typeof tile.title === 'string')) box.append(field('Title', text(tile.title, (v) => v && apply([{ op: 'set', id: tile.id, props: { title: v } }], { keep: true }))));
     if (tile?.component === 'Text') box.append(field('Text', text(tile.text, (v) => v && apply([{ op: 'set', id: tile.id, props: { text: v } }], { keep: true }))));
     if (tile?.component === 'Grid') box.append(field('Tile width', sel([[200, 'Narrow (200px)'], [280, 'Normal (280px)'], [360, 'Wide (360px)'], [480, 'Very wide (480px)']], tile.minWidth || 280, (v) => apply([{ op: 'set', id: tile.id, props: { minWidth: Number(v) } }], { keep: true }))));
     if (tile?.component === 'Tabs') (tile.tabs || []).forEach((t, i) => box.append(field(`Tab ${i + 1} title`, text(t.title, (v) => { if (!v) return; const titles = tile.tabs.map((x) => x.title); titles[i] = v; apply([{ op: 'set', id: tile.id, props: { tabTitles: titles } }], { keep: true }); }))));
@@ -325,7 +328,7 @@ function init(data) {
     return true;
   }
   editBtn.addEventListener('click', () => {
-    if (enterEdit()) say('Pick something in the outline or on the board, then add, move, wrap or remove.');
+    if (enterEdit()) say(data.layoutMeta ? 'This page is composed from your agents’ results. Move, wrap or remove its parts; Undo last save puts the layout before it back.' : 'Pick something in the outline or on the board, then add, move, wrap or remove.');
   });
 
   // ── Suggest a layout: the layout planner's plan, opened as unsaved changes ─

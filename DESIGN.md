@@ -93,6 +93,16 @@ A notebook's page is drawn for its job (a briefing, a shortlist, a report), so i
 - **Rhythm:** one lede, at most 3 framed (`plain`) parts on a drawn page, long lists (quotes, tables, timelines) in a feature or a fold, never an aside.
 - **Type:** the 2xl (28px) display size is for a cover's name, pull quotes, a hero's title and a Lead's value on notebook pages; everything else keeps the scale above. No new colours: teal for ledes and numerals, rules in the border tokens.
 
+## Boards as front pages
+A board you read every morning can be composed like a front page instead of a grid of equal boxes, with the notebook page's parts (ADR-0070): the same treatments, row shapes and rhythm rules apply.
+- **Masthead:** the one hero, a `feature` Panel titled with the board's name (28px display) and the date as its note, a caption under it saying how fresh the newest result is. One per page, full width, first.
+- **Lede:** the lead story as a `lede` Panel holding a Callout bound to an agent's headline and summary fields; never a tile.
+- **Story and rail:** a 2:1 `Columns`, `align: start`: the story column holds `feature` Panels, the rail `aside` Panels. A number that matters leads an aside as a `Lead` over the agent's tile.
+- **Band:** a full-width `band` strip of figures (a StatStrip of every agent's numbers), low on the page, only when two or more agents have numbers.
+- **A tile inside a Panel is bare** (`chrome: bare`): no frame, no header, no palette; the Panel supplies the title, the tile keeps its footer (the agent, when it ran, Run). Framed (`plain`) Panels are for tools, at most 3.
+- **Pending and empty parts:** a part of an agent that hasn't run isn't drawn; while its run is going it keeps its place with the three grey rules; a part bound to a field that came back empty goes.
+- **Phone:** Columns stack as on notebook pages (story first, then the rail); the masthead stays first.
+
 ## Motion
 - **Approach:** Minimal-functional. Only transitions that aid comprehension.
 - **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
