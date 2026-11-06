@@ -20,10 +20,10 @@ import { z } from 'zod';
 import { validateBoardDoc, type BoardDoc } from './boards.js';
 import type { ViewComponent } from './a2ui/view.js';
 
-/** Components holding a list of children. */
-const LIST = new Set(['Column', 'Row', 'Grid', 'List']);
-/** Components holding one child. */
-const SINGLE = new Set(['Section', 'Card', 'Cell', 'Disclosure']);
+/** Components holding a list of children (Columns: a composed page's side-by-side row). */
+const LIST = new Set(['Column', 'Row', 'Grid', 'List', 'Columns']);
+/** Components holding one child (Panel: a composed page's titled part). */
+const SINGLE = new Set(['Section', 'Card', 'Cell', 'Disclosure', 'Panel']);
 
 const palette = z.enum(['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green']);
 
@@ -259,7 +259,7 @@ export function applyBoardOps(doc: BoardDoc, opsInput: unknown): { doc: BoardDoc
       case 'set': {
         const c = t.inner(op.id);
         const p = op.props;
-        if (p.title !== undefined) { if (c.component !== 'Section') throw new Error(`Only a section has a title (not "${op.id}").`); c.title = p.title; }
+        if (p.title !== undefined) { if (c.component !== 'Section' && c.component !== 'Panel') throw new Error(`Only a section or a panel has a title (not "${op.id}").`); c.title = p.title; }
         if (p.text !== undefined) { if (c.component !== 'Text') throw new Error(`Only a heading or note has text (not "${op.id}").`); c.text = p.text; }
         if (p.minWidth !== undefined) { if (c.component !== 'Grid') throw new Error(`Only a grid has a column width (not "${op.id}").`); c.minWidth = p.minWidth; }
         if (p.palette !== undefined) {
@@ -301,6 +301,22 @@ export function applyBoardOps(doc: BoardDoc, opsInput: unknown): { doc: BoardDoc
  * per node with its id, what it is, and a tile's span, in reading order.
  * `names` gives friendlier tile labels (agent id → title).
  */
+/** The agent a composed part binds to (its first `/board/agents/<id>/` path). */
+function boundAgent(c: Comp): string | undefined {
+  let found: string | undefined;
+  const walk = (v: unknown) => {
+    if (found !== undefined) return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as Record<string, unknown>;
+    if (typeof o.path === 'string' && Object.keys(o).length === 1) { const m = /^\/board\/agents\/([^/]+)\//.exec(o.path); if (m) found = m[1]; return; }
+    Object.values(o).forEach(walk);
+  };
+  const { id: _i, component: _c, when: _w, ...props } = c;
+  walk(props);
+  return found;
+}
+
 export function describeBoardDoc(doc: BoardDoc, names: (agentId: string) => string | undefined = () => undefined): string {
   const byId = new Map(doc.components.map((c) => [c.id, c]));
   const lines: string[] = [];
@@ -322,8 +338,14 @@ export function describeBoardDoc(doc: BoardDoc, names: (agentId: string) => stri
       case 'Text': what = `${String(c.variant ?? '').startsWith('h') ? 'heading' : 'note'} "${String(c.text).slice(0, 60)}"`; break;
       case 'Grid': what = `grid${c.minWidth ? ` (tiles ≥ ${String(c.minWidth)}px)` : ''}`; break;
       case 'Column': what = id === 'root' ? 'board (column)' : 'column'; break;
-      default: what = c.component.toLowerCase();
+      case 'Columns': what = `columns ${Array.isArray(c.widths) ? (c.widths as unknown[]).map(String).join(':') : ((c.children as string[]) ?? []).map(() => '1').join(':')}`; break;
+      case 'Panel': what = `panel "${String(c.title && typeof c.title === 'object' ? (c.title as { path?: string }).path ?? '' : c.title ?? '')}"${c.treatment ? ` (${String(c.treatment)}${c.hero ? ', hero' : ''})` : c.hero ? ' (hero)' : ''}`; break;
+      default: {
+        const agent = boundAgent(c);
+        what = `${c.component.toLowerCase()}${agent ? ` bound to ${agent}` : ''}`;
+      }
     }
+    if (typeof c.when === 'string') what += ` [when ${c.when}]`;
     lines.push(`${pad}[${id}] ${what}${extra}`);
     if (c.component === 'Tabs') {
       for (const t of (c.tabs as Array<{ title: string; child: string }>) ?? []) {

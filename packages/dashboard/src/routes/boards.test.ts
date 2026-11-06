@@ -580,3 +580,71 @@ describe('archiving an agent', () => {
     expect(ctx.agentStore.getAgent('news')!.status).toBe('paused');
   });
 });
+
+describe('a composed board page (ADR-0070)', () => {
+  const ran = (agentName: string, result: string) => {
+    const id = `run-${agentName}`;
+    const at = new Date().toISOString();
+    ctx.runStore.createRun({ id, agentName, status: 'completed', startedAt: at, completedAt: at, result, triggeredBy: 'cli' } as never);
+    ctx.runStore.createNodeExecution({ runId: id, nodeId: 'n', workflowVersion: 1, status: 'completed', startedAt: at, completedAt: at, result, outputsJson: JSON.stringify({ result }) } as never);
+  };
+  const page = [
+    { id: 'root', component: 'Column', children: ['masthead', 'lede', 'top'] },
+    { id: 'masthead', component: 'Panel', title: { path: '/board/name' }, note: { path: '/board/date' }, child: 'm_t', treatment: 'feature', hero: true },
+    { id: 'm_t', component: 'Text', text: { path: '/board/updated' }, variant: 'caption' },
+    { id: 'lede', component: 'Panel', title: 'news', child: 'lede_c', treatment: 'lede', when: 'news' },
+    { id: 'lede_c', component: 'Callout', text: { path: '/board/agents/news/outputs/headline' } },
+    { id: 'top', component: 'Columns', children: ['story', 'rail'], widths: [2, 1] },
+    { id: 'story', component: 'Column', children: ['f_weather'] },
+    { id: 'f_weather', component: 'Panel', title: 'weather', child: 'f_weather_t', treatment: 'feature', when: 'weather' },
+    { id: 'f_weather_t', component: 'AgentTile', agentId: 'weather', chrome: 'bare' },
+    { id: 'rail', component: 'Column', children: ['a_notes'] },
+    { id: 'a_notes', component: 'Panel', title: 'notes', child: 'a_notes_l', treatment: 'aside', when: 'numbers:notes' },
+    { id: 'a_notes_l', component: 'Lead', stat: { path: '/board/agents/notes/stats/count' } },
+  ];
+
+  it('draws only the parts whose agents have run, carries the board data, and refetches as data.json', async () => {
+    const app = await setup();
+    ran('news', JSON.stringify({ headline: 'Voters rebuke', summary: 'Both chambers.' }));
+    ran('notes', JSON.stringify({ count: 10 }));
+    const saved = new BoardsStore(ctx.runStore.databaseHandle()).saveDoc({ id: 'user:morning', name: 'Morning', expectedVersion: 0, doc: { components: page }, meta: { preset: 'front-page', layoutBy: 'picked' } });
+    expect(saved.layoutMeta).toEqual({ preset: 'front-page', layoutBy: 'picked' });
+    const res = await get(app, '/dashboards/user:morning');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('data-board-composed="1"');
+    const comps = surface(res.text);
+    const ids = comps.map((c) => c.id);
+    expect(ids).toContain('masthead');
+    expect(ids).toContain('lede');
+    expect(ids).toContain('a_notes');
+    expect(ids).not.toContain('f_weather'); // weather never ran
+    expect(comps.find((c) => c.id === 'top')).toMatchObject({ widths: [1] }); // the story went; the rail takes the row
+    expect(comps.every((c) => c.when === undefined)).toBe(true);
+    const messages = embedded(res.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/) as Array<Record<string, { value?: { board?: Record<string, unknown> } }>>;
+    const model = messages.find((m) => m.updateDataModel)!.updateDataModel.value!.board!;
+    expect(model.name).toBe('Morning');
+    expect((model.agents as Record<string, { outputs: Record<string, unknown>; stats: Record<string, unknown> }>).news.outputs).toMatchObject({ headline: 'Voters rebuke' });
+    expect((model.agents as Record<string, { stats: Record<string, { value: string }> }>).notes.stats.count.value).toBe('10');
+    expect(editorData(res.text).layoutMeta).toEqual({ preset: 'front-page', layoutBy: 'picked' });
+    // The same canvas again, for the page to take new data in place.
+    const data = await get(app, '/boards/user:morning/data.json');
+    expect(data.status).toBe(200);
+    expect(data.body.messages.some((m: Record<string, unknown>) => m.updateDataModel)).toBe(true);
+    expect(Object.keys(data.body.tiles)).toEqual([]); // no tile is drawn until weather runs
+    // Arranging keeps the page's parts: a Panel moves like any node.
+    const apply = await post(app, '/boards/user:morning/doc/apply', { ops: [{ op: 'move', id: 'a_notes', parent: 'story' }] });
+    expect(apply.status).toBe(200);
+    expect(apply.body.doc.components.find((c: Record<string, unknown>) => c.id === 'story').children).toEqual(['f_weather', 'a_notes']);
+    expect(apply.body.doc.components.find((c: Record<string, unknown>) => c.id === 'lede').when).toBe('news');
+  });
+
+  it('leaves a grid of tiles exactly as it was, with the data model beside it', async () => {
+    const app = await setup();
+    const res = await get(app, '/dashboards/user:morning');
+    expect(res.text).not.toContain('data-board-composed');
+    const comps = surface(res.text);
+    expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
+    const messages = embedded(res.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/) as Array<Record<string, unknown>>;
+    expect(messages.map((m) => Object.keys(m).find((k) => k !== 'version'))).toEqual(['createSurface', 'updateComponents', 'updateDataModel']);
+  });
+});

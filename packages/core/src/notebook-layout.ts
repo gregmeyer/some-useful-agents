@@ -17,7 +17,8 @@
  *   filters, CSV link…), or dropped when the notebook has none. Settings a
  *   component takes only as a plain value can still come from the notebook.
  */
-import { validateViewComponents, resolvePointer, type ViewComponent } from './a2ui/view.js';
+import { resolvePointer, type ViewComponent } from './a2ui/view.js';
+import { resolveLayout, checkLayout, hasSomething, layoutPathPattern, type ListCap } from './layout-resolve.js';
 
 /** What `when` can test. */
 export const NOTEBOOK_LAYOUT_FLAGS = {
@@ -409,7 +410,7 @@ export function notebookLayoutOf(nb: { layout?: NotebookLayout }): NotebookLayou
   return nb.layout ?? DEFAULT_NOTEBOOK_LAYOUT;
 }
 
-const LAYOUT_PATH = /^\/notebook\/layout\/([A-Za-z]+)$/;
+const LAYOUT_PATH = layoutPathPattern('/notebook');
 const SECTION_PATH = /^\/notebook\/section\/([a-z0-9-]+)(?:\/|$)/;
 
 /** The keys of the written parts a page places on its own: AnswerSections `only` lists, and anything bound to `/notebook/section/<key>`. */
@@ -455,80 +456,17 @@ function sectionPartEmpty(c: ViewComponent, data: unknown, placed: ReadonlySet<s
   return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
 }
 
-function whenHolds(when: unknown, flags: Partial<Record<NotebookLayoutFlag, boolean>>): boolean {
-  if (typeof when !== 'string') return true;
-  const not = when.startsWith('!');
-  const on = !!flags[(not ? when.slice(1) : when) as NotebookLayoutFlag];
-  return not ? !on : on;
-}
-
-function resolveValues(v: unknown, values: Partial<Record<NotebookLayoutValueKey, unknown>>): unknown {
-  if (Array.isArray(v)) return v.map((x) => resolveValues(x, values));
-  if (!v || typeof v !== 'object') return v;
-  const o = v as Record<string, unknown>;
-  if (typeof o.path === 'string' && Object.keys(o).length === 1) {
-    const m = LAYOUT_PATH.exec(o.path);
-    if (m) return values[m[1] as NotebookLayoutValueKey];
-    return v;
-  }
-  const out: Record<string, unknown> = {};
-  for (const [k, x] of Object.entries(o)) {
-    const r = resolveValues(x, values);
-    if (r !== undefined) out[k] = r;
-  }
-  return out;
-}
-
 /**
  * How long a list part may run, so no one part takes over the page: a
  * default when the layout doesn't say, and a most it may show before "Show N
  * more". (The shortlist's own grid isn't capped: it's the page.)
  */
-export const NOTEBOOK_LIST_CAPS: Readonly<Record<string, { prop: string; default?: number; max: number }>> = {
+export const NOTEBOOK_LIST_CAPS: Readonly<Record<string, ListCap>> = {
   QuoteList: { prop: 'maxItems', default: 4, max: 6 },
   Agenda: { prop: 'maxQuestions', default: 3, max: 5 },
   Timeline: { prop: 'maxItems', default: 6, max: 8 },
   Table: { prop: 'maxRows', default: 8, max: 12 },
 };
-
-function capLength(c: ViewComponent): ViewComponent {
-  const cap = NOTEBOOK_LIST_CAPS[c.component];
-  if (!cap) return c;
-  const v = c[cap.prop];
-  // A table that pages is already short.
-  if (c.component === 'Table' && c.pageSize !== undefined) return c;
-  if (typeof v === 'number') return v > cap.max ? { ...c, [cap.prop]: cap.max } : c;
-  return cap.default !== undefined ? { ...c, [cap.prop]: cap.default } : c;
-}
-
-/** Whether a data value has something to show. */
-const hasSomething = (v: unknown): boolean => (Array.isArray(v) ? v.length > 0 : typeof v === 'string' ? v.trim() !== '' : v !== undefined && v !== null);
-
-/**
- * A part with nothing to show: every data path the parts under it are bound
- * to (not its own title or note, nor the page's settings) is empty. A part
- * bound to nothing is never empty (it says what it says).
- */
-function isEmptyPart(id: string, byId: ReadonlyMap<string, ViewComponent>, data: unknown): boolean {
-  const paths: string[] = [];
-  const collect = (v: unknown) => {
-    if (Array.isArray(v)) { v.forEach(collect); return; }
-    if (!v || typeof v !== 'object') return;
-    const o = v as Record<string, unknown>;
-    if (typeof o.path === 'string' && Object.keys(o).length === 1) { if (!LAYOUT_PATH.test(o.path)) paths.push(o.path); return; }
-    Object.values(o).forEach(collect);
-  };
-  const walk = (cid: string, own: boolean, seen: Set<string>) => {
-    const c = byId.get(cid);
-    if (!c || seen.has(cid)) return;
-    seen.add(cid);
-    const { id: _i, component: _c, children, child, title: _t, note: _n, label: _l, ...props } = c;
-    collect(own ? props : { ...props, title: c.title, note: c.note, label: c.label });
-    for (const k of Array.isArray(children) ? children as string[] : typeof child === 'string' ? [child] : []) walk(k, false, seen);
-  };
-  walk(id, true, new Set());
-  return paths.length > 0 && !paths.some((p) => hasSomething(resolvePointer(data, p)));
-}
 
 /**
  * A page that shows the answer shows the parts it was asked for too (the
@@ -603,45 +541,28 @@ export function resolveNotebookLayout(
   const all = withAnswerSections(components);
   const byId = new Map(all.map((c) => [c.id, c]));
   const placed = placedSectionKeys(all);
-  const out = new Map<string, ViewComponent>();
-  // A Panel kept as a skeleton while a step runs: empty by its data, but not "the parts I didn't place" (that one is rightly empty when everything is placed).
-  const skeleton = (c: ViewComponent): boolean => {
-    if (!opts.pending || c.component !== 'Panel' || typeof c.child !== 'string') return false;
-    const kid = byId.get(c.child);
-    return !(kid?.component === 'AnswerSections' && (kid.rest === true || Array.isArray(kid.skip)));
-  };
-  const visit = (id: string, lax = false): boolean => {
-    const c = byId.get(id);
-    if (!c || !whenHolds(c.when, flags)) return false;
-    let pending = false;
-    if (!lax && opts.data !== undefined && (c.component === 'Panel' || c.component === 'Disclosure') && isEmptyPart(id, byId, opts.data)) { if (!skeleton(c)) return false; pending = true; }
-    if (!lax && !pending && opts.data !== undefined && sectionPartEmpty(c, opts.data, placed)) return false;
-    const kid = c.component === 'Panel' && typeof c.child === 'string' ? byId.get(c.child) : undefined;
-    if (!lax && !pending && opts.data !== undefined && kid && skeleton(c) && sectionPartEmpty(kid, opts.data, placed)) pending = true;
-    const { when: _w, rest: wantsRest, ...rest } = c;
-    if (pending) rest.pending = true;
-    // "The parts I didn't place": the written parts no other part of the page binds.
-    if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) rest.skip = [...placed];
-    const next = withWatch(capLength(resolveValues(rest, values) as ViewComponent));
-    if (Array.isArray(c.children)) {
-      const kids = c.children as string[];
-      const kept = kids.filter((k) => visit(k, lax || pending));
-      if (!kept.length && id !== 'root') return false;
-      next.children = kept;
-      if (Array.isArray(c.widths) && kept.length !== kids.length) {
-        next.widths = kept.length === 1 ? [1] : kept.map((k) => (c.widths as number[])[kids.indexOf(k)] ?? 1);
-      }
-    } else if (typeof c.child === 'string' && !visit(c.child, lax || pending)) {
-      return false;
-    }
+  return resolveLayout(all, {
+    prefix: '/notebook',
+    flags,
+    values,
+    ...(opts.data !== undefined ? { data: opts.data } : {}),
+    caps: NOTEBOOK_LIST_CAPS,
+    // A Panel kept as a skeleton while a step runs: empty by its data, but not "the parts I didn't place" (that one is rightly empty when everything is placed).
+    skeleton: (c) => {
+      if (!opts.pending || c.component !== 'Panel' || typeof c.child !== 'string') return false;
+      const kid = byId.get(c.child);
+      return !(kid?.component === 'AnswerSections' && (kid.rest === true || Array.isArray(kid.skip)));
+    },
+    emptyPart: (c, data) => sectionPartEmpty(c, data, placed),
+    part: (c) => {
+      const { rest: wantsRest, ...rest } = c;
+      // "The parts I didn't place": the written parts no other part of the page binds.
+      if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) rest.skip = [...placed];
+      return withWatch(rest);
+    },
     // The header's side part: drawn if it holds, else the header goes without it.
-    if (c.component === 'NotebookHeader' && typeof c.side === 'string' && !visit(c.side)) delete next.side;
-    out.set(id, next);
-    return true;
-  };
-  visit('root');
-  // In the document's own order.
-  return all.filter((c) => out.has(c.id)).map((c) => out.get(c.id)!);
+    after: (c, next, visit) => { if (c.component === 'NotebookHeader' && typeof c.side === 'string' && !visit(c.side)) delete next.side; },
+  });
 }
 
 /**
@@ -762,28 +683,25 @@ const SAMPLE_VALUES: Record<NotebookLayoutValueKey, unknown> = {
  * dangling), and every `when` must name a known flag.
  */
 export function checkNotebookLayout(components: unknown): { ok: true; components: ViewComponent[] } | { ok: false; errors: string[] } {
-  if (!Array.isArray(components)) return { ok: false, errors: ['A layout is a list of components.'] };
-  const errors: string[] = [];
-  for (const c of components as Array<Record<string, unknown>>) {
-    if (c && typeof c === 'object' && c.when !== undefined) {
-      const w = typeof c.when === 'string' ? c.when.replace(/^!/, '') : '';
-      if (!(w in NOTEBOOK_LAYOUT_FLAGS)) errors.push(`${String(c.id)}: "when" must be one of ${Object.keys(NOTEBOOK_LAYOUT_FLAGS).join(', ')} (or !one).`);
-    }
-  }
-  for (const c of components as Array<Record<string, unknown>>) {
-    if (!c || typeof c !== 'object') continue;
-    if (c.only !== undefined && (!Array.isArray(c.only) || !c.only.length || !c.only.every((k) => typeof k === 'string' && SECTION_PATH.test(`/notebook/section/${k}`)))) errors.push(`${String(c.id)}: "only" is a list of section keys (lowercase words and dashes, as the notebook's written parts are keyed).`);
-    if (c.only !== undefined && c.rest !== undefined) errors.push(`${String(c.id)}: "only" and "rest" don't go together; "only" names the parts, "rest" means the ones nothing else places.`);
-  }
-  const headers = (components as Array<Record<string, unknown>>).filter((c) => c && c.component === 'NotebookHeader');
-  if (headers.length > 1) errors.push('A page has at most one NotebookHeader.');
-  for (const h of headers) {
-    if (h.side !== undefined && !(components as Array<Record<string, unknown>>).some((c) => c && c.id === h.side)) errors.push(`${String(h.id)}: its side "${String(h.side)}" isn't a component of the page.`);
-  }
-  if (errors.length) return { ok: false, errors };
-  const v = validateViewComponents(resolveNotebookLayout(components as ViewComponent[], SAMPLE_FLAGS, SAMPLE_VALUES));
-  if (!v.ok) return v;
-  return { ok: true, components: components as ViewComponent[] };
+  return checkLayout(components, {
+    knownFlag: (w) => w in NOTEBOOK_LAYOUT_FLAGS,
+    flagsAre: `one of ${Object.keys(NOTEBOOK_LAYOUT_FLAGS).join(', ')}`,
+    extra: (cs) => {
+      const errors: string[] = [];
+      for (const c of cs) {
+        if (!c || typeof c !== 'object') continue;
+        if (c.only !== undefined && (!Array.isArray(c.only) || !c.only.length || !c.only.every((k) => typeof k === 'string' && SECTION_PATH.test(`/notebook/section/${k}`)))) errors.push(`${String(c.id)}: "only" is a list of section keys (lowercase words and dashes, as the notebook's written parts are keyed).`);
+        if (c.only !== undefined && c.rest !== undefined) errors.push(`${String(c.id)}: "only" and "rest" don't go together; "only" names the parts, "rest" means the ones nothing else places.`);
+      }
+      const headers = cs.filter((c) => c && c.component === 'NotebookHeader');
+      if (headers.length > 1) errors.push('A page has at most one NotebookHeader.');
+      for (const h of headers) {
+        if (h.side !== undefined && !cs.some((c) => c && c.id === h.side)) errors.push(`${String(h.id)}: its side "${String(h.side)}" isn't a component of the page.`);
+      }
+      return errors;
+    },
+    resolve: (cs) => resolveNotebookLayout(cs, SAMPLE_FLAGS, SAMPLE_VALUES),
+  });
 }
 
 /**

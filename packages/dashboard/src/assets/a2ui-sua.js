@@ -779,7 +779,8 @@ const Columns = define('Columns', 'sua-a2ui-columns',
     .cols { display: grid; gap: var(--space-4, 16px); align-items: stretch; }
     .cols.start { align-items: start; }
     .cols.start > * { height: auto; }
-    @media (max-width: 760px) { .cols { grid-template-columns: 1fr !important; } }`,
+    /* One column on a phone; minmax(0, …) so a wide table inside scrolls in its part instead of widening the page. */
+    @media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr) !important; } }`,
   function (p) {
     const kids = Array.isArray(p.children) ? p.children : [];
     const w = kids.map((_, i) => Number(p.widths?.[i] ?? 1));
@@ -1745,7 +1746,10 @@ const tileStyles = css`
   .tile { position: relative; }
   .pick { position: absolute; inset: -1px; z-index: 2; background: transparent; border: 2px dashed var(--color-border-strong); border-radius: var(--radius-md, 8px); cursor: pointer; }
   .pick:hover, .pick:focus-visible { border-color: var(--color-primary); outline: none; }
-  .tile.selected .pick { border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }`;
+  .tile.selected .pick { border: 2px solid var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, transparent); }
+  /* chrome: bare (a composed page): no frame, no header; the Panel around it titles it. */
+  .tile.bare, .tile.bare[data-accent] { border: 0; background: none; border-radius: 0; padding: 0; min-height: 0; }
+  .tile.bare footer { border-top: 0; margin-top: 6px; padding-top: 0; }`;
 
 /** Draw messages as a nested surface; its actions bubble out of `host` (crossing shadow roots). */
 function nestedSurface(host, messages) {
@@ -1770,7 +1774,7 @@ function tileBody(t) {
 const agentTiles = new Map();
 
 const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
-  Common.extend({ agentId: z.string().min(1).max(128), palette: z.string().optional() }).strict(),
+  Common.extend({ agentId: z.string().min(1).max(128), palette: z.string().optional(), chrome: z.string().optional() }).strict(),
   tileStyles,
   function (p) {
     const t = this._entry ?? boardTile(p.agentId);
@@ -1778,18 +1782,19 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
     this.wire(p.agentId, t);
     if (!this._body || this._bodyFor !== t) { this._bodyFor = t; this._body = tileBody.call(this, t); }
     const href = `/agents/${encodeURIComponent(p.agentId)}`;
-    const palette = p.palette && p.palette !== 'default' ? p.palette : t.autoPalette;
+    const bare = p.chrome === 'bare';
+    const palette = bare ? undefined : p.palette && p.palette !== 'default' ? p.palette : t.autoPalette;
     const sel = boardEdit.on && boardEdit.selected === selfId(this);
-    return html`<div class="tile ${sel ? 'selected' : ''}" data-agent-id=${p.agentId} data-palette=${palette ?? nothing} data-accent=${t.accent ?? nothing}>
+    return html`<div class="tile ${sel ? 'selected' : ''} ${bare ? 'bare' : ''}" data-agent-id=${p.agentId} data-palette=${palette ?? nothing} data-accent=${t.accent ?? nothing}>
       ${boardEdit.on ? html`<button type="button" class="pick" aria-label="Select ${t.title}" aria-pressed=${sel ? 'true' : 'false'} @click=${(e) => selectNode(this, e)}></button>` : nothing}
-      <header>
+      ${bare ? nothing : html`<header>
         ${t.icon ? html`<span aria-hidden="true">${t.icon}</span>` : nothing}
         <span class="title" title=${t.title}>${t.title}</span>
         ${t.archived ? html`<a class="archived" href=${href} title="This agent is archived; open it to restore">archived</a>` : nothing}
         ${t.configure ? html`<a class="icon-btn" href=${`${href}/view?redesign=1#redesign`} title="Redesign this widget with sua" aria-label="Redesign ${t.title}">✎</a>` : nothing}
         ${t.configure ? html`<button type="button" class="icon-btn" title="Configure tile" aria-label="Configure ${t.title}" @click=${() => this.configure(p.agentId, t)}>⚙</button>` : nothing}
         ${t.hideAction ? html`<form method="POST" action=${t.hideAction}><button type="submit" class="icon-btn" title="Hide from Pulse (restore it from the hidden section)" aria-label="Hide ${t.title} from Pulse">×</button></form>` : nothing}
-      </header>
+      </header>`}
       <div class="body">${this._body}</div>
       <footer>
         <a class="agent" href=${href}>${p.agentId}</a>
@@ -1851,6 +1856,8 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
           if (status && status !== 'running' && status !== 'pending') break;
         }
         await this.reload(agentId);
+        // A composed page's parts bound to this agent take the new result too.
+        this.dispatchEvent(new CustomEvent('sua-board-data-stale', { bubbles: true, composed: true, detail: { agentId } }));
       } catch (e) {
         this._error = e.message;
       } finally { this._running = false; this.requestUpdate(); }
@@ -1929,4 +1936,26 @@ export function mountSurfaces(root = document) {
 mountSurfaces();
 // Surfaces added later (a chat reply re-rendered from source) mount themselves.
 new MutationObserver(() => mountSurfaces()).observe(document.body, { childList: true, subtree: true });
+
+// A composed board (ADR-0070): its parts bound to /board/... take new data in
+// place, fetched on the board's refresh cadence (the shortest of its tiles')
+// and after a tile's Run. Parts that appear or go redraw the whole board.
+(function watchBoard() {
+  const host = document.querySelector('[data-board-canvas][data-board-composed]');
+  if (!host) return;
+  const ms = Number(host.getAttribute('data-board-refresh-ms') || 0);
+  let busy = false;
+  async function refresh() {
+    if (busy || boardEdit.on || document.visibilityState !== 'visible') return;
+    busy = true;
+    try {
+      const res = await fetch(`/boards/${encodeURIComponent(boardId())}/data.json`);
+      if (!res.ok) return;
+      const j = await res.json();
+      if (!updateSurface(host, j.messages)) remountBoard(host, j.messages, j.tiles);
+    } catch { /* next time */ } finally { busy = false; }
+  }
+  if (ms > 0) setInterval(refresh, ms);
+  document.addEventListener('sua-board-data-stale', () => { refresh(); });
+})();
 window.suaA2ui = { mountSurfaces, updateSurface, suaCatalog };

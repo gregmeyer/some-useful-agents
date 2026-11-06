@@ -419,11 +419,12 @@ const BOARD_COMPONENTS = [
   },
   {
     name: 'AgentTile',
-    summary: "An agent's tile: its latest result drawn with its own view, with Run and the tile's controls.",
+    summary: "An agent's tile: its latest result drawn with its own view, with Run and the tile's controls. `chrome: bare` drops the frame and header (inside a Panel that titles it, on a composed page).",
     example: { id: 'tile_weather', component: 'AgentTile', agentId: 'weather-forecast' },
     schema: Common.extend({
       agentId: z.string().min(1).max(128),
       palette: z.enum(['default', 'dark', 'light', 'accent-teal', 'accent-red', 'accent-green']).optional(),
+      chrome: z.enum(['card', 'bare']).optional(),
     }).strict(),
   },
   {

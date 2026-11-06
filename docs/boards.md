@@ -80,14 +80,29 @@ A canvas is an A2UI document (`components`, one with id `root`) using the basic 
 | `Section` | A titled group: `{ title, child }` |
 | `Grid` | Tiles in responsive columns, each at least `minWidth` px (default 280): `{ children, minWidth? }` |
 | `Cell` | A grid child spanning columns and/or rows: `{ child, span?, rows? }` (1–4) |
-| `AgentTile` | An agent's tile, its latest result drawn with its own view: `{ agentId, palette? }` |
+| `AgentTile` | An agent's tile, its latest result drawn with its own view: `{ agentId, palette?, chrome? }` (`chrome: bare` on a composed page: no frame or header) |
 | `SystemTile` | A health tile: `{ tileId }` (e.g. `_system-runs-today`) |
 
 Agent views can't use these: they belong to boards. A board document is checked like a view (the A2UI processor in strict mode), with room for up to 800 components.
 
+## A board's page
+
+A board's document can be more than sections of tiles: composed like a front page from its agents' latest results, the way a [notebook's page](notebooks.md#layouts) is composed from the notebook's data ([ADR-0070](adr/0070-a-boards-page-is-a-layout-composed-from-its-agents-outputs.md)). The same document carries the notebook page's parts (`Panel` with its treatments and `hero`, `Columns`, `Callout`, `Lead`, `StatStrip`, `Table`…) bound to the board's data:
+
+| Path | What it is |
+|---|---|
+| `/board/name`, `/board/date`, `/board/updated` | The board's name, today written out, how long ago the newest result arrived |
+| `/board/agents/<id>/outputs/<field>` | A field of the agent's latest result (its declared outputs, or what its last run printed) |
+| `/board/agents/<id>/run/age`, `/status`, `/href`, `/running` | Its latest completed run, and whether a new one is going |
+| `/board/agents/<id>/stats/<field>` | A numeric output as a `Lead` stat (`{ value, label, note, href }`) |
+| `/board/agents/<id>/statItems`, `/board/statItems` | Its numbers (or every agent's) as `StatStrip` rows |
+
+Any component may carry `when: "<agentId>"` (or `running:<agentId>`, `numbers:<agentId>`, each with `!` for not): it's drawn once the agent has a result, stays as a skeleton while a run of it is going, and a part bound to a field that came back empty goes. A part bound to an agent counts as placing it, like a tile. An `AgentTile` inside a Panel takes `chrome: bare` (the Panel titles it). The `front-page` preset fills a masthead, a lede (the agent with a headline, as a Callout), a story column beside a rail of numbers (a `Lead` over each tile) and a band of figures from the agents' output shapes. A composed page refetches its data on its tiles' shortest refresh and after a tile's Run, so bound parts stay current; the arranging operations and Undo work on it as on any board. Pulse stays a grid.
+
 ### API
 
 - `GET /boards/<id>.json` returns the board, with `version` (and `derived: true` until it's first saved).
+- `GET /boards/<id>/data.json` returns the canvas again (`messages`, including the board's data model, and the tile registry), for a composed page to take new data in place.
 - `POST /boards/<id>/doc/apply` with `{ "doc", "ops" }` applies arranging operations to a working copy and returns the new `doc` and the redrawn surface; nothing is saved. The operations are `insert`, `move`, `remove`, `wrap`, `unwrap`, `set` and `span` (core `applyBoardOps`).
 - `POST /boards/<id>/doc` with `{ "doc", "version" }` saves; `409` with the current `version` when the board changed since, `400` with the reason when the document isn't valid or adds an agent that isn't installed.
 - `POST /boards/<id>/undo` with `{ "version" }` puts the previous layout back.

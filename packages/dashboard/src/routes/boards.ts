@@ -11,6 +11,7 @@ import {
   boardDocSystemTileIds,
   validateBoardDoc,
   applyBoardOps,
+  isComposedBoardDoc,
   type BoardDoc,
   layoutPlanSchema,
   type Agent,
@@ -22,6 +23,7 @@ import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
+import { boardPageData, boardRefreshMs } from '../lib/board-widgets.js';
 import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, startBoardBuild } from '../lib/board-build.js';
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
@@ -326,6 +328,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     plannerUrl: isPulse ? '/pulse/layout-plan' : `/dashboards/${encodeURIComponent(id)}/layout-plan`,
     // Offer the old Pulse's browser arrangement until Pulse's board is first saved.
     offerImport: isPulse && r.board.version === 0,
+    // A composed page (ADR-0070): the editor says so when arranging it.
+    layoutMeta: canvas.composed ? (boardsOf(ctx).get(id)?.layoutMeta ?? {}) : null,
   };
   return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
     ${header}
@@ -349,7 +353,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       <aside class="canvas-outline" data-canvas-outline hidden aria-label="Board outline"></aside>
       <div class="canvas-stage">
         ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
-        <div class="a2ui-host board-canvas" data-a2ui-surface data-board-canvas="${id}" data-return-to="${returnTo}" aria-label="${r.board.name}">${unsafeHtml(`<script type="application/json">${json(canvas.messages)}</script>`)}</div>
+        <div class="a2ui-host board-canvas" data-a2ui-surface data-board-canvas="${id}" data-return-to="${returnTo}" aria-label="${r.board.name}"${canvas.composed ? unsafeHtml(` data-board-composed="1" data-board-refresh-ms="${String(boardRefreshMs(Object.values(canvas.tiles)))}"`) : html``}>${unsafeHtml(`<script type="application/json">${json(canvas.messages)}</script>`)}</div>
       </div>
     </div>
     ${after}
@@ -388,8 +392,30 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
     attachLayoutHints([tile], ctx.layoutHintsStore);
     tiles.set(agentId, tile);
   }
-  return { doc, ...assembleCanvas({ boardId: r.board.id, doc, tiles, ...(isPulse ? { unplaced: r.unplaced ?? [], systemTileIds: r.systemTileIds } : {}) }) };
+  // The board's data model (a composed page's parts bind to it; a grid carries it too, unused).
+  const page = isPulse ? undefined : boardPageData({ name: r.board.name }, tiles, { runStore: ctx.runStore }, boardDocAgentIds(doc));
+  return {
+    doc,
+    composed: !isPulse && isComposedBoardDoc(doc.components),
+    ...assembleCanvas({
+      boardId: r.board.id, doc, tiles,
+      ...(isPulse ? { unplaced: r.unplaced ?? [], systemTileIds: r.systemTileIds } : {}),
+      ...(page ? { data: page.data, flags: page.flags, running: page.running } : {}),
+    }),
+  };
 }
+
+/**
+ * The board's canvas again (messages + tile registry), for a composed page
+ * to take new data in place as its agents run (assets/a2ui-sua.js).
+ */
+boardsRouter.get('/boards/:id/data.json', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const r = resolveBoard(ctx, String(req.params.id));
+  if (!r) { res.status(404).json({ error: 'No such board.' }); return; }
+  const canvas = canvasFor(ctx, r, currentDoc(ctx, r));
+  res.json({ messages: canvas.messages, tiles: canvas.tiles });
+});
 
 /**
  * Tiles a document ADDS (relative to `before`) that aren't installed agents
