@@ -94,7 +94,9 @@ nodes:
           Lead over the tile where one number matters (a change, a
           temperature, a price), never over a count of rows;
         - a band of figures (a StatStrip of /board/statItems) only when
-          two or more agents have a number that matters;
+          two or more agents have a number that matters: full width when
+          the story and the rail are about as long, else at the end of the
+          rail (an aside) so the rail doesn't end early;
         - every part of one agent in a Panel with "when": "<agentId>", a
           Lead or StatStrip with "when": "numbers:<agentId>";
         - bind only to fields the board lists above; never type a value in;

@@ -49,8 +49,8 @@ export function asNumber(v: unknown): number | undefined {
   return undefined;
 }
 
-/** "nasdaq_change_pct" → "Nasdaq change pct". */
-export const fieldLabel = (name: string): string => name.replace(/[_-]+/g, ' ').trim().replace(/^\w/, (ch) => ch.toUpperCase());
+/** "nasdaq_change_pct" → "Nasdaq change %". */
+export const fieldLabel = (name: string): string => name.replace(/[_-]+/g, ' ').trim().replace(/\b(pct|percent)\b/gi, '%').replace(/^\w/, (ch) => ch.toUpperCase());
 
 /** The shape of a result's fields: names and kinds, never values. */
 export function outputShapes(outputs: Record<string, unknown>): BoardAgentOutputShape[] {
@@ -149,7 +149,7 @@ export function boardPageData(board: { name: string }, tiles: ReadonlyMap<string
     data: {
       name: board.name,
       date: boardDate(deps.now),
-      updated: newest ? formatAge(newest) : 'never',
+      updated: newest ? `Updated ${formatAge(newest)}` : 'Nothing has run yet',
       agentIds: ids,
       statItems: statItems.slice(0, 8),
       agents,
