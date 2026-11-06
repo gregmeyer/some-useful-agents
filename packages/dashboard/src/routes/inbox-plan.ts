@@ -629,6 +629,25 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Save the template' });
       continue;
     }
+    // `board-page` composes the board's page from the operator's words (ADR-0070):
+    // inputs.BOARD (id) + inputs.ASK (what they want the page to be). A card to
+    // approve; applying it has the board-page agent draw the page.
+    if (type === 'board-page') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) if (typeof v === 'string') inputs[k] = v;
+      }
+      if (!inputs.BOARD || !inputs.ASK?.trim()) {
+        rejected.push({ agentId: 'board-page', reason: 'board-page needs inputs.BOARD and inputs.ASK (what the page should be, in their words)' });
+        continue;
+      }
+      if (inputs.BOARD === 'pulse') {
+        rejected.push({ agentId: 'board-page', reason: 'Pulse keeps its grid; a page is composed for a named board' });
+        continue;
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: 'board-page', inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Compose the page' });
+      continue;
+    }
     // `arrange-board` rearranges the board the operator is on: inputs.BOARD (id)
     // + inputs.OPS (board-place ops). Shape here; the card previews, Apply saves.
     if (type === 'arrange-board') {

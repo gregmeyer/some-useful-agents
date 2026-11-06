@@ -15,6 +15,7 @@ import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
+import { previewBoardPage, executeBoardPage } from '../lib/board-page-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
 import { previewNotebookTemplate, executeNotebookTemplate } from '../lib/notebook-template-action.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, notebooksLinked, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
@@ -209,7 +210,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -893,6 +894,9 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'arrange-board') {
     return executeArrangeBoard(ctx, meta);
+  }
+  if (meta.agentId === 'board-page') {
+    return executeBoardPage(ctx, meta);
   }
   if (meta.agentId === 'notebook-add') {
     return executeNotebookAdd(ctx, meta);
@@ -1658,6 +1662,9 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
   }
   if (action.agentId === 'notebook-template' && !action.surfaceChanges) {
     return previewNotebookTemplate(ctx, action);
+  }
+  if (action.agentId === 'board-page' && !action.surfaceChanges) {
+    return previewBoardPage(ctx, action);
   }
   if (action.agentId === 'arrange-board' && !action.base) {
     try {

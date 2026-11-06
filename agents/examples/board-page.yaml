@@ -1,0 +1,131 @@
+# Board Page — a board decides its own page (ADR-0070). From what the board
+# is for and what its agents' results hold (their fields, never their
+# values), this keeps the grid of tiles, takes the ready-made front page, or
+# composes a page that fits as an A2UI document bound to the board's data.
+# Route-dispatched only (dashboard lib/board-page.ts): after a board is
+# built and its tiles have run, from "How it looks" on the board, or from a
+# board-page card when you ask sua in words. Undo is on the board (Arrange).
+
+id: board-page
+name: Board Page
+description: >
+  Composes a board's page from its agents' results: keeps the grid, takes
+  the front page, or draws a page that fits what the board is for.
+status: active
+source: examples
+
+inputs:
+  BOARD:
+    type: string
+    required: true
+    description: "JSON: the board's name, what it was built for, and its agents (id, title, kind, size, the fields their latest result has, whether they've run)."
+  PRESETS:
+    type: string
+    required: true
+    description: The ready-made pages (id, when it fits, and the front page filled for this board).
+  GUIDE:
+    type: string
+    required: true
+    description: How to draw a board's page (its data, flags and components).
+  ERRORS:
+    type: string
+    required: false
+    default: ""
+    description: Why the last page drawn couldn't be used (when trying again).
+  ASK:
+    type: string
+    required: false
+    default: ""
+    description: What the person asked for the page, in their words, if anything.
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: The page they're asking to change, as its components (empty for a grid of tiles).
+
+nodes:
+  - id: page
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 180
+    outputContract:
+      mustMatch: '<page>[\s\S]*?</page>'
+      description: a <page> JSON block
+    prompt: |
+      A "board" is a page someone opens to read what their agents found
+      (news, weather, markets, scores, the state of something). Each agent
+      has a tile (its own view of its latest result), and its result's
+      fields can be drawn directly. Decide what the board's page shows,
+      from what it's for.
+
+      The board (JSON):
+      {{inputs.BOARD}}
+
+      Ready-made pages (id: when it fits; the front page filled for this board):
+      {{inputs.PRESETS}}
+
+      First decide what kind of board it is:
+        - something to glance over and run things from (a few tools,
+          health, a mix of unrelated agents): keep the grid of tiles,
+          {"preset": "grid"};
+        - something read like a paper every morning (news, a digest,
+          weather, markets, scores: a brief): a front page. Start from the
+          filled front page above ({"preset": "front-page"} when it fits
+          as it is) and change it when it nearly fits: pick the lead story
+          yourself (the agent whose headline matters most for what the
+          board is for), move an agent between the story column and the
+          rail, drop a part that says nothing, retitle the parts in
+          plain words;
+        - something that is one story (one agent and its helpers): a
+          masthead and that agent's tile bare in a feature Panel, the
+          rest in the rail.
+
+      Composing, the way an editor lays out a paper from the copy:
+        - one masthead (the hero), one lede: the lead story as a Callout
+          bound to an agent's headline field, its summary as "next" with
+          "nextLabel": " " (a summary, not a next step). Don't
+          put that agent's own tile right under the lede when its tile
+          repeats the same headline; put its tile lower, or leave it out
+          when the lede says it all;
+        - a story column beside a rail (Columns widths [2, 1], "align":
+          "start"): stories (lists, tables, long views) as feature Panels
+          holding the agent's tile ("chrome": "bare") or a Table of its
+          list field; numbers and facts in the rail as aside Panels, a
+          Lead over the tile where one number matters (a change, a
+          temperature, a price), never over a count of rows;
+        - a band of figures (a StatStrip of /board/statItems) only when
+          two or more agents have a number that matters;
+        - every part of one agent in a Panel with "when": "<agentId>", a
+          Lead or StatStrip with "when": "numbers:<agentId>";
+        - bind only to fields the board lists above; never type a value in;
+        - say in "about" what leads ("world news first, the markets in the rail").
+
+      Drawing a page:
+      {{inputs.GUIDE}}
+
+      What the person asked for the page (may be empty):
+      {{inputs.ASK}}
+      Their page now (may be empty, meaning a grid of tiles):
+      {{inputs.CURRENT}}
+      When they asked for something, do what they asked to their page
+      now and keep the rest as it is (its parts, treatments and order),
+      unless what they asked means a different kind of page ("make it a
+      front page", "back to the grid"). Answer with the whole page. Asked
+      to go back to tiles: {"preset": "grid"}.
+
+      The last page you drew couldn't be used, because (may be empty):
+      {{inputs.ERRORS}}
+      If there's a reason, fix that and keep the rest.
+
+      Reply with only one of these, as valid JSON:
+      <page>
+      {"preset": "grid", "about": "a grid of tiles: tools to glance over"}
+      </page>
+      or
+      <page>
+      {"preset": "front-page", "about": "a front page: world news leads, weather and markets in the rail"}
+      </page>
+      or
+      <page>
+      {"about": "what leads, in a few words", "components": [{"id": "root", "component": "Column", "children": ["..."]}]}
+      </page>

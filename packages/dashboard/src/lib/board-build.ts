@@ -32,6 +32,7 @@ import { autoFixYaml } from '../routes/run-now-build.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
+import { decideBoardPage, boardPageIsItsOwn } from './board-page.js';
 
 type Ctx = ReturnType<typeof getContext>;
 export const BOARD_BUILDER_AGENT_ID = 'board-builder';
@@ -197,6 +198,9 @@ async function runBoardBuild(ctx: Ctx, buildId: string): Promise<void> {
     }
   };
   await Promise.all(Array.from({ length: Math.min(RUN_CONCURRENCY, runnable.length) }, worker));
+  // 4. Its page (ADR-0070): with results to read, the board decides how it looks.
+  builds.update(buildId, { detail: 'Composing the page…' });
+  await decideBoardPage(ctx, build.boardId, { about: build.request });
   finish(ctx, buildId, { placed, failed, summary: plan.summary, name, drafting: plan.missing.length > 0 });
   if (plan.missing.length) await draftMissing(ctx, buildId, { request: build.request, name, missing: plan.missing });
 }
@@ -378,9 +382,14 @@ export function decideBoardDrafts(ctx: Ctx, buildId: string, decision: 'approve'
         } catch { /* agents are active anyway; they can be added with Arrange */ }
       }
     }
-    for (const id of ids) {
+    const runs = ids.map((id) => {
       const agent = ctx.agentStore.getAgent(id);
-      if (agent && !needsInput(agent)) void executeAgentWithRetry(agent, { triggeredBy: 'dashboard' }, runDeps(ctx)).catch(() => { /* shows as a failed run */ });
+      return agent && !needsInput(agent) ? executeAgentWithRetry(agent, { triggeredBy: 'dashboard' }, runDeps(ctx)).catch(() => { /* shows as a failed run */ }) : Promise.resolve();
+    });
+    // A page sua composed takes the new agents in once they've run; a page you picked or asked for is left as it is.
+    if (withTiles.length) {
+      const boards = new BoardsStore(ctx.runStore.databaseHandle());
+      if (boardPageIsItsOwn(boards.get(build.boardId) ?? {})) void Promise.all(runs).then(() => decideBoardPage(ctx, build.boardId, { again: true, about: build.request })).catch(() => { /* the board stays as it is */ });
     }
     builds.update(buildId, { approval: 'approved', placed: [...build.placed, ...withTiles], detail: `Added ${withTiles.length} new agent${withTiles.length === 1 ? '' : 's'} to the board.` });
     message = `Approved: ${ids.length} agent${ids.length === 1 ? '' : 's'} now active${withTiles.length ? `, ${withTiles.length} added to the board and running` : ''}.`;

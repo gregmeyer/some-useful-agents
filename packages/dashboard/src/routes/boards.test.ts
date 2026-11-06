@@ -36,6 +36,8 @@ async function setup() {
     allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   } as DashboardContext;
+  // No model in tests: a built board keeps its grid unless a test answers for the page agent.
+  ctx.boardPageRun = async () => undefined;
   const add = (id: string, size?: string) => ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
     nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: id, template: 'text-headline', mapping: { headline: 'result' }, ...(size ? { size } : {}) } } as never, 'cli');
   add('news'); add('weather', '2x1'); add('notes');
@@ -646,5 +648,36 @@ describe('a composed board page (ADR-0070)', () => {
     expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
     const messages = embedded(res.text, /data-board-canvas="[^"]*"[^>]*><script type="application\/json">([\s\S]*?)<\/script>/) as Array<Record<string, unknown>>;
     expect(messages.map((m) => Object.keys(m).find((k) => k !== 'version'))).toEqual(['createSurface', 'updateComponents', 'updateDataModel']);
+  });
+});
+
+describe('how a board looks (ADR-0070)', () => {
+  it('Front page by hand, let sua pick, and back to the grid, each a new version with its meta', async () => {
+    const app = await setup();
+    ctx.boardPageRun = async () => '<page>{"about":"news first","components":[{"id":"root","component":"Column","children":["p","g"]},{"id":"p","component":"Panel","title":"News","child":"c","treatment":"lede","when":"news"},{"id":"c","component":"Callout","text":{"path":"/board/agents/news/outputs/headline"}},{"id":"g","component":"Grid","children":["t"]},{"id":"t","component":"AgentTile","agentId":"weather"}]}</page>';
+    let page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('How it looks');
+    expect(page.text).toContain('value="front-page"');
+    let res = await post(app, '/boards/user:morning/look', { look: 'front-page' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toContain('ok=');
+    const boards = new BoardsStore(ctx.runStore.databaseHandle());
+    expect(boards.get('user:morning')!.layoutMeta).toEqual({ preset: 'front-page', layoutBy: 'picked' });
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('data-board-composed="1"');
+    expect(page.text).toContain('· front page');
+    res = await post(app, '/boards/user:morning/look', { look: 'pick' });
+    expect(res.headers.location).toContain('ok=');
+    expect(boards.get('user:morning')!.layoutMeta).toEqual({ about: 'news first', layoutBy: 'picked' });
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('Made for this board');
+    expect(page.text).toContain('News first.');
+    res = await post(app, '/boards/user:morning/look', { look: 'grid' });
+    expect(res.headers.location).toContain('ok=');
+    expect(boards.get('user:morning')!.layoutMeta).toBeUndefined();
+    expect(surface((await get(app, '/dashboards/user:morning')).text).filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather']);
+    res = await post(app, '/boards/user:morning/look', { look: 'poster' });
+    expect(res.headers.location).toContain('error=');
+    expect((await post(app, '/boards/pulse/look', { look: 'front-page' })).headers.location).toContain('error=');
   });
 });

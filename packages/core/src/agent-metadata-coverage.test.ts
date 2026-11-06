@@ -70,6 +70,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'notebook-facets': 'notebook only: groups long facts into short filter labels, never proposed',
   'notebook-page': 'notebook only: decides a new notebook\'s page from what it\'s for, never proposed',
+  'board-page': 'boards only: composes a board\'s page from its agents\' results, never proposed',
   'notebook-writer': 'notebook only: a write step\'s talking points, run by the step runner, never proposed',
   'notebook-correction': 'notebook only: works out what a correction in a notebook\'s conversation changes, from triage\'s notebook-correct, never proposed',
   'notebook-reconciler': 'notebook only: checks who it\'s about against what was found, run after steps, never proposed',

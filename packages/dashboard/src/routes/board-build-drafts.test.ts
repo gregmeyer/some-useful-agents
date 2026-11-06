@@ -36,6 +36,8 @@ async function setup() {
     allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
   } as DashboardContext;
+  // No model in tests: a built board keeps its grid unless a test answers for the page agent.
+  ctx.boardPageRun = async () => undefined;
   const add = (id: string, size?: string) => ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
     nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: id, template: 'text-headline', mapping: { headline: 'result' }, ...(size ? { size } : {}) } } as never, 'cli');
   add('news'); add('weather', '2x1'); add('notes');

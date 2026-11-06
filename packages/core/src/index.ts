@@ -602,7 +602,9 @@ export {
   boardDocSystemTileIds,
   BoardsStore,
   BoardConflictError,
+  cleanBoardLayoutMeta,
   type Board,
+  type BoardLayoutMeta,
   type BoardItem,
   type BoardDoc,
 } from './boards.js';
