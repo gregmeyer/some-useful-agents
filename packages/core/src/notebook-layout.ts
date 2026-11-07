@@ -536,7 +536,13 @@ export function resolveNotebookLayout(
   components: readonly ViewComponent[],
   flags: Partial<Record<NotebookLayoutFlag, boolean>>,
   values: Partial<Record<NotebookLayoutValueKey, unknown>>,
-  opts: { data?: unknown; /** A step is running: an empty Panel keeps its place as a skeleton (`pending`) instead of going, so the page's shape shows from the first minute. */ pending?: boolean } = {},
+  opts: {
+    data?: unknown;
+    /** A step is running: an empty Panel keeps its place as a skeleton (`pending`) instead of going, so the page's shape shows from the first minute. */
+    pending?: boolean;
+    /** Components this notebook can never fill (a QuoteList with nothing to quote): their panels go when empty, running or not. */
+    cantFill?: ReadonlySet<string>;
+  } = {},
 ): ViewComponent[] {
   const all = withAnswerSections(components);
   const byId = new Map(all.map((c) => [c.id, c]));
@@ -551,6 +557,7 @@ export function resolveNotebookLayout(
     skeleton: (c) => {
       if (!opts.pending || c.component !== 'Panel' || typeof c.child !== 'string') return false;
       const kid = byId.get(c.child);
+      if (kid && opts.cantFill?.has(kid.component)) return false;
       return !(kid?.component === 'AnswerSections' && (kid.rest === true || Array.isArray(kid.skip)));
     },
     emptyPart: (c, data) => sectionPartEmpty(c, data, placed),

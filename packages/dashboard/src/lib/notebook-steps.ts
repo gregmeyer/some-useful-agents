@@ -419,7 +419,7 @@ const NEW_ONES = { these: 'the new ones', each: 'new', none: 'Nothing new to che
 const CORRECTED = { these: 'what you corrected', each: 'corrected', none: 'Nothing left to check on what you corrected' };
 const CHANGED = { these: 'against the changed check', each: '', none: 'Nothing to check against the changed check' };
 
-async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>, words = NEW_ONES): Promise<string> {
+async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, agentId: string, had: ReadonlySet<string>, words = NEW_ONES, focus?: ReadonlyMap<string, ReadonlySet<string>>): Promise<string> {
   let nb = store.get(notebookId)!;
   const where = step.top ? ` in the top ${String(step.top)}` : '';
   if (!nb.checks.length) return `Skipped **${step.title}**: the notebook has no checks.`;
@@ -452,7 +452,13 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const out = await keep(ctx, store, nb, agentId, run.id, run.result ?? '');
   store.finishPass(passId, passNote(agentId, out));
   nb = store.get(notebookId)!;
-  const open = left(nb, store.entries(nb.id, 1000)).filter((x) => ids.has(x.o.id)).length;
+  // Still open: one with checks left (with `focus`, the checks it was asked about again, when it names them; a check open before isn't held against it).
+  const after = new Map(left(nb, store.entries(nb.id, 1000)).filter((x) => ids.has(x.o.id)).map((x) => [x.o.id, x.checks.map((c) => c.toLowerCase())]));
+  const open = todo.filter(({ o }) => {
+    const now = after.get(o.id) ?? [];
+    const asked = [...(focus?.get(o.id) ?? [])].map((c) => c.toLowerCase());
+    return asked.length ? asked.some((c) => now.includes(c)) : now.length > 0;
+  }).length;
   const done = `${String(todo.length - open)} of ${String(todo.length)}${words.each ? ` ${words.each}` : ''} checked`;
   store.noteRun(notebookId, `${step.title}: ${done}`);
   return `Checked ${words.these}${where} (**${step.title}**, with ${agentId}): ${done}${open ? `, ${String(open)} still open` : ''}.`;
@@ -465,7 +471,7 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
  * running (in its top N) is checked on what it has left. The caller holds
  * the notebook's run. Never throws.
  */
-export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly string[] | 'all'): Promise<string> {
+export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly string[] | 'all', focus?: ReadonlyMap<string, ReadonlySet<string>>): Promise<string> {
   const store = stores(ctx);
   const nb = store.get(notebookId);
   const step = nb?.steps?.find((s) => s.kind === 'check');
@@ -477,7 +483,7 @@ export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly
   try {
     return ids === 'all'
       ? await checkNew(ctx, store, notebookId, step, agent.agentId, had, CHANGED)
-      : await checkNew(ctx, store, notebookId, { ...step, top: undefined }, agent.agentId, had, CORRECTED);
+      : await checkNew(ctx, store, notebookId, { ...step, top: undefined }, agent.agentId, had, CORRECTED, focus);
   } catch (err) {
     return `couldn't check it again: ${err instanceof Error ? err.message.slice(0, 120) : 'it failed'}`;
   }

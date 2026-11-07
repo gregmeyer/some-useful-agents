@@ -10,10 +10,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { RunStore, NotebookStore, notebookGivenLinks, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePointer, splitNotebookHeader, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
+import { RunStore, NotebookStore, layoutPreset, notebookGivenLinks, NOTEBOOK_LAYOUT_DATA, pageRhythm, resolvePointer, splitNotebookHeader, validateViewComponents, type Notebook, type ViewComponent } from '@some-useful-agents/core';
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
-import { notebookWidgetComponents, notebookWidgetData, notebookLayoutFlags } from './notebook-widgets.js';
+import { notebookWidgetComponents, notebookWidgetData, notebookWidgetMessages, notebookLayoutFlags } from './notebook-widgets.js';
 import { renderPageBrief, briefIsPage, briefQuotes } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[]; written?: string[] }>;
@@ -268,6 +268,40 @@ describe('what they said, in the brief', () => {
     const full = renderPageBrief({ nb: s.get(nb.id)!, entries, history: s, full: true });
     expect(full).toContain('Everything they said');
     for (let i = 0; i < 8; i++) expect(full).toContain(`Said thing number ${i}.`);
+  });
+});
+
+describe('in their words, with no quote field', () => {
+  // A meeting notebook of topics (topic, why, question, source): no quote field, but the finder kept each source's words.
+  const topics = (s: NotebookStore, person: boolean) => {
+    const nb = s.create({ title: 'Meet Sam Ortiz' });
+    s.setFields(nb.id, [{ key: 'topic', label: 'Topic', type: 'text' }, { key: 'question', label: 'Question to ask', type: 'text', role: 'ask' }, { key: 'source_url', label: 'Supporting source', type: 'url', role: 'link' }]);
+    s.setLayout(nb.id, layoutPreset('dossier')!.layout);
+    if (person) s.setAbout(nb.id, 'person', { name: 'Sam Ortiz', facts: [{ key: 'role', label: 'Role', value: 'COO' }] });
+    s.setSteps(nb.id, [{ title: 'Find 5 meeting topics', kind: 'find', target: 5, status: 'running' }]);
+    for (const [t, q] of [['Pipeline reviews', 'Pipeline is a habit, not a report.'], ['Podcast', 'Every deal has a story worth telling.'], ['Hiring', '']]) {
+      s.upsertOption(nb.id, { title: t, by: 'agent:notebook-finder', body: `His own post.${q ? ` "${q}"` : ''} (found by the Talks search)`, data: { topic: t, source_url: `https://example.com/${t.length}` } });
+    }
+    return s.get(nb.id)!;
+  };
+
+  it("about a person: each option's source words, the first as the pull quote", () => {
+    const s = store();
+    const nb = topics(s, true);
+    const d = notebookWidgetData(nb, s.entries(nb.id));
+    const said = d.notebook.quotes.map((q) => q.quote);
+    expect([...said].sort()).toEqual(['Every deal has a story worth telling.', 'Pipeline is a habit, not a report.']);
+    expect(d.notebook.leadQuote).toBe(said[0]);
+    expect(d.notebook.otherQuotes.map((q) => q.quote)).toEqual([said[1]]);
+  });
+
+  it('nothing to quote: the panel goes while a step runs, instead of standing there empty', () => {
+    const s = store();
+    const nb = topics(s, false);
+    const has = (pending: boolean) => JSON.stringify(notebookWidgetMessages(nb, s.entries(nb.id), undefined, { pending }) ?? []).includes('In their words');
+    expect(notebookWidgetData(nb, s.entries(nb.id)).notebook.quotes).toEqual([]);
+    expect(has(true)).toBe(false);
+    expect(has(false)).toBe(false);
   });
 });
 
