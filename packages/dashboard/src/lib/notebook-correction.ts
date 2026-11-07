@@ -12,9 +12,9 @@
  */
 import { answerSectionLines, clipWords, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
-import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
+import { runDispatchedAgentToTerminal, runProposedAction } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
-import { publishInboxEvent } from '../routes/inbox-shared.js';
+import { parseActionMeta, publishInboxEvent } from '../routes/inbox-shared.js';
 import { notebookThread, notebooksOf, threadOptionFocus } from './notebook-chat.js';
 import { strikePoints, writeBriefing } from './notebook-write.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
@@ -431,7 +431,7 @@ function placeNow(items: readonly string[], id: string, texts: Record<string, st
  * what rests on the old value is written again in the background. Says
  * what it did; the rewrite says its own.
  */
-export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: InboxActionMeta, done?: (p: Promise<void>) => void): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: InboxActionMeta, done?: (p: Promise<void>) => void): { status: InboxActionStatus; summary?: string; refusalReason?: string; waitingFor?: string } {
   const store = notebooksOf(ctx);
   const nb = store.get(meta.inputs.NOTEBOOK ?? '');
   if (!nb) return { status: 'failed', refusalReason: 'That notebook is gone.' };
@@ -443,7 +443,9 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
   } catch { return { status: 'failed', refusalReason: 'The correction on this card can\'t be read. Ask again.' }; }
   const d = c.semantic_delta;
   if (!APPLIES.has(d.type)) return { status: 'failed', refusalReason: 'sua can\'t apply that kind of correction yet.' };
-  if (ctx.notebookPipelines?.has(nb.id)) return { status: 'failed', refusalReason: 'The notebook is running a step. Apply this when it\'s done.' };
+  // Mid-step: it waits, and applies itself when the step is done (applyWaitingCorrections).
+  const busy = ctx.notebookPipelines?.get(nb.id);
+  if (busy) return { status: 'proposed', waitingFor: nb.steps?.[busy.step - 1]?.title ?? 'what it\'s doing now' };
   const said: string[] = [];
   // A picture at a link to keep (fetched in the background).
   let pictureLink: { who: NotebookAboutWho; link: string } | undefined;
@@ -629,3 +631,20 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/**
+ * A step ended: each correction applied while it ran (waiting on its card)
+ * applies now, as pressing Apply would. Before the step's own cards, so a
+ * recheck it starts goes first and they come back when that's done.
+ */
+export function applyWaitingCorrections(ctx: Ctx, notebookId: string, threadId: string): void {
+  if (!ctx.inboxStore || ctx.notebookPipelines?.has(notebookId)) return;
+  for (const r of ctx.inboxStore.listResponses(threadId)) {
+    const meta = parseActionMeta(r);
+    if (meta?.status !== 'proposed' || !meta.waitingFor || meta.agentId !== 'notebook-correct-apply' || meta.inputs.NOTEBOOK !== notebookId) continue;
+    const running: InboxActionMeta = { ...meta, status: 'running', startedAt: Date.now(), waitingFor: undefined };
+    if (!ctx.inboxStore.transitionActionStatus(r.id, 'proposed', JSON.stringify(running))) continue;
+    publishInboxEvent(ctx, threadId, 'action:status', { responseId: r.id, status: 'running', agentId: meta.agentId, startedAt: running.startedAt });
+    void runProposedAction(ctx, threadId, r, running).catch(() => { /* the card says how it went */ });
+  }
+}

@@ -5000,6 +5000,54 @@ describe('editing the talking points', () => {
     writerReply = undefined;
   });
 
+  it('a correction applied while a step runs waits on its card, and applies itself when the step is done', async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const { reconcileStepCards } = await import('../lib/notebook-step-queue.js');
+    const { runProposedAction } = await import('./inbox-engine.js');
+    const { formatConversationSnapshot } = await import('./inbox-shared.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Sam Ortiz' });
+    s.setSteps(nb.id, [{ title: 'Learn about Sam', kind: 'profile', status: 'done' }, { title: 'Check topics and sources', kind: 'check', status: 'running' }]);
+    s.setAbout(nb.id, 'person', { name: 'Sam Ortiz', facts: [{ key: 'organization', label: 'Company', value: 'Acme (not settled: Acme or Brightline)' }] });
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: { type: 'about-fact', target_id: 'about:person:organization', old_value: 'Acme (not settled: Acme or Brightline)', new_value: 'Acme and Brightline', label: 'Company' }, impact: [], clarification_required: false, clarification_question: '' })}</correction>`;
+    let work: Promise<void> | undefined;
+    startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: 'Sam does both' } }, (p) => { work = p; });
+    await work;
+    correctionReply = undefined;
+    const cardRow = () => [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action' && r.metaJson?.includes('notebook-correct-apply'))!;
+    const meta = () => JSON.parse(cardRow().metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    const company = () => s.get(nb.id)!.about!.person!.facts.find((f) => f.key === 'organization')!.value;
+
+    // Apply pressed mid-step: approved, waiting; nothing changed yet.
+    ctx.notebookPipelines ??= new Map();
+    ctx.notebookPipelines.set(nb.id, { agentId: 'notebook-checker', step: 2, of: 2, startedAt: Date.now() });
+    const pressed: import('@some-useful-agents/core').InboxActionMeta = { ...meta(), status: 'running', startedAt: Date.now(), approvedBy: 'operator' };
+    expect(inbox.transitionActionStatus(cardRow().id, 'proposed', JSON.stringify(pressed))).toBe(true);
+    await runProposedAction(ctx, thread, cardRow(), pressed);
+    expect(meta()).toMatchObject({ status: 'proposed', waitingFor: 'Check topics and sources', approvedBy: 'operator' });
+    expect(meta().startedAt).toBeUndefined();
+    expect(company()).toBe('Acme (not settled: Acme or Brightline)');
+    expect(formatConversationSnapshot(inbox.listResponses(thread))).toContain('approved, waiting for Check topics and sources');
+    // Still mid-step: a reconcile leaves it waiting.
+    reconcileStepCards(ctx, nb.id);
+    expect(meta().status).toBe('proposed');
+
+    // The step is done: it applies itself.
+    s.updateStep(nb.id, s.get(nb.id)!.steps![1].id, { status: 'stuck' });
+    ctx.notebookPipelines.delete(nb.id);
+    reconcileStepCards(ctx, nb.id);
+    for (let i = 0; i < 50 && meta().status !== 'completed'; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(meta()).toMatchObject({ status: 'completed' });
+    expect(meta().waitingFor).toBeUndefined();
+    expect(company()).toBe('Acme and Brightline');
+  });
+
   it("a correction to an option's fact: its check results are forgotten, it's checked again, and its pick says what changed", async () => {
     await makeApp();
     const ctx = ctxForDrain!;

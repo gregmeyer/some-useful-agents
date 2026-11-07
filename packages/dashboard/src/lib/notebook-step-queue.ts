@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { NotebookStore, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { parseActionMeta, publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
+import { applyWaitingCorrections } from './notebook-correction.js';
 import { addStepCard, currentStep, isYourStep, NOTEBOOK_STEP_ACTION, stepCards, updateSteps } from './notebook-steps.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -80,6 +81,8 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
   const nb = stores(ctx).get(notebookId);
   const threadId = nb?.conversationId;
   if (!nb || !threadId || !ctx.inboxStore?.get(threadId)) return [];
+  // A correction applied mid-step goes first (it may start a recheck; these cards come back after it).
+  applyWaitingCorrections(ctx, notebookId, threadId);
   const running = isRunning(ctx, notebookId);
   const live: Array<{ r: InboxResponse; meta: InboxActionMeta }> = [];
   const seen = new Set<string>();

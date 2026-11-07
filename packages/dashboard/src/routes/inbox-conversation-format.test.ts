@@ -29,6 +29,17 @@ describe('formatConversationSnapshot', () => {
     ].join('\n'));
   });
 
+  it('says why an action failed, and what an approved one waits for', () => {
+    const out = formatConversationSnapshot([
+      response('action', 'Apply the correction', JSON.stringify({ kind: 'action', agentId: 'notebook-correct-apply', status: 'failed', refusalReason: "That rule has changed since this was worked out. Ask again." })),
+      response('action', 'Apply another', JSON.stringify({ kind: 'action', agentId: 'notebook-correct-apply', status: 'proposed', waitingFor: 'Check topics and sources' })),
+    ]);
+    expect(out).toBe([
+      '[action] Apply the correction (status=failed; why=That rule has changed since this was worked out. Ask again.)',
+      '[action] Apply another (status=proposed; approved, waiting for Check topics and sources)',
+    ].join('\n'));
+  });
+
   it('keeps a long thread within budget: most recent kept, a note for the rest', () => {
     const thread = Array.from({ length: 120 }, (_, i) => response(i % 2 ? 'triage' : 'user', `turn ${i} ${'x'.repeat(300)}`));
     const out = formatConversationSnapshot(thread);
