@@ -283,6 +283,21 @@ const SUA_COMPONENTS = [
     }).strict(),
   },
   {
+    name: 'Stories',
+    summary: 'Articles or posts: a thumbnail, the title linked, a line of summary, then source · date. `items` [{title, url?, summary?, image?, source?, at?}]; the source\'s initials stand in for a missing image; Show N more past `maxItems` (default 10).',
+    example: { id: 'news', component: 'Stories', items: { path: '/outputs/headlines' } },
+    schema: Common.extend({
+      items: CS.DynamicValue,
+      title: Str.optional(),
+      /** What it says with no stories. */
+      empty: Str.optional(),
+      /** Stories shown before "Show N more" (default 10). */
+      maxItems: z.number().int().min(1).max(50).optional(),
+      /** hide: no thumbnail column (a feed with no pictures). */
+      thumbs: z.enum(['show', 'hide']).optional(),
+    }).strict(),
+  },
+  {
     name: 'Itinerary',
     summary: 'A plan in order, day by day. `days` [{when, items: [{text, note?, refs?}]}]; `before` (do first) and `open` (to decide) lists; Copy as text.',
     example: { id: 'plan', component: 'Itinerary', days: { path: '/notebook/planDays' }, before: { path: '/notebook/planBefore' }, open: { path: '/notebook/planOpen' } },

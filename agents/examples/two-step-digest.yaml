@@ -39,7 +39,7 @@ inputs:
 outputs:
   headlines:
     type: array
-    description: The headlines read from the source file, each with title, source and category.
+    description: The headlines read from the source file, each with title, source, category, url, summary and image.
   count:
     type: number
     description: How many headlines were loaded.
@@ -54,13 +54,14 @@ signal:
   icon: "\U0001F4F0"
   template: widget
   size: 2x1
-# The view draws every run (the run page, the agent's board tile, chat): a
-# table of headlines, then the count line. It binds the JSON fields the
+# The view draws every run (the run page, the agent's board tile, chat): each
+# headline as a story (thumbnail, title linked to the article, a line of
+# summary, source), then the count line. It binds the JSON fields the
 # summarise step prints — never the raw text.
 view:
   components:
-    - { id: root, component: Column, children: [rows, count_line] }
-    - { id: rows, component: Table, rows: { path: /outputs/headlines }, columns: [{ key: title, label: Headline }, { key: source, label: Source }], maxRows: 10 }
+    - { id: root, component: Column, children: [stories, count_line] }
+    - { id: stories, component: Stories, items: { path: /outputs/headlines }, maxItems: 10 }
     - { id: count_line, component: Text, text: { path: /outputs/summary }, variant: caption }
 # OutcomeDetection: what this agent is supposed to RESULT in, and what
 # counts as evidence of it. Inert unless the caller passes an
@@ -104,8 +105,9 @@ nodes:
   - id: summarise
     type: shell
     # The fetch node's result (the file's text) arrives as $UPSTREAM_FETCH_RESULT.
-    # Print the digest as JSON so the view can draw one row per headline:
+    # Print the digest as JSON so the view can draw one story per headline:
     # a step whose result is a JSON object exposes its fields at /outputs/<field>.
+    # Each headline keeps what the Stories view draws: url, summary, image.
     # Last run's shortfall ($OUTCOME_FEEDBACK) is passed on as `note`, so the
     # feedback loop is visible end to end. A real agent would ACT on it
     # (widen the query, pick another source) rather than just reporting it.
@@ -114,7 +116,7 @@ nodes:
         let headlines = [];
         try { headlines = JSON.parse(process.env.UPSTREAM_FETCH_RESULT || "{}").headlines ?? []; } catch {}
         console.log(JSON.stringify({
-          headlines: headlines.map((h) => ({ title: h.title, source: h.source, category: h.category })),
+          headlines: headlines.map((h) => ({ title: h.title, source: h.source, category: h.category, url: h.url, summary: h.summary, image: h.image })),
           count: headlines.length,
           summary: `${headlines.length} headlines loaded.`,
           note: process.env.OUTCOME_FEEDBACK || "",

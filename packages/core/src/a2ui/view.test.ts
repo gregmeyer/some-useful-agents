@@ -175,6 +175,19 @@ describe('outputs from a step that printed JSON', () => {
   });
 });
 
+describe('Stories', () => {
+  it('accepts a bound list, maxItems and thumbs, and refuses a prop it does not have', () => {
+    const ok = [
+      { id: 'root', component: 'Stories', items: { path: '/outputs/headlines' }, maxItems: 10, thumbs: 'hide', title: 'Today' },
+    ];
+    expect(validateViewComponents(ok)).toMatchObject({ ok: true });
+    const bad = [{ id: 'root', component: 'Stories', items: { path: '/outputs/headlines' }, columns: [] }];
+    expect(validateViewComponents(bad)).toMatchObject({ ok: false });
+    const badThumbs = [{ id: 'root', component: 'Stories', items: { path: '/outputs/headlines' }, thumbs: 'big' }];
+    expect(validateViewComponents(badThumbs)).toMatchObject({ ok: false });
+  });
+});
+
 describe('Table link columns', () => {
   it('accept linkText (the row field shown as the link text)', async () => {
     const { validateViewComponents } = await import('./view.js');
