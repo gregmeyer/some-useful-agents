@@ -5000,6 +5000,41 @@ describe('editing the talking points', () => {
     writerReply = undefined;
   });
 
+  it("a correction's recheck counts the checks it reopened, not one that was open before", async () => {
+    await makeApp();
+    const ctx = ctxForDrain!;
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { notebookThread } = await import('../lib/notebook-chat.js');
+    const { startNotebookCorrection, applyNotebookCorrection } = await import('../lib/notebook-correction.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const inbox = InboxStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Meet Sam Ortiz' });
+    s.setFields(nb.id, [{ key: 'topic', label: 'Topic', type: 'text' }]);
+    s.setChecks(nb.id, ['Confirm their current role', 'Confirm it is connected to them', 'Check time-sensitive claims are current']);
+    s.setSteps(nb.id, [{ title: 'Find topics', kind: 'find', target: 1, status: 'done' }, { title: 'Check topics', kind: 'check', status: 'stuck' }]);
+    s.setAbout(nb.id, 'person', { name: 'Sam Ortiz', facts: [{ key: 'organization', label: 'Company', value: 'Acme' }] });
+    const a = s.upsertOption(nb.id, { title: 'Pipeline reviews', by: 'agent:x', data: { topic: 'Pipeline reviews' } }).entry;
+    s.checkOption(nb.id, a.id, 'Confirm their current role', true);
+    s.checkOption(nb.id, a.id, 'Confirm it is connected to them', true);
+    // The third check was still open before the correction.
+    const thread = notebookThread(ctx, s.get(nb.id)!)!;
+    correctionReply = () => `<correction>${JSON.stringify({ semantic_delta: { type: 'about-fact', target_id: 'about:person:organization', old_value: 'Acme', new_value: 'Acme and Brightline', label: 'Company' }, impact: [{ object_id: `option:${a.id}:check:0`, action: 'reevaluate', reason: 'his role' }, { object_id: `option:${a.id}:check:1`, action: 'reevaluate', reason: 'his work' }], clarification_required: false, clarification_question: '' })}</correction>`;
+    let work: Promise<void> | undefined;
+    startNotebookCorrection(ctx, thread, { kind: 'action', status: 'proposed', agentId: 'notebook-correct', inputs: { NOTEBOOK: nb.id, INSTRUCTION: 'He does both' } }, (p) => { work = p; });
+    await work;
+    correctionReply = undefined;
+    const card = JSON.parse([...inbox.listResponses(thread)].reverse().find((r) => r.role === 'action')!.metaJson!) as import('@some-useful-agents/core').InboxActionMeta;
+    // The checker answers the two it reopened; the time-sensitive one stays unknown.
+    checkerReply = () => `<notebook>${JSON.stringify({ facts: [{ id: a.id, checked: ['Confirm their current role', 'Confirm it is connected to them'] }] })}</notebook>`;
+    let checked: Promise<void> | undefined;
+    applyNotebookCorrection(ctx, thread, card, (p) => { checked = p; });
+    await checked;
+    checkerReply = undefined;
+    const words = [...inbox.listResponses(thread)].reverse().find((r) => r.role === 'triage')!.body;
+    expect(words).toContain('1 of 1 corrected checked');
+    expect(words).not.toContain('still open');
+  });
+
   it('a correction applied while a step runs waits on its card, and applies itself when the step is done', async () => {
     await makeApp();
     const ctx = ctxForDrain!;

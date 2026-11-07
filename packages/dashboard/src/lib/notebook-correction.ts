@@ -582,7 +582,7 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
     }
     if (recheck.size || recheckAll) {
       const inBefore = new Set((recheckAll ? store.entries(nb.id, 1000).filter((e) => e.kind === 'option').map((e) => e.id) : [...recheck.keys()]).filter((id) => !optionNow(id)?.ruledOut));
-      out.push((await recheckOptions(ctx, nb.id, recheckAll ? 'all' : [...recheck.keys()])).replace(/\.$/, ''));
+      out.push((await recheckOptions(ctx, nb.id, recheckAll ? 'all' : [...recheck.keys()], recheck)).replace(/\.$/, ''));
       // Ruled out by the new look: said, with why.
       for (const id of inBefore) {
         const o = optionNow(id);

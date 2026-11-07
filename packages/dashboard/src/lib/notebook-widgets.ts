@@ -562,14 +562,15 @@ function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick
   const text = (o: NotebookViewOption, key: string | undefined) => (key && typeof o.fields[key] === 'string' ? (o.fields[key] as string).trim() : '');
   const ordered = [...active.filter((o) => o.chosen), ...active.filter((o) => !o.chosen)];
   const page = (o: NotebookViewOption) => notebookOptionPath(nb.id, o.id);
-  const quotes = quoteF ? ordered.filter((o) => text(o, quoteF.key)).map((o) => {
+  const said = (o: NotebookViewOption) => (quoteF ? text(o, quoteF.key) : nb.about?.person ? bodyQuote(o.body) : '');
+  const quotes = ordered.filter((o) => said(o)).map((o) => {
     const group = groupKey ? (nb.facets?.[groupKey]?.labels[facetValueKey(o.fields[groupKey])] || text(o, groupKey)) : '';
     const ask = text(o, askF?.key);
     return {
-      title: o.name, quote: text(o, quoteF.key), href: page(o),
+      title: o.name, quote: said(o), href: page(o),
       ...(o.link ? { source: o.link } : {}), ...(o.when ? { at: o.when } : {}), ...(ask ? { ask } : {}), ...(group ? { group } : {}), ...(o.chosen ? { chosen: true } : {}),
     };
-  }) : [];
+  });
   // Written (a write step): its points, each linked to what they said that it rests on (ones since ruled out drop off).
   if (nb.briefing?.points.length) {
     const byId = new Map(active.map((o) => [o.id, o]));
@@ -593,6 +594,16 @@ function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick
   const inPoints = new Set(points.map((o) => o.id));
   const questions = askF ? ordered.filter((o) => !inPoints.has(o.id) && text(o, askF.key)).slice(0, 8).map((o) => ({ text: text(o, askF.key), label: o.name, href: page(o) })) : [];
   return { quotes, talkingPoints, questions, watch: [] };
+}
+
+/** Whether the notebook can have quotes: a quote field, or it's about a person (each option's source quote, as the finder keeps it). */
+function canQuote(nb: Notebook): boolean {
+  return nb.fields.some((f) => f.role === 'quote') || !!nb.about?.person;
+}
+
+/** The words an option's source said, as the finder keeps them in its body ("Why. \"Their words\" (found by …)"). */
+export function bodyQuote(body: string): string {
+  return /"([^"]{8,600})"/.exec(body)?.[1]?.trim() ?? '';
 }
 
 /** At most `n` characters, cut at a word, with "…". */
@@ -833,7 +844,9 @@ export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: un
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
 function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
   const layout = notebookLayoutOf(nb);
-  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}) }));
+  // Nothing to quote ever (no quote field, and not about a person): its quotes panel isn't held open while a step runs.
+  const cantFill = canQuote(nb) ? undefined : new Set(['QuoteList']);
+  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}), ...(cantFill ? { cantFill } : {}) }));
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
