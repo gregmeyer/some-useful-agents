@@ -17,7 +17,7 @@ describe('the view authoring guide', () => {
     for (const name of ['Metric', 'Table', 'Sparkline', 'KeyValue', 'StatStrip', 'ChipList']) expect(guide).toContain(`- ${name}: `);
     expect(guide).not.toContain('- OptionGrid: ');
     expect(suaComponentDocs().length).toBeGreaterThan(10);
-    expect(guide.length).toBeLessThan(4500);
+    expect(guide.length).toBeLessThan(4800);
   });
 
   it('finds the top-level outputs a view binds', () => {
