@@ -394,6 +394,14 @@ export async function runProposedAction(
   // contract; the actual write happens here.
   if (ROUTE_HANDLED_AGENTS.has(meta.agentId)) {
     const result = await executeRouteHandledAgent(ctx, messageId, meta);
+    // Approved but not yet (a correction while its notebook runs a step): the card waits, saying what for.
+    if (result.status === 'proposed') {
+      ctx.inboxStore.updateResponse(response.id, {
+        metaJson: JSON.stringify({ ...meta, status: 'proposed', startedAt: undefined, waitingFor: result.waitingFor }),
+      });
+      publishInboxEvent(ctx, messageId, 'action:status', { responseId: response.id, status: 'proposed', agentId: meta.agentId });
+      return;
+    }
     const endedAt = Date.now();
     ctx.inboxStore.updateResponse(response.id, {
       metaJson: JSON.stringify({
@@ -873,7 +881,7 @@ async function executeRouteHandledAgent(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
   meta: InboxActionMeta,
-): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string }> {
+): Promise<{ status: InboxActionStatus; summary?: string; refusalReason?: string; waitingFor?: string }> {
   if (meta.agentId === 'agent-editor') {
     return executeAgentEditor(ctx, messageId, meta);
   }

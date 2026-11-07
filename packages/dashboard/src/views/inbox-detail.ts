@@ -829,7 +829,18 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
   // Drives modal-poll keep-alive while the action is running.
   const runningAttr = meta.status === 'running' ? 'data-action-running="1"' : '';
 
-  const controlsBlock = meta.status === 'proposed'
+  // Approved, waiting (a correction while its notebook runs a step): it applies itself after; only taking it back is left.
+  const controlsBlock = meta.status === 'proposed' && meta.waitingFor
+    ? html`
+      <div class="inbox-action__controls">
+        <span class="inbox-action__reason">Waits for <strong>${meta.waitingFor}</strong> to finish, then applies.</span>
+        <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/skip"
+          data-inbox-modal-form style="margin:0;">
+          <button type="submit" class="btn btn--sm btn--ghost">Don’t apply</button>
+        </form>
+      </div>
+    `
+    : meta.status === 'proposed'
     ? html`
       <div class="inbox-action__controls">
         <form method="POST" action="/inbox/${r.messageId}/actions/${r.id}/run"

@@ -157,6 +157,12 @@ export interface InboxActionMeta {
   skippedBy?: 'operator' | 'triage' | 'notebook';
   /** Why the notebook retired this card (skippedBy `notebook`). */
   skipReason?: string;
+  /**
+   * Approved, but waiting (status stays `proposed`): what it waits for, in words
+   * (a correction applied while its notebook runs a step waits for that step,
+   * then applies itself).
+   */
+  waitingFor?: string;
   /** Where it was approved, when not on the card: `notebook` = a notebook header button. */
   from?: 'notebook';
   /**

@@ -88,6 +88,7 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
     - how many parts it keeps as they are.
   - **What was found stays.** A quote is still what they said, even when a point drawn from it no longer holds.
   - **When it can't tell** which part you mean, or what it should say, sua asks instead.
+  - **Applied while a step runs:** the card says it waits for that step, and applies itself when the step is done (stopped or met) — before the step's next cards, so a recheck it starts goes first. **Don't apply** takes it back. Replying in the conversation doesn't drop it. If it fails, sua can say why when you ask.
   - **Apply:**
     - The fact changes, and stays yours: a later **Look again** or **Update** doesn't change it back, and sources that disagree only on the value you said is wrong don't raise it again. Say a fact is simply wrong, and it goes.
     - Questions that rest on the old value come out.
