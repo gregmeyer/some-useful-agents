@@ -6,6 +6,7 @@
  * with a decision.
  */
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
+import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
 import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
@@ -1304,10 +1305,7 @@ export function renderNotebooksList(args: {
     <div class="nbl-grid">
       ${args.notebooks.map((c) => {
         const { nb } = c;
-        const facts = [
-          c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
-          c.options ? `${String(c.active)} in the running` : '',
-        ].filter(Boolean);
+        const facts = countParts(c);
         const photo = c.cover && c.coverKind !== 'illustration' && c.coverKind !== 'logo' ? c.cover : undefined;
         const met = c.checks?.filter((x) => x.met).length ?? 0;
         return html`

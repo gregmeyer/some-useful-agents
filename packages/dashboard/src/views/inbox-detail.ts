@@ -34,6 +34,7 @@ import { pageHeader } from './page-header.js';
 import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 import { describeAgentChange } from '../lib/agent-change.js';
 import { pictureClass } from '../lib/notebook-logos.js';
+import { countParts } from '../lib/notebook-card.js';
 
 export interface InboxDetailOptions {
   message: InboxMessage;
@@ -507,11 +508,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
 /** A notebook's conversation: the notebook as a card that opens it. */
 function renderThreadNotebook(c: NotebookCard): SafeHtml {
   const { nb } = c;
-  const facts = [
-    c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
-    c.options ? `${String(c.active)} in the running` : '',
-    c.done ?? '',
-  ].filter(Boolean).join(' · ');
+  const facts = [...countParts(c), c.done ?? ''].filter(Boolean).join(' · ');
   return html`<div class="ib-notebook-wrap">
     <a class="ib-notebook" href="/notebooks/${encodeURIComponent(nb.id)}" data-thread-notebook="${nb.id}">
       ${c.cover
