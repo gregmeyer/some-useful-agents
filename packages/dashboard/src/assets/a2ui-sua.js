@@ -1285,6 +1285,66 @@ const Changes = define('Changes', 'sua-a2ui-changes',
     })}</div>`;
   });
 
+// A thumbnail: http(s), a dashboard path, or a small base64 image (a drawing sua or an example made).
+const imageUrl = (u) => safeUrl(u) ?? (typeof u === 'string' && /^data:image\/(svg\+xml|png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(u) ? u : undefined);
+/** A story's date, short ("Nov 6"; with the year when it's not this one); other text as given. */
+const storyDate = (at) => {
+  if (typeof at !== 'string' || !at.trim()) return '';
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime()) || !/\d{4}/.test(at)) return at.trim();
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(d.getFullYear() === new Date().getFullYear() ? {} : { year: 'numeric' }) });
+};
+
+// Articles or posts, as a feed gives them: a thumbnail (or the source's
+// initials), the title linked to the article, a line of summary, then
+// source · date. A news tile, a reading list, a digest.
+const Stories = define('Stories', 'sua-a2ui-stories',
+  Common.extend({ items: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), maxItems: z.number().int().min(1).max(50).optional(), thumbs: z.enum(['show', 'hide']).optional() }).strict(),
+  css`${sectionHead}
+    ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+    li { display: flex; gap: 12px; align-items: flex-start; min-width: 0; }
+    .pic { flex: 0 0 72px; width: 72px; aspect-ratio: 4 / 3; border-radius: var(--radius-sm, 6px); overflow: hidden; background: var(--color-surface-raised); border: 1px solid var(--color-border); display: grid; place-items: center; }
+    .pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .pic span { font: 700 var(--font-size-sm)/1 var(--font-mono); color: var(--color-text-muted); letter-spacing: .04em; }
+    .body { min-width: 0; flex: 1; display: grid; gap: 2px; }
+    .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.4; color: var(--color-text); overflow-wrap: anywhere; }
+    .t a { color: inherit; text-decoration: none; }
+    .t a:hover, .t a:focus-visible { color: var(--color-primary); text-decoration: underline; }
+    .s { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .m { font: 500 var(--font-size-xs)/1.5 var(--font-mono); color: var(--color-text-subtle, var(--color-text-muted)); text-transform: uppercase; letter-spacing: .04em; overflow-wrap: anywhere; }
+    .more { all: unset; cursor: pointer; margin-top: 8px; display: inline-block; font-size: var(--font-size-xs); color: var(--color-primary); }
+    .more:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }`,
+  function (p) {
+    const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && typeof x.title === 'string' && x.title.trim());
+    if (!items.length) return html`<p class="empty">${p.empty ?? 'No stories yet.'}</p>`;
+    const max = p.maxItems ?? 10;
+    const list = this._all ? items : items.slice(0, max);
+    const thumbs = p.thumbs !== 'hide';
+    const pic = (x) => {
+      const img = imageUrl(x.image);
+      if (img) return html`<div class="pic"><img src=${img} alt="" loading="lazy"></div>`;
+      const who = typeof x.source === 'string' && x.source.trim() ? x.source : sourceName(x.url);
+      return html`<div class="pic" aria-hidden="true"><span>${monogram(who) || '·'}</span></div>`;
+    };
+    const meta = (x) => {
+      const src = typeof x.source === 'string' && x.source.trim() ? x.source.trim() : sourceName(x.url);
+      const when = storyDate(x.at);
+      return [src, when].filter(Boolean).join(' · ');
+    };
+    return html`<div>
+      ${p.title ? html`<h4 class="h">${p.title}</h4>` : nothing}
+      <ul>${list.map((x) => html`<li>
+        ${thumbs ? pic(x) : nothing}
+        <div class="body">
+          <div class="t">${safeUrl(x.url) ? html`<a href=${safeUrl(x.url)} target="_blank" rel="noopener noreferrer">${x.title}</a>` : x.title}</div>
+          ${typeof x.summary === 'string' && x.summary.trim() ? html`<div class="s">${x.summary}</div>` : nothing}
+          ${meta(x) ? html`<div class="m">${meta(x)}</div>` : nothing}
+        </div>
+      </li>`)}</ul>
+      ${items.length > max ? html`<button type="button" class="more" aria-expanded=${this._all ? 'true' : 'false'} @click=${() => { this._all = !this._all; this.requestUpdate(); }}>${this._all ? 'Show fewer' : `Show ${items.length - max} more`}</button>` : nothing}
+    </div>`;
+  });
+
 // A plan in order (a notebook's write step with shape "plan", or any agent's):
 // a heading per day, week or slot with its items (each with its note and
 // the options it uses), then what to do first and what's still open.
@@ -1883,7 +1943,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

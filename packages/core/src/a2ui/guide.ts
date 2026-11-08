@@ -44,6 +44,7 @@ ${sua}
 Rules:
 - Lead with the one or two numbers or facts that matter (Metric, StatStrip), then the detail (Table, KeyValue, ChipList, Text).
 - Bind values to paths; never type a sample value into the view: it is reused for every run.
+- Headlines, articles or posts with links: Stories, not a Table.
 - Tables: the 3–5 columns worth reading; links as format: link (linkText: the row field to show as the link's text); maxRows about 10; rowAction { name: run-agent, agent, inputs: { INPUT: row field } } runs that agent (a tile on the same board, else this one) from a clicked row.
 - Inputs and a Run button (instead of outputWidget.interactive): a TextField per input with value: { path: /inputs/NAME }, then { id: run, component: Button, child: run_label, action: { event: { name: run-agent, context: { in_NAME: { path: /inputs/NAME } } } } } and { id: run_label, component: Text, text: Run }. It always runs this agent.
 - Style through tones (neutral, ok, warn, err), never colours. Ids: short, unique, word characters. At most about 40 components.
