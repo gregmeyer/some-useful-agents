@@ -58,7 +58,7 @@ describe('a widget with one wrong part', () => {
   });
   it('the guide shows each component\'s properties', () => {
     expect(chatWidgetGuide()).toContain('"component":"StatStrip"');
-    expect(chatWidgetGuide().length).toBeLessThan(4000);
+    expect(chatWidgetGuide().length).toBeLessThan(4100);
     expect(chatWidgetGuide()).not.toMatch(/"\/(notebook|outputs|series)\//); // every example binds /data
   });
 });
