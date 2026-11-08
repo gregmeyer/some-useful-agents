@@ -3,9 +3,34 @@
  * one) and a line of what it holds.
  * Used by the Notebooks list and by a notebook's conversation thread.
  */
-import { notebookViewData, notebookPhotoPath, NotebookStore, rankBy, rankOptions, type Notebook, type NotebookViewOption, type InboxMessage } from '@some-useful-agents/core';
+import { notebookViewData, notebookPhotoPath, notebookLayoutOf, NotebookStore, rankBy, rankOptions, type Notebook, type NotebookViewOption, type InboxMessage } from '@some-useful-agents/core';
 import { formatFieldValue, type NotebookCard } from '../views/notebooks.js';
 import { notebookAboutPhotoPath } from './notebook-widgets.js';
+
+/**
+ * What a notebook calls what its steps find, by the preset its page uses:
+ * options for a shortlist (and a plan or a watch, which pick among them),
+ * topics for a meeting briefing, findings for a company briefing or an answer.
+ */
+export function optionWords(nb: Pick<Notebook, 'layout'>): { one: string; many: string } {
+  const preset = notebookLayoutOf(nb).preset;
+  const one = preset === 'dossier' ? 'topic' : preset === 'company' || preset === 'answer' ? 'finding' : 'option';
+  return { one, many: `${one}s` };
+}
+
+/**
+ * The count parts on a notebook's cards (Home's shelf, the Notebooks list, its
+ * conversation): "12 options" + "8 in the running" for a shortlist; for a
+ * briefing or an answer "8 of 12 topics kept", or just "12 topics" while none
+ * is ruled out; "3 entries" before anything is found.
+ */
+export function countParts(c: Pick<NotebookCard, 'nb' | 'options' | 'active' | 'entries'>): string[] {
+  if (!c.options) return [`${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`];
+  const w = optionWords(c.nb);
+  const n = (k: number) => `${String(k)} ${k === 1 ? w.one : w.many}`;
+  if (w.one === 'option') return [n(c.options), `${String(c.active)} in the running`];
+  return c.active === c.options ? [n(c.options)] : [`${String(c.active)} of ${String(c.options)} ${w.many} kept`];
+}
 
 /** Best first by the score field (how well it fits) when there is one, else by price; only those it can rank. */
 function ranked(nb: Notebook, active: NotebookViewOption[]): NotebookViewOption[] {
@@ -36,7 +61,8 @@ export function notebookCoverSrc(s: NotebookStore, nb: Notebook, lead?: { id: st
   if (nb.about) {
     const kept = s.aboutPhotos(nb.id);
     const who = kept.has('person') ? 'person' : kept.has('company') ? 'company' : undefined;
-    if (who) return { src: notebookAboutPhotoPath(nb.id, who), kind: s.aboutPhoto(nb.id, who)?.kind === 'logo' ? 'logo' : 'listing' };
+    // A portrait or a company's photo is theirs, not a listing's: the cards put no "listing photo" caption on it.
+    if (who) return { src: notebookAboutPhotoPath(nb.id, who), kind: s.aboutPhoto(nb.id, who)?.kind === 'logo' ? 'logo' : who === 'person' ? 'portrait' : 'photo' };
   }
   const cover = notebookCover(s, nb, lead);
   return cover ? { src: notebookPhotoPath(nb.id, cover.entryId), kind: cover.kind, ...(cover.shape ? { shape: cover.shape } : {}) } : undefined;

@@ -5,18 +5,16 @@
  */
 import { html, type SafeHtml } from './html.js';
 import { coverArt } from './notebooks.js';
-import type { ShelfCard } from '../lib/notebook-card.js';
+import { countParts, optionWords, type ShelfCard } from '../lib/notebook-card.js';
 import { pictureClass } from '../lib/notebook-logos.js';
 
+// A person's portrait or a company's own photo (kind portrait / photo) gets no caption.
 const COVER_KIND: Record<string, string> = { listing: 'listing photo', representative: 'example photo', logo: 'logo', illustration: 'illustration' };
 
 function card(c: ShelfCard): SafeHtml {
   const { nb } = c;
   const met = c.criteria.filter(Boolean).length;
-  const facts = [
-    c.done ?? '',
-    c.options ? `${String(c.options)} option${c.options === 1 ? '' : 's'}, ${String(c.active)} in the running` : `${String(c.entries)} entr${c.entries === 1 ? 'y' : 'ies'}`,
-  ].filter(Boolean).join(' · ');
+  const facts = [c.done ?? '', countParts(c).join(', ')].filter(Boolean).join(' · ');
   return html`
     <a class="nbs-card" href="/notebooks/${encodeURIComponent(nb.id)}">
       <span class="nbs-card__cover">
@@ -30,7 +28,7 @@ function card(c: ShelfCard): SafeHtml {
         <span class="nbs-card__title">${nb.title}</span>
         ${c.best
           ? html`<span class="nbs-card__lead"><span class="nbs-card__price">${c.best}</span>${c.bestName ? html`<span class="nbs-card__leadname">${c.bestName}</span>` : html``}</span>`
-          : html`<span class="nbs-card__lead nbs-card__lead--none">${nb.statement || 'No options yet'}</span>`}
+          : html`<span class="nbs-card__lead nbs-card__lead--none">${nb.statement || `No ${optionWords(nb).many} yet`}</span>`}
         <span class="nbs-card__facts">
           ${c.criteria.length ? html`<span class="nbs-dots" aria-label="${`${String(met)} of ${String(c.criteria.length)} done`}">${c.criteria.map((m) => html`<span class="nbs-dot${m ? ' is-met' : ''}"></span>`) as unknown as SafeHtml[]}</span>` : html``}
           <span>${facts}</span>
