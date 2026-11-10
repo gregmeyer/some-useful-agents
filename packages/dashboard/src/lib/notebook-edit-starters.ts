@@ -34,22 +34,23 @@ export function editStarters(nb: Notebook, hasOptions: boolean): EditStarter[] {
 
   // What this notebook's page has something to show for, strongest first.
   const lead: Array<[boolean, string, string]> = [
-    [flags.answered, 'the answer', 'the answer, in full'],
+    // Said as what you'd see, never as how the page is built ("a large number", "a component").
+    [flags.answered, 'the answer', 'the answer'],
     [flags.planned, 'the plan', 'the plan'],
     [!!nb.briefing?.points.length, 'the talking points', 'the talking points'],
-    [flags.person, 'who they are', 'who they are: their photo, role and company'],
-    [flags.company && !flags.person, 'the company', 'the company: its logo and what it does'],
+    [flags.person, 'who they are', 'who they are, with their photo'],
+    [flags.company && !flags.person, 'the company', 'the company and what it does'],
     [flags.decided, 'the decision', 'the decision and why'],
-    [flags.options && flags.numbers, 'the best option', `the best option${by ? ` by ${by}` : ''}, as one large number`],
-    [flags.options && flags.numbers, 'the top three, head to head', 'the top three options compared side by side'],
-    [flags.options && flags.numbers && !!by, `bars by ${by ?? ''}`, `bars comparing the options by ${by ?? ''}`],
-    [flags.options && flags.map && !!price && !!measure, `${price ?? ''} against ${measure ?? ''}`, `the map of ${price ?? ''} against ${measure ?? ''}`],
+    [flags.options && flags.numbers, 'the best option', `the best option${by ? ` and its ${by}` : ''}`],
+    [flags.options && flags.numbers, 'the top three, side by side', 'the top three options side by side'],
+    [flags.options && flags.numbers && !!by, `a chart by ${by ?? ''}`, `a bar chart of the options by ${by ?? ''}`],
+    [flags.options && flags.map && !!price && !!measure, `${price ?? ''} against ${measure ?? ''}`, `a chart of ${price ?? ''} against ${measure ?? ''}`],
     // About someone: its "options" are what they said, not things to choose between.
-    [flags.options && !flags.about, 'the shortlist', 'the shortlist of options'],
+    [flags.options && !flags.about, 'the full list', 'the full list of options'],
     [flags.options && flags.about, 'what they said', 'what they said, with where each came from'],
-    [flags.competitors, 'their competitors', "the table of the company's competitors"],
-    [nb.criteria.length > 0, 'how far along it is', 'how far along it is: the done-whens and what is left'],
-    [flags.funnel && flags.options && !flags.about, 'the funnel', 'the funnel of how far the options got'],
+    [flags.competitors, 'their competitors', "the company's competitors"],
+    [nb.criteria.length > 0, 'how far along it is', "what's done and what's left"],
+    [flags.funnel && flags.options && !flags.about, 'how far each got', 'how many options got to each step'],
   ];
   const steps: Array<[boolean, string, string]> = [
     [true, 'find more options', 'find more options'],

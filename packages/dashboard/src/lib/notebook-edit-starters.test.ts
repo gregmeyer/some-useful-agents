@@ -17,10 +17,18 @@ describe('the Edit page\'s starters say what can finish them, for this notebook'
     const s = editStarters(nb(), true);
     expect(s.map((x) => x.label)).toEqual(['Add a step to…', 'Make the page lead with…', "Also note each one's…", "It's done when…"]);
     expect(s[1].ask).toBe('This page can lead with');
-    expect(labels(s, 1)).toEqual(['the best option', 'the top three, head to head', 'bars by price', 'price against capacity', 'the shortlist', 'how far along it is', 'the funnel']);
-    // Each is a whole sentence to send.
-    expect(s[1].options[0].text).toBe('Make the page lead with the best option by price, as one large number');
-    expect(s[1].options[3].text).toBe('Make the page lead with the map of price against capacity');
+    expect(labels(s, 1)).toEqual(['the best option', 'the top three, side by side', 'a chart by price', 'price against capacity', 'the full list', 'how far along it is', 'how far each got']);
+    // Each is a whole sentence to send, said as what you'd see (never how the page is built).
+    expect(s[1].options.map((o) => o.text)).toEqual([
+      'Make the page lead with the best option and its price',
+      'Make the page lead with the top three options side by side',
+      'Make the page lead with a bar chart of the options by price',
+      'Make the page lead with a chart of price against capacity',
+      'Make the page lead with the full list of options',
+      "Make the page lead with what's done and what's left",
+      'Make the page lead with how many options got to each step',
+    ]);
+    for (const o of s.flatMap((x) => x.options)) expect(o.text).not.toMatch(/large number|component|funnel|head to head/i);
     // Steps: not the kinds it has (a decide step), nor a profile step for a shopping notebook.
     expect(labels(s, 0)).toEqual(['find more options', 'look up missing facts', 'check each one', 'narrow to the top 5', 'write up what it found']);
     expect(s[0].options[2].text).toBe('Add a step to check each one against the checks');
