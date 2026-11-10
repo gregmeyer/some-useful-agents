@@ -300,6 +300,8 @@ export interface DashboardContext {
   notebookTldrRedraws?: Map<string, import('./lib/notebook-tldr-redraw.js').TldrRedrawState>;
   /** Tests only: answer for the notebook-tldr agent instead of running it. */
   notebookTldrRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** TL;DR pictures made lately, by a hash of the card they were made from (routes/notebooks.ts tldr.png). */
+  tldrPngs?: Map<string, Buffer>;
   /** True while sua tags notebooks (lib/notebook-tags.ts). */
   notebookTagging?: boolean;
   /** Tests only: answer for the notebook-tagger agent instead of running it. */

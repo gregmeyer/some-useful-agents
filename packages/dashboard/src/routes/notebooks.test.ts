@@ -2565,12 +2565,15 @@ describe('a brief to share', () => {
     expect(shot[0].html).not.toContain('src="/notebooks/');
     expect((await get(`/notebooks/${nb.id}/tldr.png?download=1`)).headers['content-disposition']).toContain(`filename="${nb.title} (TLDR).png"`);
     ctxForDrain!.notebookPng = async () => ({ available: false, reason: 'no browser' });
-    expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html`);
+    // (A picture already made is served from memory; one not made yet, here the dark one, has to fall back.)
+    expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers['content-type']).toBe('image/png');
+    expect((await get(`/notebooks/${nb.id}/tldr.png?theme=dark`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html?theme=dark`);
     expect((await get('/notebooks/nope/tldr.png')).status).toBe(404);
     // Redrawn: the notebook's kept spec decides the picture and its width; ?standard=1 is the standard one; a spec by address tries one without keeping it.
     const kept: Array<{ html: string; opts: { width?: number } }> = [];
     ctxForDrain!.notebookPng = async (html, opts) => { kept.push({ html, opts }); return { available: true, data: Buffer.from('PNG') }; };
     store.setTldr(nb.id, { size: 'landscape', tone: 'editorial', layout: 'split', headline: 'A headline written for it' });
+    ctxForDrain!.tldrPngs?.clear(); // the pictures made above are in memory; make these afresh
     await get(`/notebooks/${nb.id}/tldr.png`);
     expect(kept[0].opts.width).toBe(1200);
     expect(kept[0].html).toContain('<article class="tl tl--landscape tl--editorial tl--split"');
@@ -2580,6 +2583,11 @@ describe('a brief to share', () => {
     expect(kept[1].html).toContain('<article class="tl" aria-label');
     await get(`/notebooks/${nb.id}/tldr.png?size=square&tone=bold&layout=hero`);
     expect(kept[2].opts.width).toBe(1080);
+    // The same picture again is served from memory (a page that leads with it asks often), and with ?v= a browser may keep it.
+    const again = await get(`/notebooks/${nb.id}/tldr.png?size=square&tone=bold&layout=hero&v=abc`);
+    expect(kept).toHaveLength(3);
+    expect(again.headers['cache-control']).toBe('private, max-age=300');
+    expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers['cache-control']).toBe('private, no-store');
     expect(kept[2].html).toContain('<article class="tl tl--square tl--bold tl--hero"');
     expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape' });
     expect((await get(`/notebooks/${nb.id}/tldr.html?size=portrait`)).text).toContain('tl--portrait');

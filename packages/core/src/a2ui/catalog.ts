@@ -345,6 +345,12 @@ const SUA_COMPONENTS = [
     schema: Common.extend({ stat: CS.DynamicValue.optional(), value: Str.optional(), label: Str.optional(), note: Str.optional(), tone: Tone.optional(), href: Str.optional() }).strict(),
   },
   {
+    name: 'Picture',
+    summary: 'The notebook\'s TL;DR picture, as it was last drawn or redrawn: one image made from the notebook\'s own data (the best lead or who it\'s about, the numbers, the options as bars or picture tiles). `picture` {src, alt, href, caption} from /notebook/picture. The opener for a page meant to be looked at or shared; one per page, full width or the wide side of a row.',
+    example: { id: 'pic', component: 'Picture', picture: { path: '/notebook/picture' } },
+    schema: Common.extend({ picture: CS.DynamicValue, caption: Str.optional() }).strict(),
+  },
+  {
     name: 'Bars',
     summary: 'Options as horizontal bars by one numeric field (`by`: a field key; APY by account, salary by role, price by listing), best first and marked, from `options` and `fields` (/notebook/options, /notebook/fields); `top` (default 8); ruled-out options left out.',
     example: { id: 'bars', component: 'Bars', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, by: 'apy', top: 8 },

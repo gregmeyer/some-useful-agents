@@ -41,6 +41,8 @@ export function editStarters(nb: Notebook, hasOptions: boolean): EditStarter[] {
     [flags.person, 'who they are', 'who they are, with their photo'],
     [flags.company && !flags.person, 'the company', 'the company and what it does'],
     [flags.decided, 'the decision', 'the decision and why'],
+    // Its TL;DR picture: there whenever it has options or knows who it's about.
+    [flags.options || flags.about, 'the TL;DR picture', 'the TL;DR picture'],
     [flags.options && flags.numbers, 'the best option', `the best option${by ? ` and its ${by}` : ''}`],
     [flags.options && flags.numbers, 'the top three, side by side', 'the top three options side by side'],
     [flags.options && flags.numbers && !!by, `a chart by ${by ?? ''}`, `a bar chart of the options by ${by ?? ''}`],

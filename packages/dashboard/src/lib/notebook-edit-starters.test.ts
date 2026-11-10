@@ -17,16 +17,16 @@ describe('the Edit page\'s starters say what can finish them, for this notebook'
     const s = editStarters(nb(), true);
     expect(s.map((x) => x.label)).toEqual(['Add a step to…', 'Make the page lead with…', "Also note each one's…", "It's done when…"]);
     expect(s[1].ask).toBe('This page can lead with');
-    expect(labels(s, 1)).toEqual(['the best option', 'the top three, side by side', 'a chart by price', 'price against capacity', 'the full list', 'how far along it is', 'how far each got']);
+    expect(labels(s, 1)).toEqual(['the TL;DR picture', 'the best option', 'the top three, side by side', 'a chart by price', 'price against capacity', 'the full list', 'how far along it is']);
     // Each is a whole sentence to send, said as what you'd see (never how the page is built).
     expect(s[1].options.map((o) => o.text)).toEqual([
+      'Make the page lead with the TL;DR picture',
       'Make the page lead with the best option and its price',
       'Make the page lead with the top three options side by side',
       'Make the page lead with a bar chart of the options by price',
       'Make the page lead with a chart of price against capacity',
       'Make the page lead with the full list of options',
       "Make the page lead with what's done and what's left",
-      'Make the page lead with how many options got to each step',
     ]);
     for (const o of s.flatMap((x) => x.options)) expect(o.text).not.toMatch(/large number|component|funnel|head to head/i);
     // Steps: not the kinds it has (a decide step), nor a profile step for a shopping notebook.
@@ -52,7 +52,7 @@ describe('the Edit page\'s starters say what can finish them, for this notebook'
       steps: [{ id: 's1', title: 'Learn', kind: 'profile', status: 'done', tries: 0 }, { id: 's2', title: 'Write', kind: 'write', status: 'done', tries: 0 }],
     } as unknown as Partial<Notebook>);
     const s = editStarters(meeting, true);
-    expect(labels(s, 1)).toEqual(['the talking points', 'who they are', 'what they said']);
+    expect(labels(s, 1)).toEqual(['the talking points', 'who they are', 'the TL;DR picture', 'what they said']);
     expect(labels(s, 0)).not.toContain('write up what it found');
     expect(labels(s, 0)).not.toContain('learn who it is about');
     // An answer or a decision leads when there is one.
