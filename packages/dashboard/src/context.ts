@@ -295,6 +295,7 @@ export interface DashboardContext {
   agentFindRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: make a brief's PDF or a notebook's picture without a browser (core htmlToPdf / htmlToPng). */
   notebookPdf?: (html: string, opts: { footer?: string; paper?: 'Letter' | 'A4' }) => Promise<import('@some-useful-agents/core').BrowserFile>;
+  notebookPng?: (html: string, opts: { width?: number; scale?: number; selector?: string }) => Promise<import('@some-useful-agents/core').BrowserFile>;
   /** True while sua tags notebooks (lib/notebook-tags.ts). */
   notebookTagging?: boolean;
   /** Tests only: answer for the notebook-tagger agent instead of running it. */

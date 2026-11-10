@@ -2466,7 +2466,10 @@ describe('a brief to share', () => {
     expect(t.startsWith('<!doctype html>')).toBe(true);
     expect(t).toContain('<title>Car for Nadia</title>');
     expect(t).toContain('A reliable used car for a new driver');
-    expect(t).toContain('<strong>2 in the running</strong>');
+    // Where it stands is the TL;DR card under the title (the best lead, the numbers, the bars), not a paragraph.
+    expect(t).toContain('<span class="tl__num">2</span><span class="tl__what">options in the running</span>');
+    expect(t).toContain('<div class="tl__label">Best lead</div>');
+    expect(t).not.toContain('<p class="stands">');
     expect(t).toContain('2010 Subaru Forester &lt;b&gt;'); // escaped
     expect(t).toContain('<dd>$4,999</dd>');
     expect(t).toContain('<dd>164,988 mi</dd>');
@@ -2537,6 +2540,29 @@ describe('a brief to share', () => {
     expect(none.status).toBe(303);
     expect(none.headers.location).toBe(`/notebooks/${nb.id}/brief.html?full=1&print=1&theme=light`);
     expect((await get('/notebooks/nope/brief.pdf')).status).toBe(404);
+
+    // The TL;DR picture: the card as a page, and a PNG made from it (its lead's picture inside it), in the menu too.
+    const card = await get(`/notebooks/${nb.id}/tldr.html`);
+    expect(card.status).toBe(200);
+    expect(card.text).toContain('<article class="tl"');
+    expect(card.text).toContain(`<h1 class="tl__title">${nb.title}</h1>`);
+    const shot: Array<{ html: string; opts: { width?: number; scale?: number; selector?: string } }> = [];
+    ctxForDrain!.notebookPng = async (html, opts) => { shot.push({ html, opts }); return { available: true, data: Buffer.from('PNG stand-in') }; };
+    const png = await get(`/notebooks/${nb.id}/tldr.png`);
+    expect(png.headers['content-type']).toBe('image/png');
+    expect(png.headers['content-disposition']).toBeUndefined();
+    expect(shot[0].opts).toEqual({ width: 1080, scale: 2, selector: '.tl' });
+    expect(shot[0].html).not.toContain('src="/notebooks/');
+    expect((await get(`/notebooks/${nb.id}/tldr.png?download=1`)).headers['content-disposition']).toContain(`filename="${nb.title} (TLDR).png"`);
+    ctxForDrain!.notebookPng = async () => ({ available: false, reason: 'no browser' });
+    expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html`);
+    expect((await get('/notebooks/nope/tldr.png')).status).toBe(404);
+    expect(menu).toContain(`href="/notebooks/${nb.id}/tldr.png?download=1" download`);
+    // The brief carries the same card under its title (without a second title), in place of the "where it stands" paragraph.
+    const withCard = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(withCard).toContain('<article class="tl tl--bare"');
+    expect(withCard).not.toContain('<p class="stands">');
+    expect((await get(`/notebooks/${nb.id}/brief.html?latest=1`)).text).not.toContain('<article class="tl');
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');

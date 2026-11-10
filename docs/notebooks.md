@@ -412,7 +412,7 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 ### A brief to share
 
 **Open the brief** (under **Download / share**) shows the notebook as a summary of what it found, on one page to send:
-- **The goal**, then the decision or where it stands. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
+- **The goal**, then the **TL;DR card** when there's something to plot (see [The TL;DR picture](#the-tldr-picture)), then the decision. With no card, where it stands in a paragraph. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
 - **Key findings**, worked out from the notebook itself (nothing written by a model, nothing guessed):
   - how many options were looked at, over how many searches, and how many are in the running, chosen and ruled out;
   - the span of the price or salary in the running (a salary range counts by both ends), and how many don't list it;
@@ -431,6 +431,20 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 - no option split across pages;
 - each **Own page** link followed by the site it goes to ("batteriesplus.com"), not its whole address: the link itself works in a PDF;
 - white paper, and type set a little smaller and closer than on screen, so a shortlist of eight is three pages.
+
+#### The TL;DR picture
+
+**Download / share → Open the TL;DR picture ↗** (or **Download the TL;DR picture**) gives you the notebook as one picture, a PNG to drop into a message. Everything on it comes from the notebook's own data; nothing is written for it by a model.
+
+- **The title**, with the date.
+- **The best lead**: its name, the fact that ranks it first, up to three more of its facts, and its picture. Once you've decided, it's **Chosen**. A notebook that wrote an answer leads with the answer instead.
+- **Up to three numbers**: how many options are in the running (or chosen), the span of the deciding fact ("$139.99–$2,130.99"), and how they split on a short fact ("3 of 8 in Mesa, Arizona"), or how many were ruled out.
+- **The options as ranked bars**, up to eight, by the fact that decides between them: fit when the notebook scores it, else price, else its main measure. The lead's bar is in the accent colour, each bar has its value at the right, and "and 13 more in the running" counts the rest. When too few options state the deciding fact, the bars use the next one that at least two state, in that fact's order.
+- **Nothing to plot** (a meeting briefing, a plan): the card says what it's for or where it stands in a sentence, the numbers, and the first talking points or findings, numbered.
+
+The picture is 2160 pixels wide (twice the card, so text stays sharp), in the light theme with your brand colours; `tldr.png?theme=dark` gives the dark one, and `tldr.html` is the card as a page. It needs the same headless browser as the PDF; without one the link opens the card as a page. The same card, without its title, sits under the title of a shortlist's brief and PDF.
+
+Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 
 **For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.
 
