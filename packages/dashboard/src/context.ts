@@ -296,6 +296,10 @@ export interface DashboardContext {
   /** Tests only: make a brief's PDF or a notebook's picture without a browser (core htmlToPdf / htmlToPng). */
   notebookPdf?: (html: string, opts: { footer?: string; paper?: 'Letter' | 'A4' }) => Promise<import('@some-useful-agents/core').BrowserFile>;
   notebookPng?: (html: string, opts: { width?: number; scale?: number; selector?: string }) => Promise<import('@some-useful-agents/core').BrowserFile>;
+  /** TL;DR pictures being redrawn, and how the last redraw ended, by notebook (lib/notebook-tldr-redraw.ts). */
+  notebookTldrRedraws?: Map<string, import('./lib/notebook-tldr-redraw.js').TldrRedrawState>;
+  /** Tests only: answer for the notebook-tldr agent instead of running it. */
+  notebookTldrRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** True while sua tags notebooks (lib/notebook-tags.ts). */
   notebookTagging?: boolean;
   /** Tests only: answer for the notebook-tagger agent instead of running it. */

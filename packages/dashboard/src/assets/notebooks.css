@@ -704,6 +704,22 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 }
 
 /* New notebook: drafts you began but haven't started (also on the notebooks list). */
+/* The TL;DR picture's Redraw page: the picture, and beside it how it's drawn and the ask. */
+.nbt { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: var(--space-6); align-items: start; }
+.nbt__pic { margin: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface-raised); }
+.nbt__pic img { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); }
+.nbt__frame { display: block; width: 100%; aspect-ratio: 4 / 3; border: 0; border-radius: var(--radius-sm); background: #fff; }
+.nbt__side { display: grid; gap: var(--space-4); min-width: 0; }
+.nbt__h { margin: 0 0 var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+.nbt__spec { margin: 0; font-size: var(--font-size-sm); }
+.nbt__about, .nbt__asked, .nbt__hint { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); line-height: 1.5; }
+.nbt__hint { font-size: var(--font-size-xs); }
+.nbt__form { display: grid; gap: var(--space-2); justify-items: start; margin: 0; }
+.nbt__form textarea { width: 100%; }
+.nbt__starters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0 0; }
+.nbt__acts { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.nbt__acts form { margin: 0; }
+@media (max-width: 860px) { .nbt { grid-template-columns: minmax(0, 1fr); } }
 .nbd-like-slot:empty { display: none; }
 .nbd-like { padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-surface); display: grid; gap: var(--space-2); }
 .nbd-like__h { margin: 0; font-size: var(--font-size-sm); font-weight: var(--weight-semibold); }

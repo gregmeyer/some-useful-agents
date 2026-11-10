@@ -336,7 +336,10 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const layout = spec?.layout ?? 'stack';
   const parts = spec?.parts ?? ['lead', 'stats', 'bars', 'points'];
   // Only as many bars and points as the size holds; the rest are counted.
-  const cap = Math.min(spec?.bars ?? size.bars, size.bars, layout === 'hero' && size.height ? Math.max(3, size.bars - 2) : size.bars);
+  // A fixed box holds less when more is stacked in it: the hero's big number, and each line written for it, cost a bar or two.
+  const words = (spec?.headline ? 1 : 0) + (spec?.takeaway ? 1 : 0);
+  const room = !size.height ? size.bars : Math.max(3, size.bars - (layout === 'hero' ? 2 : 0) - (layout !== 'split' && spec?.size === 'landscape' ? words : 0));
+  const cap = Math.min(spec?.bars ?? size.bars, room);
   // Bars are measured against the longest one shown (each still starts at zero and says its value), so a short list isn't dwarfed by ones left out.
   const kept = t.chart?.bars.slice(0, cap) ?? [];
   const chart = t.chart ? { ...t.chart, bars: kept, more: t.chart.more + Math.max(0, t.chart.bars.length - cap), max: Math.max(...kept.map((b) => b.value), 0) } : undefined;
