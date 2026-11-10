@@ -16,7 +16,7 @@ import { renderNotebookOptionPage } from '../views/notebook-option.js';
 import { navOrder, notebookOptionData, optionNeighbours, optionPage } from '../lib/notebook-option.js';
 import { notebookWidgetData, notebookWidgetMessages } from '../lib/notebook-widgets.js';
 import { render } from '../views/html.js';
-import { renderNotebookNew, renderDraftReview, renderSuggestionPills } from '../views/notebook-new.js';
+import { renderNotebookNew, renderDraftReview, renderSuggestionPills, renderNotebookLike, type NotebookLike } from '../views/notebook-new.js';
 import { renderTemplateSave, renderTemplatePreview, templateEditsFrom, type TemplatePreview } from '../views/notebook-template.js';
 import { templateOfNotebook, draftTemplate } from '../lib/notebook-template-action.js';
 import { conversationWorking } from '../lib/conversation-working.js';
@@ -31,7 +31,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, loadBrandTheme, notebookTags } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -50,7 +50,7 @@ import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures
 import { startNotebookFacets } from '../lib/notebook-facets.js';
 import { startNotebookTags, tagCounts } from '../lib/notebook-tags.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
-import { runTriageAgent } from './inbox-engine.js';
+import { runTriageAgent, notebookSetupSource, startNotebookFrom } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
 
 export const notebooksRouter: Router = Router();
@@ -141,6 +141,40 @@ const titleFrom = (text: string): string => {
   return first.length <= 60 ? first.replace(/[.!?]$/, '') : `${first.slice(0, 57).replace(/\s+\S*$/, '')}…`;
 };
 
+/**
+ * The notebook you have that a sentence on New notebook could be: the closest
+ * one (core similarNotebooks; archived too). A same-kind one counts only when
+ * it can be copied for someone else (it names who it's about) and no template
+ * was saved from it (the templates listed on the page are the way then).
+ */
+function notebookLikeFor(ctx: ReturnType<typeof getContext>, s: NotebookStore, text: string): NotebookLike | undefined {
+  try {
+    for (const { notebook: nb, match } of similarNotebooks(text, s.list({ archived: 'include' }))) {
+      const canCopy = match === 'same-kind' && !('error' in notebookSetupSource(ctx, { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { LIKE: nb.id } })) && !templateOfNotebook(ctx, nb);
+      if (match === 'same-kind' && !canCopy) continue;
+      return { id: nb.id, title: nb.title, match, status: nb.status, archived: !!nb.archivedAt, updatedAt: nb.updatedAt, ...(nb.tags?.subject ? { subject: nb.tags.subject } : {}), canCopy };
+    }
+  } catch { /* a hint only */ }
+  return undefined;
+}
+
+/** New notebook → "Set it up like that": a new notebook with this one's setup, for who or what you said. */
+notebooksRouter.post('/notebooks/:id/like', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const ctx = getContext(req.app.locals);
+  const subject = str(req.body?.subject).replace(/\s+/g, ' ').trim().slice(0, 80);
+  const fail = (msg: string) => res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(msg)}`);
+  if (!subject) { fail('Say who or what the new notebook is about.'); return; }
+  const from = notebookSetupSource(ctx, { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { LIKE: id } });
+  if ('error' in from) { fail(from.error); return; }
+  // Its title with the name swapped; a title that doesn't name them gets the new name after it.
+  const example = from.setup.subject?.example ?? '';
+  const swapped = subjectOut(from.like!.title, example);
+  const made = startNotebookFrom(ctx, { LIKE: id, SUBJECT: subject, TITLE: swapped.includes(TEMPLATE_SUBJECT) ? swapped : `${from.like!.title}: ${TEMPLATE_SUBJECT}` });
+  if ('error' in made) { fail(made.error); return; }
+  res.redirect(303, back(made.notebook.id, `Set up like ${from.like!.title}, for ${subject}. It starts empty; that one is as it was.`));
+});
+
 // New notebook (views/notebook-new.ts): say it, sua drafts it, you check it.
 notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -149,8 +183,10 @@ notebooksRouter.get('/notebooks/new', (req: Request, res: Response) => {
   const draftId = str(req.query.draft);
   const d = draftId ? readDraft(ctx, draftId) : undefined;
   const others = listDrafts(ctx).filter((x) => x.id !== draftId);
+  const text = d?.text ?? str(req.query.text).slice(0, 1000);
+  const like = text.trim() ? notebookLikeFor(ctx, store(req), text) : undefined;
   res.type('html').send(renderNotebookNew({
-    text: d?.text ?? str(req.query.text).slice(0, 1000), suggestions: sug.items, refreshing: sug.refreshing,
+    text, ...(like ? { like } : {}), suggestions: sug.items, refreshing: sug.refreshing,
     flash: parseFlash(req) ?? (draftId && !d ? { kind: 'info', message: 'That draft is gone (started, discarded or expired).' } : undefined),
     ...(d ? { draft: { id: draftId, state: d, agents: searchAgents(ctx) } } : {}),
     others,
@@ -185,7 +221,9 @@ notebooksRouter.post('/notebooks/draft', (req: Request, res: Response) => {
   // Drafting the sentence again: the draft you were on is replaced.
   const replaced = str(req.body?.replace);
   if (replaced && replaced !== out) discardDraft(ctx, replaced);
-  res.status(202).json({ id: out });
+  // A notebook you have that this could be, said above the draft. A change to the draft you're on: the hint stays as it was.
+  const change = !!str(req.body?.change).trim();
+  res.status(202).json({ id: out, ...(change ? {} : { like: render(renderNotebookLike(notebookLikeFor(ctx, store(req), str(req.body?.text)))) }) });
 });
 
 notebooksRouter.get('/notebooks/draft/:id', (req: Request, res: Response) => {

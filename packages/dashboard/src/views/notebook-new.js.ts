@@ -47,7 +47,13 @@ export const NOTEBOOK_NEW_JS = `
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch', 'Accept': 'application/json' },
         body: new URLSearchParams(body).toString()
-      }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'That didn\\u2019t work.'); return j.id; }); })
+      }).then(function (r) { return r.json().then(function (j) {
+          if (!r.ok) throw new Error(j.error || 'That didn\\u2019t work.');
+          // A notebook you already have that this could be: said above the draft (empty: none, or it's a change to this draft).
+          var like = root.querySelector('[data-nbd-like]');
+          if (like && typeof j.like === 'string') like.innerHTML = j.like;
+          return j.id;
+        }); })
         .then(function (id) {
           setId(id);
           try { localStorage.removeItem(TEXT_KEY); } catch (_) {}

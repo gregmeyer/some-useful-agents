@@ -5645,4 +5645,62 @@ describe('a notebook like the one you ask for', () => {
     // Let the new notebook finish setting up before the test's database closes.
     for (let i = 0; i < 400 && !store.get(made.id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 10));
   });
+
+  it('New notebook says so above the draft: open or run the same one again, or set this one up like one about someone else', async () => {
+    const { app, store } = await setup();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const suv = store.create({ title: 'Find a used SUV', statement: 'A reliable used SUV under $26,000', params: ['AWD'], criteria: [], pipeline: [], cadence: '' });
+    store.setAutoTags(suv.id, { tags: ['used cars', 'family'] });
+    const dana = store.create({ title: 'Prepare for my meeting with Dana Reyes', statement: 'A brief on Dana Reyes', params: [], criteria: ['Talking points chosen'], pipeline: [], cadence: '' });
+    store.setFields(dana.id, [{ key: 'topic', label: 'Topic', type: 'text' }]);
+    store.setSteps(dana.id, [{ title: 'Learn who Dana Reyes is', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Write talking points', kind: 'write' }]);
+    store.setAutoTags(dana.id, { tags: ['sales'], subject: 'Dana Reyes' });
+
+    // Nothing typed, or nothing like it: no hint.
+    expect((await get('/notebooks/new')).text).not.toContain('nbd-like__h');
+    expect((await get(`/notebooks/new?text=${encodeURIComponent('A standing desk under $600')}`)).text).not.toContain('nbd-like__h');
+
+    // The same thing: its link, Open it, and Run it again (the route Edit's "Clear and run again" uses).
+    const same = (await get(`/notebooks/new?text=${encodeURIComponent('Find me a used SUV with AWD')}`)).text;
+    expect(same).toContain('You may already have this');
+    expect(same).toContain(`<a href="/notebooks/${suv.id}">Find a used SUV</a>`);
+    expect(same).toContain(`<form method="POST" action="/notebooks/${suv.id}/rerun">`);
+    expect(same).toContain('and archives this one');
+
+    // Drafting it answers with the same hint for the page to show; a change to the draft doesn't.
+    const drafted = await post('/notebooks/draft', { text: 'Find me a used SUV with AWD' });
+    expect(drafted.status).toBe(202);
+    expect((drafted.body as { like: string }).like).toContain('You may already have this');
+    const changed = await post('/notebooks/draft', { text: 'Find me a used SUV with AWD', from: (drafted.body as { id: string }).id, change: 'under $20k' });
+    expect((changed.body as { like?: string }).like).toBeUndefined();
+    expect((await post('/notebooks/draft', { text: 'A standing desk under $600' })).body).toMatchObject({ like: '' });
+    // Back to the draft later: the hint is there again, from its sentence.
+    expect((await get(`/notebooks/new?draft=${(drafted.body as { id: string }).id}`)).text).toContain('You may already have this');
+
+    // The same kind for someone else: says who that one is about, and asks who this one is.
+    const kind = (await get(`/notebooks/new?text=${encodeURIComponent('Prepare for my meeting with Sam Ortiz')}`)).text;
+    expect(kind).toContain('You have one like this, about Dana Reyes');
+    expect(kind).toContain(`<form method="POST" action="/notebooks/${dana.id}/like"`);
+    expect(kind).toContain('placeholder="Instead of Dana Reyes"');
+
+    // Set it up like that: a new notebook for them, the name swapped, the other as it was.
+    expect((await post(`/notebooks/${dana.id}/like`, { subject: ' ' })).headers.location).toContain('/notebooks/new?flash=Say%20who');
+    const made = await post(`/notebooks/${dana.id}/like`, { subject: 'Sam Ortiz' });
+    expect(made.status).toBe(303);
+    const nb = store.list().find((x) => x.title === 'Prepare for my meeting with Sam Ortiz')!;
+    expect(made.headers.location).toContain(`/notebooks/${nb.id}?flash=`);
+    expect(decodeURIComponent(made.headers.location)).toContain('Set up like Prepare for my meeting with Dana Reyes, for Sam Ortiz.');
+    expect(nb.statement).toBe('A brief on Sam Ortiz');
+    expect(nb.steps!.map((x) => x.title)).toEqual(['Learn who Sam Ortiz is', 'Write talking points']);
+    expect(store.get(dana.id)!.archivedAt).toBeUndefined();
+    // A notebook that names no one can't be copied; nor one that isn't there.
+    expect(decodeURIComponent((await post(`/notebooks/${suv.id}/like`, { subject: 'a truck' })).headers.location)).toContain("doesn't say who or what it's about");
+    expect(decodeURIComponent((await post('/notebooks/nope/like', { subject: 'x' })).headers.location)).toContain('no notebook "nope"');
+
+    // Saved as a template: the template is the way, so the page doesn't offer to copy the notebook.
+    store.saveTemplate('Meeting prep', dana.id);
+    expect((await get(`/notebooks/new?text=${encodeURIComponent('Prepare for my meeting with Lee Park')}`)).text).not.toContain('You have one like this');
+    for (let i = 0; i < 400 && !store.get(nb.id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 10));
+  });
 });

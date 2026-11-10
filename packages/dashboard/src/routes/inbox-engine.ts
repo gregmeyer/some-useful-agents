@@ -1342,22 +1342,33 @@ export function executeNotebookCreate(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
 ): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
-  const made = notebookFromTemplate(ctx, meta);
+  const made = startNotebookFrom(ctx, meta.inputs);
   if ('error' in made) return { status: 'failed', refusalReason: made.error };
+  const { notebook: nb, from } = made;
+  const first = nb.steps?.[0];
+  return {
+    status: 'completed',
+    summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) ${from.like ? `set up like [${from.like.title}](/notebooks/${encodeURIComponent(from.like.id)})` : `from your ${from.name} template`} (${from.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
+  };
+}
+
+/**
+ * Make the notebook a `notebook-create` card describes (its inputs: TEMPLATE
+ * or LIKE, TITLE, SUBJECT…): from a template, which counts as used; or set up
+ * like a notebook, which the new one notes and which is left as it is. Also
+ * what New notebook's "Set it up like that" does.
+ */
+export function startNotebookFrom(ctx: ReturnType<typeof getContext>, inputs: Readonly<Record<string, string>>): { notebook: Notebook; from: NotebookSetupSource } | { error: string } {
+  const made = notebookFromTemplate(ctx, { kind: 'action', status: 'proposed', agentId: 'notebook-create', inputs: { ...inputs } });
+  if ('error' in made) return made;
   try {
     const nb = createNotebookFrom(ctx, made.setup);
     const { template, like } = made.from;
     if (template) notebooksOf(ctx).markTemplateUsed(template.id);
-    const likeLink = like ? `[${like.title}](/notebooks/${encodeURIComponent(like.id)})` : '';
-    // Set up like a notebook: the new one notes where its setup came from; the other is left as it is.
-    if (like) notebooksOf(ctx).addEntry(nb.id, { kind: 'note', title: 'Set up like another notebook', body: `Set up like ${likeLink}: its steps, what it notes, its checks and its page, with none of what it found.`, by: 'you' });
-    const first = nb.steps?.[0];
-    return {
-      status: 'completed',
-      summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) ${like ? `set up like ${likeLink}` : `from your ${made.from.name} template`} (${made.from.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
-    };
+    if (like) notebooksOf(ctx).addEntry(nb.id, { kind: 'note', title: 'Set up like another notebook', body: `Set up like [${like.title}](/notebooks/${encodeURIComponent(like.id)}): its steps, what it notes, its checks and its page, with none of what it found.`, by: 'you' });
+    return { notebook: nb, from: made.from };
   } catch (err) {
-    return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
+    return { error: err instanceof Error ? err.message : String(err) };
   }
 }
 
