@@ -2467,11 +2467,12 @@ describe('a brief to share', () => {
     expect(t).toContain('<title>Car for Nadia</title>');
     expect(t).toContain('A reliable used car for a new driver');
     expect(t).toContain('<strong>2 in the running</strong>');
-    // Where it stands, in words, then the TL;DR card that shows it (the best lead, the numbers, the bars).
-    expect(t).toContain('<span class="tl__num">2</span><span class="tl__what">options in the running</span>');
-    expect(t).toContain('<div class="tl__label">Best lead</div>');
+    // Where it stands, in words, then the picture's bars: how the options compare. The lead and the numbers are said once, in the words.
     expect(t.indexOf('<p class="stands">')).toBeGreaterThan(-1);
-    expect(t.indexOf('<p class="stands">')).toBeLessThan(t.indexOf('<article class="tl tl--bare"'));
+    expect(t.indexOf('<p class="stands">')).toBeLessThan(t.indexOf('<figure class="tl tl--chart"'));
+    expect(t).toContain('<figcaption class="tl__label">Price, lowest first</figcaption>');
+    expect(t).not.toContain('class="tl__stat"');
+    expect(t).not.toContain('>Best lead<');
     expect(t).toContain('2010 Subaru Forester &lt;b&gt;'); // escaped
     expect(t).toContain('<dd>$4,999</dd>');
     expect(t).toContain('<dd>164,988 mi</dd>');
@@ -2560,11 +2561,11 @@ describe('a brief to share', () => {
     expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html`);
     expect((await get('/notebooks/nope/tldr.png')).status).toBe(404);
     expect(menu).toContain(`href="/notebooks/${nb.id}/tldr.png?download=1" download`);
-    // The brief carries the same card (without a second title) after its "where it stands" paragraph.
+    // The brief carries the picture's bars after its "where it stands" paragraph.
     const withCard = (await get(`/notebooks/${nb.id}/brief.html`)).text;
-    expect(withCard).toContain('<article class="tl tl--bare"');
+    expect(withCard).toContain('<figure class="tl tl--chart"');
     expect(withCard).toContain('<p class="stands">');
-    expect((await get(`/notebooks/${nb.id}/brief.html?latest=1`)).text).not.toContain('<article class="tl');
+    expect((await get(`/notebooks/${nb.id}/brief.html?latest=1`)).text).not.toContain('<figure class="tl');
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
