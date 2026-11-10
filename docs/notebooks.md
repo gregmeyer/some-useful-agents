@@ -456,6 +456,16 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 
 The picture is 2160 pixels wide (twice the card, so text stays sharp), in the light theme with your brand colours; `tldr.png?theme=dark` gives the dark one, and `tldr.html` is the card as a page. It needs the same headless browser as the PDF; without one the link opens the card as a page. Its bars alone follow the "where it stands" paragraph in a shortlist's brief and PDF.
 
+**Other drawings of it.** The same data can be drawn in other sizes, tones and layouts, by address (a way to ask sua to redraw it in your own words comes next):
+
+| | Choices |
+|---|---|
+| `size` | `standard` (1080 wide, as tall as it needs), `landscape` (1200×627: a LinkedIn or X link image, a slide), `square` (1080×1080), `portrait` (1080×1350) |
+| `tone` | `plain` (as the dashboard looks), `editorial` (a magazine page: a large headline, rules, numerals in the accent colour), `bold` (the accent colour as the ground, white type) |
+| `layout` | `stack` (one column), `split` (words at the left, bars or points at the right), `hero` (the lead's number, or the person, very large) |
+
+For example `tldr.png?size=landscape&layout=split&tone=editorial`. A fixed size holds only what fits (landscape 5 bars, square 6, portrait 8; 3 to 5 points), counts the rest ("and 3 more in the running"), and measures its bars against the longest one shown. `parts=lead,bars` chooses which parts and their order, `headline=` and `takeaway=` add a headline over the notebook's title and a line under it. A notebook can keep one of these as its picture; `tldr.png?standard=1` is always the standard one.
+
 Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 
 **For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.

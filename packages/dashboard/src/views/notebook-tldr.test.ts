@@ -117,6 +117,45 @@ describe("a notebook's TL;DR picture", () => {
     expect(render(tldrCard(co))).toContain('<span class="tl__pic"><img src="/x.png" alt="Acme Corp"></span>');
   });
 
+  it('redrawn by a spec: its size, tone and layout as classes, its headline over the title, its parts in its order, only what the size holds', () => {
+    const many = [...entries.filter((e) => !e.ruledOut), option('Six', { price: 10 }), option('Seven', { price: 20 }), option('Eight', { price: 30 }), option('Nine', { price: 40 })];
+    const t = tldrData(nb(), many);
+    expect(t.chart!.bars).toHaveLength(8);
+    const card = render(tldrCard(t, { spec: { size: 'landscape', tone: 'editorial', layout: 'split', parts: ['bars', 'stats', 'lead'], headline: 'Eight ways to power a cart', takeaway: 'Lead-acid starts cheap.' } }));
+    expect(card).toContain('<article class="tl tl--landscape tl--editorial tl--split"');
+    // The notebook's title becomes the line over the headline written for it.
+    expect(card).toContain('<p class="tl__kicker">Choose batteries for a 2000 EZGO TXT</p><h1 class="tl__title">Eight ways to power a cart</h1><p class="tl__lede">Lead-acid starts cheap.</p>');
+    // Landscape holds 5 bars: the rest are counted, and the bars are measured against the longest one shown.
+    expect(card.match(/class="tl__bar[ "]/g)).toHaveLength(5);
+    expect(card).toContain('and 4 more in the running');
+    expect(card).toContain('style="width:100.0%"');
+    // Split: the words at the left (stats before the lead, as asked), the bars at the right.
+    const [left, right] = card.split('<div class="tl__col">').slice(1);
+    expect(left.indexOf('tl__stats')).toBeLessThan(left.indexOf('tl__lead'));
+    expect(left).not.toContain('tl__bars');
+    expect(right).toContain('tl__bars');
+
+    // Hero: the lead's own number very large, with its name; a part left out isn't drawn.
+    const hero = render(tldrCard(t, { spec: { size: 'square', tone: 'bold', layout: 'hero', parts: ['lead', 'bars'] } }));
+    expect(hero).toContain('<article class="tl tl--square tl--bold tl--hero"');
+    expect(hero).toMatch(/<div class="tl__label">Best lead · Price<\/div><p class="tl__big">\$10<\/p><p class="tl__under">Six<\/p>/);
+    expect(hero).not.toContain('tl__stats');
+    expect(hero).not.toContain('tl__kicker');
+    // A spec with fewer bars than the size holds.
+    expect(render(tldrCard(t, { spec: { size: 'portrait', tone: 'plain', layout: 'stack', parts: ['bars'], bars: 3 } })).match(/class="tl__bar[ "]/g)).toHaveLength(3);
+
+    // About someone, as a hero: their portrait and name large; a split keeps the portrait.
+    const person = tldrData(nb({ fields: [], about: { person: { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'VP Sales', at }] } }, briefing: { points: [1, 2, 3, 4, 5].map((i) => ({ text: `Point ${String(i)}`, from: [] })), questions: [], watch: [], at, by: 'x' } } as unknown as Partial<Notebook>), [], undefined, undefined, { src: '/p.png' });
+    const who = render(tldrCard(person, { spec: { size: 'landscape', tone: 'plain', layout: 'hero', parts: ['lead', 'points'] } }));
+    expect(who).toContain('<section class="tl__hero tl__hero--who"><span class="tl__pic is-portrait">');
+    expect(who).toContain('<p class="tl__big">Dana Reyes</p><p class="tl__under">VP Sales</p>');
+    expect(who.match(/<li>Point/g)).toHaveLength(3); // landscape holds 3 points
+    // No spec: the standard picture, with no redraw classes.
+    expect(render(tldrCard(t))).toContain('<article class="tl" aria-label');
+    // The page is as wide as the spec's size.
+    expect(renderNotebookTldr({ nb: nb(), entries, spec: { size: 'landscape', tone: 'plain', layout: 'stack', parts: ['lead'] } })).toContain('body { width: 1200px; }');
+  });
+
   it('is one self-contained page at the picture\'s width, with no scripts', () => {
     const page = renderNotebookTldr({ nb: nb(), entries, now: new Date('2026-11-10T12:00:00Z') });
     expect(page.startsWith('<!doctype html>')).toBe(true);

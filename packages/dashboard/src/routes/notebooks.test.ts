@@ -2567,6 +2567,25 @@ describe('a brief to share', () => {
     ctxForDrain!.notebookPng = async () => ({ available: false, reason: 'no browser' });
     expect((await get(`/notebooks/${nb.id}/tldr.png`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html`);
     expect((await get('/notebooks/nope/tldr.png')).status).toBe(404);
+    // Redrawn: the notebook's kept spec decides the picture and its width; ?standard=1 is the standard one; a spec by address tries one without keeping it.
+    const kept: Array<{ html: string; opts: { width?: number } }> = [];
+    ctxForDrain!.notebookPng = async (html, opts) => { kept.push({ html, opts }); return { available: true, data: Buffer.from('PNG') }; };
+    store.setTldr(nb.id, { size: 'landscape', tone: 'editorial', layout: 'split', headline: 'A headline written for it' });
+    await get(`/notebooks/${nb.id}/tldr.png`);
+    expect(kept[0].opts.width).toBe(1200);
+    expect(kept[0].html).toContain('<article class="tl tl--landscape tl--editorial tl--split"');
+    expect(kept[0].html).toContain('<h1 class="tl__title">A headline written for it</h1>');
+    await get(`/notebooks/${nb.id}/tldr.png?standard=1`);
+    expect(kept[1].opts.width).toBe(1080);
+    expect(kept[1].html).toContain('<article class="tl" aria-label');
+    await get(`/notebooks/${nb.id}/tldr.png?size=square&tone=bold&layout=hero`);
+    expect(kept[2].opts.width).toBe(1080);
+    expect(kept[2].html).toContain('<article class="tl tl--square tl--bold tl--hero"');
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape' });
+    expect((await get(`/notebooks/${nb.id}/tldr.html?size=portrait`)).text).toContain('tl--portrait');
+    ctxForDrain!.notebookPng = async () => ({ available: false, reason: 'no browser' });
+    expect((await get(`/notebooks/${nb.id}/tldr.png?size=square&download=1`)).headers.location).toBe(`/notebooks/${nb.id}/tldr.html?size=square`);
+    store.setTldr(nb.id, null);
     expect(menu).toContain(`href="/notebooks/${nb.id}/tldr.png?download=1" download`);
     // The brief carries the picture's bars after its "where it stands" paragraph.
     const withCard = (await get(`/notebooks/${nb.id}/brief.html`)).text;
