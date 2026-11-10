@@ -411,7 +411,18 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 
 ### A brief to share
 
-**Open the brief** (under **Download / share**) shows the notebook as a summary of what it found, on one page to send:
+**Download / share** is one short menu. **To share** comes first, a row per thing with its forms as small buttons at the right:
+
+| Row | Buttons |
+|---|---|
+| **The brief** | **Open ↗**, **PDF**, **HTML** |
+| **TL;DR picture** | **Open ↗**, **PNG** |
+| **What's new** (with how many; only once a later run added some) | **Open ↗**, **PDF** |
+| **Each option in full** (the extended brief; **Every finding in full** for a briefing) | **Open ↗**, **PDF** |
+
+Below it, **The options as a spreadsheet** lists the CSVs (in the running, everything with ruled out, new in the last run).
+
+**The brief → Open ↗** shows the notebook as a summary of what it found, on one page to send:
 - **The goal**, then the decision or where it stands in a paragraph, then the **TL;DR card** when there's something to plot (see [The TL;DR picture](#the-tldr-picture)): the card shows what the paragraph says, it doesn't replace it. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
 - **Key findings**, worked out from the notebook itself (nothing written by a model, nothing guessed):
   - how many options were looked at, over how many searches, and how many are in the running, chosen and ruled out;
@@ -434,7 +445,7 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 
 #### The TL;DR picture
 
-**Download / share → Open the TL;DR picture ↗** (or **Download the TL;DR picture**) gives you the notebook as one picture, a PNG to drop into a message. Everything on it comes from the notebook's own data; nothing is written for it by a model.
+**Download / share → TL;DR picture → Open ↗** (or **PNG** to download it) gives you the notebook as one picture, a PNG to drop into a message. Everything on it comes from the notebook's own data; nothing is written for it by a model.
 
 - **The title**, with the date.
 - **The best lead**: its name, the fact that ranks it first, up to three more of its facts, and its picture. Once you've decided, it's **Chosen**. A notebook that wrote an answer leads with the answer instead.
@@ -448,15 +459,15 @@ Bars compare the numbers as the notebook has them. If some options are priced ea
 
 **For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.
 
-**What's new** (under **Download / share**, once the last run that found options added some): **New in the last run** downloads a CSV of only those (`shortlist.csv?rows=new`). **Open the brief of what's new ↗** and **Save what's new as PDF ↗** give the brief of only those (`brief.html?latest=1`). It has their table and details, the ones from that run that were ruled out, and the notes since then. Key findings stay the whole notebook's.
+**What's new** (under **Download / share**, once the last run that found options added some): **New in the last run** downloads a CSV of only those (`shortlist.csv?rows=new`). The **What's new** row (**Open ↗**, **PDF**) gives the brief of only those (`brief.html?latest=1`). It has their table and details, the ones from that run that were ruled out, and the notes since then. Key findings stay the whole notebook's.
 
-**The extended brief** (an option under **Download / share**: **Open the extended brief ↗** or **Save extended as PDF ↗**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections), under its picture. The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
+**The extended brief** (an option under **Download / share**: **Each option in full → Open ↗** or **PDF**) is the same summary, then **Each option in full**. Every option in the running gets what its own page shows: its stage, every fact (with its link, its source and the words quoted from it, or "an estimate"), its notes, each check ticked or not, and what happened to it (found, seen again, price moves, corrections), under its picture. The shorter **In detail** list is left out, since each option is there in full. When printed, each option starts a new page. By address: `brief.html?full=1`.
 
 **A drawn page prints as itself.** When a notebook's page was drawn for it (a Meeting briefing, a report), its brief is that page, not the shortlist summary: the same parts in the same order and treatments, set for reading and print (the cover with their photo and where it came from, the facts in a ruled sidebar, the numbered agenda with every question, what they said with sources, the research at the end). Tables and timelines print longer than the page shows them (15 rows, 8 events); what they said shows 3 to 5 quotes, one per theme first, and the extended brief has every one. The extended brief then adds everything behind the page: **Everything they said** (every quote with its full source address), **Every fact, with its page**, and **Each one in full**. Charts don't print (the notebook has them). What's new (`?latest=1`) stays the shortlist brief.
 
 The brief looks like the dashboard: its design tokens and your brand theme (**Settings → Appearance**: colours, fonts) are inside the file, in the mode you use the dashboard in (the **Download / share** links pass it as `?theme=light` or `?theme=dark`; without it, dark, the dashboard's default). Printed or saved as PDF, it's on paper: the theme's light colours. The file has no scripts.
 
-**Download as PDF** gives you a PDF file named after the notebook ("Choose batteries for a 2000 EZGO TXT.pdf"), ready to send. sua makes it itself with a headless browser, so it has none of what a print dialog adds (the time you printed, this dashboard's address on every page): each page ends with the notebook's title, the date and "2 / 3". Its pictures are inside it and its links work. **Download what's new as PDF** and **Download extended as PDF** do the same for those briefs (`brief.pdf?latest=1`, `brief.pdf?full=1`; add `paper=a4` for A4, Letter otherwise). It needs the browser sua uses for screenshots (`npx playwright install chromium`); without one, the brief opens with your browser's print dialog instead (choose Save as PDF), which is also still there by address: `brief.html?print=1`. **Download the brief** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
+**The brief → PDF** gives you a PDF file named after the notebook ("Choose batteries for a 2000 EZGO TXT.pdf"), ready to send. sua makes it itself with a headless browser, so it has none of what a print dialog adds (the time you printed, this dashboard's address on every page): each page ends with the notebook's title, the date and "2 / 3". Its pictures are inside it and its links work. The **PDF** buttons on **What's new** and **Each option in full** do the same for those briefs (`brief.pdf?latest=1`, `brief.pdf?full=1`; add `paper=a4` for A4, Letter otherwise). It needs the browser sua uses for screenshots (`npx playwright install chromium`); without one, the brief opens with your browser's print dialog instead (choose Save as PDF), which is also still there by address: `brief.html?print=1`. **The brief → HTML** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
 
 ### Each option's own page
 

@@ -217,16 +217,23 @@ describe('notebooks pages', () => {
     const menu = (await get(app, `/notebooks/${meet.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
     expect(menu).not.toContain('Which options?');
     expect(menu).not.toContain('In the running');
-    expect(menu).toContain('Extended: every finding in full');
+    // One row a thing to share, its forms as short links: the brief (open, PDF, HTML), the picture, every finding in full.
+    expect(menu).toContain('<span class="nb-share__what">The brief</span>');
+    expect(menu).toContain('<span class="nb-share__what">Every finding in full</span>');
+    expect(menu).toContain(`href="/notebooks/${meet.id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog" aria-label="Download the brief as PDF">PDF</a>`);
+    expect(menu).toContain(`aria-label="Download the TL;DR picture as PNG">PNG</a>`);
+    expect(menu.match(/class="nb-share__row"/g)).toHaveLength(3);
     expect(menu.indexOf('To share')).toBeLessThan(menu.indexOf('The findings as a spreadsheet'));
     expect(menu).toContain('href="/notebooks/prepare-for-a-meeting-with-dana-reyes/shortlist.csv?rows=running" download title="Every finding still in, with its facts and sources">What it found (CSV) <span class="nb-csv__n">1</span>');
 
     const car = store.create({ title: 'Buy a used car', statement: 'A reliable SUV' });
     store.upsertOption(car.id, { title: '2012 RAV4', by: 'you', data: {} });
     const shop = (await get(app, `/notebooks/${car.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
-    expect(shop.indexOf('Which options?')).toBeLessThan(shop.indexOf('To share'));
+    // To share comes first, then the spreadsheets.
+    expect(shop.indexOf('To share')).toBeLessThan(shop.indexOf('The options as a spreadsheet'));
     expect(shop).toContain('In the running');
-    expect(shop).toContain('Extended: each option in full');
+    expect(shop).toContain('<span class="nb-share__what">Each option in full</span>');
+    expect(shop).not.toContain("What's new");
   });
 
   it("a briefing run again says what's new since the run before, marks its facts, and so does its brief", async () => {
