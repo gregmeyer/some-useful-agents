@@ -469,7 +469,6 @@ ${unsafeHtml(TLDR_CSS)}
     ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
     ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
   </header>
-  ${tldr?.chart ? tldrCard(tldr, { now, title: false }) : html``}
   ${decided && nb.decision
     ? html`<section class="decision" aria-label="Decision">
         <p class="decision__head"><b>Decision</b>Decided ${fmtDate(nb.decidedAt ?? nb.updatedAt, now)}${picks ? ` · ${String(picks.picks.length)} chosen of ${String(active.length)} in the running` : ''}</p>
@@ -480,8 +479,8 @@ ${unsafeHtml(TLDR_CSS)}
     : html``}
   ${writeup
     ? html`<section class="stands" aria-label="The lay of the land"><div class="eyebrow">${writeup.label}</div><p>${inline(writeup.text)}</p>${writeup.next ? html`<p class="muted"><b>${writeup.nextLabel}</b> ${writeup.next}</p>` : html``}<p class="fine">${inline(d.summary)}</p></section>`
-    // The card above already says the best lead and how many: the same in a paragraph would only push the table down.
-    : (decided && nb.decision) || tldr?.chart ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
+    : decided && nb.decision ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
+  ${/* The picture's card after the words: it shows the point they make (the lead, the spread), it doesn't replace them. */ tldr?.chart ? tldrCard(tldr, { now, title: false }) : html``}
   ${args.latest ? html`<p class="stands">${active.length
     ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
     : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}
