@@ -18,6 +18,7 @@ import { brandGuideText } from './brand-theme.js';
 import { webScrape } from './web-fetch/scrape.js';
 import { screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js';
 import { saveRunFile } from './run-files.js';
+import { notebookTags, type Notebook } from './notebooks.js';
 import { findNotebook, notebookReadoutJson, notebookReadoutText, NOTEBOOK_READ_PARTS, type NotebookReadPart } from './notebook-readout.js';
 
 /**
@@ -1056,14 +1057,14 @@ const NOTEBOOK_TOOLS: BuiltinToolEntry[] = [
     },
     {
       notebook: { type: 'object', description: 'The notebook as JSON (with format json).' },
-      notebooks: { type: 'array', description: 'When listing, or when several match: [{id, title, status, archived}].' },
+      notebooks: { type: 'array', description: 'When listing, or when several match: [{id, title, status, archived, tags}].' },
     },
     async (inputs, ctx) => {
       if (!ctx.notebooks) return { result: 'Notebooks are not available in this run.', isError: true };
       const store = ctx.notebooks;
-      const listed = (nbs: readonly { id: string; title: string; status: string; archivedAt?: string }[]) =>
-        nbs.map((n) => ({ id: n.id, title: n.title, status: n.status, archived: !!n.archivedAt }));
-      const lines = (nbs: ReturnType<typeof listed>) => nbs.map((n) => `${n.id} — ${n.title} (${n.status}${n.archived ? ', archived' : ''})`).join('\n');
+      const listed = (nbs: readonly Pick<Notebook, 'id' | 'title' | 'status' | 'archivedAt' | 'tags'>[]) =>
+        nbs.map((n) => ({ id: n.id, title: n.title, status: n.status, archived: !!n.archivedAt, tags: notebookTags(n) }));
+      const lines = (nbs: ReturnType<typeof listed>) => nbs.map((n) => `${n.id} — ${n.title} (${n.status}${n.archived ? ', archived' : ''})${n.tags.length ? ` [${n.tags.join(', ')}]` : ''}`).join('\n');
       const ask = String(inputs.notebook ?? '').trim();
       if (!ask) {
         const notebooks = listed(store.list({ archived: 'include' }));

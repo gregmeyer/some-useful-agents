@@ -1,0 +1,75 @@
+# Notebook Tagger — topic tags for notebooks, so the Notebooks list can be
+# filtered by them and a new ask can be matched to a notebook that already
+# exists. Tags notebooks a batch at a time, reusing tags already in use, and
+# says who or what each one is about (the part that would change next time).
+# Route-dispatched only, in the background when the Notebooks list opens or a
+# notebook is made (dashboard lib/notebook-tags.ts); never proposed in triage.
+
+id: notebook-tagger
+name: Notebook Tagger
+description: >
+  Gives notebooks a few short topic tags, reusing the ones already in use,
+  so they can be filtered and found.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOKS:
+    type: string
+    required: true
+    description: >
+      JSON: [{"id", "title", "for": what it's for, "limits": [the bounds it
+      works within]}].
+  VOCABULARY:
+    type: string
+    required: true
+    description: 'JSON: the tags already in use, most used first.'
+
+nodes:
+  - id: tag
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<tags>[\s\S]*?</tags>'
+      description: a <tags> JSON block
+    prompt: |
+      A notebook is a goal someone keeps over time: a shortlist toward a
+      decision, a question answered, a meeting prepared for. Give each
+      notebook below a few topic tags, so a person with many notebooks can
+      filter the list by them.
+
+      Notebooks (JSON):
+      {{inputs.NOTEBOOKS}}
+
+      Tags already in use (JSON, most used first):
+      {{inputs.VOCABULARY}}
+
+      Rules, per notebook:
+        - 2 to 4 tags. Reuse a tag already in use whenever it fits; add a
+          new one only when none does. Two notebooks in this batch on the
+          same topic share that tag, but each tag must be true of the
+          notebook it's on: never copy a tag across because two notebooks
+          look alike.
+        - A tag narrows the list. One that would fit most notebooks
+          ("business", "work", "shopping", "research") is no use: say
+          what the business or the purchase is.
+        - A tag names the topic: "used cars", "fundraising", "home office",
+          "sales". Lower case, 1 to 3 plain words, at most 24 characters,
+          no punctuation.
+        - A tag never names the kind of notebook ("meeting", "shortlist",
+          "report", "plan", "research"), a person or a company by name, a
+          status, or a date.
+        - "subject": who or what this notebook is about, when doing it again
+          would be for someone or something else: the person or company a
+          meeting or briefing is about, the product a report covers. Copy
+          it exactly as it appears in the title or in "for" ("Dana Reyes",
+          "Acme Corp"). A notebook that isn't about one named person,
+          company or thing: "".
+
+      Reply with only this, as valid JSON, one item per notebook:
+      <tags>
+      {"items": [
+        {"id": "<notebook id>", "tags": ["used cars", "family"], "subject": ""}
+      ]}
+      </tags>

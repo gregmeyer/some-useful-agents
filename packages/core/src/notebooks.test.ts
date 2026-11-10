@@ -841,6 +841,65 @@ describe('notebook facet labels', () => {
   });
 });
 
+describe('notebook tags', () => {
+  it('cleans a tag: lower case, plain words, 1 to 3 of them, at most 24 characters', async () => {
+    const { cleanTag } = await import('./notebooks.js');
+    expect(cleanTag('  Used Cars! ')).toBe('used cars');
+    expect(cleanTag('Home-Office')).toBe('home-office');
+    expect(cleanTag('Café visits')).toBe('café visits');
+    expect(cleanTag('one two three four')).toBe('');
+    expect(cleanTag('a tag far longer than twenty-four characters')).toBe('');
+    expect(cleanTag('!!!')).toBe('');
+    expect(cleanTag(7)).toBe('');
+  });
+
+  it("keeps sua's tags with what they were made from, never touches yours, and is stale when the title, goal or limits change", async () => {
+    const { notebookTags, tagsStale, notebookTagKey, MAX_AUTO_TAGS } = await import('./notebooks.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbt-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Prepare for my meeting with Dana Reyes', statement: 'A brief on Dana Reyes before Tuesday', params: ['30 minutes'] });
+    expect(nb.tags).toBeUndefined();
+    expect(notebookTags(nb)).toEqual([]);
+    expect(tagsStale(nb)).toBe(true);
+
+    const before = s.get(nb.id)!.updatedAt;
+    const tagged = s.setAutoTags(nb.id, { tags: ['Sales', 'sales', 'Logistics!', 'one two three four', 'a', 'b', 'c'], subject: '  Dana   Reyes ' }, '2026-11-10T00:00:00.000Z');
+    expect(tagged.tags).toEqual({ auto: ['sales', 'logistics', 'a', 'b'], added: [], removed: [], subject: 'Dana Reyes', key: notebookTagKey(nb), at: '2026-11-10T00:00:00.000Z' });
+    expect(tagged.tags!.auto).toHaveLength(MAX_AUTO_TAGS);
+    // Tagging isn't a change to the notebook: the list's order stays.
+    expect(tagged.updatedAt).toBe(before);
+    expect(tagsStale(tagged)).toBe(false);
+
+    // Yours win, and a re-tag leaves them.
+    runs.databaseHandle().prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify({ ...tagged.tags, added: ['Q4 pipeline'], removed: ['logistics'] }), nb.id);
+    expect(notebookTags(s.get(nb.id)!)).toEqual(['sales', 'a', 'b', 'q4 pipeline']);
+    const again = s.setAutoTags(nb.id, { tags: ['sales', 'logistics'] });
+    expect(again.tags).toMatchObject({ auto: ['sales', 'logistics'], added: ['q4 pipeline'], removed: ['logistics'] });
+    expect(again.tags!.subject).toBeUndefined();
+    expect(notebookTags(again)).toEqual(['sales', 'q4 pipeline']);
+
+    // A changed limit: tagged again. A changed cadence: not.
+    expect(tagsStale(s.update(nb.id, { cadence: '0 8 * * *' }))).toBe(false);
+    const changed = s.update(nb.id, { params: ['45 minutes'] });
+    expect(tagsStale(changed)).toBe(true);
+    // A failed try waits a day, then it's stale again; what it had stays.
+    s.markTagsFailed(nb.id, '2026-11-10T01:00:00.000Z');
+    const failed = s.get(nb.id)!;
+    expect(notebookTags(failed)).toEqual(['sales', 'q4 pipeline']);
+    expect(tagsStale(failed, Date.parse('2026-11-10T02:00:00.000Z'))).toBe(false);
+    expect(tagsStale(failed, Date.parse('2026-11-11T02:00:00.000Z'))).toBe(true);
+
+    // A copy carries them as they are; a notebook with none copies nothing.
+    const other = s.create({ title: 'Another' });
+    s.copyTags(nb.id, other.id);
+    expect(s.get(other.id)!.tags).toEqual(failed.tags);
+    const third = s.create({ title: 'Third' });
+    s.copyTags(third.id, other.id);
+    expect(s.get(other.id)!.tags).toEqual(failed.tags);
+  });
+});
+
 describe('options that are organizations match by name', () => {
   const setup = () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-nb-org-'));

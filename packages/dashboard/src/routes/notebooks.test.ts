@@ -5380,3 +5380,133 @@ describe('run a notebook again as a new notebook', () => {
     finderReply = undefined;
   });
 });
+
+describe('notebook tags', () => {
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  const setup = async () => {
+    const app = await makeApp();
+    const { NotebookStore, notebookTags } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const asked: Array<Record<string, string>> = [];
+    const settle = async () => { for (let i = 0; i < 200 && ctx.notebookTagging; i++) await new Promise((r) => setTimeout(r, 10)); };
+    return { app, ctx, store, asked, settle, notebookTags };
+  };
+  type Asked = Array<{ id: string; title: string; for: string; limits: string[] }>;
+
+  it('tags untagged notebooks when the list opens (archived too), reusing tags in use; the list filters and searches by tag', async () => {
+    const { app, ctx, store, asked, settle, notebookTags } = await setup();
+    const car = store.create({ title: 'Find a used SUV', statement: 'A reliable used SUV under $26,000', params: ['under $26,000', 'AWD'], criteria: [], pipeline: [], cadence: '' });
+    const meet = store.create({ title: 'Prepare for my meeting with Dana Reyes', statement: 'A brief on Dana Reyes', params: [], criteria: [], pipeline: [], cadence: '' });
+    const old = store.create({ title: 'Winter tires', statement: 'Tires for the SUV', params: [], criteria: [], pipeline: [], cadence: '' });
+    store.archive(old.id);
+
+    // Not installed and no stand-in: the list opens and nothing is asked.
+    expect((await get(app, '/notebooks')).status).toBe(200);
+    expect(ctx.notebookTagging).toBeFalsy();
+    expect(store.get(car.id)!.tags).toBeUndefined();
+
+    ctx.notebookTaggerRun = async (inputs) => {
+      asked.push(inputs);
+      const nbs = JSON.parse(inputs.NOTEBOOKS) as Asked;
+      return `<tags>${JSON.stringify({ items: nbs.map((n) => /meeting/i.test(n.title)
+        ? { id: n.id, tags: ['Sales', 'logistics'], subject: 'Dana Reyes' }
+        : { id: n.id, tags: ['cars', /tires/i.test(n.title) ? 'tires' : 'family'], subject: 'Somebody Else' }) })}</tags>`;
+    };
+    const first = (await get(app, '/notebooks')).text;
+    expect(first).not.toContain('nbl-tags');
+    await settle();
+    // One run for all three, with what each is for and no tags in use yet.
+    expect(asked).toHaveLength(1);
+    expect((JSON.parse(asked[0].NOTEBOOKS) as Asked).map((n) => n.id).sort()).toEqual([car.id, meet.id, old.id].sort());
+    expect((JSON.parse(asked[0].NOTEBOOKS) as Asked).find((n) => n.id === car.id)).toEqual({ id: car.id, title: 'Find a used SUV', for: 'A reliable used SUV under $26,000', limits: ['under $26,000', 'AWD'] });
+    expect(JSON.parse(asked[0].VOCABULARY)).toEqual([]);
+    expect(notebookTags(store.get(car.id)!)).toEqual(['cars', 'family']);
+    expect(notebookTags(store.get(old.id)!)).toEqual(['cars', 'tires']);
+    // A subject is kept only when it's in the notebook's own words.
+    expect(store.get(meet.id)!.tags).toMatchObject({ auto: ['sales', 'logistics'], subject: 'Dana Reyes' });
+    expect(store.get(car.id)!.tags!.subject).toBeUndefined();
+
+    // The list: a tag row with counts for this tab (the archived one's tag isn't on Active), and chips on cards.
+    const list = (await get(app, '/notebooks')).text;
+    expect(list).toContain('aria-label="Notebooks by tag"');
+    expect(list).toMatch(/href="\/notebooks\?tag=cars">cars <span class="nbl-tag__n">1<\/span>/);
+    expect(list).not.toContain('tag=tires');
+    expect(list).toContain('<span class="nbl-card__tag">family</span>');
+    await settle();
+    expect(asked).toHaveLength(1); // nothing is stale: not asked again
+
+    // Filtered by a tag: only its notebooks; the tag in the row clears it; search keeps it.
+    const cars = (await get(app, '/notebooks?tag=cars')).text;
+    expect(cars).toContain('Find a used SUV');
+    expect(cars).not.toContain('Dana Reyes');
+    expect(cars).toMatch(/class="nbl-tag is-on" href="\/notebooks"/);
+    expect(cars).toContain('<input type="hidden" name="tag" value="cars">');
+    expect((await get(app, '/notebooks?status=archived&tag=tires')).text).toContain('Winter tires');
+    // A tag only an archived notebook has: Active says where it is.
+    const tires = (await get(app, '/notebooks?tag=tires')).text;
+    expect(tires).toContain('notebooks tagged “tires”');
+    expect(tires).toContain('<a href="/notebooks?tag=tires&amp;status=archived">1 under Archived</a>');
+    // Search matches a tag and who it's about.
+    const bySales = (await get(app, '/notebooks?q=logist')).text;
+    expect(bySales).toContain('Dana Reyes');
+    expect(bySales).not.toContain('Find a used SUV');
+    // A tag nothing has: says so, with a way out.
+    const none = (await get(app, '/notebooks?tag=boats')).text;
+    expect(none).toContain('notebooks tagged “boats”');
+    expect(none).toContain('Clear the tag');
+
+    // A changed goal: tagged again, alone, with the tags in use (most used first).
+    store.update(car.id, { statement: 'A reliable used SUV under $30,000' });
+    await get(app, '/notebooks');
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect((JSON.parse(asked[1].NOTEBOOKS) as Asked).map((n) => n.id)).toEqual([car.id]);
+    expect((JSON.parse(asked[1].VOCABULARY) as string[])[0]).toBe('cars');
+  });
+
+  it('a failed try waits; a notebook run again keeps its tags (yours too) and is not tagged again', async () => {
+    const { app, ctx, store, asked, settle, notebookTags } = await setup();
+    const { rerunNotebook, createNotebookFrom } = await import('../lib/notebook-create.js');
+    let reply: string | undefined;
+    ctx.notebookTaggerRun = async (inputs) => { asked.push(inputs); return reply; };
+
+    // Made through the one way to start a notebook: tagged in the background, here with no answer.
+    const nb = createNotebookFrom(ctx, { title: 'CD ladders', statement: 'Where to put $25,000 in CDs', params: ['FDIC insured'], criteria: [] });
+    await settle();
+    expect(asked).toHaveLength(1);
+    expect(store.get(nb.id)!.tags).toMatchObject({ auto: [] });
+    expect(store.get(nb.id)!.tags!.failedAt).toBeTruthy();
+    await get(app, '/notebooks');
+    await settle();
+    expect(asked).toHaveLength(1); // waiting
+
+    // Tags with no usable word are a failed try too, not "tagged with nothing".
+    runStore.databaseHandle().prepare('UPDATE notebooks SET tags_json = NULL WHERE id = ?').run(nb.id);
+    reply = `<tags>${JSON.stringify({ items: [{ id: nb.id, tags: ['!!!', 'this one has far too many words'] }] })}</tags>`;
+    await get(app, '/notebooks');
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect(store.get(nb.id)!.tags!.at).toBeUndefined();
+
+    runStore.databaseHandle().prepare('UPDATE notebooks SET tags_json = NULL WHERE id = ?').run(nb.id);
+    reply = `<tags>${JSON.stringify({ items: [{ id: nb.id, tags: ['savings', 'banking'] }, { id: 'nope', tags: ['x'] }] })}</tags>`;
+    await get(app, '/notebooks');
+    await settle();
+    expect(notebookTags(store.get(nb.id)!)).toEqual(['savings', 'banking']);
+
+    // Yours, then run again: the new notebook has the same tags and isn't asked about.
+    const t = store.get(nb.id)!.tags!;
+    runStore.databaseHandle().prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify({ ...t, added: ['retirement'], removed: ['banking'] }), nb.id);
+    const before = asked.length;
+    const made = rerunNotebook(ctx, nb.id).notebook;
+    await settle();
+    expect(made.id).not.toBe(nb.id);
+    expect(notebookTags(store.get(made.id)!)).toEqual(['savings', 'retirement']);
+    expect(store.get(made.id)!.tags).toMatchObject({ added: ['retirement'], removed: ['banking'] });
+    expect(asked).toHaveLength(before);
+    // Let both notebooks finish setting up (sua's hello is the last of it) before the test's database closes.
+    for (let i = 0; i < 400 && [nb.id, made.id].some((id) => !store.get(id)!.conversationId); i++) await new Promise((r) => setTimeout(r, 10));
+  });
+});

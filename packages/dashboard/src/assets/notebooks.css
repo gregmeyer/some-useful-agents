@@ -412,6 +412,23 @@ a.nb-card:hover { border-color: var(--color-border-strong); }
 .nbl-tools__sort { margin-left: auto; }
 .nbl-tools__sort select { height: var(--control-h); padding: 0 var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-sm); }
 /* No notebooks yet: what one is, and ways to start (views/notebooks.ts renderNotebooksEmpty). */
+.nbl-tools:has(+ .nbl-tags) { margin-bottom: var(--space-3); }
+.nbl-tags { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-6); font-size: var(--font-size-xs); }
+.nbl-tags__label { color: var(--color-text-muted); margin-right: var(--space-1); }
+.nbl-tag { display: inline-flex; align-items: center; gap: var(--space-1); padding: 3px var(--space-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text); text-decoration: none; line-height: 1.4; }
+.nbl-tag:hover, .nbl-tag:focus-visible { border-color: var(--color-primary); }
+.nbl-tag.is-on { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.nbl-tag__n { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.nbl-tags__more { display: contents; }
+.nbl-tags__more > summary { cursor: pointer; color: var(--color-text-muted); list-style: none; padding: 3px var(--space-1); }
+.nbl-tags__more > summary::-webkit-details-marker { display: none; }
+.nbl-tags__more > summary::before { content: none; }
+.nbl-tags__more > summary:hover { color: var(--color-text); }
+.nbl-tags__more[open] > summary { display: none; }
+.nbl-tags__rest { display: contents; }
+.nbl-card__tags { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--font-size-xs); }
+.nbl-card__tag, .nbl-card__tagmore { padding: 1px var(--space-2); border-radius: var(--radius-sm); background: var(--color-surface-raised); color: var(--color-text-muted); line-height: 1.5; white-space: nowrap; }
+.nbl-card__tagmore { background: none; padding-inline: 0; }
 .nbl-empty { max-width: 960px; margin: var(--space-6) 0; }
 .nbl-empty__h { margin: 0 0 var(--space-2); font-size: var(--font-size-lg); }
 .nbl-empty__where { margin: 0 0 var(--space-2); }

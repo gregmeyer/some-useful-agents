@@ -8,7 +8,7 @@
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
-import { openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
+import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -1216,7 +1216,12 @@ export interface NotebookCard {
   coverShape?: string;
 }
 
-export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number }
+export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number; /** The tag the list is filtered by. */ tag?: string }
+
+/** Tags listed before "More tags". */
+const TAGS_SHOWN = 12;
+/** Tags on a card, at most. */
+const CARD_TAGS = 3;
 
 /** Ways to start, as you'd say them on New notebook (each opens it with the words filled in). */
 const STARTS = [
@@ -1253,13 +1258,18 @@ export function renderNotebooksList(args: {
   drafts?: ReadonlyArray<{ id: string } & DraftState>;
   /** Your templates, offered when you have no notebooks yet. */
   templates?: ReadonlyArray<{ id: string; name: string }>;
+  /** The tags on this tab's notebooks, most used first, each with how many have it. */
+  tags?: ReadonlyArray<{ tag: string; count: number }>;
+  /** A search or tag that found nothing on this tab: the tabs where it does match. */
+  elsewhere?: ReadonlyArray<{ status: 'all' | 'archived'; count: number }>;
 }): string {
   const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
   const counts = { archived: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
-  const href = (over: Partial<Pick<NotebookListQuery, 'q' | 'status' | 'sort' | 'page'>>) => {
+  const href = (over: Partial<Pick<NotebookListQuery, 'q' | 'status' | 'sort' | 'page' | 'tag'>>) => {
     const p = new URLSearchParams();
-    const v = { q: q.q, status: q.status, sort: q.sort, page: 1, ...over };
+    const v = { q: q.q, status: q.status, sort: q.sort, page: 1, tag: q.tag, ...over };
     if (v.q) p.set('q', v.q);
+    if (v.tag) p.set('tag', v.tag);
     if (v.status !== 'active') p.set('status', v.status);
     if (v.sort !== 'updated') p.set('sort', v.sort);
     if (v.page > 1) p.set('page', String(v.page));
@@ -1272,8 +1282,22 @@ export function renderNotebooksList(args: {
   // Nothing on this tab: a search says so; otherwise where yours are (e.g. all archived), and ways to start one.
   const label = { active: 'Active', decided: 'Decided', stopped: 'Stopped', all: 'All', archived: 'Archived' } as const;
   const elsewhere = (['active', 'decided', 'stopped', 'archived'] as const).filter((st) => st !== q.status && counts[st] > 0);
-  const empty = q.q
-    ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks matching “${q.q}”. <a href="${href({ q: '' })}">Clear the search</a></p>`
+  // A tag in the row: a link that filters by it (the one in use clears the filter).
+  const tagLink = (t: { tag: string; count: number }) => t.tag === q.tag
+    ? html`<a class="nbl-tag is-on" href="${href({ tag: undefined })}" aria-current="true" title="Show all tags">${t.tag} <span class="nbl-tag__n">${String(t.count)}</span><span class="sr-only"> (showing; clear)</span></a>`
+    : html`<a class="nbl-tag" href="${href({ tag: t.tag })}">${t.tag} <span class="nbl-tag__n">${String(t.count)}</span></a>`;
+  const allTags = args.tags ?? [];
+  // The one in use is always among the first, never folded away.
+  const tagsFirst = [...allTags.filter((t) => t.tag === q.tag), ...allTags.filter((t) => t.tag !== q.tag)].slice(0, TAGS_SHOWN);
+  const tagsMore = allTags.filter((t) => !tagsFirst.includes(t));
+  const tagRow = allTags.length ? html`
+      <nav class="nbl-tags" aria-label="Notebooks by tag">
+        <span class="nbl-tags__label">Tags</span>
+        ${tagsFirst.map(tagLink) as unknown as SafeHtml[]}
+        ${tagsMore.length ? html`<details class="nbl-tags__more"><summary>${String(tagsMore.length)} more</summary><span class="nbl-tags__rest">${tagsMore.map(tagLink) as unknown as SafeHtml[]}</span></details>` : html``}
+      </nav>` : html``;
+  const empty = q.q || q.tag
+    ? html`<p class="nb-list__empty">No ${q.status === 'all' ? '' : `${q.status} `}notebooks ${q.tag ? html`tagged “${q.tag}”` : html``}${q.q && q.tag ? ' and ' : ''}${q.q ? html`matching “${q.q}”` : html``}. ${(args.elsewhere ?? []).map((e) => html`<a href="${href({ status: e.status })}">${String(e.count)} under ${e.status === 'all' ? 'All' : 'Archived'}</a>. `) as unknown as SafeHtml[]}<a href="${href({ q: '', tag: undefined })}">Clear the ${q.q && q.tag ? 'search and tag' : q.tag ? 'tag' : 'search'}</a></p>`
     : renderNotebooksEmpty(args.templates ?? [], {
       title: q.status === 'all' ? 'No notebooks in use' : `No ${q.status} notebooks`,
       where: html`Yours are under ${elsewhere.map((st, i) => html`${i ? (i === elsewhere.length - 1 ? ' and ' : ', ') : ''}<a href="${href({ status: st })}">${label[st]} (${String(counts[st])})</a>`) as unknown as SafeHtml[]}.`,
@@ -1290,6 +1314,7 @@ export function renderNotebooksList(args: {
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
         <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
         ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
+        ${q.tag ? html`<input type="hidden" name="tag" value="${q.tag}">` : html``}
         <label class="nbl-tools__search"><span class="sr-only">Search notebooks</span>
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
           <input type="search" name="q" value="${q.q}" placeholder="Search notebooks" autocomplete="off"></label>
@@ -1301,13 +1326,16 @@ export function renderNotebooksList(args: {
           </select>
         </label>
         <noscript><button type="submit" class="btn btn--sm">Apply</button></noscript>
-      </form>` : html``}
+      </form>${tagRow}` : html``}
     <div class="nbl-grid">
       ${args.notebooks.map((c) => {
         const { nb } = c;
         const facts = countParts(c);
         const photo = c.cover && c.coverKind !== 'illustration' && c.coverKind !== 'logo' ? c.cover : undefined;
         const met = c.checks?.filter((x) => x.met).length ?? 0;
+        // The tag filtered by first, so the card shows why it's here.
+        const tags = notebookTags(nb);
+        const cardTags = [...tags.filter((t) => t === q.tag), ...tags.filter((t) => t !== q.tag)].slice(0, CARD_TAGS);
         return html`
           <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
             <span class="nbl-card__cover${photo ? ' nbl-card__cover--photo' : ''}"${photo ? html` style="--cover:url('${photo}')"` : html``}>
@@ -1321,6 +1349,7 @@ export function renderNotebooksList(args: {
               <span class="nbl-card__statement">${nb.decision ?? nb.statement}</span>
               ${c.best ? html`<span class="nbl-card__lead"><span class="nbl-card__price">${c.best}</span>${c.bestName ? html`<span class="nbl-card__leadname">${c.bestName}</span>` : html``}</span>` : html``}
               <span class="nbl-card__facts">${facts.map((f) => html`<span>${f}</span>`) as unknown as SafeHtml[]}${c.furthest ? html`<span title="Furthest along: ${c.furthest}">at ${c.furthest}</span>` : html``}</span>
+              ${cardTags.length ? html`<span class="nbl-card__tags"><span class="sr-only">Tags: </span>${cardTags.map((t) => html`<span class="nbl-card__tag">${t}</span>`) as unknown as SafeHtml[]}${tags.length > cardTags.length ? html`<span class="nbl-card__tagmore" title="${tags.slice(cardTags.length).join(', ')}">+${String(tags.length - cardTags.length)}</span>` : html``}</span>` : html``}
               <span class="nbl-card__meta">${c.checks?.length ? html`<span class="nbl-card__met" title="${`Done when: ${c.checks.map((x) => `${x.met ? '✓' : '○'} ${x.text}`).join('; ')}`}"><span class="nbl-card__dots" aria-hidden="true">${c.checks.map((x) => html`<i class="${x.met ? 'is-met' : ''}"></i>`) as unknown as SafeHtml[]}</span>${String(met)} of ${String(c.checks.length)} met</span>` : html``}<span>updated ${formatAge(nb.updatedAt)}</span></span>
             </span>
           </a>`;
