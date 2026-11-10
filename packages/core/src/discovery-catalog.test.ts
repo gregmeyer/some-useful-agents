@@ -196,13 +196,13 @@ describe('buildDiscoveryCatalog', () => {
     expect(catalog).toMatch(/USE WHEN.*view-switch|view-switch.*USE WHEN/is);
   });
 
-  it('stays under 18700 chars with typical data (4000 → 11000 over time; +500 for v3 composition hints; +1500 for table field type docs; +4500 for the VIEWS guide, now the way new agents show results; +200 for Table row actions)', () => {
+  it('stays under 18800 chars with typical data (4000 → 11000 over time; +500 for v3 composition hints; +1500 for table field type docs; +4500 for the VIEWS guide, now the way new agents show results; +200 for Table row actions; +100 for Stories)', () => {
     const catalog = buildDiscoveryCatalog({
       agents: MOCK_AGENTS,
       tools: [],
       templateRegistry: MOCK_REGISTRY,
     });
-    expect(catalog.length).toBeLessThan(18700);
+    expect(catalog.length).toBeLessThan(18800);
   });
 
   it('handles empty agents gracefully', () => {
