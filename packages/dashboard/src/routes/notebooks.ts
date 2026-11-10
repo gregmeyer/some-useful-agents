@@ -31,7 +31,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, loadBrandTheme } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, loadBrandTheme, notebookTags } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -48,6 +48,7 @@ import { optionIllustration, illustrationKind } from '../lib/notebook-illustrati
 import { notebookThread, setThreadOptionFocus, optionNavIntent } from '../lib/notebook-chat.js';
 import { startNotebookPictures, picturesRunning } from '../lib/notebook-pictures.js';
 import { startNotebookFacets } from '../lib/notebook-facets.js';
+import { startNotebookTags, tagCounts } from '../lib/notebook-tags.js';
 import { publishInboxEvent, publishInboxChanged, isAjax } from './inbox-shared.js';
 import { runTriageAgent } from './inbox-engine.js';
 import { renderNotebookMain, nextStep } from '../views/notebooks.js';
@@ -93,10 +94,21 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   const counts = { active: 0, decided: 0, stopped: 0, all: all.length, archived: archived.length };
   for (const nb of all) counts[nb.status]++;
   const needle = q.toLowerCase();
-  const matches = (status === 'archived' ? archived : all)
-    .filter((nb) => status === 'all' || status === 'archived' || nb.status === status)
-    .filter((nb) => !needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params].some((t) => t.toLowerCase().includes(needle)))
+  const tag = cleanTag(str(req.query.tag));
+  const onTab = (status === 'archived' ? archived : all)
+    .filter((nb) => status === 'all' || status === 'archived' || nb.status === status);
+  // The tab's tags, most used first; the one filtered by stays listed even when nothing has it now.
+  const tags = tagCounts(onTab);
+  if (tag && !tags.some((t) => t.tag === tag)) tags.unshift({ tag, count: 0 });
+  const found = (nb: Notebook) => (!tag || notebookTags(nb).includes(tag))
+    && (!needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params, ...notebookTags(nb), nb.tags?.subject ?? ''].some((t) => t.toLowerCase().includes(needle)));
+  const matches = onTab.filter(found)
     .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+  // Nothing here for a search or tag: where it does match (All, Archived), so it isn't a dead end.
+  const elsewhere = matches.length || !(needle || tag) ? [] : ([['all', all], ['archived', archived]] as const)
+    .filter(([st]) => st !== status)
+    .map(([st, list]) => ({ status: st, count: list.filter(found).length }))
+    .filter((e) => e.count > 0);
   const pages = Math.max(1, Math.ceil(matches.length / LIST_PAGE));
   const page = Math.min(pages, Math.max(1, Number(req.query.page) || 1));
   const shown = matches.slice((page - 1) * LIST_PAGE, page * LIST_PAGE);
@@ -105,13 +117,15 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   for (const nb of shown.filter((n) => n.status === 'active' && n.fields.length).slice(0, 4)) {
     try { startNotebookPictures(ctx, nb.id); } catch { /* covers are a nicety */ }
   }
+  // Notebooks with no tags yet (or changed since) get them in the background.
+  try { startNotebookTags(ctx); } catch { /* tags are a nicety */ }
   const notebooks = shown.map((nb) => notebookCard(s, nb));
   res.type('html').send(renderNotebooksList({
     notebooks, openNew: req.query.new === '1', flash: parseFlash(req),
-    query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE }, counts,
+    query: { q, status, sort, page, pages, total: matches.length, perPage: LIST_PAGE, ...(tag ? { tag } : {}) }, counts, tags, elsewhere,
     drafts: listDrafts(ctx),
     // Nothing to show (and no search): ways to start, with your templates.
-    ...(matches.length || q ? {} : { templates: s.listTemplates() }),
+    ...(matches.length || q || tag ? {} : { templates: s.listTemplates() }),
   }));
 });
 

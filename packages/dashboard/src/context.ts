@@ -293,6 +293,10 @@ export interface DashboardContext {
   agentCatalogSortRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for agent-catalog-search on /agents instead of running it. */
   agentFindRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** True while sua tags notebooks (lib/notebook-tags.ts). */
+  notebookTagging?: boolean;
+  /** Tests only: answer for the notebook-tagger agent instead of running it. */
+  notebookTaggerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-facets agent instead of running it. */
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */

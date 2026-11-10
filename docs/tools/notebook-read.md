@@ -24,11 +24,11 @@ MCP clients (Claude Desktop, Codex…) get the same tool from `sua mcp`, so anot
 
 | Input | Type | Required | Description |
 |---|---|---|---|
-| `notebook` | string | no | The notebook: its id, a `/notebooks/<id>` link (a full address works), or words from its title. Leave it empty to list every notebook, archived ones included. |
+| `notebook` | string | no | The notebook: its id, a `/notebooks/<id>` link (a full address works), or words from its title. Leave it empty to list every notebook, archived ones included, each with its topic tags. |
 | `part` | string | no | Read one part only: `all` (the default), `about`, `written` (the answer, talking points and plan), `options`, or `notes`. |
 | `format` | string | no | `text` (the default; Markdown for a model to read) or `json` (for code; the same content in the `notebook` output). |
 
-If the words match more than one notebook, it lists those notebooks (id, title, status, archived) so you can read one by its id. If nothing matches, it says so.
+If the words match more than one notebook, it lists those notebooks (id, title, status, archived, tags) so you can read one by its id. If nothing matches, it says so.
 
 It shows up to 40 options in the running, 20 ruled out and 20 notes, and says how many more there are. Links in the readout are dashboard paths (`/notebooks/<id>`).
 

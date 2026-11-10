@@ -13,6 +13,7 @@ import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
 import { greetNotebook } from './notebook-chat.js';
 import { decideNotebookPage } from './notebook-page.js';
+import { startNotebookTags } from './notebook-tags.js';
 import { publishInboxChanged } from '../routes/inbox-shared.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -36,6 +37,8 @@ export interface NewNotebookSetup {
   layoutBy?: string;
   /** The meeting it prepares for. */
   meeting?: NotebookMeeting;
+  /** A notebook whose tags it starts with (run again: the same topic, and your changes to its tags). */
+  tagsFrom?: string;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -60,6 +63,9 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   if (steps) store.setSteps(nb.id, steps);
   if (input.layout) store.setLayout(nb.id, input.layout, input.layoutBy ?? 'template');
   if (input.meeting) store.setMeeting(nb.id, input.meeting);
+  // Its topic tags: another notebook's (run again), or sua tags it in the background.
+  if (input.tagsFrom) store.copyTags(input.tagsFrom, nb.id);
+  try { startNotebookTags(ctx); } catch { /* it's tagged when the list next opens */ }
   // sua sets up what options record and the stages they go through, from the
   // goal (unless that came with it), then says hello in the notebook's
   // conversation with what it set up.
@@ -110,7 +116,7 @@ export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Noteboo
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const old = store.get(notebookId);
   if (!old) throw new Error('No such notebook.');
-  const made = createNotebookFrom(ctx, rerunSetup(old));
+  const made = createNotebookFrom(ctx, { ...rerunSetup(old), tagsFrom: old.id });
   const link = (n: Notebook) => `[${n.title}](/notebooks/${encodeURIComponent(n.id)})`;
   store.addEntry(made.id, { kind: 'note', title: 'Started again', body: `Started again from ${link(old)}, with its setup and none of what it found. The old one is archived.`, by: 'you' });
   store.addEntry(old.id, { kind: 'note', title: 'Run again', body: `Run again as ${link(made)}; this one ${old.archivedAt ? 'stays' : 'is'} archived.`, by: 'you' });

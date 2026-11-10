@@ -11,7 +11,7 @@
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
 import type { Item } from './items/types.js';
 
@@ -704,6 +704,8 @@ export interface Notebook {
    * (the dashboard's notebook-facets agent groups them).
    */
   facets?: Record<string, NotebookFacet>;
+  /** Its topic tags: sua's, and what you added or removed (notebookTags reads them). */
+  tags?: NotebookTags;
   /** The work in steps, in order (absent: it just runs its pipeline). */
   steps?: NotebookStep[];
   /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
@@ -738,6 +740,58 @@ export interface Notebook {
 
 /** One field's short labels: each value (as shown) → its label; `failedAt` when grouping last failed. */
 export interface NotebookFacet { labels: Record<string, string>; at: string; failedAt?: string }
+
+/**
+ * A notebook's topic tags ("used cars", "fundraising"), so the list can be
+ * filtered and a new ask matched to a notebook you already have. `auto` is
+ * sua's (the dashboard's notebook-tagger agent), `added` and `removed` are
+ * yours and win over them. `subject` is who or what it's about, in its own
+ * words (the part that would change next time). `key` is what it was tagged
+ * from (notebookTagKey): a notebook whose title, goal or limits changed is
+ * tagged again. `failedAt`: tagging last failed, so it waits before retrying.
+ */
+export interface NotebookTags { auto: string[]; added: string[]; removed: string[]; subject?: string; key?: string; at?: string; failedAt?: string }
+
+/** Tags sua gives a notebook, at most. */
+export const MAX_AUTO_TAGS = 4;
+const MAX_TAG_CHARS = 24;
+const TAG_RETRY_MS = 24 * 60 * 60 * 1000;
+
+/** A tag as it's kept: lower case, letters, digits, spaces and hyphens, 1 to 3 words, at most 24 characters. Anything else: ''. */
+export function cleanTag(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const t = v.toLowerCase().replace(/[^\p{L}\p{N} -]+/gu, ' ').replace(/\s+/g, ' ').trim().replace(/^-+|-+$/g, '').trim();
+  return t && t.length <= MAX_TAG_CHARS && t.split(' ').length <= 3 ? t : '';
+}
+
+/** A notebook's tags as shown: sua's without the ones you removed, then yours. */
+export function notebookTags(nb: Pick<Notebook, 'tags'>): string[] {
+  const t = nb.tags;
+  if (!t) return [];
+  const removed = new Set(t.removed);
+  return [...new Set([...t.auto.filter((x) => !removed.has(x)), ...t.added])];
+}
+
+/** What a notebook's tags are made from: its title, goal and limits. A change to these means tagging again. */
+export function notebookTagKey(nb: Pick<Notebook, 'title' | 'statement' | 'params'>): string {
+  return createHash('sha1').update([nb.title, nb.statement, ...nb.params].join('\n')).digest('hex').slice(0, 16);
+}
+
+/** Whether sua should tag it (again): never tagged, or changed since; not while a failed try is waiting. */
+export function tagsStale(nb: Pick<Notebook, 'title' | 'statement' | 'params' | 'tags'>, now = Date.now()): boolean {
+  const t = nb.tags;
+  if (t?.failedAt && now - Date.parse(t.failedAt) < TAG_RETRY_MS) return false;
+  return !t?.at || t.key !== notebookTagKey(nb);
+}
+
+function cleanTags(v: unknown): NotebookTags | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const list = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).map(cleanTag).filter(Boolean))];
+  const text = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
+  const subject = text(o.subject), key = text(o.key), at = text(o.at), failedAt = text(o.failedAt);
+  return { auto: list(o.auto), added: list(o.added), removed: list(o.removed), ...(subject ? { subject } : {}), ...(key ? { key } : {}), ...(at ? { at } : {}), ...(failedAt ? { failedAt } : {}) };
+}
 
 /**
  * A step of the work a notebook does, in order (not an option's stage):
@@ -1238,7 +1292,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
@@ -1738,6 +1792,34 @@ export class NotebookStore {
     const prev = nb.facets?.[key] ?? { labels: {}, at: now };
     const facets = { ...(nb.facets ?? {}), [key]: { ...prev, failedAt: now } };
     this.db.prepare('UPDATE notebooks SET facets_json = ? WHERE id = ?').run(JSON.stringify(facets), id);
+  }
+
+  /**
+   * Keep sua's tags for a notebook (and who or what it's about), with the key
+   * they were made from. What you added or removed stays. `updated_at` is
+   * left alone: tagging isn't a change to the notebook, and the list sorts by it.
+   */
+  setAutoTags(id: string, tags: { tags: readonly unknown[]; subject?: string }, now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const auto = [...new Set(tags.tags.map(cleanTag).filter(Boolean))].slice(0, MAX_AUTO_TAGS);
+    const subject = (tags.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const next: NotebookTags = { auto, added: nb.tags?.added ?? [], removed: nb.tags?.removed ?? [], ...(subject ? { subject } : {}), key: notebookTagKey(nb), at: now };
+    this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(next), id);
+    return this.mustGet(id);
+  }
+
+  /** Tagging a notebook failed: not tried again for a day. */
+  markTagsFailed(id: string, now = new Date().toISOString()): void {
+    const nb = this.mustGet(id);
+    const next: NotebookTags = { auto: [], added: [], removed: [], ...(nb.tags ?? {}), failedAt: now };
+    this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(next), id);
+  }
+
+  /** Give a notebook another's tags as they are (a notebook run again keeps them, yours included). */
+  copyTags(fromId: string, toId: string): void {
+    const from = this.get(fromId);
+    if (!from?.tags || !this.get(toId)) return;
+    this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(from.tags), toId);
   }
 
   /** Tick (or untick) one of the notebook's checks for an option. */
@@ -2619,6 +2701,7 @@ export class NotebookStore {
       ...(r.cadence_fired_at ? { cadenceFiredAt: String(r.cadence_fired_at) } : {}),
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
+      ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       // Checked when it was set (setLayout); read as stored.
