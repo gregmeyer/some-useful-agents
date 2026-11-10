@@ -93,6 +93,30 @@ describe("a notebook's TL;DR picture", () => {
     expect(render(tldrCard(briefed))).toContain('<div class="tl__label">Talking points</div>');
   });
 
+  it('about someone: their name, role and company with their photo, your goal, then the talking points; a company gets its logo', () => {
+    const about = { person: { name: 'Dana Reyes', summary: 'Runs logistics sales at Acme.', facts: [{ key: 'role', label: 'Role', value: 'VP Sales', at }, { key: 'organization', label: 'Company', value: 'Acme Corp', at }] } };
+    const meeting = nb({ fields: [], about, meeting: { goal: 'Agree a pilot' }, briefing: { points: [{ text: 'Ask about routing', from: [] }], questions: [], watch: [], at, by: 'agent:notebook-writer' } } as unknown as Partial<Notebook>);
+    const t = tldrData(meeting, [], undefined, undefined, { src: 'data:image/png;base64,AAAA' });
+    expect(t).toMatchObject({ who: 'person', leadLabel: "Who you're meeting", lead: 'Dana Reyes', leadFacts: ['VP Sales', 'Acme Corp'], note: 'Your goal: Agree a pilot', leadPicture: 'data:image/png;base64,AAAA', points: ['Ask about routing'], pointsLabel: 'Talking points' });
+    expect(t.stats).toEqual([{ value: '1', label: 'talking point' }]);
+    const card = render(tldrCard(t));
+    expect(card).toContain('<p class="tl__name">Dana Reyes</p>');
+    expect(card).toContain('<span class="tl__pic is-portrait"><img src="data:image/png;base64,AAAA" alt="Dana Reyes"></span>');
+    expect(card).toContain('<p class="tl__note">Your goal: Agree a pilot</p>');
+
+    // No photo kept: the same card without one. No goal: who they are, in a sentence. No talking points yet: what's kept counts as findings.
+    const early = tldrData(nb({ fields: [], about } as unknown as Partial<Notebook>), [option('Her talk on routing', {})]);
+    expect(early).toMatchObject({ who: 'person', lead: 'Dana Reyes', note: 'Runs logistics sales at Acme.', points: [] });
+    expect(early.leadPicture).toBeUndefined();
+    expect(early.stats[0]).toEqual({ value: '1', label: 'finding kept' });
+    expect(render(tldrCard(early))).not.toContain('tl__pic');
+
+    // A company: its logo shown whole, not cropped like a portrait.
+    const co = tldrData(nb({ fields: [], about: { company: { name: 'Acme Corp', facts: [{ key: 'what_they_do', label: 'What they do', value: 'Freight software', at }] } } } as unknown as Partial<Notebook>), [], undefined, undefined, { src: '/x.png', logo: true });
+    expect(co).toMatchObject({ who: 'company', leadLabel: 'The company', lead: 'Acme Corp', leadFacts: ['Freight software'], logo: true });
+    expect(render(tldrCard(co))).toContain('<span class="tl__pic"><img src="/x.png" alt="Acme Corp"></span>');
+  });
+
   it('is one self-contained page at the picture\'s width, with no scripts', () => {
     const page = renderNotebookTldr({ nb: nb(), entries, now: new Date('2026-11-10T12:00:00Z') });
     expect(page.startsWith('<!doctype html>')).toBe(true);
