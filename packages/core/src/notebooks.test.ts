@@ -900,6 +900,54 @@ describe('notebook tags', () => {
   });
 });
 
+describe('your changes to a notebook\'s tags', () => {
+  it('adds yours, keeps one of sua\'s off, puts it back, and survives a re-tag', async () => {
+    const { notebookTags, MAX_USER_TAGS } = await import('./notebooks.js');
+    dir = mkdtempSync(join(tmpdir(), 'sua-nbu-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const nb = s.create({ title: 'Find a used SUV' });
+    // Before sua has tagged it: yours is kept, and it still counts as untagged.
+    expect(notebookTags(s.setUserTags(nb.id, { add: ' Family Car ' }))).toEqual(['family car']);
+    expect(s.get(nb.id)!.tags!.at).toBeUndefined();
+    s.setAutoTags(nb.id, { tags: ['used cars', 'suvs'] });
+    const before = s.get(nb.id)!.updatedAt;
+
+    // One sua already gave: nothing changes. The same one twice: once.
+    s.setUserTags(nb.id, { add: 'SUVs' });
+    s.setUserTags(nb.id, { add: 'family car' });
+    expect(s.get(nb.id)!.tags).toMatchObject({ auto: ['used cars', 'suvs'], added: ['family car'], removed: [] });
+
+    // Remove one of sua's: kept off. Remove yours: gone. Remove one it doesn't have: nothing.
+    s.setUserTags(nb.id, { remove: 'suvs' });
+    s.setUserTags(nb.id, { remove: 'suvs' });
+    s.setUserTags(nb.id, { remove: 'boats' });
+    expect(s.get(nb.id)!.tags).toMatchObject({ added: ['family car'], removed: ['suvs'] });
+    expect(notebookTags(s.get(nb.id)!)).toEqual(['used cars', 'family car']);
+    s.setUserTags(nb.id, { remove: 'family car' });
+    expect(notebookTags(s.get(nb.id)!)).toEqual(['used cars']);
+
+    // sua tags it again with the same ones: the removed one stays off.
+    s.setAutoTags(nb.id, { tags: ['used cars', 'suvs', 'awd'] });
+    expect(notebookTags(s.get(nb.id)!)).toEqual(['used cars', 'awd']);
+    // Put it back, or add it by name: both bring it back as sua's.
+    s.setUserTags(nb.id, { restore: 'suvs' });
+    expect(notebookTags(s.get(nb.id)!)).toEqual(['used cars', 'suvs', 'awd']);
+    s.setUserTags(nb.id, { remove: 'awd' });
+    s.setUserTags(nb.id, { add: 'AWD' });
+    expect(s.get(nb.id)!.tags).toMatchObject({ added: [], removed: [] });
+    // Not a change to the notebook.
+    expect(s.get(nb.id)!.updatedAt).toBe(before);
+
+    // Not a tag; too many of yours.
+    expect(() => s.setUserTags(nb.id, { add: 'one two three four' })).toThrow(/1 to 3 plain words/);
+    expect(() => s.setUserTags(nb.id, { add: '!!!' })).toThrow(/1 to 3 plain words/);
+    for (let i = 0; i < MAX_USER_TAGS; i++) s.setUserTags(nb.id, { add: `mine ${String(i)}` });
+    expect(() => s.setUserTags(nb.id, { add: 'one more' })).toThrow(/up to 12 tags of your own/);
+    expect(() => s.setUserTags('nope', { add: 'x' })).toThrow(/No notebook/);
+  });
+});
+
 describe('options that are organizations match by name', () => {
   const setup = () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-nb-org-'));

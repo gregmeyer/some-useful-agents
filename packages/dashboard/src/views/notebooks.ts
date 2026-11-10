@@ -922,6 +922,37 @@ export interface NotebookEditView {
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   layoutUndos?: number;
   pagePicking?: boolean;
+  /** Tags in use on your notebooks, most used first (what the Add box suggests). */
+  tagVocabulary?: readonly string[];
+}
+
+/**
+ * Edit → Tags: the notebook's tags, each with a remove button, a box to add
+ * your own (suggesting tags you already use), and sua's tags you removed with
+ * a way to put them back. Each is its own small form; it saves straight away.
+ */
+function notebookTagEditor(nb: Notebook, tab: NotebookEditView['tab'], vocabulary: readonly string[]): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  const tags = notebookTags(nb);
+  const mine = new Set(nb.tags?.added ?? []);
+  const removed = (nb.tags?.removed ?? []).filter((t) => (nb.tags?.auto ?? []).includes(t));
+  const suggest = vocabulary.filter((t) => !tags.includes(t));
+  const form = (name: 'add' | 'remove' | 'restore', value: string, inner: SafeHtml, cls: string) =>
+    html`<form method="POST" action="/notebooks/${id}/tags" class="${cls}"><input type="hidden" name="tab" value="${tab}"><input type="hidden" name="${name}" value="${value}">${inner}</form>`;
+  return html`<details class="nbe-fold nbe-tags" id="nbe-tags" open><summary>Tags</summary>
+    <p class="nbe-tags__hint">sua tags a notebook by topic, so you can filter your notebooks by it. Remove one that's wrong or add your own: it saves straight away, and sua keeps your changes when it tags again.</p>
+    ${tags.length
+      ? html`<ul class="nbe-tags__list" aria-label="This notebook's tags">${tags.map((t) => html`<li>${form('remove', t, html`<span class="nbe-tag__name">${t}</span>${mine.has(t) ? html`<span class="nbe-tag__by">yours</span>` : html``}<button type="submit" class="nbe-tag__x" aria-label="Remove the tag ${t}" title="Remove">×</button>`, 'nbe-tag')}</li>`) as unknown as SafeHtml[]}</ul>`
+      : html`<p class="nbe-tags__none">${nb.tags?.at || removed.length ? 'No tags.' : 'No tags yet. sua adds them in the background; open Notebooks to start it.'}</p>`}
+    <form method="POST" action="/notebooks/${id}/tags" class="nbe-tags__add">
+      <input type="hidden" name="tab" value="${tab}">
+      <label class="sr-only" for="nbe-tag-add">Add a tag</label>
+      <input id="nbe-tag-add" type="text" name="add" maxlength="24" required placeholder="Add a tag, e.g. used cars" autocomplete="off" list="nbe-tags-all">
+      <datalist id="nbe-tags-all">${suggest.map((t) => html`<option value="${t}"></option>`) as unknown as SafeHtml[]}</datalist>
+      <button type="submit" class="btn btn--sm">Add</button>
+    </form>
+    ${removed.length ? html`<p class="nbe-tags__removed"><span>You removed:</span>${removed.map((t) => form('restore', t, html`<span class="nbe-tag__name">${t}</span><button type="submit" class="nbe-tag__back">Put back</button>`, 'nbe-tag nbe-tag--removed')) as unknown as SafeHtml[]}</p>` : html``}
+  </details>`;
 }
 
 /** Things to say, to start: each fills the box. */
@@ -1044,6 +1075,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
         </div>` : html``}
         ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(nb.layoutBy ? { by: nb.layoutBy } : {}), ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
+        ${notebookTagEditor(nb, args.tab, args.tagVocabulary ?? [])}
         <details class="nbe-fold nbe-fold--more" open><summary>Manage this notebook</summary>${notebookMoreActions(nb)}</details>
       </div>
       <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>

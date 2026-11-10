@@ -5509,4 +5509,53 @@ describe('notebook tags', () => {
     // Let both notebooks finish setting up (sua's hello is the last of it) before the test's database closes.
     for (let i = 0; i < 400 && [nb.id, made.id].some((id) => !store.get(id)!.conversationId); i++) await new Promise((r) => setTimeout(r, 10));
   });
+
+  it('Edit → Tags: remove one, add your own, put one back; sua tagging again keeps your changes', async () => {
+    const { app, ctx, store, settle, notebookTags } = await setup();
+    const post = (path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const nb = store.create({ title: 'Find a used SUV', statement: 'A reliable used SUV', params: [], criteria: [], pipeline: [], cadence: '' });
+    const other = store.create({ title: 'Winter tires', statement: 'Tires', params: [], criteria: [], pipeline: [], cadence: '' });
+    store.setAutoTags(nb.id, { tags: ['used cars', 'suvs'] });
+    store.setAutoTags(other.id, { tags: ['tires', 'used cars'] });
+
+    // The Edit page lists its tags with a remove button each, and suggests tags in use it doesn't have.
+    const page = (await get(app, `/notebooks/${nb.id}/edit`)).text;
+    expect(page).toContain('id="nbe-tags"');
+    expect(page).toContain('aria-label="Remove the tag used cars"');
+    expect(page).toContain('<option value="tires"></option>');
+    expect(page).not.toContain('<option value="suvs"></option>');
+    expect(page).not.toContain('You removed:');
+
+    // Remove one of sua's, add one of yours (on a tab: back to that tab, at the tags).
+    const removed = await post(`/notebooks/${nb.id}/tags`, { remove: 'suvs', tab: 'looks' });
+    expect(removed.status).toBe(303);
+    expect(removed.headers.location).toBe(`/notebooks/${nb.id}/edit?tab=looks#nbe-tags`);
+    expect((await post(`/notebooks/${nb.id}/tags`, { add: 'Family Car' })).headers.location).toBe(`/notebooks/${nb.id}/edit#nbe-tags`);
+    expect(notebookTags(store.get(nb.id)!)).toEqual(['used cars', 'family car']);
+    const after = (await get(app, `/notebooks/${nb.id}/edit`)).text;
+    expect(after).toContain('<span class="nbe-tag__name">family car</span><span class="nbe-tag__by">yours</span>');
+    expect(after).toContain('You removed:');
+    expect(after).toContain('<input type="hidden" name="restore" value="suvs">');
+    // The list filters by yours, and no longer by the removed one.
+    expect((await get(app, '/notebooks?tag=family+car')).text).toContain('Find a used SUV');
+    expect((await get(app, '/notebooks?tag=suvs')).text).toContain('notebooks tagged “suvs”');
+
+    // Not a tag: said on the page, nothing kept.
+    const bad = await post(`/notebooks/${nb.id}/tags`, { add: 'far too many words here' });
+    expect(decodeURIComponent(bad.headers.location)).toContain('A tag is 1 to 3 plain words');
+    expect((await post('/notebooks/nope/tags', { add: 'x' })).status).toBe(303);
+
+    // Its goal changes: sua tags it again, and your changes are still there.
+    ctx.notebookTaggerRun = async (inputs) => `<tags>${JSON.stringify({ items: (JSON.parse(inputs.NOTEBOOKS) as Array<{ id: string }>).map((n) => ({ id: n.id, tags: ['used cars', 'suvs', 'awd'] })) })}</tags>`;
+    store.update(nb.id, { statement: 'A reliable used SUV with AWD' });
+    await get(app, '/notebooks');
+    await settle();
+    expect(store.get(nb.id)!.tags).toMatchObject({ auto: ['used cars', 'suvs', 'awd'], added: ['family car'], removed: ['suvs'] });
+    expect(notebookTags(store.get(nb.id)!)).toEqual(['used cars', 'awd', 'family car']);
+
+    // Put it back.
+    await post(`/notebooks/${nb.id}/tags`, { restore: 'suvs' });
+    expect(notebookTags(store.get(nb.id)!)).toEqual(['used cars', 'suvs', 'awd', 'family car']);
+    expect((await get(app, `/notebooks/${nb.id}/edit`)).text).not.toContain('You removed:');
+  });
 });

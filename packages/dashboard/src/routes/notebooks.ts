@@ -679,6 +679,7 @@ notebooksRouter.get('/notebooks/:id/edit', (req: Request, res: Response) => {
     markdown: notebookToMarkdown(edit?.setup ?? setupOf(nb), proposed.layout),
     entries, compiled, history: widgetHistory(ctx, s),
     agents: searchAgents(ctx), flash: parseFlash(req), layoutUndos: s.layoutUndos(nb.id), pagePicking: !!ctx.notebookPages?.has(nb.id),
+    tagVocabulary: tagCounts(s.list({ archived: 'include' })).map((t) => t.tag),
   }));
 });
 
@@ -687,6 +688,19 @@ function editBack(id: string, msg?: string, kind: 'error' | 'info' | 'ok' = 'err
   const qs = [tab ? `tab=${tab}` : '', preview ? 'preview=1' : '', msg ? `${kind}=${encodeURIComponent(msg)}` : ''].filter(Boolean).join('&');
   return `/notebooks/${encodeURIComponent(id)}/edit${qs ? `?${qs}` : ''}`;
 }
+
+/** Edit → Tags: add a tag of your own, remove one, or put back one of sua's (one change a form). */
+notebooksRouter.post('/notebooks/:id/tags', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const tab = str(req.body?.tab) === 'prompt' ? 'prompt' : str(req.body?.tab) === 'looks' ? 'looks' : undefined;
+  const has = (k: string) => typeof req.body?.[k] === 'string';
+  try {
+    store(req).setUserTags(id, { ...(has('add') ? { add: str(req.body.add) } : {}), ...(has('remove') ? { remove: str(req.body.remove) } : {}), ...(has('restore') ? { restore: str(req.body.restore) } : {}) });
+    res.redirect(303, `${editBack(id, undefined, 'info', tab)}#nbe-tags`);
+  } catch (err) {
+    res.redirect(303, `${editBack(id, err instanceof Error ? err.message : String(err), 'error', tab)}#nbe-tags`);
+  }
+});
 
 /** A conflict about who they are: sua checks it (in the background), or you pick the one that's right. */
 notebooksRouter.post('/notebooks/:id/about/:who/conflicts/:fact/check', (req: Request, res: Response) => {
