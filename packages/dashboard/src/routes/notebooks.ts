@@ -1275,8 +1275,11 @@ notebooksRouter.post('/notebooks/:id/tldr/redraw', (req: Request, res: Response)
   if (!nb) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
   const ask = str(req.body?.ask).trim();
   if (!ask) { res.redirect(303, to('Say how you want it drawn.')); return; }
-  // What the picture says now, for sua to choose around (words and numbers; no pictures needed).
-  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), undefined, nb.about && s.aboutPhotos(nb.id).size ? { src: 'kept' } : undefined);
+  // What the picture says now, for sua to choose around: its words and numbers, and which pictures there are
+  // (their addresses stand in for them: a layout that leads with a picture is chosen only when there is one).
+  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
+  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
+  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined);
   const started = startTldrRedraw(ctx, nb.id, card, ask);
   res.redirect(303, started ? to() : to('sua is already redrawing it. Ask again when it\'s done.'));
 });

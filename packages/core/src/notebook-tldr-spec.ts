@@ -9,7 +9,7 @@
 
 export type TldrSize = 'standard' | 'landscape' | 'square' | 'portrait';
 export type TldrTone = 'plain' | 'editorial' | 'bold';
-export type TldrLayout = 'stack' | 'split' | 'hero';
+export type TldrLayout = 'stack' | 'split' | 'hero' | 'cover' | 'lineup' | 'spotlight';
 export type TldrPart = 'lead' | 'stats' | 'bars' | 'points';
 
 /** Each size: its box in CSS pixels (no height: as tall as it needs), how much it holds, and when it fits. */
@@ -30,6 +30,9 @@ export const TLDR_LAYOUTS: Record<TldrLayout, string> = {
   stack: 'One column, top to bottom.',
   split: 'Two columns: the words at the left, the bars or points at the right. Suits landscape.',
   hero: 'One thing very large at the top (the lead\'s number, or the person), the rest small under it.',
+  cover: 'The lead\'s picture (or the person\'s portrait) as a large band across the top, the words and numbers under it. Needs the lead to have a picture. On landscape it is drawn as spotlight.',
+  lineup: 'The top three or four options side by side as picture tiles, each with its name and value, the best one marked; the pictures take the place of the bars. Needs pictures of at least three of the top options. Not for a notebook about a person.',
+  spotlight: 'The lead\'s picture takes one whole side, top to bottom, the words and bars or points on the other. Needs the lead to have a picture. Best on landscape, and for a person\'s portrait.',
 };
 
 export const TLDR_PARTS: Record<TldrPart, string> = {

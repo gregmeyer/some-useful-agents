@@ -17,7 +17,7 @@ There were three ways to let a model do that:
 
 ## Decision
 
-1. **The model chooses a spec; code draws.** A redraw is a `TldrSpec`: one of four sizes (standard, landscape 1200×627, square, portrait), three tones (plain, editorial, bold), three layouts (stack, split, hero), which parts in what order, and at most a headline and a one-line takeaway. `tldrCard` draws any spec from the same `TldrData`. Every result is legible and on brand, and the picture cannot contain something the notebook doesn't.
+1. **The model chooses a spec; code draws.** A redraw is a `TldrSpec`: one of four sizes (standard, landscape 1200×627, square, portrait), three tones (plain, editorial, bold), six layouts (stack, split, hero, and three that lead with a picture: cover, lineup, spotlight), which parts in what order, and at most a headline and a one-line takeaway. `tldrCard` draws any spec from the same `TldrData`. Every result is legible and on brand, and the picture cannot contain something the notebook doesn't.
 2. **Not raw markup.** Model-written HTML has no safe path here (the PNG is made in a real browser), breaks the brand rule that agents don't write colours or fonts, and the codebase already found model-drawn pictures poor. It was offered and not chosen.
 3. **Not an A2UI layout document.** The static renderer for layouts is built for a page (masthead, reading width), has no image part, and its bars don't follow the picture's rules for what to plot. A card-sized vocabulary of twelve choices is easier for the model to get right than the page guide.
 4. **The model may write two lines, and their numbers are checked.** A headline and a takeaway are the only words written for the picture. Any number in them must appear in the data the model was given, as written there. A miss is retried once with the reason; a second miss drops the words and keeps the drawing.
@@ -27,7 +27,8 @@ There were three ways to let a model do that:
 
 ## Consequences
 
-- "Be more creative" is bounded: 4 × 3 × 3 drawings and two lines of words. More designs can be added to the lists without changing the agent's contract.
+- "Be more creative" is bounded: 4 × 3 × 6 drawings and two lines of words.
+- A layout that leads with a picture is drawn only when there is one. That is decided in code from the data (`tldrLayoutFor`), not by the model: a lineup without three pictured options, or a cover without the lead's picture, falls back to the closest layout that works. A photo is framed whole over a blur of itself, so the varied pictures notebooks keep (small, tall, banner-shaped, logos, drawings) all sit well; a full-bleed photo behind text was considered and not built for that reason. More designs can be added to the lists without changing the agent's contract.
 - A redraw costs one short model run (two when the first answer can't be used).
 - The number check is literal: "$140" for a stored "$139.99" is refused. That is deliberate; rounding is how wrong numbers start.
 - Redraw state while the agent runs is in memory. A restart mid-redraw loses the ask; the picture stays as it was.

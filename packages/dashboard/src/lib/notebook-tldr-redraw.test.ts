@@ -7,7 +7,7 @@ const nb = { title: 'Choose batteries for a 2000 EZGO TXT', statement: 'Good bat
 const card: TldrData = {
   title: nb.title, leadLabel: 'Best lead', lead: 'Werker 220Ah', leadFacts: ['Price $139.99', 'Location Phoenix, AZ'], leadPicture: 'data:image/png;base64,AAAA',
   stats: [{ value: '8', label: 'options in the running' }, { value: '$139.99–$2,130.99', label: 'price, lowest to highest' }],
-  chart: { label: 'Price', order: 'lowest first', more: 0, max: 2130.99, bars: [{ name: 'Werker 220Ah', value: 139.99, text: '$139.99', lead: true }, { name: 'Eco bundle', value: 2130.99, text: '$2,130.99', lead: false }] },
+  chart: { label: 'Price', order: 'lowest first', more: 0, max: 2130.99, bars: [{ name: 'Werker 220Ah', value: 139.99, text: '$139.99', lead: true, picture: 'data:image/png;base64,AAAA', kind: 'photo' }, { name: 'Eco bundle', value: 2130.99, text: '$2,130.99', lead: false }] },
   points: [],
 };
 const answer = (o: unknown) => `Here it is.\n<tldr>\n${JSON.stringify(o)}\n</tldr>`;
@@ -16,10 +16,13 @@ const at = '2026-11-10T00:00:00.000Z';
 describe('redrawing a TL;DR picture from an ask', () => {
   it('gives the agent the picture in words and numbers, the choices, the ask and how it is drawn now', () => {
     expect(cardForAgent(card)).toEqual({
-      lead: { label: 'Best lead', text: 'Werker 220Ah', facts: ['Price $139.99', 'Location Phoenix, AZ'], picture: true },
+      // What pictures there are: the lead's kind, and how many of the top options have one (a lineup needs three).
+      lead: { label: 'Best lead', text: 'Werker 220Ah', facts: ['Price $139.99', 'Location Phoenix, AZ'], picture: 'photo' },
       stats: card.stats,
-      bars: { by: 'Price', order: 'lowest first', shown: [{ name: 'Werker 220Ah', value: '$139.99', lead: true }, { name: 'Eco bundle', value: '$2,130.99' }], more: 0 },
+      bars: { by: 'Price', order: 'lowest first', shown: [{ name: 'Werker 220Ah', value: '$139.99', lead: true }, { name: 'Eco bundle', value: '$2,130.99' }], more: 0, topOptionsWithPictures: 1 },
     });
+    expect((cardForAgent({ ...card, leadPicture: undefined }).lead as { picture: string }).picture).toBe('none');
+    expect((cardForAgent({ ...card, who: 'person', leadPictureKind: 'portrait' }).lead as { picture: string }).picture).toBe('portrait');
     const first = tldrRedrawInputs(nb, card, 'for LinkedIn');
     expect(JSON.parse(first.NOTEBOOK)).toEqual({ title: nb.title, for: 'Good battery options' });
     expect(first.CARD).not.toContain('base64');

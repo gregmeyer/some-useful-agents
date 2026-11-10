@@ -473,9 +473,19 @@ The brief and the PDF are not affected: they carry the plain bars.
 |---|---|
 | `size` | `standard` (1080 wide, as tall as it needs), `landscape` (1200×627: a LinkedIn or X link image, a slide), `square` (1080×1080), `portrait` (1080×1350) |
 | `tone` | `plain` (as the dashboard looks), `editorial` (a magazine page: a large headline, rules, numerals in the accent colour), `bold` (the accent colour as the ground, white type) |
-| `layout` | `stack` (one column), `split` (words at the left, bars or points at the right), `hero` (the lead's number, or the person, very large) |
+| `layout` | `stack` (one column), `split` (words at the left, bars or points at the right), `hero` (the lead's number, or the person, very large), `cover` (the lead's picture as a band across the top), `lineup` (the top options as pictures side by side), `spotlight` (the lead's picture down one whole side) |
 
-For example `tldr.png?size=landscape&layout=split&tone=editorial`. A fixed size holds only what fits (landscape 5 bars, square 6, portrait 8; 3 to 5 points), counts the rest ("and 3 more in the running"), and measures its bars against the longest one shown. `parts=lead,bars` chooses which parts and their order, `headline=` and `takeaway=` add a headline over the notebook's title and a line under it. With 4 sizes, 3 tones and 3 layouts, "be more creative" has a ceiling: after a few asks you will have seen what there is.
+For example `tldr.png?size=landscape&layout=split&tone=editorial`. A fixed size holds only what fits (landscape 5 bars, square 6, portrait 8; 3 to 5 points), counts the rest ("and 3 more in the running"), and measures its bars against the longest one shown. `parts=lead,bars` chooses which parts and their order, `headline=` and `takeaway=` add a headline over the notebook's title and a line under it. **Layouts that lead with the picture.** Three of the layouts make the picture the main thing; ask for them in words ("lead with the photo", "show the top options side by side") or press **Lead with the photo**:
+
+- **Cover**: the lead's picture, or the person's portrait, as a band across the top, with the headline, the numbers and a few bars or points under it. Not on landscape, where there's no room for a band (it's drawn as a spotlight).
+- **Lineup**: the top options side by side as picture tiles (four on standard and landscape, three on square and portrait), each with its rank, name and value, the best one marked. The tiles take the place of the lead and the bars. It needs pictures of at least three of the top options, and isn't used for a notebook about a person.
+- **Spotlight**: the picture takes one whole side, top to bottom, with the words and the bars or points on the other. Made for landscape and for a person's portrait; on square and portrait the picture goes on top, as a cover.
+
+How a picture sits in its frame depends on what it is. A photo is shown whole over a blurred copy of itself, so a small or odd-shaped one fills the frame without being stretched or cut. A person's portrait fills a spotlight's side, and sits whole in a cover's wide band so the face isn't cut. A logo or a drawing sits whole on white.
+
+A layout that leads with a picture needs one. When there isn't one (no photo kept, fewer than three pictured options), the picture is drawn in the closest layout that works (a stack or a split), whatever was chosen.
+
+With 4 sizes, 3 tones and 6 layouts, "be more creative" still has a ceiling: after several asks you will have seen what there is.
 
 Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 

@@ -21,7 +21,10 @@ describe('a TL;DR picture\'s spec', () => {
     const guide = tldrOptionsGuide();
     expect(guide).toContain('"landscape": 1200×627.');
     expect(guide).toContain('"standard": 1080×auto.');
-    for (const word of ['"editorial"', '"bold"', '"split"', '"hero"', '"points"', 'headline (optional): at most 90 characters.']) expect(guide).toContain(word);
+    for (const word of ['"editorial"', '"bold"', '"split"', '"hero"', '"cover"', '"lineup"', '"spotlight"', '"points"', 'headline (optional): at most 90 characters.']) expect(guide).toContain(word);
+    // The picture-led layouts say what they need.
+    expect(guide).toContain('Needs pictures of at least three of the top options.');
+    for (const layout of ['cover', 'lineup', 'spotlight']) expect(cleanTldrSpec({ layout })!.layout).toBe(layout);
   });
 });
 
