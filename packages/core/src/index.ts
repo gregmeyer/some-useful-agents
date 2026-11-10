@@ -55,6 +55,8 @@ export { imageSize, imageShape, type ImageSize, type ImageShape } from './image-
 export type { FetchedImage } from './web-fetch/index.js';
 export type { WebFetchResult, WebFetchOptions, WebFetchMethod, BrowserMode } from './web-fetch/index.js';
 export { webScrape, extractStructured } from './web-fetch/scrape.js';
+export { htmlToPdf, htmlToPng } from './web-fetch/browser.js';
+export type { BrowserFile } from './web-fetch/browser.js';
 export type { WebScrapeResult, WebScrapeOptions } from './web-fetch/scrape.js';
 export { toOpenAiFunctionSchema, mangleToolName, resolveExposedTools } from './llm-tools.js';
 export type { OpenAiTool, ToolCallExecutor, ToolCallResult } from './llm-tools.js';
