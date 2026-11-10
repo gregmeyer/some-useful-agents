@@ -1598,6 +1598,28 @@ const Lead = define('Lead', 'sua-a2ui-lead',
     return html`${label ? html`<div class="label">${label}</div>` : nothing}<div class="value ${tone(t)}">${value}</div>${note ? html`<div class="note">${href && safeUrl(href) ? outLink(href, note) : note}</div>` : nothing}`;
   });
 
+// The notebook's TL;DR picture (its own data as one image, as last redrawn). It links to where it's redrawn and
+// downloaded. With no browser on the dashboard's machine to make it, there's no image: the part hides itself.
+const Picture = define('Picture', 'sua-a2ui-picture',
+  Common.extend({ picture: CommonSchemas.DynamicValue, caption: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    figure { margin: 0; }
+    a.pic { display: block; }
+    img { display: block; width: 100%; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); }
+    a.pic:hover img, a.pic:focus-visible img { border-color: var(--color-primary); }
+    figcaption { margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  (p) => {
+    const pic = p.picture && typeof p.picture === 'object' ? p.picture : {};
+    const src = safeUrl(pic.src);
+    if (!src) return nothing;
+    const href = safeUrl(pic.href);
+    const hide = (e) => { const f = e.target.closest('figure'); if (f) f.hidden = true; };
+    const img = html`<img src=${src} alt=${typeof pic.alt === 'string' ? pic.alt : ''} loading="lazy" @error=${hide}>`;
+    const cap = p.caption ?? pic.caption;
+    return html`<figure>${href ? html`<a class="pic" href=${href} title="Redraw or download this picture">${img}</a>` : img}${cap ? html`<figcaption>${cap}</figcaption>` : nothing}</figure>`;
+  });
+
 /** A field's numeric value: a number, a numeric string ("4.4 %", "$5,000"), or a range's midpoint. */
 function fieldNumber(v) {
   if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
@@ -1943,7 +1965,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

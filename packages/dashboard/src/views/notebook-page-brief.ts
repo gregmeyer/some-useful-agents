@@ -15,6 +15,7 @@ import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
+import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 
@@ -77,6 +78,8 @@ interface Printing {
   full: boolean;
   /** A kept picture of who it's about, as the file can carry it (embedded when saved). */
   about: (src: string) => string | undefined;
+  /** The notebook's TL;DR picture as a card (a Picture part): drawn here, since a saved page can't load the image. */
+  tldr: () => SafeHtml;
 }
 
 /** A prop's value: a literal, or bound to the notebook's data. */
@@ -310,6 +313,8 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Steps': return html`<ul class="plain">${(list(v('steps')) as Array<{ text?: unknown; met?: unknown }>).map((s) => html`<li>${s.met ? '✓' : '○'} ${text(s.text)}</li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
+    // The TL;DR picture: its card, drawn in place.
+    case 'Picture': return p.tldr();
     // Charts and agent HTML don't print here; the notebook has them.
     default: return html``;
   }
@@ -337,7 +342,13 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const { header, side, rest } = splitNotebookHeader(resolved);
   // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
   const byId = new Map([...(side ?? []).slice(1), ...rest].map((c) => [c.id, c]));
-  const p: Printing = { byId, data, full: !!args.full, about: args.aboutPicture ?? ((src) => src) };
+  const aboutSrc = args.aboutPicture ?? ((src: string) => src);
+  const tldr = () => {
+    const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
+    const pictured = who ? aboutSrc(who.src) : undefined;
+    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
+  };
+  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr };
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
@@ -463,7 +474,11 @@ th { font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: up
 .pic--hero { width: 100%; max-width: 18rem; aspect-ratio: 4 / 3; border-radius: 10px; }
 .pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
+/* The TL;DR picture's card (a Picture part), drawn for a 1080px picture, scaled to the column. */
+${unsafeHtml(TLDR_CSS)}
+.brief .tl { zoom: 0.6; border-radius: 12px; }
 @media print {  @page { margin: 16mm 14mm; }
+  .brief .tl { zoom: 0.52; break-inside: avoid; }
   body { font-size: 10.5pt; }
   .brief { max-width: none; padding: 0; gap: 1rem; }
   /* Small things stay whole; a part may split across pages (kept whole inside a grid column, Chrome moves it to the next page and prints what follows over it). */

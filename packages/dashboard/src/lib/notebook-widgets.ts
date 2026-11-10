@@ -216,6 +216,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     section: Record<string, NotebookWidgetData['notebook']['answerSections'][number]>;
     /** The notebook's numbers by field key, from the options in the running: the best by the field's better way, the high, the low, the count (Lead stat). Money and number fields only. */
     numbers: Record<string, { best: NotebookLeadStat; high: NotebookLeadStat; low: NotebookLeadStat; count: NotebookLeadStat }>;
+    /** The notebook's TL;DR picture (Picture): its image, what it shows, and where it's redrawn. */
+    picture: { src: string; alt: string; href: string; caption: string };
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
     planIntro: { label: string; text: string; next?: string; cover?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
@@ -463,6 +465,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
       numbers,
+      // Its TL;DR picture; the address changes when the notebook or the way it's drawn does, so a browser shows the new one.
+      picture: { src: `/notebooks/${encodeURIComponent(nb.id)}/tldr.png?v=${encodeURIComponent(`${nb.updatedAt}.${nb.tldr?.at ?? 'standard'}`)}`, alt: `${nb.title}, in short`, href: `/notebooks/${encodeURIComponent(nb.id)}/tldr`, caption: 'The TL;DR picture. Open it to redraw or download it.' },
       ...changesViews(nb, v.options, history, summary, next),
       // With a lead number on the page (numbers.lead), the strip doesn't say the best again.
       statItems: [

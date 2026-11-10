@@ -6,6 +6,7 @@
  */
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
+import { createHash } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { notebookMadeBy, type NotebookMadeBy } from '../lib/notebook-made-by.js';
@@ -1226,6 +1227,9 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   res.set({ 'Content-Type': 'application/pdf', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', 'Content-Disposition': attachment(name) }).send(out.data);
 });
 
+/** TL;DR pictures kept in memory at most (ctx.tldrPngs: by what each was made from, the card's whole page; newest last). */
+const TLDR_PNGS_KEPT = 16;
+
 /** The TL;DR card as a page: `embed`, its lead's picture inside it (a picture made from it can't load one from the dashboard). */
 function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean): { page: string; width: number } {
   const ctx = getContext(req.app.locals);
@@ -1318,10 +1322,16 @@ notebooksRouter.get('/notebooks/:id/tldr.png', async (req: Request, res: Respons
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
   const { page, width } = tldrPage(req, s, nb, true);
-  const out = await (ctx.notebookPng ?? htmlToPng)(page, { width, scale: 2, selector: '.tl' });
+  // The same picture asked for again (a notebook page that leads with it redraws every few seconds) comes from memory, not a new browser.
+  const key = createHash('sha1').update(page).digest('hex');
+  const tldrPngs = (ctx.tldrPngs ??= new Map());
+  const hit = tldrPngs.get(key);
+  const out = hit ? { available: true as const, data: hit } : await (ctx.notebookPng ?? htmlToPng)(page, { width, scale: 2, selector: '.tl' });
+  if (out.available && !hit) { tldrPngs.set(key, out.data); if (tldrPngs.size > TLDR_PNGS_KEPT) tldrPngs.delete(tldrPngs.keys().next().value as string); }
   // No browser here: the card as a page, drawn the same way (the address's own choices carried over).
   if (!out.available) { const qs = new URLSearchParams(req.query as Record<string, string>); qs.delete('download'); res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/tldr.html${qs.toString() ? `?${qs.toString()}` : ''}`); return; }
-  res.set({ 'Content-Type': 'image/png', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': attachment(`${titleFileName(nb.title)} (TLDR).png`) } : {}) }).send(out.data);
+  // With ?v= (a page's picture, whose address changes when it does) the browser may keep it for a while.
+  res.set({ 'Content-Type': 'image/png', 'Content-Length': String(out.data.length), 'Cache-Control': typeof req.query.v === 'string' && req.query.download !== '1' ? 'private, max-age=300' : 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': attachment(`${titleFileName(nb.title)} (TLDR).png`) } : {}) }).send(out.data);
 });
 
 notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response) => {
