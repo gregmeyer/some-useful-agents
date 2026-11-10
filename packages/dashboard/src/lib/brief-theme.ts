@@ -53,11 +53,12 @@ const MAP = `:root {
 /** The brief's theme: tokens, then the brand theme, then the brief's names for them, and paper colours for print. */
 export function briefTheme(theme: BrandTheme = DEFAULT_BRAND_THEME, mode?: BriefMode): BriefTheme {
   const base = tokens();
+  // Paper is white whatever the theme's page colour: a PDF made here keeps backgrounds, and a tinted page reads as a grey box.
   // Printed: the theme's light colours (tokens' light, then the brand's), set as values (a print can't switch modes).
   const light = { ...tokenBlock(base, ':root'), ...tokenBlock(base, '[data-theme="light"]'), ...resolveBrandTheme(theme).light } as Record<string, string | undefined>;
   const paper = BRAND_COLOR_TOKENS.filter((k) => light[k]).map((k) => `--color-${k}: ${light[k]!};`).join(' ');
   return {
-    css: `${base}\n${brandThemeCss(theme)}\n${MAP}\n@media print { :root, :root[data-theme="light"] { ${paper} color-scheme: light; } }`,
+    css: `${base}\n${brandThemeCss(theme)}\n${MAP}\n@media print { :root, :root[data-theme="light"] { ${paper} color-scheme: light; } html, body { background: #fff !important; } }`,
     ...(mode ? { mode } : {}),
   };
 }

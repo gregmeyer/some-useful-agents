@@ -31,7 +31,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, htmlToPdf, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -1155,29 +1155,72 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
 });
 
 // The shortlist as a spreadsheet; ?all=1 adds ruled-out options with why.
+/**
+ * A notebook's brief as a page of HTML: the shortlist brief, or the page drawn
+ * for the notebook (a meeting briefing prints as that page). `embed`: its
+ * pictures inside it (a saved file or a PDF can't load them from the
+ * dashboard). `print`: it opens the browser's print dialog.
+ */
+function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark' }): { page: string; full: boolean; latest: boolean } {
+  const ctx = getContext(req.app.locals);
+  // ?full=1: the extended brief, each option in full after the summary.
+  const full = req.query.full === '1';
+  const entries = s.entries(nb.id, 1000);
+  // ?latest=1: only the options the last run found for the first time.
+  const latest = req.query.latest === '1';
+  // The dashboard's look: its brand theme, in your mode (?theme=light|dark; the share links pass yours).
+  const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
+  const mode = o.mode ?? (req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined);
+  const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
+  // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
+  const page = briefIsPage(nb) && !latest
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+  return { page, full, latest };
+}
+
+/** A file name from a notebook's title, as you'd name it yourself ("Choose batteries for a 2000 EZGO TXT"), safe on any disk. */
+const titleFileName = (title: string): string => title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Notebook';
+/** Content-Disposition for a download: an ASCII name every browser takes, and the real one (RFC 5987) for those that read it. */
+const attachment = (name: string): string => `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, "'")}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+
 /** A notebook as a brief to share: one self-contained page (?download=1 saves it). */
 notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) => {
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  // Opened here, pictures load from the dashboard; a saved file carries its own.
+  const download = req.query.download === '1';
+  const { page, full, latest } = briefPage(req, s, nb, { embed: download, print: req.query.print === '1' && !download });
+  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(download ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
+});
+
+/**
+ * The brief as a PDF file, ready to send: made here with a headless browser,
+ * so it has none of what a print dialog adds (the print time, this
+ * dashboard's address on every page), its pictures inside it, and a small
+ * footer with the title, the date and the page number. Named after the
+ * notebook. ?full=1 and ?latest=1 as for the brief; ?paper=a4 for A4
+ * (Letter otherwise). No browser here: the brief opens with the print
+ * dialog instead, as before.
+ */
+notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  // ?full=1: the extended brief, each option in full after the summary.
-  const full = req.query.full === '1';
-  const entries = s.entries(nb.id, 1000);
-  // Opened here, pictures load from the dashboard; a saved file carries its own.
-  const download = req.query.download === '1';
-  // ?latest=1: only the options the last run found for the first time.
-  const latest = req.query.latest === '1';
-  // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
-  // The dashboard's look: its brand theme, in your mode (?theme=light|dark; the share links pass yours).
-  const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
-  const mode = req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined;
-  const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
-  const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
-    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(req.query.print === '1' && !download ? { print: true } : {}), ...(download ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
-  const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
-  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
+  const { page, full, latest } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light' });
+  const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const opts = { footer: `${nb.title} · ${date}`, paper: req.query.paper === 'a4' ? 'A4' as const : 'Letter' as const };
+  const out = await (ctx.notebookPdf ?? htmlToPdf)(page, opts);
+  if (!out.available) {
+    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', 'print=1', 'theme=light'].filter(Boolean).join('&');
+    res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/brief.html?${qs}`);
+    return;
+  }
+  const name = `${titleFileName(nb.title)}${latest ? ' (new)' : ''}${full ? ' (extended)' : ''}.pdf`;
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', 'Content-Disposition': attachment(name) }).send(out.data);
 });
 
 notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response) => {

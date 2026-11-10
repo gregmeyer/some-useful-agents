@@ -429,7 +429,8 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no app around it), works in light and dark and at phone width, and prints cleanly:
 - the light palette, colours kept;
 - no option split across pages;
-- each link's address printed after it.
+- each **Own page** link followed by the site it goes to ("batteriesplus.com"), not its whole address: the link itself works in a PDF;
+- white paper, and type set a little smaller and closer than on screen, so a shortlist of eight is three pages.
 
 **For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.
 
@@ -441,7 +442,7 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 
 The brief looks like the dashboard: its design tokens and your brand theme (**Settings → Appearance**: colours, fonts) are inside the file, in the mode you use the dashboard in (the **Download / share** links pass it as `?theme=light` or `?theme=dark`; without it, dark, the dashboard's default). Printed or saved as PDF, it's on paper: the theme's light colours. The file has no scripts.
 
-**Save as PDF** opens it with your browser's print dialog (choose Save as PDF). **Download the brief** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
+**Download as PDF** gives you a PDF file named after the notebook ("Choose batteries for a 2000 EZGO TXT.pdf"), ready to send. sua makes it itself with a headless browser, so it has none of what a print dialog adds (the time you printed, this dashboard's address on every page): each page ends with the notebook's title, the date and "2 / 3". Its pictures are inside it and its links work. **Download what's new as PDF** and **Download extended as PDF** do the same for those briefs (`brief.pdf?latest=1`, `brief.pdf?full=1`; add `paper=a4` for A4, Letter otherwise). It needs the browser sua uses for screenshots (`npx playwright install chromium`); without one, the brief opens with your browser's print dialog instead (choose Save as PDF), which is also still there by address: `brief.html?print=1`. **Download the brief** saves it as one HTML file, with its pictures inside it (each up to 600 KB, 8 MB in all), since the dashboard's own picture addresses need you signed in. Hand it to Claude to publish it as an artifact you can share by link. By address: `/notebooks/<id>/brief.html` (`?download=1` to save it, `?print=1` to open the print dialog).
 
 ### Each option's own page
 

@@ -2470,7 +2470,7 @@ describe('a brief to share', () => {
     expect(t).toContain('2010 Subaru Forester &lt;b&gt;'); // escaped
     expect(t).toContain('<dd>$4,999</dd>');
     expect(t).toContain('<dd>164,988 mi</dd>');
-    expect(t).toContain('href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" target="_blank" rel="noopener noreferrer">Own page ↗</a>');
+    expect(t).toContain('href="https://www.craigslist.org/view/d/lynnwood-2010-subaru-forester/BDo6" data-site="craigslist.org" target="_blank" rel="noopener noreferrer">Own page ↗</a>');
     expect(t).toContain('Found on a search page');
     expect(t).toContain('1/2 checks');
     // An option with nothing checked doesn't say "0/2 checks".
@@ -2504,10 +2504,39 @@ describe('a brief to share', () => {
     expect((await get(`/notebooks/${nb.id}/brief.html?full=1&print=1`)).text).toContain('print()');
     const menu = (await get(`/notebooks/${nb.id}`)).text;
     expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1"`);
-    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.html?full=1&amp;print=1"`);
-    // Save as PDF: the same page, with the print dialog opened for you.
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.pdf?full=1" download`);
+    expect(menu).toContain(`href="/notebooks/${nb.id}/brief.pdf" download`);
+    // The print dialog still works by address (and is where a PDF falls back to with no browser here).
     expect((await get(`/notebooks/${nb.id}/brief.html?print=1`)).text).toContain('print()');
-    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html?print=1"`);
+
+    // Download as PDF: a file made here from the brief, named after the notebook, with its own footer.
+    const made: Array<{ html: string; opts: { footer?: string; paper?: string } }> = [];
+    ctxForDrain!.notebookPdf = async (html, opts) => { made.push({ html, opts }); return { available: true, data: Buffer.from('%PDF-1.7 stand-in') }; };
+    const pdf = await get(`/notebooks/${nb.id}/brief.pdf`);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect(pdf.headers['content-disposition']).toBe(`attachment; filename="${nb.title}.pdf"; filename*=UTF-8''${encodeURIComponent(`${nb.title}.pdf`)}`);
+    expect(Buffer.from(pdf.body as Buffer).toString()).toBe('%PDF-1.7 stand-in');
+    // What's printed: the brief in the light theme, no print script, Letter, the title and date at the foot.
+    expect(made[0].html).toContain('<main class="brief">');
+    expect(made[0].html).toContain('data-theme="light"');
+    expect(made[0].html).not.toMatch(/<script/);
+    expect(made[0].opts.paper).toBe('Letter');
+    expect(made[0].opts.footer).toMatch(new RegExp(`^${nb.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · \\w+ \\d+, \\d{4}$`));
+    // On paper a link says its site, not its whole address; the paper is white.
+    expect(made[0].html).toContain('.opt__link::after { content: " " attr(data-site);');
+    expect(made[0].html).toContain('html, body { background: #fff !important; }');
+    // The extended one and A4, by address.
+    const ext = await get(`/notebooks/${nb.id}/brief.pdf?full=1&paper=a4`);
+    expect(ext.headers['content-disposition']).toContain(`filename="${nb.title} (extended).pdf"`);
+    expect(made[1].opts.paper).toBe('A4');
+    expect(made[1].html).toContain('id="b-full"');
+    // No browser on this machine: the brief opens with the print dialog instead.
+    ctxForDrain!.notebookPdf = async () => ({ available: false, reason: 'no browser' });
+    const none = await get(`/notebooks/${nb.id}/brief.pdf?full=1`);
+    expect(none.status).toBe(303);
+    expect(none.headers.location).toBe(`/notebooks/${nb.id}/brief.html?full=1&print=1&theme=light`);
+    expect((await get('/notebooks/nope/brief.pdf')).status).toBe(404);
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');

@@ -1162,12 +1162,12 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   const share = html`<span class="nb-progress__label${written ? '' : ' nb-csv__brief-label'}">To share</span>
       <a class="nb-csv__item" href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="${written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude'}">Open the brief ↗</a>
       <a class="nb-csv__item" href="/notebooks/${id}/brief.html?download=1" download title="The brief as one HTML file">Download the brief</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html?print=1" target="_blank" rel="noopener" title="Opens the brief and your browser's print dialog: choose Save as PDF">Save as PDF ↗</a>
+      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog">Download as PDF</a>
       ${latest && !written ? html`<a class="nb-csv__item" href="/notebooks/${id}/brief.html?latest=1" target="_blank" rel="noopener" title="The brief of only the options the last run found for the first time">Open the brief of what's new ↗ <span class="nb-csv__n">${String(fresh)}</span></a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html?latest=1&amp;print=1" target="_blank" rel="noopener" title="The brief of what's new with your browser's print dialog">Save what's new as PDF ↗</a>` : html``}
+      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf?latest=1" download title="The brief of what's new as a PDF file">Download what's new as PDF</a>` : html``}
       <span class="nb-progress__label nb-csv__brief-label">${written ? 'Extended: every finding in full' : 'Extended: each option in full'}</span>
       <a class="nb-csv__item" href="/notebooks/${id}/brief.html?full=1" target="_blank" rel="noopener" title="${written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history'}">Open the extended brief ↗</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html?full=1&amp;print=1" target="_blank" rel="noopener" title="The extended brief with your browser's print dialog; ${written ? 'each finding' : 'each option'} starts a new page">Save extended as PDF ↗</a>`;
+      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf?full=1" download title="The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page">Download extended as PDF</a>`;
   return html`<details class="nb-act nb-csv" data-nb-act>
     <summary class="btn btn--sm btn--ghost">Download / share</summary>
     <div class="nb-act__panel nb-csv__panel">

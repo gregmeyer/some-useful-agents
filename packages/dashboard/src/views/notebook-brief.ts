@@ -60,6 +60,8 @@ function whyLine(o: NotebookViewOption): string {
 }
 
 /** The option's own page, when it has one (not a page of search results). */
+/** The site an address is on, as you'd say it ("batteriesplus.com"); '' when it isn't an address. */
+export const siteOf = (url: string): string => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const ownPage = (o: NotebookViewOption) => (o.link && !o.linkIsList && !isListPage(o.link) ? o.link : undefined);
 
 /** The checks ticked on an option (only the notebook's own). */
@@ -215,7 +217,7 @@ function optionRow(nb: Notebook, o: NotebookViewOption, n: number): SafeHtml {
       ${why ? html`<p class="opt__why">${why}</p>` : html``}
       <div class="opt__foot">
         ${checks.length ? html`<span class="checks${checks.length === nb.checks.length ? ' is-all' : ''}" title="${checks.join(', ')}">${String(checks.length)}/${String(nb.checks.length)} checks</span>` : html``}
-        ${own ? html`<a class="opt__link" href="${own}" target="_blank" rel="noopener noreferrer">Own page ↗</a>` : o.link ? html`<span class="opt__nolink" title="${o.link}">Found on a search page</span>` : html``}
+        ${own ? html`<a class="opt__link" href="${own}" data-site="${siteOf(own)}" target="_blank" rel="noopener noreferrer">Own page ↗</a>` : o.link ? html`<span class="opt__nolink" title="${o.link}">Found on a search page</span>` : html``}
       </div>
     </div>
   </li>`;
@@ -426,14 +428,26 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
 @media print {
   @page { margin: 16mm 14mm; }
-  body { font-size: 11pt; }
-  .brief { max-width: none; padding: 0; gap: 1.25rem; }
+  /* Set to be read on a screen as a shared file: a little smaller and closer than the page, so eight options take three pages, not four. */
+  body { font-size: 10pt; line-height: 1.5; }
+  .brief { max-width: none; padding: 0; gap: 1rem; }
+  h1 { font-size: 1.5rem; margin-top: 0.35rem; }
+  h2 { margin-bottom: 0.5rem; }
+  .goal, .stands, .findings { max-width: none; }
+  .stands { padding: 0.75rem 1rem; }
+  .findings { gap: 0.2rem; }
+  th, td { padding: 0.35rem 0.6rem; }
+  .pic--thumb { width: 3.2rem; height: 2rem; }
+  .opt { padding-block: 0.6rem; gap: 0.5rem; }
+  .opt__body { gap: 0.25rem; }
+  .cols { gap: 1rem; }
   .decision, .tag, tr.is-chosen td.n, .pic { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .tbl { overflow: visible; border-color: var(--line-strong); }
   h2, h3 { break-after: avoid; }
   .pic--hero { max-width: 16rem; }
   .opt, tr, .decision, .stands, .findings li, .plain li, .cols > div { break-inside: avoid; }
-  .opt__link::after { content: " " attr(href); font: 400 0.6875rem var(--mono); color: var(--subtle); word-break: break-all; }
+  /* The link works in a PDF, so on paper it says where it goes (the site), not its whole address. */
+  .opt__link::after { content: " " attr(data-site); font: 400 0.6875rem var(--mono); color: var(--subtle); }
   footer { break-before: avoid; }
   .fullset > h2 { break-before: page; }
   .full + .full { break-before: page; }
