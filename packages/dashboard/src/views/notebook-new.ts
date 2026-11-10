@@ -48,6 +48,44 @@ export function renderDraftsStrip(drafts: ReadonlyArray<{ id: string } & DraftSt
     </section>`;
 }
 
+/** A notebook you have that what you typed could be (core similarNotebooks), for New notebook's hint. */
+export interface NotebookLike { id: string; title: string; match: 'same-topic' | 'same-kind'; status: string; archived: boolean; updatedAt: string; subject?: string; canCopy: boolean }
+
+/**
+ * New notebook's hint, above the draft: you may already have this one (open
+ * it, or run it again), or one of the same kind about someone else (set this
+ * one up like it, saying who it's for). Worded as a maybe: it's matched by
+ * words alone, and drafting goes on underneath either way.
+ */
+export function renderNotebookLike(like: NotebookLike | undefined): SafeHtml {
+  if (!like) return html``;
+  const id = encodeURIComponent(like.id);
+  const where = like.archived ? 'archived' : like.status;
+  const link = html`<a href="/notebooks/${id}">${like.title}</a>`;
+  if (like.match === 'same-topic') {
+    return html`<section class="nbd-like" aria-labelledby="nbd-like-h">
+      <h2 class="nbd-like__h" id="nbd-like-h">You may already have this</h2>
+      <p class="nbd-like__what">${link} <span class="nbd-like__meta">${where} · updated ${formatAge(like.updatedAt)}</span></p>
+      <div class="nbd-like__acts">
+        <a class="btn btn--sm" href="/notebooks/${id}">Open it</a>
+        <form method="POST" action="/notebooks/${id}/rerun"><button type="submit" class="btn btn--sm">Run it again</button></form>
+        <span class="nbd-like__note">Run it again starts a fresh notebook with the same setup${like.archived ? '' : ' and archives this one'}. Not it? Carry on below.</span>
+      </div>
+    </section>`;
+  }
+  if (!like.canCopy) return html``;
+  return html`<section class="nbd-like" aria-labelledby="nbd-like-h">
+    <h2 class="nbd-like__h" id="nbd-like-h">You have one like this${like.subject ? html`, about ${like.subject}` : html``}</h2>
+    <p class="nbd-like__what">${link} <span class="nbd-like__meta">${where} · updated ${formatAge(like.updatedAt)}</span></p>
+    <form method="POST" action="/notebooks/${id}/like" class="nbd-like__acts">
+      <label class="nbd-like__label" for="nbd-like-subject">Who or what is this one about?</label>
+      <input id="nbd-like-subject" type="text" name="subject" required maxlength="80" class="form-field nbd-like__subject" placeholder="${like.subject ? `Instead of ${like.subject}` : 'A name'}" autocomplete="off">
+      <button type="submit" class="btn btn--sm">Set it up like that</button>
+      <span class="nbd-like__note">A new, empty notebook with that one's steps, checks and page, the name swapped. That one stays as it is. Or carry on below for a fresh draft.</span>
+    </form>
+  </section>`;
+}
+
 type TemplateRow = Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'> & { setup?: Partial<Pick<NotebookTemplate['setup'], 'subject' | 'statement' | 'steps'>> };
 
 /** What a template is for, in a line: its statement with "…" where the subject goes, else its steps, else what it sets up. */
@@ -125,6 +163,8 @@ export function renderNotebookNew(opts: {
   templates?: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>;
   /** Archived templates: restore or delete. */
   archivedTemplates?: ReadonlyArray<Pick<NotebookTemplate, 'id' | 'name' | 'description' | 'uses'>>;
+  /** A notebook you have that the sentence could be. */
+  like?: NotebookLike;
 } = {}): string {
   const d = opts.draft;
   const result = !d ? html``
@@ -146,6 +186,7 @@ export function renderNotebookNew(opts: {
         <div class="nbd-pills" data-nbd-pills${opts.refreshing ? unsafeHtml(' data-nbd-pills-refreshing') : unsafeHtml('')} aria-live="polite">${renderSuggestionPills(opts.suggestions ?? [], !!opts.refreshing)}</div>
         <p class="nbd-ask__examples">For example: “a remote staff engineer job paying $180k+” · “a quiet 2-bed rental in Fremont under $2,600” · “noise-cancelling headphones under $300”</p>
       </form>
+      <div class="nbd-like-slot" data-nbd-like aria-live="polite">${renderNotebookLike(opts.like)}</div>
       <div class="nbd-result" data-nbd-result aria-live="polite">${result}</div>
       ${renderTemplateList(opts.templates ?? [], opts.archivedTemplates ?? [])}
       <form method="POST" action="/notebooks" class="nbd-skip" data-nbd-skip>
