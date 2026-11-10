@@ -1605,8 +1605,9 @@ const Picture = define('Picture', 'sua-a2ui-picture',
   css`
     :host { display: block; }
     figure { margin: 0; }
-    a.pic { display: block; }
-    img { display: block; width: 100%; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); }
+    a.pic { display: inline-block; max-width: 100%; }
+    /* Never taller than about half a screen: a square or tall picture at the column's full width would push the page a screen down. A wide one still fills the width. */
+    img { display: block; max-width: 100%; max-height: min(60vh, 520px); width: auto; height: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); }
     a.pic:hover img, a.pic:focus-visible img { border-color: var(--color-primary); }
     figcaption { margin-top: 6px; font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
   (p) => {
