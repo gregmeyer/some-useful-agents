@@ -754,6 +754,8 @@ export interface NotebookTags { auto: string[]; added: string[]; removed: string
 
 /** Tags sua gives a notebook, at most. */
 export const MAX_AUTO_TAGS = 4;
+/** Tags of your own on a notebook, at most. */
+export const MAX_USER_TAGS = 12;
 const MAX_TAG_CHARS = 24;
 const TAG_RETRY_MS = 24 * 60 * 60 * 1000;
 
@@ -1813,6 +1815,34 @@ export class NotebookStore {
     const nb = this.mustGet(id);
     const next: NotebookTags = { auto: [], added: [], removed: [], ...(nb.tags ?? {}), failedAt: now };
     this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(next), id);
+  }
+
+  /**
+   * Your change to a notebook's tags, one at a time. `add`: a tag of yours
+   * (one you removed comes back; one sua already gave it changes nothing).
+   * `remove`: yours is dropped, sua's is kept off even when it's tagged
+   * again. `restore`: put back one of sua's you removed. `updated_at` is
+   * left alone, as for sua's tags.
+   */
+  setUserTags(id: string, change: { add?: string; remove?: string; restore?: string }): Notebook {
+    const nb = this.mustGet(id);
+    const t: NotebookTags = { auto: [...(nb.tags?.auto ?? [])], added: [...(nb.tags?.added ?? [])], removed: [...(nb.tags?.removed ?? [])], ...(nb.tags?.subject ? { subject: nb.tags.subject } : {}), ...(nb.tags?.key ? { key: nb.tags.key } : {}), ...(nb.tags?.at ? { at: nb.tags.at } : {}), ...(nb.tags?.failedAt ? { failedAt: nb.tags.failedAt } : {}) };
+    const drop = (list: string[], tag: string) => { const i = list.indexOf(tag); if (i >= 0) list.splice(i, 1); return i >= 0; };
+    if (change.add !== undefined) {
+      const tag = cleanTag(change.add);
+      if (!tag) throw new Error('A tag is 1 to 3 plain words, at most 24 characters.');
+      if (!drop(t.removed, tag) && !t.auto.includes(tag) && !t.added.includes(tag)) {
+        if (t.added.length >= MAX_USER_TAGS) throw new Error(`A notebook takes up to ${String(MAX_USER_TAGS)} tags of your own. Remove one first.`);
+        t.added.push(tag);
+      }
+    }
+    if (change.remove !== undefined) {
+      const tag = cleanTag(change.remove);
+      if (tag && !drop(t.added, tag) && t.auto.includes(tag) && !t.removed.includes(tag)) t.removed.push(tag);
+    }
+    if (change.restore !== undefined) drop(t.removed, cleanTag(change.restore));
+    this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(t), id);
+    return this.mustGet(id);
   }
 
   /** Give a notebook another's tags as they are (a notebook run again keeps them, yours included). */

@@ -23,6 +23,6 @@ Both need the same thing: a small, stable description of a notebook that can be 
 ## Consequences
 
 - The list filters by one tag at a time (`?tag=`), and search matches tags and the subject. Card chips are not links: the whole card is one link, so filtering is from the row above the grid.
-- Tags can still drift over months; there is no tool to merge two tags or rename one. Removing a tag on one notebook and adding another is the only correction (the editing UI follows in its own change).
+- Tags can still drift over months; there is no tool to merge two tags or rename one. Removing a tag on one notebook and adding another (Edit → Tags) is the only correction.
 - The subject and the derived kind are what a later change uses to tell "you already have this notebook" (same topic, same subject) from "set it up like that one" (same kind, another subject) when you ask for a new notebook.
 - Tags cost one short model run per 20 notebooks, once, and one per changed notebook after that.
