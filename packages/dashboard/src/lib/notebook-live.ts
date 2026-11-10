@@ -11,7 +11,12 @@ import type { getContext } from '../context.js';
 type Ctx = ReturnType<typeof getContext>;
 
 export type NotebookTalkLive =
-  | { state: 'waiting'; kind: 'approve' | 'answer' | 'fail'; text: string; threadId: string }
+  /**
+   * `stepCards`: all it waits on is the notebook's own step cards (Start,
+   * Continue, Try again / Move on), so the page offers those buttons itself
+   * rather than sending you to the conversation to press them.
+   */
+  | { state: 'waiting'; kind: 'approve' | 'answer' | 'fail'; text: string; threadId: string; stepCards?: boolean }
   /** The notebook's next step is yours (Decide or Narrow): its header control opens it. */
   | { state: 'waiting'; kind: 'step'; text: string; act: 'decide' | 'narrow'; threadId?: string }
   | { state: 'working'; text: string; threadId: string };
@@ -38,7 +43,8 @@ export function notebookTalkLive(ctx: Ctx, nb: Pick<Notebook, 'conversationId' |
     const ask = threadAsk(msg, ctx.inboxStore!.listResponses(id));
     if (ask) {
       const kind = ask.kind === 'approve' || ask.kind === 'fail' ? ask.kind : 'answer';
-      return { state: 'waiting', kind, text: ask.text, threadId: id };
+      const stepCards = kind === 'approve' && ask.cards.length > 0 && ask.cards.every((c) => c.agentId === 'notebook-step');
+      return { state: 'waiting', kind, text: ask.text, threadId: id, ...(stepCards ? { stepCards } : {}) };
     }
   }
   const working = id && msg ? conversationWorking(ctx, msg) : undefined;
