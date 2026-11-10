@@ -1153,27 +1153,25 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
     ? html`<span class="nb-progress__label nb-csv__brief-label">The findings as a spreadsheet</span>
       ${item('running', 'What it found (CSV)', running.length, 'Every finding still in, with its facts and sources')}
       ${all > running.length ? item('all', 'With what it set aside', all, 'Set-aside findings last, with why') : html``}`
-    : html`<span class="nb-progress__label">Which options?</span>
+    : html`<span class="nb-progress__label nb-csv__brief-label">The options as a spreadsheet</span>
       ${chosen ? item('chosen', 'Chosen', chosen, 'The options you picked, best first') : html``}
       ${item('running', 'In the running', running.length, chosen ? 'Every option still in, chosen first' : 'Every option still in, best first')}
       ${all > running.length ? item('all', 'Everything, with ruled out', all, 'Ruled-out ones last, with why') : html``}
       ${latest ? item('new', 'New in the last run', fresh, 'Only the options the last run found for the first time') : html``}
       <span class="nb-csv__hint">To pick rows yourself, filter the shortlist and use its <b>CSV of these</b>.</span>`;
-  const share = html`<span class="nb-progress__label${written ? '' : ' nb-csv__brief-label'}">To share</span>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="${written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude'}">Open the brief ↗</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html?download=1" download title="The brief as one HTML file">Download the brief</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/tldr.png" target="_blank" rel="noopener" title="${written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars'}">Open the TL;DR picture ↗</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/tldr.png?download=1" download title="The TL;DR as a PNG file, to drop into a message">Download the TL;DR picture</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog">Download as PDF</a>
-      ${latest && !written ? html`<a class="nb-csv__item" href="/notebooks/${id}/brief.html?latest=1" target="_blank" rel="noopener" title="The brief of only the options the last run found for the first time">Open the brief of what's new ↗ <span class="nb-csv__n">${String(fresh)}</span></a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf?latest=1" download title="The brief of what's new as a PDF file">Download what's new as PDF</a>` : html``}
-      <span class="nb-progress__label nb-csv__brief-label">${written ? 'Extended: every finding in full' : 'Extended: each option in full'}</span>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.html?full=1" target="_blank" rel="noopener" title="${written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history'}">Open the extended brief ↗</a>
-      <a class="nb-csv__item" href="/notebooks/${id}/brief.pdf?full=1" download title="The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page">Download extended as PDF</a>`;
+  // To share: one row a thing (the brief, the picture…), its forms as short links at the right, so the menu stays a few rows however many forms there are.
+  const open = (what: string, path: string, hint: string) => html`<a href="/notebooks/${id}/${path}" target="_blank" rel="noopener" title="${hint}" aria-label="Open ${what}">Open ↗</a>`;
+  const save = (what: string, as: string, path: string, hint: string) => html`<a href="/notebooks/${id}/${path}" download title="${hint}" aria-label="Download ${what} as ${as}">${as}</a>`;
+  const row = (name: string, n: number | undefined, links: SafeHtml) => html`<div class="nb-share__row"><span class="nb-share__what">${name}${n !== undefined ? html` <span class="nb-csv__n">${String(n)}</span>` : html``}</span><span class="nb-share__as">${links}</span></div>`;
+  const share = html`<span class="nb-progress__label">To share</span>
+      ${row('The brief', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
+      ${row('TL;DR picture', undefined, html`${open('the TL;DR picture', 'tldr.png', written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars')}${save('the TL;DR picture', 'PNG', 'tldr.png?download=1', 'The TL;DR as a PNG file, to drop into a message')}`)}
+      ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
+      ${row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
   return html`<details class="nb-act nb-csv" data-nb-act>
     <summary class="btn btn--sm btn--ghost">Download / share</summary>
     <div class="nb-act__panel nb-csv__panel">
-      ${written ? html`${share}${csv}` : html`${csv}${share}`}
+      ${share}${csv}
     </div>
   </details>`;
 }
