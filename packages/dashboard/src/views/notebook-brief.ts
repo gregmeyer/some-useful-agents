@@ -18,6 +18,7 @@ import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory
 import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
 import { bodyWithLinks } from './notebooks.js';
 import { briefPart, type BriefSection } from './notebook-page-brief.js';
+import { tldrData, tldrCard, TLDR_CSS } from './notebook-tldr.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -30,14 +31,14 @@ const ROLE_ORDER = ['score', 'price', 'measure', 'when', 'place', 'org'] as cons
 const orgInName = (f: NotebookField, o: NotebookViewOption) => f.role === 'org' && typeof o.fields[f.key] === 'string' && o.title.toLowerCase().startsWith(String(o.fields[f.key]).toLowerCase());
 
 /** The fields a reader compares, in order: fit, price, the main measure, when, place, org, then the rest. */
-function compareFields(nb: Notebook): NotebookField[] {
+export function compareFields(nb: Notebook): NotebookField[] {
   const byRole = ROLE_ORDER.map((r) => nb.fields.find((f) => f.role === r)).filter((f): f is NotebookField => !!f);
   const rest = nb.fields.filter((f) => !byRole.includes(f) && f.role !== 'link' && f.role !== 'image' && f.type !== 'url' && f.type !== 'image');
   return [...byRole, ...rest];
 }
 
 /** An option's facts for its row: the ones its title doesn't already say. */
-function facts(nb: Notebook, o: NotebookViewOption): Array<{ label: string; value: string }> {
+export function facts(nb: Notebook, o: NotebookViewOption): Array<{ label: string; value: string }> {
   const title = o.title.toLowerCase();
   const stated = readOptionText(o.title, nb.fields);
   return compareFields(nb)
@@ -68,7 +69,7 @@ const ownPage = (o: NotebookViewOption) => (o.link && !o.linkIsList && !isListPa
 const ticked = (nb: Notebook, o: NotebookViewOption) => nb.checks.filter((c) => o.checked.some((d) => d.toLowerCase() === c.toLowerCase()));
 
 /** A number field's values across options: each range by its ends. */
-function span(f: NotebookField, options: readonly NotebookViewOption[]): { lo: number; hi: number; have: number } | undefined {
+export function span(f: NotebookField, options: readonly NotebookViewOption[]): { lo: number; hi: number; have: number } | undefined {
   let lo = Infinity; let hi = -Infinity; let have = 0;
   for (const o of options) {
     const v: NotebookFieldValue | undefined = o.fields[f.key];
@@ -80,7 +81,7 @@ function span(f: NotebookField, options: readonly NotebookViewOption[]): { lo: n
   return have ? { lo, hi, have } : undefined;
 }
 
-const spanText = (f: NotebookField, s: { lo: number; hi: number }) => (s.lo === s.hi ? formatFieldValue(f, s.lo) : formatFieldValue(f, { min: s.lo, max: s.hi }));
+export const spanText = (f: NotebookField, s: { lo: number; hi: number }) => (s.lo === s.hi ? formatFieldValue(f, s.lo) : formatFieldValue(f, { min: s.lo, max: s.hi }));
 
 /** A ruled-out reason's gist, to group by: the check it failed, else its first clause. */
 function reasonGist(reason: string): string {
@@ -94,7 +95,7 @@ function reasonGist(reason: string): string {
 }
 
 /** A short categorical field to say how the options split ("Remote: 3 remote, 1 on-site"), with its counts. */
-function split(nb: Notebook, options: readonly NotebookViewOption[]): { label: string; counts: Array<[string, number]> } | undefined {
+export function split(nb: Notebook, options: readonly NotebookViewOption[]): { label: string; counts: Array<[string, number]> } | undefined {
   if (options.length < 3) return undefined;
   const candidates = nb.fields.filter((f) => f.type === 'text' && f.role !== 'org' && f.role !== 'link' && f.role !== 'image' && !/title|name/i.test(f.key));
   let best: { label: string; counts: Array<[string, number]>; have: number } | undefined;
@@ -292,6 +293,8 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const keyF = compareFields(nb)[0];
   // Pictures as the option's page shows them (its photo, an example photo, a logo or a drawing).
   const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
+  // The TL;DR picture's card under the title, when there's something to plot (not on the brief of what's new: its numbers are the whole notebook's).
+  const tldr = args.latest ? undefined : tldrData(nb, args.entries, args.history, pic);
   const body = html`<title>${nb.title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
@@ -425,6 +428,10 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 .full__body a { color: var(--accent); }
 .full__checks ul, .full__history ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; font-size: 0.875rem; }
 .full__when { font: 500 0.75rem var(--mono); color: var(--subtle); min-width: 3.5rem; display: inline-block; }
+/* The TL;DR card, drawn for a 1080px picture, scaled to the column. */
+${unsafeHtml(TLDR_CSS)}
+.brief .tl { zoom: 0.68; border-radius: 14px; padding: 36px 44px; gap: 24px; }
+@media (max-width: 640px) { .brief .tl { zoom: 0.44; } }
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
 @media print {
   @page { margin: 16mm 14mm; }
@@ -449,6 +456,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
   /* The link works in a PDF, so on paper it says where it goes (the site), not its whole address. */
   .opt__link::after { content: " " attr(data-site); font: 400 0.6875rem var(--mono); color: var(--subtle); }
   footer { break-before: avoid; }
+  .brief .tl { zoom: 0.62; break-inside: avoid; }
   .fullset > h2 { break-before: page; }
   .full + .full { break-before: page; }
   .full { border-top: 0; }
@@ -461,6 +469,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
     ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
   </header>
+  ${tldr?.chart ? tldrCard(tldr, { now, title: false }) : html``}
   ${decided && nb.decision
     ? html`<section class="decision" aria-label="Decision">
         <p class="decision__head"><b>Decision</b>Decided ${fmtDate(nb.decidedAt ?? nb.updatedAt, now)}${picks ? ` · ${String(picks.picks.length)} chosen of ${String(active.length)} in the running` : ''}</p>
@@ -471,7 +480,8 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
     : html``}
   ${writeup
     ? html`<section class="stands" aria-label="The lay of the land"><div class="eyebrow">${writeup.label}</div><p>${inline(writeup.text)}</p>${writeup.next ? html`<p class="muted"><b>${writeup.nextLabel}</b> ${writeup.next}</p>` : html``}<p class="fine">${inline(d.summary)}</p></section>`
-    : decided && nb.decision ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
+    // The card above already says the best lead and how many: the same in a paragraph would only push the table down.
+    : (decided && nb.decision) || tldr?.chart ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
   ${args.latest ? html`<p class="stands">${active.length
     ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
     : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}

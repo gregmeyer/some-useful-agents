@@ -31,7 +31,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, htmlToPdf, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, htmlToPdf, htmlToPng, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -41,6 +41,7 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
+import { renderNotebookTldr, TLDR_WIDTH } from '../views/notebook-tldr.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -1221,6 +1222,40 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   }
   const name = `${titleFileName(nb.title)}${latest ? ' (new)' : ''}${full ? ' (extended)' : ''}.pdf`;
   res.set({ 'Content-Type': 'application/pdf', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', 'Content-Disposition': attachment(name) }).send(out.data);
+});
+
+/** The TL;DR card as a page: `embed`, its lead's picture inside it (a picture made from it can't load one from the dashboard). */
+function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean): string {
+  const ctx = getContext(req.app.locals);
+  const entries = s.entries(nb.id, 1000);
+  const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
+  const mode = req.query.theme === 'dark' ? 'dark' : 'light';
+  return renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image });
+}
+
+/** A notebook's TL;DR, as a page: the card the picture is made from. */
+notebooksRouter.get('/notebooks/:id/tldr.html', (req: Request, res: Response) => {
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' }).send(tldrPage(req, s, nb, false));
+});
+
+/**
+ * A notebook's TL;DR as a picture to share (a PNG, twice the card's width so
+ * it stays sharp): the best lead, the numbers that sum it up and the options
+ * as ranked bars, from the notebook's own data. ?download=1 saves it, named
+ * after the notebook; ?theme=dark for the dark card. No browser here: the
+ * card opens as a page instead.
+ */
+notebooksRouter.get('/notebooks/:id/tldr.png', async (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
+  const out = await (ctx.notebookPng ?? htmlToPng)(tldrPage(req, s, nb, true), { width: TLDR_WIDTH, scale: 2, selector: '.tl' });
+  if (!out.available) { res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/tldr.html${req.query.theme === 'dark' ? '?theme=dark' : ''}`); return; }
+  res.set({ 'Content-Type': 'image/png', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': attachment(`${titleFileName(nb.title)} (TLDR).png`) } : {}) }).send(out.data);
 });
 
 notebooksRouter.get('/notebooks/:id/shortlist.csv', (req: Request, res: Response) => {
