@@ -19,6 +19,7 @@ import { working } from './working.js';
 import { pageHeader } from './page-header.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
 import { isYourStep, topFor, updateSteps, yourStepButton } from '../lib/notebook-steps.js';
+import { editStarters } from '../lib/notebook-edit-starters.js';
 import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { formatMoney, formatFieldValue } from '../lib/field-format.js';
 import { handStagesHidden, notebookWidgetMessages, notebookHeaderView, type NotebookHeaderView, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -978,13 +979,6 @@ function notebookTagEditor(nb: Notebook, tab: NotebookEditView['tab'], vocabular
   </section>`;
 }
 
-/** Things to say, to start: each fills the box. */
-const EDIT_STARTERS = [
-  'Add a step to ',
-  'Make the page lead with ',
-  'Also note each one\'s ',
-  'It\'s done when ',
-];
 
 /** The notebook in a few lines: what it's for, its limits, done-whens, facts, steps and page. */
 function editSummary(nb: Notebook): SafeHtml {
@@ -1021,6 +1015,8 @@ export function renderNotebookEdit(args: NotebookEditView): string {
   const id = encodeURIComponent(nb.id);
   const tab = (key: 'talk' | 'prompt' | 'looks', label: string) => html`<a class="nb-tabs__tab${args.tab === key ? ' is-on' : ''}" href="/notebooks/${id}/edit${key === 'talk' ? '' : `?tab=${key}`}"${args.tab === key ? unsafeHtml(' aria-current="page"') : unsafeHtml('')}>${label}</a>`;
   const pending = args.pending.length > 0;
+  // The starters, each with what can really finish it for this notebook (as it would be with your changes).
+  const starters = editStarters(proposed, args.entries.some((e) => e.kind === 'option'));
   const talk = html`
     <section class="nbe-talk" aria-label="Say what to change">
       ${editSummary(proposed)}
@@ -1032,9 +1028,14 @@ export function renderNotebookEdit(args: NotebookEditView): string {
         <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}
           placeholder="e.g. “add a step to learn about her company”, “put who she is at the top”, “stop noting the price”"></textarea>
         <div class="nbe-talk__send">
-          ${args.turns.length ? html`<span class="nb-talk__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
+          ${args.turns.length ? html`<span class="nb-talk__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>` : html`<span class="nbe-talk__starters" aria-label="Start with">${starters.map((x, i) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x.text}" aria-controls="nbe-opts-${String(i)}" aria-expanded="false">${x.label}</button>`) as unknown as SafeHtml[]}</span>`}
           <button type="submit" class="btn btn--primary btn--sm" title="Enter sends; Shift+Enter starts a new line" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Send</button>
         </div>
+        ${args.turns.length ? html`` : starters.map((x, i) => (x.options.length ? html`<div class="nbe-talk__options" id="nbe-opts-${String(i)}" data-nbe-options hidden>
+          <span class="nbe-talk__ask">${x.ask}:</span>
+          ${x.options.map((o) => html`<button type="button" class="nbd-chip" data-nbe-fill="${o.text}" title="${o.text}">${o.label}</button>`) as unknown as SafeHtml[]}
+          <span class="nbe-talk__or">or finish it your own way.</span>
+        </div>` : html``)) as unknown as SafeHtml[]}
       </form>
     </section>`;
   const prompt = html`
@@ -1125,7 +1126,17 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       </dialog>
       ${args.working ? unsafeHtml(`<script>(function(){var u=${JSON.stringify(`/notebooks/${nb.id}/edit/state`)};function t(){fetch(u,{headers:{accept:"application/json"}}).then(function(r){return r.json();}).then(function(j){if(j.status!=="working"){var t0=new URLSearchParams(location.search).get("tab");location.replace(location.pathname+"?"+(t0?"tab="+encodeURIComponent(t0)+"&":"")+"preview=1");}else setTimeout(t,2000);}).catch(function(){setTimeout(t,4000);});}setTimeout(t,2000);})();</script>`) : html``}
       ${unsafeHtml('<script>(function(){var d=document.getElementById("nbe-preview");if(!d||!d.showModal)return;document.querySelectorAll("[data-nbe-preview]").forEach(function(b){b.addEventListener("click",function(){d.showModal();});});d.querySelector("[data-nbe-close]").addEventListener("click",function(){d.close();});d.addEventListener("click",function(e){if(e.target===d)d.close();});if(d.hasAttribute("data-open")){d.showModal();var u=new URL(location.href);u.searchParams.delete("preview");history.replaceState(null,"",u.pathname+u.search);}})();</script>')}
-      ${unsafeHtml('<script>document.querySelectorAll("[data-nbe-start]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById("nbe-say");if(!t)return;t.value=b.getAttribute("data-nbe-start");t.focus();t.setSelectionRange(t.value.length,t.value.length);});});</script>')}
+      ${unsafeHtml(`<script>(function(){
+        var t=document.getElementById("nbe-say");if(!t)return;
+        function put(v){t.value=v;t.focus();t.setSelectionRange(v.length,v.length);}
+        var starts=document.querySelectorAll("[data-nbe-start]");
+        // A starter fills the box and shows what can finish it for this notebook; one of those fills the whole sentence, to send or change.
+        starts.forEach(function(b){b.addEventListener("click",function(){
+          put(b.getAttribute("data-nbe-start"));
+          starts.forEach(function(o){var on=o===b;o.setAttribute("aria-expanded",on?"true":"false");o.classList.toggle("is-on",on);var g=document.getElementById(o.getAttribute("aria-controls"));if(g)g.hidden=!on;});
+        });});
+        document.querySelectorAll("[data-nbe-fill]").forEach(function(b){b.addEventListener("click",function(){put(b.getAttribute("data-nbe-fill"));});});
+      })();</script>`)}
     </div>
   `));
 }
