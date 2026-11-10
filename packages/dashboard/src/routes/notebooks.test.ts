@@ -5867,7 +5867,7 @@ describe("redrawing a notebook's TL;DR picture", () => {
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'again' })).headers.location)).toContain('already redrawing it');
     // sua was given the picture in words, the choices and the ask.
     expect(asked[0].ASK).toBe('Make it suitable for sharing on LinkedIn');
-    expect(JSON.parse(asked[0].CARD)).toMatchObject({ lead: { label: 'Best lead', text: 'Werker 220Ah' }, bars: { by: 'Price' } });
+    expect(JSON.parse(asked[0].CARD)).toMatchObject({ lead: { label: 'Best lead', text: 'Werker 220Ah', picture: 'none' }, bars: { by: 'Price', topOptionsWithPictures: 0 } });
     expect(asked[0].CURRENT).toBe('');
     release!();
     await settle();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { tldrData, tldrCard, tldrChart, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
+import { tldrData, tldrCard, tldrChart, tldrLayoutFor, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
 import { render } from './html.js';
 
 const at = '2026-11-10T00:00:00.000Z';
@@ -154,6 +154,59 @@ describe("a notebook's TL;DR picture", () => {
     expect(render(tldrCard(t))).toContain('<article class="tl" aria-label');
     // The page is as wide as the spec's size.
     expect(renderNotebookTldr({ nb: nb(), entries, spec: { size: 'landscape', tone: 'plain', layout: 'stack', parts: ['lead'] } })).toContain('body { width: 1200px; }');
+  });
+
+  it('picture-led layouts: a cover band, a spotlight side, a lineup of tiles; each falls back when there is no picture to lead with', () => {
+    // The battery shortlist with a picture on each of its four priced options: a photo, a logo, a drawing, a photo.
+    const base = tldrData(nb(), entries);
+    const kinds = ['photo', 'logo', 'drawing', 'photo'] as const;
+    const t = { ...base, leadPicture: '/pic/0', leadPictureKind: 'photo' as const, chart: { ...base.chart!, bars: base.chart!.bars.map((b, i) => ({ ...b, picture: `/pic/${String(i)}`, kind: kinds[i] })) } };
+
+    // Lineup: the top options as tiles in rank order, the lead marked, the rest counted; a photo over a blur of itself, a logo whole on white.
+    const lineup = render(tldrCard(t, { spec: { size: 'standard', tone: 'plain', layout: 'lineup', parts: ['stats'] } }));
+    expect(lineup).toContain('<article class="tl tl--standard tl--plain tl--lineup"');
+    expect(lineup.match(/class="tl__tile[ "]/g)).toHaveLength(4);
+    expect(lineup).toContain('<li class="tl__tile is-lead"><span class="tl__frame is-photo" style="--pic:url(');
+    expect(lineup).toContain('<img src="/pic/0" alt="Werker 220Ah"></span><span class="tl__rank">Best lead</span><span class="tl__tname">Werker 220Ah</span><span class="tl__tval">$139.99</span>');
+    expect(lineup).toContain('<span class="tl__rank">#2</span>');
+    expect(lineup).toMatch(/class="tl__frame is-(logo|drawing)"><img/);
+    // The tiles stand in for the lead and the bars, and show even when "bars" wasn't asked for.
+    expect(lineup).not.toContain('tl__bars');
+    expect(lineup).not.toContain('class="tl__lead"');
+    expect(lineup).toContain('tl__stats');
+    // Square and portrait hold three tiles.
+    expect(render(tldrCard(t, { spec: { size: 'square', tone: 'plain', layout: 'lineup', parts: ['bars'] } })).match(/class="tl__tile[ "]/g)).toHaveLength(3);
+
+    // Cover: the lead's picture as a band over everything else; the small picture beside the words is left out.
+    const cover = render(tldrCard(t, { spec: { size: 'portrait', tone: 'editorial', layout: 'cover', parts: ['lead', 'stats', 'bars'] } }));
+    expect(cover).toContain('<article class="tl tl--portrait tl--editorial tl--cover"');
+    expect(cover).toMatch(/<div class="tl__art"><span class="tl__frame is-photo"[^>]*><img[^>]*><\/span><\/div>\s*<div class="tl__inner"><header/);
+    expect(cover).not.toContain('class="tl__pic');
+    // The band takes room: fewer bars than the size otherwise holds.
+    expect(cover.match(/class="tl__bar[ "]/g)).toHaveLength(4);
+
+    // What it's really drawn in: decided from the pictures there are.
+    const spec = (layout: 'cover' | 'lineup' | 'spotlight', size: 'standard' | 'landscape' | 'square' | 'portrait' = 'standard') => ({ size, tone: 'plain' as const, layout, parts: ['lead' as const] });
+    expect(tldrLayoutFor(t, spec('cover', 'landscape'))).toBe('spotlight'); // no room for a band on landscape
+    expect(tldrLayoutFor(t, spec('spotlight', 'square'))).toBe('cover'); // no room side by side on a square
+    expect(tldrLayoutFor(t, spec('spotlight', 'landscape'))).toBe('spotlight');
+    const none = tldrData(nb(), entries); // no pictures at all
+    expect(tldrLayoutFor(none, spec('lineup'))).toBe('stack');
+    expect(tldrLayoutFor(none, spec('cover'))).toBe('stack');
+    expect(tldrLayoutFor(none, spec('spotlight', 'landscape'))).toBe('split');
+    expect(render(tldrCard(none, { spec: spec('cover') }))).toContain('tl--stack');
+    // Two pictured options aren't a lineup: the lead's picture as a cover instead.
+    const two = { ...t, chart: { ...t.chart!, bars: t.chart!.bars.map((b, i) => (i < 2 ? b : { ...b, picture: undefined })) } };
+    expect(tldrLayoutFor(two, spec('lineup'))).toBe('cover');
+
+    // A person: a spotlight fills its side with the portrait; a cover's wide band shows it whole; never a lineup.
+    const person = tldrData(nb({ fields: [], about: { person: { name: 'Dana Reyes', facts: [] } }, briefing: { points: [{ text: 'Ask about routing', from: [] }], questions: [], watch: [], at, by: 'x' } } as unknown as Partial<Notebook>), [], undefined, undefined, { src: '/p.png' });
+    expect(person.leadPictureKind).toBe('portrait');
+    const spot = render(tldrCard(person, { spec: { size: 'landscape', tone: 'plain', layout: 'spotlight', parts: ['lead', 'points'] } }));
+    expect(spot).toContain('<div class="tl__art"><span class="tl__frame is-portrait" style="--pic:url(');
+    expect(spot).toContain('<img src="/p.png" alt="Dana Reyes"></span></div>');
+    expect(spot).toContain('<p class="tl__name">Dana Reyes</p>');
+    expect(tldrLayoutFor(person, spec('lineup', 'portrait'))).toBe('cover');
   });
 
   it('is one self-contained page at the picture\'s width, with no scripts', () => {

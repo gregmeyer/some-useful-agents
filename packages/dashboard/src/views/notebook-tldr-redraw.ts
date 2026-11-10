@@ -15,6 +15,7 @@ import type { TldrRedrawState } from '../lib/notebook-tldr-redraw.js';
 export const TLDR_STARTERS = [
   { label: 'For LinkedIn', ask: 'Make it suitable for sharing on LinkedIn' },
   { label: 'More editorial', ask: 'Make it more editorial' },
+  { label: 'Lead with the photo', ask: 'Lead with the photo: make the picture the main thing' },
   { label: 'Be more creative', ask: 'Be more creative' },
   { label: 'Just the numbers', ask: 'Simpler: just the numbers and the bars' },
 ] as const;
@@ -23,7 +24,7 @@ export const TLDR_STARTERS = [
 export function tldrSpecWords(spec: TldrSpec | undefined): string {
   if (!spec) return 'The standard picture: as tall as it needs, plain, everything in one column.';
   const size = TLDR_SIZES[spec.size];
-  const lay = { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large' }[spec.layout];
+  const lay = { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large', cover: 'the picture across the top', lineup: 'the top options as pictures side by side', spotlight: 'the picture down one side' }[spec.layout];
   return `${size.name}${size.height ? ` ${String(size.width)}×${String(size.height)}` : ''} · ${spec.tone} · ${lay}${spec.headline ? ' · with a headline' : ''}`;
 }
 

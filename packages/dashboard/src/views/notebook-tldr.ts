@@ -12,7 +12,7 @@
  * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
-import { rankBy, rankOptions, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrPart, type TldrSpec } from '@some-useful-agents/core';
+import { rankBy, rankOptions, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrSpec } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -27,7 +27,11 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).repl
 /** Markdown's bold and links as plain words (the picture has no links). */
 const plain = (md: string) => md.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
 
-export interface TldrBar { name: string; value: number; text: string; lead: boolean }
+/** What a picture is, which decides how it's framed: a photo whole over a blur of itself, a portrait filling its frame, a logo or drawing whole on white. */
+export type TldrPictureKind = 'photo' | 'portrait' | 'logo' | 'drawing';
+export interface TldrBar { name: string; value: number; text: string; lead: boolean; picture?: string; kind?: TldrPictureKind }
+/** Options whose pictures the card may show (a lineup's tiles), at most. */
+const MAX_TILES = 4;
 export interface TldrData {
   title: string;
   /** "Best lead", "Chosen", "The answer", "Where it stands". */
@@ -37,6 +41,7 @@ export interface TldrData {
   /** The lead option's facts ("$139.99 · 220 Ah · Phoenix, AZ"). */
   leadFacts: string[];
   leadPicture?: string;
+  leadPictureKind?: TldrPictureKind;
   /** The lead is a sentence (an answer), not an option's name. */
   sentence?: boolean;
   /** The lead is who it's about (a person, a company): their name, with `note` under it. */
@@ -52,6 +57,8 @@ export interface TldrData {
   points: string[];
   pointsLabel?: string;
 }
+
+const pictureKind = (o: Pick<NotebookViewOption, 'imageKind'>): TldrPictureKind => (o.imageKind === 'logo' ? 'logo' : o.imageKind === 'illustration' ? 'drawing' : 'photo');
 
 /** What the picture says, from the notebook. Pure. */
 export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }): TldrData {
@@ -81,7 +88,8 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
     chart = {
       label: field.label,
       order: decided ? 'chosen first' : better === 'lower' ? 'lowest first' : 'highest first',
-      bars: shown.map((o) => ({ name: clip(o.name, 44), value: num(field, o)!, text: say(field, o), lead: decided ? !!o.chosen : o === lead })),
+      // The first few carry their pictures too (a lineup shows them as tiles).
+      bars: shown.map((o, i) => { const pic = i < MAX_TILES && pictures && o.image ? pictures(o) : undefined; return { name: clip(o.name, 44), value: num(field, o)!, text: say(field, o), lead: decided ? !!o.chosen : o === lead, ...(pic ? { picture: pic, kind: pictureKind(o) } : {}) }; }),
       more: active.length - shown.length,
       max: Math.max(...shown.map((o) => num(field, o)!), 0),
     };
@@ -114,7 +122,7 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
         ...(num(field!, lead) !== undefined ? [`${field!.label} ${say(field!, lead)}`] : []),
         ...facts(nb, lead).filter((f) => f.label !== field!.label).slice(0, 3).map((f) => `${f.label} ${f.value}`),
       ],
-      ...(pictures && lead.image && !(decided && chosen.length > 1) && pictures(lead) ? { leadPicture: pictures(lead)! } : {}),
+      ...(pictures && lead.image && !(decided && chosen.length > 1) && pictures(lead) ? { leadPicture: pictures(lead)!, leadPictureKind: pictureKind(lead) } : {}),
       stats: stats.slice(0, 3), chart, points: [],
     };
   }
@@ -132,7 +140,7 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
       lead: about.name,
       leadFacts: (who === 'person' ? [fact('role', 'title'), fact('organization', 'company'), fact('location', 'based_in')] : [fact('what_they_do', 'industry'), fact('headquarters', 'location', 'based_in'), fact('size', 'employees')]).filter((x): x is string => !!x),
       ...(say ? { note: clip(plain(say), 260) } : {}),
-      ...(aboutPicture ? { leadPicture: aboutPicture.src, ...(aboutPicture.logo ? { logo: true } : {}) } : {}),
+      ...(aboutPicture ? { leadPicture: aboutPicture.src, leadPictureKind: aboutPicture.logo ? 'logo' as const : who === 'person' ? 'portrait' as const : 'photo' as const, ...(aboutPicture.logo ? { logo: true } : {}) } : {}),
       stats: talk.length ? [
         { value: String(talk.length), label: talk.length === 1 ? 'talking point' : 'talking points' },
         ...(nb.briefing!.questions.length ? [{ value: String(nb.briefing!.questions.length), label: nb.briefing!.questions.length === 1 ? 'question to ask' : 'questions to ask' }] : []),
@@ -281,6 +289,75 @@ export const TLDR_CSS = `
 .tl--landscape .tl__hero .tl__pic.is-portrait { width: 132px; height: 132px; }
 .tl--portrait .tl__big { font-size: 132px; }
 .tl--portrait .tl__hero--who .tl__big { font-size: 76px; }
+/* A picture in a frame. A photo sits whole over a blurred, enlarged copy of itself, so a small or odd-shaped one fills
+   the frame without being stretched or cut; a portrait fills it; a logo or drawing sits whole on white with room around it. */
+.tl__frame { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; isolation: isolate; background: #fff; }
+.tl__frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.tl__frame.is-photo { background: var(--raised); }
+.tl__frame.is-photo::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--pic) center / cover no-repeat; filter: blur(34px) saturate(1.15); transform: scale(1.35); opacity: 0.6; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.tl__frame.is-portrait img { object-fit: cover; object-position: center 18%; }
+/* A wide band would cut a face at the forehead: there the portrait sits whole over a blur of itself, like a photo. */
+.tl--cover .tl__art .tl__frame.is-portrait img { object-fit: contain; }
+.tl--cover .tl__art .tl__frame.is-portrait::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--pic) center / cover no-repeat; filter: blur(34px) saturate(1.1); transform: scale(1.35); opacity: 0.75; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.tl__frame.is-logo img, .tl__frame.is-drawing img { inset: 14%; width: 72%; height: 72%; }
+/* Cover: the lead's picture as a band across the top, the rest under it. Spotlight: the picture down one whole side. */
+.tl--cover, .tl--spotlight { padding: 0; gap: 0; }
+.tl__inner { display: grid; gap: 26px; padding: 40px 56px 36px; align-content: start; min-width: 0; }
+.tl__art { min-width: 0; min-height: 0; }
+.tl--cover .tl__art { height: 400px; border-bottom: 1px solid var(--line); }
+.tl--cover .tl__lead, .tl--spotlight .tl__lead { grid-template-columns: minmax(0, 1fr); }
+.tl--cover.tl--square, .tl--cover.tl--portrait { display: flex; flex-direction: column; justify-content: flex-start; }
+.tl--cover.tl--square .tl__art { height: 430px; flex: none; }
+.tl--cover.tl--portrait .tl__art { height: 560px; flex: none; }
+.tl--cover.tl--square .tl__inner, .tl--cover.tl--portrait .tl__inner { flex: 1; display: flex; flex-direction: column; justify-content: space-between; gap: 18px; padding: 36px 60px 32px; }
+.tl--cover.tl--square .tl__title { font-size: 36px; }
+.tl--cover.tl--square .tl__lead { padding: 16px 0; }
+.tl--cover.tl--square .tl__bars { gap: 12px; }
+.tl--cover.tl--portrait .tl__inner { padding: 44px 60px 36px; }
+.tl--cover.tl--portrait .tl__title, .tl--cover.tl--portrait.tl--editorial .tl__title { font-size: 44px; }
+.tl--cover.tl--square .tl__note, .tl--cover.tl--portrait .tl__note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tl--cover.tl--square .tl__points, .tl--cover.tl--portrait .tl__points { gap: 14px; }
+.tl--cover.tl--square .tl__points li { font-size: 18px; }
+.tl--spotlight { display: grid; grid-template-columns: minmax(0, 42fr) minmax(0, 58fr); }
+.tl--spotlight .tl__art { min-height: 560px; border-right: 1px solid var(--line); }
+.tl--spotlight .tl__inner { padding: 44px 48px 32px; gap: 22px; }
+.tl--spotlight .tl__title { font-size: 32px; }
+.tl--spotlight .tl__stats { gap: 18px; }
+.tl--spotlight .tl__num { font-size: 26px; }
+.tl--spotlight .tl__num.is-long { font-size: 18px; }
+.tl--spotlight .tl__bar { grid-template-columns: minmax(0, 190px) minmax(0, 1fr) auto; }
+.tl--spotlight.tl--landscape { display: grid; grid-template-columns: minmax(0, 40fr) minmax(0, 60fr); padding: 0; }
+.tl--spotlight.tl--landscape .tl__art { min-height: 0; height: 627px; }
+.tl--spotlight.tl--landscape .tl__inner { display: flex; flex-direction: column; justify-content: space-between; gap: 12px; padding: 30px 40px 22px; height: 627px; }
+.tl--spotlight.tl--landscape .tl__title { font-size: 27px; }
+.tl--spotlight.tl--landscape .tl__stat:nth-child(n+3) { display: none; }
+.tl--spotlight.tl--landscape .tl__lead { padding: 12px 0; }
+.tl--spotlight.tl--landscape .tl__bar { grid-template-columns: minmax(0, 170px) minmax(0, 1fr) auto; }
+/* Lineup: the top options as picture tiles side by side. */
+.tl__lineup { display: grid; gap: 14px; }
+.tl__tiles { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(var(--tiles, 3), minmax(0, 1fr)); gap: 20px; }
+.tl__tile { display: grid; gap: 6px; align-content: start; min-width: 0; padding-top: 12px; border-top: 2px solid var(--line-strong); }
+.tl__tile.is-lead { border-top-color: var(--accent); }
+.tl__tile .tl__frame { height: auto; aspect-ratio: 4 / 3; border-radius: 8px; border: 1px solid var(--line); margin-bottom: 6px; }
+.tl__rank { font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.tl__tile.is-lead .tl__rank { color: var(--accent); }
+.tl__tname { font-size: 17px; font-weight: 650; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tl__tval { font: 700 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.tl--lineup.tl--landscape .tl__tiles { gap: 16px; }
+.tl--lineup.tl--landscape .tl__tile .tl__frame { aspect-ratio: 4 / 3; }
+.tl--lineup.tl--landscape .tl__tname { font-size: 14px; -webkit-line-clamp: 1; }
+.tl--lineup.tl--landscape .tl__tval { font-size: 18px; }
+.tl--lineup.tl--landscape .tl__stats { display: none; }
+.tl--lineup.tl--portrait .tl__tile .tl__frame { aspect-ratio: 3 / 4; }
+.tl--lineup.tl--portrait .tl__tname { font-size: 21px; }
+.tl--lineup.tl--portrait .tl__tval { font-size: 28px; }
+.tl--lineup.tl--square .tl__tile .tl__frame { aspect-ratio: 1 / 1; }
+.tl--lineup.tl--square .tl__tname { font-size: 19px; }
+.tl--lineup.tl--square .tl__tval { font-size: 25px; }
+.tl--bold .tl__tile { border-top-color: rgba(255, 255, 255, 0.4); }
+.tl--bold .tl__tile.is-lead { border-top-color: #fff; }
+.tl--bold .tl__rank, .tl--bold .tl__tile.is-lead .tl__rank { color: rgba(255, 255, 255, 0.86); }
+.tl--bold .tl__art { border-color: rgba(255, 255, 255, 0.3); }
 /* Editorial: a magazine page. The page colour, no frame, a large headline, numerals in the accent colour. */
 .tl--editorial { background: var(--bg); border-color: transparent; }
 .tl--editorial .tl__title { font-size: 50px; line-height: 1.08; letter-spacing: -0.015em; }
@@ -322,6 +399,33 @@ export function tldrChart(t: TldrData): SafeHtml {
 </figure>`;
 }
 
+/** How many picture tiles a lineup shows at a size. */
+const lineupTiles = (spec: TldrSpec | undefined): number => (spec?.size === 'square' || spec?.size === 'portrait' ? 3 : MAX_TILES);
+
+/**
+ * The layout a card is really drawn in. A layout that leads with a picture
+ * needs one, so this is decided here from the data, never left to whoever
+ * chose the spec: a lineup without three pictured options is a cover (or a
+ * stack); a cover or spotlight without the lead's picture is a stack or a
+ * split. A cover has no room on landscape (drawn as spotlight), and a
+ * spotlight's side-by-side has none on square or portrait (drawn as cover). Pure.
+ */
+export function tldrLayoutFor(t: TldrData, spec: TldrSpec | undefined): TldrLayout {
+  let layout: TldrLayout = spec?.layout ?? 'stack';
+  if (layout === 'lineup' && (t.who || (t.chart?.bars ?? []).slice(0, lineupTiles(spec)).filter((b) => b.picture).length < 3)) layout = t.leadPicture ? 'cover' : 'stack';
+  if (layout === 'cover' && spec?.size === 'landscape') layout = 'spotlight';
+  if (layout === 'spotlight' && (spec?.size === 'square' || spec?.size === 'portrait')) layout = 'cover';
+  if (layout === 'cover' && !t.leadPicture) layout = 'stack';
+  if (layout === 'spotlight' && !t.leadPicture) layout = 'split';
+  return layout;
+}
+
+/** A picture in a frame, by what it is: a photo whole over a blur of itself, a portrait filling it, a logo or drawing whole on white. */
+function frame(src: string, kind: TldrPictureKind | undefined, alt: string): SafeHtml {
+  const k = kind ?? 'photo';
+  return html`<span class="tl__frame is-${k}"${k === 'photo' || k === 'portrait' ? html` style="--pic:url('${src}')"` : html``}><img src="${src}" alt="${alt}"></span>`;
+}
+
 /**
  * The whole card, as the picture shows it. Without a `spec` it's the
  * standard picture. With one, the same data set as the spec says: its size
@@ -333,19 +437,20 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const date = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const spec = o.spec;
   const size = TLDR_SIZES[spec?.size ?? 'standard'];
-  const layout = spec?.layout ?? 'stack';
+  const layout = tldrLayoutFor(t, spec);
   const parts = spec?.parts ?? ['lead', 'stats', 'bars', 'points'];
-  // Only as many bars and points as the size holds; the rest are counted.
-  // A fixed box holds less when more is stacked in it: the hero's big number, and each line written for it, cost a bar or two.
+  // A fixed box holds less when more is stacked in it: the hero's big number, a cover's picture, and each line written for it, cost a bar or two.
   const words = (spec?.headline ? 1 : 0) + (spec?.takeaway ? 1 : 0);
-  const room = !size.height ? size.bars : Math.max(3, size.bars - (layout === 'hero' ? 2 : 0) - (layout !== 'split' && spec?.size === 'landscape' ? words : 0));
+  const room = !size.height ? size.bars : Math.max(3, size.bars - (layout === 'hero' ? 2 : 0) - (layout === 'cover' ? 4 + Math.min(words, 1) : 0) - (layout === 'spotlight' ? 1 : 0) - (layout !== 'split' && spec?.size === 'landscape' ? words : 0));
   const cap = Math.min(spec?.bars ?? size.bars, room);
   // Bars are measured against the longest one shown (each still starts at zero and says its value), so a short list isn't dwarfed by ones left out.
   const kept = t.chart?.bars.slice(0, cap) ?? [];
   const chart = t.chart ? { ...t.chart, bars: kept, more: t.chart.more + Math.max(0, t.chart.bars.length - cap), max: Math.max(...kept.map((b) => b.value), 0) } : undefined;
-  const points = t.points.slice(0, size.points);
+  const points = t.points.slice(0, layout === 'cover' && size.height ? Math.max(2, size.points - 2) : size.points);
   const named = (!!t.chart && !t.sentence) || !!t.who;
-  const picture = t.leadPicture ? html`<span class="tl__pic${t.who === 'person' && !t.logo ? ' is-portrait' : ''}"><img src="${t.leadPicture}" alt="${t.who ? t.lead : ''}"></span>` : html``;
+  // The lead's picture large (a cover's band, a spotlight's side) leaves the small one beside the words out.
+  const large = layout === 'cover' || layout === 'spotlight';
+  const picture = t.leadPicture && !large ? html`<span class="tl__pic${t.who === 'person' && !t.logo ? ' is-portrait' : ''}"><img src="${t.leadPicture}" alt="${t.who ? t.lead : ''}"></span>` : html``;
 
   const header = html`<header class="tl__head"><div class="tl__eyebrow">TL;DR · ${date}</div>${spec?.headline
     ? html`<p class="tl__kicker">${t.title}</p><h1 class="tl__title">${spec.headline}</h1>`
@@ -375,14 +480,33 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
     ${chart.more > 0 ? html`<p class="tl__more">and ${String(chart.more)} more in the running</p>` : html``}
   </section>` : html``;
   const list = !chart && points.length ? html`<section class="tl__chart"><div class="tl__label">${t.pointsLabel ?? 'What it found'}</div><ol class="tl__points">${points.map((p) => html`<li>${p}</li>`) as unknown as SafeHtml[]}</ol></section>` : html``;
-  const part: Record<TldrPart, SafeHtml> = { lead: layout === 'hero' ? hero : lead, stats, bars, points: list };
+  // A lineup: the top options as picture tiles, in rank order, each with its name and value; they stand in for the lead and the bars.
+  const tiled = (t.chart?.bars ?? []).slice(0, lineupTiles(spec)).map((b, i) => ({ b, rank: i + 1 })).filter((x) => x.b.picture);
+  const lineup = layout === 'lineup' && t.chart ? html`<section class="tl__lineup">
+    <div class="tl__label">${t.chart.label}, ${t.chart.order}</div>
+    <ol class="tl__tiles" style="--tiles:${String(tiled.length)}">${tiled.map(({ b, rank }) => html`<li class="tl__tile${b.lead ? ' is-lead' : ''}">${frame(b.picture!, b.kind, b.name)}<span class="tl__rank">${b.lead ? t.leadLabel : `#${String(rank)}`}</span><span class="tl__tname">${b.name}</span><span class="tl__tval">${b.text}</span></li>`) as unknown as SafeHtml[]}</ol>
+    ${t.chart.bars.length + t.chart.more - tiled.length > 0 ? html`<p class="tl__more">and ${String(t.chart.bars.length + t.chart.more - tiled.length)} more in the running</p>` : html``}
+  </section>` : html``;
+  const part: Record<TldrPart, SafeHtml> = layout === 'lineup'
+    ? { lead: html``, stats, bars: lineup, points: html`` }
+    : { lead: layout === 'hero' ? hero : lead, stats, bars, points: list };
   const shown = (keys: readonly TldrPart[]) => parts.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
   const foot = html`<footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>`;
   const cls = spec ? ` tl--${spec.size} tl--${spec.tone} tl--${layout}` : '';
+  // A lineup always shows its tiles, whatever parts were asked for (they are the layout).
+  const all = layout === 'lineup' && !parts.includes('bars') ? [...parts, 'bars' as const] : parts;
+  const every = (keys: readonly TldrPart[]) => all.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
+  // Cover and spotlight: the lead's picture large (a band across the top, or one whole side), everything else in a column beside or under it.
+  if (large) {
+    return html`<article class="tl${cls}" aria-label="${t.title}, in short">
+  <div class="tl__art">${frame(t.leadPicture!, t.leadPictureKind, t.who ? t.lead : '')}</div>
+  <div class="tl__inner">${header}${every(['lead', 'stats', 'bars', 'points'])}${foot}</div>
+</article>`;
+  }
   // Split: the words (title, lead, numbers) at the left, what's drawn or listed at the right.
   const body = layout === 'split'
     ? html`<div class="tl__cols"><div class="tl__col">${header}${shown(['lead', 'stats'])}</div><div class="tl__col">${shown(['bars', 'points'])}</div></div>`
-    : html`${header}${shown(['lead', 'stats', 'bars', 'points'])}`;
+    : html`${header}${every(['lead', 'stats', 'bars', 'points'])}`;
   return html`<article class="tl${cls}" aria-label="${t.title}, in short">
   ${body}
   ${foot}

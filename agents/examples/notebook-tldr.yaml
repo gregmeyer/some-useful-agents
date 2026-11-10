@@ -92,6 +92,23 @@ nodes:
           part only when they ask for less or it has nothing in CARD.
         - Split suits landscape. Hero suits one strong number or a person.
           Bars need "bars" in CARD; points need "points" in CARD.
+        - "Lead with the photo", "show the picture", "more visual", "more
+          wow", "eye-catching": a layout that leads with a picture. Which
+          one depends on what CARD has:
+            - cover: when lead.picture in CARD is not "none". The picture
+              is a large band across the top. Not on landscape.
+            - spotlight: when lead.picture is not "none". The picture
+              takes one whole side. The one to use on landscape, and for
+              a person ("portrait").
+            - lineup: when bars.topOptionsWithPictures in CARD is 3 or
+              more, and the notebook is not about a person. The top
+              options side by side as pictures: for "show the options",
+              "compare them", "side by side".
+          A "logo" or "drawing" is weaker than a "photo" or "portrait":
+          prefer lineup or the hero layout over a cover of a logo. With
+          lead.picture "none" and fewer than 3 pictured options, say in
+          "about" that the notebook has no pictures to lead with, and
+          use hero.
         - A headline, when you write one, says what the picture shows in
           plain words, as a person would title a post: no hype, no
           exclamation marks, no hashtags, no emoji. It says the finding,

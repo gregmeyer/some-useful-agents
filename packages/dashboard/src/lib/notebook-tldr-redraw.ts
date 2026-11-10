@@ -27,9 +27,10 @@ export interface TldrRedrawState { ask: string; since: string; status: 'working'
 /** What the picture says, for the agent: words and numbers only (no pictures, no markup). Pure. */
 export function cardForAgent(t: TldrData): Record<string, unknown> {
   return {
-    lead: { label: t.leadLabel, text: t.lead, facts: t.leadFacts, ...(t.note ? { note: t.note } : {}), ...(t.who ? { about: t.who } : {}), picture: !!t.leadPicture },
+    // What pictures there are, so a layout that leads with one is chosen only when it can be drawn.
+    lead: { label: t.leadLabel, text: t.lead, facts: t.leadFacts, ...(t.note ? { note: t.note } : {}), ...(t.who ? { about: t.who } : {}), picture: t.leadPicture ? t.leadPictureKind ?? 'photo' : 'none' },
     stats: t.stats,
-    ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more } } : {}),
+    ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more, topOptionsWithPictures: t.chart.bars.slice(0, 4).filter((b) => b.picture).length } } : {}),
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
   };
 }
