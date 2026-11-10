@@ -9,6 +9,7 @@
  * from items projected out of its entries.
  */
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
+import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
@@ -706,6 +707,8 @@ export interface Notebook {
   facets?: Record<string, NotebookFacet>;
   /** Its topic tags: sua's, and what you added or removed (notebookTags reads them). */
   tags?: NotebookTags;
+  /** How its TL;DR picture is drawn, once redrawn (none: the standard picture). */
+  tldr?: TldrSpec;
   /** The work in steps, in order (absent: it just runs its pipeline). */
   steps?: NotebookStep[];
   /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
@@ -1261,6 +1264,14 @@ export class NotebookStore {
         by TEXT
       );
       CREATE INDEX IF NOT EXISTS notebook_layout_history_nb ON notebook_layout_history(notebook_id, id);
+      -- TL;DR pictures a redraw replaced, newest last, to undo to (setTldr). A null spec is the standard picture.
+      CREATE TABLE IF NOT EXISTS notebook_tldr_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        notebook_id TEXT NOT NULL,
+        spec_json TEXT,
+        replaced_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS notebook_tldr_history_nb ON notebook_tldr_history(notebook_id, id);
       -- A copy of the picture of who a notebook is about (a person's photo, a company's logo).
       CREATE TABLE IF NOT EXISTS notebook_about_photos (
         notebook_id TEXT NOT NULL,
@@ -1294,7 +1305,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
@@ -1703,6 +1714,38 @@ export class NotebookStore {
     }
     this.db.prepare('UPDATE notebooks SET layout_json = ?, layout_by = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, by ?? null, now, id);
     return this.mustGet(id);
+  }
+
+  /**
+   * How the notebook's TL;DR picture is drawn from now on (null: the standard
+   * picture again). The one it replaces is kept to undo to (the last 10).
+   * `updated_at` is left alone: the picture isn't the notebook.
+   */
+  setTldr(id: string, spec: unknown, now = new Date().toISOString()): Notebook {
+    const was = this.mustGet(id);
+    const clean = spec == null ? undefined : cleanTldrSpec(spec);
+    if (spec != null && !clean) throw new Error("That isn't a way to draw the picture.");
+    if (JSON.stringify(was.tldr ?? null) !== JSON.stringify(clean ?? null)) {
+      this.db.prepare('INSERT INTO notebook_tldr_history (notebook_id, spec_json, replaced_at) VALUES (?, ?, ?)').run(id, was.tldr ? JSON.stringify(was.tldr) : null, now);
+      this.db.prepare('DELETE FROM notebook_tldr_history WHERE notebook_id = ? AND id NOT IN (SELECT id FROM notebook_tldr_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 10)').run(id, id);
+    }
+    this.db.prepare('UPDATE notebooks SET tldr_json = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, id);
+    return this.mustGet(id);
+  }
+
+  /** How many redraws of the TL;DR picture can be undone. */
+  tldrUndos(id: string): number {
+    return Number((this.db.prepare('SELECT COUNT(*) AS n FROM notebook_tldr_history WHERE notebook_id = ?').get(id) as { n: number }).n);
+  }
+
+  /** Put back the TL;DR picture the last redraw replaced; false when there's nothing to undo. */
+  undoTldr(id: string): boolean {
+    this.mustGet(id);
+    const r = this.db.prepare('SELECT id, spec_json FROM notebook_tldr_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 1').get(id) as { id: number; spec_json: string | null } | undefined;
+    if (!r) return false;
+    this.db.prepare('UPDATE notebooks SET tldr_json = ? WHERE id = ?').run(r.spec_json, id);
+    this.db.prepare('DELETE FROM notebook_tldr_history WHERE id = ?').run(r.id);
+    return true;
   }
 
   /** How many layout changes can be undone. */
@@ -2489,7 +2532,7 @@ export class NotebookStore {
     const entries = (this.db.prepare('SELECT COUNT(*) AS n FROM notebook_entries WHERE notebook_id = ?').get(id) as { n: number }).n;
     this.db.exec('BEGIN');
     try {
-      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries', 'notebook_layout_history', 'notebook_about_photos']) {
+      for (const table of ['notebook_sightings', 'notebook_searches', 'notebook_passes', 'notebook_photos', 'notebook_entries', 'notebook_layout_history', 'notebook_tldr_history', 'notebook_about_photos']) {
         this.db.prepare(`DELETE FROM ${table} WHERE notebook_id = ?`).run(id);
       }
       this.db.prepare('DELETE FROM notebooks WHERE id = ?').run(id);
@@ -2732,6 +2775,7 @@ export class NotebookStore {
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
+      ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       // Checked when it was set (setLayout); read as stored.

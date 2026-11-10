@@ -12,7 +12,7 @@
  * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
-import { rankBy, rankOptions, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption } from '@some-useful-agents/core';
+import { rankBy, rankOptions, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrPart, type TldrSpec } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -201,6 +201,110 @@ export const TLDR_CSS = `
 .tl__points li { counter-increment: tl; display: grid; grid-template-columns: 34px minmax(0, 1fr); font-size: 18px; line-height: 1.45; }
 .tl__points li::before { content: counter(tl); font: 700 20px/1.3 var(--mono); color: var(--accent); }
 .tl__foot { display: flex; justify-content: space-between; gap: 24px; padding-top: 16px; border-top: 1px solid var(--line); font: 500 12px/1.4 var(--mono); color: var(--subtle); }
+/* A redraw's words: the notebook's title as a line over the headline written for it, and a takeaway under it. */
+.tl__kicker { margin: 12px 0 0; font: 600 15px/1.3 var(--mono); color: var(--muted); }
+.tl__kicker + .tl__title { margin-top: 6px; }
+.tl__lede { margin: 12px 0 0; font-size: 21px; line-height: 1.4; color: var(--muted); max-width: 44em; }
+/* Sizes: fixed boxes (a feed image is its exact size), the footer at the bottom, what doesn't fit cut off rather than spilling. */
+.tl--landscape, .tl--square, .tl--portrait { display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+.tl--landscape .tl__num.is-long, .tl--square .tl__num.is-long, .tl--portrait .tl__num.is-long { font-size: 22px; line-height: 1.5; }
+.tl--landscape { width: 1200px; height: 627px; padding: 34px 44px 24px; gap: 16px; font-size: 15px; }
+.tl--landscape .tl__title { font-size: 30px; margin-top: 8px; }
+.tl--landscape .tl__lede { font-size: 17px; margin-top: 8px; }
+.tl--landscape .tl__lead { padding: 14px 0; gap: 20px; }
+.tl--landscape .tl__name { font-size: 24px; margin-top: 6px; }
+.tl--landscape .tl__say { font-size: 18px; margin-top: 6px; }
+.tl--landscape .tl__facts { font-size: 14px; margin-top: 8px; }
+.tl--landscape .tl__note { font-size: 15px; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tl--landscape .tl__pic { width: 132px; height: 88px; }
+.tl--landscape .tl__pic.is-portrait { width: 104px; height: 104px; }
+.tl--landscape .tl__stats { gap: 20px; }
+.tl--landscape .tl__num { font-size: 24px; }
+.tl--landscape .tl__num.is-long { font-size: 18px; }
+.tl--landscape .tl__what { font-size: 13px; }
+.tl--landscape .tl__bars { gap: 8px; }
+.tl--landscape .tl__bar { grid-template-columns: 250px minmax(0, 1fr) 112px; font-size: 14px; }
+.tl--landscape .tl__val { font-size: 14px; }
+.tl--landscape .tl__track { height: 13px; }
+.tl--landscape .tl__points { gap: 9px; }
+.tl--landscape .tl__points li { font-size: 15px; }
+.tl--landscape .tl__foot { padding-top: 10px; }
+.tl--square { width: 1080px; height: 1080px; padding: 56px 60px 36px; gap: 22px; font-size: 18px; }
+.tl--square .tl__title { font-size: 42px; }
+.tl--square .tl__bars { gap: 16px; }
+.tl--square .tl__bar { font-size: 18px; }
+.tl--square .tl__val { font-size: 18px; }
+.tl--square .tl__track { height: 20px; }
+.tl--square .tl__points { gap: 18px; }
+.tl--square .tl__points li { font-size: 20px; }
+.tl--square .tl__num { font-size: 34px; }
+.tl--portrait { width: 1080px; height: 1350px; padding: 64px 60px 40px; gap: 34px; font-size: 19px; }
+.tl--portrait .tl__title { font-size: 46px; }
+.tl--portrait .tl__bars { gap: 22px; }
+.tl--portrait .tl__bar { font-size: 20px; }
+.tl--portrait .tl__val { font-size: 20px; }
+.tl--portrait .tl__track { height: 24px; }
+.tl--portrait .tl__points { gap: 24px; }
+.tl--portrait .tl__points li { font-size: 23px; }
+.tl--portrait .tl__num { font-size: 36px; }
+/* Split: the words at the left, the bars or points at the right. */
+.tl__cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 44px; align-items: center; min-height: 0; flex: 1; }
+.tl__col { display: grid; gap: 22px; align-content: center; min-width: 0; }
+.tl--split .tl__stats { grid-template-columns: 1fr; gap: 14px; }
+.tl--split .tl__lead { grid-template-columns: minmax(0, 1fr); padding-bottom: 0; border-bottom: 0; }
+/* No room for a product's picture beside the words; a person's portrait stays. */
+.tl--split .tl__lead .tl__pic:not(.is-portrait) { display: none; }
+.tl--split .tl__lead:has(.is-portrait) { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.tl--split .tl__bar { grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto; }
+.tl--split .tl__bars { gap: 16px; }
+.tl--split .tl__track { height: 18px; }
+.tl--split .tl__points { gap: 16px; }
+.tl--split.tl--landscape .tl__points li { font-size: 17px; }
+.tl--split.tl--landscape .tl__bar { font-size: 15px; }
+.tl--split .tl__col + .tl__col { padding-left: 36px; border-left: 1px solid var(--line); align-self: stretch; }
+.tl--split.tl--landscape .tl__col { gap: 14px; }
+.tl--split.tl--landscape .tl__stats { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 14px; }
+.tl--split.tl--landscape .tl__stat:nth-child(n+3) { display: none; }
+/* Hero: one thing very large. */
+.tl__hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 32px; align-items: center; padding: 26px 0; border-top: 2px solid var(--text); border-bottom: 1px solid var(--line); }
+.tl__hero--who { grid-template-columns: auto minmax(0, 1fr); }
+.tl__big { margin: 8px 0 0; font: 700 104px/1 var(--display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tl__hero--who .tl__big { font-size: 64px; line-height: 1.05; }
+.tl__under { margin: 12px 0 0; font-size: 22px; line-height: 1.35; color: var(--muted); }
+.tl__hero .tl__pic { width: 240px; height: 160px; }
+.tl__hero .tl__pic.is-portrait { width: 220px; height: 220px; }
+.tl--landscape .tl__hero { padding: 14px 0; gap: 24px; }
+.tl--landscape .tl__big { font-size: 72px; }
+.tl--landscape .tl__hero--who .tl__big { font-size: 46px; }
+.tl--landscape .tl__under { font-size: 17px; margin-top: 8px; }
+.tl--landscape .tl__hero .tl__pic { width: 168px; height: 112px; }
+.tl--landscape .tl__hero .tl__pic.is-portrait { width: 132px; height: 132px; }
+.tl--portrait .tl__big { font-size: 132px; }
+.tl--portrait .tl__hero--who .tl__big { font-size: 76px; }
+/* Editorial: a magazine page. The page colour, no frame, a large headline, numerals in the accent colour. */
+.tl--editorial { background: var(--bg); border-color: transparent; }
+.tl--editorial .tl__title { font-size: 50px; line-height: 1.08; letter-spacing: -0.015em; }
+.tl--editorial.tl--landscape .tl__title { font-size: 36px; }
+.tl--editorial.tl--portrait .tl__title { font-size: 60px; }
+.tl--editorial .tl__lede { color: var(--text); }
+.tl--editorial .tl__lead, .tl--editorial .tl__hero { border-top-width: 3px; }
+.tl--editorial .tl__num, .tl--editorial .tl__big { color: var(--accent); }
+.tl--editorial .tl__stat { border-left: 0; padding-left: 0; border-top: 1px solid var(--text); padding-top: 12px; }
+.tl--editorial .tl__label { color: var(--accent); }
+/* Bold: a poster. The accent colour as the ground, white type; bars in white. */
+.tl--bold { background: var(--accent); color: #fff; border-color: transparent; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.tl--bold .tl__eyebrow, .tl--bold .tl__label { color: rgba(255, 255, 255, 0.82); }
+.tl--bold .tl__kicker, .tl--bold .tl__lede, .tl--bold .tl__facts, .tl--bold .tl__what, .tl--bold .tl__more, .tl--bold .tl__under { color: rgba(255, 255, 255, 0.86); }
+.tl--bold .tl__foot { color: rgba(255, 255, 255, 0.7); border-top-color: rgba(255, 255, 255, 0.3); }
+.tl--bold .tl__lead, .tl--bold .tl__hero { border-top-color: #fff; border-bottom-color: rgba(255, 255, 255, 0.3); }
+.tl--bold .tl__stat { border-left-color: #fff; }
+.tl--bold .tl__track { border-left-color: rgba(255, 255, 255, 0.5); }
+.tl--bold .tl__fill { background: rgba(255, 255, 255, 0.4); }
+.tl--bold .tl__bar.is-lead .tl__fill { background: #fff; }
+.tl--bold .tl__points li::before { color: #fff; }
+.tl--bold .tl__col + .tl__col { border-left-color: rgba(255, 255, 255, 0.3); }
+.tl--bold .tl__title { font-size: 46px; }
+.tl--bold.tl--landscape .tl__title { font-size: 34px; }
 `;
 
 /**
@@ -218,45 +322,85 @@ export function tldrChart(t: TldrData): SafeHtml {
 </figure>`;
 }
 
-/** The whole card, as the picture shows it. */
-export function tldrCard(t: TldrData, o: { now?: Date } = {}): SafeHtml {
+/**
+ * The whole card, as the picture shows it. Without a `spec` it's the
+ * standard picture. With one, the same data set as the spec says: its size
+ * (a fixed box, holding only what fits), tone and layout, its parts in its
+ * order, and its headline over the notebook's title.
+ */
+export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): SafeHtml {
   const now = o.now ?? new Date();
   const date = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const chart = t.chart;
-  return html`<article class="tl" aria-label="${t.title}, in short">
-  <header><div class="tl__eyebrow">TL;DR · ${date}</div><h1 class="tl__title">${t.title}</h1></header>
-  <section class="tl__lead">
+  const spec = o.spec;
+  const size = TLDR_SIZES[spec?.size ?? 'standard'];
+  const layout = spec?.layout ?? 'stack';
+  const parts = spec?.parts ?? ['lead', 'stats', 'bars', 'points'];
+  // Only as many bars and points as the size holds; the rest are counted.
+  const cap = Math.min(spec?.bars ?? size.bars, size.bars, layout === 'hero' && size.height ? Math.max(3, size.bars - 2) : size.bars);
+  // Bars are measured against the longest one shown (each still starts at zero and says its value), so a short list isn't dwarfed by ones left out.
+  const kept = t.chart?.bars.slice(0, cap) ?? [];
+  const chart = t.chart ? { ...t.chart, bars: kept, more: t.chart.more + Math.max(0, t.chart.bars.length - cap), max: Math.max(...kept.map((b) => b.value), 0) } : undefined;
+  const points = t.points.slice(0, size.points);
+  const named = (!!t.chart && !t.sentence) || !!t.who;
+  const picture = t.leadPicture ? html`<span class="tl__pic${t.who === 'person' && !t.logo ? ' is-portrait' : ''}"><img src="${t.leadPicture}" alt="${t.who ? t.lead : ''}"></span>` : html``;
+
+  const header = html`<header class="tl__head"><div class="tl__eyebrow">TL;DR · ${date}</div>${spec?.headline
+    ? html`<p class="tl__kicker">${t.title}</p><h1 class="tl__title">${spec.headline}</h1>`
+    : html`<h1 class="tl__title">${t.title}</h1>`}${spec?.takeaway ? html`<p class="tl__lede">${spec.takeaway}</p>` : html``}</header>`;
+  const lead = html`<section class="tl__lead">
     <div>
       <div class="tl__label">${t.leadLabel}</div>
-      ${(chart && !t.sentence) || t.who ? html`<p class="tl__name">${t.lead}</p>` : html`<p class="tl__say">${t.lead}</p>`}
+      ${named ? html`<p class="tl__name">${t.lead}</p>` : html`<p class="tl__say">${t.lead}</p>`}
       ${t.leadFacts.length ? html`<ul class="tl__facts">${t.leadFacts.map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
       ${t.note ? html`<p class="tl__note">${t.note}</p>` : html``}
     </div>
-    ${t.leadPicture ? html`<span class="tl__pic${t.who === 'person' && !t.logo ? ' is-portrait' : ''}"><img src="${t.leadPicture}" alt="${t.who ? t.lead : ''}"></span>` : html``}
-  </section>
-  ${t.stats.length ? html`<section class="tl__stats">${t.stats.map((s) => html`<div class="tl__stat"><span class="tl__num${s.value.length > 12 ? ' is-long' : ''}">${s.value}</span><span class="tl__what">${s.label}</span></div>`) as unknown as SafeHtml[]}</section>` : html``}
-  ${chart ? html`<section class="tl__chart">
+    ${picture}
+  </section>`;
+  // The hero layout's opener: one thing very large. Who it's about; else the lead's own number with its name; else the first number.
+  const leadBar = chart?.bars.find((b) => b.lead) ?? chart?.bars[0];
+  const hero = t.who
+    ? html`<section class="tl__hero tl__hero--who">${picture}<div><div class="tl__label">${t.leadLabel}</div><p class="tl__big">${t.lead}</p>${t.leadFacts.length ? html`<p class="tl__under">${t.leadFacts.join(' · ')}</p>` : html``}</div></section>`
+    : leadBar && named
+      ? html`<section class="tl__hero"><div><div class="tl__label">${t.leadLabel} · ${chart!.label}</div><p class="tl__big">${leadBar.text}</p><p class="tl__under">${t.lead}</p></div>${picture}</section>`
+      : t.stats[0]
+        ? html`<section class="tl__hero"><div><div class="tl__label">${t.stats[0].label}</div><p class="tl__big">${t.stats[0].value}</p><p class="tl__under">${t.lead}</p></div></section>`
+        : lead;
+  const stats = t.stats.length ? html`<section class="tl__stats">${t.stats.map((x) => html`<div class="tl__stat"><span class="tl__num${x.value.length > 12 ? ' is-long' : ''}">${x.value}</span><span class="tl__what">${x.label}</span></div>`) as unknown as SafeHtml[]}</section>` : html``;
+  const bars = chart ? html`<section class="tl__chart">
     <div class="tl__label">${chart.label}, ${chart.order}</div>
     <ol class="tl__bars">${chart.bars.map((b) => html`<li class="tl__bar${b.lead ? ' is-lead' : ''}"><span>${b.name}</span><span class="tl__track"><span class="tl__fill" style="width:${(chart.max > 0 ? Math.max(0, (b.value / chart.max) * 100) : 0).toFixed(1)}%"></span></span><span class="tl__val">${b.text}</span></li>`) as unknown as SafeHtml[]}</ol>
     ${chart.more > 0 ? html`<p class="tl__more">and ${String(chart.more)} more in the running</p>` : html``}
-  </section>` : t.points.length ? html`<section class="tl__chart"><div class="tl__label">${t.pointsLabel ?? 'What it found'}</div><ol class="tl__points">${t.points.map((p) => html`<li>${p}</li>`) as unknown as SafeHtml[]}</ol></section>` : html``}
-  <footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>
+  </section>` : html``;
+  const list = !chart && points.length ? html`<section class="tl__chart"><div class="tl__label">${t.pointsLabel ?? 'What it found'}</div><ol class="tl__points">${points.map((p) => html`<li>${p}</li>`) as unknown as SafeHtml[]}</ol></section>` : html``;
+  const part: Record<TldrPart, SafeHtml> = { lead: layout === 'hero' ? hero : lead, stats, bars, points: list };
+  const shown = (keys: readonly TldrPart[]) => parts.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
+  const foot = html`<footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>`;
+  const cls = spec ? ` tl--${spec.size} tl--${spec.tone} tl--${layout}` : '';
+  // Split: the words (title, lead, numbers) at the left, what's drawn or listed at the right.
+  const body = layout === 'split'
+    ? html`<div class="tl__cols"><div class="tl__col">${header}${shown(['lead', 'stats'])}</div><div class="tl__col">${shown(['bars', 'points'])}</div></div>`
+    : html`${header}${shown(['lead', 'stats', 'bars', 'points'])}`;
+  return html`<article class="tl${cls}" aria-label="${t.title}, in short">
+  ${body}
+  ${foot}
 </article>`;
 }
 
 /** The TL;DR as a page of its own, at the picture's width. */
-export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; aboutPicture?: { src: string; logo?: boolean }; now?: Date; theme?: BriefTheme }): string {
+export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; aboutPicture?: { src: string; logo?: boolean }; now?: Date; theme?: BriefTheme; spec?: TldrSpec }): string {
   const theme = args.theme ?? briefTheme(undefined, 'light');
   const t = tldrData(args.nb, args.entries, args.history, args.pictures, args.aboutPicture);
+  // Drawn as the notebook's redraw says (or the one asked for); else the standard picture.
+  const width = TLDR_SIZES[args.spec?.size ?? 'standard'].width;
   const body = html`<title>${args.nb.title}: TL;DR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap">
 <style>
 ${unsafeHtml(theme.css)}
 html, body { margin: 0; background: var(--bg); }
-body { width: ${String(TLDR_WIDTH)}px; }
+body { width: ${String(width)}px; }
 ${unsafeHtml(TLDR_CSS)}
 </style>
-${tldrCard(t, { ...(args.now ? { now: args.now } : {}) })}`;
-  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=${String(TLDR_WIDTH)}">\n${render(body).replace('<article class="tl', '</head>\n<body>\n<article class="tl')}\n</body>\n</html>\n`;
+${tldrCard(t, { ...(args.now ? { now: args.now } : {}), ...(args.spec ? { spec: args.spec } : {}) })}`;
+  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=${String(width)}">\n${render(body).replace('<article class="tl', '</head>\n<body>\n<article class="tl')}\n</body>\n</html>\n`;
 }

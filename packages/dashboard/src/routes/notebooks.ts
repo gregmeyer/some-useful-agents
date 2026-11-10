@@ -31,7 +31,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, htmlToPdf, htmlToPng, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
@@ -41,7 +41,7 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { renderNotebookTldr, TLDR_WIDTH } from '../views/notebook-tldr.js';
+import { renderNotebookTldr } from '../views/notebook-tldr.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -1225,7 +1225,7 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
 });
 
 /** The TL;DR card as a page: `embed`, its lead's picture inside it (a picture made from it can't load one from the dashboard). */
-function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean): string {
+function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean): { page: string; width: number } {
   const ctx = getContext(req.app.locals);
   const entries = s.entries(nb.id, 1000);
   const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
@@ -1236,7 +1236,13 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   const path = who ? `/notebooks/${encodeURIComponent(nb.id)}/about/${who}/photo` : undefined;
   const src = path ? (embed ? embeddedAboutPicture(s, nb)(path) : path) : undefined;
   const aboutPicture = who && src ? { src, ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined;
-  return renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}) });
+  // How it's drawn: as asked by address (?size=&tone=&layout=, to try one without keeping it), else the notebook's redraw, else the standard picture (?standard=1 forces that).
+  const tried = ['size', 'tone', 'layout', 'parts', 'bars', 'headline', 'takeaway'].some((k) => req.query[k] !== undefined);
+  const spec = req.query.standard === '1' ? undefined : tried
+    ? cleanTldrSpec({ ...(nb.tldr ?? {}), ...Object.fromEntries(['size', 'tone', 'layout', 'headline', 'takeaway'].filter((k) => typeof req.query[k] === 'string').map((k) => [k, req.query[k]])), ...(typeof req.query.parts === 'string' ? { parts: req.query.parts.split(',') } : {}), ...(typeof req.query.bars === 'string' ? { bars: Number(req.query.bars) } : {}) })
+    : nb.tldr;
+  const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(spec ? { spec } : {}) });
+  return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }
 
 /** A notebook's TL;DR, as a page: the card the picture is made from. */
@@ -1244,7 +1250,7 @@ notebooksRouter.get('/notebooks/:id/tldr.html', (req: Request, res: Response) =>
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' }).send(tldrPage(req, s, nb, false));
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' }).send(tldrPage(req, s, nb, false).page);
 });
 
 /**
@@ -1259,8 +1265,10 @@ notebooksRouter.get('/notebooks/:id/tldr.png', async (req: Request, res: Respons
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const out = await (ctx.notebookPng ?? htmlToPng)(tldrPage(req, s, nb, true), { width: TLDR_WIDTH, scale: 2, selector: '.tl' });
-  if (!out.available) { res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/tldr.html${req.query.theme === 'dark' ? '?theme=dark' : ''}`); return; }
+  const { page, width } = tldrPage(req, s, nb, true);
+  const out = await (ctx.notebookPng ?? htmlToPng)(page, { width, scale: 2, selector: '.tl' });
+  // No browser here: the card as a page, drawn the same way (the address's own choices carried over).
+  if (!out.available) { const qs = new URLSearchParams(req.query as Record<string, string>); qs.delete('download'); res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/tldr.html${qs.toString() ? `?${qs.toString()}` : ''}`); return; }
   res.set({ 'Content-Type': 'image/png', 'Content-Length': String(out.data.length), 'Cache-Control': 'private, no-store', ...(req.query.download === '1' ? { 'Content-Disposition': attachment(`${titleFileName(nb.title)} (TLDR).png`) } : {}) }).send(out.data);
 });
 
