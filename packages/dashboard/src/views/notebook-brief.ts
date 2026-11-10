@@ -18,7 +18,7 @@ import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory
 import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
 import { bodyWithLinks } from './notebooks.js';
 import { briefPart, type BriefSection } from './notebook-page-brief.js';
-import { tldrData, tldrCard, TLDR_CSS } from './notebook-tldr.js';
+import { tldrData, tldrChart, TLDR_CSS } from './notebook-tldr.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -428,9 +428,10 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 .full__body a { color: var(--accent); }
 .full__checks ul, .full__history ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; font-size: 0.875rem; }
 .full__when { font: 500 0.75rem var(--mono); color: var(--subtle); min-width: 3.5rem; display: inline-block; }
-/* The TL;DR card, drawn for a 1080px picture, scaled to the column. */
+/* The TL;DR picture's bars, drawn for a 1080px picture, scaled to the column. With them, the paragraph above takes the column's width too. */
 ${unsafeHtml(TLDR_CSS)}
-.brief .tl { zoom: 0.68; border-radius: 14px; padding: 36px 44px; gap: 24px; }
+.brief .tl { zoom: 0.68; border-radius: 14px; }
+.stands:has(+ .tl) { max-width: none; }
 @media (max-width: 640px) { .brief .tl { zoom: 0.44; } }
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
 @media print {
@@ -480,7 +481,7 @@ ${unsafeHtml(TLDR_CSS)}
   ${writeup
     ? html`<section class="stands" aria-label="The lay of the land"><div class="eyebrow">${writeup.label}</div><p>${inline(writeup.text)}</p>${writeup.next ? html`<p class="muted"><b>${writeup.nextLabel}</b> ${writeup.next}</p>` : html``}<p class="fine">${inline(d.summary)}</p></section>`
     : decided && nb.decision ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
-  ${/* The picture's card after the words: it shows the point they make (the lead, the spread), it doesn't replace them. */ tldr?.chart ? tldrCard(tldr, { now, title: false }) : html``}
+  ${/* The picture's bars after the words: how the options compare, which the words can't show. Not its lead or numbers: the paragraph above and the key findings below say those. */ tldr?.chart ? tldrChart(tldr) : html``}
   ${args.latest ? html`<p class="stands">${active.length
     ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
     : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}

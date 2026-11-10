@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { tldrData, tldrCard, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
+import { tldrData, tldrCard, tldrChart, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
 import { render } from './html.js';
 
 const at = '2026-11-10T00:00:00.000Z';
@@ -42,11 +42,14 @@ describe("a notebook's TL;DR picture", () => {
     expect(card).toContain('style="width:100.0%"');
     expect(card).toContain('style="width:6.6%"');
     expect(card).toContain('and 1 more in the running');
-    // Inside the brief: no title or footer of its own.
-    const bare = render(tldrCard(t, { title: false }));
-    expect(bare).toContain('class="tl tl--bare"');
-    expect(bare).not.toContain('tl__title');
-    expect(bare).not.toContain('Made with sua');
+    // For the brief: the bars alone. Its lead and numbers are the brief's own words, so they aren't said twice.
+    const bars = render(tldrChart(t));
+    expect(bars).toContain('<figure class="tl tl--chart"');
+    expect(bars).toContain('<figcaption class="tl__label">Price, lowest first</figcaption>');
+    expect(bars).toContain('<li class="tl__bar is-lead"><span>Werker 220Ah</span>');
+    expect(bars).toContain('and 1 more in the running');
+    for (const gone of ['tl__title', 'tl__lead', 'tl__stats', 'Best lead', 'Made with sua']) expect(bars).not.toContain(gone);
+    expect(render(tldrChart(tldrData(nb({ fields: [] }), [])))).toBe('');
   });
 
   it('ranked by fit: the score as a plain number, highest first; decided: the chosen marked', () => {

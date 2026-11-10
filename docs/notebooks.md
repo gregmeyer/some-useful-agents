@@ -423,7 +423,7 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 Below it, **The options as a spreadsheet** lists the CSVs (in the running, everything with ruled out, new in the last run).
 
 **The brief → Open ↗** shows the notebook as a summary of what it found, on one page to send:
-- **The goal**, then the decision or where it stands in a paragraph, then the **TL;DR card** when there's something to plot (see [The TL;DR picture](#the-tldr-picture)): the card shows what the paragraph says, it doesn't replace it. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
+- **The goal**, then the decision or where it stands in a paragraph, then the **TL;DR picture's bars** when there's something to plot (see [The TL;DR picture](#the-tldr-picture)): how the options compare by the deciding fact. Only the bars: the best lead and the numbers are already in the paragraph above and the key findings below, so the brief doesn't say them twice. A decided notebook's decision shows once: when, how many were chosen, the picks as a list, and why.
 - **Key findings**, worked out from the notebook itself (nothing written by a model, nothing guessed):
   - how many options were looked at, over how many searches, and how many are in the running, chosen and ruled out;
   - the span of the price or salary in the running (a salary range counts by both ends), and how many don't list it;
@@ -453,7 +453,7 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 - **The options as ranked bars**, up to eight, by the fact that decides between them: fit when the notebook scores it, else price, else its main measure. The lead's bar is in the accent colour, each bar has its value at the right, and "and 13 more in the running" counts the rest. When too few options state the deciding fact, the bars use the next one that at least two state, in that fact's order.
 - **Nothing to plot** (a meeting briefing, a plan): the card says what it's for or where it stands in a sentence, the numbers, and the first talking points or findings, numbered.
 
-The picture is 2160 pixels wide (twice the card, so text stays sharp), in the light theme with your brand colours; `tldr.png?theme=dark` gives the dark one, and `tldr.html` is the card as a page. It needs the same headless browser as the PDF; without one the link opens the card as a page. The same card, without its title, follows the "where it stands" paragraph in a shortlist's brief and PDF.
+The picture is 2160 pixels wide (twice the card, so text stays sharp), in the light theme with your brand colours; `tldr.png?theme=dark` gives the dark one, and `tldr.html` is the card as a page. It needs the same headless browser as the PDF; without one the link opens the card as a page. Its bars alone follow the "where it stands" paragraph in a shortlist's brief and PDF.
 
 Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 

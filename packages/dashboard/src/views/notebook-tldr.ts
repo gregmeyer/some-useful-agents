@@ -9,7 +9,7 @@
  *
  * One self-contained page (no scripts), set at a fixed width so it comes out
  * the same every time; the dashboard turns it into a PNG with a headless
- * browser (core htmlToPng). `tldrCard` is the card alone, for the brief.
+ * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { rankBy, rankOptions, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption } from '@some-useful-agents/core';
@@ -142,8 +142,8 @@ export const TLDR_CSS = `
 .tl__eyebrow { font: 600 13px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .tl__title { margin: 12px 0 0; font: 700 38px/1.15 var(--display); text-wrap: balance; }
 .tl__lead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px; align-items: center; padding: 24px 0; border-top: 2px solid var(--text); border-bottom: 1px solid var(--line); }
-/* Under a title of its host's (the brief): no rule of its own above the lead. */
-.tl--bare .tl__lead { border-top: 0; padding-top: 0; }
+/* The bars alone (in the brief): a figure, with less room around it. */
+.tl--chart { margin: 0; gap: 14px; padding: 28px 36px; }
 .tl__label { font: 600 12px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .tl__name { margin: 10px 0 0; font: 700 30px/1.2 var(--display); overflow-wrap: anywhere; }
 .tl__say { margin: 10px 0 0; font-size: 22px; line-height: 1.4; }
@@ -172,13 +172,28 @@ export const TLDR_CSS = `
 .tl__foot { display: flex; justify-content: space-between; gap: 24px; padding-top: 16px; border-top: 1px solid var(--line); font: 500 12px/1.4 var(--mono); color: var(--subtle); }
 `;
 
-/** The card: `title` false leaves out its eyebrow and title (the brief has its own above it). */
-export function tldrCard(t: TldrData, o: { now?: Date; title?: boolean } = {}): SafeHtml {
+/**
+ * The bars alone, for the brief: its own words already give the lead and the
+ * numbers (where it stands, key findings), so there the picture is only what
+ * words can't show, how the options compare. Nothing when there's no chart.
+ */
+export function tldrChart(t: TldrData): SafeHtml {
+  const chart = t.chart;
+  if (!chart) return html``;
+  return html`<figure class="tl tl--chart" aria-label="${chart.label} of the options in the running, ${chart.order}">
+  <figcaption class="tl__label">${chart.label}, ${chart.order}</figcaption>
+  <ol class="tl__bars">${chart.bars.map((b) => html`<li class="tl__bar${b.lead ? ' is-lead' : ''}"><span>${b.name}</span><span class="tl__track"><span class="tl__fill" style="width:${(chart.max > 0 ? Math.max(0, (b.value / chart.max) * 100) : 0).toFixed(1)}%"></span></span><span class="tl__val">${b.text}</span></li>`) as unknown as SafeHtml[]}</ol>
+  ${chart.more > 0 ? html`<p class="tl__more">and ${String(chart.more)} more in the running</p>` : html``}
+</figure>`;
+}
+
+/** The whole card, as the picture shows it. */
+export function tldrCard(t: TldrData, o: { now?: Date } = {}): SafeHtml {
   const now = o.now ?? new Date();
   const date = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const chart = t.chart;
-  return html`<article class="tl${o.title === false ? ' tl--bare' : ''}" aria-label="${t.title}, in short">
-  ${o.title === false ? html`` : html`<header><div class="tl__eyebrow">TL;DR · ${date}</div><h1 class="tl__title">${t.title}</h1></header>`}
+  return html`<article class="tl" aria-label="${t.title}, in short">
+  <header><div class="tl__eyebrow">TL;DR · ${date}</div><h1 class="tl__title">${t.title}</h1></header>
   <section class="tl__lead">
     <div>
       <div class="tl__label">${t.leadLabel}</div>
@@ -193,7 +208,7 @@ export function tldrCard(t: TldrData, o: { now?: Date; title?: boolean } = {}): 
     <ol class="tl__bars">${chart.bars.map((b) => html`<li class="tl__bar${b.lead ? ' is-lead' : ''}"><span>${b.name}</span><span class="tl__track"><span class="tl__fill" style="width:${(chart.max > 0 ? Math.max(0, (b.value / chart.max) * 100) : 0).toFixed(1)}%"></span></span><span class="tl__val">${b.text}</span></li>`) as unknown as SafeHtml[]}</ol>
     ${chart.more > 0 ? html`<p class="tl__more">and ${String(chart.more)} more in the running</p>` : html``}
   </section>` : t.points.length ? html`<section class="tl__chart"><div class="tl__label">${t.pointsLabel ?? 'What it found'}</div><ol class="tl__points">${t.points.map((p) => html`<li>${p}</li>`) as unknown as SafeHtml[]}</ol></section>` : html``}
-  ${o.title === false ? html`` : html`<footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>`}
+  <footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>
 </article>`;
 }
 
