@@ -1230,7 +1230,13 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   const entries = s.entries(nb.id, 1000);
   const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
   const mode = req.query.theme === 'dark' ? 'dark' : 'light';
-  return renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image });
+  // Who it's about, pictured: the person's photo, else their company's logo or photo.
+  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
+  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
+  const path = who ? `/notebooks/${encodeURIComponent(nb.id)}/about/${who}/photo` : undefined;
+  const src = path ? (embed ? embeddedAboutPicture(s, nb)(path) : path) : undefined;
+  const aboutPicture = who && src ? { src, ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined;
+  return renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}) });
 }
 
 /** A notebook's TL;DR, as a page: the card the picture is made from. */

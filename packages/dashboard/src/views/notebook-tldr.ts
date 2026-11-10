@@ -39,6 +39,12 @@ export interface TldrData {
   leadPicture?: string;
   /** The lead is a sentence (an answer), not an option's name. */
   sentence?: boolean;
+  /** The lead is who it's about (a person, a company): their name, with `note` under it. */
+  who?: 'person' | 'company';
+  /** Under a person's or company's name: your goal for the meeting, else who they are in a sentence. */
+  note?: string;
+  /** The lead's picture is a logo (shown whole on white), not a photo. */
+  logo?: boolean;
   stats: Array<{ value: string; label: string }>;
   /** The options as bars by one fact, best first; none when nothing can be plotted. */
   chart?: { label: string; order: string; bars: TldrBar[]; more: number; max: number };
@@ -48,7 +54,7 @@ export interface TldrData {
 }
 
 /** What the picture says, from the notebook. Pure. */
-export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture): TldrData {
+export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }): TldrData {
   const d = notebookWidgetData(nb, entries, history).notebook;
   const ranked = rankOptions(nb, d.options);
   const chosen = ranked.filter((o) => o.chosen);
@@ -112,18 +118,39 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
       stats: stats.slice(0, 3), chart, points: [],
     };
   }
-  // A briefing with its talking points written: who or what the meeting is for, the numbers, then the first points.
+  // About someone (a meeting, a company briefing): they lead, with their picture, what they do and where, and your
+  // goal or who they are in a sentence; then the talking points once they're written, else the first findings.
   const talk = nb.briefing?.points ?? [];
-  if (talk.length) {
-    const about = nb.about?.person ?? nb.about?.company;
+  const who = nb.about?.person?.name ? 'person' as const : nb.about?.company?.name ? 'company' as const : undefined;
+  if (who) {
+    const about = nb.about![who]!;
+    const fact = (...keys: string[]) => keys.map((k) => about.facts.find((f) => f.key === k)?.value).find((v) => v && v.length <= 70);
+    const say = nb.meeting?.goal ? `Your goal: ${nb.meeting.goal}` : about.summary ?? '';
     return {
-      title: nb.title, leadLabel: nb.meeting?.goal ? 'Your goal' : about?.summary ? 'Who they are' : "What it's for",
-      lead: clip(plain(nb.meeting?.goal || about?.summary || nb.statement || d.summary), 320), leadFacts: [],
-      stats: [
+      title: nb.title, who,
+      leadLabel: who === 'person' ? "Who you're meeting" : 'The company',
+      lead: about.name,
+      leadFacts: (who === 'person' ? [fact('role', 'title'), fact('organization', 'company'), fact('location', 'based_in')] : [fact('what_they_do', 'industry'), fact('headquarters', 'location', 'based_in'), fact('size', 'employees')]).filter((x): x is string => !!x),
+      ...(say ? { note: clip(plain(say), 260) } : {}),
+      ...(aboutPicture ? { leadPicture: aboutPicture.src, ...(aboutPicture.logo ? { logo: true } : {}) } : {}),
+      stats: talk.length ? [
         { value: String(talk.length), label: talk.length === 1 ? 'talking point' : 'talking points' },
         ...(nb.briefing!.questions.length ? [{ value: String(nb.briefing!.questions.length), label: nb.briefing!.questions.length === 1 ? 'question to ask' : 'questions to ask' }] : []),
         ...(active.length ? [{ value: String(active.length), label: 'things they said, kept' }] : []),
-      ].slice(0, 3),
+      // No talking points yet: what's kept about them is findings, not options to choose between.
+      ].slice(0, 3) : stats.slice(0, 3).map((x) => (/^options? in the running$/.test(x.label) ? { ...x, label: x.value === '1' ? 'finding kept' : 'findings kept' } : x)),
+      ...(talk.length ? { points: talk.slice(0, 4).map((p) => clip(plain(p.text), 170)), pointsLabel: 'Talking points' } : { points: d.findings.slice(0, 3).map((f) => clip(plain(f.text), 170)) }),
+    };
+  }
+  // A briefing about no one in particular: what it's for, then its talking points.
+  if (talk.length) {
+    return {
+      title: nb.title, leadLabel: nb.meeting?.goal ? 'Your goal' : "What it's for",
+      lead: clip(plain(nb.meeting?.goal || nb.statement || d.summary), 320), leadFacts: [],
+      stats: [
+        { value: String(talk.length), label: talk.length === 1 ? 'talking point' : 'talking points' },
+        ...(nb.briefing!.questions.length ? [{ value: String(nb.briefing!.questions.length), label: nb.briefing!.questions.length === 1 ? 'question to ask' : 'questions to ask' }] : []),
+      ],
       points: talk.slice(0, 4).map((p) => clip(plain(p.text), 170)), pointsLabel: 'Talking points',
     };
   }
@@ -150,6 +177,10 @@ export const TLDR_CSS = `
 .tl__facts { margin: 12px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 22px; font: 500 16px/1.4 var(--mono); color: var(--muted); }
 .tl__pic { width: 200px; height: 132px; border-radius: 8px; overflow: hidden; background: #fff; border: 1px solid var(--line); }
 .tl__pic img { display: block; width: 100%; height: 100%; object-fit: contain; }
+/* A person's photo: a square portrait that fills its frame (a logo or a product stays whole). */
+.tl__pic.is-portrait { width: 176px; height: 176px; border-radius: 10px; }
+.tl__pic.is-portrait img { object-fit: cover; object-position: center 20%; }
+.tl__note { margin: 14px 0 0; font-size: 18px; line-height: 1.45; max-width: 46em; }
 .tl__stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 28px; }
 .tl__stat { display: grid; gap: 6px; align-content: start; padding-left: 16px; border-left: 2px solid var(--accent); }
 .tl__num { font: 700 30px/1.1 var(--display); font-variant-numeric: tabular-nums; }
@@ -197,10 +228,11 @@ export function tldrCard(t: TldrData, o: { now?: Date } = {}): SafeHtml {
   <section class="tl__lead">
     <div>
       <div class="tl__label">${t.leadLabel}</div>
-      ${chart && !t.sentence ? html`<p class="tl__name">${t.lead}</p>` : html`<p class="tl__say">${t.lead}</p>`}
+      ${(chart && !t.sentence) || t.who ? html`<p class="tl__name">${t.lead}</p>` : html`<p class="tl__say">${t.lead}</p>`}
       ${t.leadFacts.length ? html`<ul class="tl__facts">${t.leadFacts.map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+      ${t.note ? html`<p class="tl__note">${t.note}</p>` : html``}
     </div>
-    ${t.leadPicture ? html`<span class="tl__pic"><img src="${t.leadPicture}" alt=""></span>` : html``}
+    ${t.leadPicture ? html`<span class="tl__pic${t.who === 'person' && !t.logo ? ' is-portrait' : ''}"><img src="${t.leadPicture}" alt="${t.who ? t.lead : ''}"></span>` : html``}
   </section>
   ${t.stats.length ? html`<section class="tl__stats">${t.stats.map((s) => html`<div class="tl__stat"><span class="tl__num${s.value.length > 12 ? ' is-long' : ''}">${s.value}</span><span class="tl__what">${s.label}</span></div>`) as unknown as SafeHtml[]}</section>` : html``}
   ${chart ? html`<section class="tl__chart">
@@ -213,9 +245,9 @@ export function tldrCard(t: TldrData, o: { now?: Date } = {}): SafeHtml {
 }
 
 /** The TL;DR as a page of its own, at the picture's width. */
-export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; now?: Date; theme?: BriefTheme }): string {
+export function renderNotebookTldr(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory; pictures?: BriefPicture; aboutPicture?: { src: string; logo?: boolean }; now?: Date; theme?: BriefTheme }): string {
   const theme = args.theme ?? briefTheme(undefined, 'light');
-  const t = tldrData(args.nb, args.entries, args.history, args.pictures);
+  const t = tldrData(args.nb, args.entries, args.history, args.pictures, args.aboutPicture);
   const body = html`<title>${args.nb.title}: TL;DR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap">
