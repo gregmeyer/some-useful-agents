@@ -886,6 +886,12 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbe-talk__send { display: flex; align-items: flex-start; gap: var(--space-3); }
 .nbe-talk__send > .btn--primary { margin-left: auto; }
 .nbe-talk__starters { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.nbe-talk__starters .nbd-chip.is-on { border-style: solid; border-color: var(--color-primary); color: var(--color-primary); }
+/* What can finish the starter you picked, for this notebook. */
+.nbe-talk__options { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nbe-talk__options[hidden] { display: none; }
+.nbe-talk__ask { flex: 1 0 100%; font: var(--weight-semibold) var(--font-size-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nbe-talk__or { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbe-prompt__form { display: grid; gap: var(--space-2); }
 .nbe-prompt__text { font: var(--font-size-sm)/1.55 var(--font-mono); resize: vertical; min-height: 24rem; }
 .nbe-prompt__acts { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-2); }

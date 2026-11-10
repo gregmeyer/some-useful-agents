@@ -3978,6 +3978,10 @@ describe('editing a notebook on its own page', () => {
     // Tags and Manage sit in a rail beside the editing, not under every tab.
     expect(page).toMatch(/<aside class="nbe-rail" aria-label="This notebook">[\s\S]*id="nbe-tags"[\s\S]*<h2 class="nbe-card__h" id="nbe-manage-h">Manage<\/h2>/);
     expect(page.indexOf('<aside class="nbe-rail"')).toBeGreaterThan(page.indexOf('class="nbe-work"'));
+    // Each starter carries what can finish it for this notebook, shown when it's picked.
+    const talkTab = (await get(`/notebooks/${nb.id}/edit`)).text;
+    expect(talkTab).toContain('data-nbe-start="Make the page lead with " aria-controls="nbe-opts-1" aria-expanded="false">Make the page lead with…</button>');
+    expect(talkTab).toMatch(/<div class="nbe-talk__options" id="nbe-opts-0" data-nbe-options hidden>\s*<span class="nbe-talk__ask">A step to:<\/span>\s*<button type="button" class="nbd-chip" data-nbe-fill="Add a step to find more options"/);
     expect(page).toMatch(/<button type="submit" class="btn btn--sm">Stop<\/button><\/form><span class="nbe-manage__what">Pause it/);
 
     // Change a limit, drop a check and a field, retitle a step, drop the gone search, run every morning.
