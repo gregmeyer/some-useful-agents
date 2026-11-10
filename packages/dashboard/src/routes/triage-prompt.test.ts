@@ -53,6 +53,31 @@ describe('loadTriageKernel', () => {
   });
 });
 
+describe('a notebook like the one asked for', () => {
+  it('the kernel reads NOTEBOOK_CANDIDATES before offering a new notebook: run the same one again, or set a new one up like it', async () => {
+    const kernel = loadTriageKernel();
+    expect(kernel).toContain('A NOTEBOOK LIKE THIS EXISTS');
+    expect(kernel).toContain('read NOTEBOOK_CANDIDATES before offering one');
+    // The same topic: two answer buttons, then the rerun card (it archives, so it's a card).
+    expect(kernel).toMatch(/`same-topic`[\s\S]{0,600}"Run it again"[\s\S]{0,300}"Start a new one"/);
+    expect(kernel).toMatch(/propose the\s+`notebook-rerun` card/);
+    // The same kind for someone else: a create card that names the notebook and who it's for.
+    expect(kernel).toMatch(/`same-kind`[\s\S]{0,900}"LIKE": "<candidate id>", "SUBJECT"/);
+    expect(kernel).toContain('SUBJECT is required with LIKE');
+    // Only the name is swapped by itself; a size or budget the ask changes goes in the lists.
+    expect(kernel).toMatch(/never the whole ask and never a size,\s+budget, place or date/);
+    // They asked for a fresh one: no reuse talk.
+    expect(kernel).toMatch(/"from scratch", "don't reuse"\):\s+skip this/);
+    // New notebook opens with their words; the old address only redirects.
+    expect(kernel).not.toContain('/notebooks?new=1');
+    // The triage agent declares the input and shows it to the model.
+    const { readFileSync } = await import('node:fs');
+    const yaml = readFileSync('agents/examples/inbox-triage.yaml', 'utf8');
+    expect(yaml).toMatch(/^ {2}NOTEBOOK_CANDIDATES:$/m);
+    expect(yaml).toContain('{{inputs.NOTEBOOK_CANDIDATES}}');
+  });
+});
+
 describe('loadTriagePlaybook', () => {
   const ALL = ['run-failure', 'permission-request', 'cadence', 'manual'] as const;
 

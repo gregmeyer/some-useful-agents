@@ -17,7 +17,8 @@ import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { previewBoardPage, executeBoardPage } from '../lib/board-page-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
-import { previewNotebookTemplate, executeNotebookTemplate } from '../lib/notebook-template-action.js';
+import { previewNotebookTemplate, executeNotebookTemplate, templateOfNotebook } from '../lib/notebook-template-action.js';
+import { templateNameFrom } from '../views/notebook-template.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, notebooksLinked, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
 import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
@@ -57,7 +58,8 @@ import {
   partialInlineWidget,
   prepareViewForRender,
   viewToMessages,
-  fillSubject, subjectOut, layoutWords,
+  fillSubject, subjectOut, layoutWords, templateWithEdits, templateSubjectGuess, similarNotebooks, notebookPurpose, notebookTags,
+  type NotebookTemplateSetup, type Notebook,
   notebookLayoutGuide,
   suaComponentDocs,
   type ProviderFailure,
@@ -1243,10 +1245,10 @@ function listInput(raw: string | undefined, fallback: readonly string[]): string
  * sua's own (finder, checker) or say they need one; its pipeline keeps only
  * installed agents.
  */
-export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): { template: NotebookTemplate; setup: NewNotebookSetup } | { error: string } {
-  const t = notebooksOf(ctx).getTemplate((meta.inputs.TEMPLATE ?? '').trim());
-  if (!t) return { error: `There's no template "${meta.inputs.TEMPLATE ?? ''}". Save a notebook as a template from its Edit panel first.` };
-  if (t.archivedAt) return { error: `The template "${t.name}" is archived. Restore it from New notebook → Archived templates first.` };
+export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): { from: NotebookSetupSource; setup: NewNotebookSetup } | { error: string } {
+  const from = notebookSetupSource(ctx, meta);
+  if ('error' in from) return from;
+  const t = from;
   const installed = (id: string) => { const a = ctx.agentStore.getAgent(id); return !!a && a.status !== 'archived'; };
   const target = Number(meta.inputs.TARGET);
   // What changes each time ("Who you're meeting"): filled into every text that says {subject}.
@@ -1265,7 +1267,7 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
     status: 'todo' as const, tries: 0,
   }));
   return {
-    template: t,
+    from: t,
     setup: {
       title: fill((meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || t.name),
       statement: fill((meta.inputs.STATEMENT ?? '').trim() || t.setup.statement),
@@ -1277,9 +1279,62 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       stages: t.setup.stages,
       checks: listInput(meta.inputs.CHECKS, t.setup.checks).map(fill),
       steps,
-      ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage) } : {}),
+      // Like a notebook: its page stays whose it was (as when it's run again). From a template: the template's.
+      ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage), ...(t.like?.layoutBy ? { layoutBy: t.like.layoutBy } : {}) } : {}),
     },
   };
+}
+
+/**
+ * Notebooks the current ask could be, for triage (A NOTEBOOK LIKE THIS
+ * EXISTS): up to 3, the same topic first, each with what it's for, its kind,
+ * who or what it's about and its tags, the template saved from it if any,
+ * and for a same-kind one its limits, done-whens and checks. Empty when nothing is close. Never throws.
+ */
+export function notebookCandidates(ctx: ReturnType<typeof getContext>, request: string): string {
+  try {
+    const found = similarNotebooks(request, notebooksOf(ctx).list({ archived: 'include' }));
+    if (!found.length) return '';
+    return JSON.stringify(found.map(({ notebook: n, match }) => {
+      const template = templateOfNotebook(ctx, n);
+      return {
+        id: n.id, title: n.title, match, kind: notebookPurpose(n), for: n.statement.slice(0, 200),
+        ...(n.tags?.subject ? { subject: n.tags.subject } : {}), tags: notebookTags(n),
+        status: n.status, archived: !!n.archivedAt, link: `/notebooks/${encodeURIComponent(n.id)}`,
+        // To set a new one up like it, sua needs what else it says, to change what this ask changes (a size, a budget).
+        ...(match === 'same-kind' ? { limits: n.params, doneWhen: n.criteria.map((c) => c.text), checks: n.checks } : {}),
+        ...(template && !template.archivedAt ? { template: template.id } : {}),
+      };
+    }));
+  } catch { return ''; }
+}
+
+/** What a `notebook-create` card starts from: one of your templates (TEMPLATE), or a notebook's own setup with who it's about swapped (LIKE). */
+export interface NotebookSetupSource { name: string; description: string; setup: NotebookTemplateSetup; template?: NotebookTemplate; like?: Notebook }
+
+/**
+ * The setup a `notebook-create` card starts from. TEMPLATE: a saved template.
+ * LIKE: a notebook (archived ones too), as a template would be saved from it
+ * right now, with who or what it's about as the part that changes: its tagged
+ * subject, else a limit its title repeats, else who its profile learned. A
+ * notebook that doesn't name anyone can't be set up for someone else, so
+ * that's refused rather than made with the old name all through it.
+ */
+export function notebookSetupSource(ctx: ReturnType<typeof getContext>, meta: InboxActionMeta): NotebookSetupSource | { error: string } {
+  const likeId = (meta.inputs.LIKE ?? '').trim();
+  if (likeId) {
+    const nb = notebooksOf(ctx).get(likeId);
+    if (!nb) return { error: `There's no notebook "${likeId}" to set this one up like.` };
+    const named = (x: string | undefined): x is string => !!x && (subjectOut(nb.title, x) !== nb.title || subjectOut(nb.statement, x) !== nb.statement);
+    const example = [nb.tags?.subject, templateSubjectGuess(nb), nb.about?.person?.name, nb.about?.company?.name].find(named);
+    if (!example) return { error: `"${nb.title}" doesn't say who or what it's about, so it can't be set up for someone else. Start a new one at [New notebook](/notebooks/new) instead.` };
+    const setup = templateWithEdits(nb, { subject: { label: 'Who or what it’s about', example } });
+    return { name: templateNameFrom(nb.title, example), description: `${String(setup.fields.length)} facts · ${String(setup.steps.length)} steps`, setup, like: nb };
+  }
+  const t = notebooksOf(ctx).getTemplate((meta.inputs.TEMPLATE ?? '').trim());
+  if (!t) return { error: `There's no template "${meta.inputs.TEMPLATE ?? ''}". Save a notebook as a template from its Edit panel first.` };
+  if (t.archivedAt) return { error: `The template "${t.name}" is archived. Restore it from New notebook → Archived templates first.` };
+  return { name: t.name, description: t.description, setup: t.setup, template: t };
 }
 
 /** Start a notebook from a template (a card sua proposed after asking what's different). */
@@ -1291,11 +1346,15 @@ export function executeNotebookCreate(
   if ('error' in made) return { status: 'failed', refusalReason: made.error };
   try {
     const nb = createNotebookFrom(ctx, made.setup);
-    notebooksOf(ctx).markTemplateUsed(made.template.id);
+    const { template, like } = made.from;
+    if (template) notebooksOf(ctx).markTemplateUsed(template.id);
+    const likeLink = like ? `[${like.title}](/notebooks/${encodeURIComponent(like.id)})` : '';
+    // Set up like a notebook: the new one notes where its setup came from; the other is left as it is.
+    if (like) notebooksOf(ctx).addEntry(nb.id, { kind: 'note', title: 'Set up like another notebook', body: `Set up like ${likeLink}: its steps, what it notes, its checks and its page, with none of what it found.`, by: 'you' });
     const first = nb.steps?.[0];
     return {
       status: 'completed',
-      summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) from your ${made.template.name} template (${made.template.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
+      summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) ${like ? `set up like ${likeLink}` : `from your ${made.from.name} template`} (${made.from.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
     };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
@@ -1610,13 +1669,15 @@ export function withEditorBase(ctx: ReturnType<typeof getContext>, action: Inbox
   if (action.agentId === 'notebook-create' && !action.surfaceChanges) {
     const made = notebookFromTemplate(ctx, action);
     if ('error' in made) return action;
-    const { template: t, setup } = made;
+    const { from: t, setup } = made;
     const changed = (a: readonly string[], b: readonly string[]) => a.join('\n') !== b.join('\n');
     return {
       ...action,
-      inputs: { ...action.inputs, TEMPLATE_NAME: t.name },
+      inputs: { ...action.inputs, ...(t.like ? { LIKE_TITLE: t.like.title } : { TEMPLATE_NAME: t.name }) },
       surfaceChanges: [
-        { what: 'template', before: '—', after: `${t.name} (${t.description})` },
+        t.like
+          ? { what: 'set up like', before: '—', after: `${t.like.title} (${t.description})` }
+          : { what: 'template', before: '—', after: `${t.name} (${t.description})` },
         ...(t.setup.subject ? [{ what: t.setup.subject.label, before: '—', after: action.inputs.SUBJECT?.trim() || '—' }] : []),
         { what: 'title', before: '—', after: setup.title },
         ...(setup.statement !== t.setup.statement ? [{ what: "what it's for", before: t.setup.statement || '—', after: setup.statement }] : []),
@@ -2659,13 +2720,15 @@ export async function runTriageAgent(
             try {
               const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
               return JSON.stringify(nbs.list().slice(0, 20).map((n) => ({
-                id: n.id, title: n.title, for: n.statement, status: n.status,
+                id: n.id, title: n.title, for: n.statement, status: n.status, tags: notebookTags(n),
                 criteriaMet: `${String(n.criteria.filter((c) => c.met).length)}/${String(n.criteria.length)}`,
                 entries: nbs.entries(n.id, 500).length, ...(n.decision ? { decision: n.decision } : {}),
                 link: `/notebooks/${encodeURIComponent(n.id)}`,
               })));
             } catch { return '[]'; }
           })(),
+          // Notebooks this ask could be (archived too): the same topic, or the same kind for someone else.
+          NOTEBOOK_CANDIDATES: notebookCandidates(ctx, currentRequest),
           // Archived notebooks, by name only: kept whole, just out of lists.
           NOTEBOOKS_ARCHIVED: (() => {
             try {

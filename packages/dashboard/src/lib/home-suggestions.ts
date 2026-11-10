@@ -2,7 +2,7 @@
  * Home's Ask sua card: agents you can run in one click (its Run row), and questions to ask sua, picked from
  * what you use and what happened today. Pure (`pickSuggestions`) with a reader (`homeSuggestions`).
  */
-import { NotebookStore, SYSTEM_AGENT_IDS, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
+import { NotebookStore, SYSTEM_AGENT_IDS, notebookPurpose, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
 import { agentShelves, DEMO_RE } from '../routes/agents/list.js';
 import { cachedNotebookSuggestions } from './notebook-suggestions.js';
 import { perItemInputs } from './notebook-pipeline.js';
@@ -101,13 +101,9 @@ const NOTEBOOK_KINDS = [
 ] as const;
 type NotebookKind = typeof NOTEBOOK_KINDS[number]['kind'];
 
-/** What a notebook is for, from its page, steps and title. Pure. */
+/** What a notebook is for, from its page, steps and title (core notebookPurpose). Pure. */
 export function notebookKind(nb: Pick<Notebook, 'title' | 'layout' | 'steps' | 'statement'>): NotebookKind {
-  const words = `${nb.title} ${nb.statement} ${nb.layout?.about ?? ''}`;
-  if (nb.layout?.preset === 'dossier' || nb.steps?.some((s) => s.kind === 'profile') || /\b(meeting|interview)\b|\b(meet|call) with\b/i.test(words)) return 'meeting';
-  if (/\b(plan|itinerary|trip|schedule for)\b/i.test(words)) return 'plan';
-  if (/\b(report|research|answer|find out|understand|worth it)\b/i.test(words) || /\?\s*$/.test(nb.title) || (nb.layout && !nb.layout.preset && nb.steps?.some((s) => s.kind === 'write'))) return 'report';
-  return 'choose';
+  return notebookPurpose(nb);
 }
 
 /**
