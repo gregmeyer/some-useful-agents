@@ -539,7 +539,8 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, effect: 'read', inputs: { NOTEBOOK: nbId, INSTRUCTION: said.slice(0, 1000) }, rationale: rationaleRaw || undefined, ctaLabel: 'Work it out' });
       continue;
     }
-    // `notebook-create` starts a notebook from one of their templates (TEMPLATES),
+    // `notebook-create` starts a notebook from one of their templates (TEMPLATE),
+    // or set up like a notebook they have (LIKE) for someone or something else,
     // with what's different this time; a card to approve, after sua has asked.
     if (type === 'notebook-create') {
       const inputs: Record<string, string> = {};
@@ -550,10 +551,16 @@ export function parseProposedActions(
           else if ((k === 'PARAMS' || k === 'CRITERIA' || k === 'CHECKS') && Array.isArray(v)) inputs[k] = JSON.stringify(v);
         }
       }
-      if (!inputs.TEMPLATE || !inputs.TITLE) {
-        rejected.push({ agentId: type, reason: 'notebook-create needs inputs.TEMPLATE and inputs.TITLE' });
+      if ((!inputs.TEMPLATE && !inputs.LIKE) || !inputs.TITLE) {
+        rejected.push({ agentId: type, reason: 'notebook-create needs inputs.TEMPLATE (a template id) or inputs.LIKE (a notebook id), and inputs.TITLE' });
         continue;
       }
+      if (inputs.LIKE && !(inputs.SUBJECT ?? '').trim()) {
+        rejected.push({ agentId: type, reason: 'notebook-create with inputs.LIKE needs inputs.SUBJECT: who or what the new notebook is about' });
+        continue;
+      }
+      // One or the other: a notebook to be like wins (the template id is dropped).
+      if (inputs.LIKE) delete inputs.TEMPLATE;
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: 'Create notebook' });
       continue;
     }

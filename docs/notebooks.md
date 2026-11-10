@@ -57,6 +57,16 @@ Nothing is created until you start it. **Skip the draft** starts the notebook fr
 - Drafts are stored with the dashboard, so a restart doesn't lose them. One that was mid-draft when the dashboard stopped reads as failed ("Draft it again"). If a change fails, the draft before it comes back. A draft untouched for two weeks is dropped.
 - The sentence you're still typing, before **Draft it**, is kept in your browser.
 
+### When you ask for one you already have
+
+Ask sua for a new notebook ("start a notebook to find an acoustic guitar I can travel with", "prepare for my meeting with Sam Ortiz") and it first looks at the notebooks you have, archived ones included. It matches your words against each notebook's title, goal, limits and [tags](#where-to-find-them), and against who or what it's about.
+
+- **The same thing.** sua says you have one, with its link and where it stands, and offers two buttons: **Run it again** and **Start a new one**. *Run it again* gives you the usual [Clear and run again](#a-notebooks-page) card to approve: a fresh notebook with the same setup, the old one archived. *Start a new one* gives you the New notebook link with your words filled in.
+- **The same kind, for someone or something else.** A meeting with another person, a briefing on another company, the same shoes in another model. sua offers to **set the new one up like** the one you have: a **Create notebook** card that shows which notebook it copies, who or what the new one is about, and the title, goal, limits, checks and steps as they will be. Approving it creates an empty notebook with that notebook's steps, the facts it notes, its checks and its page, with the name swapped everywhere, and changes sua read in your ask (a size, a budget) applied. The notebook it copied is left as it is. If you saved a template from that notebook, sua starts from the template instead, and a notebook that doesn't say who or what it's about can't be copied this way.
+- **Neither, or you said you want a fresh one** ("a new one", "from scratch"): sua just offers New notebook.
+
+A notebook you ran again several times counts once (the one in use, otherwise the newest). The matching itself uses no model; sua reads up to three candidates and decides whether one is really what you meant, so a near miss is simply not mentioned.
+
 ## Talk to sua; it fills the notebook
 
 **When you start a notebook, sua says hello first.** Once it has set the notebook up, it posts a message in the notebook's conversation:

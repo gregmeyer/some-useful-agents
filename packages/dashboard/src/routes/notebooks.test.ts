@@ -2656,7 +2656,7 @@ describe('notebook templates', () => {
     const params = ['Remote or Denver, CO', '$180k minimum comp'];
     const { accepted } = parseProposedActions([{ type: 'notebook-create', rationale: 'A Denver job search', inputs: { TEMPLATE: 'job-search', TITLE: 'Find a controller job in Denver', STATEMENT: 'Controller roles, Denver or remote', PARAMS: params, CHECKS: ['Pays at least $180k', 'Remote or based in Denver, CO'], TARGET: 8 } }], [], []);
     expect(accepted[0]).toMatchObject({ agentId: 'notebook-create', status: 'proposed', ctaLabel: 'Create notebook', inputs: { TEMPLATE: 'job-search', PARAMS: JSON.stringify(params), TARGET: '8' } });
-    expect(parseProposedActions([{ type: 'notebook-create', inputs: { TEMPLATE: 'job-search' } }], [], []).rejected[0].reason).toBe('notebook-create needs inputs.TEMPLATE and inputs.TITLE');
+    expect(parseProposedActions([{ type: 'notebook-create', inputs: { TEMPLATE: 'job-search' } }], [], []).rejected[0].reason).toBe('notebook-create needs inputs.TEMPLATE (a template id) or inputs.LIKE (a notebook id), and inputs.TITLE');
 
     // The preview: the template, the title, the limits as they change, the done-whens and steps.
     const card = withEditorBase(ctx, accepted[0]);
@@ -5557,5 +5557,92 @@ describe('notebook tags', () => {
     await post(`/notebooks/${nb.id}/tags`, { restore: 'suvs' });
     expect(notebookTags(store.get(nb.id)!)).toEqual(['used cars', 'suvs', 'awd', 'family car']);
     expect((await get(app, `/notebooks/${nb.id}/edit`)).text).not.toContain('You removed:');
+  });
+});
+
+describe('a notebook like the one you ask for', () => {
+  const setup = async () => {
+    const app = await makeApp();
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    return { app, ctx, store, layoutPreset };
+  };
+
+  it('triage is given the notebooks an ask could be: the same topic, or the same kind for someone else, with a template when one was saved', async () => {
+    const { ctx, store } = await setup();
+    const { notebookCandidates } = await import('./inbox-engine.js');
+    const suv = store.create({ title: 'Find a used SUV', statement: 'A reliable used SUV under $26,000', params: ['AWD'], criteria: [], pipeline: [], cadence: '' });
+    store.setAutoTags(suv.id, { tags: ['used cars', 'family'] });
+    store.archive(suv.id);
+    const dana = store.create({ title: 'Prepare for my meeting with Dana Reyes', statement: 'A brief on Dana Reyes', params: ['30 minutes'], criteria: ['Talking points chosen'], pipeline: [], cadence: '' });
+    store.setAutoTags(dana.id, { tags: ['sales'], subject: 'Dana Reyes' });
+
+    expect(notebookCandidates(ctx, 'How is the weather?')).toBe('');
+    expect(JSON.parse(notebookCandidates(ctx, 'Start a notebook to find a used SUV with AWD'))).toEqual([
+      { id: suv.id, title: 'Find a used SUV', match: 'same-topic', kind: 'choose', for: 'A reliable used SUV under $26,000', tags: ['used cars', 'family'], status: 'active', archived: true, link: `/notebooks/${suv.id}` },
+    ]);
+    expect(JSON.parse(notebookCandidates(ctx, 'Prepare for my meeting with Sam Ortiz'))).toEqual([
+      { id: dana.id, title: 'Prepare for my meeting with Dana Reyes', match: 'same-kind', kind: 'meeting', for: 'A brief on Dana Reyes', subject: 'Dana Reyes', tags: ['sales'], status: 'active', archived: false, link: `/notebooks/${dana.id}`, limits: ['30 minutes'], doneWhen: ['Talking points chosen'], checks: [] },
+    ]);
+    // Saved as a template: the candidate says which, so sua starts from the template instead.
+    const t = store.saveTemplate('Meeting prep', dana.id);
+    expect((JSON.parse(notebookCandidates(ctx, 'Prepare for my meeting with Sam Ortiz')) as Array<{ template?: string }>)[0].template).toBe(t.id);
+  });
+
+  it('"set it up like that one": a card that makes a new notebook with its setup and page, who it is about swapped, and leaves the other alone', async () => {
+    const { ctx, store, layoutPreset } = await setup();
+    const { withEditorBase, executeNotebookCreate } = await import('./inbox-engine.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const nb0 = store.create({ title: 'Prepare for my meeting with Dana Reyes', statement: 'Help me understand what matters to Dana Reyes before we meet.', params: ['30 minutes'], criteria: ['Talking points chosen'], pipeline: [], cadence: '' });
+    store.setFields(nb0.id, [{ key: 'topic', label: 'Topic', type: 'text' }, { key: 'url', label: 'Source', type: 'url', role: 'link' }]);
+    store.setChecks(nb0.id, ['Says something Dana Reyes said herself']);
+    store.setSteps(nb0.id, [{ title: 'Learn who Dana Reyes is', kind: 'profile', subject: 'Dana Reyes', status: 'done' }, { title: 'Find 8 topics', kind: 'find', target: 8 }, { title: 'Write talking points', kind: 'write' }]);
+    store.setLayout(nb0.id, layoutPreset('dossier')!.layout, 'picked');
+    store.upsertOption(nb0.id, { title: 'Her talk on routing', by: 'agent:x', data: {} });
+    store.setAutoTags(nb0.id, { tags: ['sales', 'logistics'], subject: 'Dana Reyes' });
+
+    // A card needs who it's for, and one or the other of TEMPLATE and LIKE.
+    expect(parseProposedActions([{ type: 'notebook-create', inputs: { LIKE: nb0.id, TITLE: 'x' } }], [], []).rejected[0].reason).toBe('notebook-create with inputs.LIKE needs inputs.SUBJECT: who or what the new notebook is about');
+    const { accepted } = parseProposedActions([{ type: 'notebook-create', rationale: 'Set up like the Dana Reyes one, for Sam Ortiz', inputs: { LIKE: nb0.id, TEMPLATE: 'ignored', SUBJECT: 'Sam Ortiz', TITLE: 'Prepare for my meeting with {subject}' } }], [], []);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-create', ctaLabel: 'Create notebook', inputs: { LIKE: nb0.id, SUBJECT: 'Sam Ortiz' } });
+    expect(accepted[0].inputs.TEMPLATE).toBeUndefined();
+
+    // The preview says which notebook, who it's for, and the steps with the name swapped.
+    const card = withEditorBase(ctx, accepted[0]);
+    expect(card.inputs.LIKE_TITLE).toBe('Prepare for my meeting with Dana Reyes');
+    expect(card.surfaceChanges!.slice(0, 3)).toEqual([
+      { what: 'set up like', before: '—', after: 'Prepare for my meeting with Dana Reyes (2 facts · 3 steps)' },
+      { what: 'Who or what it’s about', before: '—', after: 'Sam Ortiz' },
+      { what: 'title', before: '—', after: 'Prepare for my meeting with Sam Ortiz' },
+    ]);
+    expect(card.surfaceChanges!.at(-1)).toEqual({ what: 'steps', before: '—', after: '1. Learn who Sam Ortiz is; 2. Find 8 topics; 3. Write talking points' });
+
+    const done = executeNotebookCreate(ctx, card);
+    expect(done.status).toBe('completed');
+    const made = store.list().find((x) => x.title === 'Prepare for my meeting with Sam Ortiz')!;
+    expect(done.summary).toContain(`Created [Prepare for my meeting with Sam Ortiz](/notebooks/${made.id}) set up like [Prepare for my meeting with Dana Reyes](/notebooks/${nb0.id}) (2 facts · 3 steps). It starts empty`);
+    // Sam's all through it, Dana nowhere: goal, checks, steps.
+    expect(made.statement).toBe('Help me understand what matters to Sam Ortiz before we meet.');
+    expect(made.checks).toEqual(['Says something Sam Ortiz said herself']);
+    expect(made.steps!.map((x) => `${x.title}:${x.status}:${x.subject ?? ''}`)).toEqual(['Learn who Sam Ortiz is:todo:Sam Ortiz', 'Find 8 topics:todo:', 'Write talking points:todo:']);
+    expect(JSON.stringify({ ...made, id: '' })).not.toContain('Dana');
+    expect(made.fields.map((f) => f.key)).toEqual(['topic', 'url']);
+    // Its page, kept whose it was; none of what the other found; a note says where it came from.
+    expect(made.layout?.preset).toBe('dossier');
+    expect(made.layoutBy).toBe('picked');
+    expect(store.entries(made.id).filter((e) => e.kind === 'option')).toHaveLength(0);
+    expect(store.entries(made.id).find((e) => e.title === 'Set up like another notebook')!.body).toContain(`(/notebooks/${nb0.id})`);
+    // The other one is as it was: not archived, its option still there.
+    expect(store.get(nb0.id)!.archivedAt).toBeUndefined();
+    expect(store.entries(nb0.id).filter((e) => e.kind === 'option')).toHaveLength(1);
+
+    // A notebook that names no one can't be set up for someone else; nor one that isn't there.
+    const plain = store.create({ title: 'Find a used SUV', statement: 'A reliable used SUV', params: ['AWD'], criteria: [], pipeline: [], cadence: '' });
+    expect(executeNotebookCreate(ctx, { ...card, inputs: { LIKE: plain.id, SUBJECT: 'a truck', TITLE: 'Find a used truck' } })).toMatchObject({ status: 'failed', refusalReason: expect.stringContaining("doesn't say who or what it's about") });
+    expect(executeNotebookCreate(ctx, { ...card, inputs: { LIKE: 'nope', SUBJECT: 'x', TITLE: 'x' } })).toMatchObject({ status: 'failed', refusalReason: 'There\'s no notebook "nope" to set this one up like.' });
+    // Let the new notebook finish setting up before the test's database closes.
+    for (let i = 0; i < 400 && !store.get(made.id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 10));
   });
 });

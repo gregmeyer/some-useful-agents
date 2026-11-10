@@ -132,6 +132,15 @@ inputs:
       notebook-read reads it: what it's for, who it's
       about with sources, what it wrote, its options and notes. Empty when
       none is linked.
+  NOTEBOOK_CANDIDATES:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Notebooks the current request could be (JSON: id, title, match
+      "same-topic" or "same-kind", kind, for, subject, tags, status,
+      archived, link, template; a same-kind one also has limits, doneWhen
+      and checks). Empty when none is close.
   NOTEBOOKS_ARCHIVED:
     type: string
     required: false
@@ -396,6 +405,9 @@ nodes:
 
       Their archived notebooks (see GOALS AND NOTEBOOKS):
       {{inputs.NOTEBOOKS_ARCHIVED}}
+
+      Notebooks this request could be (see A NOTEBOOK LIKE THIS EXISTS):
+      {{inputs.NOTEBOOK_CANDIDATES}}
 
       Notebooks this thread links, as they read now (see USING A NOTEBOOK ELSEWHERE):
       {{inputs.NOTEBOOKS_LINKED}}

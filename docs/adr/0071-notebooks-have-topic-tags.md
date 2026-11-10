@@ -24,5 +24,12 @@ Both need the same thing: a small, stable description of a notebook that can be 
 
 - The list filters by one tag at a time (`?tag=`), and search matches tags and the subject. Card chips are not links: the whole card is one link, so filtering is from the row above the grid.
 - Tags can still drift over months; there is no tool to merge two tags or rename one. Removing a tag on one notebook and adding another (Edit → Tags) is the only correction.
-- The subject and the derived kind are what a later change uses to tell "you already have this notebook" (same topic, same subject) from "set it up like that one" (same kind, another subject) when you ask for a new notebook.
 - Tags cost one short model run per 20 notebooks, once, and one per changed notebook after that.
+
+## Reuse before a new notebook
+
+Tags, the subject and the derived kind are what tell "you already have this notebook" from "set it up like that one" when you ask sua for a new notebook.
+
+7. **Candidates come from words, the call is sua's.** `similarNotebooks` (core, no model) compares the ask's topic words with a notebook's title, goal, limits and tags. A notebook with a subject is the *same topic* only when the ask names that subject; otherwise, when the ask is for the same kind of notebook, it is the *same kind*. One with no subject is the same topic when at least two of the ask's topic words, and 60% of them, are its own. A notebook run again several times counts once. Triage gets up to three candidates (`NOTEBOOK_CANDIDATES`) and decides; a wrong candidate costs a line of prompt, not a wrong offer.
+8. **Same topic reuses the rerun card; same kind extends the create card.** "Run it again" proposes the existing `notebook-rerun` card. "Set it up like that one" is `notebook-create` with `LIKE: <notebook id>` in place of `TEMPLATE`: the notebook's setup as a template would be saved from it at that moment, with its subject as the part that changes. No template is stored, and the notebook copied is not archived.
+9. **A notebook that names no one cannot be copied this way.** With nothing to swap, the old name would stay in steps and checks, so the card fails with the reason instead. A saved template made from the candidate wins over `LIKE`.

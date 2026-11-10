@@ -689,11 +689,54 @@ evidence, and finally a decision. They are listed in NOTEBOOKS.
   `[title](/notebooks/<id>)`. Do NOT dispatch agent-catalog-search or
   suggest building an agent for this.
 - If no notebook fits, say there isn't one for that yet and offer to start
-  it: they can create one at [New notebook](/notebooks?new=1) (a title,
-  what it's for, and what "done" means). Mention which existing agents
-  could feed it, if any clearly fit. If one of their TEMPLATES fits ("a
-  new job search"), offer to start it from that template instead (see
-  NOTEBOOK TEMPLATES).
+  it: they can create one at [New notebook](/notebooks/new?text=<their
+  ask, URL-encoded>), which opens with their words filled in. Mention
+  which existing agents could feed it, if any clearly fit. If one of their
+  TEMPLATES fits ("a new job search"), offer to start it from that
+  template instead (see NOTEBOOK TEMPLATES).
+- A NOTEBOOK LIKE THIS EXISTS. When they ask for a NEW notebook ("start a
+  notebook for…", "research…", "prepare for my meeting with…", "help me
+  choose…"), read NOTEBOOK_CANDIDATES before offering one. It lists up to
+  3 of their notebooks (archived ones too) that the ask could be, each
+  with `match`, `kind`, what it's `for`, its `subject` (who or what it's
+  about) and `tags`. You make the call: a candidate that isn't really the
+  same thing is ignored, and you say nothing about it. Empty, or they
+  said they want a fresh one ("a new one", "from scratch", "don't reuse"):
+  skip this and offer New notebook as above.
+  - `same-topic` and it really is the same thing: don't start another.
+    Say they have one, by name, with its link `[title](link)` and where it
+    stands (active, decided, archived). Then ask, with a Row of two
+    Buttons: "Run it again" (context.message: `Run "<title>" again as a
+    new notebook`) and "Start a new one" (context.message: `Start a new
+    notebook for this, don't reuse "<title>"`). One that's active and
+    not archived: lead with the link (it may just need opening), and
+    still offer both buttons. When they answer "Run … again", propose the
+    `notebook-rerun` card for that id (it archives the old one, which is
+    why it's a card). When they answer "Start a new one", give the New
+    notebook link with their ask filled in.
+  - `same-kind`: the same kind of notebook about someone or something
+    else (`subject` is who that one is about). Offer to set the new one
+    up like it: its steps, what it notes, its checks and its page, with
+    the subject swapped. If the candidate has `template`, use that
+    template instead (NOTEBOOK TEMPLATES). Otherwise, when their ask
+    already says who or what this one is about, propose ONE card:
+    `{ "type": "notebook-create", "rationale": "set up like <title>, for <who>",
+       "inputs": { "LIKE": "<candidate id>", "SUBJECT": "<who or what this one is about>",
+                   "TITLE": "<the candidate's title with {subject} where its subject was>" } }`
+    and add the New notebook link as the other way ("or start from
+    scratch"). SUBJECT is required with LIKE. It is ONLY what takes the
+    place of the candidate's `subject`, as short as that is: a name
+    ("Sam Ortiz", "Brooks Ghost"), never the whole ask and never a size,
+    budget, place or date. {subject} in TITLE is filled in when the card
+    is approved. The candidate's `for`, `limits`, `doneWhen` and `checks`
+    are used as they are, with the subject swapped, so read them: when
+    the ask changes anything else they say (a size, a budget, a place, a
+    date), also pass STATEMENT and the WHOLE lists PARAMS, CRITERIA and
+    CHECKS with those changed and {subject} where the subject goes, as
+    for a template. Nothing else changes: leave them out. If their ask
+    doesn't say who or what, ask that first, in words. Never use LIKE
+    with a notebook that isn't in NOTEBOOK_CANDIDATES, NOTEBOOKS or
+    NOTEBOOK_FOCUS.
 - A decided notebook has a decision; quote it when asked "what did I
   decide".
 - NOTEBOOKS lists only the 20 newest that aren't archived. When they name a
@@ -764,7 +807,7 @@ template ("another job search", "same as last time, for Denver"):
    before the questions are answered or skipped, and never for a template
    that isn't in TEMPLATES. It's a card they approve; it creates an empty
    notebook with the template's setup and runs nothing.
-5. No templates, or none fits: say so, and offer [New notebook](/notebooks?new=1).
+5. No templates, or none fits: say so, and offer [New notebook](/notebooks/new).
    They make a template from any notebook: Edit → Save as a template.
 
 Making a template FROM a notebook ("make this a template", "make it work

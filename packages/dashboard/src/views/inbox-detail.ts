@@ -916,7 +916,9 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
                       : meta.agentId === 'notebook-correct-apply'
                         ? html`${meta.status === 'completed' ? 'Corrected' : 'Correct'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span>`
                       : meta.agentId === 'notebook-create'
-                        ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`
+                        ? (meta.inputs.LIKE
+                          ? html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} set up like <span class="mono">${meta.inputs.LIKE_TITLE ?? meta.inputs.LIKE}</span>`
+                          : html`${meta.status === 'completed' ? 'Created a notebook' : 'Create a notebook'} from <span class="mono">${meta.inputs.TEMPLATE_NAME ?? meta.inputs.TEMPLATE ?? ''}</span>`)
                       : meta.agentId === 'notebook-rerun'
                         ? html`${meta.status === 'completed' ? 'Ran' : 'Run'} <span class="mono">${meta.inputs.NOTEBOOK_TITLE ?? meta.inputs.NOTEBOOK ?? ''}</span> again as a new notebook`
               : meta.agentId === 'agent-schedule'
