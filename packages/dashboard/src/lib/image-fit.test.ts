@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 // Pictures in views show whole, scaled to fit their frame: a tall photo in a
 // wide frame (a guitar on a card) used to be cut down to a strip, or to
 // stretch its card. Only generated art, 16:9 video thumbnails and the small
-// Decide… thumbnails (a fixed 56×42 chip beside a name) still fill.
+// Decide… thumbnails (a fixed 56×42 chip beside a name) and a story's
+// thumbnail (a fixed 72px chip beside a headline) still fill.
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (...p: string[]) => readFileSync(join(here, '..', ...p), 'utf8');
 
@@ -18,6 +19,7 @@ describe('pictures fit their frames', () => {
       'notebooks.css: .nb-decide__thumb { grid-row: span 2; width: 56px; height: 4',
       'notebooks.css: .nbl-card__art { object-fit: cover; }',
       'inbox.css: .nbs-card__cover svg { object-fit: cover; }',
+      'a2ui-sua.js: .pic img { width: 100%; height: 100%; object-fit: cover; dis', // Stories: a 72px thumbnail beside a headline
       expect.stringMatching(/^pulse-renderers\.ts: .*thumbUrl/), // a YouTube thumbnail: always 16:9
     ]);
   });
