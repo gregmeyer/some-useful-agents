@@ -456,7 +456,18 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 
 The picture is 2160 pixels wide (twice the card, so text stays sharp), in the light theme with your brand colours; `tldr.png?theme=dark` gives the dark one, and `tldr.html` is the card as a page. It needs the same headless browser as the PDF; without one the link opens the card as a page. Its bars alone follow the "where it stands" paragraph in a shortlist's brief and PDF.
 
-**Other drawings of it.** The same data can be drawn in other sizes, tones and layouts, by address (a way to ask sua to redraw it in your own words comes next):
+**Redrawing it.** **Download / share → TL;DR picture → Redraw…** opens a page with the picture and a box: say how you want it drawn, in your own words ("make it suitable for sharing on LinkedIn", "make it more editorial", "be more creative"), or press a starter (**For LinkedIn**, **More editorial**, **Be more creative**, **Just the numbers**), which asks with one press.
+
+- **What sua does.** It doesn't draw. It chooses from a set of sizes, tones and layouts (below), which parts to show and in what order, and it may write a headline and one line of takeaway. The picture itself is always drawn the same way from the notebook's data, so a name, a number or a bar never comes from sua.
+- **Its words are checked.** Any number in the headline or takeaway has to be in the picture's own data, written as it is there. If it isn't, sua is asked once more; if it still isn't, the words are left out and the drawing is kept.
+- **It takes about ten seconds.** The page shows sua working, with what you asked, and changes when it's done. An answer that can't be used is asked for once more; if that fails too, the picture stays as it was and the page says why.
+- **The result is kept.** The redrawn picture is the notebook's TL;DR from then on: the menu's **Open ↗** and **PNG** give it. The page says how it's drawn ("Landscape 1200×627 · editorial · words beside the bars or points · with a headline"), what sua changed, and what you asked.
+- **Undo** puts back the one before (the last 10 are kept). **Back to the standard picture** returns to the one every notebook starts with; `tldr.png?standard=1` is always that one.
+- Each ask builds on how it's drawn now, so "more editorial" after "for LinkedIn" keeps it wide.
+
+The brief and the PDF are not affected: they carry the plain bars.
+
+**The choices**, which also work by address to try one without keeping it:
 
 | | Choices |
 |---|---|
@@ -464,7 +475,7 @@ The picture is 2160 pixels wide (twice the card, so text stays sharp), in the li
 | `tone` | `plain` (as the dashboard looks), `editorial` (a magazine page: a large headline, rules, numerals in the accent colour), `bold` (the accent colour as the ground, white type) |
 | `layout` | `stack` (one column), `split` (words at the left, bars or points at the right), `hero` (the lead's number, or the person, very large) |
 
-For example `tldr.png?size=landscape&layout=split&tone=editorial`. A fixed size holds only what fits (landscape 5 bars, square 6, portrait 8; 3 to 5 points), counts the rest ("and 3 more in the running"), and measures its bars against the longest one shown. `parts=lead,bars` chooses which parts and their order, `headline=` and `takeaway=` add a headline over the notebook's title and a line under it. A notebook can keep one of these as its picture; `tldr.png?standard=1` is always the standard one.
+For example `tldr.png?size=landscape&layout=split&tone=editorial`. A fixed size holds only what fits (landscape 5 bars, square 6, portrait 8; 3 to 5 points), counts the rest ("and 3 more in the running"), and measures its bars against the longest one shown. `parts=lead,bars` chooses which parts and their order, `headline=` and `takeaway=` add a headline over the notebook's title and a line under it. With 4 sizes, 3 tones and 3 layouts, "be more creative" has a ceiling: after a few asks you will have seen what there is.
 
 Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 

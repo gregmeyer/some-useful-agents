@@ -1,0 +1,116 @@
+# Notebook TL;DR — redraws a notebook's TL;DR picture from an ask ("make it
+# suitable for LinkedIn", "more editorial", "be more creative"). It doesn't
+# draw: it chooses from a fixed set of sizes, tones, layouts and parts, and
+# may write a headline and a one-line takeaway. The dashboard draws the
+# picture from that choice and the notebook's own data, so names, numbers
+# and bars never come from here. Route-dispatched only, from the notebook's
+# Redraw page (dashboard lib/notebook-tldr-redraw.ts); never proposed in
+# triage. Undo and "Back to the standard picture" are on that page.
+
+id: notebook-tldr
+name: Notebook TL;DR
+description: >
+  Chooses how a notebook's TL;DR picture is drawn (its size, tone, layout
+  and parts) from what the person asked, and may write its headline.
+status: active
+source: examples
+
+inputs:
+  NOTEBOOK:
+    type: string
+    required: true
+    description: "JSON: the notebook's title and what it's for."
+  CARD:
+    type: string
+    required: true
+    description: >
+      JSON: what the standard picture says, from the notebook's data: its
+      lead, the lead's facts, the numbers, the bars or the points.
+  OPTIONS:
+    type: string
+    required: true
+    description: The sizes, tones, layouts and parts to choose from.
+  ASK:
+    type: string
+    required: true
+    description: What the person asked for, in their words.
+  CURRENT:
+    type: string
+    required: false
+    default: ""
+    description: "JSON: how the picture is drawn now (empty: the standard picture)."
+  ERRORS:
+    type: string
+    required: false
+    default: ""
+    description: Why the last answer couldn't be used (when trying again).
+
+nodes:
+  - id: choose
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<tldr>[\s\S]*?</tldr>'
+      description: a <tldr> JSON block
+    prompt: |
+      A notebook is a goal someone keeps over time: a shortlist toward a
+      decision, a question answered, a meeting prepared for. It has a
+      TL;DR picture: one image that sums it up, to share. The person wants
+      it drawn differently. You choose how; you don't draw it.
+
+      The notebook (JSON):
+      {{inputs.NOTEBOOK}}
+
+      What the picture says, from the notebook's own data (JSON). This is
+      everything that is known; the picture's names, numbers and bars are
+      filled in from it, not by you:
+      {{inputs.CARD}}
+
+      How it's drawn now (JSON; empty means the standard picture: standard
+      size, plain tone, stacked, every part):
+      {{inputs.CURRENT}}
+
+      What you may choose from:
+      {{inputs.OPTIONS}}
+
+      They asked:
+      {{inputs.ASK}}
+
+      How to choose:
+        - Do what they asked and keep the rest of how it's drawn now. "For
+          LinkedIn" (or X, a post, a link preview, a slide) is the
+          landscape size unless they say square or tall; a phone or a
+          story is portrait.
+        - "Editorial", "magazine", "polished": the editorial tone, with a
+          headline. "Bold", "punchy", "eye-catching", "a poster": the bold
+          tone, usually with the hero layout.
+        - "More creative", "different", "surprise me": change at least two
+          of size, tone and layout from how it's drawn now, and lead with
+          something else (hero in place of stack, or the bars first).
+        - "Simpler", "just the numbers", "less": fewer parts. Leave out a
+          part only when they ask for less or it has nothing in CARD.
+        - Split suits landscape. Hero suits one strong number or a person.
+          Bars need "bars" in CARD; points need "points" in CARD.
+        - A headline, when you write one, says what the picture shows in
+          plain words, as a person would title a post: no hype, no
+          exclamation marks, no hashtags, no emoji. It says the finding,
+          not the task: the notebook's title is printed above it, so a
+          headline that only rewords the title adds nothing (leave it
+          out). The takeaway is one
+          sentence a reader would repeat. Write them only from CARD and
+          the notebook: every number or name in them must be in CARD,
+          written as it is there. With nothing worth saying, leave them
+          out; the notebook's title stands.
+        - "about": one short sentence, to the person, on what you changed
+          ("Wide for LinkedIn, with a headline and the bars beside the
+          words.").
+
+      {{inputs.ERRORS}}
+
+      Reply with only this, as valid JSON:
+      <tldr>
+      {"size": "landscape", "tone": "editorial", "layout": "split",
+       "parts": ["lead", "stats", "bars"],
+       "headline": "…", "takeaway": "…", "about": "…"}
+      </tldr>

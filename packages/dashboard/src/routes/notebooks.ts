@@ -41,7 +41,9 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { renderNotebookTldr } from '../views/notebook-tldr.js';
+import { renderNotebookTldr, tldrData } from '../views/notebook-tldr.js';
+import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
+import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -1244,6 +1246,53 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(spec ? { spec } : {}) });
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }
+
+/** The Redraw page: the picture as it is, and a box to say how you'd like it drawn. */
+notebooksRouter.get('/notebooks/:id/tldr', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const nb = s.get(String(req.params.id));
+  if (!nb) { res.status(404).redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  const state = tldrRedrawState(ctx, nb.id);
+  // How the last one ended is said once.
+  clearTldrRedraw(ctx, nb.id);
+  res.type('html').send(renderTldrRedraw({ nb, ...(state && state.status !== 'done' ? { state } : {}), undos: s.tldrUndos(nb.id), flash: parseFlash(req) }));
+});
+
+/** Whether a redraw is under way (the Redraw page polls this, and reloads when it's over). */
+notebooksRouter.get('/notebooks/:id/tldr/state', (req: Request, res: Response) => {
+  const state = tldrRedrawState(getContext(req.app.locals), String(req.params.id));
+  res.json({ status: state?.status ?? 'idle' });
+});
+
+/** Ask sua to redraw the picture (in the background); the page shows it working. */
+notebooksRouter.post('/notebooks/:id/tldr/redraw', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const s = store(req);
+  const id = String(req.params.id);
+  const nb = s.get(id);
+  const to = (msg?: string) => `/notebooks/${encodeURIComponent(id)}/tldr${msg ? `?flash=${encodeURIComponent(msg)}` : ''}`;
+  if (!nb) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
+  const ask = str(req.body?.ask).trim();
+  if (!ask) { res.redirect(303, to('Say how you want it drawn.')); return; }
+  // What the picture says now, for sua to choose around (words and numbers; no pictures needed).
+  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), undefined, nb.about && s.aboutPhotos(nb.id).size ? { src: 'kept' } : undefined);
+  const started = startTldrRedraw(ctx, nb.id, card, ask);
+  res.redirect(303, started ? to() : to('sua is already redrawing it. Ask again when it\'s done.'));
+});
+
+notebooksRouter.post('/notebooks/:id/tldr/undo', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  let done = false;
+  try { done = store(req).undoTldr(id); } catch { /* no such notebook */ }
+  res.redirect(303, `/notebooks/${encodeURIComponent(id)}/tldr?flash=${encodeURIComponent(done ? 'Put back the picture from before.' : 'Nothing to undo.')}`);
+});
+
+notebooksRouter.post('/notebooks/:id/tldr/reset', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try { store(req).setTldr(id, null); } catch { /* no such notebook */ }
+  res.redirect(303, `/notebooks/${encodeURIComponent(id)}/tldr?flash=${encodeURIComponent('Back to the standard picture. Undo brings the redrawn one back.')}`);
+});
 
 /** A notebook's TL;DR, as a page: the card the picture is made from. */
 notebooksRouter.get('/notebooks/:id/tldr.html', (req: Request, res: Response) => {

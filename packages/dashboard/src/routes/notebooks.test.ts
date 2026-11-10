@@ -5818,3 +5818,116 @@ describe('a notebook like the one you ask for', () => {
     for (let i = 0; i < 400 && !store.get(nb.id)!.conversationId; i++) await new Promise((r) => setTimeout(r, 10));
   });
 });
+
+describe("redrawing a notebook's TL;DR picture", () => {
+  const setup = async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const post = (path: string, body: Record<string, string> = {}) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+    const nb = store.create({ title: 'Choose batteries', statement: 'Good battery options', params: [], criteria: [], pipeline: [], cadence: '' });
+    store.setFields(nb.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    store.upsertOption(nb.id, { title: 'Werker 220Ah', by: 'x', data: { price: 139.99 } });
+    store.upsertOption(nb.id, { title: 'Eco bundle', by: 'x', data: { price: 2130.99 } });
+    const settle = async () => { for (let i = 0; i < 300 && ctx.notebookTldrRedraws?.get(nb.id)?.status === 'working'; i++) await new Promise((r) => setTimeout(r, 10)); };
+    return { ctx, store, get, post, nb, settle };
+  };
+  const answer = (o: unknown) => `<tldr>${JSON.stringify(o)}</tldr>`;
+
+  it('the Redraw page shows the picture and how it is drawn; an ask redraws it and keeps the result; Undo and the standard picture bring the others back', async () => {
+    const { ctx, store, get, post, nb, settle } = await setup();
+    const asked: Array<Record<string, string>> = [];
+    let release: (() => void) | undefined;
+    ctx.notebookTldrRun = async (inputs) => { asked.push(inputs); await new Promise<void>((r) => { release = r; }); return answer({ size: 'landscape', tone: 'editorial', layout: 'split', headline: 'Two ways, from $139.99', about: 'Wide for LinkedIn, with a headline.' }); };
+
+    // The share menu links it; the page starts on the standard picture with one-press starters.
+    expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a href="/notebooks/${nb.id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`);
+    const page = (await get(`/notebooks/${nb.id}/tldr`)).text;
+    expect(page).toContain(`<img src="/notebooks/${nb.id}/tldr.png?v=standard"`);
+    expect(page).toContain('The standard picture: as tall as it needs, plain, everything in one column.');
+    expect(page).toContain('<button type="submit" name="ask" value="Make it suitable for sharing on LinkedIn" class="nbd-chip nbd-chip--add"');
+    expect(page).not.toContain('Back to the standard picture');
+    expect(page).not.toContain('>Undo<');
+
+    // Nothing asked: said, nothing run.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: '  ' })).headers.location)).toContain('Say how you want it drawn.');
+    expect(asked).toHaveLength(0);
+
+    // An ask: it works in the background; the page says so, in your words, and a second ask waits.
+    expect((await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'Make it suitable for sharing on LinkedIn' })).headers.location).toBe(`/notebooks/${nb.id}/tldr`);
+    for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+    expect((await get(`/notebooks/${nb.id}/tldr/state`)).body).toEqual({ status: 'working' });
+    const working = (await get(`/notebooks/${nb.id}/tldr`)).text;
+    expect(working).toContain(`data-nbt-working="/notebooks/${nb.id}/tldr/state"`);
+    expect(working).toContain('sua is redrawing the picture');
+    expect(working).toContain('Make it suitable for sharing on LinkedIn');
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'again' })).headers.location)).toContain('already redrawing it');
+    // sua was given the picture in words, the choices and the ask.
+    expect(asked[0].ASK).toBe('Make it suitable for sharing on LinkedIn');
+    expect(JSON.parse(asked[0].CARD)).toMatchObject({ lead: { label: 'Best lead', text: 'Werker 220Ah' }, bars: { by: 'Price' } });
+    expect(asked[0].CURRENT).toBe('');
+    release!();
+    await settle();
+    expect((await get(`/notebooks/${nb.id}/tldr/state`)).body).toEqual({ status: 'done' });
+
+    // Kept: the notebook's picture is the redrawn one, and the page says how it's drawn and what sua did.
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape', tone: 'editorial', layout: 'split', headline: 'Two ways, from $139.99', ask: 'Make it suitable for sharing on LinkedIn' });
+    const done = (await get(`/notebooks/${nb.id}/tldr`)).text;
+    expect(done).toContain('Landscape 1200×627 · editorial · words beside the bars or points · with a headline');
+    expect(done).toContain('Wide for LinkedIn, with a headline.');
+    expect(done).toContain('You asked: “Make it suitable for sharing on LinkedIn”');
+    expect(done).not.toContain('data-nbt-working="');
+    expect(done).toContain('>Undo<');
+    expect(done).toContain('Back to the standard picture');
+    expect((await get(`/notebooks/${nb.id}/tldr.html`)).text).toContain('<h1 class="tl__title">Two ways, from $139.99</h1>');
+
+    // The standard picture again, then Undo back to the redrawn one, then Undo to the standard.
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/reset`)).headers.location)).toContain('Back to the standard picture.');
+    expect(store.get(nb.id)!.tldr).toBeUndefined();
+    await post(`/notebooks/${nb.id}/tldr/undo`);
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape' });
+    await post(`/notebooks/${nb.id}/tldr/undo`);
+    expect(store.get(nb.id)!.tldr).toBeUndefined();
+    expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/undo`)).headers.location)).toContain('Nothing to undo.');
+    expect((await get('/notebooks/nope/tldr')).status).toBe(303);
+  });
+
+  it("an answer that can't be used is asked for once more with why; words with sua's own number are left out; two failures leave the picture as it was", async () => {
+    const { ctx, store, get, post, nb, settle } = await setup();
+    const asked: Array<Record<string, string>> = [];
+    let replies: Array<string | undefined> = [];
+    ctx.notebookTldrRun = async (inputs) => { asked.push(inputs); return replies.shift(); };
+
+    // A tone that isn't one of the choices, then a good answer.
+    replies = [answer({ size: 'square', tone: 'neon' }), answer({ size: 'square', tone: 'bold', layout: 'hero' })];
+    await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'bolder' });
+    await settle();
+    expect(asked).toHaveLength(2);
+    expect(asked[1].ERRORS).toContain('"neon" is not a tone (use one of: plain, editorial, bold).');
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero' });
+    // The next ask is told how it's drawn now.
+    replies = [answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Batteries from $140' }), answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Save 40% on batteries' })];
+    await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'add a headline' });
+    await settle();
+    expect(JSON.parse(asked[2].CURRENT)).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero' });
+    expect(asked[3].ERRORS).toContain("has a number that CARD doesn't (140)");
+    // Both headlines had a number of sua's own: the drawing is kept, without the words.
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero', ask: 'add a headline' });
+    expect(store.get(nb.id)!.tldr!.headline).toBeUndefined();
+
+    // No usable answer twice: the picture stays, and the page says why, once.
+    const before = store.get(nb.id)!.tldr;
+    replies = [undefined, 'no block here'];
+    await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'something else' });
+    await settle();
+    expect(store.get(nb.id)!.tldr).toEqual(before);
+    expect((await get(`/notebooks/${nb.id}/tldr/state`)).body).toEqual({ status: 'failed' });
+    const failed = (await get(`/notebooks/${nb.id}/tldr`)).text;
+    expect(failed).toContain('sua couldn&#39;t redraw it: It has no &lt;tldr&gt; JSON object. The picture is as it was.');
+    expect((await get(`/notebooks/${nb.id}/tldr`)).text).not.toContain('redraw it: It has no');
+  });
+});
+
