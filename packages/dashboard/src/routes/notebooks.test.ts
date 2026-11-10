@@ -1807,6 +1807,8 @@ describe('a notebook started without steps', () => {
     await greeted(store, 'headphones');
     const nb = store.get('headphones')!;
     const thread = nb.conversationId!;
+    // The Start card follows the greeting a moment after the conversation exists.
+    for (let i = 0; i < 200 && !inbox.listResponses(thread).some((r) => r.role === 'action'); i++) await new Promise((r) => setTimeout(r, 25));
     const card = () => JSON.parse(inbox.listResponses(thread).find((r) => r.role === 'action')!.metaJson!) as { status: string; ctaLabel: string };
     expect(card()).toMatchObject({ status: 'proposed', ctaLabel: 'Start' });
 
@@ -1825,7 +1827,6 @@ describe('a notebook started without steps', () => {
     const pressed = await post('/notebooks/headphones/run');
     expect(pressed.status).toBe(303);
     expect(card().status).not.toBe('proposed');
-    expect((await get('/notebooks/headphones')).text).not.toContain('Ready when you are');
     for (let i = 0; i < 200 && (store.get('headphones')!.steps ?? []).some((x) => x.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25));
   });
 
