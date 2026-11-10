@@ -961,8 +961,9 @@ function notebookTagEditor(nb: Notebook, tab: NotebookEditView['tab'], vocabular
   const suggest = vocabulary.filter((t) => !tags.includes(t));
   const form = (name: 'add' | 'remove' | 'restore', value: string, inner: SafeHtml, cls: string) =>
     html`<form method="POST" action="/notebooks/${id}/tags" class="${cls}"><input type="hidden" name="tab" value="${tab}"><input type="hidden" name="${name}" value="${value}">${inner}</form>`;
-  return html`<details class="nbe-fold nbe-tags" id="nbe-tags" open><summary>Tags</summary>
-    <p class="nbe-tags__hint">sua tags a notebook by topic, so you can filter your notebooks by it. Remove one that's wrong or add your own: it saves straight away, and sua keeps your changes when it tags again.</p>
+  return html`<section class="nbe-card nbe-tags" id="nbe-tags" aria-labelledby="nbe-tags-h">
+    <h2 class="nbe-card__h" id="nbe-tags-h">Tags</h2>
+    <p class="nbe-tags__hint">For filtering your notebooks. Changes save straight away, and sua keeps them when it tags again.</p>
     ${tags.length
       ? html`<ul class="nbe-tags__list" aria-label="This notebook's tags">${tags.map((t) => html`<li>${form('remove', t, html`<span class="nbe-tag__name">${t}</span>${mine.has(t) ? html`<span class="nbe-tag__by">yours</span>` : html``}<button type="submit" class="nbe-tag__x" aria-label="Remove the tag ${t}" title="Remove">×</button>`, 'nbe-tag')}</li>`) as unknown as SafeHtml[]}</ul>`
       : html`<p class="nbe-tags__none">${nb.tags?.at || removed.length ? 'No tags.' : 'No tags yet. sua adds them in the background; open Notebooks to start it.'}</p>`}
@@ -974,7 +975,7 @@ function notebookTagEditor(nb: Notebook, tab: NotebookEditView['tab'], vocabular
       <button type="submit" class="btn btn--sm">Add</button>
     </form>
     ${removed.length ? html`<p class="nbe-tags__removed"><span>You removed:</span>${removed.map((t) => form('restore', t, html`<span class="nbe-tag__name">${t}</span><button type="submit" class="nbe-tag__back">Put back</button>`, 'nbe-tag nbe-tag--removed')) as unknown as SafeHtml[]}</p>` : html``}
-  </details>`;
+  </section>`;
 }
 
 /** Things to say, to start: each fills the box. */
@@ -993,7 +994,7 @@ function editSummary(nb: Notebook): SafeHtml {
     ${row('For', nb.statement || nb.title)}
     ${row('Limits', chips(nb.params))}
     ${row('Done when', chips(nb.criteria.map((c) => `${c.met ? '✓ ' : ''}${c.text}`)))}
-    ${row('Notes', chips(nb.fields.map((f) => f.label)))}
+    ${row('Facts', chips(nb.fields.map((f) => f.label)))}
     ${row('Steps', nb.steps?.length ? html`<ol class="nbe-sum__steps">${nb.steps.map((x) => html`<li class="${x.status === 'done' ? 'is-done' : ''}">${x.title}</li>`) as unknown as SafeHtml[]}</ol>` : html`<span class="nbe-sum__none">none</span>`)}
     ${row('Looks like', pageName(nb.layout))}
   </dl>`;
@@ -1025,14 +1026,14 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       ${editSummary(proposed)}
       ${args.turns.length ? html`<ol class="nbe-turns">${args.turns.map(editTurn) as unknown as SafeHtml[]}
         ${args.working ? html`<li class="nbe-turn nbe-turn--sua is-working" role="status"><span class="nbe-turn__who">sua</span><span class="working__spin" aria-hidden="true"></span>Changing it. The preview opens when it's done.</li>` : html``}</ol>` : html`
-        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person, or just “do it better” to have sua sharpen the whole notebook and draw its page again. sua shows you a preview before anything is saved.</p>`}
+        <p class="nbe-talk__lede">Say what to change, the way you'd ask a person. “Do it better” has sua sharpen the whole notebook and draw its page again.</p>`}
       <form method="POST" action="/notebooks/${id}/edit/talk" class="nbe-talk__form">
-        ${args.turns.length ? html`` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
+        <label class="sr-only" for="nbe-say">What to change</label>
         <textarea name="text" id="nbe-say" rows="3" class="form-field" required data-enter-sends ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}
           placeholder="e.g. “add a step to learn about her company”, “put who she is at the top”, “stop noting the price”"></textarea>
         <div class="nbe-talk__send">
-          <span class="nb-talk__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
-          <button type="submit" class="btn btn--primary btn--sm" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Send</button>
+          ${args.turns.length ? html`<span class="nb-talk__keys"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>` : html`<span class="nbe-talk__starters" aria-label="Start with">${EDIT_STARTERS.map((x) => html`<button type="button" class="nbd-chip nbd-chip--add" data-nbe-start="${x}">${x.trim()}…</button>`) as unknown as SafeHtml[]}</span>`}
+          <button type="submit" class="btn btn--primary btn--sm" title="Enter sends; Shift+Enter starts a new line" ${args.working ? unsafeHtml('disabled') : unsafeHtml('')}>Send</button>
         </div>
       </form>
     </section>`;
@@ -1083,8 +1084,9 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       ${pageHeader({
         crumbs: [{ label: 'Home', href: '/' }, { label: 'Notebooks', href: '/notebooks' }, { label: nb.title, href: `/notebooks/${id}` }, { label: 'Edit' }],
         title: 'Edit this notebook',
-        description: 'Say what to change, or edit it as a document. Preview shows the notebook as it would be; nothing changes until you save.',
+        description: 'Preview shows the notebook as it would be. Nothing changes until you save.',
       })}
+      <div class="nbe-cols">
       <div class="nbe-work">
         <div class="nbe-tabsrow">
           <nav class="nb-tabs nbe-tabs" aria-label="How to edit">${tab('talk', 'Talk')}${tab('prompt', 'Prompt')}${tab('looks', 'How it looks')}</nav>
@@ -1097,8 +1099,14 @@ export function renderNotebookEdit(args: NotebookEditView): string {
           <form method="POST" action="/notebooks/${id}/edit/discard"><button type="submit" class="btn btn--sm btn--ghost">Discard</button></form>
         </div>` : html``}
         ${args.tab === 'prompt' ? prompt : args.tab === 'looks' ? notebookLooks(nb.id, { now: nb.layout, ...(nb.layoutBy ? { by: nb.layoutBy } : {}), ...(args.lookChanged !== undefined ? { changed: args.lookChanged } : {}), working: args.working, undos: args.layoutUndos ?? 0 }) : talk}
+      </div>
+      <aside class="nbe-rail" aria-label="This notebook">
         ${notebookTagEditor(nb, args.tab, args.tagVocabulary ?? [])}
-        <details class="nbe-fold nbe-fold--more" open><summary>Manage this notebook</summary>${notebookMoreActions(nb)}</details>
+        <section class="nbe-card" aria-labelledby="nbe-manage-h">
+          <h2 class="nbe-card__h" id="nbe-manage-h">Manage</h2>
+          ${notebookMoreActions(nb)}
+        </section>
+      </aside>
       </div>
       <dialog class="nbe-preview" id="nbe-preview" aria-label="Preview"${args.openPreview ? unsafeHtml(' data-open') : unsafeHtml('')}>
         <div class="nbe-preview__bar">

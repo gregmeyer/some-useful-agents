@@ -3975,7 +3975,9 @@ describe('editing a notebook on its own page', () => {
     expect(page).toContain('gone-agent</span> <span class="nbd-agent__note">not installed</span>');
     expect(page).toContain('<option value="" selected>when I ask</option>');
     expect(page).toContain('>Seller<button');
-    expect(page).toContain('<details class="nbe-fold nbe-fold--more" open><summary>Manage this notebook</summary>');
+    // Tags and Manage sit in a rail beside the editing, not under every tab.
+    expect(page).toMatch(/<aside class="nbe-rail" aria-label="This notebook">[\s\S]*id="nbe-tags"[\s\S]*<h2 class="nbe-card__h" id="nbe-manage-h">Manage<\/h2>/);
+    expect(page.indexOf('<aside class="nbe-rail"')).toBeGreaterThan(page.indexOf('class="nbe-work"'));
     expect(page).toMatch(/<button type="submit" class="btn btn--sm">Stop<\/button><\/form><span class="nbe-manage__what">Pause it/);
 
     // Change a limit, drop a check and a field, retitle a step, drop the gone search, run every morning.

@@ -231,7 +231,7 @@ export function renderHelp(): string {
           check, then decide or write the talking points), runs them one at a time, and picks a page that fits: a
           shortlist for a choice, a briefing for a meeting. Change it from <em>Edit</em>: <em>Talk</em> (say what to
           change), <em>Prompt</em> (the whole notebook as text) or <em>How it looks</em>, with a preview before you
-          save. Share its brief (it prints its page, as a PDF); save it as a template under <em>Manage this notebook</em>.
+          save. Share its brief (it prints its page, as a PDF); save it as a template under <em>Manage</em>.
         </li>
         <li>
           <strong>Serve it to other agents.</strong> Set <code>mcp: true</code> and run <code>sua mcp start</code>:
