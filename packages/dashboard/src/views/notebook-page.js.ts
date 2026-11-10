@@ -300,9 +300,11 @@ export const NOTEBOOK_PAGE_JS = `
       open.className = 'btn btn--sm btn--primary';
       open.textContent = 'Open';
       // The same as the live bar's button: open the conversation, or your step's Decide / Narrow.
+      // When the bar's main button starts a step (a form), "Open" opens the conversation instead: it never starts work.
       open.addEventListener('click', function () {
         hideWaitingToast();
-        var go = document.querySelector('[data-nb-live-bar] .nb-live__row--waiting .btn--primary');
+        var row = document.querySelector('[data-nb-live-bar] .nb-live__row--waiting');
+        var go = row && (row.querySelector('button[type="button"].btn--primary') || row.querySelector('[data-nb-continue]'));
         if (go) go.click();
       });
       var x = document.createElement('button');

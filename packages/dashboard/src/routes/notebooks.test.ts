@@ -1760,7 +1760,7 @@ describe('a notebook started without steps', () => {
     const post = (path: string, body: Record<string, string> = {}) => request(app).post(path)
       .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
     const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
-    return { post, store: NotebookStore.fromHandle(runStore.databaseHandle()), inbox: InboxStore.fromHandle(runStore.databaseHandle()) };
+    return { app, post, store: NotebookStore.fromHandle(runStore.databaseHandle()), inbox: InboxStore.fromHandle(runStore.databaseHandle()) };
   };
   const greeted = async (store: { get(id: string): { conversationId?: string } | undefined }, id: string) => {
     for (let i = 0; i < 200 && !store.get(id)?.conversationId; i++) await new Promise((r) => setTimeout(r, 25));
@@ -1798,6 +1798,35 @@ describe('a notebook started without steps', () => {
     expect(said[0].body).toContain("Press **Start** when you're ready and I'll begin with **Find 10 roles**.");
     expect(said[1]).toMatchObject({ role: 'action' });
     expect(JSON.parse(said[1].metaJson!)).toMatchObject({ agentId: 'notebook-step', status: 'proposed', ctaLabel: 'Start', inputs: { NOTEBOOK: nb.id, STEP: 's1', WAS: 'todo' }, rationale: 'Start step 1: Find 10 roles, with sched-agent.' });
+  });
+
+  it('a new notebook waiting on its Start card offers Start on its own page: one press, no trip to the conversation', async () => {
+    const { app, post, store, inbox } = await make();
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    await post('/notebooks', { title: 'Headphones', statement: 'For flights.', step_title: 'Find 5 pairs', step_kind: 'find', step_agent: 'sched-agent' });
+    await greeted(store, 'headphones');
+    const nb = store.get('headphones')!;
+    const thread = nb.conversationId!;
+    const card = () => JSON.parse(inbox.listResponses(thread).find((r) => r.role === 'action')!.metaJson!) as { status: string; ctaLabel: string };
+    expect(card()).toMatchObject({ status: 'proposed', ctaLabel: 'Start' });
+
+    // The bar under the steps and the Talk card both carry the step's own button (the header's form), and a way to talk instead.
+    const page = (await get('/notebooks/headphones')).text;
+    const bar = /<div class="nb-live__row nb-live__row--waiting"[\s\S]*?<\/div>/.exec(page)![0];
+    expect(bar).toContain('<strong>Ready when you are</strong> · Start: Start step 1: Find 5 pairs');
+    expect(bar).toContain('<form method="POST" action="/notebooks/headphones/run" class="nb-next__form">');
+    expect(bar).toMatch(/<button type="submit" class="btn btn--primary btn--sm nb-next"[^>]*>Start step 1/);
+    expect(bar).toContain(`data-nb-continue="${thread}">Ask sua</button>`);
+    expect(page).not.toContain('Review and approve');
+    expect(page).not.toContain('sua needs your OK');
+    expect(page).toMatch(/class="nb-talk__waiting-label">Ready when you are<[\s\S]*?action="\/notebooks\/headphones\/run"/);
+
+    // Pressing it is pressing the card: the step starts, and nothing is left to approve.
+    const pressed = await post('/notebooks/headphones/run');
+    expect(pressed.status).toBe(303);
+    expect(card().status).not.toBe('proposed');
+    expect((await get('/notebooks/headphones')).text).not.toContain('Ready when you are');
+    for (let i = 0; i < 200 && (store.get('headphones')!.steps ?? []).some((x) => x.status === 'running'); i++) await new Promise((r) => setTimeout(r, 25));
   });
 
   it("keeps a draft's steps without asking again, and still greets when sua gives none", async () => {

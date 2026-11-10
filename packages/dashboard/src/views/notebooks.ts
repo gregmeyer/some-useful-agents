@@ -445,8 +445,30 @@ export function waitingWords(kind: 'approve' | 'answer' | 'fail' | 'step', act?:
   return { label: 'sua needs your answer', button: 'Answer sua' };
 }
 
-/** The button a waiting state is answered with: your step's header control, else the conversation. */
-function waitingButton(talk: Extract<NotebookTalkLive, { state: 'waiting' }>): SafeHtml {
+/**
+ * The step buttons for a notebook whose conversation waits only on its step
+ * cards: the header's own (Next step, or Try again / Move on), with "Next
+ * step" worded as the step it starts. They act on those cards (one queue,
+ * ADR-0055), so one press starts the step. None: it isn't that, or the next
+ * step is yours or needs an agent.
+ */
+function waitingStepButtons(talk: Extract<NotebookTalkLive, { state: 'waiting' }>, nb: Notebook | undefined): Array<{ label: string; hint: string; moveOn?: boolean }> {
+  if (!nb || talk.kind !== 'approve' || !talk.stepCards) return [];
+  const next = nextStepAction(nb);
+  if (!next || 'note' in next) return [];
+  const steps = nb.steps ?? [];
+  const i = steps.findIndex((x) => x.status !== 'done');
+  const n = i + (steps[i]?.status === 'met' ? 2 : 1);
+  const named = (b: { label: string; hint: string; moveOn?: boolean }) => (b.label === 'Next step' ? { ...b, label: `Start step ${String(n)}` } : b);
+  return [named(next), ...(next.alt ? [named(next.alt)] : [])];
+}
+
+/** The button a waiting state is answered with: your step's header control, the step's own buttons, else the conversation. */
+function waitingButton(talk: Extract<NotebookTalkLive, { state: 'waiting' }>, nb?: Notebook): SafeHtml {
+  const steps = waitingStepButtons(talk, nb);
+  if (steps.length && nb && talk.kind !== 'step') {
+    return html`${steps.map((b, k) => stepButton(nb, b, k === 0)) as unknown as SafeHtml[]}<button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talk.threadId}">Ask sua</button>`;
+  }
   const w = waitingWords(talk.kind, talk.kind === 'step' ? talk.act : undefined);
   return talk.kind === 'step'
     ? html`<button type="button" class="btn btn--sm btn--primary" data-nb-open-act="${talk.act}">${w.button}</button>${talk.threadId ? html`<button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talk.threadId}">Ask sua</button>` : html``}`
@@ -459,7 +481,7 @@ function waitingButton(talk: Extract<NotebookTalkLive, { state: 'waiting' }>): S
  * and the step or pass running. Each opens the conversation. The page
  * redraws it as it changes (notebook-page.js.ts, X-Notebook-Live).
  */
-export function liveBar(live: NotebookLive | undefined): SafeHtml {
+export function liveBar(live: NotebookLive | undefined, nb?: Notebook): SafeHtml {
   const talk = live?.talk;
   const work = live?.work ?? [];
   if (!talk && work.length === 0) return html`<div class="nb-live" data-nb-live-bar hidden></div>`;
@@ -467,8 +489,8 @@ export function liveBar(live: NotebookLive | undefined): SafeHtml {
   return html`<div class="nb-live" data-nb-live-bar>
       ${talk?.state === 'waiting' ? html`<div class="nb-live__row nb-live__row--waiting" role="status">
         <span class="nb-live__dot" aria-hidden="true"></span>
-        <span class="nb-live__text"><strong>${waitingWords(talk.kind).label}</strong> · ${talk.text}</span>
-        ${waitingButton(talk)}
+        <span class="nb-live__text"><strong>${waitingStepButtons(talk, nb).length ? 'Ready when you are' : waitingWords(talk.kind).label}</strong> · ${talk.text}</span>
+        ${waitingButton(talk, nb)}
       </div>` : html``}
       ${talk?.state === 'working' ? html`<div class="nb-live__row nb-live__row--working" role="status">
         <span class="working__spin" aria-hidden="true"></span>
@@ -557,7 +579,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           : pipelineDiagram(stages)}
         ${madeByStrip(nb, madeBy)}
         ${running ? html`` : whatsNewBand(fresh)}
-        ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] })}
+        ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">
             ${nb.status === 'active' ? runButton(nb) : html``}
@@ -815,9 +837,9 @@ function sideForms(nb: Notebook, entries: readonly NotebookEntry[], lastWord?: {
         <h2 class="nb-side__title" id="nb-talk-title">Talk to sua about this notebook</h2>
         ${talkLive?.state === 'waiting'
           ? html`<div class="nb-talk__waiting" role="status">
-              <span class="nb-talk__waiting-label">${waitingWords(talkLive.kind).label}</span>
+              <span class="nb-talk__waiting-label">${waitingStepButtons(talkLive, nb).length ? 'Ready when you are' : waitingWords(talkLive.kind).label}</span>
               <span class="nb-talk__waiting-ask">${talkLive.text}</span>
-              <span class="nb-talk__waiting-acts">${waitingButton(talkLive)}</span>
+              <span class="nb-talk__waiting-acts">${waitingButton(talkLive, nb)}</span>
             </div>`
           : talkLive?.state === 'working'
             ? html`<p class="nb-talk__working" role="status"><span class="working__spin" aria-hidden="true"></span>${talkLive.text} <button type="button" class="btn btn--sm btn--ghost" data-nb-continue="${talkLive.threadId}">Watch</button></p>`
