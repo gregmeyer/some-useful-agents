@@ -1,38 +1,24 @@
 /**
- * Home's Ask sua card: agents you can run in one click (its Run row), and questions to ask sua, picked from
- * what you use and what happened today. Pure (`pickSuggestions`) with a reader (`homeSuggestions`).
+ * Home's Ask sua card: ways to start a notebook (your templates, the kinds
+ * you make), and what makes an agent runnable in one click (used by Next
+ * up, lib/home-next.ts, which is where things to run and fix are offered).
  */
-import { NotebookStore, SYSTEM_AGENT_IDS, notebookPurpose, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
-import { agentShelves, DEMO_RE } from '../routes/agents/list.js';
-import { cachedNotebookSuggestions } from './notebook-suggestions.js';
+import { NotebookStore, notebookPurpose, type Agent, type Notebook, type NotebookTemplate } from '@some-useful-agents/core';
 import { perItemInputs } from './notebook-pipeline.js';
 import type { getContext } from '../context.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
-/** One input it runs with as-is: its name in words and its default. */
-export interface SuggestedInput { label: string; value: string }
-export interface SuggestedAgent {
-  id: string; name: string; description: string; lastRunAt?: string;
-  /** Why it's suggested: your go-to, used this week, new to you, a tutorial. */
-  why: 'go-to' | 'recent' | 'new' | 'tutorial';
-  /** What Run uses (its defaults), the main one first. */
-  runsWith: SuggestedInput[];
-  /** A prompt for sua: run it with your own value for what it's about (sua asks you what), or what it's good for. */
-  ownAsk: { label: string; text: string };
-  /** What it's about, as a sentence for the box with its defaults filled in ("Run Weather Forecast with location: Seattle"), to change and send; none when it takes nothing to change (one click runs it). */
-  fill?: string;
-}
 export interface SuggestedAsk {
   label: string;
   text: string;
   /** A page to open instead of filling the box (New notebook with the sentence started). */
   href?: string;
 }
-/** Home's Ask sua card: starters by verb; a pill fills the box (you finish it). */
-export type StarterVerb = 'Start' | 'Run' | 'Build or fix' | 'Look up';
+/** Home's Ask sua card: starters; a pill fills the box (you finish it). */
+export type StarterVerb = 'Start';
 export interface AskStarters { verb: StarterVerb; pills: SuggestedAsk[] }
-export interface HomeSuggestions { agents: SuggestedAgent[]; asks: SuggestedAsk[]; starters?: AskStarters[] }
+export interface HomeSuggestions { starters: AskStarters[] }
 
 /** An input it can't run without: required (the resolver's default) and no default. */
 export function needsInputs(agent: Pick<Agent, 'inputs'>): boolean {
@@ -60,37 +46,13 @@ export function runFill(agent: Pick<Agent, 'name' | 'inputs'>): string | undefin
   return `Run ${agent.name} with ${what.map(([key, spec]) => `${inputLabel(key)}: ${spec.default === undefined ? '' : String(spec.default)}`).join('; ')}`;
 }
 
-/** A tutorial example ("… Teaches flow control."): fine to try, after the rest. */
-const TUTORIAL_RE = /\bTeaches\b/;
-
 /** An input's key in words: TARGET_URL → "target URL". */
 export function inputLabel(key: string): string {
   return key.toLowerCase().split('_').filter(Boolean).map((w) => (/^(url|api|id|csv|json|rss)$/.test(w) ? w.toUpperCase() : w)).join(' ');
 }
 
-/** Its inputs as Run fills them: string ones first (that's usually what it's about), then the rest. */
-export function runsWithInputs(agent: Pick<Agent, 'inputs'>, max = 2): SuggestedInput[] {
-  const specs = Object.entries(agent.inputs ?? {}).filter(([, spec]) => spec.default !== undefined && String(spec.default).trim() !== '');
-  specs.sort(([, a], [, b]) => Number(b.type === 'string') - Number(a.type === 'string'));
-  return specs.slice(0, max).map(([key, spec]) => {
-    const v = String(spec.default);
-    return { label: inputLabel(key), value: v.length > 90 ? `${v.slice(0, 89)}…` : v };
-  });
-}
-
 /** A setting rather than what it's about: where it writes, how many, how long. */
 const SETTING_RE = /(^|_)(DIR|PATH|FILE|COUNT|LIMIT|MAX|MIN|TIMEOUT|SECONDS|MODEL|FORMAT|MODE|DAYS|HOURS)($|_)/i;
-
-/**
- * A prompt for sua: run it with your own value for what it's about (its first
- * string input that isn't a setting), or, with nothing like that, what it's good for.
- */
-function ownAsk(a: Agent): SuggestedAgent['ownAsk'] {
-  const main = Object.entries(a.inputs ?? {}).find(([key, spec]) => spec.type === 'string' && spec.default !== undefined && !SETTING_RE.test(key));
-  if (!main) return { label: 'Ask sua what it\'s good for', text: `What is ${a.name} (${a.id}) good for, and when would I use it? Suggest a way to try it.` };
-  const what = inputLabel(main[0]);
-  return { label: `Run it with your own ${what}`, text: `Run ${a.name} (${a.id}) with my own ${what}. Ask me for it first.` };
-}
 
 /** Kinds of notebook, each a sentence to finish: what they're for, as you'd say it. */
 const NOTEBOOK_KINDS = [
@@ -136,134 +98,14 @@ export function notebookStartPills(templates: readonly Pick<NotebookTemplate, 'n
   return pills.slice(0, max);
 }
 
-/**
- * Starters for Home's Ask sua card, one row per verb, never empty: run one of
- * yours on something, build one, fix what failed, look something up. Text
- * ending in "…" is for you to finish.
- */
-export function askStarters(d: {
-  agents: readonly Agent[];
-  lastRunAt: ReadonlyMap<string, string>;
-  runCounts: ReadonlyMap<string, number>;
-  notebookIdeas: ReadonlyArray<{ label: string; text: string }>;
-  failedAgents: readonly string[];
-  /** Ways to start a notebook (notebookStartPills). */
-  notebookStarts?: readonly SuggestedAsk[];
-  now?: number;
-}): AskStarters[] {
-  const now = d.now ?? Date.now();
-  const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
-  // Not sua's own, demos, or a notebook's helpers (page readers take one item at a time).
-  const yours = d.agents.filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id) && !(DEMO_RE.test(a.id) || DEMO_RE.test(a.name)) && !perItemInputs(a));
-  const shelves = agentShelves(yours, { lastRunAt: d.lastRunAt, runCounts: d.runCounts, feeds: new Map(), weekAgo });
-  const used = [...shelves.goTo, ...shelves.recent.filter((a) => !shelves.goTo.includes(a))];
-  const pill = (label: string, text = label): SuggestedAsk => ({ label, text });
-  // Short enough for three to a row: the row's verb says what kind it is.
-  const clip = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, '')}…` : t);
-
-  const run: SuggestedAsk[] = [];
-  for (const a of used) {
-    if (run.length === 2) break;
-    const main = Object.entries(a.inputs ?? {}).find(([key, spec]) => spec.type === 'string' && !SETTING_RE.test(key));
-    if (main) run.push(pill(`${clip(a.name, 20)} on …`, `Run ${a.name} with ${inputLabel(main[0])}: `));
-  }
-  const plain = used.find((a) => Object.keys(a.inputs ?? {}).length === 0);
-  if (plain) run.push(pill(clip(plain.name, 24), `Run ${plain.name} and tell me what it found.`));
-  if (!run.length) run.push(pill('My most-used agent', 'Run my most-used agent and tell me what it found.'));
-
-  const build: SuggestedAsk[] = [
-    pill('Check … every morning', 'Build an agent that checks '),
-    pill('Watch a page', 'Build an agent that watches this page for changes and tells me what changed: '),
-  ];
-  const unscheduled = shelves.goTo.find((a) => !a.schedule && (d.runCounts.get(a.id) ?? 0) >= 3);
-  if (unscheduled) build.push(pill(`Schedule ${clip(unscheduled.name, 18)}`, `Put ${unscheduled.name} (${unscheduled.id}) on a schedule that suits what it does.`));
-
-  const fix: SuggestedAsk[] = [...new Set(d.failedAgents)].slice(0, 2).map((id) => {
-    const name = d.agents.find((a) => a.id === id)?.name ?? id;
-    return pill(`Why ${clip(name, 16)} failed`, `Why did ${name} (${id}) fail today, and can you fix it?`);
-  });
-  if (fix.length < 2) fix.push(pill('Find broken agents', 'Check my agents for anything broken or slow, and fix what you can.'));
-
-  const look: SuggestedAsk[] = d.notebookIdeas.slice(0, 2).map((i) => pill(`Find ${clip(`${i.label.charAt(0).toLowerCase()}${i.label.slice(1)}`, 22)}`, i.text));
-  look.push(pill("Today's finds", 'What did my agents find today? Anything worth a look?'));
-  if (look.length < 3) look.push(pill('Look up …', 'Look up '));
-
-  return [
-    ...(d.notebookStarts?.length ? [{ verb: 'Start' as const, pills: d.notebookStarts.slice(0, 3) }] : []),
-    { verb: 'Run', pills: run.slice(0, 3) },
-    // At most three a row: two to build (a schedule for your go-to over watching a page), one to fix (a failure first).
-    { verb: 'Build or fix', pills: [...(build.length > 2 ? [build[0], build[2]] : build), ...fix.slice(0, 1)] },
-    { verb: 'Look up', pills: look.slice(0, 3) },
-  ];
-}
-
-export function pickSuggestions(d: {
-  agents: readonly Agent[];
-  lastRunAt: ReadonlyMap<string, string>;
-  runCounts: ReadonlyMap<string, number>;
-  notebookIdeas: ReadonlyArray<{ label: string; text: string }>;
-  failedToday: number;
-  ranToday: number;
-  now?: number;
-}): HomeSuggestions {
-  const now = d.now ?? Date.now();
-  const dayAgo = new Date(now - 86_400_000).toISOString();
-  const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
-  const runnable = d.agents.filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id) && runsAsIs(a)
-    && !(DEMO_RE.test(a.id) || DEMO_RE.test(a.name)));
-  const shelves = agentShelves(runnable, { lastRunAt: d.lastRunAt, runCounts: d.runCounts, feeds: new Map(), weekAgo });
-  const ranRecently = (a: Agent) => (d.lastRunAt.get(a.id) ?? '') >= dayAgo;
-  const order = [
-    ...shelves.goTo.filter((a) => !ranRecently(a)),
-    ...shelves.recent.filter((a) => !ranRecently(a)),
-    ...runnable.filter((a) => !d.lastRunAt.has(a.id) && a.description?.trim() && !TUTORIAL_RE.test(a.description)),
-    ...runnable.filter((a) => !d.lastRunAt.has(a.id) && a.description?.trim()),
-    ...shelves.goTo, ...shelves.recent,
-  ];
-  const goTo = new Set(shelves.goTo.map((a) => a.id));
-  const seen = new Set<string>();
-  const agents: SuggestedAgent[] = [];
-  for (const a of order) {
-    if (seen.has(a.id)) continue;
-    seen.add(a.id);
-    const last = d.lastRunAt.get(a.id);
-    const why: SuggestedAgent['why'] = goTo.has(a.id) ? 'go-to' : last ? 'recent' : TUTORIAL_RE.test(a.description ?? '') ? 'tutorial' : 'new';
-    agents.push({ id: a.id, name: a.name, description: (a.description ?? '').trim(), ...(last ? { lastRunAt: last } : {}), why, runsWith: runsWithInputs(a), ownAsk: ownAsk(a), ...(runFill(a) ? { fill: runFill(a) } : {}) });
-    if (agents.length === 3) break;
-  }
-
-  const asks: SuggestedAsk[] = [];
-  for (const idea of d.notebookIdeas.slice(0, 2)) asks.push({ label: `Start a notebook: ${idea.label}`, text: idea.text });
-  if (d.failedToday > 0) asks.push({ label: 'What failed today?', text: 'What failed today, and what should I do about it?' });
-  if (d.ranToday > 0) asks.push({ label: 'What did my agents do today?', text: 'What did my agents do today? Anything worth a look?' });
-  // Only one you run often by hand: a starred one you rarely run isn't asking for a schedule.
-  const unscheduled = shelves.goTo.find((a) => !a.schedule && (d.runCounts.get(a.id) ?? 0) >= 3);
-  if (unscheduled) asks.push({ label: `Put ${unscheduled.name} on a schedule`, text: `Put ${unscheduled.name} (${unscheduled.id}) on a schedule that suits what it does.` });
-  if (asks.length < 2) asks.push({ label: 'What can sua do for me?', text: 'What can you do for me with the agents I have? Suggest a few things to try.' });
-  if (asks.length < 3) asks.push({ label: 'Build me an agent that checks something every morning', text: 'Build me an agent that checks something useful every morning. Ask me what to check.' });
-  return { agents, asks: asks.slice(0, 4) };
-}
-
-/** Try next for Home, from the stores (cheap: two GROUP BYs, two counts, a cached file). */
-export function homeSuggestions(ctx: Ctx, now = Date.now()): HomeSuggestions {
+/** Home's Ask sua starters, from the stores. Never throws. */
+export function homeSuggestions(ctx: Ctx): HomeSuggestions {
   try {
-    const dayAgo = new Date(now - 86_400_000).toISOString();
-    const agents = ctx.agentStore.listAgents();
-    const lastRunAt = ctx.runStore.latestRunAtByAgent();
-    const runCounts = ctx.runStore.runCountsByAgent(new Date(now - 30 * 86_400_000).toISOString());
-    const notebookIdeas = cachedNotebookSuggestions(ctx);
-    const failed = ctx.runStore.queryRuns({ statuses: ['failed'], since: dayAgo, limit: 5 });
-    const picked = pickSuggestions({
-      agents, lastRunAt, runCounts, notebookIdeas,
-      failedToday: failed.total,
-      ranToday: ctx.runStore.queryRuns({ since: dayAgo, limit: 1 }).total,
-      now,
-    });
-    const failedAgents = failed.rows.map((r) => r.agentName).filter((id) => !SYSTEM_AGENT_IDS.has(id));
     const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-    const notebookStarts = notebookStartPills(nbs.listTemplates(), nbs.list());
-    return { ...picked, starters: askStarters({ agents, lastRunAt, runCounts, notebookIdeas, failedAgents, notebookStarts, now }) };
+    // A few more than are shown: Home leaves out any that Next up already offers.
+    const pills = notebookStartPills(nbs.listTemplates(), nbs.list(), 5);
+    return { starters: pills.length ? [{ verb: 'Start', pills }] : [] };
   } catch {
-    return { agents: [], asks: [], starters: askStarters({ agents: [], lastRunAt: new Map(), runCounts: new Map(), notebookIdeas: [], failedAgents: [] }) };
+    return { starters: [] };
   }
 }

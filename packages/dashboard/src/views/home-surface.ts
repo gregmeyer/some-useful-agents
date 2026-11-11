@@ -176,8 +176,8 @@ export function needsBreakdown(entries: readonly CompiledEntry[]): string {
 }
 
 /** The Today tab: Needs you and Happening now as rows, All good as quiet lines. */
-export function renderToday(today: HomeSurface, wide: boolean, quiet?: SafeHtml): SafeHtml {
-  return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide, quiet)}${hiddenList(today)}</div>`;
+export function renderToday(today: HomeSurface, wide: boolean, quiet?: SafeHtml, bare = false): SafeHtml {
+  return html`<div class="panel-today" data-surface="home" data-surface-version="${String(today.version)}">${todayBody(today, wide, quiet, bare)}${hiddenList(today)}</div>`;
 }
 
 /**
@@ -190,10 +190,11 @@ function allClear(quiet?: SafeHtml): SafeHtml {
     : html`<p class="panel-home__empty">Nothing needs you right now.</p>`;
 }
 
-function todayBody(today: HomeSurface, wide: boolean, quiet?: SafeHtml): SafeHtml {
+function todayBody(today: HomeSurface, wide: boolean, quiet?: SafeHtml, bare = false): SafeHtml {
   const regions = today.compiled.regions.filter((r) => r.entries.length > 0);
   if (regions.every((r) => r.id === 'all-good')) {
-    return html`${allClear(quiet)}${allGood(regions.find((r) => r.id === 'all-good')?.entries ?? [])}`;
+    // `bare` (Home, on a quiet day): only the All good line; the page says the rest.
+    return html`${bare ? html`` : allClear(quiet)}${allGood(regions.find((r) => r.id === 'all-good')?.entries ?? [])}`;
   }
   return html`
     ${quiet && !regions.some((r) => r.id === 'needs-you') ? allClear(quiet) : html``}

@@ -3261,6 +3261,36 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-today__all { font-size: var(--font-size-sm); }
 .home-today .panel-today { display: grid; gap: var(--space-4); }
 .home-today__toast:not([hidden]) { margin-top: var(--space-3); }
+/* A quiet day: Today is one line (All good), not a card; the header says nothing needs you. */
+.home-today.is-quiet { border: 0; background: none; padding: 0; }
+.home-today.is-quiet .home-today__head { display: none; }
+
+/* ── Home's Next up (views/home-next.ts): one framed lead, then plain rows ── */
+.home-next { display: grid; gap: var(--space-3); }
+.home-next[hidden], .home-tidy[hidden] { display: none; }
+.home-next__lead { border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); padding: var(--space-4) var(--space-6); display: grid; gap: var(--space-2); }
+.home-next__lead-title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-lg); font-weight: var(--weight-bold); line-height: 1.3; }
+.home-next__why { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; }
+.home-next__lead .home-next__why { font-size: var(--font-size-md); max-width: 70ch; }
+.home-next__acts { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.home-next__lead .home-next__acts { margin-top: var(--space-2); }
+.home-next__run, .home-next__later { display: inline-flex; margin: 0; }
+.home-next__later-btn { border: 0; background: none; padding: var(--space-1) var(--space-2); min-height: 28px; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-sm); cursor: pointer; border-radius: var(--radius-sm); }
+.home-next__later-btn:hover { color: var(--color-text); text-decoration: underline; }
+.home-next__later-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.home-next__rows { list-style: none; margin: 0; padding: 0; }
+.home-next__row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) 0; border-top: 1px solid var(--color-border); }
+.home-next__rows > .home-next__row:first-child { border-top: 0; }
+.home-next__text { display: grid; gap: 2px; min-width: 0; }
+.home-next__title { font-weight: var(--weight-semibold); font-size: var(--font-size-md); overflow-wrap: anywhere; }
+.home-next__row .home-next__acts { flex: 0 0 auto; flex-wrap: nowrap; }
+.home-tidy__summary { cursor: pointer; display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; }
+.home-tidy__count { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.home-tidy .home-next__rows { margin-top: var(--space-1); }
+@media (max-width: 640px) {
+  .home-next__lead { padding: var(--space-3) var(--space-4); }
+  .home-next__row { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+}
 @media (max-width: 640px) {
   .home .page-intro { flex-wrap: wrap; }
   .home .page-intro__text { flex: 1 1 100%; }
