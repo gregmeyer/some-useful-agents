@@ -3,7 +3,7 @@
  * title with how things stand, autonomy and Adjust Home), then two columns. On the left: what
  * needs you (Today, only when something does), Next up (a few specific things to do next, from
  * your notebooks, agents and conversations), Ask sua, and Housekeeping folded at the foot. On
- * the right: your notebooks. A row opens in the sua panel (home-page.js.ts).
+ * the right: today's reads (what your scheduled agents produced) and your notebooks. A row opens in the sua panel (home-page.js.ts).
  */
 import type { AutonomyMode } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
@@ -16,6 +16,8 @@ import type { HomeSurface } from '../lib/home-surface.js';
 import { renderHousekeeping, renderNextUp } from './home-next.js';
 import type { AskStarters, HomeSuggestions } from '../lib/home-suggestions.js';
 import type { HomeNext } from '../lib/home-next.js';
+import { renderHomeReads } from './home-reads.js';
+import type { HomeRead } from '../lib/home-reads.js';
 
 /** "2 need you" / "Nothing needs you": the line beside the title. */
 export function homeStatus(today: HomeSurface | undefined): { text: string; needs: number } {
@@ -77,6 +79,8 @@ export function renderHomePage(opts: {
   suggestions?: HomeSuggestions;
   /** Next up and Housekeeping (lib/home-next.ts). */
   next?: HomeNext;
+  /** What scheduled agents produced today (lib/home-reads.ts). */
+  reads?: readonly HomeRead[];
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }): string {
   const status = homeStatus(opts.today);
@@ -116,7 +120,8 @@ export function renderHomePage(opts: {
           ${renderAskCard(suggestions.starters ?? [], new Set(next.next.map((x) => x.action.fill ?? '')))}
           ${renderHousekeeping(next)}
         </div>
-        <aside class="home-rail" aria-label="Your notebooks">
+        <aside class="home-rail" aria-label="Today's reads and your notebooks">
+          ${renderHomeReads(opts.reads ?? [])}
           ${opts.shelf ?? html``}
         </aside>
       </div>
