@@ -35,7 +35,9 @@ import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { renderNotebookShelf } from '../views/notebook-shelf.js';
 import { homeShelf } from '../lib/notebook-card.js';
 import { startNotebookPictures } from '../lib/notebook-pictures.js';
-import { renderHomePage, renderHomeToday, homeStatus } from '../views/home-page.js';
+import { renderHomePage, todayIsQuiet, renderHomeToday, homeStatus } from '../views/home-page.js';
+import { renderNextBody, renderTidyBody, tidySummary } from '../views/home-next.js';
+import { homeNext, dismissNext } from '../lib/home-next.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
@@ -132,7 +134,7 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: homeNext(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
@@ -150,7 +152,20 @@ function shelfFor(ctx: ReturnType<typeof getContext>): SafeHtml | undefined {
 inboxRouter.get('/home/today', (req: Request, res: Response) => {
   const today = readHomeSurfaceSafe(getContext(req.app.locals));
   const status = homeStatus(today);
-  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs });
+  res.json({ html: render(renderHomeToday(today)), status: status.text, needs: status.needs, quiet: todayIsQuiet(today) });
+});
+
+/** Home's Next up and Housekeeping, redrawn in place (home-page.js.ts). */
+inboxRouter.get('/home/next', (req: Request, res: Response) => {
+  const next = homeNext(getContext(req.app.locals));
+  res.json({ html: render(renderNextBody(next)), count: next.next.length, tidy: render(renderTidyBody(next)), tidyCount: next.tidy.length, tidySummary: tidySummary(next) });
+});
+
+/** "Not now" on a Next up row: hidden for a week. */
+inboxRouter.post('/home/next/dismiss', (req: Request, res: Response) => {
+  const ok = dismissNext(getContext(req.app.locals), String((req.body as { id?: unknown } | undefined)?.id ?? ''));
+  if (isAjax(req)) { res.status(ok ? 204 : 400).end(); return; }
+  res.redirect(303, '/');
 });
 
 inboxRouter.get('/inbox', (req: Request, res: Response) => sendInboxPage(req, res));

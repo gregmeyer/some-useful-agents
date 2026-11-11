@@ -139,20 +139,28 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toContain('action="/inbox/trust/mode"');
     expect(home.text).toContain('action="/surfaces/home/ask" class="home-change"');
     expect(home.text).toContain('href="/inbox">Full inbox');
-    // Two columns: Today (with Ask sua under it), and a rail with your notebooks; no separate Try next.
+    // Two columns: what needs you, Next up, Ask sua and Housekeeping; and a rail with your notebooks.
     expect(home.text).toContain('class="home-grid"');
     expect(home.text).not.toContain('home-try');
-    // Under Today: Ask sua, a one-line box and starters for each verb (a starter fills the box).
+    expect(home.text.indexOf('data-home-today')).toBeLessThan(home.text.indexOf('data-home-next'));
+    expect(home.text.indexOf('data-home-next')).toBeLessThan(home.text.indexOf('class="home-ask-card"'));
+    // Next up: with nothing used yet, agents to try. The first is the lead; each has the one button that does it, and Not now.
+    expect(home.text).toMatch(/<section class="home-next" aria-labelledby="home-next-title" data-home-next>/);
+    expect(home.text).toMatch(/class="home-next__lead" data-next-item="next:run-agent:[a-z-]+" data-next-kind="run-agent"/);
+    // One that takes nothing to change runs in one click, in a conversation.
+    expect(home.text).toContain('<form method="POST" action="/home/try/weather" class="home-next__run" data-try-run><button type="submit" class="btn btn--sm');
+    expect(home.text).toContain('New to you: The forecast');
+    // One about something (a city) fills Ask sua with what it's about, its default in place, to change and send (not its settings).
+    expect(home.text).toContain('data-ask-fill="Run City news with city: Seattle"');
+    expect(home.text).not.toContain('action="/home/try/city-news"');
+    expect(home.text).toContain('<input type="hidden" name="id" value="next:run-agent:weather">');
+    // Ask sua: a one-line box, in the scope the fill buttons reach. No rows of generic starters.
+    expect(home.text).toContain('class="home-main" data-ask-scope');
     expect(home.text).toMatch(/class="home-ask-card"[\s\S]*data-home-ask>/);
     expect(home.text).toContain('name="body" rows="1"');
-    for (const verb of ['Run', 'Build or fix', 'Look up']) expect(home.text).toContain(`<span class="home-ask-card__verb">${verb}</span>`);
-    expect(home.text).toContain('data-ask-fill="Build an agent that checks "');
-    // Its Run row runs an agent as it is in one click, saying on hover what it does, what it uses and why it's here.
-    expect(home.text).toContain('action="/home/try/weather" class="ask-pill-run" data-try-run><button type="submit" class="ask-pill ask-pill--run" title="');
-    expect(home.text).toMatch(/class="ask-pill ask-pill--run" title="[^"]*(Runs with|Takes no inputs)[^"]*(New to you · not run yet|Your go-to|You used it this week|A tutorial example)/);
-    // One about something (a city) fills the box with what it's about, its default in place, to change and send (not its settings).
-    expect(home.text).toContain('data-ask-fill="Run City news with city: Seattle" title="Run City news with city: Seattle · change any of it, then Send">City news on …</button>');
-    expect(home.text).not.toContain('action="/home/try/city-news"');
+    for (const verb of ['Run', 'Build or fix', 'Look up']) expect(home.text).not.toContain(`<span class="home-ask-card__verb">${verb}</span>`);
+    // Nothing to tidy: Housekeeping is there but hidden.
+    expect(home.text).toMatch(/<details class="home-tidy" data-home-tidy hidden>/);
     expect(home.text).toContain('href="/start"');
     // One place to ask: the top bar, not the panel's search box.
     expect(home.text).not.toContain('Search or ask sua');
@@ -160,12 +168,26 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const today = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
     expect(today.body).toMatchObject({ status: '1 needs you', needs: 1 });
     expect(today.body.html).toContain(`data-panel-thread-id="${t.id}"`);
-    // Quiet: Today says all clear (the questions are in the Ask sua card under it).
+    // Quiet: Today is only its "All good" line (the header says nothing needs you; Next up leads the page).
     inboxStore.updateStatus(t.id, 'resolved');
     const quiet = await request(app).get('/home/today').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    expect(quiet.body.html).toContain('All clear.');
-    expect(quiet.body.html).not.toContain('data-ask-send=');
+    expect(quiet.body).toMatchObject({ status: 'Nothing needs you', needs: 0, quiet: true });
+    expect(quiet.body.html).not.toContain('All clear.');
     expect(quiet.body.html).not.toContain('panel-home__empty');
+    const quietHome = await request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(quietHome.text).toContain('<section class="home-today is-quiet"');
+    // Not now hides a Next up row (for a week) and the next one takes its place; only Next up's own ids are taken.
+    const next = await request(app).get('/home/next').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(next.body.count).toBe(2);
+    expect(next.body.html).toContain('next:run-agent:weather');
+    const gone = await request(app).post('/home/next/dismiss').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send({ id: 'next:run-agent:weather' });
+    expect(gone.status).toBe(204);
+    const after = await request(app).get('/home/next').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(after.body.count).toBe(1);
+    expect(after.body.html).not.toContain('next:run-agent:weather');
+    expect(after.body.html).toContain('class="home-next__lead" data-next-item="next:run-agent:city-news"');
+    const bad = await request(app).post('/home/next/dismiss').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('X-Requested-With', 'fetch').type('form').send({ id: 'thread:abc' });
+    expect(bad.status).toBe(400);
   });
 
   it("Home's Run pill starts a conversation about the agent with its run as a card, and the result comes back there", async () => {
