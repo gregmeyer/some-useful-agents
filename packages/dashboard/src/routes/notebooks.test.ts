@@ -541,6 +541,47 @@ describe('filing into a notebook of organizations', () => {
     expect(all.filter((e) => e.kind === 'option' && e.ruledOut).map((e) => e.title)).toEqual(['Adaptive Insights']);
   });
 
+  it("a research result too long to read at once is read in parts, so every option it covers gets its fact (not only the ones before the cut)", async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { keep, passNote } = await import('../lib/notebook-pipeline.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb0 = store.create({ title: 'Batteries' });
+    store.setFields(nb0.id, [{ key: 'warranty', label: 'Warranty', type: 'text' }]);
+    const options = Array.from({ length: 8 }, (_, i) => store.upsertOption(nb0.id, { title: `Battery ${String(i + 1)}`, by: 'you' }).entry);
+    const output = JSON.stringify({ headline: '8 of 8 researched.', results: options.map((o, i) => ({ subject: o.title, status: 'done', found: { warranty: { value: `${String(i + 6)} months free replacement`, quote: 'q'.repeat(2800) } } })) });
+    expect(output.length).toBeGreaterThan(20_000);
+    const saw: string[] = [];
+    // The keeper files what the part in front of it says, and nothing else.
+    ctxForDrain!.notebookKeeperRun = async (inputs) => {
+      saw.push(inputs.RUN_OUTPUT);
+      const part = JSON.parse(inputs.RUN_OUTPUT.slice(inputs.RUN_OUTPUT.indexOf('\n') + 1)) as { results: Array<{ subject: string; found: { warranty: { value: string } } }> };
+      return `<notebook>${JSON.stringify({ entries: [], facts: part.results.map((r) => ({ id: options.find((o) => o.title === r.subject)!.id, data: { warranty: r.found.warranty.value } })), summary: `Added ${String(part.results.length)}.` })}</notebook>`;
+    };
+    const out = await keep(ctxForDrain!, store, store.get(nb0.id)!, 'research-fanout', 'run-w', output);
+    expect(saw.length).toBeGreaterThan(1);
+    for (const s of saw) expect(s).not.toContain('(truncated)');
+    expect(out).toMatchObject({ added: 0, factsSet: 8 });
+    expect(out.error).toBeUndefined();
+    expect(passNote('research-fanout', out)).toBe('research-fanout: 0 new, 8 updated');
+    expect(store.entries(nb0.id).filter((e) => e.kind === 'option').map((e) => e.data?.warranty).sort()).toEqual(options.map((_, i) => `${String(i + 6)} months free replacement`).sort());
+    // A part the keeper fails on doesn't lose what the others filed; it is said.
+    const again = store.create({ title: 'Batteries again' });
+    store.setFields(again.id, [{ key: 'warranty', label: 'Warranty', type: 'text' }]);
+    const more = Array.from({ length: 8 }, (_, i) => store.upsertOption(again.id, { title: `Battery ${String(i + 1)}`, by: 'you' }).entry);
+    let n = 0;
+    ctxForDrain!.notebookKeeperRun = async (inputs) => {
+      if (++n === 1) return undefined;
+      const part = JSON.parse(inputs.RUN_OUTPUT.slice(inputs.RUN_OUTPUT.indexOf('\n') + 1)) as { results: Array<{ subject: string; found: { warranty: { value: string } } }> };
+      return `<notebook>${JSON.stringify({ entries: [], facts: part.results.map((r) => ({ id: more.find((o) => o.title === r.subject)!.id, data: { warranty: r.found.warranty.value } })) })}</notebook>`;
+    };
+    const half = await keep(ctxForDrain!, store, store.get(again.id)!, 'research-fanout', 'run-x', output);
+    expect(half.error).toBeUndefined();
+    expect(half.factsSet).toBeGreaterThan(0);
+    expect(half.factsSet).toBeLessThan(8);
+    expect(half.summary).toContain('Part of the output could not be read');
+  });
+
   it("the keeper puts a run's figures for an option it already has onto that option, by id; numbers not in the output stay out", async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

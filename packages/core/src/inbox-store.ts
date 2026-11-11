@@ -163,6 +163,8 @@ export interface InboxActionMeta {
    * then applies itself).
    */
   waitingFor?: string;
+  /** In a notebook's conversation: what this run's findings changed in the notebook ("research-fanout: 0 new, 8 updated"), so sua knows it is already filed. */
+  notebookFiled?: string;
   /** Where it was approved, when not on the card: `notebook` = a notebook header button. */
   from?: 'notebook';
   /**

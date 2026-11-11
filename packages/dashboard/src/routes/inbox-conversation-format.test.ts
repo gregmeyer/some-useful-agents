@@ -29,6 +29,13 @@ describe('formatConversationSnapshot', () => {
     ].join('\n'));
   });
 
+  it("says what a run already filed in the notebook, so sua doesn't offer to file it again", () => {
+    const out = formatConversationSnapshot([
+      response('action', 'Recheck warranties', JSON.stringify({ kind: 'action', agentId: 'research-fanout', status: 'completed', resultSummary: '8 of 8 researched.', notebookFiled: 'research-fanout: 0 new, 8 updated' })),
+    ]);
+    expect(out).toBe('[action] Recheck warranties (status=completed; result=8 of 8 researched.; already filed in the notebook: research-fanout: 0 new, 8 updated)');
+  });
+
   it('says why an action failed, and what an approved one waits for', () => {
     const out = formatConversationSnapshot([
       response('action', 'Apply the correction', JSON.stringify({ kind: 'action', agentId: 'notebook-correct-apply', status: 'failed', refusalReason: "That rule has changed since this was worked out. Ask again." })),
