@@ -67,6 +67,7 @@ export const METADATA_EXEMPT_AGENT_IDS: Readonly<Record<string, string>> = {
   'view-designer': 'View editor only: proposes a better view for one agent, never proposed',
   'notebook-drafter': 'New notebook only: drafts a notebook from a sentence, never proposed',
   'notebook-suggester': 'New notebook only: suggests notebooks from recent conversations, never proposed',
+  'home-next': "Home only: orders Next up and writes each item's line of why from given facts, never proposed",
   'notebook-picture': 'notebook only: finds or draws pictures for options without one, never proposed',
   'notebook-facets': 'notebook only: groups long facts into short filter labels, never proposed',
   'notebook-tagger': 'notebooks list only: gives notebooks topic tags, never proposed',

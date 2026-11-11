@@ -1,0 +1,65 @@
+# Home Next — words Home's "Next up" list. The dashboard picks the items in
+# code (lib/home-next.ts): each is real and its button works. This agent
+# only puts them in the best order and writes one line of why for each,
+# from the facts it is given. Route-dispatched only (dashboard
+# lib/home-next-words.ts), cached for half a day; never proposed in triage.
+
+id: home-next
+name: Home Next
+description: >
+  Orders Home's "Next up" list and writes one line of why for each item,
+  from the facts the dashboard gives it.
+status: active
+source: examples
+
+inputs:
+  ITEMS:
+    type: string
+    required: true
+    description: 'JSON: the items to order, each {"id", "kind", "title", "facts": [..]}.'
+  TODAY:
+    type: string
+    required: false
+    default: ""
+    description: The date and day of the week, for what's timely.
+
+nodes:
+  - id: word
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 90
+    outputContract:
+      mustMatch: '<next>[\s\S]*?</next>'
+      description: a <next> JSON block
+    prompt: |
+      You are writing the "Next up" list on someone's home page: a few
+      things they could do next with their own agents and notebooks. The
+      items are already chosen. Your job is the order and one line of why
+      for each.
+
+      Today: {{inputs.TODAY}}
+
+      The items (JSON). "facts" is everything known about each:
+      {{inputs.ITEMS}}
+
+      ORDER. Put first the one most worth doing now: something waiting on
+      them (a step that is theirs, a question left open) before something
+      broken that runs on a schedule, before starting something new,
+      before a suggestion to run or schedule an agent. Among equals, what
+      they do most often or most recently comes first. Keep every id,
+      once.
+
+      WHY. For each id, one plain sentence, 140 characters at most, that
+      tells them why this is worth doing now, as you'd say it to a
+      colleague. Rules:
+      - Use only the facts given for that item. Never add a number, a
+        name, a date or a claim that is not in its facts.
+      - Say numbers exactly as the facts say them.
+      - Do not repeat the title. Do not start with "You should" or "Why
+        not". No exclamation marks, no emoji.
+      - Do not mention how the list was made.
+
+      Reply with only this, as valid JSON:
+      <next>
+      {"order": ["id", "id"], "why": {"id": "one sentence"}}
+      </next>
