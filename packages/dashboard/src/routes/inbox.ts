@@ -38,6 +38,7 @@ import { startNotebookPictures } from '../lib/notebook-pictures.js';
 import { renderHomePage, todayIsQuiet, renderHomeToday, homeStatus } from '../views/home-page.js';
 import { renderNextBody, renderTidyBody, tidySummary } from '../views/home-next.js';
 import { homeNext, dismissNext } from '../lib/home-next.js';
+import { homeReads } from '../lib/home-reads.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
@@ -134,7 +135,7 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: homeNext(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: homeNext(ctx), reads: homeReads(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
