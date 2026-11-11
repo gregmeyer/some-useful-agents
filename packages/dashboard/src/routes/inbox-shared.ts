@@ -367,7 +367,7 @@ export function formatConversationSnapshot(
       const m = parseActionMeta(r);
       const why = (m?.status === 'failed' || m?.status === 'refused') && m.refusalReason ? `; why=${m.refusalReason.slice(0, 200)}` : '';
       const waiting = m?.status === 'proposed' && m.waitingFor ? `; approved, waiting for ${m.waitingFor}` : '';
-      const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''}${why}${waiting})` : '';
+      const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''}${m.notebookFiled ? `; already filed in the notebook: ${m.notebookFiled.slice(0, 200)}` : ''}${why}${waiting})` : '';
       return `[action] ${r.body}${suffix}`;
     }
     // A widget's JSON is noise here; what the person picked from it is their next message.

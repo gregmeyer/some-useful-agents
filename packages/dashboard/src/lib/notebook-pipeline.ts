@@ -6,6 +6,7 @@
  * from. One pipeline run per notebook at a time.
  */
 import { randomUUID } from 'node:crypto';
+import { keeperParts } from './keeper-parts.js';
 import {
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS, type NotebookSearchSource,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
@@ -388,24 +389,32 @@ export function directBlock(output: string): string | undefined {
   } catch { return undefined; }
 }
 
-export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
-  // A run that already speaks the notebook's language files directly: its
-  // <notebook> block, cleaned the same way, with no keeper model, no 12k cap.
-  const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;
-  if (direct) {
-    const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES, trusted: true });
-    try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
-    try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
-    return { ...out, direct: true };
-  }
-  const setup = agentId === NOTEBOOK_SETUP;
+const SUMS = ['added', 'options', 'ruledOutSeen', 'ruledOutNew', 'refreshed', 'factsSet', 'factsDropped', 'checksMet', 'checksFailed', 'checksKept', 'skipped', 'criteriaMet'] as const;
+
+/** What several parts of one output filed, as one outcome. A part that failed leaves its error only when nothing else was filed. */
+export function mergeOutcomes(a: KeeperOutcome, b: KeeperOutcome): KeeperOutcome {
+  const out: KeeperOutcome = { ...a, added: 0, skipped: 0, criteriaMet: 0 };
+  for (const k of SUMS) { const n = (a[k] ?? 0) + (b[k] ?? 0); if (n || k === 'added' || k === 'skipped' || k === 'criteriaMet') out[k] = n; }
+  const sources = [...(a.sources ?? []), ...(b.sources ?? [])];
+  if (sources.length) out.sources = sources; else delete out.sources;
+  const summary = [a.summary, b.summary].filter(Boolean).join(' ');
+  if (summary) out.summary = summary; else delete out.summary;
+  const error = a.error && b.error ? a.error : undefined;
+  const partial = !error && (a.error ?? b.error);
+  if (error) out.error = error; else delete out.error;
+  if (partial) out.summary = `${out.summary ? `${out.summary} ` : ''}(Part of the output could not be read: ${partial})`;
+  return out;
+}
+
+/** One keeper run over one part of an output. `output` is the whole of it, which the keeper's numbers are checked against. */
+async function keepPart(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, part: string, output: string, setup: boolean): Promise<KeeperOutcome> {
   // Setup needs each option's id and text, to give it its facts.
   // Each option with its id, so facts this run gives about one it already has go onto it ("facts"); setup also gets its text.
   const existing = store.entries(nb.id, 200).map((e) => `${e.kind}: ${e.title}${e.kind === 'option' ? ` [id: ${e.id}]${setup && e.body ? ` — ${e.body.replace(/\s+/g, ' ').slice(0, 400)}` : ''}` : ''}${e.fingerprint ? ` [fingerprint: ${e.fingerprint}]` : ''}${e.ruledOut ? ` — RULED OUT: ${e.ruledOut.reason}` : e.stage ? ` (stage: ${e.stage})` : ''}`).join('\n');
   const inputs = {
     NOTEBOOK: JSON.stringify({ title: nb.title, statement: nb.statement, params: nb.params, criteria: nb.criteria.map((c, index) => ({ index, text: c.text, met: c.met })), fields: nb.fields }),
     SOURCE_AGENT: agentId,
-    RUN_OUTPUT: output.length > OUTPUT_CAP ? `${output.slice(0, OUTPUT_CAP)}\n(truncated)` : output,
+    RUN_OUTPUT: part,
     EXISTING: existing || '(nothing yet)',
   };
   let result: string | undefined;
@@ -437,7 +446,31 @@ export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId
   }
   if (!result) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper did not finish.' };
   // Check the keeper's numbers against the whole output (setup: against each option's own text).
-  const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, result, { source: setup ? '' : output });
+  return applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, result, { source: setup ? '' : output });
+}
+
+export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId: string, runId: string, output: string): Promise<KeeperOutcome> {
+  // A run that already speaks the notebook's language files directly: its
+  // <notebook> block, cleaned the same way, with no keeper model, no 12k cap.
+  const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;
+  if (direct) {
+    const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES, trusted: true });
+    try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
+    try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
+    return { ...out, direct: true };
+  }
+  const setup = agentId === NOTEBOOK_SETUP;
+  // A long output is read a part at a time (whole items each), not cut off: every option it covers gets filed.
+  const parts = keeperParts(output, OUTPUT_CAP);
+  let out: KeeperOutcome | undefined;
+  for (const part of parts) {
+    const now = store.get(nb.id) ?? nb;
+    const one = await keepPart(ctx, store, now, agentId, runId, part, output, setup);
+    out = out ? mergeOutcomes(out, one) : one;
+    // Nothing read at all (the keeper is missing or failed on the first part): stop here.
+    if (one.error && parts.length === 1) return one;
+  }
+  if (!out) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper did not finish.' };
   // Photos for what it found; a slow or failing site never fails the keep.
   try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
   // Options still without one get a representative picture or a drawing, in the background.

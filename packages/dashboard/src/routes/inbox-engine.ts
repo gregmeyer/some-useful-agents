@@ -20,7 +20,7 @@ import { applyNotebookCorrection, startNotebookCorrection } from '../lib/noteboo
 import { previewNotebookTemplate, executeNotebookTemplate, templateOfNotebook } from '../lib/notebook-template-action.js';
 import { templateNameFrom } from '../views/notebook-template.js';
 import { notebooksOf, parseNotebookAdd, applyNotebookAdd, parseNotebookPipeline, describePipelineChange, parseNotebookSteps, describeStepsChange, notebookForThread, notebookTalkedAbout, notebooksLinked, describeNotebookForTriage, threadOptionFocus, describeCorrection } from '../lib/notebook-chat.js';
-import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook } from '../lib/notebook-pipeline.js';
+import { startNotebookSetup, startNotebookPipeline, keepIntoNotebook, passNote } from '../lib/notebook-pipeline.js';
 import { parseBoardOps, previewBoardChange, applyBoardChange, boardOutlineFor, boardsOf, boardHref } from '../lib/board-arrange.js';
 import { readHomeSurface, HOME_SURFACE_ID } from '../lib/home-surface.js';
 import { parseSurfaceOps, previewSurfaceChange, describeHomeForTriage } from '../lib/surface-adjust.js';
@@ -565,6 +565,7 @@ export async function runProposedAction(
   }
 
   let outcome: ActionRunOutcome;
+  let filed: string | undefined;
   try {
     outcome = await runDispatchedAgentToTerminal(ctx, dispatchAgent, effectiveInputs, (runId) => {
       // Persist the runId onto the action card meta the moment the run
@@ -589,10 +590,11 @@ export async function runProposedAction(
     try {
       const msg = ctx.inboxStore?.get(messageId);
       const nb = msg ? notebookForThread(ctx, messageId, msg.contextJson) : undefined;
-      if (nb && !nb.archivedAt) await keepIntoNotebook(ctx, nb, meta.agentId, outcome.id, outcome.result ?? '');
+      // What it filed goes on the action, so sua's follow-up knows the notebook already has it.
+      if (nb && !nb.archivedAt) filed = passNote(meta.agentId, await keepIntoNotebook(ctx, nb, meta.agentId, outcome.id, outcome.result ?? ''));
     } catch { /* the conversation still goes on */ }
   }
-  finalizeActionFromOutcome(ctx, messageId, response.id, meta, outcome, { startedAt });
+  finalizeActionFromOutcome(ctx, messageId, response.id, filed ? { ...meta, notebookFiled: filed } : meta, outcome, { startedAt });
 }
 
 /**
