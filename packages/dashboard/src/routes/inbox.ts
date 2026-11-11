@@ -39,6 +39,7 @@ import { renderHomePage, todayIsQuiet, renderHomeToday, homeStatus } from '../vi
 import { renderNextBody, renderTidyBody, tidySummary } from '../views/home-next.js';
 import { homeNext, dismissNext } from '../lib/home-next.js';
 import { homeReads } from '../lib/home-reads.js';
+import { wordedNext } from '../lib/home-next-words.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
 import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
@@ -135,7 +136,7 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: homeNext(ctx), reads: homeReads(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: wordedNext(ctx, homeNext(ctx)), reads: homeReads(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
@@ -158,7 +159,8 @@ inboxRouter.get('/home/today', (req: Request, res: Response) => {
 
 /** Home's Next up and Housekeeping, redrawn in place (home-page.js.ts). */
 inboxRouter.get('/home/next', (req: Request, res: Response) => {
-  const next = homeNext(getContext(req.app.locals));
+  const ctx = getContext(req.app.locals);
+  const next = wordedNext(ctx, homeNext(ctx));
   res.json({ html: render(renderNextBody(next)), count: next.next.length, tidy: render(renderTidyBody(next)), tidyCount: next.tidy.length, tidySummary: tidySummary(next) });
 });
 

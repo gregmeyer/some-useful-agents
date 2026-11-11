@@ -258,6 +258,12 @@ export interface DashboardContext {
   notebookSuggesting?: boolean;
   /** Tests only: answer for the notebook suggester instead of running it. */
   notebookSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Home's Next up is being worded (lib/home-next-words.ts): one run at a time. */
+  homeNextWording?: boolean;
+  /** That run, so tests can wait for it. */
+  homeNextWork?: Promise<void>;
+  /** Tests only: answer for the home-next agent instead of running it. */
+  homeNextRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /**
    * Tests only: answer for the notebook keeper instead of running it (returns
    * the keeper's output text). Production leaves it unset.
