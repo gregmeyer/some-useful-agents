@@ -36,6 +36,8 @@ import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/puls
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
 import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME } from '../lib/today-edition.js';
+import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
+import { boardReviewCard, improveBoardButton } from '../views/board-review.js';
 
 /**
  * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
@@ -399,6 +401,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     <div class="board-toolbar" data-canvas-toolbar>
       <button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>
       <button type="button" class="btn btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
+      ${!isPulse && archivedAt === undefined ? improveBoardButton(id, reviewsOf(ctx).latest(id)) : html``}
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
       ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">
@@ -406,6 +409,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       </form>` : html``}
     </div>
     ${!isPulse ? boardGoalLine(id, boardsOf(ctx).goal(id)) : html``}
+    ${!isPulse && archivedAt === undefined ? boardReviewCard(id, { ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false }) : html``}
     ${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>
@@ -536,12 +540,51 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
  * "How it looks" (ADR-0070): the grid, the front page, or let sua pick.
  * Saves a new version of the board and comes back to it with what happened.
  */
+/** "Improve this board" / "Look again": start the next round of sua's review, in the background. */
+boardsRouter.post('/boards/:id/review', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const out = startBoardReview(ctx, id);
+  if (out.work) { ctx.boardReviewWork = out.work; }
+  res.redirect(303, out.error ? `${boardPageUrl(id)}?error=${encodeURIComponent(out.error)}` : boardPageUrl(id));
+});
+
+/** The latest round's state, for the page to check back while it runs. */
+boardsRouter.get('/boards/:id/review.json', (req: Request, res: Response) => {
+  const r = reviewsOf(getContext(req.app.locals)).latest(String(req.params.id));
+  res.json(r ? { id: r.id, round: r.round, status: r.status, open: r.suggestions.filter((s) => s.state === 'open').length } : { status: 'none' });
+});
+
+/** Apply one suggestion (`key`), or every open one: a new board version, undone with Undo last save. */
+boardsRouter.post('/boards/:id/review/:reviewId/apply', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  const key = (req.body as { key?: unknown } | undefined)?.key;
+  const out = applyBoardSuggestions(ctx, id, String(req.params.reviewId), typeof key === 'string' && key ? [key] : undefined);
+  if (out.redraw) ctx.boardReviewWork = out.redraw.then(() => undefined);
+  const n = out.applied.length;
+  const said = out.error ?? (n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
+  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
+});
+
+/** Turn a suggestion down: it isn't offered again for this board. */
+boardsRouter.post('/boards/:id/review/:reviewId/skip', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  skipBoardSuggestion(ctx, id, String(req.params.reviewId), String((req.body as { key?: unknown } | undefined)?.key ?? ''));
+  res.redirect(303, boardPageUrl(id));
+});
+
 /** Say what a board is for (or clear it with an empty one). Not for Pulse or Today's edition, which aren't boards you make. */
 boardsRouter.post('/boards/:id/goal', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
   if (id === PULSE_BOARD_ID || !resolveBoard(ctx, id)) { res.redirect(303, `${PULSE_AGENTS_URL}?error=${encodeURIComponent("There's no such board to give a goal.")}`); return; }
-  const kept = boardsOf(ctx).setGoal(id, String((req.body as { goal?: unknown } | undefined)?.goal ?? ''), 'you');
+  const body = (req.body ?? {}) as { goal?: unknown; proposed?: unknown };
+  const text = String(body.goal ?? '');
+  // Taken as sua proposed it (from a review): it's sua's; changed at all, it's yours.
+  const asProposed = typeof body.proposed === 'string' && body.proposed.trim() !== '' && body.proposed.replace(/\s+/g, ' ').trim() === text.replace(/\s+/g, ' ').trim();
+  const kept = boardsOf(ctx).setGoal(id, text, asProposed ? 'sua' : 'you');
   res.redirect(303, `${boardPageUrl(id)}?ok=${encodeURIComponent(kept ? 'Goal saved.' : 'Goal cleared.')}`);
 });
 

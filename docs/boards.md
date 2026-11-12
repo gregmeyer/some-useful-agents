@@ -37,6 +37,21 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 - The goal is kept apart from the layout: arranging, a new look and **Undo last save** don't touch it.
 - Pulse and Today's edition have no goal; they aren't boards you make.
 
+## Improve this board
+
+**Improve this board**, in a board's toolbar, has sua review the board against its goal. Nothing changes until you press a suggestion's button.
+
+1. **A goal first.** If the board has none, sua proposes one from its name and what's on it. Change the words if they're off, then **Use this goal**.
+2. **Suggestions**, on the board under the goal, at most six:
+   - **Add** an agent you already have that gives the board something it lacks. sua judges by what the agent returns (its output fields and latest result), not its name; two agents that return the same thing count as one.
+   - **Leave out** a tile that repeats another, is failing, or doesn't serve the goal.
+
+   Each has a one-line reason. **Skip** turns one down, and it isn't offered again for this board. **Apply all** takes every open one.
+3. **What applying does**: a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added.
+4. **Look again** runs another round, knowing what you applied and skipped. When nothing would make the board better for its goal it says so, and its note says what none of your agents covers.
+
+sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).
+
 ## Dashboards
 
 A dashboard you haven't arranged is shown laid out from its sections: each becomes a titled section holding a grid of its tiles, wide tiles spanning two columns. An agent listed on a dashboard but not installed shows as a note in its place.

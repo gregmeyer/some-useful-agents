@@ -122,6 +122,91 @@ describe('boards are canvases', () => {
     expect((await get(app, '/dashboards/user:morning')).text).toContain('from what you asked for');
   });
 
+  it('"Improve this board": sua reviews it against its goal; you take the goal, apply or skip each suggestion, and look again; nothing changes until you press', async () => {
+    const app = await setup();
+    const boards = new BoardsStore(ctx.runStore.databaseHandle());
+    // On the board: news and weather (and a ghost that isn't installed). Not on it: notes.
+    const asked: Record<string, string>[] = [];
+    const review = (v: unknown) => `<review>${JSON.stringify(v)}</review>`;
+    ctx.boardReviewRun = async (inputs) => {
+      asked.push(inputs);
+      return review({ goal: 'Know the weather and the news before I leave', note: 'Nothing here keeps your notes.',
+        suggestions: [{ type: 'add-agent', agentId: 'notes', why: 'Returns your notes, which nothing on the board shows.' }, { type: 'remove', agentId: 'ghost', why: "It isn't installed, so its tile is empty." }, { type: 'add-agent', agentId: 'made-up', why: 'Not real.' }] });
+    };
+    let page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('<form method="POST" action="/boards/user%3Amorning/review" class="board-review__start"');
+    expect(page.text).toContain('>Improve this board</button>');
+    expect(page.text).not.toContain('class="board-review"');
+    const start = await post(app, '/boards/user:morning/review', {});
+    expect(start.headers.location).toBe('/dashboards/user%3Amorning');
+    await ctx.boardReviewWork;
+    // The reviewer read the goal (none yet), what is on the board and what isn't, each with what it returns.
+    expect(asked[0].GOAL).toBe('');
+    expect(JSON.parse(asked[0].BOARD)).toMatchObject({ name: 'Morning' });
+    expect(JSON.parse(asked[0].BOARD).agents.map((a: { id: string }) => a.id)).toEqual(['news', 'weather']);
+    expect(JSON.parse(asked[0].CANDIDATES).map((a: { id: string }) => a.id)).toContain('notes');
+    expect(asked[0].ROUND).toBe('1');
+    expect((await get(app, '/boards/user:morning/review.json')).body).toMatchObject({ round: 1, status: 'ready', open: 2 });
+    // The board hasn't changed. The card: the goal to take first, then each suggestion with its reason and buttons.
+    expect(boards.loadDocOrDerive('user:morning')!.doc.components.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('sua suggests');
+    expect(page.text).toContain('round 1');
+    expect(page.text).toContain('<textarea id="board-review-goal" name="goal" rows="2" maxlength="280">Know the weather and the news before I leave</textarea>');
+    expect(page.text).toContain('<span class="board-review__what">Add notes</span><span class="board-review__why">Returns your notes, which nothing on the board shows.</span>');
+    expect(page.text).toContain('<span class="board-review__what">Leave out ghost</span>');
+    expect(page.text).not.toContain('made-up');
+    expect(page.text).toContain('>Apply all 2</button>');
+    expect(page.text).toContain('>Look again</button>');
+    // Take the goal as proposed: it's sua's.
+    await post(app, '/boards/user:morning/goal', { goal: 'Know the weather and the news before I leave', proposed: 'Know the weather and the news before I leave' });
+    expect(boards.goal('user:morning')).toMatchObject({ by: 'sua' });
+    const rid = (await get(app, '/boards/user:morning/review.json')).body.id as string;
+    // Add: a new version with the tile, the dashboard follows, and Undo is there.
+    const add = await post(app, `/boards/user:morning/review/${rid}/apply`, { key: 'add-agent:notes' });
+    expect(decodeURIComponent(add.headers.location)).toContain('?ok=Applied 1 suggestion. Undo last save puts the board back.');
+    await ctx.boardReviewWork;
+    expect(boards.loadDocOrDerive('user:morning')!.doc.components.filter((c) => c.component === 'AgentTile').map((c) => c.agentId).sort()).toEqual(['ghost', 'news', 'notes', 'weather']);
+    expect(ctx.dashboardsStore!.getDashboard('user:morning')!.layout.sections.flatMap((x) => x.agentIds)).toContain('notes');
+    expect(boards.get('user:morning')!.hasPrevious).toBe(true);
+    // Skip: marked, and remembered.
+    await post(app, `/boards/user:morning/review/${rid}/skip`, { key: 'remove:ghost' });
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('<span class="board-review__state">Added</span>');
+    expect(page.text).toContain('<span class="board-review__state">Skipped</span>');
+    expect(page.text).toContain('That was all of them.');
+    expect(boards.loadDocOrDerive('user:morning')!.doc.components.some((c) => c.agentId === 'ghost')).toBe(true);
+    // Applying it again, or one from another board, does nothing.
+    expect(decodeURIComponent((await post(app, `/boards/user:morning/review/${rid}/apply`, { key: 'add-agent:notes' })).headers.location)).toContain('nothing left to apply');
+    expect(decodeURIComponent((await post(app, `/boards/user:other/review/${rid}/apply`, {})).headers.location)).toContain("isn't for this board");
+    // Look again: round 2 knows the goal, sees notes on the board, is told what was skipped, and can be done.
+    ctx.boardReviewRun = async (inputs) => { asked.push(inputs); return review({ goal: 'Ignored now', suggestions: [{ type: 'remove', agentId: 'ghost', why: 'Again.' }], note: 'It serves the goal.' }); };
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    expect(asked[1].GOAL).toBe('Know the weather and the news before I leave');
+    expect(asked[1].ROUND).toBe('2');
+    expect(JSON.parse(asked[1].BOARD).agents.map((a: { id: string }) => a.id)).toEqual(['news', 'weather', 'notes']);
+    expect(JSON.parse(asked[1].SKIPPED)).toEqual(['remove:ghost']);
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('round 2');
+    expect(page.text).toContain('Nothing more to suggest for this goal.');
+    expect(page.text).not.toContain('board-review-goal');
+    // Leave out works when taken; a reviewer that fails says so; Pulse has no review.
+    ctx.boardReviewRun = async () => review({ suggestions: [{ type: 'remove', agentId: 'weather', why: 'It repeats the news.' }] });
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    const r3 = (await get(app, '/boards/user:morning/review.json')).body.id as string;
+    await post(app, `/boards/user:morning/review/${r3}/apply`, {});
+    await ctx.boardReviewWork;
+    expect(boards.loadDocOrDerive('user:morning')!.doc.components.some((c) => c.agentId === 'weather')).toBe(false);
+    ctx.boardReviewRun = async () => 'no review here';
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    expect((await get(app, '/dashboards/user:morning')).text).toContain("The review didn't finish.");
+    expect(decodeURIComponent((await post(app, '/boards/pulse/review', {})).headers.location)).toContain('Pulse has no goal');
+    expect((await get(app, '/pulse/agents')).text).not.toContain('board-review__start');
+  });
+
   it("Pulse opens on today's edition when scheduled agents reported in the last day: a generated front page of their own views, never saved; the grid is under All agents", async () => {
     const app = await setup();
     // Nothing scheduled has run: Pulse is its grid, with no tabs.

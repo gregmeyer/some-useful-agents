@@ -955,6 +955,34 @@
 .board-page__meta { font-size: var(--font-size-sm); }
 .board-page__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .board-page__head .page-header__description { flex-basis: 100%; margin: 0; }
+/* sua's review of a board (views/board-review.ts): a goal to take, then each suggestion as a plain row with its one button. */
+.board-review { margin: 0 0 var(--space-4); padding: var(--space-4) var(--space-6); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
+.board-review__head { display: flex; align-items: baseline; gap: var(--space-3); }
+.board-review__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
+.board-review__round { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
+.board-review__goal { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
+.board-review__goal label { font-weight: var(--weight-semibold); }
+.board-review__goal textarea { width: 100%; box-sizing: border-box; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text); font: inherit; resize: vertical; }
+.board-review__list { list-style: none; margin: 0; padding: 0; }
+.board-review__item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border); }
+.board-review__list > .board-review__item:first-child { border-top: 0; padding-top: 0; }
+.board-review__sign { flex: 0 0 auto; width: 1.25rem; text-align: center; font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--color-text-muted); }
+.board-review__text { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.board-review__what { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.board-review__why, .board-review__note { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; margin: 0; }
+.board-review__acts { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.board-review__skip { border: 0; background: none; padding: var(--space-1) var(--space-2); min-height: 28px; color: var(--color-text-muted); font: inherit; font-size: var(--font-size-sm); cursor: pointer; border-radius: var(--radius-sm); }
+.board-review__skip:hover { color: var(--color-text); text-decoration: underline; }
+.board-review__skip:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.board-review__state { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
+.board-review__item.is-done .board-review__what { font-weight: var(--weight-normal, 400); color: var(--color-text-muted); }
+.board-review__foot { display: flex; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--color-border); }
+@media (max-width: 640px) {
+  .board-review { padding: var(--space-3) var(--space-4); }
+  .board-review__item { flex-wrap: wrap; }
+  .board-review__acts { flex-basis: 100%; padding-left: calc(1.25rem + var(--space-3)); }
+}
+
 /* What a board is for (ADR-0075): one line under its title; Edit opens the box. */
 .board-goal { margin: 0 0 var(--space-3); }
 .board-goal__line { display: flex; align-items: baseline; gap: var(--space-3); cursor: pointer; list-style: none; padding: var(--space-2) 0; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
