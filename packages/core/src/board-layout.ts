@@ -32,9 +32,9 @@ export const BOARD_LAYOUT_VALUES: Readonly<Record<string, string>> = {};
 
 /** What `when` can test on a board: an agent id (it has a result), `running:<id>`, `numbers:<id>` (it has a numeric output). */
 /**
- * The day's figures, on Pulse's generated edition only (ADR-0074; a board
- * you made has no such data): the count that leads, with its last days, and
- * a few other figures with theirs.
+ * A board's figures (ADR-0074, ADR-0075): numbers in its agents' results
+ * that change from day to day. The count that leads, with its last days,
+ * and a few others with theirs. Absent when no agent on the board has one.
  */
 export const BOARD_FIGURES_DATA: Record<string, string> = {
   '/board/figures/lead': 'the count that leads the day, as a Lead stat {value, label, note, href}',
@@ -320,8 +320,11 @@ export function gridDoc(agents: readonly Pick<BoardAgentShape, 'id' | 'size'>[],
 export function boardLayoutGuide(
   components: ReadonlyArray<{ name: string; summary: string; example?: Record<string, unknown> }>,
   agents: readonly BoardAgentShape[],
+  /** The board's day-by-day figures, when it has any: what leads and how many others (see BOARD_FIGURES_DATA). */
+  figures?: { lead: string; others: readonly string[] },
 ): string {
   const line = (k: string, v: string) => `- ${k}: ${v}`;
+  const figureLines = figures ? `\n\nThis board has figures that change from day to day (${[figures.lead, ...figures.others].join('; ')}):\n${Object.entries(BOARD_FIGURES_DATA).map(([k, v]) => line(k, v)).join('\n')}\n- Draw them as one band (a Panel, treatment band, titled "By the numbers"): a Lead with "stat": { "path": "/board/figures/lead" }, a DayBars with "days": { "path": "/board/figures/lead/days" } and a "title" saying what is counted, and for each of the ${String(figures.others.length)} others a Sparkline with "values": { "path": "/board/figures/others/<n>/values" } (n from 0), its "label" and "current" typed from the list above. These parts take no "when".` : '';
   const props = (c: { example?: Record<string, unknown> }) => {
     if (!c.example) return '';
     const { id: _id, component: _c, ...rest } = c.example;
@@ -335,7 +338,7 @@ Data (bind with { "path": ... }):
 ${Object.entries(BOARD_LAYOUT_DATA).map(([k, v]) => line(k, v)).join('\n')}
 
 This board's agents and the fields their latest results have (bind only to these; <field> is one of them):
-${fields || '- none'}
+${fields || '- none'}${figureLines}
 
 "when" on any component draws it only when the board has it ("!flag" for not):
 ${Object.entries(BOARD_LAYOUT_FLAGS).map(([k, v]) => line(k, v)).join('\n')}

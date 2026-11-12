@@ -199,6 +199,30 @@ describe('boards are canvases', () => {
     await post(app, `/boards/user:morning/review/${r3}/apply`, {});
     await ctx.boardReviewWork;
     expect(boards.loadDocOrDerive('user:morning')!.doc.components.some((c) => c.agentId === 'weather')).toBe(false);
+    // Content: sua is told what the board's results can be drawn as; taking one asks sua's page agent in words, and it's marked done once the page is drawn.
+    const pageAsks: Record<string, string>[] = [];
+    ctx.boardReviewRun = async (inputs) => { asked.push(inputs); return review({ suggestions: [{ type: 'content', kind: 'headline', from: 'news', why: 'Its headline says the day in a line.' }, { type: 'content', kind: 'numbers', from: 'news', why: 'No figures here.' }] }); };
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    expect(JSON.parse(asked[asked.length - 1].BOARD).canDraw).toEqual({});
+    expect((await get(app, '/boards/user:morning/review.json')).body.open).toBe(0);
+    // news has run with a headline: now it can be drawn.
+    ctx.runStore.createRun({ id: 'run-news', agentName: 'news', status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), result: JSON.stringify({ headline: 'Rain by noon', stories: [{ title: 'a' }] }), triggeredBy: 'cli' } as never);
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    expect(JSON.parse(asked[asked.length - 1].BOARD).canDraw).toEqual({ headline: ['news'], 'top-story': ['news'] });
+    const r4 = (await get(app, '/boards/user:morning/review.json')).body;
+    expect(r4.open).toBe(1);
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('headline from news</span>');
+    const comps = [{ id: 'root', component: 'Column', children: ['p'] }, { id: 'p', component: 'Panel', title: 'News', child: 't', treatment: 'feature', when: 'news' }, { id: 't', component: 'AgentTile', agentId: 'news', chrome: 'bare' }];
+    ctx.boardPageRun = async (inputs) => { pageAsks.push(inputs); return `<page>${JSON.stringify({ components: comps, about: 'the headline leads' })}</page>`; };
+    const draw = await post(app, `/boards/user:morning/review/${String(r4.id)}/apply`, { key: 'content:headline:news' });
+    expect(decodeURIComponent(draw.headers.location)).toContain('sua is drawing 1 of them on the page');
+    await ctx.boardReviewWork;
+    expect(pageAsks[0].ASK).toBe("Lead the page with the day's headline from news's result, as a lede right under the masthead. Keep everything else that is on the page.");
+    expect(JSON.parse(pageAsks[0].BOARD).for).toBe('Know the weather and the news before I leave');
+    expect(boards.get('user:morning')!.layoutMeta).toMatchObject({ layoutBy: 'you' });
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('<span class="board-review__state">Drawn</span>');
     ctx.boardReviewRun = async () => 'no review here';
     await post(app, '/boards/user:morning/review', {});
     await ctx.boardReviewWork;

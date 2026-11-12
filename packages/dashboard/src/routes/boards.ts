@@ -36,6 +36,7 @@ import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/puls
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
 import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME } from '../lib/today-edition.js';
+import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
 import { boardReviewCard, improveBoardButton } from '../views/board-review.js';
 
@@ -524,7 +525,9 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
   }
   // The board's data model (a composed page's parts bind to it; a grid carries it too, unused).
   const page = isPulse ? undefined : boardPageData({ name: r.board.name }, tiles, { runStore: ctx.runStore }, boardDocAgentIds(doc));
-  if (page && r.figures) page.data.figures = r.figures;
+  // The day-by-day figures: Today's edition brings its own; any other board's come from its agents.
+  const figures = page ? r.figures ?? boardFigures(ctx, boardDocAgentIds(doc)) : undefined;
+  if (page && figures) page.data.figures = figures;
   return {
     doc,
     composed: !isPulse && isComposedBoardDoc(doc.components),
@@ -563,8 +566,9 @@ boardsRouter.post('/boards/:id/review/:reviewId/apply', (req: Request, res: Resp
   const out = applyBoardSuggestions(ctx, id, String(req.params.reviewId), typeof key === 'string' && key ? [key] : undefined);
   if (out.redraw) ctx.boardReviewWork = out.redraw.then(() => undefined);
   const n = out.applied.length;
-  const said = out.error ?? (n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
-  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
+  const drawing = out.drawing ? `sua is drawing ${String(out.drawing)} of them on the page; ${out.drawing === 1 ? 'it is' : 'they are'} marked done when it's drawn.` : '';
+  const said = out.error ?? (n || out.drawing ? `${n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.` : ''}${n && drawing ? ' ' : ''}${drawing}${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
+  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && !out.drawing && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
 });
 
 /** Turn a suggestion down: it isn't offered again for this board. */

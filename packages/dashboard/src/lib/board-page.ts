@@ -15,6 +15,7 @@ import {
   type Agent, type AgentSignal, type Board, type BoardAgentShape, type BoardLayoutMeta, type ViewComponent,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
+import { boardFigures, figuresInWords } from './board-figures.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { buildPulseTile, withTileSignal } from '../views/pulse-tile-builder.js';
@@ -40,8 +41,8 @@ export function boardShapes(ctx: Ctx, board: { doc: { components: ViewComponent[
 }
 
 /** What the page agent reads about a board: its name, what it was built for, and its agents' shapes. Pure. */
-export function boardForPage(board: { name: string }, shapes: readonly BoardAgentShape[], about?: string): Record<string, unknown> {
-  return { name: board.name, ...(about ? { for: about } : {}), agents: shapes };
+export function boardForPage(board: { name: string }, shapes: readonly BoardAgentShape[], about?: string, figures?: { lead: string; others: readonly string[] }): Record<string, unknown> {
+  return { name: board.name, ...(about ? { for: about } : {}), agents: shapes, ...(figures ? { figures } : {}) };
 }
 
 export type BoardPageAnswer =
@@ -91,11 +92,11 @@ export async function runBoardPageAgent(ctx: Ctx, inputs: Record<string, string>
 }
 
 /** What the page agent is given for a board: it, the ready-made pages (the front page filled for it), and how to draw one. Pure. */
-export function boardPageInputs(board: { name: string }, shapes: readonly BoardAgentShape[], about?: string): Record<string, string> {
+export function boardPageInputs(board: { name: string }, shapes: readonly BoardAgentShape[], about?: string, figures?: { lead: string; others: readonly string[] }): Record<string, string> {
   return {
-    BOARD: JSON.stringify(boardForPage(board, shapes, about)),
+    BOARD: JSON.stringify(boardForPage(board, shapes, about, figures)),
     PRESETS: BOARD_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'front-page' ? `\n  filled for this board: ${JSON.stringify(frontPageDoc(shapes))}` : ''}`).join('\n'),
-    GUIDE: boardLayoutGuide([...suaComponentDocs(), ...boardComponentDocs()], shapes),
+    GUIDE: boardLayoutGuide([...suaComponentDocs(), ...boardComponentDocs()], shapes, figures),
     ERRORS: '',
     ASK: '',
     CURRENT: '',
@@ -115,8 +116,8 @@ export interface DrawnBoardPage {
  * more try with the reasons; if that try can't be drawn, the first stands.
  * With a `request` ("put the weather first"), it changes `current` to do it.
  */
-export async function drawBoardPage(board: { name: string }, shapes: readonly BoardAgentShape[], ask: (inputs: Record<string, string>) => Promise<string | undefined>, opts: { about?: string; request?: string; current?: ViewComponent[] } = {}): Promise<DrawnBoardPage> {
-  const base = { ...boardPageInputs(board, shapes, opts.about), ...(opts.request ? { ASK: opts.request, CURRENT: opts.current && isComposedBoardDoc(opts.current) ? JSON.stringify(opts.current) : '' } : {}) };
+export async function drawBoardPage(board: { name: string }, shapes: readonly BoardAgentShape[], ask: (inputs: Record<string, string>) => Promise<string | undefined>, opts: { about?: string; request?: string; current?: ViewComponent[]; figures?: { lead: string; others: readonly string[] } } = {}): Promise<DrawnBoardPage> {
+  const base = { ...boardPageInputs(board, shapes, opts.about, opts.figures), ...(opts.request ? { ASK: opts.request, CURRENT: opts.current && isComposedBoardDoc(opts.current) ? JSON.stringify(opts.current) : '' } : {}) };
   const first = parseBoardPageAnswer(await ask(base), shapes);
   const rhythm = 'components' in first && !('preset' in first) ? pageRhythm(first.components) : [];
   if (!('error' in first) && !rhythm.length) return { answer: first, tries: 1 };
@@ -152,7 +153,9 @@ export async function decideBoardPage(ctx: Ctx, boardId: string, opts: { again?:
     if (!shapes.length) return 'skipped';
     // What the board is for: said for this run, else the board's goal. Every run of the page agent gets it.
     const about = opts.about ?? boards.goal(boardId)?.text;
-    const { answer } = await drawBoardPage(board, shapes, (inputs) => runBoardPageAgent(ctx, inputs), { ...(about ? { about } : {}), ...(opts.request ? { request: opts.request, current: board.doc.components } : {}) });
+    // The board's day-by-day figures, when its agents have any: sua is told they're there to draw.
+    const fig = boardFigures(ctx, shapes.map((s) => s.id));
+    const { answer } = await drawBoardPage(board, shapes, (inputs) => runBoardPageAgent(ctx, inputs), { ...(about ? { about } : {}), ...(fig ? { figures: figuresInWords(fig) } : {}), ...(opts.request ? { request: opts.request, current: board.doc.components } : {}) });
     const now = boards.loadDocOrDerive(boardId);
     // Gone, or changed meanwhile (by hand, by a card): that stands.
     if (!now || JSON.stringify(now.doc) !== JSON.stringify(board.doc)) return 'skipped';

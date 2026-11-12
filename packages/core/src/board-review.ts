@@ -14,7 +14,12 @@ export type BoardSuggestion =
   /** An agent the person has that isn't on the board. */
   | { type: 'add-agent'; agentId: string; why: string }
   /** A tile that repeats another, never runs, or keeps failing. */
-  | { type: 'remove'; agentId: string; why: string };
+  | { type: 'remove'; agentId: string; why: string }
+  /** Something to draw on the board's page from its agents' results: the day's headline, a band of figures, the top item of a list, or a line of context. `from`: the agent whose result it comes from. */
+  | { type: 'content'; kind: BoardContentKind; from?: string; why: string };
+
+export const BOARD_CONTENT_KINDS = ['headline', 'numbers', 'top-story', 'note'] as const;
+export type BoardContentKind = typeof BOARD_CONTENT_KINDS[number];
 
 export type BoardSuggestionState = 'open' | 'applied' | 'skipped';
 export type StoredBoardSuggestion = BoardSuggestion & { key: string; state: BoardSuggestionState };
@@ -41,7 +46,7 @@ const WHY_MAX = 200;
 
 /** What a suggestion is, for telling it's the same one in a later round ("add-agent:hn-top-3"). */
 export function boardSuggestionKey(s: BoardSuggestion): string {
-  return `${s.type}:${s.agentId}`;
+  return s.type === 'content' ? `content:${s.kind}:${s.from ?? ''}` : `${s.type}:${s.agentId}`;
 }
 
 const line = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
@@ -54,7 +59,9 @@ export interface BoardReviewAnswer { goal?: string; suggestions: BoardSuggestion
  * the board; nothing the person skipped before; each once; at most
  * BOARD_REVIEW_MAX. Undefined when there is no usable answer. Pure.
  */
-export function parseBoardReview(raw: string | undefined, known: { onBoard: ReadonlySet<string>; candidates: ReadonlySet<string>; skipped?: ReadonlySet<string> }): BoardReviewAnswer | undefined {
+export function parseBoardReview(raw: string | undefined, known: { onBoard: ReadonlySet<string>; candidates: ReadonlySet<string>; skipped?: ReadonlySet<string>;
+  /** Which content the board's data can carry, and from which agents: a kind not listed here is dropped. */
+  content?: Partial<Record<BoardContentKind, ReadonlySet<string>>> }): BoardReviewAnswer | undefined {
   const block = extractTaggedJson(raw ?? '', 'review');
   if (!block) return undefined;
   let v: { goal?: unknown; suggestions?: unknown; note?: unknown; done?: unknown };
@@ -63,11 +70,20 @@ export function parseBoardReview(raw: string | undefined, known: { onBoard: Read
   const seen = new Set<string>();
   const suggestions: BoardSuggestion[] = [];
   for (const x of Array.isArray(v.suggestions) ? (v.suggestions as Array<Record<string, unknown>>) : []) {
-    if (!x || typeof x !== 'object' || typeof x.agentId !== 'string') continue;
+    if (!x || typeof x !== 'object') continue;
     const why = line(x.why, WHY_MAX);
     let s: BoardSuggestion | undefined;
-    if (x.type === 'add-agent' && known.candidates.has(x.agentId) && !known.onBoard.has(x.agentId)) s = { type: 'add-agent', agentId: x.agentId, why };
-    if (x.type === 'remove' && known.onBoard.has(x.agentId)) s = { type: 'remove', agentId: x.agentId, why };
+    if (x.type === 'content' && BOARD_CONTENT_KINDS.includes(x.kind as BoardContentKind)) {
+      const kind = x.kind as BoardContentKind;
+      const able = known.content?.[kind];
+      const from = typeof x.from === 'string' && x.from ? x.from : undefined;
+      // Only what the board's results can carry: a kind with no source, or from an agent that can't give it, is dropped. A note needs no source.
+      if (able && (kind === 'note' ? !from || known.onBoard.has(from) : !!from && able.has(from))) s = { type: 'content', kind, ...(from ? { from } : {}), why };
+    }
+    if (typeof x.agentId === 'string') {
+      if (x.type === 'add-agent' && known.candidates.has(x.agentId) && !known.onBoard.has(x.agentId)) s = { type: 'add-agent', agentId: x.agentId, why };
+      if (x.type === 'remove' && known.onBoard.has(x.agentId)) s = { type: 'remove', agentId: x.agentId, why };
+    }
     if (!s || !why) continue;
     const key = boardSuggestionKey(s);
     if (seen.has(key) || known.skipped?.has(key)) continue;

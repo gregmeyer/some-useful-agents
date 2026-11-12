@@ -27,7 +27,9 @@ The ask was to make boards goal oriented and to improve them iteratively: start 
 
 4. **Rounds are stored** (`board_reviews`). "Look again" starts the next round with what was applied and skipped. A round with nothing to suggest says so.
 
-5. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
+5. **Content is suggested too, and drawn by the board's own page agent** (amended with the third step). Beside agents, the reviewer may suggest a headline, a band of figures, the top item of a list, or a line of context. Code first works out what the board's results can carry (a string field for a headline, a list for a top item, a figure that changes by day for numbers) and drops any content suggestion outside that. Taking one hands the page agent an ask in words with the goal; the suggestion is marked done when the page is saved. Every board's data now has its agents' figures (`/board/figures`), which before only Pulse's edition had.
+
+6. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
 
 ## Consequences
 

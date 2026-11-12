@@ -33,6 +33,26 @@ describe("sua's review of a board, checked", () => {
     expect(out.suggestions.map(boardSuggestionKey)).toEqual(['add-agent:classified', 'remove:digest']);
   });
 
+  it('content is kept only when the board can carry it, from an agent that can give it', () => {
+    const can = { ...known, content: { headline: new Set(['digest']), numbers: new Set<string>(), note: new Set(['digest']) } };
+    const out = parseBoardReview(answer({ suggestions: [
+      { type: 'content', kind: 'headline', from: 'digest', why: "Its summary says the day's news in a line." },
+      { type: 'content', kind: 'headline', from: 'classified', why: 'Not on the board.' },
+      { type: 'content', kind: 'numbers', from: 'digest', why: 'No figures on this board.' },
+      { type: 'content', kind: 'top-story', from: 'digest', why: 'Not something this board can carry.' },
+      { type: 'content', kind: 'note', why: 'Scores are from 8am.' },
+      { type: 'content', kind: 'confetti', from: 'digest', why: 'Not a kind.' },
+      { type: 'content', kind: 'headline', from: 'digest', why: 'Again.' },
+    ] }), can)!;
+    expect(out.suggestions).toEqual([
+      { type: 'content', kind: 'headline', from: 'digest', why: "Its summary says the day's news in a line." },
+      { type: 'content', kind: 'note', why: 'Scores are from 8am.' },
+    ]);
+    expect(out.suggestions.map(boardSuggestionKey)).toEqual(['content:headline:digest', 'content:note:']);
+    // With nothing said about what the board can carry, no content is kept.
+    expect(parseBoardReview(answer({ suggestions: [{ type: 'content', kind: 'headline', from: 'digest', why: 'A reason here.' }] }), known)!.suggestions).toEqual([]);
+  });
+
   it('nothing to suggest is "done"; at most six; no block or bad JSON is no answer', () => {
     expect(parseBoardReview(answer({ suggestions: [], note: 'Serves the goal.' }), known)).toEqual({ suggestions: [], note: 'Serves the goal.', done: true });
     const many = { onBoard: new Set<string>(), candidates: new Set(Array.from({ length: 9 }, (_, i) => `a${String(i)}`)) };
