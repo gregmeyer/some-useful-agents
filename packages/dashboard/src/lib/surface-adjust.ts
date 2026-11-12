@@ -5,7 +5,7 @@
  * triage a compact picture of Home to propose against.
  */
 import {
-  applySurfaceOps, compileSurface, surfaceOpSchema,
+  applySurfaceOps, compileSurface, surfaceOpSchema, surfaceParts, HOME_PART_TITLES, HOME_PART_COLUMN,
   type CompiledSurface, type Item, type SurfaceOp,
 } from '@some-useful-agents/core';
 import type { HomeSurface } from './home-surface.js';
@@ -52,6 +52,9 @@ function describeOp(op: SurfaceOp, title: (id: string) => string, goal: string):
     case 'removeRegion': return { what: 'Remove section', before: op.regionId, after: 'removed' };
     case 'moveRegion': return { what: 'Move section', before: op.regionId, after: `place ${String(op.index + 1)}` };
     case 'renameRegion': return { what: 'Rename section', before: op.regionId, after: op.title };
+    case 'movePart': return { what: 'Move', before: HOME_PART_TITLES[op.part], after: op.index === 0 ? `first ${HOME_PART_COLUMN[op.part] === 'main' ? 'on the page' : 'in the side column'}` : `place ${String(op.index + 1)} ${HOME_PART_COLUMN[op.part] === 'main' ? 'on the page' : 'in the side column'}` };
+    case 'hidePart': return { what: 'Hide', before: HOME_PART_TITLES[op.part], after: 'off Home (Adjust Home brings it back)' };
+    case 'showPart': return { what: 'Show', before: HOME_PART_TITLES[op.part], after: 'back on Home' };
   }
 }
 
@@ -106,6 +109,8 @@ export function describeHomeForTriage(home: HomeSurface, maxItems = 20): string 
     surface: 'home',
     version: home.version,
     goal: home.goal,
+    // The page's parts, in order by column; Today's own sections are the regions.
+    parts: surfaceParts(home.doc).map((p) => ({ id: p.id, title: HOME_PART_TITLES[p.id], column: HOME_PART_COLUMN[p.id], ...(p.hidden ? { hidden: true as const } : {}) })),
     regions: home.doc.regions.map((r) => ({ id: r.id, title: r.title })),
     rules: home.doc.rules.map((r) => ({ id: r.id, type: r.type, label: r.label ?? r.id, match: r.match })),
     pins: home.doc.overrides.filter((o) => o.type === 'pin').map((o) => o.itemId),

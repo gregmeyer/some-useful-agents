@@ -42,11 +42,11 @@ import { homeReads } from '../lib/home-reads.js';
 import { wordedNext } from '../lib/home-next-words.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
-import { readHomeSurface, type HomeSurface } from '../lib/home-surface.js';
+import { readHomeSurface, HOME_SURFACE_ID, type HomeSurface } from '../lib/home-surface.js';
 import { homeSuggestions } from '../lib/home-suggestions.js';
 import { renderHomeGoal, renderHomeAdjust } from '../views/home-surface.js';
 import { renderHomeNotebooksButtons } from '../views/notebooks.js';
-import { SessionStore, ItemDismissals } from '@some-useful-agents/core';
+import { SessionStore, ItemDismissals, SurfaceStore, surfaceParts } from '@some-useful-agents/core';
 import { startChatTurn } from '../lib/chat-turn.js';
 import { conversationWorking, agentTurnInProgress } from '../lib/conversation-working.js';
 import { Router, type Request, type Response } from 'express';
@@ -136,7 +136,10 @@ export function sendHomePage(req: Request, res: Response): void {
   let autonomyMode: AutonomyMode = 'full';
   try { autonomyMode = ctx.inboxStore?.getAutonomyMode() ?? 'full'; } catch { /* default */ }
   const today = readHomeSurfaceSafe(ctx);
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: shelfFor(ctx), suggestions: homeSuggestions(ctx), next: wordedNext(ctx, homeNext(ctx)), reads: homeReads(ctx), flash: parseFlash(req) }));
+  // A part hidden with Adjust Home isn't read at all (and Next up isn't sent to sua to word).
+  const off = new Set(surfaceParts(today?.doc ?? {}).filter((p) => p.hidden).map((p) => p.id));
+  const next = off.has('next-up') && off.has('housekeeping') ? { next: [], tidy: [] } : off.has('next-up') ? { ...homeNext(ctx), next: [] } : wordedNext(ctx, homeNext(ctx));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: off.has('notebooks') ? undefined : shelfFor(ctx), suggestions: homeSuggestions(ctx), next, reads: off.has('reads') ? [] : homeReads(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
@@ -162,6 +165,17 @@ inboxRouter.get('/home/next', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const next = wordedNext(ctx, homeNext(ctx));
   res.json({ html: render(renderNextBody(next)), count: next.next.length, tidy: render(renderTidyBody(next)), tidyCount: next.tidy.length, tidySummary: tidySummary(next) });
+});
+
+/** "Show" beside a hidden part at the foot of Home: back on the page, as a change of yours (it's in Home's history). */
+inboxRouter.post('/home/parts/:part/show', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  try {
+    SurfaceStore.fromHandle(ctx.runStore.databaseHandle()).apply(HOME_SURFACE_ID, [{ op: 'showPart', part: String(req.params.part) }], 'user', 'You showed it again');
+    res.redirect(303, '/');
+  } catch (err) {
+    res.redirect(303, `/?flash=${encodeURIComponent(err instanceof Error ? err.message : 'That could not be shown.')}`);
+  }
 });
 
 /** "Not now" on a Next up row: hidden for a week. */

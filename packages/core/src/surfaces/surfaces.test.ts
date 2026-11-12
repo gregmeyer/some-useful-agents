@@ -254,3 +254,39 @@ describe('SurfaceStore', () => {
     expect(again.current('board:evenings')).toMatchObject({ version: 0, doc: { regions: [{ id: 'main' }] } });
   });
 });
+
+describe("Home's page parts (move, hide, show)", () => {
+  it('are the defaults until you change one: the main column, then the side column', async () => {
+    const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
+    expect(surfaceParts(DEFAULT_HOME_SURFACE).map((p) => p.id)).toEqual(['today', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks']);
+    expect(DEFAULT_HOME_SURFACE.parts).toBeUndefined();
+  });
+
+  it('a part moves within its own column, is hidden and shown again, and says who did it', async () => {
+    const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
+    const now = new Date('2026-11-11T00:00:00Z');
+    const moved = applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'movePart', part: 'ask', index: 0 }], 'user-conversation', { now });
+    expect(surfaceParts(moved).map((p) => p.id)).toEqual(['ask', 'today', 'next-up', 'housekeeping', 'reads', 'notebooks']);
+    expect(moved.parts!.find((p) => p.id === 'ask')).toEqual({ id: 'ask', by: 'user-conversation', at: now.toISOString() });
+    // Past the end is the end; the side column has its own order.
+    const side = applySurfaceOps(moved, [{ op: 'movePart', part: 'reads', index: 9 }, { op: 'movePart', part: 'next-up', index: 99 }], 'user');
+    expect(surfaceParts(side).map((p) => p.id)).toEqual(['ask', 'today', 'housekeeping', 'next-up', 'notebooks', 'reads']);
+    const hidden = applySurfaceOps(side, [{ op: 'hidePart', part: 'next-up' }], 'user');
+    expect(surfaceParts(hidden).filter((p) => p.hidden).map((p) => p.id)).toEqual(['next-up']);
+    // Hidden keeps its place for when it comes back.
+    const back = applySurfaceOps(hidden, [{ op: 'showPart', part: 'next-up' }], 'user');
+    expect(surfaceParts(back).some((p) => p.hidden)).toBe(false);
+    expect(surfaceParts(back).map((p) => p.id)).toEqual(['ask', 'today', 'housekeeping', 'next-up', 'notebooks', 'reads']);
+    // Nothing else about the surface changes.
+    expect(back.regions).toEqual(DEFAULT_HOME_SURFACE.regions);
+    expect(back.rules).toEqual(DEFAULT_HOME_SURFACE.rules);
+  });
+
+  it("Today can't be hidden, an unknown part is refused, and an agent on its own can't rearrange the page", async () => {
+    const { DEFAULT_HOME_SURFACE } = await import('./index.js');
+    expect(() => applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'today' }], 'user')).toThrow(/Today can't be hidden/);
+    expect(() => applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'sidebar' }], 'user')).toThrow(SurfaceOpError);
+    expect(() => applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'next-up' }], 'agent:tidy')).toThrow(SurfaceNeedsApproval);
+    expect(applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'next-up' }], 'agent:tidy', { approved: true }).parts!.find((p) => p.id === 'next-up')!.hidden).toBe(true);
+  });
+});

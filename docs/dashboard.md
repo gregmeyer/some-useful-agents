@@ -50,7 +50,8 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 ![Home: how things stand, your notebooks, and Today](images/home.png)
 
-Home is what needs you and what to do next, on one page, in two columns (one on a narrow screen):
+Home is what needs you and what to do next, on one page, in two columns (one on a narrow screen). **Adjust Home** can move any of its parts within its column or hide it ("hide Next up", "put Ask sua first"); a hidden part is named at the foot with **Show**. See [Home's page parts](surfaces.md#homes-page-parts).
+
 - **The header** is the same as every page's: the breadcrumb, then how things stand ("2 need you", or "Nothing needs you") beside the title. On the right: **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**) and **Full inbox**.
 - **Today**, on the left, when something needs you or is happening: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.When nothing needs you it says **All clear**. On a quiet day Today is one line ("All good: running 8 scheduled agents"): the header already says nothing needs you.
 - **Next up**, under it: up to five specific things to do next, picked from what you have. The first is set larger. Each says why it's there in a line, and has the one button that does it:

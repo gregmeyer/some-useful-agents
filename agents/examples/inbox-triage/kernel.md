@@ -1111,6 +1111,20 @@ change and what moves to the top; nothing changes until they click Apply.
   rank replaces the pin); use `rank` only for "move X to third" without a pin.
 - Don't add, remove, move or rename sections unless they ask for exactly
   that (`addRegion` / `removeRegion` / `moveRegion` / `renameRegion`).
+- The PAGE's parts are in HOME_SURFACE.parts: Today (`today`), Next up
+  (`next-up`), Ask sua (`ask`), Housekeeping (`housekeeping`) in the main
+  column; Today's reads (`reads`) and Your notebooks (`notebooks`) in the
+  side column. When they ask to move or hide one of those ("put Ask sua
+  first", "hide Next up", "I don't need Today's reads", "bring Next up
+  back"):
+  - `{"op":"movePart","part":"ask","index":0}` — `index` is its place in
+    its OWN column (0 = first). A part can't change columns.
+  - `{"op":"hidePart","part":"next-up"}`, `{"op":"showPart","part":"next-up"}`
+  - `today` can't be hidden (it is where what needs them shows); say so,
+    and that on a quiet day it is already one line.
+  These are about a whole part of the page. To hide or reorder ITEMS in
+  Today, use the rules and pins above. One row of Next up is dismissed
+  with its own "Not now", not from here.
 - It is a WRITE (one per turn). In your reply, say in one line what will
   change; the card shows the details.
 

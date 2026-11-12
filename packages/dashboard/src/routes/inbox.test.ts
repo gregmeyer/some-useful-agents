@@ -190,6 +190,45 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(bad.status).toBe(400);
   });
 
+  it("Home's parts follow Adjust Home: one moved within its column, one hidden (not read, with a way back at the foot)", async () => {
+    const app = await makeApp();
+    agentStore.createAgent({ id: 'weather', name: 'Weather', description: 'The forecast', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    agentStore.createAgent({ id: 'poem', name: 'Poem', description: 'Writes a poem', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
+    const get = () => request(app).get('/').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const ops = (list: unknown[]) => request(app).post('/surfaces/home/ops').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send({ ops: list });
+    const order = (t: string) => ['data-home-today-section', 'data-home-next', 'class="home-ask-card"', 'data-home-tidy'].map((k) => [k, t.indexOf(k)] as const).filter(([, i]) => i >= 0).sort((a, b) => a[1] - b[1]).map(([k]) => k);
+    expect(order((await get()).text)).toEqual(['data-home-today-section', 'data-home-next', 'class="home-ask-card"', 'data-home-tidy']);
+    // Ask sua first.
+    expect((await ops([{ op: 'movePart', part: 'ask', index: 0 }])).status).toBe(200);
+    const moved = await get();
+    expect(order(moved.text)).toEqual(['class="home-ask-card"', 'data-home-today-section', 'data-home-next', 'data-home-tidy']);
+    expect(moved.text).not.toContain('data-home-hidden');
+    // Next up hidden: off the page, named at the foot with Show.
+    expect((await ops([{ op: 'hidePart', part: 'next-up' }])).status).toBe(200);
+    const hidden = await get();
+    expect(hidden.text).not.toContain('data-home-next');
+    expect(hidden.text).not.toContain('next:run-agent:weather');
+    expect(hidden.text).toContain('<form method="POST" action="/home/parts/next-up/show" class="home-hidden__form"><span>Next up</span>');
+    // Today can't be hidden.
+    const no = await ops([{ op: 'hidePart', part: 'today' }]);
+    expect(no.status).toBe(400);
+    expect(no.body.error).toContain("Today can't be hidden");
+    // Show brings it back where it was; sua is told the page's parts.
+    const show = await request(app).post('/home/parts/next-up/show').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    expect(show.status).toBe(303);
+    const back = await get();
+    expect(order(back.text)).toEqual(['class="home-ask-card"', 'data-home-today-section', 'data-home-next', 'data-home-tidy']);
+    expect(back.text).not.toContain('data-home-hidden');
+    const { describeHomeForTriage, describeOps } = await import('../lib/surface-adjust.js');
+    const { readHomeSurface } = await import('../lib/home-surface.js');
+    const told = JSON.parse(describeHomeForTriage(readHomeSurface(currentCtx!))) as { parts: Array<{ id: string; title: string; column: string; hidden?: boolean }> };
+    expect(told.parts.map((x) => x.id)).toEqual(['ask', 'today', 'next-up', 'housekeeping', 'reads', 'notebooks']);
+    expect(told.parts[2]).toEqual({ id: 'next-up', title: 'Next up', column: 'main' });
+    expect(describeOps([{ op: 'movePart', part: 'ask', index: 0 }, { op: 'hidePart', part: 'next-up' }, { op: 'showPart', part: 'reads' }], [])).toEqual([
+      'Move: Ask sua → first on the page', 'Hide: Next up → off Home (Adjust Home brings it back)', "Show: Today's reads → back on Home",
+    ]);
+  });
+
   it("Home's Run pill starts a conversation about the agent with its run as a card, and the result comes back there", async () => {
     const app = await makeApp();
     agentStore.createAgent({ id: 'pinger', name: 'Pinger', description: 'Pings a URL', status: 'active', source: 'local', mcp: false,

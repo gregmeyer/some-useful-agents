@@ -552,7 +552,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   server.registerTool(
     'surface-apply',
     {
-      description: 'Change how sua\'s Home is arranged with surface ops (the same ones its Today tab uses): setGoal, addRule / removeRule (promote, hide, filter, collapse, group, represent), pin / unpin, rank, hide / show, expand / collapse, group / ungroup. Saved as a new version marked as made by this app; the person can undo it. Changes to Home\'s sections themselves (addRegion, removeRegion, moveRegion, renameRegion) are refused: the person makes those.',
+      description: 'Change how sua\'s Home is arranged with surface ops (the same ones its Today tab uses): setGoal, addRule / removeRule (promote, hide, filter, collapse, group, represent), pin / unpin, rank, hide / show, expand / collapse, group / ungroup. Saved as a new version marked as made by this app; the person can undo it. Changes to Home\'s sections themselves (addRegion, removeRegion, moveRegion, renameRegion) and to the page\'s parts (movePart, hidePart, showPart) are refused: the person makes those.',
       inputSchema: {
         ops: z.array(z.record(z.string(), z.unknown())).min(1).max(20).describe('Surface ops, e.g. [{"op":"pin","itemId":"agent:news:failing"}] or [{"op":"addRule","rule":{"id":"failing-first","type":"promote","match":{"idPrefix":"agent:","kinds":["alert"]},"label":"failing agents first"}}]. Read item and rule ids with surface-read.'),
         reason: z.string().max(280).describe('Why, in a few words; shown in Home\'s history.'),

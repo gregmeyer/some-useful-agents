@@ -10,6 +10,7 @@
  */
 import {
   surfaceDocSchema, surfaceOpSchema, actorSchema, STRUCTURAL_OPS,
+  surfaceParts, HOME_PART_COLUMN,
   type SurfaceDoc, type SurfaceOp, type SurfaceActor, type SurfaceOverride,
 } from './schema.js';
 
@@ -140,6 +141,23 @@ export function applySurfaceOps(
       }
       case 'renameRegion':
         next.regions[regionIndex(op.regionId)].title = op.title;
+        break;
+      case 'movePart': {
+        const all = surfaceParts(next);
+        const column = HOME_PART_COLUMN[op.part];
+        const mine = all.filter((p) => HOME_PART_COLUMN[p.id] === column);
+        const [moved] = mine.splice(mine.findIndex((p) => p.id === op.part), 1);
+        mine.splice(Math.min(op.index, mine.length), 0, { ...moved, ...stamp });
+        const others = all.filter((p) => HOME_PART_COLUMN[p.id] !== column);
+        next.parts = column === 'main' ? [...mine, ...others] : [...others, ...mine];
+        break;
+      }
+      case 'hidePart':
+        if (op.part === 'today') throw new SurfaceOpError("Today can't be hidden: it's where what needs you shows. On a quiet day it is already one line.");
+        next.parts = surfaceParts(next).map((p) => (p.id === op.part ? { id: p.id, hidden: true, ...stamp } : p));
+        break;
+      case 'showPart':
+        next.parts = surfaceParts(next).map((p) => (p.id === op.part ? { id: p.id, ...stamp } : p));
         break;
     }
   }
