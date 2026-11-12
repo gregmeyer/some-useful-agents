@@ -49,7 +49,13 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 
 ## Improve this board
 
-A board's goal and what sua suggests for it are one card under its title: the goal (with **Edit**) and **Improve this board** on top, and under them only what needs you now. The button keeps that name however many times you press it; each press is another look. The layout tools (**Arrange**, **Suggest a layout**, **Undo last save**, **How it looks**) sit under the card.
+A board's goal, what sua suggests for it and its layout tools are one part of the page, under the title, that folds to a single row: **Goal**, the sentence, a word on what needs you ("2 suggestions", "Approve 1 new agent"), and **Improve this board**. The button keeps that name however many times you press it; each press is another look.
+
+- It opens by itself when something needs you: a goal to confirm, open suggestions, a drafted agent to approve.
+- Otherwise it stays as you left it (open or folded, remembered per board in your browser).
+- Inside: what needs you, then **Edit goal**, then the layout tools (**Arrange**, **Suggest a layout**, **Undo last save**, **Archive**) and **How it looks**.
+
+**Running now.** When anything is running for the board, a strip above that row says so and counts the time: sua looking at the board, drafting an agent for it or redrawing its page, and any of its agents mid-run. It checks every few seconds, so a job that starts while you're on the page shows up, and when something sua was doing finishes the page redraws itself with the result. With nothing running, the strip isn't there.
 
 **Improve this board** has sua review the board against its goal. Nothing changes until you press a suggestion's button.
 

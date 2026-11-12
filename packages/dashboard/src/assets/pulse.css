@@ -955,17 +955,42 @@
 .board-page__meta { font-size: var(--font-size-sm); }
 .board-page__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .board-page__head .page-header__description { flex-basis: 100%; margin: 0; }
-/* A board's goal and what sua suggests for it, as one card: the goal and Improve on top, what needs you under it. */
-.board-goal-card { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
-.board-goal-card__top { display: flex; align-items: flex-start; gap: var(--space-4); }
-.board-goal-card__top > .board-goal { flex: 1 1 auto; min-width: 0; margin: 0; }
+/* What's running for a board, at the top of its page: plain, in the accent, and current. */
+.board-running { display: flex; align-items: center; gap: var(--space-3); margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-4); border: 1px solid var(--color-primary); border-radius: var(--radius-md); background: var(--color-primary-soft); font-size: var(--font-size-sm); }
+.board-running[hidden] { display: none; }
+.board-running__label { flex: 0 0 auto; font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
+.board-running__list { flex: 1 1 auto; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-4); }
+.board-running__list li + li::before { content: "·"; margin-right: var(--space-4); color: var(--color-text-muted); }
+.board-running__time { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+
+/* A board's goal, sua's suggestions and its layout tools, as one part that folds to a row (views/board-review.ts boardGoalCard). */
+.board-goal-card { margin: 0 0 var(--space-3); padding: 0 var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); }
+.board-goal-card[open] { padding-bottom: var(--space-3); }
+.board-goal-card[open] > :not(summary):not(script) { margin-top: var(--space-3); }
+.board-goal-card__top { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; cursor: pointer; list-style: none; min-height: 44px; }
+.board-goal-card__top::-webkit-details-marker { display: none; }
+.board-goal-card__top::before { content: "▸"; flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.board-goal-card[open] > .board-goal-card__top::before { content: "▾"; }
+.board-goal-card__top:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; border-radius: var(--radius-sm); }
+.board-goal-card__top .board-goal__text { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.board-goal-card[open] > .board-goal-card__top .board-goal__text { white-space: normal; }
 .board-goal-card__top > form { flex: 0 0 auto; }
-.board-goal-card .board-goal__line { border: 0; padding: var(--space-1) 0; }
+.board-goal-card__needs { flex: 0 0 auto; padding: 2px var(--space-2); border-radius: 999px; background: var(--color-warn-soft, var(--color-primary-soft)); border: 1px solid var(--color-border); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); white-space: nowrap; }
+.board-goal-card .board-goal { margin: 0; }
+.board-goal-card .board-goal > summary { cursor: pointer; display: inline-block; list-style: none; text-decoration: underline; }
+.board-goal-card .board-goal > summary::-webkit-details-marker { display: none; }
+.board-goal-card .board-goal > summary .board-goal__by { text-decoration: none; display: inline-block; margin-left: var(--space-2); }
 .board-goal-card .board-review { margin: 0; padding: var(--space-3) 0 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: none; }
+.board-goal-card .board-toolbar { margin: 0; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.board-goal-card .board-looks { margin-bottom: 0; }
 .board-review__label { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
 .board-review__handled > summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .board-review__handled[open] > summary { margin-bottom: var(--space-2); }
-@media (max-width: 640px) { .board-goal-card__top { flex-direction: column; align-items: stretch; } }
+@media (max-width: 640px) {
+  .board-goal-card__top { flex-wrap: wrap; }
+  .board-goal-card__top .board-goal__text { flex-basis: calc(100% - 5rem); white-space: normal; }
+  .board-running { flex-wrap: wrap; }
+}
 
 /* sua's review of a board (views/board-review.ts): a goal to take, then each suggestion as a plain row with its one button. */
 .board-review { margin: 0 0 var(--space-4); padding: var(--space-4) var(--space-6); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
