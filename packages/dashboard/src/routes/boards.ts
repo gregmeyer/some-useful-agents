@@ -34,6 +34,7 @@ import { buildPulseBoardData, pulseAgentIds } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
+import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME } from '../lib/today-edition.js';
 
 /**
  * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
@@ -59,6 +60,8 @@ export interface ResolvedBoard {
   systemTileIds?: string[];
   /** Pulse only: the Pulse page data (hidden count, dashboards, packs). */
   pulse?: ReturnType<typeof buildPulseBoardData>;
+  /** Today's edition only: its page, made for this request (there is no saved one). */
+  generated?: BoardDoc;
 }
 
 /** The agents placed on a named board (its sections, items and canvas), in placement order. */
@@ -77,11 +80,18 @@ function placedAgentIds(stored: Board | undefined, dashboard: { layout: { sectio
  */
 export function boardRunTargets(ctx: ReturnType<typeof getContext>, id: string): Set<string> {
   if (id === PULSE_BOARD_ID) return pulseAgentIds(ctx);
+  if (id === TODAY_BOARD_ID) return new Set(todayEdition(ctx)?.tiles.keys() ?? []);
   return placedAgentIds(boardsOf(ctx).get(id), ctx.dashboardsStore?.getDashboard(id));
 }
 
 /** A board with the tiles it needs, or undefined when there's no such board. */
 export function resolveBoard(ctx: ReturnType<typeof getContext>, id: string): ResolvedBoard | undefined {
+  // Today's edition (ADR-0074) is generated each time and never stored.
+  if (id === TODAY_BOARD_ID) {
+    const edition = todayEdition(ctx);
+    if (!edition) return undefined;
+    return { board: { id, name: TODAY_BOARD_NAME, packId: null, items: [], version: 0, updatedAt: 0, doc: edition.doc, derived: true }, tiles: edition.tiles, generated: edition.doc };
+  }
   const stored = boardsOf(ctx).get(id);
   if (id === PULSE_BOARD_ID) {
     const data = buildPulseBoardData(ctx);
@@ -162,6 +172,11 @@ function sendSaveError(res: Response, err: unknown): void {
 }
 
 /** Go back to the layout before the last save. Body: { version }. */
+// Today's edition is generated, not stored: there is nothing to save, arrange or undo.
+boardsRouter.post(/^\/boards\/today\//, (_req: Request, res: Response) => {
+  res.status(400).json({ error: "Today's edition is made fresh each time; it can't be arranged or saved. Arrange Pulse under All agents, or make a board." });
+});
+
 boardsRouter.post('/boards/:id/undo', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const version = (req.body ?? {}).version;
@@ -223,8 +238,21 @@ boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
 type Flash = { kind: 'ok' | 'error' | 'info'; message: string } | undefined;
 
 /** The page a board lives at: /pulse or /dashboards/<id>. */
+/** Pulse's tile grid ("All agents"); `/pulse` itself opens on today's edition when there is one. */
+export const PULSE_AGENTS_URL = '/pulse/agents';
+
+/** Pulse's two views, as tabs under its header. */
+export function pulseTabs(active: 'today' | 'agents', hasEdition: boolean): SafeHtml {
+  if (!hasEdition) return html``;
+  return html`<nav class="pulse-tabs" aria-label="Pulse views">
+    <a class="pulse-tabs__tab${active === 'today' ? ' is-active' : ''}" href="/pulse"${active === 'today' ? unsafeHtml(' aria-current="page"') : html``}>Today's edition</a>
+    <a class="pulse-tabs__tab${active === 'agents' ? ' is-active' : ''}" href="${PULSE_AGENTS_URL}"${active === 'agents' ? unsafeHtml(' aria-current="page"') : html``}>All agents</a>
+  </nav>`;
+}
+
 export function boardPageUrl(id: string): string {
-  return id === PULSE_BOARD_ID ? '/pulse' : `/dashboards/${encodeURIComponent(id)}`;
+  if (id === TODAY_BOARD_ID) return '/pulse';
+  return id === PULSE_BOARD_ID ? PULSE_AGENTS_URL : `/dashboards/${encodeURIComponent(id)}`;
 }
 
 /**
@@ -268,6 +296,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
               <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
             </form>` : html``}
         </div>
+        ${pulseTabs('agents', !!todayEdition(ctx))}
         <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Arrange to lay it out; agents you haven't placed are under Everything else.</p>
       </div>`;
     after = html`
@@ -365,8 +394,75 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     <script type="module" src="/assets/board-canvas-editor.js"></script>`));
 }
 
+/**
+ * Today's edition (ADR-0074), the page Pulse opens on: what your scheduled
+ * agents produced in the last day, laid out as a front page, each result
+ * drawn as its agent's own view. Generated per request; undefined when
+ * there's nothing to show (Pulse then opens on its grid).
+ */
+export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { flash?: Flash } = {}): string | undefined {
+  const r = resolveBoard(ctx, TODAY_BOARD_ID);
+  if (!r) return undefined;
+  const canvas = canvasFor(ctx, r, currentDoc(ctx, r));
+  const installed = ctx.dashboardsStore?.listDashboards() ?? [];
+  const archived = ctx.dashboardsStore?.listArchived() ?? [];
+  const options = buildDashboardOptions(installed);
+  const dropdown = options.length > 1 || archived.length > 0 ? renderDashboardsDropdown({ options, archived, activeHref: '/pulse' }) : html``;
+  const n = r.tiles.size;
+  const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: opts.flash }, html`
+    <div class="page-header board-page__head">
+      ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
+      <h1>Pulse</h1>
+      <span class="page-header__meta board-page__meta">${String(n)} scheduled agent${n === 1 ? '' : 's'} reported in the last day</span>
+      <div class="page-header__cta board-page__actions">
+        ${dropdown}
+        <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
+      </div>
+      ${pulseTabs('today', true)}
+      <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it. Every agent, and the board you arrange yourself, is under All agents.</p>
+    </div>
+    ${canvas.errors.length ? html`<p class="flash flash--error">Today's edition couldn't be laid out: ${canvas.errors[0]}</p>` : html``}
+    <div class="canvas-stage today-edition">
+      ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
+      <div class="a2ui-host board-canvas" data-a2ui-surface data-board-canvas="${TODAY_BOARD_ID}" data-return-to="/pulse" aria-label="${TODAY_BOARD_NAME}" data-board-composed="1" data-board-refresh-ms="${String(boardRefreshMs(Object.values(canvas.tiles)))}">${unsafeHtml(`<script type="application/json">${json(canvas.messages)}</script>`)}</div>
+    </div>
+    ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
+    ${unsafeHtml(`<script>${EDITION_ANCHOR_JS}</script>`)}`));
+}
+
+/**
+ * `/pulse#agent-<id>` (Home's reads and brief link here): once the page has
+ * drawn, scroll to that agent's part and mark it for a moment. The parts are
+ * inside nested shadow roots, so the search walks them.
+ */
+const EDITION_ANCHOR_JS = `(function(){
+  var m = /^#agent-(.+)$/.exec(location.hash || '');
+  if (!m) return;
+  var id; try { id = decodeURIComponent(m[1]); } catch (e) { return; }
+  function find(root) {
+    var all = root.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.getAttribute && el.getAttribute('data-agent-id') === id) return el;
+      if (el.shadowRoot) { var hit = find(el.shadowRoot); if (hit) return hit; }
+    }
+    return null;
+  }
+  var tries = 0;
+  (function look() {
+    var el = find(document);
+    if (!el) { if (++tries < 40) setTimeout(look, 150); return; }
+    el.scrollIntoView({ block: 'center', behavior: 'auto' });
+    var was = el.style.outline;
+    el.style.outline = '2px solid var(--color-primary)'; el.style.outlineOffset = '6px'; el.style.borderRadius = '8px';
+    setTimeout(function () { el.style.outline = was; }, 2400);
+  })();
+})();`;
+
 /** The board's canvas document: saved, else derived from its grid items / sections. */
 function currentDoc(ctx: ReturnType<typeof getContext>, r: ResolvedBoard): BoardDoc {
+  if (r.generated) return r.generated;
   return boardsOf(ctx).get(r.board.id)?.doc ?? boardDocFromItems(r.board.items);
 }
 

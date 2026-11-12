@@ -1,4 +1,4 @@
-import { renderBoardPage } from './boards.js';
+import { renderBoardPage, renderTodayEdition } from './boards.js';
 import { Router, type Request, type Response } from 'express';
 import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -187,7 +187,17 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
 }
 
 // Pulse is a board (docs/boards.md), with the toolbar to arrange it.
+// `/pulse` opens on today's edition (ADR-0074) when scheduled agents produced
+// something in the last day; else, and after an action on the grid (a flash),
+// on the grid. `/pulse/agents` is always the grid.
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const flash = parsePulseFlash(req);
+  const edition = flash ? undefined : renderTodayEdition(ctx);
+  res.type('html').send(edition ?? renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+});
+
+pulseRouter.get('/pulse/agents', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash: parsePulseFlash(req) })!);
 });
@@ -204,7 +214,7 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = withTileSignal(ctx.agentStore.getAgent(id));
   if (!agent || !agent.signal) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
     return;
   }
 
@@ -217,9 +227,9 @@ pulseRouter.post('/agents/:id/signal/toggle', (req: Request, res: Response) => {
   const currentlyVisible = agent.pulseVisible !== false;
   try {
     ctx.agentStore.updateAgentMeta(id, { pulseVisible: !currentlyVisible });
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
   } catch {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
   }
 });
 
@@ -230,7 +240,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const agent = withTileSignal(ctx.agentStore.getAgent(id));
   if (!agent) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
     return;
   }
 
@@ -244,7 +254,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
 
   // Validate template exists in registry.
   if (template && !TEMPLATE_REGISTRY[template]) {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
     return;
   }
 
@@ -254,7 +264,7 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
     try {
       mapping = JSON.parse(body.mapping);
     } catch {
-      res.redirect(303, '/pulse');
+      res.redirect(303, '/pulse/agents');
       return;
     }
   }
@@ -273,9 +283,9 @@ pulseRouter.post('/agents/:id/signal', (req: Request, res: Response) => {
   try {
     const updated = { ...agent, signal };
     ctx.agentStore.upsertAgent(updated, 'dashboard', `Update signal config via Pulse`);
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
   } catch {
-    res.redirect(303, '/pulse');
+    res.redirect(303, '/pulse/agents');
   }
 });
 
@@ -298,7 +308,7 @@ pulseRouter.post('/pulse/hide-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: false });
     hidden++;
   }
-  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
+  res.redirect(303, `/pulse/agents?ok=${encodeURIComponent(`Hid ${hidden} signal${hidden === 1 ? '' : 's'} from Pulse.`)}`);
 });
 
 /**
@@ -315,6 +325,6 @@ pulseRouter.post('/pulse/show-all', (req: Request, res: Response) => {
     ctx.agentStore.updateAgentMeta(agent.id, { pulseVisible: true });
     shown++;
   }
-  res.redirect(303, `/pulse?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
+  res.redirect(303, `/pulse/agents?ok=${encodeURIComponent(`Restored ${shown} signal${shown === 1 ? '' : 's'} to Pulse.`)}`);
 });
 
