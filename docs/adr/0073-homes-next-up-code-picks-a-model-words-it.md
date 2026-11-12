@@ -28,7 +28,9 @@ Three ways to produce that list:
 
 **Archived notebooks are patterns, not targets.** They say what kinds of notebook someone makes and about what (templates used, tags shared by several). An item may offer to start another like the latest one; it never offers to reopen or rerun an archived notebook. Archiving is how the person says "done".
 
-**Next up sits outside the Home surface.** It is not a region of the compiled surface, so "Adjust Home" can't move or hide it, and its "Not now" is a week-long dismissal of that item (stored with the item dismissals, ids prefixed `next:`), not a surface rule.
+**Next up is a part of Home's page, not a region of its Today list.** Its items aren't surface items, so rules and pins don't apply to them, and "Not now" is a week-long dismissal of that item (stored with the item dismissals, ids prefixed `next:`), not a surface rule.
+
+**The page's parts are in the surface document** (amended 2026-11-11). `parts` lists Today, Next up, Ask sua, Housekeeping (main column), Today's reads and Your notebooks (side column) in order, each optionally hidden. Three ops change it: `movePart` (within its own column), `hidePart`, `showPart`. They are structural: you make them, directly or through "Adjust Home"; an agent on its own can't. Today can't be hidden, since it is where what needs you shows. A hidden part isn't read at all (a hidden Next up starts no wording run) and is named at the foot of Home with **Show**.
 
 ## Consequences
 
@@ -36,5 +38,5 @@ Three ways to produce that list:
 - With no model, a slow model or a bad answer, Home still shows a correct list.
 - The model can't invent a recommendation. Ideas no rule would find ("you keep asking about X; make it a notebook") stay with the notebook suggester on New notebook.
 - One short model run per list per half day, only when Home is open.
-- Next up and the Home surface are two mechanisms on one page. If people want to arrange or silence Next up through "Adjust Home", it should become a region with its items as surface items; that is a later step.
+- "Adjust Home" can move or hide Next up as a whole. Arranging its individual items with rules ("never suggest scheduling") would need them to be surface items; that is a later step.
 - The number check is strict: a why that says "nine" as "9" when the facts say "9" passes, but one that rounds or adds a figure is dropped. That costs some good sentences and is the right side to err on.

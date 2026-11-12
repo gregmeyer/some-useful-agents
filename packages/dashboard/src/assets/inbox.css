@@ -3265,6 +3265,11 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-today.is-quiet { border: 0; background: none; padding: 0; }
 .home-today.is-quiet .home-today__head { display: none; }
 
+/* Parts you hid with Adjust Home, at the foot, each with a way back. */
+.home-hidden { margin: var(--space-6) 0 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.home-hidden__form { display: inline; margin: 0; }
+.home-hidden__show { border: 0; background: none; padding: 0 var(--space-1); color: var(--color-link, var(--color-primary)); font: inherit; cursor: pointer; text-decoration: underline; min-height: 24px; }
+
 /* ── Home's Today's reads (views/home-reads.ts): plain lines in the rail ── */
 .home-reads { display: grid; gap: var(--space-3); }
 .home-reads__list { list-style: none; margin: 0; padding: 0; }

@@ -68,7 +68,7 @@ Every rule and override records who added it and when.
 
 ### One way to change it
 
-`applySurfaceOps(doc, ops, actor)` is the only way a surface changes. Gestures, sua and agents all send the same ops: `setGoal`, `addRule`, `removeRule`, `pin`, `unpin`, `rank`, `group`, `ungroup`, `hide`, `show`, `expand`, `collapse`, `represent`, and the structural `addRegion`, `removeRegion`, `moveRegion` and `renameRegion`. The result is validated.
+`applySurfaceOps(doc, ops, actor)` is the only way a surface changes. (Home's page parts have three ops of their own, `movePart`, `hidePart` and `showPart`: see [Home's page parts](#homes-page-parts).) Gestures, sua and agents all send the same ops: `setGoal`, `addRule`, `removeRule`, `pin`, `unpin`, `rank`, `group`, `ungroup`, `hide`, `show`, `expand`, `collapse`, `represent`, and the structural `addRegion`, `removeRegion`, `moveRegion` and `renameRegion`. The result is validated.
 
 The actor is `user` (you, directly), `user-conversation` (you, by applying sua's preview), `agent:<id>`, or `system`. An agent or the system can change things within regions, with its name on the change. **Changes to the regions themselves wait for your approval**, so the page never rearranges itself under you.
 
@@ -143,3 +143,16 @@ sua sees Home as it is (goal, sections, rules, pins, hidden items, and the items
 - **The goal line** ("arranged by your rules, v3") stays current as Home changes, with no reload.
 - **Rows show why**: when a pin, a move or a rule put a row where it is, the reason shows under it, once for a run of rows that share it. Hover any row for its reason, or open it for all of them.
 - **Today keeps itself current**: while it's on screen, it re-reads every 20 seconds, so new failures, finished builds and answered questions move or go. It waits while you have a menu open, are dragging, or are typing in the list.
+
+## Home's page parts
+
+Home's page has six parts: **Today**, **Next up**, **Ask sua** and **Housekeeping** in the main column, **Today's reads** and **Your notebooks** in the side column. (Today's own sections, Needs you / Happening now / All good, are the surface's regions.)
+
+Ask for a change with **Adjust Home**: "put Ask sua first", "hide Next up", "I don't need Today's reads", "bring Next up back". sua shows a card with the change; nothing moves until you press **Apply**, and **What changed** lists it with an undo like any other change.
+
+- **Move**: a part moves within its own column. It can't change columns.
+- **Hide**: the part leaves the page and isn't read at all (a hidden Next up doesn't ask sua to word it). It is named at the foot of Home, "Hidden from Home: Next up **Show**", so it's one press to bring back.
+- **Today can't be hidden**: it is where what needs you shows. On a quiet day it is already one line.
+
+In the surface document these are `parts` (each `{id, hidden?}`, in order) and the ops `{"op":"movePart","part":"ask","index":0}` (`index` is its place in its column), `{"op":"hidePart","part":"next-up"}` and `{"op":"showPart","part":"next-up"}`. They are structural: you make them, directly or through sua. An agent on its own, and the MCP `surface-apply` tool, are refused.
+

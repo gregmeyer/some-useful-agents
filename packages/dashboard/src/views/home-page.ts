@@ -3,9 +3,10 @@
  * title with how things stand, autonomy and Adjust Home), then two columns. On the left: what
  * needs you (Today, only when something does), Next up (a few specific things to do next, from
  * your notebooks, agents and conversations), Ask sua, and Housekeeping folded at the foot. On
- * the right: today's reads (what your scheduled agents produced) and your notebooks. A row opens in the sua panel (home-page.js.ts).
+ * the right: today's reads (what your scheduled agents produced) and your notebooks. Adjust
+ * Home can move a part within its column or hide it (the surface document's `parts`). A row opens in the sua panel (home-page.js.ts).
  */
-import type { AutonomyMode } from '@some-useful-agents/core';
+import { surfaceParts, HOME_PART_COLUMN, HOME_PART_TITLES, type AutonomyMode, type HomePart } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageIntro } from './page-intro.js';
@@ -87,6 +88,28 @@ export function renderHomePage(opts: {
   const suggestions = opts.suggestions ?? { starters: [] };
   const next = opts.next ?? { next: [], tidy: [] };
   const quiet = todayIsQuiet(opts.today);
+  // The page's parts, in the order and with the hiding Adjust Home set (the surface document's `parts`).
+  const parts = surfaceParts(opts.today?.doc ?? {});
+  const shown = parts.filter((p) => !p.hidden);
+  const hidden = parts.filter((p) => p.hidden);
+  const main = shown.filter((p) => HOME_PART_COLUMN[p.id] === 'main');
+  const rail = shown.filter((p) => HOME_PART_COLUMN[p.id] === 'rail');
+  const part: Record<HomePart, SafeHtml> = {
+    today: html`
+          <section class="home-today${quiet ? ' is-quiet' : ''}" aria-labelledby="home-today-title" data-home-today-section>
+            <div class="home-today__head">
+              <h2 class="home-today__title" id="home-today-title">Today</h2>
+              <a class="home-today__all" href="/inbox">All conversations →</a>
+            </div>
+            <div data-home-today>${renderHomeToday(opts.today)}</div>
+            <div class="home-today__toast" data-surface-toast hidden></div>
+          </section>`,
+    'next-up': renderNextUp(next),
+    ask: renderAskCard(suggestions.starters ?? [], new Set(next.next.map((x) => x.action.fill ?? ''))),
+    housekeeping: renderHousekeeping(next),
+    reads: renderHomeReads(opts.reads ?? []),
+    notebooks: opts.shelf ?? html``,
+  };
   return render(layout({ title: 'Home', activeNav: 'inbox', flash: opts.flash }, html`
     <div class="home" data-home>
       <header class="page-header">
@@ -108,23 +131,13 @@ export function renderHomePage(opts: {
       })}
       <div class="home-grid">
         <div class="home-main" data-ask-scope>
-          <section class="home-today${quiet ? ' is-quiet' : ''}" aria-labelledby="home-today-title" data-home-today-section>
-            <div class="home-today__head">
-              <h2 class="home-today__title" id="home-today-title">Today</h2>
-              <a class="home-today__all" href="/inbox">All conversations →</a>
-            </div>
-            <div data-home-today>${renderHomeToday(opts.today)}</div>
-            <div class="home-today__toast" data-surface-toast hidden></div>
-          </section>
-          ${renderNextUp(next)}
-          ${renderAskCard(suggestions.starters ?? [], new Set(next.next.map((x) => x.action.fill ?? '')))}
-          ${renderHousekeeping(next)}
+          ${main.map((p) => part[p.id]) as unknown as SafeHtml[]}
         </div>
         <aside class="home-rail" aria-label="Today's reads and your notebooks">
-          ${renderHomeReads(opts.reads ?? [])}
-          ${opts.shelf ?? html``}
+          ${rail.map((p) => part[p.id]) as unknown as SafeHtml[]}
         </aside>
       </div>
+      ${hidden.length ? html`<p class="home-hidden" data-home-hidden>Hidden from Home: ${hidden.map((p, i) => html`${i ? ' · ' : ''}<form method="POST" action="/home/parts/${p.id}/show" class="home-hidden__form"><span>${HOME_PART_TITLES[p.id]}</span> <button type="submit" class="home-hidden__show" aria-label="Show ${HOME_PART_TITLES[p.id]} on Home again">Show</button></form>`) as unknown as SafeHtml[]}</p>` : html``}
     </div>
   `));
 }

@@ -73,13 +73,36 @@ export const overrideSchema = z.discriminatedUnion('type', [
 ]);
 export type SurfaceOverride = z.infer<typeof overrideSchema>;
 
+/**
+ * The parts of Home's page (not of its Today list, whose sections are the
+ * regions): what needs you, Next up, Ask sua and Housekeeping in the main
+ * column; Today's reads and Your notebooks beside them. You can move a part
+ * within its column and hide any but Today, which is where what needs you
+ * shows (ADR-0073).
+ */
+export const HOME_PARTS = ['today', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks'] as const;
+export type HomePart = typeof HOME_PARTS[number];
+export const HOME_PART_TITLES: Record<HomePart, string> = { today: 'Today', 'next-up': 'Next up', ask: 'Ask sua', housekeeping: 'Housekeeping', reads: "Today's reads", notebooks: 'Your notebooks' };
+/** Which column a part is in; a part moves within its own. */
+export const HOME_PART_COLUMN: Record<HomePart, 'main' | 'rail'> = { today: 'main', 'next-up': 'main', ask: 'main', housekeeping: 'main', reads: 'rail', notebooks: 'rail' };
+
+export const partSchema = z.object({ id: z.enum(HOME_PARTS), hidden: z.boolean().optional(), ...STAMP }).strict();
+export type SurfacePart = z.infer<typeof partSchema>;
+
 export const surfaceDocSchema = z.object({
   /** e.g. "only things that could change what I do today" */
   goal: z.string().max(280),
   regions: z.array(regionSchema).min(1).max(12),
   rules: z.array(ruleSchema).max(50),
   overrides: z.array(overrideSchema).max(500),
+  /** Home's page parts, in order, once you've moved or hidden one (absent = the defaults). */
+  parts: z.array(partSchema).max(HOME_PARTS.length).optional(),
 }).strict().superRefine((doc, ctx) => {
+  const parts = new Set<string>();
+  for (const p of doc.parts ?? []) {
+    if (parts.has(p.id)) ctx.addIssue({ code: 'custom', message: `The part "${p.id}" is listed twice.`, path: ['parts'] });
+    parts.add(p.id);
+  }
   const seen = new Set<string>();
   for (const r of doc.regions) {
     if (seen.has(r.id)) ctx.addIssue({ code: 'custom', message: `Two regions are called "${r.id}".`, path: ['regions'] });
@@ -126,7 +149,18 @@ export const surfaceOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('removeRegion'), regionId: z.string() }).strict(),
   z.object({ op: z.literal('moveRegion'), regionId: z.string(), index: z.number().int().min(0) }).strict(),
   z.object({ op: z.literal('renameRegion'), regionId: z.string(), title: z.string().min(1).max(60) }).strict(),
+  // Home's page parts: `index` is its place within its own column (0 = first).
+  z.object({ op: z.literal('movePart'), part: z.enum(HOME_PARTS), index: z.number().int().min(0) }).strict(),
+  z.object({ op: z.literal('hidePart'), part: z.enum(HOME_PARTS) }).strict(),
+  z.object({ op: z.literal('showPart'), part: z.enum(HOME_PARTS) }).strict(),
 ]);
 export type SurfaceOp = z.infer<typeof surfaceOpSchema>;
 
-export const STRUCTURAL_OPS: ReadonlySet<SurfaceOp['op']> = new Set(['addRegion', 'removeRegion', 'moveRegion', 'renameRegion']);
+export const STRUCTURAL_OPS: ReadonlySet<SurfaceOp['op']> = new Set(['addRegion', 'removeRegion', 'moveRegion', 'renameRegion', 'movePart', 'hidePart', 'showPart']);
+
+/** Every part of Home's page in the order it's drawn (main column first, then beside it), with what's hidden: the document's own order, then any it doesn't list in the default order. */
+export function surfaceParts(doc: Pick<SurfaceDoc, 'parts'>): SurfacePart[] {
+  const listed = doc.parts ?? [];
+  const all = [...listed, ...HOME_PARTS.filter((id) => !listed.some((p) => p.id === id)).map((id) => ({ id }))];
+  return [...all.filter((p) => HOME_PART_COLUMN[p.id] === 'main'), ...all.filter((p) => HOME_PART_COLUMN[p.id] === 'rail')];
+}
