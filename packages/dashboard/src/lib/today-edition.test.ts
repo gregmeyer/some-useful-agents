@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkBoardLayout, type Agent, type BoardAgentShape } from '@some-useful-agents/core';
-import { editionAgents, editionDoc, editionWide } from './today-edition.js';
+import { editionAgents, editionDoc, editionFigures, editionWide } from './today-edition.js';
+import type { HomeBrief } from './home-brief.js';
 
 // Today's edition: the generated front page Pulse opens on.
 
@@ -61,5 +62,28 @@ describe("Today's edition", () => {
     // A lede for an agent that isn't in the edition isn't drawn.
     expect(kids(editionDoc([shape('a')], { lede: { agentId: 'gone', headline: 'x' } }), 'root')).toEqual(['masthead', 'aside_a']);
     for (const d of [narrow, wide]) expect(checkBoardLayout(d.components, ['a', 'b', 'c', 'd']).ok).toBe(true);
+  });
+
+  it("draws the day's figures as a band under the headline: the lead count, its last days as columns, and each other figure over its trend", () => {
+    const fig = (agentId: string, label: string, kind: 'count' | 'percent', vals: number[]) => ({ agentId, agent: agentId.toUpperCase(), runId: `run-${agentId}`, key: 'k', label, kind, value: vals[vals.length - 1], text: kind === 'percent' ? `${String(vals[vals.length - 1])}%` : String(vals[vals.length - 1]), days: vals.map((value, i) => ({ day: `2026-11-${String(9 + i).padStart(2, '0')}`, value })) });
+    const brief = { headline: 'Six roles passed', lead: fig('digest', 'matches', 'count', [5, 2, 6]), figures: [fig('markets', 'NASDAQ', 'percent', [-7.42, -3.56, -1.46]), fig('gone', 'DOW', 'percent', [1, 2, 3])], agents: 3, at: 'x' } as HomeBrief;
+    const figures = editionFigures(brief, new Set(['digest', 'markets']))!;
+    expect(figures.lead).toEqual({ value: '6', label: 'matches', note: 'DIGEST', href: '/runs/run-digest', days: [{ label: 'Mon', value: 5, text: '5' }, { label: 'Tue', value: 2, text: '2' }, { label: 'Today', value: 6, text: '6' }] });
+    // Only figures of agents that are in the edition.
+    expect(figures.others).toEqual([{ value: '-1.46%', label: 'NASDAQ', note: 'MARKETS', href: '/runs/run-markets', values: [-7.42, -3.56, -1.46] }]);
+    const shapes = [shape('digest'), shape('markets')];
+    const doc = editionDoc(shapes, { lede: { agentId: 'digest', headline: brief.headline }, figures });
+    expect(checkBoardLayout(doc.components, ['digest', 'markets'])).toMatchObject({ ok: true });
+    expect(kids(doc, 'root').slice(0, 3)).toEqual(['masthead', 'lede', 'band']);
+    expect(doc.components.find((c) => c.id === 'band')).toMatchObject({ component: 'Panel', treatment: 'band', title: 'By the numbers' });
+    expect(kids(doc, 'band_row')).toEqual(['band_lead', 'band_days', 'band_fig_0']);
+    expect(doc.components.find((c) => c.id === 'band_lead')).toMatchObject({ component: 'Lead', stat: { path: '/board/figures/lead' } });
+    expect(doc.components.find((c) => c.id === 'band_days')).toEqual({ id: 'band_days', component: 'DayBars', days: { path: '/board/figures/lead/days' }, title: 'matches, last 3 days' });
+    expect(doc.components.find((c) => c.id === 'band_fig_0')).toEqual({ id: 'band_fig_0', component: 'Sparkline', values: { path: '/board/figures/others/0/values' }, label: 'NASDAQ · MARKETS', current: '-1.46%' });
+    // No brief, a lead that isn't in the edition, or under three days: no figures, and no band.
+    expect(editionFigures(undefined, new Set(['digest']))).toBeUndefined();
+    expect(editionFigures(brief, new Set(['markets']))).toBeUndefined();
+    expect(editionFigures({ ...brief, lead: fig('digest', 'matches', 'count', [5, 6]) }, new Set(['digest']))).toBeUndefined();
+    expect(editionDoc(shapes).components.some((c) => c.id === 'band')).toBe(false);
   });
 });

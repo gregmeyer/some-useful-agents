@@ -1598,6 +1598,36 @@ const Lead = define('Lead', 'sua-a2ui-lead',
     return html`${label ? html`<div class="label">${label}</div>` : nothing}<div class="value ${tone(t)}">${value}</div>${note ? html`<div class="note">${href && safeUrl(href) ? outLink(href, note) : note}</div>` : nothing}`;
   });
 
+// One number per day as columns (a count that changes from day to day: matches found, PRs open), the latest in the
+// accent. Values sit over the columns and are in each column's title, so nothing depends on the bar's height alone.
+const DayBars = define('DayBars', 'sua-a2ui-day-bars',
+  Common.extend({ days: CommonSchemas.DynamicValue, title: Str.optional() }).strict(),
+  css`
+    :host { display: block; min-width: 0; }
+    figure { margin: 0; display: grid; gap: var(--space-2, 8px); }
+    figcaption { font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-text-muted); }
+    ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-end; gap: 2px; height: 104px; }
+    li { flex: 1 1 0; min-width: 0; max-width: 64px; height: 100%; display: grid; grid-template-rows: auto 1fr auto; align-items: end; gap: 2px; text-align: center; }
+    .v { font: var(--font-size-xs)/1.2 var(--font-mono); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+    .bar { display: block; align-self: end; min-height: 4px; background: var(--color-primary-soft); border: 1px solid var(--color-border); border-bottom: 0; border-radius: 4px 4px 0 0; }
+    .d { font-size: var(--font-size-xs); color: var(--color-text-muted); border-top: 1px solid var(--color-border); padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    li.now .bar { background: var(--color-primary); border-color: var(--color-primary); }
+    li.now .v, li.now .d { color: var(--color-text); font-weight: 600; }`,
+  (p) => {
+    const days = (Array.isArray(p.days) ? p.days : []).filter((d) => d && typeof d === 'object' && Number.isFinite(Number(d.value))).slice(-14);
+    if (days.length < 3) return nothing;
+    const max = Math.max(1, ...days.map((d) => Math.max(0, Number(d.value))));
+    const said = (d) => String(d.text ?? d.value);
+    return html`<figure aria-label="${p.title ?? 'By day'}: ${days.map((d) => `${d.label ?? ''} ${said(d)}`).join(', ')}">
+      ${p.title ? html`<figcaption>${p.title}</figcaption>` : nothing}
+      <ol>${days.map((d, i) => html`<li class="${i === days.length - 1 ? 'now' : ''}" title="${d.label ?? ''}: ${said(d)}">
+        <span class="v">${said(d)}</span>
+        <span class="bar" style="height: ${Math.max(4, Math.round((Math.max(0, Number(d.value)) / max) * 100))}%"></span>
+        <span class="d">${d.label ?? ''}</span>
+      </li>`)}</ol>
+    </figure>`;
+  });
+
 // The notebook's TL;DR picture (its own data as one image, as last redrawn). It links to where it's redrawn and
 // downloaded. With no browser on the dashboard's machine to make it, there's no image: the part hides itself.
 const Picture = define('Picture', 'sua-a2ui-picture',
@@ -1966,7 +1996,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture];
+export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);

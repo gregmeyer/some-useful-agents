@@ -37,6 +37,14 @@ export interface BoardData {
   agentIds: string[];
   statItems: BoardStatItem[];
   agents: Record<string, BoardAgentData>;
+  /** Pulse's generated edition only: the day's figures (lib/today-edition.ts). */
+  figures?: BoardFigures;
+}
+
+/** The count that leads the day with its last days, and a few other figures with theirs (core BOARD_FIGURES_DATA). */
+export interface BoardFigures {
+  lead: { value: string; label: string; note: string; href: string; days: Array<{ label: string; value: number; text: string }> };
+  others: Array<{ value: string; label: string; note: string; href: string; values: number[] }>;
 }
 
 /** A value as a number, when it reads as one ("53", "-8.17", "$1,200", "12%"); never for "53°F". */

@@ -357,6 +357,12 @@ const SUA_COMPONENTS = [
     schema: Common.extend({ options: CS.DynamicValue, fields: CS.DynamicValue.optional(), by: z.string().min(1).max(64), top: z.number().int().min(2).max(20).optional(), label: z.string().max(64).optional(), empty: Str.optional() }).strict(),
   },
   {
+    name: 'DayBars',
+    summary: 'One number on each of the last days, as columns with the value over each and the day under it, the latest marked: `days` is an array of {label, value, text?} oldest first (label: "Mon" or "Today"; text: the value as it should read, "6" or "-1.46%"). `title` says what is counted ("Matches, last 7 days"). For a count that changes from day to day; needs three or more days.',
+    example: { id: 'week', component: 'DayBars', days: { path: '/board/figures/lead/days' }, title: 'Matches, last 7 days' },
+    schema: Common.extend({ days: CS.DynamicValue, title: Str.optional() }).strict(),
+  },
+  {
     name: 'Compare',
     summary: 'Two or three options side by side, their facts ruled line by line: the `top` (default 2) as the notebook ranks them, or by one field (`by`); `facts` names the field keys to show (else every short fact they have).',
     example: { id: 'cmp', component: 'Compare', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, top: 2 },

@@ -148,7 +148,7 @@ export function partialInlineWidget(text: string, imgHosts: string[] = []): { in
  */
 export function replyWidgetComponents(): string {
   const examples = suaComponentDocs()
-    .filter((d) => !['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'SanitizedHtml', 'Scatter', 'Funnel', 'Code'].includes(d.name))
+    .filter((d) => !['OptionGrid', 'Coverage', 'Checklist', 'Steps', 'Timeline', 'SanitizedHtml', 'Scatter', 'Funnel', 'Code', 'DayBars'].includes(d.name))
     // Catalog examples bind notebook or run paths; in a reply everything is under /data.
     .map((d) => `  ${JSON.stringify(d.example).replace(/"\/(notebook|outputs|series|inputs)\//g, '"/data/')}`)
     .join('\n');

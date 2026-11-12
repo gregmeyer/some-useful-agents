@@ -23,7 +23,7 @@ import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
 import { layout } from '../views/layout.js';
 import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
-import { boardPageData, boardRefreshMs } from '../lib/board-widgets.js';
+import { boardPageData, boardRefreshMs, type BoardFigures } from '../lib/board-widgets.js';
 import { setBoardLook } from '../lib/board-page.js';
 import { boardLooks } from '../views/board-look.js';
 import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, startBoardBuild } from '../lib/board-build.js';
@@ -62,6 +62,8 @@ export interface ResolvedBoard {
   pulse?: ReturnType<typeof buildPulseBoardData>;
   /** Today's edition only: its page, made for this request (there is no saved one). */
   generated?: BoardDoc;
+  /** Today's edition only: the day's figures, added to the page's data. */
+  figures?: BoardFigures;
 }
 
 /** The agents placed on a named board (its sections, items and canvas), in placement order. */
@@ -90,7 +92,7 @@ export function resolveBoard(ctx: ReturnType<typeof getContext>, id: string): Re
   if (id === TODAY_BOARD_ID) {
     const edition = todayEdition(ctx);
     if (!edition) return undefined;
-    return { board: { id, name: TODAY_BOARD_NAME, packId: null, items: [], version: 0, updatedAt: 0, doc: edition.doc, derived: true }, tiles: edition.tiles, generated: edition.doc };
+    return { board: { id, name: TODAY_BOARD_NAME, packId: null, items: [], version: 0, updatedAt: 0, doc: edition.doc, derived: true }, tiles: edition.tiles, generated: edition.doc, ...(edition.figures ? { figures: edition.figures } : {}) };
   }
   const stored = boardsOf(ctx).get(id);
   if (id === PULSE_BOARD_ID) {
@@ -493,6 +495,7 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
   }
   // The board's data model (a composed page's parts bind to it; a grid carries it too, unused).
   const page = isPulse ? undefined : boardPageData({ name: r.board.name }, tiles, { runStore: ctx.runStore }, boardDocAgentIds(doc));
+  if (page && r.figures) page.data.figures = r.figures;
   return {
     doc,
     composed: !isPulse && isComposedBoardDoc(doc.components),

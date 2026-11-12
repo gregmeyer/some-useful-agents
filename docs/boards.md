@@ -19,6 +19,7 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 - a masthead with the date, and the day's headline (the first sentence of the agent that leads Home's brief);
 - each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button;
+- **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). A board you made has no such data.
 - results with a table in the wide column; the others beside it (one with a number first, the number set large) and three abreast underneath.
 
 Nobody arranges it and nothing about it is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
