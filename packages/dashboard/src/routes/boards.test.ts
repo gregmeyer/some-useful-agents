@@ -227,7 +227,7 @@ describe('boards are canvases', () => {
     await post(app, '/boards/user:morning/review', {});
     await ctx.boardReviewWork;
     expect((await get(app, '/dashboards/user:morning')).text).toContain("The review didn't finish.");
-    expect(decodeURIComponent((await post(app, '/boards/pulse/review', {})).headers.location)).toContain('Pulse has no goal');
+    expect(decodeURIComponent((await post(app, '/boards/pulse/review', {})).headers.location)).toContain('All agents grid has no goal');
     expect((await get(app, '/pulse/agents')).text).not.toContain('board-review__start');
   });
 
@@ -281,6 +281,91 @@ describe('boards are canvases', () => {
       expect(no.body.error).toContain("can't be arranged or saved");
     }
     expect((await get(app, '/boards/today.json')).body.board).toMatchObject({ id: 'today', name: "Today's edition", version: 0 });
+  });
+
+  it("Today's edition can be improved: it has a goal, sua reviews it, and what you take becomes a preference the edition follows every day, with Undo and a way back", async () => {
+    const app = await setup();
+    const { EditionPrefsStore } = await import('@some-useful-agents/core');
+    const prefs = () => new EditionPrefsStore(ctx.runStore.databaseHandle()).get();
+    const sched = (id: string, result: unknown, schedule = '0 8 * * *') => {
+      ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, ...(schedule ? { schedule } : {}),
+        nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+      const at = new Date(Date.now() - 3600_000).toISOString();
+      ctx.runStore.createRun({ id: `run-${id}`, agentName: id, status: 'completed', startedAt: at, completedAt: at, result: JSON.stringify(result), triggeredBy: 'schedule' } as never);
+    };
+    sched('digest', { summary: 'Six roles passed all checks today.', matches: [{ title: 'Senior PM, AI', url: 'https://jobs.example/1' }] });
+    sched('hn', { headline: 'HN Top 5', stories: [{ title: 'A new SQLite release', url: 'https://news.example/1' }] });
+    sched('routine', { headline: 'Evening reset' });
+    sched('journal', { summary: 'Three entries this week.' }, '');
+    const tilesOf = (text: string) => surface(text).filter((c) => c.component === 'AgentTile').map((c) => c.agentId).sort();
+    let page = await get(app, '/pulse');
+    expect(tilesOf(page.text)).toEqual(['digest', 'hn', 'routine']);
+    expect(page.text).toContain('>Improve today&#39;s edition</button>');
+    expect(page.text).toContain('<form method="POST" action="/boards/today/goal" class="board-goal__form">');
+    expect(page.text).not.toContain('data-edition-changes');
+    // A goal, kept like any board's.
+    const goal = await post(app, '/boards/today/goal', { goal: 'Know what changed overnight' });
+    expect(decodeURIComponent(goal.headers.location)).toBe('/pulse?edition=Goal saved.');
+    expect((await get(app, goal.headers.location)).text).toContain('<span class="board-goal__text">Know what changed overnight</span>');
+    // The review reads the edition as it is drawn now, and the agents that could be brought in; no new agents, no note.
+    const asked: Record<string, string>[] = [];
+    ctx.boardReviewRun = async (inputs) => {
+      asked.push(inputs);
+      return `<review>${JSON.stringify({ note: 'Covers jobs and news.', suggestions: [
+        { type: 'content', kind: 'headline', from: 'hn', why: 'Its headline is the news of the day.' },
+        { type: 'remove', agentId: 'routine', why: 'An evening checklist says nothing about what changed overnight.' },
+        { type: 'add-agent', agentId: 'journal', why: 'Returns your entries, which nothing here shows.' },
+        { type: 'content', kind: 'top-story', from: 'hn', why: 'Its first story is the one to read.' },
+        { type: 'draft', purpose: 'A summary of overnight email that needs a reply', why: 'Not offered for the edition.' },
+        { type: 'content', kind: 'note', why: 'Not for the edition.' },
+      ] })}</review>`;
+    };
+    const start = await post(app, '/boards/today/review', {});
+    expect(start.headers.location).toBe('/pulse');
+    await ctx.boardReviewWork;
+    expect(asked[0].GOAL).toBe('Know what changed overnight');
+    expect(JSON.parse(asked[0].BOARD).name).toBe("Today's edition");
+    expect(JSON.parse(asked[0].BOARD).agents.map((a: { id: string }) => a.id).sort()).toEqual(['digest', 'hn', 'routine']);
+    expect(JSON.parse(asked[0].CANDIDATES).map((a: { id: string }) => a.id)).toContain('journal');
+    // news, weather and notes have never run: nothing to show, so not offered.
+    expect(JSON.parse(asked[0].CANDIDATES).map((a: { id: string }) => a.id)).not.toContain('notes');
+    const r = (await get(app, '/boards/today/review.json')).body;
+    expect(r).toMatchObject({ round: 1, status: 'ready', open: 4 });
+    page = await get(app, '/pulse');
+    expect(page.text).toContain('sua suggests');
+    expect(page.text).toContain('Leave out The routine');
+    expect(page.text).not.toContain('Draft a new agent');
+    // Nothing has changed yet.
+    expect(prefs()).toEqual({ hidden: [], include: [], wide: [], narrow: [] });
+    // Take them all: preferences, not a saved page.
+    const all = await post(app, `/boards/today/review/${String(r.id)}/apply`, {});
+    expect(decodeURIComponent(all.headers.location)).toBe('/pulse?edition=Applied 4 suggestions. The edition follows them from now on; Undo last change goes back.');
+    expect(prefs()).toEqual({ lead: 'hn', hidden: ['routine'], include: ['journal'], wide: [], narrow: [], topStory: 'hn' });
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).get('today')).toBeUndefined();
+    page = await get(app, all.headers.location);
+    expect(tilesOf(page.text)).toEqual(['digest', 'hn', 'journal']);
+    const comps = surface(page.text);
+    expect(comps.find((c) => c.id === 'lede')).toMatchObject({ title: 'The hn' });
+    expect(comps.find((c) => c.id === 'lede_c')).toMatchObject({ text: 'HN Top 5: A new SQLite release' });
+    expect(comps.find((c) => c.id === 'top_story_link')).toMatchObject({ component: 'Link', text: 'A new SQLite release', url: 'https://news.example/1' });
+    expect(page.text).toContain('data-edition-changes');
+    expect(page.text).toContain('Leads with The hn');
+    expect(page.text).toContain('Always shows The journal');
+    expect(page.text).toContain('<input type="hidden" name="agentId" value="routine"><span>The routine</span>');
+    expect(page.text).toContain('>Undo last change</button>');
+    expect(page.text).toContain('>Back to automatic</button>');
+    // Bring one back; undo that; reset everything; undo the reset.
+    await post(app, '/pulse/edition/show', { agentId: 'routine' });
+    expect(prefs().hidden).toEqual([]);
+    expect(decodeURIComponent((await post(app, '/pulse/edition/undo', {})).headers.location)).toContain('before your last change');
+    expect(prefs().hidden).toEqual(['routine']);
+    await post(app, '/pulse/edition/reset', {});
+    expect(prefs()).toEqual({ hidden: [], include: [], wide: [], narrow: [] });
+    expect(tilesOf((await get(app, '/pulse')).text)).toEqual(['digest', 'hn', 'routine']);
+    await post(app, '/pulse/edition/undo', {});
+    expect(prefs().lead).toBe('hn');
+    // Still nothing to arrange or save.
+    expect((await post(app, '/boards/today/doc', { doc: { components: [] } })).status).toBe(400);
   });
 
   it('Pulse: placed tiles on the canvas, the rest under "Everything else" in tabs; health tiles as A2UI; × hides', async () => {

@@ -958,6 +958,9 @@
 /* sua's review of a board (views/board-review.ts): a goal to take, then each suggestion as a plain row with its one button. */
 .board-review { margin: 0 0 var(--space-4); padding: var(--space-4) var(--space-6); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); display: grid; gap: var(--space-3); }
 .board-review__head { display: flex; align-items: baseline; gap: var(--space-3); }
+.board-review--handled { padding-top: var(--space-2); padding-bottom: var(--space-2); border-left-color: var(--color-border); }
+.board-review--handled > summary { cursor: pointer; }
+.board-review--handled[open] > summary { margin-bottom: var(--space-2); }
 .board-review__title { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
 .board-review__round { color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
 .board-review__goal { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--color-border); }
@@ -998,6 +1001,9 @@
 .board-goal__acts { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .board-goal__hint { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 @media (max-width: 640px) { .board-goal__line { flex-wrap: wrap; } .board-goal__text { flex-basis: 100%; order: 3; } }
+
+/* What you've changed about Today's edition (ADR-0076), in a line. */
+.edition-changes { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); margin: 0 0 var(--space-3); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 /* Pulse's two views (today's edition, all agents), under its header. */
 .pulse-tabs { flex-basis: 100%; display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); }

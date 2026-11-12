@@ -18,10 +18,10 @@ export interface BoardReviewCard {
 }
 
 /** The button in the board's toolbar. */
-export function improveBoardButton(boardId: string, review: BoardReview | undefined): SafeHtml {
+export function improveBoardButton(boardId: string, review: BoardReview | undefined, label = 'Improve this board'): SafeHtml {
   const running = review?.status === 'running';
   return html`<form method="POST" action="/boards/${encodeURIComponent(boardId)}/review" class="board-review__start" style="margin: 0;">
-    <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(running ? ' disabled' : '')} title="sua looks at this board against its goal and suggests what to add or leave out. Nothing changes until you press a suggestion's button.">${review ? 'Look again' : 'Improve this board'}</button>
+    <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(running ? ' disabled' : '')} title="sua looks at this board against its goal and suggests what to add or leave out. Nothing changes until you press a suggestion's button.">${review ? 'Look again' : label}</button>
   </form>`;
 }
 
@@ -67,11 +67,12 @@ export function boardReviewCard(boardId: string, c: BoardReviewCard): SafeHtml {
   }
   const open = r.suggestions.filter((s) => s.state === 'open');
   const needsGoal = !c.goal && !!r.goal;
-  return html`<section class="board-review" aria-labelledby="board-review-title">
-    <div class="board-review__head">
-      <h2 class="board-review__title" id="board-review-title">sua suggests</h2>
-      <span class="board-review__round">round ${String(r.round)}</span>
-    </div>
+  // Everything handled: the round folds to a line, so the board is what you see.
+  const handled = !open.length && !needsGoal && !c.redrawing;
+  const head = html`<h2 class="board-review__title" id="board-review-title">sua suggests</h2>
+      <span class="board-review__round">round ${String(r.round)}${handled ? ` · ${r.suggestions.length ? `${String(r.suggestions.length)} suggestion${r.suggestions.length === 1 ? '' : 's'}, all handled` : 'nothing more to suggest'}` : ''}</span>`;
+  return html`<${unsafeHtml(handled ? 'details' : 'section')} class="board-review${handled ? ' board-review--handled' : ''}" aria-labelledby="board-review-title">
+    ${handled ? html`<summary class="board-review__head">${head}</summary>` : html`<div class="board-review__head">${head}</div>`}
     ${needsGoal ? html`
       <form method="POST" action="/boards/${id}/goal" class="board-review__goal">
         <label for="board-review-goal">First, what is this board for? sua's reading of it:</label>
@@ -86,5 +87,5 @@ export function boardReviewCard(boardId: string, c: BoardReviewCard): SafeHtml {
     ${open.length > 1 ? html`<div class="board-review__foot">
       <form method="POST" action="/boards/${id}/review/${encodeURIComponent(r.id)}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm">Apply all ${String(open.length)}</button></form>
     </div>` : html``}
-  </section>`;
+  </${unsafeHtml(handled ? 'details' : 'section')}>`;
 }

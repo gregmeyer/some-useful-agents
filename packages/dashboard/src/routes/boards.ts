@@ -17,7 +17,7 @@ import {
   type Agent,
   type AgentSignal,
   type Board,
-  BOARD_GOAL_MAX, type BoardGoal,
+  BOARD_GOAL_MAX, type BoardGoal, editionPrefsSet,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
@@ -35,7 +35,7 @@ import { buildPulseBoardData, pulseAgentIds } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
-import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME } from '../lib/today-edition.js';
+import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
 import { boardReviewCard, improveBoardButton } from '../views/board-review.js';
@@ -178,8 +178,8 @@ function sendSaveError(res: Response, err: unknown): void {
 }
 
 /** Go back to the layout before the last save. Body: { version }. */
-// Today's edition is generated, not stored: there is nothing to save, arrange or undo.
-boardsRouter.post(/^\/boards\/today\//, (_req: Request, res: Response) => {
+// Today's edition is generated, not stored: there is nothing to save, arrange or undo. (Its goal and sua's review of it are kept apart from any page: ADR-0076.)
+boardsRouter.post(/^\/boards\/today\/(?!goal$|review(\/|$))/, (_req: Request, res: Response) => {
   res.status(400).json({ error: "Today's edition is made fresh each time; it can't be arranged or saved. Arrange Pulse under All agents, or make a board." });
 });
 
@@ -265,6 +265,23 @@ export function boardGoalLine(id: string, goal: BoardGoal | undefined): SafeHtml
         </div>
       </form>
     </details>`;
+}
+
+/** What you've changed about the edition, in a line, with a way back for each agent you left out. */
+function editionChanges(ctx: ReturnType<typeof getContext>): SafeHtml {
+  const p = editionPrefsOf(ctx);
+  if (!editionPrefsSet(p)) return html``;
+  const title = (id: string) => boardsOf(ctx).tileTitle(id) ?? ctx.agentStore.getAgent(id)?.name ?? id;
+  const said = [
+    p.lead ? `Leads with ${title(p.lead)}` : '', p.include.length ? `Always shows ${p.include.map(title).join(', ')}` : '',
+    p.wide.length ? `Wide: ${p.wide.map(title).join(', ')}` : '', p.narrow.length ? `Narrow: ${p.narrow.map(title).join(', ')}` : '',
+    p.numbers === false ? 'No numbers band' : '', p.topStory ? `Top item of ${title(p.topStory)}` : '', p.note ? 'Your line under the title' : '',
+  ].filter(Boolean);
+  return html`<p class="edition-changes" data-edition-changes>
+    <span class="board-goal__label">Your changes</span>
+    ${said.length ? html`<span>${said.join(' · ')}</span>` : html``}
+    ${p.hidden.length ? html`<span>Left out: ${p.hidden.map((id, i) => html`${i ? ', ' : ''}<form method="POST" action="/pulse/edition/show" class="home-hidden__form"><input type="hidden" name="agentId" value="${id}"><span>${title(id)}</span> <button type="submit" class="home-hidden__show" aria-label="Show ${title(id)} in the edition again">Show</button></form>`) as unknown as SafeHtml[]}</span>` : html``}
+  </p>`;
 }
 
 /** Pulse's tile grid ("All agents"); `/pulse` itself opens on today's edition when there is one. */
@@ -452,8 +469,16 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
         <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
       </div>
       ${pulseTabs('today', true)}
-      <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it. Every agent, and the board you arrange yourself, is under All agents.</p>
+      <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
     </div>
+    <div class="board-toolbar">
+      ${improveBoardButton(TODAY_BOARD_ID, reviewsOf(ctx).latest(TODAY_BOARD_ID), "Improve today's edition")}
+      ${editionPrefsStoreOf(ctx).canUndo() ? html`<form method="POST" action="/pulse/edition/undo" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Go back to how the edition was before your last change">Undo last change</button></form>` : html``}
+      ${editionPrefsSet(editionPrefsOf(ctx)) ? html`<form method="POST" action="/pulse/edition/reset" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Forget your changes: the edition decides everything again">Back to automatic</button></form>` : html``}
+    </div>
+    ${boardGoalLine(TODAY_BOARD_ID, boardsOf(ctx).goal(TODAY_BOARD_ID))}
+    ${boardReviewCard(TODAY_BOARD_ID, { ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId })}
+    ${editionChanges(ctx)}
     ${canvas.errors.length ? html`<p class="flash flash--error">Today's edition couldn't be laid out: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-stage today-edition">
       ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
@@ -543,13 +568,18 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
  * "How it looks" (ADR-0070): the grid, the front page, or let sua pick.
  * Saves a new version of the board and comes back to it with what happened.
  */
+/** Back to a board's page with a message. Today's edition says it on the edition (a plain flash on /pulse lands on the grid). */
+function boardBack(id: string, kind: 'ok' | 'error', message: string): string {
+  return id === TODAY_BOARD_ID ? `/pulse?edition=${encodeURIComponent(message)}` : `${boardPageUrl(id)}?${kind}=${encodeURIComponent(message)}`;
+}
+
 /** "Improve this board" / "Look again": start the next round of sua's review, in the background. */
 boardsRouter.post('/boards/:id/review', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
   const out = startBoardReview(ctx, id);
   if (out.work) { ctx.boardReviewWork = out.work; }
-  res.redirect(303, out.error ? `${boardPageUrl(id)}?error=${encodeURIComponent(out.error)}` : boardPageUrl(id));
+  res.redirect(303, out.error ? boardBack(id, 'error', out.error) : boardPageUrl(id));
 });
 
 /** The latest round's state, for the page to check back while it runs. */
@@ -568,7 +598,7 @@ boardsRouter.post('/boards/:id/review/:reviewId/apply', (req: Request, res: Resp
   const n = out.applied.length;
   const drawing = [out.drawing ? `sua is drawing ${String(out.drawing)} of them on the page; ${out.drawing === 1 ? 'it is' : 'they are'} marked done when it's drawn.` : '', out.drafting ? `sua is drafting ${String(out.drafting)} new agent${out.drafting === 1 ? '' : 's'}; you'll be asked to approve ${out.drafting === 1 ? 'it' : 'them'} before anything is added.` : ''].filter(Boolean).join(' ');
   const said = out.error ?? (n || out.drawing || out.drafting ? `${n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.` : ''}${n && drawing ? ' ' : ''}${drawing}${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
-  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && !out.drawing && !out.drafting && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
+  res.redirect(303, boardBack(id, out.error || (!n && !out.drawing && !out.drafting && out.refused.length) ? 'error' : 'ok', id === TODAY_BOARD_ID && n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. The edition follows ${n === 1 ? 'it' : 'them'} from now on; Undo last change goes back.${out.refused.length ? ` ${out.refused[0].why}` : ''}` : said));
 });
 
 /** Turn a suggestion down: it isn't offered again for this board. */
@@ -589,7 +619,7 @@ boardsRouter.post('/boards/:id/goal', (req: Request, res: Response) => {
   // Taken as sua proposed it (from a review): it's sua's; changed at all, it's yours.
   const asProposed = typeof body.proposed === 'string' && body.proposed.trim() !== '' && body.proposed.replace(/\s+/g, ' ').trim() === text.replace(/\s+/g, ' ').trim();
   const kept = boardsOf(ctx).setGoal(id, text, asProposed ? 'sua' : 'you');
-  res.redirect(303, `${boardPageUrl(id)}?ok=${encodeURIComponent(kept ? 'Goal saved.' : 'Goal cleared.')}`);
+  res.redirect(303, boardBack(id, 'ok', kept ? 'Goal saved.' : 'Goal cleared.'));
 });
 
 boardsRouter.post('/boards/:id/look', async (req: Request, res: Response) => {

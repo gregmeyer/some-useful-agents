@@ -1,4 +1,6 @@
 import { renderBoardPage, renderTodayEdition } from './boards.js';
+import { editionPrefsStoreOf } from '../lib/today-edition.js';
+import { applyEditionOps } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -193,8 +195,28 @@ export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
 pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const flash = parsePulseFlash(req);
-  const edition = flash ? undefined : renderTodayEdition(ctx);
+  // `?edition=` is a message about the edition itself: it stays on the edition.
+  const said = typeof req.query.edition === 'string' ? { kind: 'ok' as const, message: req.query.edition } : undefined;
+  const edition = flash ? undefined : renderTodayEdition(ctx, said ? { flash: said } : {});
   res.type('html').send(edition ?? renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+});
+
+/** Undo the last change to the edition's preferences, forget them all, or bring back an agent you left out (ADR-0076). */
+pulseRouter.post('/pulse/edition/undo', (req: Request, res: Response) => {
+  const back = editionPrefsStoreOf(getContext(req.app.locals)).undo();
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(back ? 'Back to how it was before your last change.' : 'There was nothing to undo.')}`);
+});
+pulseRouter.post('/pulse/edition/reset', (req: Request, res: Response) => {
+  const store = editionPrefsStoreOf(getContext(req.app.locals));
+  store.save(applyEditionOps(store.get(), [{ op: 'reset' }], new Set()));
+  res.redirect(303, `/pulse?edition=${encodeURIComponent("Back to the automatic edition. Undo last change brings your changes back.")}`);
+});
+pulseRouter.post('/pulse/edition/show', (req: Request, res: Response) => {
+  const store = editionPrefsStoreOf(getContext(req.app.locals));
+  const id = String((req.body as { agentId?: unknown } | undefined)?.agentId ?? '');
+  const cur = store.get();
+  if (cur.hidden.includes(id)) store.save({ ...cur, hidden: cur.hidden.filter((x) => x !== id) });
+  res.redirect(303, '/pulse');
 });
 
 pulseRouter.get('/pulse/agents', (req: Request, res: Response) => {
