@@ -178,12 +178,38 @@ describe('drafting the missing agents behind one approval', { timeout: 30_000 },
     expect(ctx.agentStore.getAgent('calendar-today')!.status).toBe('draft');
     expect(JSON.stringify(new BoardsStore(ctx.runStore.databaseHandle()).loadDocOrDerive('user:morning')!.doc)).toBe(before);
     expect(ctx.inboxStore!.list({ source: 'board' }).find((m) => m.title.startsWith('Approve'))!.title).toBe('Approve 1 new agent for your board "Morning"?');
+    // It waits on you where you'll see it: marked so in the inbox (the top bar's "need you" counts it, Home lists it), and
+    // on the board, in the same card you pressed Draft it in, with Approve right there. No separate banner to find.
+    const ask = ctx.inboxStore!.list({ source: 'board' }).find((m) => m.title.startsWith('Approve'))!;
+    expect(ask.status).toBe('awaiting_user');
+    expect(ctx.inboxStore!.countNeedsYou()).toBe(1);
     const waiting = (await get(app, '/dashboards/user:morning')).text;
-    expect(waiting).toContain('waiting for your approval');
-    expect(waiting).toContain('Drafted: approve it to add it');
+    expect(waiting).toContain('data-board-draft-ready');
+    expect(waiting).toContain('Ready for you to approve');
+    expect(waiting).toContain('<span class="board-review__what">Calendar today</span>');
+    expect(waiting).toContain(`<form method="POST" action="/boards/builds/${String(build.id)}/approve" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Approve and add to the board</button></form>`);
+    expect(waiting).toContain('href="/agents/calendar-today">Look at it first</a>');
+    expect(waiting.indexOf('data-board-draft-ready')).toBeGreaterThan(waiting.indexOf('data-board-goal-card'));
+    expect(waiting).not.toContain('class="flash flash--info board-build"');
+    expect(waiting).toContain('Sent to be drafted');
     // Approve adds it to the board.
     await postForm(app, `/boards/builds/${String(build.id)}/approve`);
-    expect((await get(app, '/dashboards/user:morning')).text).toContain('"agentId":"calendar-today"');
+    const approved = (await get(app, '/dashboards/user:morning')).text;
+    expect(approved).toContain('"agentId":"calendar-today"');
+    // Decided: the card stops asking, and nothing waits on you.
+    expect(approved).not.toContain('data-board-draft-ready');
+    expect(ctx.inboxStore!.countNeedsYou()).toBe(0);
+    // While a draft is being written, the card says so and checks back by itself.
+    const { BoardBuildStore } = await import('@some-useful-agents/core');
+    const builds = new BoardBuildStore(ctx.runStore.databaseHandle());
+    const writing = builds.create('user:morning', 'Know my day', { keepName: true, origin: 'review' });
+    builds.update(writing.id, { phase: 'drafting', detail: 'Drafting agent 1 of 1: a thing…' });
+    const during = (await get(app, '/dashboards/user:morning')).text;
+    expect(during).toContain('data-board-draft-running="user:morning"');
+    expect(during).toContain('Drafting agent 1 of 1: a thing…');
+    expect(during).toContain("/build.json'");
+    builds.update(writing.id, { phase: 'failed', error: 'the critic gave up', detail: 'The draft stopped.' });
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('the critic gave up');
 
     // A new build: the planner is told what each agent returns, and the board arrives with a review.
     ctx.runStore.createRun({ id: 'run-weather', agentName: 'weather', status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), result: JSON.stringify({ headline: 'Rain by noon', high_f: 61, hours: [1, 2, 3] }), triggeredBy: 'cli' } as never);

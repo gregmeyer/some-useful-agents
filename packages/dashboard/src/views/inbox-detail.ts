@@ -323,7 +323,7 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
 
   // A board build's drafted agents: the one approval, right here in the inbox.
   let approvalBlock = html``;
-  if (message.contextJson && message.status === 'open') {
+  if (message.contextJson && (message.status === 'open' || message.status === 'awaiting_user')) {
     try {
       const c = JSON.parse(message.contextJson) as { kind?: string; buildId?: string };
       if (c.kind === 'board-agents-approval' && typeof c.buildId === 'string') approvalBlock = boardApprovalButtons(c.buildId);
