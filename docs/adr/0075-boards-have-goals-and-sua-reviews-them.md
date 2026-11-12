@@ -29,7 +29,11 @@ The ask was to make boards goal oriented and to improve them iteratively: start 
 
 5. **Content is suggested too, and drawn by the board's own page agent** (amended with the third step). Beside agents, the reviewer may suggest a headline, a band of figures, the top item of a list, or a line of context. Code first works out what the board's results can carry (a string field for a headline, a list for a top item, a figure that changes by day for numbers) and drops any content suggestion outside that. Taking one hands the page agent an ask in words with the goal; the suggestion is marked done when the page is saved. Every board's data now has its agents' figures (`/board/figures`), which before only Pulse's edition had.
 
-6. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
+6. **New agents can be suggested, and go through the approval that exists** (amended with the fourth step). When the goal needs something no agent the person has returns, the reviewer may suggest drafting one (two a round at most), with a purpose someone could build from. Taking it records a build of that board that only drafts (`origin: 'review'`) and reuses the drafter, the critic and the single approval item from board builds. The board doesn't change until the draft is approved.
+
+7. **A build ends with the first review, and its planner sees what agents return.** The request is the goal, so round 1 can run without asking. The planner's catalog now carries each agent's latest fields and first line.
+
+8. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
 
 ## Consequences
 

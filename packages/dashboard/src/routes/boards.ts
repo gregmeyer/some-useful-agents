@@ -359,7 +359,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   const recentlyBuilt = build && !building && !awaitingApproval && Date.now() - build.updatedAt < 6 * 3_600_000 && (r.board.version <= 1);
   const buildBanner = building
     ? html`<div class="flash flash--info board-build" data-board-build="${id}" role="status" aria-live="polite">
-        <strong>Building this board from your request.</strong> <span data-board-build-detail>${build!.detail}</span>
+        <strong>${build!.origin === 'review' ? 'sua is drafting for this board.' : 'Building this board from your request.'}</strong> <span data-board-build-detail>${build!.detail}</span>
         <span class="dim"> You can leave; your inbox will say when it's ready.</span>
       </div>
       ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-build]');if(!el)return;var id=el.getAttribute('data-board-build');function tick(){fetch('/boards/'+encodeURIComponent(id)+'/build.json',{headers:{Accept:'application/json'}}).then(function(r){return r.json();}).then(function(b){if(!b||!b.phase)return;if(b.phase==='done'||b.phase==='failed'){location.reload();return;}var d=el.querySelector('[data-board-build-detail]');if(d)d.textContent=b.detail||'';setTimeout(tick,3000);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,3000);})();</script>`)}`
@@ -566,9 +566,9 @@ boardsRouter.post('/boards/:id/review/:reviewId/apply', (req: Request, res: Resp
   const out = applyBoardSuggestions(ctx, id, String(req.params.reviewId), typeof key === 'string' && key ? [key] : undefined);
   if (out.redraw) ctx.boardReviewWork = out.redraw.then(() => undefined);
   const n = out.applied.length;
-  const drawing = out.drawing ? `sua is drawing ${String(out.drawing)} of them on the page; ${out.drawing === 1 ? 'it is' : 'they are'} marked done when it's drawn.` : '';
-  const said = out.error ?? (n || out.drawing ? `${n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.` : ''}${n && drawing ? ' ' : ''}${drawing}${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
-  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && !out.drawing && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
+  const drawing = [out.drawing ? `sua is drawing ${String(out.drawing)} of them on the page; ${out.drawing === 1 ? 'it is' : 'they are'} marked done when it's drawn.` : '', out.drafting ? `sua is drafting ${String(out.drafting)} new agent${out.drafting === 1 ? '' : 's'}; you'll be asked to approve ${out.drafting === 1 ? 'it' : 'them'} before anything is added.` : ''].filter(Boolean).join(' ');
+  const said = out.error ?? (n || out.drawing || out.drafting ? `${n ? `Applied ${String(n)} suggestion${n === 1 ? '' : 's'}. Undo last save puts the board back.` : ''}${n && drawing ? ' ' : ''}${drawing}${out.refused.length ? ` ${out.refused[0].why}` : ''}` : out.refused[0]?.why ?? 'There was nothing left to apply.');
+  res.redirect(303, `${boardPageUrl(id)}?${out.error || (!n && !out.drawing && !out.drafting && out.refused.length) ? 'error' : 'ok'}=${encodeURIComponent(said)}`);
 });
 
 /** Turn a suggestion down: it isn't offered again for this board. */

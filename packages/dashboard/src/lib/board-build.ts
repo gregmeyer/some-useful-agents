@@ -33,6 +33,9 @@ import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import { decideBoardPage, boardPageIsItsOwn } from './board-page.js';
+import { runOutputObject } from './daily-digest.js';
+import { readLine } from './home-reads.js';
+import { startBoardReview } from './board-review.js';
 
 type Ctx = ReturnType<typeof getContext>;
 export const BOARD_BUILDER_AGENT_ID = 'board-builder';
@@ -74,7 +77,20 @@ export function boardCatalog(ctx: Ctx): Array<Record<string, unknown>> {
       ...(a.sampleQuestions?.length ? { examples: a.sampleQuestions.slice(0, 3) } : {}),
       ...(needsInput(a) ? { needsInput: true } : {}),
       kind: TEMPLATE_REGISTRY[normalizeSignal(a.signal!).template] ? normalizeSignal(a.signal!).template : 'widget',
+      ...returned(ctx, a),
     }));
+}
+
+/** What an agent's latest result holds (field names and kinds) and says (its first line), so the planner picks by what it returns. */
+function returned(ctx: Ctx, a: Agent): { returns?: string[]; latest?: string; lastRunAt?: string } {
+  try {
+    const run = ctx.runStore.listRuns({ agentName: a.id, status: 'completed', limit: 1 })[0];
+    if (!run) return {};
+    const obj = runOutputObject(run.result).obj;
+    const returns = obj ? Object.entries(obj).slice(0, 8).map(([k, v]) => `${k} (${Array.isArray(v) ? `list ${String(v.length)}` : typeof v})`) : [];
+    const latest = readLine(run.result, 110);
+    return { ...(returns.length ? { returns } : {}), ...(latest ? { latest } : {}), lastRunAt: (run.completedAt ?? run.startedAt).slice(0, 10) };
+  } catch { return {}; }
 }
 
 /** Start building: the dashboard exists straight away (showing progress); the work runs in the background. */
@@ -247,6 +263,10 @@ function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[
       contextJson: JSON.stringify({ kind: 'board-build', buildId, boardId: build.boardId }),
     });
   } catch { /* the board page still shows the outcome */ }
+  // A new board arrives with sua's first look at it against what you asked for (ADR-0075). Not in page tests without a stand-in reviewer.
+  if (!failedBuild && (ctx.boardReviewRun || !process.env.VITEST)) {
+    try { const started = startBoardReview(ctx, build.boardId); if (started.work) ctx.boardReviewWork = started.work; } catch { /* Improve this board is still there */ }
+  }
 }
 
 /** After a restart: builds that were mid-way can't resume; say so. */
@@ -264,6 +284,24 @@ export function latestBoardBuild(ctx: Ctx, boardId: string): BoardBuild | undefi
 }
 
 // ── Drafting the missing agents (one approval) ───────────────────────────
+
+/**
+ * Draft agents for an existing board (a review's "draft" suggestion,
+ * ADR-0075): the same drafter, critic and single approval as a build's
+ * missing parts, recorded as a build of this board that only drafts. The
+ * board itself doesn't change until the drafts are approved. Returns the
+ * work, for callers that wait on it.
+ */
+export function draftForBoard(ctx: Ctx, boardId: string, missing: Array<{ purpose: string; suggestedName?: string }>, goal: string): { buildId: string; work: Promise<void> } {
+  const builds = buildsOf(ctx);
+  const name = ctx.dashboardsStore?.getDashboard(boardId)?.name ?? new BoardsStore(ctx.runStore.databaseHandle()).loadOrDerive(boardId)?.name ?? boardId;
+  const build = builds.create(boardId, goal || `What "${name}" is for`, { keepName: true, origin: 'review' });
+  builds.update(build.id, { phase: 'drafting', missing, detail: `Drafting ${String(missing.length)} new agent${missing.length === 1 ? '' : 's'} for this board…` });
+  const work = draftMissing(ctx, build.id, { request: build.request, name, missing }).catch((err: unknown) => {
+    try { builds.update(build.id, { phase: 'failed', error: err instanceof Error ? err.message : 'Drafting failed.', detail: 'The draft stopped.' }); } catch { /* the store is gone */ }
+  });
+  return { buildId: build.id, work };
+}
 
 /** How long one draft may take (drafter + critic retries). */
 const DRAFT_TIMEOUT_MS = 8 * 60_000;
