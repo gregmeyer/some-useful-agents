@@ -17,14 +17,6 @@ export interface BoardReviewCard {
   redrawing?: boolean;
 }
 
-/** The button in the board's toolbar. */
-export function improveBoardButton(boardId: string, review: BoardReview | undefined, label = 'Improve this board'): SafeHtml {
-  const running = review?.status === 'running';
-  return html`<form method="POST" action="/boards/${encodeURIComponent(boardId)}/review" class="board-review__start" style="margin: 0;">
-    <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(running ? ' disabled' : '')} title="sua looks at this board against its goal and suggests what to add or leave out. Nothing changes until you press a suggestion's button.">${review ? 'Look again' : label}</button>
-  </form>`;
-}
-
 /** A content suggestion, as its row says it. */
 const CONTENT_WHAT: Record<string, (from: string) => string> = {
   headline: (from) => `Lead with the day's headline${from ? ` from ${from}` : ''}`,
@@ -38,7 +30,7 @@ function suggestion(boardId: string, review: BoardReview, s: StoredBoardSuggesti
   const add = s.type !== 'remove';
   const what = s.type === 'draft' ? `Draft a new agent: ${s.suggestedName ?? s.purpose}` : s.type === 'content' ? CONTENT_WHAT[s.kind](s.from ? title(s.from) : '') : s.type === 'add-agent' ? `Add ${title(s.agentId)}` : `Leave out ${title(s.agentId)}`;
   const state = s.state === 'applied' ? (s.type === 'draft' ? 'Drafted: approve it to add it' : s.type === 'content' ? 'Drawn' : add ? 'Added' : 'Left out') : s.state === 'skipped' ? 'Skipped' : '';
-  const why = s.type === 'draft' && s.suggestedName ? `${s.purpose}. ${s.why}` : s.why;
+  const why = s.type === 'draft' && s.suggestedName ? `${s.purpose.replace(/[.\s]+$/, '')}. ${s.why}` : s.why;
   return html`
     <li class="board-review__item${s.state !== 'open' ? ' is-done' : ''}" data-review-suggestion="${s.key}">
       <span class="board-review__sign" aria-hidden="true">${s.type === 'draft' ? '?' : add ? '+' : '−'}</span>
@@ -50,42 +42,63 @@ function suggestion(boardId: string, review: BoardReview, s: StoredBoardSuggesti
     </li>`;
 }
 
-export function boardReviewCard(boardId: string, c: BoardReviewCard): SafeHtml {
+/**
+ * A board's goal and what sua suggests for it, as ONE card (the page had a
+ * goal line, a toolbar button and a suggestions box). Top row: the goal
+ * (with Edit) and "Improve this board", which keeps that name however many
+ * times it has run. Under it, only what needs you now: a goal to take, open
+ * suggestions with their buttons, or one line on how the last look went.
+ * What you've already handled is folded away.
+ */
+export function boardGoalCard(boardId: string, c: BoardReviewCard & { goalLine: SafeHtml; label?: string; extra?: SafeHtml }): SafeHtml {
   const r = c.review;
-  if (!r) return html``;
   const id = encodeURIComponent(boardId);
+  const running = r?.status === 'running';
+  const improve = html`<form method="POST" action="/boards/${id}/review" class="board-review__start" style="margin: 0;">
+    <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(running ? ' disabled' : '')} title="sua looks at this against its goal and suggests an agent you have, or a new one, that helps you meet it. Nothing changes until you press a suggestion's button.">${c.label ?? 'Improve this board'}</button>
+  </form>`;
+  return html`<section class="board-goal-card" data-board-goal-card>
+    <div class="board-goal-card__top">${c.goalLine}${improve}</div>
+    ${reviewBody(boardId, c)}
+    ${c.extra ?? html``}
+  </section>`;
+}
+
+function reviewBody(boardId: string, c: BoardReviewCard): SafeHtml {
+  const r = c.review;
+  const id = encodeURIComponent(boardId);
+  if (!r) return html``;
   if (r.status === 'running') {
-    return html`<section class="board-review" aria-label="sua suggests" data-board-review-running="${boardId}">
-      ${working({ size: 'panel', title: 'sua is looking at this board', text: 'Reading what its agents return and what else you have, against what the board is for.', since: new Date(r.createdAt).toISOString() })}
+    return html`<div class="board-review" data-board-review-running="${boardId}">
+      ${working({ text: 'sua is looking at this against its goal: what its agents return, and what else you have or could build.' })}
       ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-review-running]');if(!el)return;var id=el.getAttribute('data-board-review-running');function tick(){fetch('/boards/'+encodeURIComponent(id)+'/review.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j&&j.status&&j.status!=='running'){location.reload();return;}setTimeout(tick,3000);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,3000);})();</script>`)}
-    </section>`;
+    </div>`;
   }
-  if (r.status === 'failed') {
-    return html`<section class="board-review" aria-label="sua suggests">
-      <p class="board-review__note"><strong>The review didn't finish.</strong> ${r.error ?? ''}</p>
-    </section>`;
-  }
+  if (r.status === 'failed') return html`<div class="board-review"><p class="board-review__note"><strong>The review didn't finish.</strong> ${r.error ?? ''}</p></div>`;
   const open = r.suggestions.filter((s) => s.state === 'open');
+  const handledOnes = r.suggestions.filter((s) => s.state !== 'open');
   const needsGoal = !c.goal && !!r.goal;
-  // Everything handled: the round folds to a line, so the board is what you see.
-  const handled = !open.length && !needsGoal && !c.redrawing;
-  const head = html`<h2 class="board-review__title" id="board-review-title">sua suggests</h2>
-      <span class="board-review__round">round ${String(r.round)}${handled ? ` · ${r.suggestions.length ? `${String(r.suggestions.length)} suggestion${r.suggestions.length === 1 ? '' : 's'}, all handled` : 'nothing more to suggest'}` : ''}</span>`;
-  return html`<${unsafeHtml(handled ? 'details' : 'section')} class="board-review${handled ? ' board-review--handled' : ''}" aria-labelledby="board-review-title">
-    ${handled ? html`<summary class="board-review__head">${head}</summary>` : html`<div class="board-review__head">${head}</div>`}
+  const handled = handledOnes.length ? html`<details class="board-review__handled">
+      <summary>${String(handledOnes.length)} already handled</summary>
+      <ul class="board-review__list">${handledOnes.map((s) => suggestion(boardId, r, s, c.title)) as unknown as SafeHtml[]}</ul>
+    </details>` : html``;
+  return html`<div class="board-review" aria-label="sua suggests">
     ${needsGoal ? html`
       <form method="POST" action="/boards/${id}/goal" class="board-review__goal">
-        <label for="board-review-goal">First, what is this board for? sua's reading of it:</label>
+        <label for="board-review-goal">First, what is this for? sua's reading of it:</label>
         <textarea id="board-review-goal" name="goal" rows="2" maxlength="280">${r.goal ?? ''}</textarea>
         <input type="hidden" name="proposed" value="${r.goal ?? ''}">
         <div class="board-review__acts"><button type="submit" class="btn btn--sm btn--primary">Use this goal</button><span class="board-review__why">Change the words first if they're off. The suggestions below assume it.</span></div>
       </form>` : html``}
     ${c.redrawing ? html`<p class="board-review__note" role="status"><span class="working__spin" aria-hidden="true"></span>sua is redrawing this board's page with the change.</p>` : html``}
-    ${r.suggestions.length ? html`<ul class="board-review__list">${r.suggestions.map((s) => suggestion(boardId, r, s, c.title)) as unknown as SafeHtml[]}</ul>` : html``}
+    ${open.length ? html`
+      <p class="board-review__label">sua suggests</p>
+      <ul class="board-review__list">${open.map((s) => suggestion(boardId, r, s, c.title)) as unknown as SafeHtml[]}</ul>` : html``}
     ${r.note ? html`<p class="board-review__note">${r.note}</p>` : html``}
-    ${!open.length ? html`<p class="board-review__note"><strong>${r.suggestions.length ? 'That was all of them.' : 'Nothing more to suggest for this goal.'}</strong>${r.suggestions.length ? ' Look again for another round.' : ''}</p>` : html``}
+    ${!open.length ? html`<p class="board-review__note"><strong>${r.suggestions.length ? 'That was all of them.' : 'Nothing more to suggest for this goal.'}</strong></p>` : html``}
     ${open.length > 1 ? html`<div class="board-review__foot">
       <form method="POST" action="/boards/${id}/review/${encodeURIComponent(r.id)}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm">Apply all ${String(open.length)}</button></form>
     </div>` : html``}
-  </${unsafeHtml(handled ? 'details' : 'section')}>`;
+    ${handled}
+  </div>`;
 }

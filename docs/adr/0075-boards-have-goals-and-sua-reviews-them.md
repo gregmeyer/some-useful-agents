@@ -33,7 +33,9 @@ The ask was to make boards goal oriented and to improve them iteratively: start 
 
 7. **A build ends with the first review, and its planner sees what agents return.** The request is the goal, so round 1 can run without asking. The planner's catalog now carries each agent's latest fields and first line.
 
-8. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
+8. **The goal decides, and a gap becomes a suggestion** (amended after first use). On a real board the second round said what the goal lacked ("no agent covers tech news beyond this one source") and suggested nothing: it treated drafting as rare and reported the gap as a note. The reviewer is now told that every round offers at least one agent, existing or new, that moves the board toward its goal; that a gap no agent fills is what a draft is for; and that it may say "done" only when the goal is fully served or the person turned down what would fill the gap. On the page, the goal, the button and the suggestions are one card, and the button stays "Improve this board" on every press.
+
+9. **Each board is its own canvas.** A review changes that board's own document; there is no shared template that improved boards converge on.
 
 ## Consequences
 

@@ -98,14 +98,27 @@ nodes:
             top. "from": an id listed under canDraw["top-story"].
           "note": one line of context under the title that the goal
             calls for and no agent states. Rarely needed.
-      - "draft": a NEW agent to build, when the goal clearly needs
-        something that nothing on the board and no candidate returns.
-        "purpose": what it should return, in one plain sentence someone
-        could build from ("For each of today's top five HN stories, a
-        two-line summary of what it is and why people are discussing
-        it"). "suggestedName": a short name. At most two, and only when
-        it would change what the person learns from the board; building
-        one costs time and needs their approval.
+      - "draft": a NEW agent to build, when the goal needs something that
+        nothing on the board and no candidate returns. "purpose": what it
+        should return, in one plain sentence someone could build from
+        ("For each of today's top five HN stories, a two-line summary of
+        what it is and why people are discussing it"). "suggestedName": a
+        short name. At most two.
+
+      THE GOAL DECIDES. Read the goal as what the person wants to walk
+      away knowing, then ask what on the board gets them there and what
+      is still missing:
+      - If a candidate returns the missing thing, suggest adding it.
+      - If no candidate does, suggest a "draft" for it. A gap in the goal
+        with no agent to fill it is exactly what a draft is for; do not
+        leave it as a remark in "note".
+      - Every round should offer at least one agent, existing or new,
+        that moves the board toward its goal, unless the board already
+        gives the person everything the goal asks for.
+      - "done": true ONLY when the goal is fully served. Never set it,
+        and never return an empty list, while your note says something
+        the goal needs is not covered. The one exception: the thing that
+        would fill the gap is in ALREADY TURNED DOWN.
 
         Suggest content only for a kind BOARD.canDraw lists, and not for
         something the page plainly shows already. A board of plain tiles
