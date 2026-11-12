@@ -364,6 +364,45 @@ describe('boards are canvases', () => {
     expect(tilesOf((await get(app, '/pulse')).text)).toEqual(['digest', 'hn', 'routine']);
     await post(app, '/pulse/edition/undo', {});
     expect(prefs().lead).toBe('hn');
+    // Asking in words: sua is given the edition as it is, proposes changes, and nothing changes until you apply.
+    await post(app, '/pulse/edition/reset', {});
+    const edits: Record<string, string>[] = [];
+    ctx.editionEditorRun = async (inputs) => { edits.push(inputs); return `<edition>${JSON.stringify({ ops: [{ op: 'lead', agentId: 'digest' }, { op: 'hide', agentId: 'routine' }], say: 'The job digest will lead and the routine will be left out.' })}</edition>`; };
+    page = await get(app, '/pulse');
+    expect(page.text).toContain('<form method="POST" action="/pulse/edition/ask" class="edition-ask"');
+    expect((await post(app, '/pulse/edition/ask', { text: '  lead with jobs,\n drop the routine ' })).headers.location).toBe('/pulse');
+    await ctx.boardReviewWork;
+    expect(edits[0].ASK).toBe('lead with jobs, drop the routine');
+    const seen = JSON.parse(edits[0].EDITION) as { goal: string; showing: Array<{ id: string; title: string; column: string }>; couldShow: Array<{ id: string }>; numbersBand: boolean };
+    expect(seen.goal).toBe('Know what changed overnight');
+    expect(seen.showing.map((x) => x.id).sort()).toEqual(['digest', 'hn', 'routine']);
+    expect(seen.couldShow.map((x) => x.id)).toContain('journal');
+    expect(seen.numbersBand).toBe(true);
+    expect((await get(app, '/pulse/edition/ask.json')).body).toMatchObject({ status: 'ready' });
+    expect(prefs()).toEqual({ hidden: [], include: [], wide: [], narrow: [] });
+    page = await get(app, '/pulse');
+    expect(page.text).toContain('You asked');
+    expect(page.text).toContain('<span class="board-review__what">Lead with The digest</span>');
+    expect(page.text).toContain('<span class="board-review__what">Leave out The routine</span>');
+    expect(page.text).toContain('>Apply all 2</button>');
+    const askId = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    const applied = await post(app, `/pulse/edition/ask/${askId}/apply`, {});
+    expect(decodeURIComponent(applied.headers.location)).toBe('/pulse?edition=Lead with The digest; Leave out The routine. The edition follows them from now on; Undo last change goes back.');
+    expect(prefs()).toMatchObject({ lead: 'digest', hidden: ['routine'] });
+    expect((await get(app, '/pulse')).text).not.toContain('You asked');
+    // Applying it twice does nothing; one that names nothing real says why and changes nothing; Discard forgets a proposal.
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${askId}/apply`, {})).headers.location)).toContain('nothing to apply');
+    ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'lead', agentId: 'made-up' }] })}</edition>`;
+    await post(app, '/pulse/edition/ask', { text: 'lead with the thing' });
+    await ctx.boardReviewWork;
+    page = await get(app, '/pulse');
+    expect(page.text).toContain("That couldn't be worked out.");
+    expect(page.text).toContain('no agent');
+    const bad = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    await post(app, `/pulse/edition/ask/${bad}/discard`, {});
+    expect((await get(app, '/pulse/edition/ask.json')).body).toEqual({ status: 'none' });
+    expect(prefs()).toMatchObject({ lead: 'digest', hidden: ['routine'] });
+    expect(decodeURIComponent((await post(app, '/pulse/edition/ask', { text: '   ' })).headers.location)).toContain('Say what to change');
     // Still nothing to arrange or save.
     expect((await post(app, '/boards/today/doc', { doc: { components: [] } })).status).toBe(400);
   });

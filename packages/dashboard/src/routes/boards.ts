@@ -39,6 +39,8 @@ import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, edition
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
 import { boardReviewCard, improveBoardButton } from '../views/board-review.js';
+import { working } from '../views/working.js';
+import type { EditionAsk } from '../lib/edition-ask.js';
 
 /**
  * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
@@ -267,6 +269,29 @@ export function boardGoalLine(id: string, goal: BoardGoal | undefined): SafeHtml
     </details>`;
 }
 
+/** A change asked for in words: being worked out, ready to apply (each change in plain words), or why it couldn't be. */
+function editionAskCard(a: EditionAsk | undefined): SafeHtml {
+  if (!a) return html``;
+  const base = `/pulse/edition/ask/${encodeURIComponent(a.id)}`;
+  if (a.status === 'running') {
+    return html`<section class="board-review" aria-label="Your change" data-edition-ask-running>
+      ${working({ size: 'panel', title: 'sua is working out that change', said: a.ask, text: 'Nothing changes until you apply it.', since: new Date(a.at).toISOString() })}
+      ${unsafeHtml(`<script>(function(){function tick(){fetch('/pulse/edition/ask.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j&&j.status!=='running'){location.reload();return;}setTimeout(tick,2500);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,2500);})();</script>`)}
+    </section>`;
+  }
+  const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${a.status === 'ready' && a.ops.length ? 'Discard' : 'OK'}</button></form>`;
+  return html`<section class="board-review" aria-labelledby="edition-ask-title">
+    <div class="board-review__head"><h2 class="board-review__title" id="edition-ask-title">You asked</h2><span class="board-review__round">“${a.ask}”</span></div>
+    ${a.status === 'failed' ? html`<p class="board-review__note"><strong>That couldn't be worked out.</strong> ${a.error ?? ''}</p>` : html``}
+    ${a.say ? html`<p class="board-review__note">${a.say}</p>` : html``}
+    ${a.changes.length ? html`<ul class="board-review__list">${a.changes.map((c) => html`<li class="board-review__item"><span class="board-review__sign" aria-hidden="true">→</span><div class="board-review__text"><span class="board-review__what">${c}</span></div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
+    <div class="board-review__foot">
+      ${a.status === 'ready' && a.ops.length ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply ${a.changes.length === 1 ? 'it' : `all ${String(a.changes.length)}`}</button></form>` : html``}
+      ${discard}
+    </div>
+  </section>`;
+}
+
 /** What you've changed about the edition, in a line, with a way back for each agent you left out. */
 function editionChanges(ctx: ReturnType<typeof getContext>): SafeHtml {
   const p = editionPrefsOf(ctx);
@@ -473,11 +498,16 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
     </div>
     <div class="board-toolbar">
       ${improveBoardButton(TODAY_BOARD_ID, reviewsOf(ctx).latest(TODAY_BOARD_ID), "Improve today's edition")}
+      <form method="POST" action="/pulse/edition/ask" class="edition-ask" role="search" aria-label="Change the edition by asking">
+        <input type="text" name="text" maxlength="500" required placeholder="Ask for a change: lead with markets, drop the evening routine…" aria-label="What to change about the edition">
+        <button type="submit" class="btn btn--sm">Ask sua</button>
+      </form>
       ${editionPrefsStoreOf(ctx).canUndo() ? html`<form method="POST" action="/pulse/edition/undo" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Go back to how the edition was before your last change">Undo last change</button></form>` : html``}
       ${editionPrefsSet(editionPrefsOf(ctx)) ? html`<form method="POST" action="/pulse/edition/reset" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Forget your changes: the edition decides everything again">Back to automatic</button></form>` : html``}
     </div>
     ${boardGoalLine(TODAY_BOARD_ID, boardsOf(ctx).goal(TODAY_BOARD_ID))}
     ${boardReviewCard(TODAY_BOARD_ID, { ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId })}
+    ${editionAskCard(ctx.editionAsk)}
     ${editionChanges(ctx)}
     ${canvas.errors.length ? html`<p class="flash flash--error">Today's edition couldn't be laid out: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-stage today-edition">

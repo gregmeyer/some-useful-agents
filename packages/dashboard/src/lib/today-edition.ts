@@ -166,6 +166,12 @@ export function editionFigures(brief: HomeBrief | undefined, inEdition: Readonly
   };
 }
 
+/** The agents whose result is in the wide column of an edition page (its story column, or a full-width feature). Pure. */
+export function editionWideNow(doc: BoardDoc): Set<string> {
+  const featured = new Set(doc.components.filter((c) => c.component === 'Panel' && c.treatment === 'feature' && String(c.id).startsWith('feature_')).map((c) => String(c.id)));
+  return new Set(doc.components.filter((c) => c.component === 'AgentTile' && [...featured].some((id) => String(c.id).startsWith(id))).map((c) => String(c.agentId)));
+}
+
 /** How you want the edition (ADR-0076): the stored preferences its generator follows. */
 export const editionPrefsStoreOf = (ctx: Ctx) => new EditionPrefsStore(ctx.runStore.databaseHandle());
 export function editionPrefsOf(ctx: Ctx): EditionPrefs {

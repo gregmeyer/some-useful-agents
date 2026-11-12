@@ -1,5 +1,6 @@
 import { renderBoardPage, renderTodayEdition } from './boards.js';
 import { editionPrefsStoreOf } from '../lib/today-edition.js';
+import { applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
 import { applyEditionOps } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
@@ -199,6 +200,26 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const said = typeof req.query.edition === 'string' ? { kind: 'ok' as const, message: req.query.edition } : undefined;
   const edition = flash ? undefined : renderTodayEdition(ctx, said ? { flash: said } : {});
   res.type('html').send(edition ?? renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+});
+
+/** Change the edition by asking (ADR-0076): sua works out the changes; you apply or discard them. */
+pulseRouter.post('/pulse/edition/ask', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const out = startEditionAsk(ctx, String((req.body as { text?: unknown } | undefined)?.text ?? ''));
+  if (out.work) ctx.boardReviewWork = out.work;
+  res.redirect(303, out.error ? `/pulse?edition=${encodeURIComponent(out.error)}` : '/pulse');
+});
+pulseRouter.get('/pulse/edition/ask.json', (req: Request, res: Response) => {
+  const a = getContext(req.app.locals).editionAsk;
+  res.json(a ? { id: a.id, status: a.status } : { status: 'none' });
+});
+pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) => {
+  const out = applyEditionAsk(getContext(req.app.locals), String(req.params.id));
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
+});
+pulseRouter.post('/pulse/edition/ask/:id/discard', (req: Request, res: Response) => {
+  discardEditionAsk(getContext(req.app.locals), String(req.params.id));
+  res.redirect(303, '/pulse');
 });
 
 /** Undo the last change to the edition's preferences, forget them all, or bring back an agent you left out (ADR-0076). */

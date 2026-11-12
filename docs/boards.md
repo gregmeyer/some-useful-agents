@@ -26,6 +26,7 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 - It has a **Goal**, like a board.
 - **Improve today's edition** has sua review it against the goal and suggest what to leave out, which of your other agents to bring in, which result should lead, and whether to show a top item. Taking a suggestion saves a preference; the edition is made with it from then on. New agents aren't drafted for the edition.
+- **Ask for a change** in the box beside it, in your own words: "lead with markets", "drop the evening routine", "always show my journal", "put the job digest in the wide column", "no numbers band", "add the line: scores are from 8am". sua works out the changes and shows them, each in plain words; nothing changes until you press **Apply**. If part of what you asked isn't something the edition can do (three columns, colours, a new chart), it does the rest and says so; that part is what a board is for.
 - **Your changes** lists them in a line, with **Show** beside each agent you left out. **Undo last change** goes back one step; **Back to automatic** forgets them all (Undo brings them back).
 - A preference that can't be met today is skipped for today: if the agent you chose to lead hasn't reported, the day's figures lead, and it leads again when it's back.
 
