@@ -39,6 +39,7 @@ import { renderHomePage, todayIsQuiet, renderHomeToday, homeStatus } from '../vi
 import { renderNextBody, renderTidyBody, tidySummary } from '../views/home-next.js';
 import { homeNext, dismissNext } from '../lib/home-next.js';
 import { homeReads } from '../lib/home-reads.js';
+import { homeBrief } from '../lib/home-brief.js';
 import { wordedNext } from '../lib/home-next-words.js';
 import { notebookCardForThread } from '../lib/notebook-card.js';
 import type { NotebookCard } from '../views/notebooks.js';
@@ -139,7 +140,7 @@ export function sendHomePage(req: Request, res: Response): void {
   // A part hidden with Adjust Home isn't read at all (and Next up isn't sent to sua to word).
   const off = new Set(surfaceParts(today?.doc ?? {}).filter((p) => p.hidden).map((p) => p.id));
   const next = off.has('next-up') && off.has('housekeeping') ? { next: [], tidy: [] } : off.has('next-up') ? { ...homeNext(ctx), next: [] } : wordedNext(ctx, homeNext(ctx));
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: off.has('notebooks') ? undefined : shelfFor(ctx), suggestions: homeSuggestions(ctx), next, reads: off.has('reads') ? [] : homeReads(ctx), flash: parseFlash(req) }));
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: off.has('notebooks') ? undefined : shelfFor(ctx), suggestions: homeSuggestions(ctx), next, reads: off.has('reads') ? [] : homeReads(ctx), brief: off.has('brief') ? undefined : homeBrief(ctx), flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */
@@ -164,7 +165,8 @@ inboxRouter.get('/home/today', (req: Request, res: Response) => {
 inboxRouter.get('/home/next', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const next = wordedNext(ctx, homeNext(ctx));
-  res.json({ html: render(renderNextBody(next)), count: next.next.length, tidy: render(renderTidyBody(next)), tidyCount: next.tidy.length, tidySummary: tidySummary(next) });
+  const flat = String(req.query.flat ?? '') === '1';
+  res.json({ html: render(renderNextBody(next, flat)), count: next.next.length, tidy: render(renderTidyBody(next)), tidyCount: next.tidy.length, tidySummary: tidySummary(next) });
 });
 
 /** "Show" beside a hidden part at the foot of Home: back on the page, as a change of yours (it's in Home's history). */

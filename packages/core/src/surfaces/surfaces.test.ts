@@ -258,7 +258,7 @@ describe('SurfaceStore', () => {
 describe("Home's page parts (move, hide, show)", () => {
   it('are the defaults until you change one: the main column, then the side column', async () => {
     const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
-    expect(surfaceParts(DEFAULT_HOME_SURFACE).map((p) => p.id)).toEqual(['today', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks']);
+    expect(surfaceParts(DEFAULT_HOME_SURFACE).map((p) => p.id)).toEqual(['today', 'brief', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks']);
     expect(DEFAULT_HOME_SURFACE.parts).toBeUndefined();
   });
 
@@ -266,17 +266,17 @@ describe("Home's page parts (move, hide, show)", () => {
     const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
     const now = new Date('2026-11-11T00:00:00Z');
     const moved = applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'movePart', part: 'ask', index: 0 }], 'user-conversation', { now });
-    expect(surfaceParts(moved).map((p) => p.id)).toEqual(['ask', 'today', 'next-up', 'housekeeping', 'reads', 'notebooks']);
+    expect(surfaceParts(moved).map((p) => p.id)).toEqual(['ask', 'today', 'brief', 'next-up', 'housekeeping', 'reads', 'notebooks']);
     expect(moved.parts!.find((p) => p.id === 'ask')).toEqual({ id: 'ask', by: 'user-conversation', at: now.toISOString() });
     // Past the end is the end; the side column has its own order.
     const side = applySurfaceOps(moved, [{ op: 'movePart', part: 'reads', index: 9 }, { op: 'movePart', part: 'next-up', index: 99 }], 'user');
-    expect(surfaceParts(side).map((p) => p.id)).toEqual(['ask', 'today', 'housekeeping', 'next-up', 'notebooks', 'reads']);
+    expect(surfaceParts(side).map((p) => p.id)).toEqual(['ask', 'today', 'brief', 'housekeeping', 'next-up', 'notebooks', 'reads']);
     const hidden = applySurfaceOps(side, [{ op: 'hidePart', part: 'next-up' }], 'user');
     expect(surfaceParts(hidden).filter((p) => p.hidden).map((p) => p.id)).toEqual(['next-up']);
     // Hidden keeps its place for when it comes back.
     const back = applySurfaceOps(hidden, [{ op: 'showPart', part: 'next-up' }], 'user');
     expect(surfaceParts(back).some((p) => p.hidden)).toBe(false);
-    expect(surfaceParts(back).map((p) => p.id)).toEqual(['ask', 'today', 'housekeeping', 'next-up', 'notebooks', 'reads']);
+    expect(surfaceParts(back).map((p) => p.id)).toEqual(['ask', 'today', 'brief', 'housekeeping', 'next-up', 'notebooks', 'reads']);
     // Nothing else about the surface changes.
     expect(back.regions).toEqual(DEFAULT_HOME_SURFACE.regions);
     expect(back.rules).toEqual(DEFAULT_HOME_SURFACE.rules);
@@ -288,5 +288,15 @@ describe("Home's page parts (move, hide, show)", () => {
     expect(() => applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'sidebar' }], 'user')).toThrow(SurfaceOpError);
     expect(() => applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'next-up' }], 'agent:tidy')).toThrow(SurfaceNeedsApproval);
     expect(applySurfaceOps(DEFAULT_HOME_SURFACE, [{ op: 'hidePart', part: 'next-up' }], 'agent:tidy', { approved: true }).parts!.find((p) => p.id === 'next-up')!.hidden).toBe(true);
+  });
+});
+
+describe("a part added after a document was saved", () => {
+  it('goes where the defaults put it, after the part it follows, not at the end', async () => {
+    const { surfaceParts, DEFAULT_HOME_SURFACE } = await import('./index.js');
+    // Saved before the brief existed, with Ask sua first.
+    const old = { ...DEFAULT_HOME_SURFACE, parts: [{ id: 'ask' as const }, { id: 'today' as const }, { id: 'next-up' as const, hidden: true }, { id: 'housekeeping' as const }, { id: 'reads' as const }, { id: 'notebooks' as const }] };
+    expect(surfaceParts(old).map((p) => p.id)).toEqual(['ask', 'today', 'brief', 'next-up', 'housekeeping', 'reads', 'notebooks']);
+    expect(surfaceParts(old).find((p) => p.id === 'next-up')!.hidden).toBe(true);
   });
 });

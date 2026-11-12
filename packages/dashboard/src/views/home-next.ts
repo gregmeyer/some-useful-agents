@@ -38,17 +38,19 @@ function row(item: NextItem): SafeHtml {
 }
 
 /** Next up's body, for the page and its refresh (GET /home/next). Empty when there's nothing to offer. */
-export function renderNextBody(n: HomeNext): SafeHtml {
+export function renderNextBody(n: HomeNext, flat = false): SafeHtml {
   if (!n.next.length) return html``;
+  // Under the day's brief (the page's one large item), every item is a row.
+  if (flat) return html`<ul class="home-next__rows">${n.next.map(row) as unknown as SafeHtml[]}</ul>`;
   const [first, ...rest] = n.next;
   return html`${lead(first)}${rest.length ? html`<ul class="home-next__rows">${rest.map(row) as unknown as SafeHtml[]}</ul>` : html``}`;
 }
 
-export function renderNextUp(n: HomeNext): SafeHtml {
+export function renderNextUp(n: HomeNext, flat = false): SafeHtml {
   return html`
-    <section class="home-next" aria-labelledby="home-next-title" data-home-next${n.next.length ? '' : ' hidden'}>
+    <section class="home-next" aria-labelledby="home-next-title" data-home-next${flat ? ' data-next-flat' : ''}${n.next.length ? '' : ' hidden'}>
       <h2 class="home-today__title" id="home-next-title">Next up</h2>
-      <div data-home-next-body>${renderNextBody(n)}</div>
+      <div data-home-next-body>${renderNextBody(n, flat)}</div>
     </section>`;
 }
 
