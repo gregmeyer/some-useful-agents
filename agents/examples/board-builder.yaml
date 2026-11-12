@@ -28,7 +28,9 @@ inputs:
     description: >
       JSON array of the agents that can be a tile, injected by the dashboard:
       [{ "id", "title", "description"?, "examples"?: [...], "needsInput"?: true,
-      "inputs"?: [{ "name", "default"? }], "lastRunAt"? }].
+      "kind", "returns"?: ["field (kind)"], "latest"?, "lastRunAt"? }].
+      "returns" is what its latest result holds; "latest" is that result's
+      first line.
 
 nodes:
   - id: plan
@@ -49,6 +51,9 @@ nodes:
       - Use only ids from CATALOG, exactly as written. Pick agents whose title,
         description or examples genuinely match part of the request; don't pad the
         board with loosely related agents. Fewer, relevant tiles beat many.
+      - Judge an agent by what it RETURNS ("returns", "latest") when it has
+        run, not only by its name. Two agents that return the same thing in
+        a different shape are one thing: place the better one, not both.
       - Group tiles into 1–5 sections with short titles in the person's terms
         ("Weather", "Markets", "Job leads"). Order sections and tiles by what the
         person most likely looks at first.

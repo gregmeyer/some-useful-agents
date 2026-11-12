@@ -1,7 +1,8 @@
 # Board Reviewer — looks at one board against what it is for and suggests
 # what would make it serve that better: agents the person already has that
 # belong on it, tiles that should come off, and content to draw from what
-# its agents return (a headline, a band of figures, a top story). The dashboard gives it the
+# its agents return (a headline, a band of figures, a top story), and new
+# agents to draft for what nothing they have covers. The dashboard gives it the
 # board and the candidates (lib/board-review.ts), checks every suggestion
 # (only agents that exist), and shows them on the board for the person to
 # apply one by one. Route-dispatched only; never proposed in triage.
@@ -97,6 +98,15 @@ nodes:
             top. "from": an id listed under canDraw["top-story"].
           "note": one line of context under the title that the goal
             calls for and no agent states. Rarely needed.
+      - "draft": a NEW agent to build, when the goal clearly needs
+        something that nothing on the board and no candidate returns.
+        "purpose": what it should return, in one plain sentence someone
+        could build from ("For each of today's top five HN stories, a
+        two-line summary of what it is and why people are discussing
+        it"). "suggestedName": a short name. At most two, and only when
+        it would change what the person learns from the board; building
+        one costs time and needs their approval.
+
         Suggest content only for a kind BOARD.canDraw lists, and not for
         something the page plainly shows already. A board of plain tiles
         ("composed": false) usually gains most from a headline, and from
@@ -113,5 +123,5 @@ nodes:
 
       Reply with only this, as valid JSON:
       <review>
-      {"goal": "", "suggestions": [{"type": "add-agent", "agentId": "", "why": ""}, {"type": "remove", "agentId": "", "why": ""}, {"type": "content", "kind": "headline", "from": "", "why": ""}], "note": "", "done": false}
+      {"goal": "", "suggestions": [{"type": "add-agent", "agentId": "", "why": ""}, {"type": "remove", "agentId": "", "why": ""}, {"type": "content", "kind": "headline", "from": "", "why": ""}, {"type": "draft", "purpose": "", "suggestedName": "", "why": ""}], "note": "", "done": false}
       </review>

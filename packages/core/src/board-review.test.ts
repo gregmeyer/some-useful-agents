@@ -53,6 +53,21 @@ describe("sua's review of a board, checked", () => {
     expect(parseBoardReview(answer({ suggestions: [{ type: 'content', kind: 'headline', from: 'digest', why: 'A reason here.' }] }), known)!.suggestions).toEqual([]);
   });
 
+  it('a new agent to draft needs a purpose someone could build from; two at most; none where drafting is off', () => {
+    const out = parseBoardReview(answer({ suggestions: [
+      { type: 'draft', purpose: 'For each top story, two lines on what it is and why people are discussing it', suggestedName: 'HN story briefs', why: 'No agent you have says why a story matters.' },
+      { type: 'draft', purpose: 'short', why: 'Too vague.' },
+      { type: 'draft', purpose: 'The comment threads with the most replies today', why: 'Nothing returns the discussion.' },
+      { type: 'draft', purpose: 'A third thing that would be nice to have here', why: 'One too many.' },
+    ] }), known)!;
+    expect(out.suggestions).toEqual([
+      { type: 'draft', purpose: 'For each top story, two lines on what it is and why people are discussing it', suggestedName: 'HN story briefs', why: 'No agent you have says why a story matters.' },
+      { type: 'draft', purpose: 'The comment threads with the most replies today', why: 'Nothing returns the discussion.' },
+    ]);
+    expect(boardSuggestionKey(out.suggestions[0])).toBe('draft:for-each-top-story-two-lines-on-what-it-is-and-why-people-ar');
+    expect(parseBoardReview(answer({ suggestions: [{ type: 'draft', purpose: 'For each top story, two lines on what it is', why: 'A reason.' }] }), { ...known, drafts: false })!.suggestions).toEqual([]);
+  });
+
   it('nothing to suggest is "done"; at most six; no block or bad JSON is no answer', () => {
     expect(parseBoardReview(answer({ suggestions: [], note: 'Serves the goal.' }), known)).toEqual({ suggestions: [], note: 'Serves the goal.', done: true });
     const many = { onBoard: new Set<string>(), candidates: new Set(Array.from({ length: 9 }, (_, i) => `a${String(i)}`)) };

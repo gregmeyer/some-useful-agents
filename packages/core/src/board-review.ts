@@ -16,7 +16,12 @@ export type BoardSuggestion =
   /** A tile that repeats another, never runs, or keeps failing. */
   | { type: 'remove'; agentId: string; why: string }
   /** Something to draw on the board's page from its agents' results: the day's headline, a band of figures, the top item of a list, or a line of context. `from`: the agent whose result it comes from. */
-  | { type: 'content'; kind: BoardContentKind; from?: string; why: string };
+  | { type: 'content'; kind: BoardContentKind; from?: string; why: string }
+  /** Something the goal needs that no agent the person has returns: a new agent to draft (it waits for their approval). */
+  | { type: 'draft'; purpose: string; suggestedName?: string; why: string };
+
+/** At most this many new agents suggested in a round: each costs model runs to draft. */
+export const BOARD_REVIEW_DRAFTS = 2;
 
 export const BOARD_CONTENT_KINDS = ['headline', 'numbers', 'top-story', 'note'] as const;
 export type BoardContentKind = typeof BOARD_CONTENT_KINDS[number];
@@ -46,6 +51,7 @@ const WHY_MAX = 200;
 
 /** What a suggestion is, for telling it's the same one in a later round ("add-agent:hn-top-3"). */
 export function boardSuggestionKey(s: BoardSuggestion): string {
+  if (s.type === 'draft') return `draft:${s.purpose.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`;
   return s.type === 'content' ? `content:${s.kind}:${s.from ?? ''}` : `${s.type}:${s.agentId}`;
 }
 
@@ -61,7 +67,9 @@ export interface BoardReviewAnswer { goal?: string; suggestions: BoardSuggestion
  */
 export function parseBoardReview(raw: string | undefined, known: { onBoard: ReadonlySet<string>; candidates: ReadonlySet<string>; skipped?: ReadonlySet<string>;
   /** Which content the board's data can carry, and from which agents: a kind not listed here is dropped. */
-  content?: Partial<Record<BoardContentKind, ReadonlySet<string>>> }): BoardReviewAnswer | undefined {
+  content?: Partial<Record<BoardContentKind, ReadonlySet<string>>>;
+  /** False when new agents can't be drafted here: such suggestions are dropped. */
+  drafts?: boolean }): BoardReviewAnswer | undefined {
   const block = extractTaggedJson(raw ?? '', 'review');
   if (!block) return undefined;
   let v: { goal?: unknown; suggestions?: unknown; note?: unknown; done?: unknown };
@@ -69,6 +77,7 @@ export function parseBoardReview(raw: string | undefined, known: { onBoard: Read
   if (!v || typeof v !== 'object') return undefined;
   const seen = new Set<string>();
   const suggestions: BoardSuggestion[] = [];
+  let drafts = 0;
   for (const x of Array.isArray(v.suggestions) ? (v.suggestions as Array<Record<string, unknown>>) : []) {
     if (!x || typeof x !== 'object') continue;
     const why = line(x.why, WHY_MAX);
@@ -80,6 +89,11 @@ export function parseBoardReview(raw: string | undefined, known: { onBoard: Read
       // Only what the board's results can carry: a kind with no source, or from an agent that can't give it, is dropped. A note needs no source.
       if (able && (kind === 'note' ? !from || known.onBoard.has(from) : !!from && able.has(from))) s = { type: 'content', kind, ...(from ? { from } : {}), why };
     }
+    if (x.type === 'draft' && known.drafts !== false && drafts < BOARD_REVIEW_DRAFTS) {
+      const purpose = line(x.purpose, 200);
+      const suggestedName = line(x.suggestedName, 60);
+      if (purpose.length >= 12) s = { type: 'draft', purpose, ...(suggestedName ? { suggestedName } : {}), why };
+    }
     if (typeof x.agentId === 'string') {
       if (x.type === 'add-agent' && known.candidates.has(x.agentId) && !known.onBoard.has(x.agentId)) s = { type: 'add-agent', agentId: x.agentId, why };
       if (x.type === 'remove' && known.onBoard.has(x.agentId)) s = { type: 'remove', agentId: x.agentId, why };
@@ -88,6 +102,7 @@ export function parseBoardReview(raw: string | undefined, known: { onBoard: Read
     const key = boardSuggestionKey(s);
     if (seen.has(key) || known.skipped?.has(key)) continue;
     seen.add(key);
+    if (s.type === 'draft') drafts++;
     suggestions.push(s);
     if (suggestions.length === BOARD_REVIEW_MAX) break;
   }

@@ -152,4 +152,59 @@ describe('drafting the missing agents behind one approval', { timeout: 30_000 },
     expect(ctx.agentStore.getAgent('calendar-today')).toBeNull();
     expect(ctx.inboxStore!.get(ask.id)!.status).toBe('resolved');
   });
+
+  it("a review's draft suggestion drafts a new agent for an existing board behind the same approval; a finished build starts sua's first review, and the planner sees what each agent returns", async () => {
+    const app = await setup();
+    const review = (v: unknown) => `<review>${JSON.stringify(v)}</review>`;
+    ctx.boardReviewRun = async () => review({ note: 'Nothing shows your calendar.', suggestions: [
+      { type: 'draft', purpose: 'Show my calendar for today, one line per meeting', suggestedName: 'Calendar today', why: 'The goal is to know the day, and no agent you have returns your meetings.' },
+      { type: 'draft', purpose: 'short', why: 'Too vague to build from.' },
+    ] });
+    new BoardsStore(ctx.runStore.databaseHandle()).setGoal('user:morning', 'Know my day before I leave', 'you');
+    await post(app, '/boards/user:morning/review', {});
+    await ctx.boardReviewWork;
+    const r = (await get(app, '/boards/user:morning/review.json')).body;
+    expect(r.open).toBe(1);
+    const page = (await get(app, '/dashboards/user:morning')).text;
+    expect(page).toContain('Draft a new agent: Calendar today');
+    expect(page).toContain('>Draft it</button>');
+    const before = JSON.stringify(new BoardsStore(ctx.runStore.databaseHandle()).loadDocOrDerive('user:morning')!.doc);
+    const res = await post(app, `/boards/user:morning/review/${String(r.id)}/apply`, {});
+    expect(decodeURIComponent(res.headers.location)).toContain("sua is drafting 1 new agent; you'll be asked to approve it before anything is added.");
+    await ctx.boardReviewWork;
+    // Drafted, not run, not on the board; one approval, as for a build.
+    const build = (await get(app, '/boards/user:morning/build.json')).body;
+    expect(build).toMatchObject({ phase: 'done', approval: 'pending', origin: 'review', request: 'Know my day before I leave', drafts: [{ ok: true, id: 'calendar-today' }] });
+    expect(ctx.agentStore.getAgent('calendar-today')!.status).toBe('draft');
+    expect(JSON.stringify(new BoardsStore(ctx.runStore.databaseHandle()).loadDocOrDerive('user:morning')!.doc)).toBe(before);
+    expect(ctx.inboxStore!.list({ source: 'board' }).find((m) => m.title.startsWith('Approve'))!.title).toBe('Approve 1 new agent for your board "Morning"?');
+    const waiting = (await get(app, '/dashboards/user:morning')).text;
+    expect(waiting).toContain('waiting for your approval');
+    expect(waiting).toContain('Drafted: approve it to add it');
+    // Approve adds it to the board.
+    await postForm(app, `/boards/builds/${String(build.id)}/approve`);
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('"agentId":"calendar-today"');
+
+    // A new build: the planner is told what each agent returns, and the board arrives with a review.
+    ctx.runStore.createRun({ id: 'run-weather', agentName: 'weather', status: 'completed', startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), result: JSON.stringify({ headline: 'Rain by noon', high_f: 61, hours: [1, 2, 3] }), triggeredBy: 'cli' } as never);
+    const { boardCatalog } = await import('../lib/board-build.js');
+    expect(boardCatalog(ctx).find((a) => a.id === 'weather')).toMatchObject({ returns: ['headline (string)', 'high_f (number)', 'hours (list 3)'], latest: 'Rain by noon' });
+    expect(boardCatalog(ctx).find((a) => a.id === 'news')).not.toHaveProperty('returns');
+    let reviewed = 0;
+    ctx.boardReviewRun = async (inputs) => { reviewed++; expect(inputs.GOAL).toBe('a morning board with my calendar'); return review({ suggestions: [], note: 'It serves the goal.' }); };
+    const plan = { name: 'Morning view', summary: 'Weather.', layout: 'sections', sections: [{ title: 'Outside', tiles: [{ agentId: 'weather' }] }], missing: [] };
+    ctx.agentStore.createAgent({ id: 'board-builder', name: 'Test builder', status: 'active', source: 'local', mcp: false,
+      inputs: { REQUEST: { type: 'string', required: true }, CATALOG: { type: 'string', required: true } },
+      nodes: [{ id: 'plan', type: 'shell', command: `printf '%s' '<plan>${JSON.stringify(plan)}</plan>'` }] } as never, 'cli');
+    const made = await request(app).post('/boards/build').type('form').send({ request: 'a morning board with my calendar' })
+      .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const newId = decodeURIComponent(made.headers.location.replace('/dashboards/', ''));
+    for (let i = 0; i < 200; i++) {
+      await new Promise((x) => setTimeout(x, 50));
+      if ((await get(app, `/boards/${encodeURIComponent(newId)}/build.json`)).body.phase === 'done' && reviewed) break;
+    }
+    await ctx.boardReviewWork;
+    expect(reviewed).toBe(1);
+    expect((await get(app, `/boards/${encodeURIComponent(newId)}/review.json`)).body).toMatchObject({ round: 1, status: 'ready' });
+  });
 });

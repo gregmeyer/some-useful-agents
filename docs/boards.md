@@ -48,11 +48,15 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 
    - **Draw it**: content from what the board's agents already return, drawn on the board's own page. The day's headline from one agent's result; a "By the numbers" band (a figure that changes from day to day with its last days as columns, others with trend lines); the top item of an agent's list, linked; or a line of context. sua only suggests what the results can carry: no numbers band on a board whose agents have no figure that changes by day.
 
+   - **Draft it**: a new agent, when the goal needs something that nothing on the board and none of your agents returns (say, a two-line summary of why each story matters). At most two a round. sua drafts it in the background with the same drafter and checks a board build uses; it is saved as a draft and doesn't run. You're asked once, on the board and in your inbox, to approve it; **Approve** makes it active, adds it to the board and runs it, **Decline** deletes it.
+
    Each has a one-line reason. **Skip** turns one down, and it isn't offered again for this board. **Apply all** takes every open one.
 3. **What applying does**: for an agent added or left out, a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added. For content, sua redraws the board's page as something you asked for (so the page then counts as yours, and later additions leave it alone); the suggestion is marked **Drawn** once the page is saved.
 4. **Look again** runs another round, knowing what you applied and skipped. When nothing would make the board better for its goal it says so, and its note says what none of your agents covers.
 
-sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).
+sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run.
+
+**A board you build starts with a review.** When a build from a request finishes, sua runs the first round by itself, against the request as the goal, so a new board arrives with its suggestions waiting. The planner that picks agents for a build is also told what each agent returns (the fields of its latest result and its first line), not only its name and description. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).
 
 ## Dashboards
 

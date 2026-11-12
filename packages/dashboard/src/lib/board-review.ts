@@ -21,6 +21,7 @@ import { boardAgentShape } from './board-widgets.js';
 import { boardPageIsItsOwn, decideBoardPage } from './board-page.js';
 import { readLine } from './home-reads.js';
 import { agentFigures, boardFiguresFrom, figuresInWords } from './board-figures.js';
+import { draftForBoard } from './board-build.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -193,7 +194,7 @@ export interface AppliedSuggestions { applied: string[]; refused: Array<{ key: s
  * run once. When sua composed the board's page (or it has none), the page
  * is redrawn in the background with the goal.
  */
-export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: string, keys?: readonly string[]): AppliedSuggestions & { error?: string; redraw?: Promise<unknown>; /** Content suggestions sua is drawing now. */ drawing?: number } {
+export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: string, keys?: readonly string[]): AppliedSuggestions & { error?: string; redraw?: Promise<unknown>; /** Content suggestions sua is drawing now. */ drawing?: number; /** New agents being drafted now. */ drafting?: number } {
   const reviews = reviewsOf(ctx);
   const review = reviews.get(reviewId);
   if (!review || review.boardId !== boardId) return { applied: [], refused: [], error: "That review isn't for this board." };
@@ -206,8 +207,10 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   const done: StoredBoardSuggestion[] = [];
   const refused: AppliedSuggestions['refused'] = [];
   const drawn = open.filter((s) => s.type === 'content');
+  // New agents are drafted in the background and wait for your approval (the board's banner and your inbox ask); the board doesn't change until then.
+  const toDraft = open.flatMap((s) => (s.type === 'draft' ? [s] : []));
   for (const s of open) {
-    if (s.type === 'content') continue;
+    if (s.type === 'content' || s.type === 'draft') continue;
     if (s.type === 'add-agent') {
       const agent = ctx.agentStore.getAgent(s.agentId);
       if (!agent || agent.status !== 'active' || !withTileSignal(agent).signal) { refused.push({ key: s.key, why: `${s.agentId} isn't available any more.` }); continue; }
@@ -240,6 +243,15 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   }
   for (const s of done) reviews.setState(reviewId, s.key, 'applied');
   const added = done.flatMap((s) => (s.type === 'add-agent' ? [s.agentId] : []));
+  let drafting: Promise<void> | undefined;
+  if (toDraft.length) {
+    try {
+      drafting = draftForBoard(ctx, boardId, toDraft.map((s) => ({ purpose: s.purpose, ...(s.suggestedName ? { suggestedName: s.suggestedName } : {}) })), boards.goal(boardId)?.text ?? '').work;
+      for (const s of toDraft) reviews.setState(reviewId, s.key, 'applied');
+    } catch (err) {
+      for (const s of toDraft) refused.push({ key: s.key, why: err instanceof Error ? err.message : 'The draft could not be started.' });
+    }
+  }
   for (const id of added) { try { maybeKickoffFirstRun(ctx, id); } catch { /* it can be run from its tile */ } }
   // The board's own page takes the change in: sua redraws it with the goal. A page you picked or arranged is left as it is.
   let redraw: Promise<unknown> | undefined;
@@ -254,7 +266,8 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   } else if (changed && boardPageIsItsOwn(boards.get(boardId) ?? {})) {
     redraw = decideBoardPage(ctx, boardId, { again: true }).catch(() => 'failed');
   }
-  return { applied: done.map((s) => s.key), refused, ...(drawn.length ? { drawing: drawn.length } : {}), ...(redraw ? { redraw } : {}) };
+  const work = redraw && drafting ? Promise.all([redraw, drafting]) : redraw ?? drafting;
+  return { applied: done.map((s) => s.key), refused, ...(drawn.length ? { drawing: drawn.length } : {}), ...(drafting ? { drafting: toDraft.length } : {}), ...(work ? { redraw: work } : {}) };
 }
 
 /** A content suggestion as the ask sua's page agent gets. Pure. */
