@@ -32,6 +32,8 @@ Saving the edition as a page would end what makes it the edition. A stored page 
 
 **The edition has a goal and can be reviewed** like a board (ADR-0075). The same reviewer reads the edition as it would be drawn now. Taking a suggestion maps to an op: add an agent → `include`; leave one out → `hide`; headline from X → `lead`; numbers → `numbers`; top story from X → `top-story`. New agents aren't drafted for the edition, and the line under its title is the person's to write.
 
+**It can be changed by asking.** The `edition-editor` agent is given the ask and the edition as it is (what's showing and in which column, what was left out, what could be brought in) and returns ops in the same vocabulary. Code checks them by trying them on the current preferences; they are shown as a proposal, each in plain words, and saved only when the person applies it. When part of an ask is outside the vocabulary, the agent does the rest and says which part was left out. A proposal is kept in memory, one at a time.
+
 The edition still can't be arranged or saved as a page.
 
 ## Consequences

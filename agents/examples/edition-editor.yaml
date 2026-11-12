@@ -1,0 +1,84 @@
+# Edition Editor — turns something the person asks about Today's edition
+# on Pulse ("lead with markets", "drop the evening routine", "put the job
+# digest in the wide column") into the changes the edition takes. The
+# dashboard checks every change (only agents that exist) and shows them as a
+# card to apply; the edition then follows them every day. Route-dispatched
+# only (dashboard lib/edition-ask.ts); never proposed in triage.
+
+id: edition-editor
+name: Edition Editor
+description: >
+  Turns what you ask about Today's edition into the changes it takes: what
+  leads, what is left out or always shown, which column, the numbers band,
+  the top item, and a line of your own.
+status: active
+source: examples
+
+inputs:
+  ASK:
+    type: string
+    required: true
+    description: What the person asked for, in their words.
+  EDITION:
+    type: string
+    required: true
+    description: 'JSON: {"goal"?, "showing": [{"id","title","column","leads"?}], "leftOut": [{"id","title"}], "couldShow": [{"id","title","about"?}], "numbersBand": true|false, "topItemOf"?, "yourLine"?}: the edition as it is now.'
+
+nodes:
+  - id: edit
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 90
+    outputContract:
+      mustMatch: '<edition>[\s\S]*?</edition>'
+      description: an <edition> JSON block
+    prompt: |
+      Today's edition is a page made fresh each morning from what someone's
+      agents found: a headline from one agent's result, a band of numbers,
+      then each agent's result in a wide or a narrow column. They asked
+      for a change to it. Work out the smallest set of changes that does
+      what they asked, in the vocabulary below. Nothing else can be
+      changed about the edition.
+
+      WHAT THEY ASKED:
+      {{inputs.ASK}}
+
+      THE EDITION NOW (JSON). "showing" is on the page; "leftOut" they
+      removed earlier; "couldShow" are other agents of theirs that have a
+      result and could be brought in:
+      {{inputs.EDITION}}
+
+      CHANGES (use agent ids exactly as given above; never invent one):
+      - {"op":"lead","agentId":"<id>"}: that agent's result leads the page
+        (its first sentence is the headline). {"op":"lead","agentId":null}
+        lets the day's numbers decide again.
+      - {"op":"hide","agentId":"<id>"}: leave it out, every day.
+      - {"op":"show","agentId":"<id>"}: bring back one from "leftOut".
+      - {"op":"include","agentId":"<id>"}: always show one from
+        "couldShow", whenever it has a result.
+      - {"op":"width","agentId":"<id>","width":"wide"|"narrow"|"auto"}:
+        which column its result takes.
+      - {"op":"numbers","on":true|false}: the "By the numbers" band.
+      - {"op":"top-story","agentId":"<id>"}: show that agent's top list
+        item, linked, under the headline (null removes it).
+      - {"op":"note","text":"…"}: one line of THEIR words under the title
+        (at most 200 characters; "" removes it). Only when they ask for a
+        line or a note.
+      - {"op":"reset"}: forget every change; the edition decides
+        everything again. Only when they ask for that.
+
+      Match what they call an agent to its "title" or id. When part of
+      what they ask can't be done with these changes (three columns,
+      colours, a new agent, a new chart) or names something that isn't in
+      the lists, still return the ops for the part that CAN be done, and
+      say in "say" which part was left out and what they could do
+      instead (make a board for that). Return no ops only when none of
+      it can be done.
+
+      "say": one plain sentence telling them what will change, or why
+      nothing will. No ids in it; use titles.
+
+      Reply with only this, as valid JSON:
+      <edition>
+      {"ops": [{"op": "lead", "agentId": ""}], "say": ""}
+      </edition>
