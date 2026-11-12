@@ -45,26 +45,73 @@ function suggestion(boardId: string, review: BoardReview, s: StoredBoardSuggesti
 }
 
 /**
- * A board's goal and what sua suggests for it, as ONE card (the page had a
- * goal line, a toolbar button and a suggestions box). Top row: the goal
- * (with Edit) and "Improve this board", which keeps that name however many
- * times it has run. Under it, only what needs you now: a goal to take, open
- * suggestions with their buttons, or one line on how the last look went.
- * What you've already handled is folded away.
+ * What's running for a board, said plainly at the top of its page and kept
+ * current: sua reviewing, drafting or redrawing, and any of its agents
+ * mid-run. It checks back every few seconds, shows a job that starts while
+ * you're on the page, and redraws the page when something sua was doing
+ * ends (an agent's tile updates itself). Hidden when nothing is running.
  */
-export function boardGoalCard(boardId: string, c: BoardReviewCard & { goalLine: SafeHtml; label?: string; extra?: SafeHtml }): SafeHtml {
+export function boardRunningStrip(boardId: string, items: ReadonlyArray<{ kind: string; text: string; since?: string }>): SafeHtml {
+  const line = (x: { text: string }) => html`<li>${x.text}</li>`;
+  return html`<div class="board-running" data-board-running="${boardId}" data-sua="${items.some((x) => x.kind !== 'agent') ? '1' : ''}" role="status" aria-live="polite"${unsafeHtml(items.length ? '' : ' hidden')}>
+    <span class="working__spin" aria-hidden="true"></span>
+    <strong class="board-running__label">Running now</strong>
+    <ul class="board-running__list" data-board-running-list>${items.map(line) as unknown as SafeHtml[]}</ul>
+    <span class="board-running__time" data-board-running-time></span>
+    ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-running]');if(!el)return;var id=el.getAttribute('data-board-running');var list=el.querySelector('[data-board-running-list]');var time=el.querySelector('[data-board-running-time]');var sua=el.getAttribute('data-sua')==='1';var since=null;
+function clock(){if(!since||el.hidden){time.textContent='';return;}var s=Math.max(0,Math.round((Date.now()-since)/1000));time.textContent=s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s';}
+function tick(){fetch('/boards/'+encodeURIComponent(id)+'/activity.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.running)||[];var nowSua=items.some(function(x){return x.kind!=='agent'});
+if(sua&&!nowSua){location.reload();return;}sua=nowSua;
+list.textContent='';items.forEach(function(x){var li=document.createElement('li');li.textContent=x.text;list.appendChild(li);});
+var first=items.map(function(x){return x.since?Date.parse(x.since):NaN}).filter(function(t){return !isNaN(t)}).sort()[0];since=first||null;
+el.hidden=!items.length;clock();setTimeout(tick,items.length?3000:6000);}).catch(function(){setTimeout(tick,8000);});}
+setInterval(clock,1000);setTimeout(tick,${items.length ? '3000' : '6000'});})();</script>`)}
+  </div>`;
+}
+
+/**
+ * A board's goal, what sua suggests for it, and its layout tools, as ONE
+ * part of the page that folds to a row: the goal, a word on what needs you,
+ * and "Improve this board" (which keeps that name however many times it
+ * has run). It opens by itself when something needs you (a goal to take,
+ * open suggestions, an agent to approve); otherwise it stays as you left
+ * it. Inside: what needs you, then Edit goal and the layout tools.
+ */
+export function boardGoalCard(boardId: string, c: BoardReviewCard & { label?: string; extra?: SafeHtml; what?: string }): SafeHtml {
   const r = c.review;
   const id = encodeURIComponent(boardId);
   const running = r?.status === 'running';
+  const open = r?.status === 'ready' ? r.suggestions.filter((s) => s.state === 'open').length : 0;
+  const needsGoal = r?.status === 'ready' && !c.goal && !!r.goal;
+  const approve = c.draft?.state === 'approve';
+  // What needs you, in a word, on the folded row.
+  const needs = approve ? `Approve ${String(c.draft!.agents.length)} new agent${c.draft!.agents.length === 1 ? '' : 's'}` : needsGoal ? 'A goal to confirm' : open ? `${String(open)} suggestion${open === 1 ? '' : 's'}` : r?.status === 'failed' ? "The review didn't finish" : '';
+  const by = c.goal?.by === 'sua' ? 'suggested by sua' : c.goal?.by === 'request' ? 'from what you asked for' : '';
   const improve = html`<form method="POST" action="/boards/${id}/review" class="board-review__start" style="margin: 0;">
     <button type="submit" class="btn btn--sm btn--primary"${unsafeHtml(running ? ' disabled' : '')} title="sua looks at this against its goal and suggests an agent you have, or a new one, that helps you meet it. Nothing changes until you press a suggestion's button.">${c.label ?? 'Improve this board'}</button>
   </form>`;
-  return html`<section class="board-goal-card" data-board-goal-card>
-    <div class="board-goal-card__top">${c.goalLine}${improve}</div>
+  return html`<details class="board-goal-card" data-board-goal-card="${boardId}" data-needs="${needs ? '1' : ''}"${unsafeHtml(needs ? ' open' : '')}>
+    <summary class="board-goal-card__top">
+      <span class="board-goal__label">Goal</span>
+      ${c.goal ? html`<span class="board-goal__text">${c.goal.text}</span>` : html`<span class="board-goal__text board-goal__text--none">Say what ${c.what ?? 'this board'} is for, so sua can tell what's missing.</span>`}
+      ${needs ? html`<span class="board-goal-card__needs">${needs}</span>` : html``}
+      ${improve}
+    </summary>
     ${draftBlock(boardId, c.draft)}
     ${reviewBody(boardId, c)}
+    <details class="board-goal" data-board-goal>
+      <summary class="board-goal__edit">${c.goal ? 'Edit goal' : 'Add a goal'}${by ? html` <span class="board-goal__by">${by}</span>` : html``}</summary>
+      <form method="POST" action="/boards/${id}/goal" class="board-goal__form">
+        <textarea name="goal" rows="2" aria-label="What ${c.what ?? 'this board'} is for" maxlength="280" placeholder="e.g. Know what matters on Hacker News each morning, without reading it all">${c.goal?.text ?? ''}</textarea>
+        <div class="board-goal__acts">
+          <button type="submit" class="btn btn--sm btn--primary">Save goal</button>
+          <span class="board-goal__hint">One sentence. sua uses it when it reviews this and draws its page.</span>
+        </div>
+      </form>
+    </details>
     ${c.extra ?? html``}
-  </section>`;
+    ${unsafeHtml(`<script>(function(){var d=document.querySelector('[data-board-goal-card]');if(!d)return;var key='sua.boardcard.'+d.getAttribute('data-board-goal-card');try{if(d.getAttribute('data-needs')!=='1'&&localStorage.getItem(key)==='open')d.open=true;}catch(e){}d.addEventListener('toggle',function(){try{localStorage.setItem(key,d.open?'open':'closed');}catch(e){}});})();</script>`)}
+  </details>`;
 }
 
 /**
@@ -122,7 +169,6 @@ function reviewBody(boardId: string, c: BoardReviewCard): SafeHtml {
         <input type="hidden" name="proposed" value="${r.goal ?? ''}">
         <div class="board-review__acts"><button type="submit" class="btn btn--sm btn--primary">Use this goal</button><span class="board-review__why">Change the words first if they're off. The suggestions below assume it.</span></div>
       </form>` : html``}
-    ${c.redrawing ? html`<p class="board-review__note" role="status"><span class="working__spin" aria-hidden="true"></span>sua is redrawing this board's page with the change.</p>` : html``}
     ${open.length ? html`
       <p class="board-review__label">sua suggests</p>
       <ul class="board-review__list">${open.map((s) => suggestion(boardId, r, s, c.title)) as unknown as SafeHtml[]}</ul>` : html``}

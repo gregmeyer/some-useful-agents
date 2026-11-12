@@ -45,6 +45,34 @@ export function boardForPage(board: { name: string }, shapes: readonly BoardAgen
   return { name: board.name, ...(about ? { for: about } : {}), agents: shapes, ...(figures ? { figures } : {}) };
 }
 
+/** Props that are shown as words, by component. */
+const TEXT_PROPS: Record<string, readonly string[]> = { Callout: ['text', 'next', 'label'], Text: ['text'], Panel: ['title', 'note'], Link: ['text'], Section: ['title'] };
+
+/**
+ * Words bound to something that isn't words: a text prop pointing at a list
+ * field, at one item of a list, or at an object field of an agent's result.
+ * It would print as "[object Object]". Says where, and what to bind
+ * instead. Pure.
+ */
+export function textBoundToItems(components: readonly ViewComponent[], shapes: readonly BoardAgentShape[]): string[] {
+  const out: string[] = [];
+  for (const c of components) {
+    for (const prop of TEXT_PROPS[String(c.component)] ?? []) {
+      const v = (c as Record<string, unknown>)[prop] as { path?: unknown } | undefined;
+      const path = v && typeof v === 'object' && typeof v.path === 'string' ? v.path : '';
+      const m = /^\/board\/agents\/([^/]+)\/outputs\/([^/]+)(\/.*)?$/.exec(path);
+      if (!m) continue;
+      const field = shapes.find((s) => s.id === m[1])?.outputs.find((o) => o.name === m[2]);
+      if (!field) continue;
+      const rest = m[3] ?? '';
+      // A list, or one of its items (…/0), is not a string; an item's own field (…/0/title) is fine.
+      if (field.type === 'list' && /^(\/\d+)?$/.test(rest)) out.push(`${String(c.id)}.${prop} is bound to ${rest ? 'an item of' : ''} the list "${m[2]}", which isn't text: bind one of the item's own fields (${path.replace(/\/\d+$/, '')}/0/title) or use a Table or Stories for the list`);
+      if (field.type === 'object' && !rest) out.push(`${String(c.id)}.${prop} is bound to the object "${m[2]}", which isn't text: bind one of its fields (${path}/<field>)`);
+    }
+  }
+  return out;
+}
+
 export type BoardPageAnswer =
   | { preset: 'grid' | 'front-page'; components: ViewComponent[]; about?: string }
   | { components: ViewComponent[]; about?: string }
@@ -64,6 +92,8 @@ export function parseBoardPageAnswer(raw: string | undefined, shapes: readonly B
   }
   const check = checkBoardLayout(v.components, shapes.map((s) => s.id));
   if (!check.ok) return { error: check.errors.slice(0, 6).join('; ') };
+  const wordless = textBoundToItems(check.components, shapes);
+  if (wordless.length) return { error: wordless.slice(0, 4).join('; ') };
   return { components: check.components, ...(about ? { about } : {}) };
 }
 

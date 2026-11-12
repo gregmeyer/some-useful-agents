@@ -38,7 +38,8 @@ import type { PulseTile } from '../views/pulse-types.js';
 import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
-import { boardGoalCard } from '../views/board-review.js';
+import { boardGoalCard, boardRunningStrip } from '../views/board-review.js';
+import { boardActivity } from '../lib/board-activity.js';
 import { working } from '../views/working.js';
 import type { EditionAsk } from '../lib/edition-ask.js';
 
@@ -434,17 +435,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
     // A composed page (ADR-0070): the editor says so when arranging it.
     layoutMeta: canvas.composed ? (boardsOf(ctx).get(id)?.layoutMeta ?? {}) : null,
   };
-  return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
-    ${header}
-    ${archivedAt !== undefined ? html`
-      <div class="flash flash--info board-archived" role="status">
-        <span>This board is archived: it's hidden from your lists and pickers, and nothing on it was deleted.</span>
-        <form method="POST" action="/dashboards/${encodeURIComponent(id)}/restore" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Restore</button></form>
-      </div>` : html``}
-    ${buildBanner}
-    ${!isPulse ? (archivedAt === undefined
-      ? boardGoalCard(id, { goalLine: boardGoalLine(id, boardsOf(ctx).goal(id)), ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false, ...(reviewDraft(ctx, build) ? { draft: reviewDraft(ctx, build)! } : {}) })
-      : boardGoalLine(id, boardsOf(ctx).goal(id))) : html``}
+  // Arranging and undoing: inside the board's card on a board you made (so the whole area folds), on their own for Pulse and an archived board.
+  const boardTools = html`
     <div class="board-toolbar" data-canvas-toolbar>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>Arrange</button>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
@@ -454,7 +446,19 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <button type="submit" class="btn btn--ghost btn--sm" title="Hide this board from your lists; restore it any time">Archive</button>
       </form>` : html``}
     </div>
-    ${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}
+`;
+  return render(layout({ title: isPulse ? 'Pulse' : `${r.board.name} · Dashboards`, activeNav: isPulse ? 'pulse' : 'home', flash: opts.flash }, html`
+    ${header}
+    ${archivedAt !== undefined ? html`
+      <div class="flash flash--info board-archived" role="status">
+        <span>This board is archived: it's hidden from your lists and pickers, and nothing on it was deleted.</span>
+        <form method="POST" action="/dashboards/${encodeURIComponent(id)}/restore" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Restore</button></form>
+      </div>` : html``}
+    ${buildBanner}
+    ${!isPulse && archivedAt === undefined ? boardRunningStrip(id, boardActivity(ctx, id)) : html``}
+    ${!isPulse && archivedAt === undefined
+      ? boardGoalCard(id, { ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, ...(reviewDraft(ctx, build) ? { draft: reviewDraft(ctx, build)! } : {}), extra: html`${boardTools}${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}` })
+      : html`${!isPulse ? boardGoalLine(id, boardsOf(ctx).goal(id)) : html``}${boardTools}`}
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>
       <aside class="canvas-outline" data-canvas-outline hidden aria-label="Board outline"></aside>
@@ -497,7 +501,9 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
       ${pulseTabs('today', true)}
       <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
     </div>
-    ${boardGoalCard(TODAY_BOARD_ID, { goalLine: boardGoalLine(TODAY_BOARD_ID, boardsOf(ctx).goal(TODAY_BOARD_ID)), label: "Improve today's edition", ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId })}
+    ${boardRunningStrip(TODAY_BOARD_ID, boardActivity(ctx, TODAY_BOARD_ID))}
+    ${editionAskCard(ctx.editionAsk)}
+    ${boardGoalCard(TODAY_BOARD_ID, { label: "Improve today's edition", what: 'the edition', ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, extra: html`
     <div class="board-toolbar">
       <form method="POST" action="/pulse/edition/ask" class="edition-ask" role="search" aria-label="Change the edition by asking">
         <input type="text" name="text" maxlength="500" required placeholder="Ask for a change: lead with markets, drop the evening routine…" aria-label="What to change about the edition">
@@ -506,8 +512,7 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
       ${editionPrefsStoreOf(ctx).canUndo() ? html`<form method="POST" action="/pulse/edition/undo" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Go back to how the edition was before your last change">Undo last change</button></form>` : html``}
       ${editionPrefsSet(editionPrefsOf(ctx)) ? html`<form method="POST" action="/pulse/edition/reset" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Forget your changes: the edition decides everything again">Back to automatic</button></form>` : html``}
     </div>
-    ${editionAskCard(ctx.editionAsk)}
-    ${editionChanges(ctx)}
+    ${editionChanges(ctx)}` })}
     ${canvas.errors.length ? html`<p class="flash flash--error">Today's edition couldn't be laid out: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-stage today-edition">
       ${unsafeHtml(`<script type="application/json" id="board-tiles">${json(canvas.tiles)}</script>`)}
@@ -620,6 +625,11 @@ boardsRouter.post('/boards/:id/review', (req: Request, res: Response) => {
   const out = startBoardReview(ctx, id);
   if (out.work) { ctx.boardReviewWork = out.work; }
   res.redirect(303, out.error ? boardBack(id, 'error', out.error) : boardPageUrl(id));
+});
+
+/** What is running for a board right now (sua's work on it, and its agents mid-run), for the strip at the top of its page. */
+boardsRouter.get('/boards/:id/activity.json', (req: Request, res: Response) => {
+  res.json({ running: boardActivity(getContext(req.app.locals), String(req.params.id)) });
 });
 
 /** The latest round's state, for the page to check back while it runs. */

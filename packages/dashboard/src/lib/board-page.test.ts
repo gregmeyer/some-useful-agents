@@ -130,3 +130,25 @@ describe('a board deciding its page', () => {
     expect((await setBoardLook(ctx, 'nope', 'grid')).ok).toBe(false);
   });
 });
+
+describe('words bound to something that is not words', () => {
+  it('a text prop bound to a list, to one item of a list, or to an object is refused with what to bind instead; an item\'s own field is fine', async () => {
+    const { textBoundToItems, parseBoardPageAnswer } = await import('./board-page.js');
+    const shapes = [{ id: 'brief', title: 'Brief', ran: true, outputs: [{ name: 'summary', type: 'string' as const }, { name: 'headlines', type: 'list' as const, length: 7 }, { name: 'meta', type: 'object' as const }] }];
+    const page = (text: unknown, next?: unknown) => [
+      { id: 'root', component: 'Column', children: ['p'] },
+      { id: 'p', component: 'Panel', title: 'Today', child: 'c', treatment: 'lede', when: 'brief' },
+      { id: 'c', component: 'Callout', text, ...(next ? { next } : {}) },
+    ];
+    const at = (rest: string) => ({ path: `/board/agents/brief/outputs/${rest}` });
+    expect(textBoundToItems(page(at('headlines/0')) as never, shapes)).toEqual(['c.text is bound to an item of the list "headlines", which isn\'t text: bind one of the item\'s own fields (/board/agents/brief/outputs/headlines/0/title) or use a Table or Stories for the list']);
+    expect(textBoundToItems(page(at('headlines')) as never, shapes)[0]).toContain('c.text is bound to  the list "headlines"');
+    expect(textBoundToItems(page(at('summary'), at('meta')) as never, shapes)).toEqual(['c.next is bound to the object "meta", which isn\'t text: bind one of its fields (/board/agents/brief/outputs/meta/<field>)']);
+    expect(textBoundToItems(page(at('headlines/0/title'), at('summary')) as never, shapes)).toEqual([]);
+    expect(textBoundToItems(page('Typed words', at('meta/source')) as never, shapes)).toEqual([]);
+    // Such a page is an error for the page agent to fix, not a page to save.
+    const bad = parseBoardPageAnswer(`<page>${JSON.stringify({ components: page(at('headlines/0'), at('summary')) })}</page>`, shapes);
+    expect('error' in bad && bad.error).toContain('bound to an item of the list "headlines"');
+    expect('error' in parseBoardPageAnswer(`<page>${JSON.stringify({ components: page(at('headlines/0/title'), at('summary')) })}</page>`, shapes)).toBe(false);
+  });
+});

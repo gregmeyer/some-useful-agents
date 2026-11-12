@@ -818,6 +818,17 @@ const Panel = define('Panel', 'sua-a2ui-panel',
   function (p) { return html`<section class="frame ${p.treatment && p.treatment !== 'plain' ? p.treatment : ''} ${p.hero ? 'hero' : ''}"><div class="head"><h3>${p.title}</h3>${p.note ? html`<span class="note">${p.note}</span>` : nothing}</div>${p.pending ? html`<div class="skel" role="status" aria-busy="true" aria-label="Not yet"><i></i><i></i><i></i></div>` : this.renderNode(p.child)}</section>`; });
 
 // **bold** only; everything else escaped (same rule as Text's markdown).
+// A value where words belong, as words. A page can bind a text prop to a whole item ({title, url, …}) or a
+// list instead of its string field; that must never print as "[object Object]" or "undefined": an item is
+// said by its title (or headline, text, name, label, summary), a list by its first item, nothing by nothing.
+const said = (v) => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (Array.isArray(v)) return v.length ? said(v[0]) : '';
+  if (typeof v === 'object') { for (const k of ['title', 'headline', 'text', 'name', 'label', 'summary']) { if (typeof v[k] === 'string' && v[k].trim()) return v[k]; } }
+  return '';
+};
 const boldOnly = (s) => esc(s).replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
 const Callout = define('Callout', 'sua-a2ui-callout',
   Common.extend({ label: Str.optional(), text: Str, next: Str.optional(), nextLabel: Str.optional(), image: Str.optional() }).strict(),
@@ -831,8 +842,8 @@ const Callout = define('Callout', 'sua-a2ui-callout',
     .text strong { font-weight: 600; }
     .next { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .next b { color: var(--color-text); }`,
-  function () { const img = this.controller?.props?.image; return html`<div class="box">${typeof img === 'string' && /^data:image\/svg\+xml;base64,/.test(img) ? html`<img class="art" src=${img} alt="">` : nothing}${this.controller?.props?.label ? html`<div class="label">${this.controller.props.label}</div>` : nothing}<p class="text"></p>${this.controller?.props?.next ? html`<p class="next"><b>${this.controller.props.nextLabel ?? 'Next:'}</b> ${this.controller.props.next}</p>` : nothing}</div>`; },
-  { updated() { const el = this.renderRoot.querySelector('.text'); const v = this.controller?.props?.text ?? ''; if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
+  function () { const img = this.controller?.props?.image; return html`<div class="box">${typeof img === 'string' && /^data:image\/svg\+xml;base64,/.test(img) ? html`<img class="art" src=${img} alt="">` : nothing}${said(this.controller?.props?.label) ? html`<div class="label">${said(this.controller.props.label)}</div>` : nothing}<p class="text"></p>${said(this.controller?.props?.next) ? html`<p class="next"><b>${said(this.controller.props.nextLabel) || 'Next:'}</b> ${said(this.controller.props.next)}</p>` : nothing}</div>`; },
+  { updated() { const el = this.renderRoot.querySelector('.text'); const v = said(this.controller?.props?.text); if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
 
 const StatStrip = define('StatStrip', 'sua-a2ui-stat-strip',
   Common.extend({ items: CommonSchemas.DynamicValue }).strict(),

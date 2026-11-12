@@ -151,7 +151,9 @@ describe('boards are canvases', () => {
     expect(boards.loadDocOrDerive('user:morning')!.doc.components.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
     page = await get(app, '/dashboards/user:morning');
     expect(page.text).toContain('sua suggests');
-    // One card: the goal and the button on top, what needs you under it.
+    // One part of the page that folds to a row (the goal, what needs you, the button), open because something needs you; the layout tools are inside it.
+    expect(page.text).toMatch(/<details class="board-goal-card" data-board-goal-card="user:morning" data-needs="1" open>/);
+    expect(page.text).toContain('<span class="board-goal-card__needs">A goal to confirm</span>');
     expect(page.text).toContain('data-board-goal-card');
     expect(page.text.indexOf('data-board-goal-card')).toBeLessThan(page.text.indexOf('data-canvas-toolbar'));
     expect(page.text).toContain('<textarea id="board-review-goal" name="goal" rows="2" maxlength="280">Know the weather and the news before I leave</textarea>');
@@ -179,6 +181,10 @@ describe('boards are canvases', () => {
     expect(page.text).toContain('<span class="board-review__state">Added</span>');
     expect(page.text).toContain('<span class="board-review__state">Skipped</span>');
     expect(page.text).toContain('That was all of them.');
+    // Nothing needs you now: it is folded (and stays as you leave it), with nothing running.
+    expect(page.text).toMatch(/<details class="board-goal-card" data-board-goal-card="user:morning" data-needs="">/);
+    expect(page.text).toMatch(/<div class="board-running" data-board-running="user:morning" data-sua="" role="status" aria-live="polite" hidden>/);
+    expect((await get(app, '/boards/user:morning/activity.json')).body).toEqual({ running: [] });
     // What you've handled is folded away under the card, not listed above the board.
     expect(page.text).toContain('<summary>2 already handled</summary>');
     expect(page.text).toContain('>Improve this board</button>');
@@ -198,6 +204,21 @@ describe('boards are canvases', () => {
     expect(page.text).not.toContain('already handled');
     expect(page.text).toContain('Nothing more to suggest for this goal.');
     expect(page.text).not.toContain('board-review-goal');
+    // What's running is said at the top of the page, and by the route the page checks: sua's review while it runs, and an agent of the board mid-run.
+    let release: (v: string) => void = () => undefined;
+    ctx.boardReviewRun = () => new Promise<string>((resolve) => { release = resolve; });
+    await post(app, '/boards/user:morning/review', {});
+    ctx.runStore.createRun({ id: 'run-weather-now', agentName: 'weather', status: 'running', startedAt: new Date().toISOString(), triggeredBy: 'dashboard' } as never);
+    const busy = (await get(app, '/boards/user:morning/activity.json')).body.running as Array<{ kind: string; text: string }>;
+    expect(busy.map((x) => [x.kind, x.text])).toEqual([['review', 'sua is looking at this against its goal'], ['agent', 'weather is running']]);
+    const during = (await get(app, '/dashboards/user:morning')).text;
+    expect(during).toMatch(/<div class="board-running" data-board-running="user:morning" data-sua="1" role="status" aria-live="polite">/);
+    expect(during).toContain('<li>sua is looking at this against its goal</li><li>weather is running</li>');
+    expect(during).toContain('Running now');
+    ctx.runStore.updateRun('run-weather-now', { status: 'completed', completedAt: new Date().toISOString(), result: 'ok' });
+    release(review({ suggestions: [], note: 'It serves the goal.' }));
+    await ctx.boardReviewWork;
+    expect((await get(app, '/boards/user:morning/activity.json')).body).toEqual({ running: [] });
     // Leave out works when taken; a reviewer that fails says so; Pulse has no review.
     ctx.boardReviewRun = async () => review({ suggestions: [{ type: 'remove', agentId: 'weather', why: 'It repeats the news.' }] });
     await post(app, '/boards/user:morning/review', {});

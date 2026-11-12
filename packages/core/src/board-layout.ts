@@ -351,6 +351,7 @@ Rules:
 - Say it with the agent's own fields when they carry the point: a Callout for a headline and its summary, a Lead for the one number that matters (/board/agents/<id>/stats/<field>), a Table for a list field (rows: its path, columns by the list's keys), a StatStrip for several numbers. Where an agent's own view is the story (scores, a digest, a chart), place its AgentTile with "chrome": "bare" inside a Panel that titles it.
 - Every part of one agent goes in a Panel with "when": "<agentId>", so it's drawn once the agent has run; a Lead or StatStrip gets "when": "numbers:<agentId>".
 - Rows are full width or Columns of 2:1, 1:2, 3:2, 2:3, 1:1 or 1:1:1, and two rows in a row never share a shape. Never put a short part (a callout, a lead) beside a long one (a table, a tile with a list): it leaves a hole. Lists are cut to a few rows (Table 8–12).
+- A prop that shows words (a Callout's text, next and label; a Text's text; a Panel's title) takes a string field. Never bind it to a list or to one item of a list (…/headlines/0): that prints as "[object Object]". For the first item of a list, bind that item's own field (…/headlines/0/title).
 - Bind to paths; never type a value from today's results into the layout: it is redrawn as the agents run. Use each component's props exactly as named above; a prop it doesn't have fails the whole page. "when" takes only the flags above.
 - Keep every id unique (short word characters), at most about 60 components.`;
 }
