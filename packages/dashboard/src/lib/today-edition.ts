@@ -8,8 +8,8 @@
  */
 import { SYSTEM_AGENT_IDS, boardFlag, boardLeadNumber, type Agent, type AgentSignal, type BoardAgentShape, type BoardDoc, type Run, type ViewComponent } from '@some-useful-agents/core';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
-import { boardAgentShape } from './board-widgets.js';
-import { homeBrief } from './home-brief.js';
+import { boardAgentShape, type BoardFigures } from './board-widgets.js';
+import { homeBrief, type BriefFigure, type HomeBrief } from './home-brief.js';
 import type { PulseTile } from '../views/pulse-types.js';
 import type { getContext } from '../context.js';
 
@@ -62,7 +62,7 @@ export function editionWide(agent: Pick<Agent, 'view'>, shape: Pick<BoardAgentSh
  * three abreast. Each agent's result is its own view (`AgentTile`, bare,
  * in a Panel). Pure.
  */
-export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string> } = {}): BoardDoc {
+export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string>; figures?: BoardFigures } = {}): BoardDoc {
   const parts: ViewComponent[] = [
     { id: 'masthead', component: 'Panel', title: { path: '/board/name' }, note: { path: '/board/date' }, child: 'masthead_updated', treatment: 'feature', hero: true },
     { id: 'masthead_updated', component: 'Text', text: { path: '/board/updated' }, variant: 'caption' },
@@ -75,6 +75,19 @@ export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { 
       { id: 'lede_c', component: 'Callout', text: opts.lede.headline },
     );
     root.push('lede');
+  }
+  // The day's figures, as drawings: the lead count large beside its last days as columns, then the others each over its trend.
+  if (opts.figures) {
+    const f = opts.figures;
+    const kids = ['band_lead', 'band_days', ...f.others.map((_, i) => `band_fig_${String(i)}`)];
+    parts.push(
+      { id: 'band', component: 'Panel', title: 'By the numbers', child: 'band_row', treatment: 'band' },
+      { id: 'band_row', component: 'Columns', children: kids, widths: [1, 2, ...f.others.map(() => 1)], align: 'start' },
+      { id: 'band_lead', component: 'Lead', stat: { path: '/board/figures/lead' } },
+      { id: 'band_days', component: 'DayBars', days: { path: '/board/figures/lead/days' }, title: `${f.lead.label}, last ${String(f.lead.days.length)} days` },
+      ...f.others.map((o, i): ViewComponent => ({ id: `band_fig_${String(i)}`, component: 'Sparkline', values: { path: `/board/figures/others/${String(i)}/values` }, label: `${o.label} · ${o.note}`, current: o.value })),
+    );
+    root.push('band');
   }
   const part = (a: BoardAgentShape, treatment: 'feature' | 'aside' | 'plain'): string => {
     const id = `${treatment}_${slug(a.id)}`;
@@ -118,10 +131,29 @@ export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { 
   return { components: [{ id: 'root', component: 'Column', children: root }, ...parts] };
 }
 
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const dayLabel = (iso: string): string => WEEKDAY[new Date(`${iso}T12:00:00Z`).getUTCDay()] ?? iso;
+const said = (f: BriefFigure, v: number): string => (f.kind === 'percent' ? `${v > 0 ? '+' : ''}${String(Math.round(v * 100) / 100)}%` : String(Math.round(v * 100) / 100));
+
+/** Home's brief as the edition's figures: the lead with its days (the last one "Today"), the others with their values. Only agents in the edition. Pure. */
+export function editionFigures(brief: HomeBrief | undefined, inEdition: ReadonlySet<string>): BoardFigures | undefined {
+  if (!brief || !inEdition.has(brief.lead.agentId) || brief.lead.days.length < 3) return undefined;
+  const { lead } = brief;
+  return {
+    lead: {
+      value: lead.text, label: lead.label, note: lead.agent, href: `/runs/${encodeURIComponent(lead.runId)}`,
+      days: lead.days.map((d, i) => ({ label: i === lead.days.length - 1 ? 'Today' : dayLabel(d.day), value: d.value, text: said(lead, d.value) })),
+    },
+    others: brief.figures.filter((f) => inEdition.has(f.agentId)).map((f) => ({ value: f.text, label: f.label, note: f.agent, href: `/runs/${encodeURIComponent(f.runId)}`, values: f.days.map((d) => d.value) })),
+  };
+}
+
 export interface TodayEdition {
   /** In page order; an agent with no view or tile of its own isn't in it. */
   tiles: Map<string, PulseTile>;
   doc: BoardDoc;
+  /** The day's figures, for the page's data (`/board/figures`). */
+  figures?: BoardFigures;
 }
 
 /** Today's edition from the stores, or undefined when no scheduled agent produced anything in the last day. Never throws. */
@@ -144,7 +176,8 @@ export function todayEdition(ctx: Ctx, now = Date.now()): TodayEdition | undefin
     attachLayoutHints(built, ctx.layoutHintsStore);
     const shapes = [...tiles.values()].map((t) => boardAgentShape(t, ctx.runStore));
     const wide = new Set(shapes.filter((sh) => editionWide(agents.find((a) => a.id === sh.id) ?? {}, sh)).map((sh) => sh.id));
-    return { tiles, doc: editionDoc(shapes, { ...(brief && tiles.has(brief.lead.agentId) ? { lede: { agentId: brief.lead.agentId, headline: brief.headline } } : {}), wide }) };
+    const figures = editionFigures(brief, new Set(tiles.keys()));
+    return { tiles, doc: editionDoc(shapes, { ...(brief && tiles.has(brief.lead.agentId) ? { lede: { agentId: brief.lead.agentId, headline: brief.headline } } : {}), wide, ...(figures ? { figures } : {}) }), ...(figures ? { figures } : {}) };
   } catch {
     return undefined;
   }

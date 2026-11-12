@@ -31,6 +31,17 @@ export const BOARD_LAYOUT_DATA: Readonly<Record<string, string>> = {
 export const BOARD_LAYOUT_VALUES: Readonly<Record<string, string>> = {};
 
 /** What `when` can test on a board: an agent id (it has a result), `running:<id>`, `numbers:<id>` (it has a numeric output). */
+/**
+ * The day's figures, on Pulse's generated edition only (ADR-0074; a board
+ * you made has no such data): the count that leads, with its last days, and
+ * a few other figures with theirs.
+ */
+export const BOARD_FIGURES_DATA: Record<string, string> = {
+  '/board/figures/lead': 'the count that leads the day, as a Lead stat {value, label, note, href}',
+  '/board/figures/lead/days': 'that count on each of the last days it ran, for DayBars: [{label, value, text}], oldest first',
+  '/board/figures/others/<n>': 'another figure {value, label, note, href, values}: `values` is its number on each of the last days, for a Sparkline',
+};
+
 export const BOARD_LAYOUT_FLAGS: Readonly<Record<string, string>> = {
   '<agentId>': 'The agent has a completed run with a result to show.',
   'running:<agentId>': 'A run of the agent is going right now.',
