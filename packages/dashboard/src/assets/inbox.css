@@ -3281,6 +3281,47 @@ a.item-pane__chip:hover { border-color: var(--color-border-strong); color: var(-
 .home-reads__when { flex: 0 0 auto; color: var(--color-text-muted); font-size: var(--font-size-xs); font-family: var(--font-mono); }
 .home-reads__line { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.5; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
+/* ── Home's brief (views/home-brief.ts): the page's one large item. Numbers and drawings; text in ink, the lead number and today's column in the accent ── */
+.home-brief { border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-lg); background: var(--color-surface); padding: var(--space-4) var(--space-6); display: grid; gap: var(--space-3); }
+.home-brief__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.home-brief__from, .home-brief__fig-from { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.home-brief__headline { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl); font-weight: var(--weight-bold); line-height: 1.25; max-width: 44ch; text-wrap: balance; }
+.home-brief__body { display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; gap: var(--space-6); align-items: end; padding: var(--space-3) 0; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); }
+.home-brief__lead { display: grid; gap: 2px; }
+.home-brief__lead-value { font-family: var(--font-display); font-size: 3.25rem; font-weight: var(--weight-bold); line-height: 1; color: var(--color-primary); font-variant-numeric: tabular-nums; }
+.home-brief__lead-label { font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
+.home-brief__week { margin: 0; display: grid; gap: var(--space-2); min-width: 0; }
+.home-brief__week-title { font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.home-brief__cols { list-style: none; margin: 0; padding: 0; display: flex; align-items: flex-end; gap: 2px; height: 96px; }
+.home-brief__col { flex: 1 1 0; min-width: 0; max-width: 56px; height: 100%; display: grid; grid-template-rows: auto 1fr auto; justify-items: stretch; align-items: end; gap: 2px; text-align: center; }
+.home-brief__col-value { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.home-brief__col-bar { display: block; align-self: end; background: var(--color-primary-soft); border: 1px solid var(--color-border); border-bottom: 0; border-radius: 4px 4px 0 0; min-height: 4px; }
+.home-brief__col-day { font-size: var(--font-size-xs); color: var(--color-text-muted); border-top: 1px solid var(--color-border); padding-top: 2px; }
+.home-brief__col.is-today .home-brief__col-bar { background: var(--color-primary); border-color: var(--color-primary); }
+.home-brief__col.is-today .home-brief__col-value, .home-brief__col.is-today .home-brief__col-day { color: var(--color-text); font-weight: var(--weight-semibold); }
+.home-brief__figs { display: flex; gap: var(--space-6); align-items: end; flex-wrap: wrap; }
+.home-brief__fig { display: grid; gap: 2px; color: var(--color-text); text-decoration: none; min-width: 84px; }
+.home-brief__fig:hover .home-brief__fig-label { text-decoration: underline; }
+.home-brief__fig:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; border-radius: var(--radius-sm); }
+.home-brief__fig-value { font-family: var(--font-display); font-size: var(--font-size-xl); font-weight: var(--weight-bold); line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.home-brief__arrow { font-size: 0.6em; margin-right: 4px; vertical-align: 0.15em; }
+.home-brief__fig-label { font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; }
+.home-brief__spark { display: block; color: var(--color-text-muted); overflow: visible; }
+.home-brief__spark-now { fill: var(--color-primary); stroke: var(--color-surface); stroke-width: 2; }
+.home-brief__top { margin: 0; font-size: var(--font-size-md); line-height: 1.5; }
+.home-brief__top-label { font-family: var(--font-display); font-size: var(--font-size-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); margin-right: var(--space-2); }
+.home-brief__top a { color: var(--color-text); font-weight: var(--weight-semibold); }
+.home-brief__acts { display: flex; gap: var(--space-2); align-items: center; }
+@media (max-width: 900px) {
+  .home-brief__body { grid-template-columns: auto minmax(0, 1fr); }
+  .home-brief__figs { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .home-brief { padding: var(--space-3) var(--space-4); }
+  .home-brief__body { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .home-brief__lead-value { font-size: 2.5rem; }
+}
+
 /* ── Home's Next up (views/home-next.ts): one framed lead, then plain rows ── */
 .home-next { display: grid; gap: var(--space-3); }
 .home-next[hidden], .home-tidy[hidden] { display: none; }

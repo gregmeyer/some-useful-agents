@@ -54,7 +54,15 @@ Home is what needs you and what to do next, on one page, in two columns (one on 
 
 - **The header** is the same as every page's: the breadcrumb, then how things stand ("2 need you", or "Nothing needs you") beside the title. On the right: **Autonomy** (Full / Approve first / Off), **Adjust Home** (ask sua to change what Home shows, and **What changed**) and **Full inbox**.
 - **Today**, on the left, when something needs you or is happening: drawn from Home's surface (what needs you, what's happening, and whether everything else is fine) and ordered by your rules. See [surfaces](surfaces.md#homes-today-tab). Clicking a row opens it in the sua panel beside the page: a conversation as its thread, anything else (a failing agent, a draft) with its actions and why it's there. Row menus (pin, move, hide, dismiss) work here as in the panel. Today redraws itself as things change.When nothing needs you it says **All clear**. On a quiet day Today is one line ("All good: running 8 scheduled agents"): the header already says nothing needs you.
-- **Next up**, under it: up to five specific things to do next, picked from what you have. The first is set larger. Each says why it's there in a line, and has the one button that does it:
+- **Today's brief**, the page's one large item: what your scheduled agents found today, as numbers.
+  - **The headline** is the lead agent's own first sentence.
+  - **The lead number** is the largest count any of them found today ("6 matches"), with that count on each of the last days it ran as columns, today's filled in.
+  - **Beside it**, up to three figures from other agents (percentages first, then counts), each with a small line of its last days. Click one to open that run.
+  - **Top story**: the first thing a list agent found, when it links somewhere.
+  - A number only counts as a figure if it changes from day to day over at least three days. One that is always the same ("5 stories") is how the agent is set up, not news; positions and settings (`*_index`, `*_minutes`) are never figures.
+  - Nothing in it is written by a model: every number is in an agent's output. With no agent that has such a count today, the brief isn't shown and Next up's first item is set large in its place.
+  - To get an agent into the brief, have it return a JSON object with a number at the top level (`match_count`, `open_prs`, `nasdaq_change_pct`) and, for the headline, a `summary`.
+- **Next up**, under it: up to five specific things to do next, picked from what you have. With no brief above it, the first is set larger. Each says why it's there in a line, and has the one button that does it:
   - **A notebook you have open** whose next step is yours (choose, narrow), or one you picked from but never marked decided: **Open it**.
   - **A conversation sua left on a question to you** in the last two weeks, with the question: **Open it** (in the panel).
   - **Start another of what you make**: your most-used notebook templates ("Start a meeting briefing for…"), and the topic you keep coming back to (three or more notebooks with the same tag in the last 60 days: "Start another on remote jobs", set up like the latest one, for a subject you name). **Start** puts the sentence in Ask sua for you to finish. Notebooks you've archived count here as patterns; Home never suggests reopening one.

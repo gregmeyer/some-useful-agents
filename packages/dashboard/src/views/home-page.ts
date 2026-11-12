@@ -18,6 +18,8 @@ import { renderHousekeeping, renderNextUp } from './home-next.js';
 import type { AskStarters, HomeSuggestions } from '../lib/home-suggestions.js';
 import type { HomeNext } from '../lib/home-next.js';
 import { renderHomeReads } from './home-reads.js';
+import { renderHomeBrief } from './home-brief.js';
+import type { HomeBrief } from '../lib/home-brief.js';
 import type { HomeRead } from '../lib/home-reads.js';
 
 /** "2 need you" / "Nothing needs you": the line beside the title. */
@@ -82,6 +84,8 @@ export function renderHomePage(opts: {
   next?: HomeNext;
   /** What scheduled agents produced today (lib/home-reads.ts). */
   reads?: readonly HomeRead[];
+  /** What scheduled agents found today, as numbers (lib/home-brief.ts). */
+  brief?: HomeBrief;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
 }): string {
   const status = homeStatus(opts.today);
@@ -104,7 +108,9 @@ export function renderHomePage(opts: {
             <div data-home-today>${renderHomeToday(opts.today)}</div>
             <div class="home-today__toast" data-surface-toast hidden></div>
           </section>`,
-    'next-up': renderNextUp(next),
+    brief: renderHomeBrief(opts.brief),
+    // With the brief as the page's one large item, Next up is all plain rows.
+    'next-up': renderNextUp(next, !!opts.brief && !parts.find((p) => p.id === 'brief')?.hidden),
     ask: renderAskCard(suggestions.starters ?? [], new Set(next.next.map((x) => x.action.fill ?? ''))),
     housekeeping: renderHousekeeping(next),
     reads: renderHomeReads(opts.reads ?? []),

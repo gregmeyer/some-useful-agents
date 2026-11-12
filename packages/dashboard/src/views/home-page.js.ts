@@ -44,7 +44,7 @@ export const HOME_PAGE_JS = `
       // Typing in Ask sua after a fill, or a button mid-press: not now.
       if (sec.querySelector('button:disabled')) return;
       nextBusy = true;
-      fetch('/home/next', { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
+      fetch('/home/next' + (sec.hasAttribute('data-next-flat') ? '?flat=1' : ''), { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
         .then(function (j) {
           if (j.html !== body.innerHTML) body.innerHTML = j.html;

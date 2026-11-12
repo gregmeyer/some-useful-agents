@@ -75,16 +75,16 @@ export type SurfaceOverride = z.infer<typeof overrideSchema>;
 
 /**
  * The parts of Home's page (not of its Today list, whose sections are the
- * regions): what needs you, Next up, Ask sua and Housekeeping in the main
+ * regions): what needs you, the day's brief, Next up, Ask sua and Housekeeping in the main
  * column; Today's reads and Your notebooks beside them. You can move a part
  * within its column and hide any but Today, which is where what needs you
  * shows (ADR-0073).
  */
-export const HOME_PARTS = ['today', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks'] as const;
+export const HOME_PARTS = ['today', 'brief', 'next-up', 'ask', 'housekeeping', 'reads', 'notebooks'] as const;
 export type HomePart = typeof HOME_PARTS[number];
-export const HOME_PART_TITLES: Record<HomePart, string> = { today: 'Today', 'next-up': 'Next up', ask: 'Ask sua', housekeeping: 'Housekeeping', reads: "Today's reads", notebooks: 'Your notebooks' };
+export const HOME_PART_TITLES: Record<HomePart, string> = { today: 'Today', brief: "Today's brief", 'next-up': 'Next up', ask: 'Ask sua', housekeeping: 'Housekeeping', reads: "Today's reads", notebooks: 'Your notebooks' };
 /** Which column a part is in; a part moves within its own. */
-export const HOME_PART_COLUMN: Record<HomePart, 'main' | 'rail'> = { today: 'main', 'next-up': 'main', ask: 'main', housekeeping: 'main', reads: 'rail', notebooks: 'rail' };
+export const HOME_PART_COLUMN: Record<HomePart, 'main' | 'rail'> = { today: 'main', brief: 'main', 'next-up': 'main', ask: 'main', housekeeping: 'main', reads: 'rail', notebooks: 'rail' };
 
 export const partSchema = z.object({ id: z.enum(HOME_PARTS), hidden: z.boolean().optional(), ...STAMP }).strict();
 export type SurfacePart = z.infer<typeof partSchema>;
@@ -160,7 +160,12 @@ export const STRUCTURAL_OPS: ReadonlySet<SurfaceOp['op']> = new Set(['addRegion'
 
 /** Every part of Home's page in the order it's drawn (main column first, then beside it), with what's hidden: the document's own order, then any it doesn't list in the default order. */
 export function surfaceParts(doc: Pick<SurfaceDoc, 'parts'>): SurfacePart[] {
-  const listed = doc.parts ?? [];
-  const all = [...listed, ...HOME_PARTS.filter((id) => !listed.some((p) => p.id === id)).map((id) => ({ id }))];
+  const all: SurfacePart[] = [...(doc.parts ?? [])];
+  // A part the document doesn't list (it was saved before the part existed) goes after the one it follows by default.
+  HOME_PARTS.forEach((id, i) => {
+    if (all.some((p) => p.id === id)) return;
+    const after = all.findIndex((p) => p.id === HOME_PARTS[i - 1]);
+    all.splice(i === 0 ? 0 : after < 0 ? all.length : after + 1, 0, { id });
+  });
   return [...all.filter((p) => HOME_PART_COLUMN[p.id] === 'main'), ...all.filter((p) => HOME_PART_COLUMN[p.id] === 'rail')];
 }

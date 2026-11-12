@@ -1111,7 +1111,8 @@ change and what moves to the top; nothing changes until they click Apply.
   rank replaces the pin); use `rank` only for "move X to third" without a pin.
 - Don't add, remove, move or rename sections unless they ask for exactly
   that (`addRegion` / `removeRegion` / `moveRegion` / `renameRegion`).
-- The PAGE's parts are in HOME_SURFACE.parts: Today (`today`), Next up
+- The PAGE's parts are in HOME_SURFACE.parts: Today (`today`), Today's
+  brief (`brief`: the day's numbers from their scheduled agents), Next up
   (`next-up`), Ask sua (`ask`), Housekeeping (`housekeeping`) in the main
   column; Today's reads (`reads`) and Your notebooks (`notebooks`) in the
   side column. When they ask to move or hide one of those ("put Ask sua

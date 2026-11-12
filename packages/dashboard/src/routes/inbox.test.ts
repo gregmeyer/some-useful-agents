@@ -222,8 +222,8 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     const { describeHomeForTriage, describeOps } = await import('../lib/surface-adjust.js');
     const { readHomeSurface } = await import('../lib/home-surface.js');
     const told = JSON.parse(describeHomeForTriage(readHomeSurface(currentCtx!))) as { parts: Array<{ id: string; title: string; column: string; hidden?: boolean }> };
-    expect(told.parts.map((x) => x.id)).toEqual(['ask', 'today', 'next-up', 'housekeeping', 'reads', 'notebooks']);
-    expect(told.parts[2]).toEqual({ id: 'next-up', title: 'Next up', column: 'main' });
+    expect(told.parts.map((x) => x.id)).toEqual(['ask', 'today', 'brief', 'next-up', 'housekeeping', 'reads', 'notebooks']);
+    expect(told.parts[3]).toEqual({ id: 'next-up', title: 'Next up', column: 'main' });
     expect(describeOps([{ op: 'movePart', part: 'ask', index: 0 }, { op: 'hidePart', part: 'next-up' }, { op: 'showPart', part: 'reads' }], [])).toEqual([
       'Move: Ask sua → first on the page', 'Hide: Next up → off Home (Adjust Home brings it back)', "Show: Today's reads → back on Home",
     ]);
