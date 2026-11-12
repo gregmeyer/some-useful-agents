@@ -261,7 +261,9 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 **Cancel + abandoned errors.** A **Cancel** button appears while the run is `running` or `pending`. The cancel route SIGTERMs the spawned child and escalates to SIGKILL after 5s if the child hasn't exited, then finalizes both the run row and any still-`running` `node_executions` rows to `cancelled` with a flash banner. A separate `errorCategory: 'abandoned'` appears on rows the orphan reaper finalized on a later dashboard boot (i.e. a daemon restart killed the parent process mid-run); the run-level error names the cause inline. See [Security model § Orphan process reaper](SECURITY.md) for the mechanism.
 
-## `/pulse` — the board
+## `/pulse` — today's edition, and the board
+
+Pulse has two views, as tabs under its header. **Today's edition** (`/pulse`) is a generated front page of what your scheduled agents produced in the last day, each drawn as its own result; see [boards](boards.md#pulse). With nothing reported in the last day it isn't shown and Pulse opens on the board. **All agents** (`/pulse/agents`) is the board described below.
 
 ![Pulse with six placed tiles](images/pulse.png)
 

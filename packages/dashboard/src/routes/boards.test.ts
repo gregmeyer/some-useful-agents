@@ -85,6 +85,58 @@ describe('boards are canvases', () => {
     expect(editorData(page.text)).toMatchObject({ id: 'user:morning', version: 0, isPulse: false, plannerUrl: '/dashboards/user%3Amorning/layout-plan', offerImport: false });
   });
 
+  it("Pulse opens on today's edition when scheduled agents reported in the last day: a generated front page of their own views, never saved; the grid is under All agents", async () => {
+    const app = await setup();
+    // Nothing scheduled has run: Pulse is its grid, with no tabs.
+    const before = await get(app, '/pulse');
+    expect(before.text).toContain('data-board-canvas="pulse"');
+    expect(before.text).not.toContain('pulse-tabs');
+    const sched = (id: string, result: string) => {
+      ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *',
+        nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+      const at = new Date(Date.now() - 3600_000).toISOString();
+      ctx.runStore.createRun({ id: `run-${id}`, agentName: id, status: 'completed', startedAt: at, completedAt: at, result, triggeredBy: 'schedule' } as never);
+    };
+    sched('digest', JSON.stringify({ summary: 'Six roles passed.' }));
+    sched('hn', JSON.stringify({ headline: 'HN Top 5' }));
+    const page = await get(app, '/pulse');
+    expect(page.status).toBe(200);
+    expect(page.text).toContain('data-board-canvas="today"');
+    expect(page.text).toContain('data-board-composed="1"');
+    expect(page.text).toContain('2 scheduled agents reported in the last day');
+    expect(page.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse" aria-current="page">Today\'s edition</a>');
+    expect(page.text).toContain('<a class="pulse-tabs__tab" href="/pulse/agents">All agents</a>');
+    // Generated, so nothing to arrange: no editor, no Arrange.
+    expect(page.text).not.toContain('board-canvas-editor.js');
+    expect(page.text).not.toContain('data-canvas-edit');
+    const comps = surface(page.text);
+    expect(comps.find((c) => c.id === 'masthead')).toMatchObject({ component: 'Panel', hero: true });
+    // Only the scheduled ones that reported; each as its own view in a panel.
+    expect(comps.filter((c) => c.component === 'AgentTile').map((c) => c.agentId).sort()).toEqual(['digest', 'hn']);
+    expect(comps.filter((c) => c.component === 'AgentTile').every((c) => c.chrome === 'bare')).toBe(true);
+    expect(Object.keys(registry(page.text)).sort()).toEqual(['digest', 'hn']);
+    // It links to a part by agent; the script that scrolls there is on the page.
+    expect(page.text).toContain("/^#agent-(.+)$/");
+    // All agents is the grid as before, with the tabs.
+    const grid = await get(app, '/pulse/agents');
+    expect(grid.text).toContain('data-board-canvas="pulse"');
+    expect(grid.text).toContain('data-canvas-edit');
+    expect(grid.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse/agents" aria-current="page">All agents</a>');
+    // Coming back from an action on the grid (a flash) lands on the grid.
+    expect((await get(app, '/pulse?ok=Hid+3')).text).toContain('data-board-canvas="pulse"');
+    // It refreshes like a board, and can't be saved, arranged or given a look.
+    const data = await get(app, '/boards/today/data.json');
+    expect(data.status).toBe(200);
+    expect(Object.keys(data.body.tiles).sort()).toEqual(['digest', 'hn']);
+    expect((await get(app, '/boards/today')).headers.location).toBe('/pulse');
+    for (const path of ['/boards/today/doc', '/boards/today/doc/apply', '/boards/today/undo', '/boards/today/look']) {
+      const no = await post(app, path, { doc: { components: [] } });
+      expect(no.status).toBe(400);
+      expect(no.body.error).toContain("can't be arranged or saved");
+    }
+    expect((await get(app, '/boards/today.json')).body.board).toMatchObject({ id: 'today', name: "Today's edition", version: 0 });
+  });
+
   it('Pulse: placed tiles on the canvas, the rest under "Everything else" in tabs; health tiles as A2UI; × hides', async () => {
     const app = await setup();
     let page = await get(app, '/pulse');
@@ -131,7 +183,7 @@ describe('boards are canvases', () => {
 
   it('redirects /boards/<id> (and the old /canvas preview address) to the page', async () => {
     const app = await setup();
-    expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse');
+    expect((await get(app, '/boards/pulse')).headers.location).toBe('/pulse/agents');
     expect((await get(app, '/boards/user:morning')).headers.location).toBe('/dashboards/user%3Amorning');
     expect((await get(app, '/boards/user:morning/canvas')).headers.location).toBe('/dashboards/user%3Amorning');
     expect((await get(app, '/boards/nope')).status).toBe(404);

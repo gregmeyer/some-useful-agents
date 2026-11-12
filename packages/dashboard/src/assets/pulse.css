@@ -955,6 +955,14 @@
 .board-page__meta { font-size: var(--font-size-sm); }
 .board-page__actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .board-page__head .page-header__description { flex-basis: 100%; margin: 0; }
+/* Pulse's two views (today's edition, all agents), under its header. */
+.pulse-tabs { flex-basis: 100%; display: flex; gap: var(--space-4); border-bottom: 1px solid var(--color-border); }
+.pulse-tabs__tab { padding: var(--space-2) 0; margin-bottom: -1px; border-bottom: 2px solid transparent; color: var(--color-text-muted); text-decoration: none; font-size: var(--font-size-sm); font-weight: var(--weight-semibold); min-height: 32px; display: inline-flex; align-items: center; }
+.pulse-tabs__tab:hover { color: var(--color-text); }
+.pulse-tabs__tab.is-active { color: var(--color-text); border-bottom-color: var(--color-primary); }
+.pulse-tabs__tab:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.today-edition { margin-top: var(--space-4); }
+
 .board-page__hidden { margin-top: var(--space-6); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) 0 0; border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .board-page__hidden > span { margin-right: var(--space-2); }
 
