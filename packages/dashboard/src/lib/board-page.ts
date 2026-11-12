@@ -150,7 +150,9 @@ export async function decideBoardPage(ctx: Ctx, boardId: string, opts: { again?:
   try {
     const shapes = boardShapes(ctx, board);
     if (!shapes.length) return 'skipped';
-    const { answer } = await drawBoardPage(board, shapes, (inputs) => runBoardPageAgent(ctx, inputs), { ...(opts.about ? { about: opts.about } : {}), ...(opts.request ? { request: opts.request, current: board.doc.components } : {}) });
+    // What the board is for: said for this run, else the board's goal. Every run of the page agent gets it.
+    const about = opts.about ?? boards.goal(boardId)?.text;
+    const { answer } = await drawBoardPage(board, shapes, (inputs) => runBoardPageAgent(ctx, inputs), { ...(about ? { about } : {}), ...(opts.request ? { request: opts.request, current: board.doc.components } : {}) });
     const now = boards.loadDocOrDerive(boardId);
     // Gone, or changed meanwhile (by hand, by a card): that stands.
     if (!now || JSON.stringify(now.doc) !== JSON.stringify(board.doc)) return 'skipped';

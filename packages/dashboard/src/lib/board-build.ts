@@ -174,6 +174,8 @@ async function runBoardBuild(ctx: Ctx, buildId: string): Promise<void> {
   const boards = new BoardsStore(ctx.runStore.databaseHandle());
   const current = boards.get(build.boardId);
   boards.saveDoc({ id: build.boardId, name, doc, expectedVersion: current?.version ?? 0 });
+  // What you asked for is what the board is for (ADR-0075), until you say otherwise.
+  if (!boards.goal(build.boardId)) boards.setGoal(build.boardId, build.request, 'request');
   if (placed.length === 0) {
     if (!plan.missing.length) return finish(ctx, buildId, { placed, summary: plan.summary, name, error: 'None of your agents fit that request.' });
     finish(ctx, buildId, { placed, summary: plan.summary, name, drafting: true });

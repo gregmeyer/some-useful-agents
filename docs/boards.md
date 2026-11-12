@@ -28,6 +28,15 @@ Nobody arranges it and nothing about it is saved, so there is no Arrange here. `
 
 Until Pulse's board is first saved, it offers **Start from my Pulse arrangement** when your browser kept groups or tile sizes for the old Pulse: each of your groups becomes a section with its tiles at the sizes you chose.
 
+## A board's goal
+
+Every board you make can say what it's for, in a sentence, under its title: **Goal**, with **Edit** (or **Add a goal**).
+
+- A board built from a request starts with that request as its goal ("from what you asked for"). Change it any time.
+- sua is given the goal whenever it draws the board's page: after a build, from **How it looks → Let sua pick**, and when you ask it in words. Before, only the build knew what the board was for.
+- The goal is kept apart from the layout: arranging, a new look and **Undo last save** don't touch it.
+- Pulse and Today's edition have no goal; they aren't boards you make.
+
 ## Dashboards
 
 A dashboard you haven't arranged is shown laid out from its sections: each becomes a titled section holding a grid of its tiles, wide tiles spanning two columns. An agent listed on a dashboard but not installed shows as a note in its place.
