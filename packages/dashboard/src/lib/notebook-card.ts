@@ -113,20 +113,29 @@ export function notebookCardForThread(s: NotebookStore, message: InboxMessage): 
 }
 
 /** A notebook on Home's shelf: its card, its criteria as dots, and whether sua is waiting on you. */
-export interface ShelfCard extends NotebookCard { criteria: boolean[]; waiting: boolean }
+export interface ShelfCard extends NotebookCard { criteria: boolean[]; waiting: boolean;
+  /** Where it stands, when it isn't open: you put it away, or you decided. */
+  mark?: 'archived' | 'decided' }
 
 /**
- * Home's notebooks shelf: the active notebooks, most recently changed first
- * (at most `limit`), and how many there are in all.
+ * Home's notebooks shelf: your notebooks most recently changed first (at
+ * most `limit`), and how many there are in all. Ones you decided or put
+ * away are here too, marked: this is where you were last, to open and read,
+ * not a suggestion to take one up again. sua waiting on you only counts on
+ * one that's still open.
  */
 export function homeShelf(s: NotebookStore, isWaiting: (threadId: string) => boolean, limit = 4): { cards: ShelfCard[]; total: number } {
-  const active = s.list({ status: 'active' }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const all = s.list({ archived: 'include' }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
-    total: active.length,
-    cards: active.slice(0, limit).map((nb) => ({
-      ...notebookCard(s, nb),
-      criteria: nb.criteria.map((c) => c.met),
-      waiting: nb.conversationId ? isWaiting(nb.conversationId) : false,
-    })),
+    total: all.length,
+    cards: all.slice(0, limit).map((nb) => {
+      const mark = nb.archivedAt ? 'archived' as const : nb.status === 'decided' ? 'decided' as const : undefined;
+      return {
+        ...notebookCard(s, nb),
+        criteria: nb.criteria.map((c) => c.met),
+        waiting: !mark && nb.conversationId ? isWaiting(nb.conversationId) : false,
+        ...(mark ? { mark } : {}),
+      };
+    }),
   };
 }

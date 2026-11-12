@@ -1,6 +1,8 @@
 /**
  * Home's "Today's reads": what your scheduled agents produced in the last
- * day, a line each, newest first. Pure (`pickReads`) with a reader
+ * day, one line each and only what's news, newest first. Each opens that
+ * agent's result in today's edition on Pulse (lib/today-edition.ts), where
+ * the reading is. Pure (`pickReads`) with a reader
  * (`homeReads`). The agents you read every morning, without opening Pulse.
  */
 import { SYSTEM_AGENT_IDS, type Agent, type Run } from '@some-useful-agents/core';
@@ -11,7 +13,9 @@ type Ctx = ReturnType<typeof getContext>;
 
 export interface HomeRead { agentId: string; name: string; runId: string; at: string; line: string }
 
-export const READS_SHOWN = 6;
+export const READS_SHOWN = 5;
+/** A read is one line: its first sentence, no longer than this. */
+export const READ_LINE = 110;
 const DAY = 86_400_000;
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.replace(/\s+/g, ' ').trim() ? v.replace(/\s+/g, ' ').trim() : undefined);
@@ -69,25 +73,44 @@ export function readLine(result: string | undefined | null, cap = 150): string |
   return summarizeRunOutput(result, cap);
 }
 
+/** The first sentence of a line (a short opening like "HN Top 5: …" is kept with what follows). */
+function headlineOf(line: string): string {
+  const m = /^(.{24,}?[.!?])(\s|$)/.exec(line);
+  return clip((m ? m[1] : line).replace(/[.]$/, ''), READ_LINE);
+}
+
+/**
+ * Nothing happened: every number the output gives is zero (no priorities,
+ * no matches), or what it says starts with "No …" / "Nothing …" / "None …".
+ * Such a result is in today's edition but isn't a read on Home. Pure.
+ */
+export function noNews(result: string | undefined | null): boolean {
+  const { obj } = runOutputObject(result);
+  const nums = obj ? Object.values(obj).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)) : [];
+  if (nums.length && nums.every((n) => n === 0)) return true;
+  return /^(no|nothing|none)\b/i.test(readLine(result) ?? '');
+}
+
 /** One line per scheduled agent whose latest finished run is from the last 24 hours and says something. Pure. */
-export function pickReads(agents: readonly Agent[], latest: (agentId: string) => Pick<Run, 'id' | 'startedAt' | 'completedAt' | 'result'> | undefined, now = Date.now(), max = READS_SHOWN): HomeRead[] {
+export function pickReads(agents: readonly Agent[], latest: (agentId: string) => Pick<Run, 'id' | 'startedAt' | 'completedAt' | 'result'> | undefined, now = Date.now(), max = READS_SHOWN, skip: ReadonlySet<string> = new Set()): HomeRead[] {
   const out: HomeRead[] = [];
   for (const a of agents) {
-    if (a.status !== 'active' || !a.schedule || SYSTEM_AGENT_IDS.has(a.id)) continue;
+    if (a.status !== 'active' || !a.schedule || SYSTEM_AGENT_IDS.has(a.id) || skip.has(a.id)) continue;
     const run = latest(a.id);
     const at = run?.completedAt ?? run?.startedAt;
     if (!run || !at || now - Date.parse(at) > DAY) continue;
-    const line = readLine(run.result);
-    if (!line) continue;
+    const whole = readLine(run.result, 400);
+    if (!whole || noNews(run.result)) continue;
+    const line = headlineOf(whole);
     out.push({ agentId: a.id, name: a.name, runId: run.id, at, line });
   }
   return out.sort((x, y) => y.at.localeCompare(x.at)).slice(0, max);
 }
 
 /** Today's reads, from the stores. Never throws. */
-export function homeReads(ctx: Ctx, now = Date.now()): HomeRead[] {
+export function homeReads(ctx: Ctx, now = Date.now(), skip: ReadonlySet<string> = new Set()): HomeRead[] {
   try {
-    return pickReads(ctx.agentStore.listAgents({ status: 'active' }), (id) => ctx.runStore.listRuns({ agentName: id, status: 'completed', limit: 1 })[0], now);
+    return pickReads(ctx.agentStore.listAgents({ status: 'active' }), (id) => ctx.runStore.listRuns({ agentName: id, status: 'completed', limit: 1 })[0], now, READS_SHOWN, skip);
   } catch {
     return [];
   }
