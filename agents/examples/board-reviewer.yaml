@@ -1,6 +1,7 @@
 # Board Reviewer — looks at one board against what it is for and suggests
 # what would make it serve that better: agents the person already has that
-# belong on it, and tiles that should come off. The dashboard gives it the
+# belong on it, tiles that should come off, and content to draw from what
+# its agents return (a headline, a band of figures, a top story). The dashboard gives it the
 # board and the candidates (lib/board-review.ts), checks every suggestion
 # (only agents that exist), and shows them on the board for the person to
 # apply one by one. Route-dispatched only; never proposed in triage.
@@ -9,7 +10,7 @@ id: board-reviewer
 name: Board Reviewer
 description: >
   Reviews a board against its goal and suggests agents to add or leave
-  out, each with a reason from what the agents actually produce.
+  out and content to draw from their results, each with a reason.
 status: active
 source: examples
 
@@ -22,7 +23,7 @@ inputs:
   BOARD:
     type: string
     required: true
-    description: 'JSON: {"name", "agents": [{"id", "title", "description"?, "outputs": [{"name","type"}], "latest"?, "lastRun"?, "failing"?}]}: what is on the board now.'
+    description: 'JSON: {"name", "composed", "agents": [{"id", "title", "description"?, "outputs": [{"name","type"}], "latest"?, "lastRun"?, "failing"?}], "figures"?: {"lead", "others"}, "canDraw": {"headline"?: [ids], "numbers"?: [ids], "top-story"?: [ids]}}: what is on the board now, and what its results can be drawn as.'
   CANDIDATES:
     type: string
     required: false
@@ -84,6 +85,22 @@ nodes:
         about the same subject.
       - "remove": a tile on the board that repeats another one, is
         failing, or does not serve the goal.
+      - "content": something to draw on the board's page from what its
+        agents already return, when it would make the board say more at a
+        glance. "kind" is one of:
+          "headline": the day's headline from one agent's result, leading
+            the page. "from": an id listed under canDraw.headline.
+          "numbers": a band of the board's figures, the lead one by day
+            as columns and the others with trend lines. Only when BOARD
+            has "figures". "from": an id listed under canDraw.numbers.
+          "top-story": the top item of one agent's list, linked, near the
+            top. "from": an id listed under canDraw["top-story"].
+          "note": one line of context under the title that the goal
+            calls for and no agent states. Rarely needed.
+        Suggest content only for a kind BOARD.canDraw lists, and not for
+        something the page plainly shows already. A board of plain tiles
+        ("composed": false) usually gains most from a headline, and from
+        numbers when it has figures.
 
       For each, "why": one plain sentence, under 160 characters, saying
       what it adds or why it goes, in terms of what it returns. Use only
@@ -96,5 +113,5 @@ nodes:
 
       Reply with only this, as valid JSON:
       <review>
-      {"goal": "", "suggestions": [{"type": "add-agent", "agentId": "", "why": ""}, {"type": "remove", "agentId": "", "why": ""}], "note": "", "done": false}
+      {"goal": "", "suggestions": [{"type": "add-agent", "agentId": "", "why": ""}, {"type": "remove", "agentId": "", "why": ""}, {"type": "content", "kind": "headline", "from": "", "why": ""}], "note": "", "done": false}
       </review>

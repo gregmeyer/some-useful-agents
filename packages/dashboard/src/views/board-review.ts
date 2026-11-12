@@ -25,17 +25,25 @@ export function improveBoardButton(boardId: string, review: BoardReview | undefi
   </form>`;
 }
 
+/** A content suggestion, as its row says it. */
+const CONTENT_WHAT: Record<string, (from: string) => string> = {
+  headline: (from) => `Lead with the day's headline${from ? ` from ${from}` : ''}`,
+  numbers: () => 'Add a numbers band: the lead figure by day, and the others with their trends',
+  'top-story': (from) => `Show the top item${from ? ` of ${from}` : ''}, linked`,
+  note: () => 'Add a line of context',
+};
+
 function suggestion(boardId: string, review: BoardReview, s: StoredBoardSuggestion, title: (id: string) => string): SafeHtml {
   const base = `/boards/${encodeURIComponent(boardId)}/review/${encodeURIComponent(review.id)}`;
-  const add = s.type === 'add-agent';
-  const what = add ? `Add ${title(s.agentId)}` : `Leave out ${title(s.agentId)}`;
-  const state = s.state === 'applied' ? (add ? 'Added' : 'Left out') : s.state === 'skipped' ? 'Skipped' : '';
+  const add = s.type !== 'remove';
+  const what = s.type === 'content' ? CONTENT_WHAT[s.kind](s.from ? title(s.from) : '') : s.type === 'add-agent' ? `Add ${title(s.agentId)}` : `Leave out ${title(s.agentId)}`;
+  const state = s.state === 'applied' ? (s.type === 'content' ? 'Drawn' : add ? 'Added' : 'Left out') : s.state === 'skipped' ? 'Skipped' : '';
   return html`
     <li class="board-review__item${s.state !== 'open' ? ' is-done' : ''}" data-review-suggestion="${s.key}">
       <span class="board-review__sign" aria-hidden="true">${add ? '+' : '−'}</span>
       <div class="board-review__text"><span class="board-review__what">${what}</span><span class="board-review__why">${s.why}</span></div>
       ${s.state === 'open' ? html`<div class="board-review__acts">
-        <form method="POST" action="${base}/apply" style="margin: 0;"><input type="hidden" name="key" value="${s.key}"><button type="submit" class="btn btn--sm" aria-label="${what}">${add ? 'Add' : 'Leave out'}</button></form>
+        <form method="POST" action="${base}/apply" style="margin: 0;"><input type="hidden" name="key" value="${s.key}"><button type="submit" class="btn btn--sm" aria-label="${what}">${s.type === 'content' ? 'Draw it' : add ? 'Add' : 'Leave out'}</button></form>
         <form method="POST" action="${base}/skip" style="margin: 0;"><input type="hidden" name="key" value="${s.key}"><button type="submit" class="board-review__skip" aria-label="Skip: ${what}" title="Don't suggest this again for this board">Skip</button></form>
       </div>` : html`<span class="board-review__state">${state}</span>`}
     </li>`;

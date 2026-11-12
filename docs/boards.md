@@ -19,7 +19,7 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 - a masthead with the date, and the day's headline (the first sentence of the agent that leads Home's brief);
 - each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button;
-- **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). A board you made has no such data.
+- **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). Every board's data carries its own agents' figures at the same paths, so a board you made can draw the same band (sua does it when you take a numbers suggestion, or ask for one).
 - results with a table in the wide column; the others beside it (one with a number first, the number set large) and three abreast underneath.
 
 Nobody arranges it and nothing about it is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
@@ -46,8 +46,10 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
    - **Add** an agent you already have that gives the board something it lacks. sua judges by what the agent returns (its output fields and latest result), not its name; two agents that return the same thing count as one.
    - **Leave out** a tile that repeats another, is failing, or doesn't serve the goal.
 
+   - **Draw it**: content from what the board's agents already return, drawn on the board's own page. The day's headline from one agent's result; a "By the numbers" band (a figure that changes from day to day with its last days as columns, others with trend lines); the top item of an agent's list, linked; or a line of context. sua only suggests what the results can carry: no numbers band on a board whose agents have no figure that changes by day.
+
    Each has a one-line reason. **Skip** turns one down, and it isn't offered again for this board. **Apply all** takes every open one.
-3. **What applying does**: a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added.
+3. **What applying does**: for an agent added or left out, a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added. For content, sua redraws the board's page as something you asked for (so the page then counts as yours, and later additions leave it alone); the suggestion is marked **Drawn** once the page is saved.
 4. **Look again** runs another round, knowing what you applied and skipped. When nothing would make the board better for its goal it says so, and its note says what none of your agents covers.
 
 sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).

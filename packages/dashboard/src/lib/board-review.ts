@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import {
   AgentCatalogStore, BoardReviewStore, BoardsStore, SYSTEM_AGENT_IDS, applyBoardOps, boardDocAgentIds, boardFlagAgent, executeAgentDag,
   isComposedBoardDoc, parseBoardReview, rankAgentsByRelevance, sectionsFromBoardDoc,
-  type Agent, type AgentSignal, type BoardDoc, type BoardReview, type StoredBoardSuggestion,
+  type Agent, type AgentSignal, type BoardContentKind, type BoardDoc, type BoardReview, type StoredBoardSuggestion,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -20,6 +20,7 @@ import { buildPulseTile, withTileSignal } from '../views/pulse-tile-builder.js';
 import { boardAgentShape } from './board-widgets.js';
 import { boardPageIsItsOwn, decideBoardPage } from './board-page.js';
 import { readLine } from './home-reads.js';
+import { agentFigures, boardFiguresFrom, figuresInWords } from './board-figures.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -69,7 +70,7 @@ export function boardAgentIds(_ctx: Ctx, _boardId: string, doc: BoardDoc): strin
  * code; at most REVIEW_CANDIDATES). Only agents that have a tile and aren't
  * sua's own, archived or drafts.
  */
-export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<string, string>; onBoard: Set<string>; candidates: Set<string>; skipped: Set<string> } | undefined {
+export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<string, string>; onBoard: Set<string>; candidates: Set<string>; skipped: Set<string>; content: Partial<Record<BoardContentKind, Set<string>>> } | undefined {
   const board = boardsOf(ctx).loadDocOrDerive(boardId);
   if (!board) return undefined;
   const goal = boardsOf(ctx).goal(boardId)?.text ?? '';
@@ -84,15 +85,26 @@ export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<s
   const cands = ranked.map((r) => describeAgent(ctx, r.agent, catalog.get(r.agent.id)?.useFor)).filter((a): a is ReviewAgent => !!a);
   const skipped = new Set(reviewsOf(ctx).skippedKeys(boardId));
   const round = (reviewsOf(ctx).latest(boardId)?.round ?? 0);
+  // What the board's results can carry, so a content suggestion is one that can be drawn.
+  const onAgents = on.map((a) => ctx.agentStore.getAgent(a.id)).filter((a): a is Agent => !!a);
+  const figs = agentFigures(ctx, onAgents);
+  const figures = boardFiguresFrom(figs);
+  const content: Partial<Record<BoardContentKind, Set<string>>> = {
+    headline: new Set(on.filter((a) => a.outputs.some((o) => o.type === 'string' && /headline|summary|title|lead/i.test(o.name))).map((a) => a.id)),
+    'top-story': new Set(on.filter((a) => a.outputs.some((o) => o.type === 'list' && (o.length ?? 0) > 0)).map((a) => a.id)),
+    ...(figures ? { numbers: new Set(figs.map((f) => f.agentId)) } : {}),
+    note: new Set(on.map((a) => a.id)),
+  };
+  const can = Object.fromEntries(Object.entries(content).filter(([k, ids]) => k !== 'note' && ids.size).map(([k, ids]) => [k, [...ids]]));
   return {
     inputs: {
       GOAL: goal,
-      BOARD: JSON.stringify({ name: board.name, agents: on }),
+      BOARD: JSON.stringify({ name: board.name, composed: isComposedBoardDoc(board.doc.components), agents: on, ...(figures ? { figures: figuresInWords(figures) } : {}), canDraw: can }),
       CANDIDATES: JSON.stringify(cands),
       SKIPPED: JSON.stringify([...skipped]),
       ROUND: String(round),
     },
-    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped,
+    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped, content,
   };
 }
 
@@ -181,7 +193,7 @@ export interface AppliedSuggestions { applied: string[]; refused: Array<{ key: s
  * run once. When sua composed the board's page (or it has none), the page
  * is redrawn in the background with the goal.
  */
-export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: string, keys?: readonly string[]): AppliedSuggestions & { error?: string; redraw?: Promise<unknown> } {
+export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: string, keys?: readonly string[]): AppliedSuggestions & { error?: string; redraw?: Promise<unknown>; /** Content suggestions sua is drawing now. */ drawing?: number } {
   const reviews = reviewsOf(ctx);
   const review = reviews.get(reviewId);
   if (!review || review.boardId !== boardId) return { applied: [], refused: [], error: "That review isn't for this board." };
@@ -193,7 +205,9 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   let doc = board.doc;
   const done: StoredBoardSuggestion[] = [];
   const refused: AppliedSuggestions['refused'] = [];
+  const drawn = open.filter((s) => s.type === 'content');
   for (const s of open) {
+    if (s.type === 'content') continue;
     if (s.type === 'add-agent') {
       const agent = ctx.agentStore.getAgent(s.agentId);
       if (!agent || agent.status !== 'active' || !withTileSignal(agent).signal) { refused.push({ key: s.key, why: `${s.agentId} isn't available any more.` }); continue; }
@@ -225,14 +239,30 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
     }
   }
   for (const s of done) reviews.setState(reviewId, s.key, 'applied');
-  const added = done.filter((s) => s.type === 'add-agent').map((s) => s.agentId);
+  const added = done.flatMap((s) => (s.type === 'add-agent' ? [s.agentId] : []));
   for (const id of added) { try { maybeKickoffFirstRun(ctx, id); } catch { /* it can be run from its tile */ } }
   // The board's own page takes the change in: sua redraws it with the goal. A page you picked or arranged is left as it is.
   let redraw: Promise<unknown> | undefined;
-  if (changed && boardPageIsItsOwn(boards.get(boardId) ?? {})) {
+  if (drawn.length) {
+    // Content is drawn by sua on this board's own page, as something you asked for; it is marked done once the page is drawn.
+    const title = (id?: string) => (id ? boards.tileTitle(id) ?? ctx.agentStore.getAgent(id)?.name ?? id : 'the board');
+    const ask = `${drawn.map((s) => (s.type === 'content' ? contentAsk(s.kind, title(s.from), s.why) : '')).join(' ')} Keep everything else that is on the page.`;
+    redraw = decideBoardPage(ctx, boardId, { request: ask }).then((outcome) => {
+      if (outcome === 'drawn') for (const s of drawn) reviews.setState(reviewId, s.key, 'applied');
+      return outcome;
+    }).catch(() => 'failed');
+  } else if (changed && boardPageIsItsOwn(boards.get(boardId) ?? {})) {
     redraw = decideBoardPage(ctx, boardId, { again: true }).catch(() => 'failed');
   }
-  return { applied: done.map((s) => s.key), refused, ...(redraw ? { redraw } : {}) };
+  return { applied: done.map((s) => s.key), refused, ...(drawn.length ? { drawing: drawn.length } : {}), ...(redraw ? { redraw } : {}) };
+}
+
+/** A content suggestion as the ask sua's page agent gets. Pure. */
+export function contentAsk(kind: BoardContentKind, from: string, why: string): string {
+  if (kind === 'headline') return `Lead the page with the day's headline from ${from}'s result, as a lede right under the masthead.`;
+  if (kind === 'numbers') return 'Add a "By the numbers" band under the lede from the board\'s figures (/board/figures): the lead figure with its days as columns, and the others each over its trend line.';
+  if (kind === 'top-story') return `Show the top item of ${from}'s list near the top of the page, with its link.`;
+  return `Add one short line of context under the masthead: ${why}`;
 }
 
 /** Turn a suggestion down: it isn't offered again on this board. */
