@@ -10,6 +10,8 @@ import { working } from './working.js';
 
 export interface BoardReviewCard {
   review?: BoardReview;
+  /** A draft started from a suggestion: being written, waiting for your approval, or failed. */
+  draft?: { buildId: string; state: 'drafting' | 'approve' | 'failed'; detail: string; agents: Array<{ id: string; name: string; purpose: string }>; error?: string };
   goal?: BoardGoal;
   /** An agent's name for people (its tile's title), by id. */
   title: (agentId: string) => string;
@@ -29,7 +31,7 @@ function suggestion(boardId: string, review: BoardReview, s: StoredBoardSuggesti
   const base = `/boards/${encodeURIComponent(boardId)}/review/${encodeURIComponent(review.id)}`;
   const add = s.type !== 'remove';
   const what = s.type === 'draft' ? `Draft a new agent: ${s.suggestedName ?? s.purpose}` : s.type === 'content' ? CONTENT_WHAT[s.kind](s.from ? title(s.from) : '') : s.type === 'add-agent' ? `Add ${title(s.agentId)}` : `Leave out ${title(s.agentId)}`;
-  const state = s.state === 'applied' ? (s.type === 'draft' ? 'Drafted: approve it to add it' : s.type === 'content' ? 'Drawn' : add ? 'Added' : 'Left out') : s.state === 'skipped' ? 'Skipped' : '';
+  const state = s.state === 'applied' ? (s.type === 'draft' ? 'Sent to be drafted' : s.type === 'content' ? 'Drawn' : add ? 'Added' : 'Left out') : s.state === 'skipped' ? 'Skipped' : '';
   const why = s.type === 'draft' && s.suggestedName ? `${s.purpose.replace(/[.\s]+$/, '')}. ${s.why}` : s.why;
   return html`
     <li class="board-review__item${s.state !== 'open' ? ' is-done' : ''}" data-review-suggestion="${s.key}">
@@ -59,9 +61,39 @@ export function boardGoalCard(boardId: string, c: BoardReviewCard & { goalLine: 
   </form>`;
   return html`<section class="board-goal-card" data-board-goal-card>
     <div class="board-goal-card__top">${c.goalLine}${improve}</div>
+    ${draftBlock(boardId, c.draft)}
     ${reviewBody(boardId, c)}
     ${c.extra ?? html``}
   </section>`;
+}
+
+/**
+ * A new agent sua is drafting for this board, where you asked for it: a
+ * working line while it's written (the page checks back and redraws when
+ * it's ready), then the agent with Approve and Decline right here. The
+ * inbox has the same approval; this is so you don't have to go looking.
+ */
+function draftBlock(boardId: string, d: BoardReviewCard['draft']): SafeHtml {
+  if (!d) return html``;
+  if (d.state === 'drafting') {
+    return html`<div class="board-review board-draft" data-board-draft-running="${boardId}" role="status" aria-live="polite">
+      ${working({ text: `${d.detail || 'sua is drafting a new agent for this board.'} It usually takes a minute or two; the button to approve it appears here.` })}
+      ${unsafeHtml(`<script>(function(){var el=document.querySelector('[data-board-draft-running]');if(!el)return;var id=el.getAttribute('data-board-draft-running');function tick(){fetch('/boards/'+encodeURIComponent(id)+'/build.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(b){if(b&&b.phase&&b.phase!=='drafting'&&b.phase!=='planning'){location.reload();return;}setTimeout(tick,3000);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,3000);})();</script>`)}
+    </div>`;
+  }
+  if (d.state === 'failed') return html`<div class="board-review board-draft"><p class="board-review__note"><strong>sua couldn't draft that agent.</strong> ${d.error ?? d.detail}</p></div>`;
+  const base = `/boards/builds/${encodeURIComponent(d.buildId)}`;
+  return html`<div class="board-review board-draft board-draft--ready" data-board-draft-ready>
+    <p class="board-review__label">Ready for you to approve</p>
+    <ul class="board-review__list">${d.agents.map((a) => html`<li class="board-review__item">
+      <span class="board-review__sign" aria-hidden="true">+</span>
+      <div class="board-review__text"><span class="board-review__what">${a.name}</span><span class="board-review__why">${a.purpose} It's a draft and hasn't run. <a href="/agents/${encodeURIComponent(a.id)}">Look at it first</a></span></div>
+    </li>`) as unknown as SafeHtml[]}</ul>
+    <div class="board-review__foot">
+      <form method="POST" action="${base}/approve" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Approve and add to the board</button></form>
+      <form method="POST" action="${base}/decline" style="margin: 0;"><button type="submit" class="board-review__skip" title="Delete the draft; nothing has run">Decline</button></form>
+    </div>
+  </div>`;
 }
 
 function reviewBody(boardId: string, c: BoardReviewCard): SafeHtml {

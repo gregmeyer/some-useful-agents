@@ -36,6 +36,7 @@ import { decideBoardPage, boardPageIsItsOwn } from './board-page.js';
 import { runOutputObject } from './daily-digest.js';
 import { readLine } from './home-reads.js';
 import { startBoardReview } from './board-review.js';
+import { publishInboxChanged } from '../routes/inbox-shared.js';
 
 type Ctx = ReturnType<typeof getContext>;
 export const BOARD_BUILDER_AGENT_ID = 'board-builder';
@@ -350,6 +351,11 @@ async function draftMissing(ctx: Ctx, buildId: string, args: { request: string; 
       contextJson: JSON.stringify({ kind: 'board-agents-approval', buildId, boardId: build.boardId, agentIds: ok.map((d) => d.id) }),
     });
     messageId = msg?.id;
+    // It waits on you: counted in the top bar's "need you" and listed under Needs you on Home, until you approve or decline.
+    if (msg) {
+      ctx.inboxStore!.updateStatus(msg.id, 'awaiting_user');
+      try { publishInboxChanged(ctx, msg.id, 'awaiting_user'); } catch { /* the next page load shows it */ }
+    }
   } catch { /* the board page still offers the approval */ }
   builds.update(buildId, {
     phase: 'done', drafts, approval: 'pending', ...(messageId ? { approvalMessageId: messageId } : {}),

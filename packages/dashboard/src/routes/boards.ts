@@ -17,7 +17,7 @@ import {
   type Agent,
   type AgentSignal,
   type Board,
-  BOARD_GOAL_MAX, type BoardGoal, editionPrefsSet,
+  BOARD_GOAL_MAX, type BoardBuild, type BoardGoal, editionPrefsSet,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
@@ -399,7 +399,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   const building = build && (build.phase === 'planning' || build.phase === 'arranging' || build.phase === 'running' || build.phase === 'drafting');
   const awaitingApproval = build && build.approval === 'pending';
   const recentlyBuilt = build && !building && !awaitingApproval && Date.now() - build.updatedAt < 6 * 3_600_000 && (r.board.version <= 1);
-  const buildBanner = building
+  const fromReview = build?.origin === 'review';
+  const buildBanner = fromReview ? html`` : building
     ? html`<div class="flash flash--info board-build" data-board-build="${id}" role="status" aria-live="polite">
         <strong>${build!.origin === 'review' ? 'sua is drafting for this board.' : 'Building this board from your request.'}</strong> <span data-board-build-detail>${build!.detail}</span>
         <span class="dim"> You can leave; your inbox will say when it's ready.</span>
@@ -442,7 +443,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
       </div>` : html``}
     ${buildBanner}
     ${!isPulse ? (archivedAt === undefined
-      ? boardGoalCard(id, { goalLine: boardGoalLine(id, boardsOf(ctx).goal(id)), ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false })
+      ? boardGoalCard(id, { goalLine: boardGoalLine(id, boardsOf(ctx).goal(id)), ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false, ...(reviewDraft(ctx, build) ? { draft: reviewDraft(ctx, build)! } : {}) })
       : boardGoalLine(id, boardsOf(ctx).goal(id))) : html``}
     <div class="board-toolbar" data-canvas-toolbar>
       <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>Arrange</button>
@@ -596,6 +597,17 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
  * "How it looks" (ADR-0070): the grid, the front page, or let sua pick.
  * Saves a new version of the board and comes back to it with what happened.
  */
+/** A review's draft for a board, as the goal card shows it: being written, waiting on you, or failed. Nothing once it's decided. */
+function reviewDraft(ctx: ReturnType<typeof getContext>, build: BoardBuild | undefined): NonNullable<Parameters<typeof boardGoalCard>[1]['draft']> | undefined {
+  if (!build || build.origin !== 'review') return undefined;
+  const agents = build.drafts.filter((d) => d.ok && d.id).map((d) => ({ id: d.id!, name: d.name ?? ctx.agentStore.getAgent(d.id!)?.name ?? d.id!, purpose: /[.!?]$/.test(d.purpose) ? d.purpose : `${d.purpose}.` }));
+  if (build.phase === 'planning' || build.phase === 'drafting') return { buildId: build.id, state: 'drafting', detail: build.detail, agents: [] };
+  if (build.approval === 'pending' && agents.length) return { buildId: build.id, state: 'approve', detail: build.detail, agents };
+  // A draft that failed is said once, while it's recent; a decided one is done.
+  if ((build.phase === 'failed' || (build.phase === 'done' && !build.approval && !agents.length)) && Date.now() - build.updatedAt < 3_600_000) return { buildId: build.id, state: 'failed', detail: build.detail, agents: [], ...(build.error ? { error: build.error } : { error: build.drafts.find((d) => !d.ok)?.error ?? '' }) };
+  return undefined;
+}
+
 /** Back to a board's page with a message. Today's edition says it on the edition (a plain flash on /pulse lands on the grid). */
 function boardBack(id: string, kind: 'ok' | 'error', message: string): string {
   return id === TODAY_BOARD_ID ? `/pulse?edition=${encodeURIComponent(message)}` : `${boardPageUrl(id)}?${kind}=${encodeURIComponent(message)}`;
