@@ -258,6 +258,10 @@ export interface DashboardContext {
   notebookSuggesting?: boolean;
   /** Tests only: answer for the notebook suggester instead of running it. */
   notebookSuggesterRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** The latest board review or page redraw started from a board's suggestions, so tests can wait for it. */
+  boardReviewWork?: Promise<void>;
+  /** Tests only: answer for the board-reviewer agent instead of running it (lib/board-review.ts). */
+  boardReviewRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Home's Next up is being worded (lib/home-next-words.ts): one run at a time. */
   homeNextWording?: boolean;
   /** That run, so tests can wait for it. */

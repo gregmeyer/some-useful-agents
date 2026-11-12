@@ -1,0 +1,100 @@
+# Board Reviewer — looks at one board against what it is for and suggests
+# what would make it serve that better: agents the person already has that
+# belong on it, and tiles that should come off. The dashboard gives it the
+# board and the candidates (lib/board-review.ts), checks every suggestion
+# (only agents that exist), and shows them on the board for the person to
+# apply one by one. Route-dispatched only; never proposed in triage.
+
+id: board-reviewer
+name: Board Reviewer
+description: >
+  Reviews a board against its goal and suggests agents to add or leave
+  out, each with a reason from what the agents actually produce.
+status: active
+source: examples
+
+inputs:
+  GOAL:
+    type: string
+    required: false
+    default: ""
+    description: What the board is for, in the person's words. Empty when it has none yet.
+  BOARD:
+    type: string
+    required: true
+    description: 'JSON: {"name", "agents": [{"id", "title", "description"?, "outputs": [{"name","type"}], "latest"?, "lastRun"?, "failing"?}]}: what is on the board now.'
+  CANDIDATES:
+    type: string
+    required: false
+    default: "[]"
+    description: 'JSON array of agents the person has that are NOT on the board, most related first: [{"id", "title", "description"?, "useFor"?, "outputs", "latest"?, "lastRun"?}].'
+  SKIPPED:
+    type: string
+    required: false
+    default: "[]"
+    description: 'JSON array of suggestions they turned down before, as "type:agentId". Do not make these again.'
+  ROUND:
+    type: string
+    required: false
+    default: "1"
+    description: Which round of review this is.
+
+nodes:
+  - id: review
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<review>[\s\S]*?</review>'
+      description: a <review> JSON block
+    prompt: |
+      You are reviewing a board: a page someone opens to see what a few of
+      their agents found. Your job is to say what would make this board
+      serve its goal better, using only agents they already have.
+
+      THE GOAL (what the board is for):
+      {{inputs.GOAL}}
+
+      THE BOARD NOW (JSON). "outputs" are the fields each agent returns;
+      "latest" is the first line of its last result; "failing" means its
+      last run failed:
+      {{inputs.BOARD}}
+
+      AGENTS THEY HAVE THAT ARE NOT ON IT (JSON), most related first:
+      {{inputs.CANDIDATES}}
+
+      ALREADY TURNED DOWN (never suggest these again):
+      {{inputs.SKIPPED}}
+
+      This is round {{inputs.ROUND}}.
+
+      IF THE GOAL ABOVE IS EMPTY: first write one, "goal": a single plain
+      sentence (under 200 characters) saying what someone would open this
+      board to find out, judged from its name and what is on it. Say it
+      the way they would ("Know what matters on Hacker News each morning"),
+      not as a description of the page. Then review against that goal.
+
+      SUGGEST, at most six in all, the most useful first:
+
+      - "add-agent": a candidate that gives the board something it lacks
+        for the goal. Judge by what the agent RETURNS ("outputs",
+        "latest"), not its name. Two agents that return the same thing in
+        a different shape are one thing: add the better one, or none if
+        the board already has it. Do not add an agent only because it is
+        about the same subject.
+      - "remove": a tile on the board that repeats another one, is
+        failing, or does not serve the goal.
+
+      For each, "why": one plain sentence, under 160 characters, saying
+      what it adds or why it goes, in terms of what it returns. Use only
+      what is in the JSON above. No number that is not there.
+
+      Use ids exactly as given. Never invent an agent. If nothing would
+      make the board better for this goal, return no suggestions and set
+      "done": true. "note": one sentence on how well the board serves the
+      goal now and what is still not covered by any agent they have.
+
+      Reply with only this, as valid JSON:
+      <review>
+      {"goal": "", "suggestions": [{"type": "add-agent", "agentId": "", "why": ""}, {"type": "remove", "agentId": "", "why": ""}], "note": "", "done": false}
+      </review>
