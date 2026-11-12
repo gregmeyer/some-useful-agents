@@ -8,9 +8,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  AgentCatalogStore, BoardReviewStore, BoardsStore, SYSTEM_AGENT_IDS, applyBoardOps, boardDocAgentIds, boardFlagAgent, executeAgentDag,
+  AgentCatalogStore, BoardReviewStore, BoardsStore, EditionOpError, SYSTEM_AGENT_IDS, applyBoardOps, applyEditionOps, boardDocAgentIds, boardFlagAgent, executeAgentDag,
   isComposedBoardDoc, parseBoardReview, rankAgentsByRelevance, sectionsFromBoardDoc,
-  type Agent, type AgentSignal, type BoardContentKind, type BoardDoc, type BoardReview, type StoredBoardSuggestion,
+  type Agent, type AgentSignal, type BoardContentKind, type BoardDoc, type BoardReview, type EditionOp, type StoredBoardSuggestion,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -22,6 +22,7 @@ import { boardPageIsItsOwn, decideBoardPage } from './board-page.js';
 import { readLine } from './home-reads.js';
 import { agentFigures, boardFiguresFrom, figuresInWords } from './board-figures.js';
 import { draftForBoard } from './board-build.js';
+import { TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsStoreOf, todayEdition } from './today-edition.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -71,15 +72,20 @@ export function boardAgentIds(_ctx: Ctx, _boardId: string, doc: BoardDoc): strin
  * code; at most REVIEW_CANDIDATES). Only agents that have a tile and aren't
  * sua's own, archived or drafts.
  */
-export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<string, string>; onBoard: Set<string>; candidates: Set<string>; skipped: Set<string>; content: Partial<Record<BoardContentKind, Set<string>>> } | undefined {
-  const board = boardsOf(ctx).loadDocOrDerive(boardId);
+export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<string, string>; onBoard: Set<string>; candidates: Set<string>; skipped: Set<string>; content: Partial<Record<BoardContentKind, Set<string>>>; drafts: boolean } | undefined {
+  // Today's edition is generated, not stored: it is reviewed as it would be drawn now.
+  const isToday = boardId === TODAY_BOARD_ID;
+  const edition = isToday ? todayEdition(ctx) : undefined;
+  const board = isToday ? (edition ? { name: TODAY_BOARD_NAME, doc: edition.doc } : undefined) : boardsOf(ctx).loadDocOrDerive(boardId);
   if (!board) return undefined;
   const goal = boardsOf(ctx).goal(boardId)?.text ?? '';
   const catalog = AgentCatalogStore.fromHandle(ctx.runStore.databaseHandle()).all();
   const onIds = boardAgentIds(ctx, boardId, board.doc);
   const on = onIds.map((id) => ctx.agentStore.getAgent(id)).filter((a): a is Agent => !!a).map((a) => describeAgent(ctx, a, catalog.get(a.id)?.useFor)).filter((a): a is ReviewAgent => !!a);
   const onBoard = new Set(onIds);
-  const pool = ctx.agentStore.listAgents().filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id) && !a.id.startsWith('_') && !onBoard.has(a.id) && !!withTileSignal(a).signal);
+  // For the edition, only agents that have a result to show can be brought in.
+  const pool = ctx.agentStore.listAgents().filter((a) => a.status === 'active' && !SYSTEM_AGENT_IDS.has(a.id) && !a.id.startsWith('_') && !onBoard.has(a.id) && !!withTileSignal(a).signal
+    && (!isToday || ctx.runStore.listRuns({ agentName: a.id, status: 'completed', limit: 1 }).length > 0));
   const query = [goal, board.name, ...on.map((a) => `${a.title} ${a.description ?? ''}`)].join(' ');
   // The most related first; with room to spare, the rest too (the reviewer judges by what each returns, not by its words).
   const ranked = rankAgentsByRelevance(pool, query).slice(0, REVIEW_CANDIDATES);
@@ -94,7 +100,8 @@ export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<s
     headline: new Set(on.filter((a) => a.outputs.some((o) => o.type === 'string' && /headline|summary|title|lead/i.test(o.name))).map((a) => a.id)),
     'top-story': new Set(on.filter((a) => a.outputs.some((o) => o.type === 'list' && (o.length ?? 0) > 0)).map((a) => a.id)),
     ...(figures ? { numbers: new Set(figs.map((f) => f.agentId)) } : {}),
-    note: new Set(on.map((a) => a.id)),
+    // The edition's line under its title is yours to write, not sua's.
+    ...(isToday ? {} : { note: new Set(on.map((a) => a.id)) }),
   };
   const can = Object.fromEntries(Object.entries(content).filter(([k, ids]) => k !== 'note' && ids.size).map(([k, ids]) => [k, [...ids]]));
   return {
@@ -105,7 +112,8 @@ export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<s
       SKIPPED: JSON.stringify([...skipped]),
       ROUND: String(round),
     },
-    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped, content,
+    // New agents are drafted for a board you made; the edition takes agents you have.
+    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped, content, drafts: !isToday,
   };
 }
 
@@ -136,12 +144,12 @@ async function runReviewer(ctx: Ctx, inputs: Record<string, string>): Promise<st
  * (running), or why not: no such board, Pulse, or a round already going.
  */
 export function startBoardReview(ctx: Ctx, boardId: string): { review?: BoardReview; error?: string; work?: Promise<void> } {
-  if (boardId === 'pulse' || boardId === 'today') return { error: 'Pulse has no goal to review against. Make a board for it.' };
+  if (boardId === 'pulse') return { error: 'The All agents grid has no goal to review against. Improve Today\'s edition, or make a board.' };
   const reviews = reviewsOf(ctx);
   reviews.failStale();
   if (reviews.latest(boardId)?.status === 'running') return { error: 'sua is already looking at this board.' };
   const given = boardReviewInputs(ctx, boardId);
-  if (!given) return { error: "There's no such board." };
+  if (!given) return { error: boardId === TODAY_BOARD_ID ? "There's no edition today: no scheduled agent has reported in the last day." : "There's no such board." };
   const review = reviews.start(boardId);
   const inputs = { ...given.inputs, ROUND: String(review.round) };
   const work = (async () => {
@@ -198,6 +206,7 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   const reviews = reviewsOf(ctx);
   const review = reviews.get(reviewId);
   if (!review || review.boardId !== boardId) return { applied: [], refused: [], error: "That review isn't for this board." };
+  if (boardId === TODAY_BOARD_ID) return applyEditionSuggestions(ctx, review, keys);
   const boards = boardsOf(ctx);
   const board = boards.loadDocOrDerive(boardId);
   if (!board) return { applied: [], refused: [], error: "There's no such board." };
@@ -268,6 +277,48 @@ export function applyBoardSuggestions(ctx: Ctx, boardId: string, reviewId: strin
   }
   const work = redraw && drafting ? Promise.all([redraw, drafting]) : redraw ?? drafting;
   return { applied: done.map((s) => s.key), refused, ...(drawn.length ? { drawing: drawn.length } : {}), ...(drafting ? { drafting: toDraft.length } : {}), ...(work ? { redraw: work } : {}) };
+}
+
+/** A suggestion for Today's edition as the change to its preferences (ADR-0076), or undefined when it doesn't apply there. Pure. */
+export function editionOpFor(s: StoredBoardSuggestion): EditionOp | undefined {
+  if (s.type === 'add-agent') return { op: 'include', agentId: s.agentId };
+  if (s.type === 'remove') return { op: 'hide', agentId: s.agentId };
+  if (s.type === 'content' && s.kind === 'headline' && s.from) return { op: 'lead', agentId: s.from };
+  if (s.type === 'content' && s.kind === 'numbers') return { op: 'numbers', on: true };
+  if (s.type === 'content' && s.kind === 'top-story' && s.from) return { op: 'top-story', agentId: s.from };
+  return undefined;
+}
+
+/** The agents an edition preference may name: active ones, not sua's own, with a tile and a finished run. */
+export function editionKnownAgents(ctx: Ctx): Set<string> {
+  return new Set(ctx.agentStore.listAgents({ status: 'active' }).filter((a) => !SYSTEM_AGENT_IDS.has(a.id) && !!withTileSignal(a).signal
+    && ctx.runStore.listRuns({ agentName: a.id, status: 'completed', limit: 1 }).length > 0).map((a) => a.id));
+}
+
+/**
+ * Take suggestions for Today's edition: each becomes a preference the
+ * generator follows from now on (one step, undone with Undo). Nothing is
+ * drawn or saved as a page; the edition is made fresh with them next time.
+ */
+function applyEditionSuggestions(ctx: Ctx, review: BoardReview, keys?: readonly string[]): AppliedSuggestions & { error?: string } {
+  const open = review.suggestions.filter((s) => s.state === 'open' && (!keys || keys.includes(s.key)));
+  const store = editionPrefsStoreOf(ctx);
+  const known = editionKnownAgents(ctx);
+  let prefs = store.get();
+  const applied: string[] = [];
+  const refused: AppliedSuggestions['refused'] = [];
+  for (const s of open) {
+    const op = editionOpFor(s);
+    if (!op) { refused.push({ key: s.key, why: "That isn't something the edition takes." }); continue; }
+    try { prefs = applyEditionOps(prefs, [op], known); applied.push(s.key); } catch (err) {
+      refused.push({ key: s.key, why: err instanceof EditionOpError ? err.message : 'That could not be applied.' });
+    }
+  }
+  if (applied.length) {
+    store.save(prefs);
+    for (const key of applied) reviewsOf(ctx).setState(review.id, key, 'applied');
+  }
+  return { applied, refused };
 }
 
 /** A content suggestion as the ask sua's page agent gets. Pure. */

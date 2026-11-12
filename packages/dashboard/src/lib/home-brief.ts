@@ -107,13 +107,13 @@ export function figuresOf(agent: Pick<Agent, 'id' | 'name'>, runs: readonly RunL
 }
 
 /** The first sentence of a line ("Six roles passed all checks on 2026-11-11, out of about 45 read."). */
-function firstSentence(line: string): string {
+export function firstSentence(line: string): string {
   const m = /^(.{20,}?[.!?])(\s|$)/.exec(line);
   return (m ? m[1] : line).replace(/[.]$/, '');
 }
 
 /** The first thing in a list an output links to (a story, a posting). */
-function topOf(obj: Record<string, unknown>): { title: string; url: string } | undefined {
+export function topOf(obj: Record<string, unknown>): { title: string; url: string } | undefined {
   for (const v of Object.values(obj)) {
     if (!Array.isArray(v) || !v.length) continue;
     const one = v[0] as Record<string, unknown> | null;

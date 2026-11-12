@@ -6,10 +6,12 @@
  * result drawn as its own view. Nothing here
  * is written by a model, and there is nothing to arrange or save.
  */
-import { SYSTEM_AGENT_IDS, boardFlag, boardLeadNumber, type Agent, type AgentSignal, type BoardAgentShape, type BoardDoc, type Run, type ViewComponent } from '@some-useful-agents/core';
+import { EditionPrefsStore, SYSTEM_AGENT_IDS, boardFlag, boardLeadNumber, type Agent, type AgentSignal, type BoardAgentShape, type BoardDoc, type EditionPrefs, type Run, type ViewComponent } from '@some-useful-agents/core';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { boardAgentShape, type BoardFigures } from './board-widgets.js';
-import { homeBrief, type BriefFigure, type HomeBrief } from './home-brief.js';
+import { firstSentence, homeBrief, topOf, type BriefFigure, type HomeBrief } from './home-brief.js';
+import { runOutputObject } from './daily-digest.js';
+import { readLine } from './home-reads.js';
 import type { PulseTile } from '../views/pulse-types.js';
 import type { getContext } from '../context.js';
 
@@ -22,15 +24,20 @@ const DAY = 86_400_000;
 /**
  * Who is in today's edition, in order: active, scheduled agents (not sua's
  * own) whose latest finished run is from the last 24 hours, newest first,
- * with `lead` (the agent Home's brief leads with) moved to the front. Pure.
+ * with `lead` moved to the front. Your preferences (ADR-0076) come first:
+ * an agent you left out isn't in it, and one you said to always show is,
+ * whenever it has a result, schedule or not. Pure.
  */
-export function editionAgents<A extends Pick<Agent, 'id' | 'status' | 'schedule'>>(agents: readonly A[], latest: (agentId: string) => Pick<Run, 'startedAt' | 'completedAt'> | undefined, now = Date.now(), lead?: string): A[] {
+export function editionAgents<A extends Pick<Agent, 'id' | 'status' | 'schedule'>>(agents: readonly A[], latest: (agentId: string) => Pick<Run, 'startedAt' | 'completedAt'> | undefined, now = Date.now(), lead?: string, prefs?: Pick<EditionPrefs, 'hidden' | 'include'>): A[] {
   const fresh: Array<{ a: A; at: string }> = [];
+  const hidden = new Set(prefs?.hidden ?? []);
+  const always = new Set(prefs?.include ?? []);
   for (const a of agents) {
-    if (a.status !== 'active' || !a.schedule || SYSTEM_AGENT_IDS.has(a.id)) continue;
+    if (a.status !== 'active' || SYSTEM_AGENT_IDS.has(a.id) || hidden.has(a.id)) continue;
+    if (!a.schedule && !always.has(a.id)) continue;
     const run = latest(a.id);
     const at = run?.completedAt ?? run?.startedAt;
-    if (!at || now - Date.parse(at) > DAY) continue;
+    if (!at || (now - Date.parse(at) > DAY && !always.has(a.id))) continue;
     fresh.push({ a, at });
   }
   fresh.sort((x, y) => y.at.localeCompare(x.at) || x.a.id.localeCompare(y.a.id));
@@ -62,12 +69,16 @@ export function editionWide(agent: Pick<Agent, 'view'>, shape: Pick<BoardAgentSh
  * three abreast. Each agent's result is its own view (`AgentTile`, bare,
  * in a Panel). Pure.
  */
-export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string>; figures?: BoardFigures } = {}): BoardDoc {
+export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string>; figures?: BoardFigures; /** A line of the person's own, under the masthead. */ note?: string; /** The top item of one agent's list, linked, under the headline. */ top?: { title: string; url: string; agent: string } } = {}): BoardDoc {
   const parts: ViewComponent[] = [
     { id: 'masthead', component: 'Panel', title: { path: '/board/name' }, note: { path: '/board/date' }, child: 'masthead_updated', treatment: 'feature', hero: true },
     { id: 'masthead_updated', component: 'Text', text: { path: '/board/updated' }, variant: 'caption' },
   ];
   const root: string[] = ['masthead'];
+  if (opts.note) {
+    parts.push({ id: 'note', component: 'Text', text: opts.note, variant: 'body' });
+    root.push('note');
+  }
   const lead = opts.lede ? shapes.find((a) => a.id === opts.lede!.agentId) : undefined;
   if (lead && opts.lede) {
     parts.push(
@@ -75,6 +86,13 @@ export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { 
       { id: 'lede_c', component: 'Callout', text: opts.lede.headline },
     );
     root.push('lede');
+  }
+  if (opts.top) {
+    parts.push(
+      { id: 'top_story', component: 'Panel', title: `Top of ${opts.top.agent}`, child: 'top_story_link', treatment: 'plain' },
+      { id: 'top_story_link', component: 'Link', text: opts.top.title, url: opts.top.url },
+    );
+    root.push('top_story');
   }
   // The day's figures, as drawings: the lead count large beside its last days as columns, then the others each over its trend.
   if (opts.figures) {
@@ -148,6 +166,12 @@ export function editionFigures(brief: HomeBrief | undefined, inEdition: Readonly
   };
 }
 
+/** How you want the edition (ADR-0076): the stored preferences its generator follows. */
+export const editionPrefsStoreOf = (ctx: Ctx) => new EditionPrefsStore(ctx.runStore.databaseHandle());
+export function editionPrefsOf(ctx: Ctx): EditionPrefs {
+  try { return editionPrefsStoreOf(ctx).get(); } catch { return { hidden: [], include: [], wide: [], narrow: [] }; }
+}
+
 export interface TodayEdition {
   /** In page order; an agent with no view or tile of its own isn't in it. */
   tiles: Map<string, PulseTile>;
@@ -160,8 +184,12 @@ export interface TodayEdition {
 export function todayEdition(ctx: Ctx, now = Date.now()): TodayEdition | undefined {
   try {
     const brief = homeBrief(ctx, now);
-    const lead = brief?.lead.agentId;
-    const agents = editionAgents(ctx.agentStore.listAgents({ status: 'active' }), (id) => ctx.runStore.listRuns({ agentName: id, status: 'completed', limit: 1 })[0], now, lead);
+    const prefs = editionPrefsOf(ctx);
+    const latestRun = (id: string) => ctx.runStore.listRuns({ agentName: id, status: 'completed', limit: 1 })[0];
+    // What leads: the agent you chose while it's in the edition, else the one the day's figures lead with.
+    const all = editionAgents(ctx.agentStore.listAgents({ status: 'active' }), latestRun, now, undefined, prefs);
+    const lead = prefs.lead && all.some((a) => a.id === prefs.lead) ? prefs.lead : brief?.lead.agentId;
+    const agents = editionAgents(ctx.agentStore.listAgents({ status: 'active' }), latestRun, now, lead, prefs);
     const ids = new Set(agents.map((a) => a.id));
     const tiles = new Map<string, PulseTile>();
     const built: PulseTile[] = [];
@@ -175,9 +203,23 @@ export function todayEdition(ctx: Ctx, now = Date.now()): TodayEdition | undefin
     if (!tiles.size) return undefined;
     attachLayoutHints(built, ctx.layoutHintsStore);
     const shapes = [...tiles.values()].map((t) => boardAgentShape(t, ctx.runStore));
-    const wide = new Set(shapes.filter((sh) => editionWide(agents.find((a) => a.id === sh.id) ?? {}, sh)).map((sh) => sh.id));
-    const figures = editionFigures(brief, new Set(tiles.keys()));
-    return { tiles, doc: editionDoc(shapes, { ...(brief && tiles.has(brief.lead.agentId) ? { lede: { agentId: brief.lead.agentId, headline: brief.headline } } : {}), wide, ...(figures ? { figures } : {}) }), ...(figures ? { figures } : {}) };
+    const wide = new Set(shapes.filter((sh) => (editionWide(agents.find((a) => a.id === sh.id) ?? {}, sh) || prefs.wide.includes(sh.id)) && !prefs.narrow.includes(sh.id)).map((sh) => sh.id));
+    const figures = prefs.numbers === false ? undefined : editionFigures(brief, new Set(tiles.keys()));
+    // The headline is the lead agent's own first sentence: the brief's when it leads, else read from the result of the one you chose.
+    const headline = lead && tiles.has(lead)
+      ? (brief && brief.lead.agentId === lead ? brief.headline : firstSentence(readLine(latestRun(lead)?.result, 400) ?? ''))
+      : '';
+    const topAgent = prefs.topStory && tiles.has(prefs.topStory) ? prefs.topStory : undefined;
+    const topObj = topAgent ? runOutputObject(latestRun(topAgent)?.result).obj : undefined;
+    const top = topAgent && topObj ? topOf(topObj) : undefined;
+    return {
+      tiles,
+      doc: editionDoc(shapes, {
+        ...(lead && headline ? { lede: { agentId: lead, headline } } : {}), wide, ...(figures ? { figures } : {}),
+        ...(prefs.note ? { note: prefs.note } : {}), ...(top && topAgent ? { top: { ...top, agent: tiles.get(topAgent)!.signal.title || topAgent } } : {}),
+      }),
+      ...(figures ? { figures } : {}),
+    };
   } catch {
     return undefined;
   }

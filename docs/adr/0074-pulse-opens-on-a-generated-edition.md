@@ -26,6 +26,6 @@ In use, Pulse as a first landing point didn't work. A grid is only worth opening
 
 - The page someone lands on from "Pulse" is something to read, with no setup.
 - The stored Pulse board is unchanged, and so is everything about arranging it. People who arranged Pulse reach it one tab over; `/boards/pulse` now redirects to `/pulse/agents`.
-- The edition can't be customised. Someone who wants a different arrangement of the same agents makes a board ("+ New board") and gives it the front-page look, which is ADR-0070 as it was.
+- The edition can't be arranged or saved as a page. (Amended by ADR-0076: it follows stored preferences, changed through sua's review or by asking.) Someone who wants a different arrangement of the same agents makes a board ("+ New board") and gives it the front-page look, which is ADR-0070 as it was.
 - An agent with no tile and no view of its own isn't in the edition. It is still under All agents and in Home's brief.
 - Which results are "wide" is a rule of thumb (a table in the view). A view that needs width without a table will be squeezed until the rule learns about it.

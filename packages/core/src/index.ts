@@ -658,6 +658,7 @@ export {
   type BoardBuildPhase,
 } from './board-build.js';
 export * from './board-review.js';
+export * from './edition-prefs.js';
 
 // Items: the canonical layer of goal surfaces (ADR-0049, S1).
 export * from './items/index.js';

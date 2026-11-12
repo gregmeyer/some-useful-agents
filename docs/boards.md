@@ -22,7 +22,16 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 - **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). Every board's data carries its own agents' figures at the same paths, so a board you made can draw the same band (sua does it when you take a numbers suggestion, or ask for one).
 - results with a table in the wide column; the others beside it (one with a number first, the number set large) and three abreast underneath.
 
-Nobody arranges it and nothing about it is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
+**Improving the edition.** It can't be arranged or saved as a page, but it follows what you've said you want:
+
+- It has a **Goal**, like a board.
+- **Improve today's edition** has sua review it against the goal and suggest what to leave out, which of your other agents to bring in, which result should lead, and whether to show a top item. Taking a suggestion saves a preference; the edition is made with it from then on. New agents aren't drafted for the edition.
+- **Your changes** lists them in a line, with **Show** beside each agent you left out. **Undo last change** goes back one step; **Back to automatic** forgets them all (Undo brings them back).
+- A preference that can't be met today is skipped for today: if the agent you chose to lead hasn't reported, the day's figures lead, and it leads again when it's back.
+
+See [ADR-0076](adr/0076-the-edition-follows-preferences.md).
+
+Nobody arranges it and nothing about its page is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
 
 **All agents** (`/pulse/agents`), the second tab, is the board you arrange. It shows what you've placed first. Every other agent is under **Everything else**, in tabs by how recently you used it (Health, Recent, Idle, Never run); only the open tab is drawn, so a big Pulse stays quick. A placed agent you hide from Pulse drops off the board.
 
@@ -54,7 +63,7 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 3. **What applying does**: for an agent added or left out, a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added. For content, sua redraws the board's page as something you asked for (so the page then counts as yours, and later additions leave it alone); the suggestion is marked **Drawn** once the page is saved.
 4. **Look again** runs another round, knowing what you applied and skipped. When nothing would make the board better for its goal it says so, and its note says what none of your agents covers.
 
-sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run.
+sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. Once every suggestion in a round is applied or skipped, the card folds to one line.
 
 **A board you build starts with a review.** When a build from a request finishes, sua runs the first round by itself, against the request as the goal, so a new board arrives with its suggestions waiting. The planner that picks agents for a build is also told what each agent returns (the fields of its latest result and its first line), not only its name and description. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).
 
