@@ -85,6 +85,43 @@ describe('boards are canvases', () => {
     expect(editorData(page.text)).toMatchObject({ id: 'user:morning', version: 0, isPulse: false, plannerUrl: '/dashboards/user%3Amorning/layout-plan', offerImport: false });
   });
 
+  it("a board has a goal: said on its page, kept through arranging and a new look, set from what a build was asked for, and given to sua whenever it draws the page", async () => {
+    const app = await setup();
+    const boards = new BoardsStore(ctx.runStore.databaseHandle());
+    // None yet: the page offers to add one.
+    let page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('data-board-goal');
+    expect(page.text).toContain('Say what this board is for');
+    expect(page.text).toContain('<form method="POST" action="/boards/user%3Amorning/goal" class="board-goal__form">');
+    // Saved on a board that has never been saved itself; one line, trimmed.
+    const saved = await post(app, '/boards/user:morning/goal', { goal: '  Know the weather\nand the news before I leave  ' });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.location).toBe('/dashboards/user%3Amorning?ok=Goal%20saved.');
+    expect(boards.goal('user:morning')).toMatchObject({ text: 'Know the weather and the news before I leave', by: 'you' });
+    page = await get(app, '/dashboards/user:morning');
+    expect(page.text).toContain('<span class="board-goal__text">Know the weather and the news before I leave</span>');
+    expect(page.text).toContain('>Know the weather and the news before I leave</textarea>');
+    // A new look and Undo leave it alone.
+    await post(app, '/boards/user:morning/look', { look: 'front-page' });
+    await post(app, '/boards/user:morning/look', { look: 'grid' });
+    expect(boards.goal('user:morning')?.text).toBe('Know the weather and the news before I leave');
+    // sua is told what the board is for when it draws the page, without being told again.
+    const asked: Record<string, string>[] = [];
+    ctx.boardPageRun = async (inputs) => { asked.push(inputs); return undefined; };
+    await post(app, '/boards/user:morning/look', { look: 'pick' });
+    expect(JSON.parse(asked[0].BOARD).for).toBe('Know the weather and the news before I leave');
+    // Too long is cut; empty clears; Pulse has none.
+    await post(app, '/boards/user:morning/goal', { goal: 'x'.repeat(400) });
+    expect(boards.goal('user:morning')!.text).toHaveLength(280);
+    expect((await post(app, '/boards/user:morning/goal', { goal: '   ' })).headers.location).toContain('Goal%20cleared');
+    expect(boards.goal('user:morning')).toBeUndefined();
+    expect((await post(app, '/boards/pulse/goal', { goal: 'x' })).headers.location).toContain('error=');
+    expect((await post(app, '/boards/nope/goal', { goal: 'x' })).headers.location).toContain('error=');
+    expect((await get(app, '/pulse/agents')).text).not.toContain('data-board-goal');
+    expect(boards.setGoal('user:morning', 'From a build', 'request')).toMatchObject({ by: 'request' });
+    expect((await get(app, '/dashboards/user:morning')).text).toContain('from what you asked for');
+  });
+
   it("Pulse opens on today's edition when scheduled agents reported in the last day: a generated front page of their own views, never saved; the grid is under All agents", async () => {
     const app = await setup();
     // Nothing scheduled has run: Pulse is its grid, with no tabs.
@@ -525,6 +562,8 @@ describe('build a board from a request', { timeout: 30_000 }, () => {
       build = (await get(app, `/boards/${encodeURIComponent(boardId)}/build.json`)).body;
     }
     expect(build).toMatchObject({ phase: 'done', placed: ['weather', 'news'], failed: [], missing: [], drafts: [], detail: plan.summary });
+    // What was asked for is the board's goal, shown on its page.
+    expect(new BoardsStore(ctx.runStore.databaseHandle()).goal(boardId)).toMatchObject({ text: 'a morning board with weather and news', by: 'request' });
 
     const board = await get(app, res.headers.location);
     const comps = surface(board.text);

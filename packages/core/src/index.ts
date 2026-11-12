@@ -609,6 +609,8 @@ export {
   cleanBoardLayoutMeta,
   type Board,
   type BoardLayoutMeta,
+  BOARD_GOAL_MAX,
+  type BoardGoal,
   type BoardItem,
   type BoardDoc,
 } from './boards.js';

@@ -58,6 +58,15 @@ export interface Board {
   layoutMeta?: BoardLayoutMeta;
 }
 
+/**
+ * What a board is for, in a sentence (ADR-0075). Kept apart from the board's
+ * layout, so arranging, a new look or Undo never lose it, and a board that
+ * has never been saved can have one. `by`: you wrote it, sua proposed it
+ * and you took it, or it is the request the board was built from.
+ */
+export interface BoardGoal { text: string; by: 'you' | 'sua' | 'request'; at: string }
+export const BOARD_GOAL_MAX = 280;
+
 /** Who composed a board's page and from what: a preset, sua's own ("board"), picked by the user ("picked"), or asked for in words ("you"). */
 export interface BoardLayoutMeta {
   preset?: 'grid' | 'front-page';
@@ -383,6 +392,23 @@ export class BoardsStore {
     // A composed page's meta (ADR-0070): who drew it, from what preset.
     if (!cols.has('layout_meta_json')) this.db.exec('ALTER TABLE boards ADD COLUMN layout_meta_json TEXT');
     if (!cols.has('previous_layout_meta_json')) this.db.exec('ALTER TABLE boards ADD COLUMN previous_layout_meta_json TEXT');
+    // What each board is for (ADR-0075): its own table, since a derived board has no row above.
+    this.db.exec('CREATE TABLE IF NOT EXISTS board_goals (board_id TEXT PRIMARY KEY, goal TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL)');
+  }
+
+  /** What the board is for, when it has been said. */
+  goal(id: string): BoardGoal | undefined {
+    const row = this.db.prepare('SELECT goal, by, at FROM board_goals WHERE board_id = ?').get(id) as { goal: string; by: string; at: string } | undefined;
+    if (!row?.goal) return undefined;
+    return { text: row.goal, by: row.by === 'sua' || row.by === 'request' ? row.by : 'you', at: row.at };
+  }
+
+  /** Say what the board is for (one line, at most BOARD_GOAL_MAX characters); empty clears it. Returns what's kept. */
+  setGoal(id: string, text: string, by: BoardGoal['by'] = 'you', at = new Date().toISOString()): BoardGoal | undefined {
+    const clean = text.replace(/\s+/g, ' ').trim().slice(0, BOARD_GOAL_MAX);
+    if (!clean) { this.db.prepare('DELETE FROM board_goals WHERE board_id = ?').run(id); return undefined; }
+    this.db.prepare('INSERT INTO board_goals (board_id, goal, by, at) VALUES (?, ?, ?, ?) ON CONFLICT(board_id) DO UPDATE SET goal = excluded.goal, by = excluded.by, at = excluded.at').run(id, clean, by, at);
+    return { text: clean, by, at };
   }
 
   get(id: string): Board | undefined {

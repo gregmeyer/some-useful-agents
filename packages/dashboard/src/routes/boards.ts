@@ -17,6 +17,7 @@ import {
   type Agent,
   type AgentSignal,
   type Board,
+  BOARD_GOAL_MAX, type BoardGoal,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
@@ -240,6 +241,29 @@ boardsRouter.post('/boards/:id/plan-preview', (req: Request, res: Response) => {
 type Flash = { kind: 'ok' | 'error' | 'info'; message: string } | undefined;
 
 /** The page a board lives at: /pulse or /dashboards/<id>. */
+/**
+ * What the board is for (ADR-0075), under its title: the sentence, who said
+ * it, and a way to change it. With none yet, the way to say it.
+ */
+export function boardGoalLine(id: string, goal: BoardGoal | undefined): SafeHtml {
+  const by = goal?.by === 'sua' ? 'suggested by sua' : goal?.by === 'request' ? 'from what you asked for' : '';
+  return html`
+    <details class="board-goal" data-board-goal>
+      <summary class="board-goal__line">
+        <span class="board-goal__label">Goal</span>
+        ${goal ? html`<span class="board-goal__text">${goal.text}</span>${by ? html`<span class="board-goal__by">${by}</span>` : html``}` : html`<span class="board-goal__text board-goal__text--none">Say what this board is for, so sua can tell what's missing.</span>`}
+        <span class="board-goal__edit">${goal ? 'Edit' : 'Add a goal'}</span>
+      </summary>
+      <form method="POST" action="/boards/${encodeURIComponent(id)}/goal" class="board-goal__form">
+        <textarea name="goal" rows="2" aria-label="What this board is for" maxlength="${String(BOARD_GOAL_MAX)}" placeholder="e.g. Know what matters on Hacker News each morning, without reading it all">${goal?.text ?? ''}</textarea>
+        <div class="board-goal__acts">
+          <button type="submit" class="btn btn--sm btn--primary">Save goal</button>
+          <span class="board-goal__hint">One sentence. sua uses it when it draws this board's page.</span>
+        </div>
+      </form>
+    </details>`;
+}
+
 /** Pulse's tile grid ("All agents"); `/pulse` itself opens on today's edition when there is one. */
 export const PULSE_AGENTS_URL = '/pulse/agents';
 
@@ -381,6 +405,7 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <button type="submit" class="btn btn--ghost btn--sm" title="Hide this board from your lists; restore it any time">Archive</button>
       </form>` : html``}
     </div>
+    ${!isPulse ? boardGoalLine(id, boardsOf(ctx).goal(id)) : html``}
     ${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>
@@ -511,6 +536,15 @@ function canvasFor(ctx: ReturnType<typeof getContext>, r: ResolvedBoard, docIn: 
  * "How it looks" (ADR-0070): the grid, the front page, or let sua pick.
  * Saves a new version of the board and comes back to it with what happened.
  */
+/** Say what a board is for (or clear it with an empty one). Not for Pulse or Today's edition, which aren't boards you make. */
+boardsRouter.post('/boards/:id/goal', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const id = String(req.params.id);
+  if (id === PULSE_BOARD_ID || !resolveBoard(ctx, id)) { res.redirect(303, `${PULSE_AGENTS_URL}?error=${encodeURIComponent("There's no such board to give a goal.")}`); return; }
+  const kept = boardsOf(ctx).setGoal(id, String((req.body as { goal?: unknown } | undefined)?.goal ?? ''), 'you');
+  res.redirect(303, `${boardPageUrl(id)}?ok=${encodeURIComponent(kept ? 'Goal saved.' : 'Goal cleared.')}`);
+});
+
 boardsRouter.post('/boards/:id/look', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const id = String(req.params.id);
