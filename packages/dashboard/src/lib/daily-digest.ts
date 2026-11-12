@@ -115,18 +115,22 @@ export function firstLineSnippet(result: string | undefined | null, cap = SNIPPE
  * of dumping raw JSON. Handles a whole-output object, a ```json fence, or a
  * trailing JSON line after prose. Falls back to the first meaningful text line.
  */
-export function summarizeRunOutput(result: string | undefined | null, cap = SNIPPET_CAP): string | undefined {
-  if (!result) return undefined;
-  let text = result.trim();
+/** A run's output as text (a ```json fence unwrapped) and, when it gives one, its JSON object: the whole output, or a trailing JSON line after prose. */
+export function runOutputObject(result: string | undefined | null): { text: string; obj?: Record<string, unknown> } {
+  let text = (result ?? '').trim();
   const fence = text.match(/^```[a-z]*\s*\n([\s\S]*?)\n```$/i);
   if (fence) text = fence[1].trim();
-
-  // Whole output is a JSON object, or a trailing JSON line follows prose.
   let obj = tryParseObject(text);
   if (!obj) {
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     for (let i = lines.length - 1; i >= 0 && !obj; i--) obj = tryParseObject(lines[i]);
   }
+  return { text, ...(obj ? { obj } : {}) };
+}
+
+export function summarizeRunOutput(result: string | undefined | null, cap = SNIPPET_CAP): string | undefined {
+  if (!result) return undefined;
+  const { text, obj } = runOutputObject(result);
   if (obj) {
     const s = summarizeObject(obj);
     if (s) return truncate(s, cap);
