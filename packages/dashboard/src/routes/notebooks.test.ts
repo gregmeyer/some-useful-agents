@@ -2032,7 +2032,7 @@ describe('runs not in the notebook yet', () => {
 });
 
 describe("Home's notebooks shelf", () => {
-  it('shows the active notebooks newest first (four at most), what sua is waiting on, and + New', async () => {
+  it('shows your recent notebooks newest first (four at most; one you decided or archived is marked), what sua is waiting on, and + New', async () => {
     const app = await makeApp();
     agentStore.createAgent({ id: 'hello', name: 'Hello', status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }] } as never, 'cli');
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -2052,8 +2052,13 @@ describe("Home's notebooks shelf", () => {
     const car = store.setFields(store.create({ title: 'Car', criteria: ['Clean title', 'Under budget'] }).id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
     store.markCriterion(car.id, 0, true);
     store.upsertOption(car.id, { title: '2010 RAV4', by: 'agent:x', data: { price: 4023 } });
+    // Decided and archived ones made earlier; the car is touched last.
     const done = store.create({ title: 'Old couch' });
     store.decide(done.id, 'Kept it');
+    const away = store.create({ title: 'Old desk' });
+    store.archive(away.id);
+    await new Promise((r) => setTimeout(r, 15));
+    store.markCriterion(car.id, 1, false);
     const thread = InboxStore.fromHandle(runStore.databaseHandle()).add({ priority: 'medium', source: 'manual', title: 'Notebook: Car', body: '(empty)' });
     store.setConversation(car.id, thread.id);
     InboxStore.fromHandle(runStore.databaseHandle()).updateStatus(thread.id, 'awaiting_user');
@@ -2062,8 +2067,13 @@ describe("Home's notebooks shelf", () => {
     const cards = page.match(/class="nbs-card" href="\/notebooks\/([^"]+)"/g) ?? [];
     expect(cards).toHaveLength(4);
     expect(cards[0]).toContain(`/notebooks/${car.id}"`); // changed last, so first
-    expect(page).not.toContain(`/notebooks/${done.id}"`);
-    expect(page).toContain('All notebooks (5) →');
+    // Recent ones you decided or put away are listed too, marked; they're where you were, not a suggestion.
+    expect(page).toContain('Recent notebooks');
+    const card = (id: string) => page.slice(page.indexOf(`/notebooks/${id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${id}"`)));
+    expect(card(done.id)).toContain('<span class="nbs-card__mark">decided</span>');
+    expect(card(away.id)).toContain('<span class="nbs-card__mark">archived</span>');
+    expect(card(car.id)).not.toContain('nbs-card__mark');
+    expect(page).toContain('All notebooks (7) →');
     const carCard = page.slice(page.indexOf(`/notebooks/${car.id}"`), page.indexOf('</a>', page.indexOf(`/notebooks/${car.id}"`)));
     expect(carCard).toContain('sua asked you');
     expect(carCard).toContain('<span class="nbs-card__price">$4,023</span>');

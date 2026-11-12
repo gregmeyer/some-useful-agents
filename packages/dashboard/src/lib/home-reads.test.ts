@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { pickReads, readLine } from './home-reads.js';
+import { noNews, pickReads, readLine } from './home-reads.js';
 import { renderHomeReads } from '../views/home-reads.js';
 import { render } from '../views/html.js';
 
@@ -52,11 +52,39 @@ describe("Home's Today's reads", () => {
     expect(line({ summary: 'x'.repeat(300) })!.length).toBe(150);
   });
 
-  it('draws nothing when there is nothing to read; else each name opens its run', () => {
+  it("is high signal: one sentence each, only what's news, never the agent the brief already leads with", () => {
+    const run = (id: string, o: unknown) => ({ id, startedAt: ago(2), completedAt: ago(2), result: typeof o === 'string' ? o : JSON.stringify(o) });
+    const runs: Record<string, ReturnType<typeof run>> = {
+      digest: run('r1', { match_count: 6, summary: 'Six roles passed all checks today, out of about 45 read. Three were newly posted. More follows.' }),
+      prio: run('r2', { headline: 'No reminders to review', priority_count: 0, overdue_count: 0 }),
+      quiet: run('r3', { matched_count: 0, summary: 'Searched five boards.' }),
+      nothing: run('r4', 'Nothing new since yesterday.'),
+      hn: run('r5', { headline: 'HN Top 5', count: 5, stories: [{ title: 'A new SQLite release' }, { title: 'b' }] }),
+    };
+    const agents = Object.keys(runs).map((id) => agent(id));
+    const reads = pickReads(agents, (id) => runs[id] as never, NOW, 5, new Set(['hn']));
+    expect(reads.map((r) => [r.agentId, r.line])).toEqual([['digest', 'Six roles passed all checks today, out of about 45 read']]);
+    // Without the skip, the list agent's line is there, whole.
+    expect(pickReads(agents, (id) => runs[id] as never, NOW).map((r) => r.agentId).sort()).toEqual(['digest', 'hn']);
+    expect(noNews(runs.prio.result)).toBe(true);
+    expect(noNews(runs.quiet.result)).toBe(true);
+    expect(noNews(runs.nothing.result)).toBe(true);
+    expect(noNews(runs.digest.result)).toBe(false);
+    expect(noNews(JSON.stringify({ nasdaq_change_pct: -1.46, flat_pct: 0 }))).toBe(false);
+    expect(noNews('Top story: a new SQLite release')).toBe(false);
+    // A long sentence is cut to one line.
+    const long = pickReads([agent('long')], () => run('r9', { summary: `${'word '.repeat(60)}.` }) as never, NOW);
+    expect(long[0].line.length).toBeLessThanOrEqual(110);
+  });
+
+  it("draws nothing when there is nothing to read; else each name opens that agent's result in today's edition", () => {
     expect(render(renderHomeReads([])).trim()).toBe('');
-    const page = render(renderHomeReads([{ agentId: 'hn', name: 'HN', runId: 'r 2', at: new Date().toISOString(), line: 'Top <b>story</b>' }]));
+    const page = render(renderHomeReads([{ agentId: 'hn top', name: 'HN', runId: 'r 2', at: new Date().toISOString(), line: 'Top <b>story</b>' }]));
     expect(page).toContain("Today's reads");
-    expect(page).toContain('<a class="home-reads__name" href="/runs/r%202">HN</a>');
+    expect(page).toContain('<a class="nbs__all" href="/pulse">Today\'s edition →</a>');
+    expect(page).toContain('<a class="home-reads__name" href="/pulse#agent-hn%20top" title="Open HN\'s result in today\'s edition">HN</a>');
+    expect(page).not.toContain('/runs/');
     expect(page).toContain('Top &lt;b&gt;story&lt;/b&gt;');
   });
+
 });

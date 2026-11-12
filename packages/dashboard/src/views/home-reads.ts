@@ -13,12 +13,12 @@ export function renderHomeReads(reads: readonly HomeRead[]): SafeHtml {
     <section class="home-reads" aria-labelledby="home-reads-title">
       <div class="nbs__head">
         <h2 class="nbs__title" id="home-reads-title">Today's reads</h2>
-        <a class="nbs__all" href="/pulse">Pulse →</a>
+        <a class="nbs__all" href="/pulse">Today's edition →</a>
       </div>
       <ul class="home-reads__list">${reads.map((r) => html`
         <li class="home-reads__item">
-          <span class="home-reads__head"><a class="home-reads__name" href="/runs/${encodeURIComponent(r.runId)}">${r.name}</a><span class="home-reads__when">${formatAge(r.at)}</span></span>
-          <span class="home-reads__line">${r.line}</span>
+          <span class="home-reads__head"><a class="home-reads__name" href="/pulse#agent-${encodeURIComponent(r.agentId)}" title="Open ${r.name}'s result in today's edition">${r.name}</a><span class="home-reads__when">${formatAge(r.at)}</span></span>
+          <span class="home-reads__line" title="${r.line}">${r.line}</span>
         </li>`) as unknown as SafeHtml[]}</ul>
     </section>`;
 }

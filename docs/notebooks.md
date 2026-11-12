@@ -12,7 +12,7 @@ A **notebook** is a goal you keep over time, like "Buy a used car" or "Find a ne
 ## Where to find them
 
 **Notebooks** is in the top bar, first after Home. Notebooks also show up:
-- **on Home:** the **Your notebooks** shelf, a card per active notebook with its best option, its price and its picture (another option's when the best has none yet), criteria as dots, and **sua asked you** when sua is waiting on you; plus **+ New notebook**. Home's **Ask sua** card has a **Start** row too: your templates, the kinds of notebook you've made ("Prepare for a meeting with …"), and a report. On Today each active notebook is one row: in **Needs you** while sua waits on your reply, otherwise in **Happening now** with its progress;
+- **on Home:** the **Recent notebooks** shelf, a card for each of the four you changed most recently (one you decided or archived is marked) with its best option, its price and its picture (another option's when the best has none yet), criteria as dots, and **sua asked you** when sua is waiting on you; plus **+ New notebook**. Home's **Ask sua** card has a **Start** row too: your templates, the kinds of notebook you've made ("Prepare for a meeting with …"), and a report. On Today each active notebook is one row: in **Needs you** while sua waits on your reply, otherwise in **Happening now** with its progress;
 - **at `/notebooks`:** the list, with dots showing progress, plus **New notebook**;
 - **through sua:** ask "where's my used car goal?" or "what did I decide about the car?", and sua answers from your notebooks with a link.
 

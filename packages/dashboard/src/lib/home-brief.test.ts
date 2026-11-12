@@ -83,7 +83,11 @@ describe("Home's brief", () => {
     expect(page).toContain('aria-label="NASDAQ, last 3 days: Mon -7.42%, Tue -3.56%, Wed -1.46%"');
     expect(page).toContain('<span class="home-brief__arrow" aria-hidden="true">▼</span>-1.46%');
     expect(page).toContain('<a href="https://news.example/1" target="_blank" rel="noopener noreferrer">A new SQLite release</a>');
-    expect(page).toContain('href="/runs/digest-0">Open Job Digest</a>');
+    // It sends you to the reading: today's edition, and each figure to its agent's result there (not a run page).
+    expect(page).toContain('<a class="btn btn--sm btn--primary" href="/pulse">Read today\'s edition</a>');
+    expect(page).toContain('href="/pulse#agent-digest">Job Digest</a>');
+    expect(page).toContain('<a class="home-brief__fig" href="/pulse#agent-markets"');
+    expect(page).not.toContain('href="/runs/');
     expect(render(renderHomeBrief(undefined)).trim()).toBe('');
     // A top story that doesn't link to the web isn't linked.
     const odd = world().map((x) => (x.agent.id === 'hn' ? { ...x, runs: runs('hn', [{ stories: [{ title: 'bad', url: 'javascript:alert(1)' }] }]) } : x));

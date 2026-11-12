@@ -140,7 +140,9 @@ export function sendHomePage(req: Request, res: Response): void {
   // A part hidden with Adjust Home isn't read at all (and Next up isn't sent to sua to word).
   const off = new Set(surfaceParts(today?.doc ?? {}).filter((p) => p.hidden).map((p) => p.id));
   const next = off.has('next-up') && off.has('housekeeping') ? { next: [], tidy: [] } : off.has('next-up') ? { ...homeNext(ctx), next: [] } : wordedNext(ctx, homeNext(ctx));
-  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: off.has('notebooks') ? undefined : shelfFor(ctx), suggestions: homeSuggestions(ctx), next, reads: off.has('reads') ? [] : homeReads(ctx), brief: off.has('brief') ? undefined : homeBrief(ctx), flash: parseFlash(req) }));
+  // The agent the brief leads with is the headline already: it isn't a read as well.
+  const brief = off.has('brief') ? undefined : homeBrief(ctx);
+  res.type('html').send(renderHomePage({ autonomyMode, today, shelf: off.has('notebooks') ? undefined : shelfFor(ctx), suggestions: homeSuggestions(ctx), next, reads: off.has('reads') ? [] : homeReads(ctx, Date.now(), new Set(brief ? [brief.lead.agentId] : [])), brief, flash: parseFlash(req) }));
 }
 
 /** Home's notebooks shelf; nothing if notebooks can't be read (Home must still load). */

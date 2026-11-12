@@ -49,7 +49,7 @@ function columns(f: BriefFigure): SafeHtml {
 function figure(f: BriefFigure): SafeHtml {
   const dir = f.kind === 'percent' ? (f.value > 0 ? ' is-up' : f.value < 0 ? ' is-down' : '') : '';
   return html`
-    <a class="home-brief__fig" href="/runs/${encodeURIComponent(f.runId)}" title="${f.agent}: open this run">
+    <a class="home-brief__fig" href="/pulse#agent-${encodeURIComponent(f.agentId)}" title="${f.agent}: open its result in today's edition">
       <span class="home-brief__fig-value${dir}">${f.kind === 'percent' && f.value !== 0 ? html`<span class="home-brief__arrow" aria-hidden="true">${f.value > 0 ? '▲' : '▼'}</span>` : html``}${f.text}</span>
       <span class="home-brief__fig-label">${f.label}</span>
       ${spark(f)}
@@ -78,8 +78,8 @@ export function renderHomeBrief(b: HomeBrief | undefined, now = new Date()): Saf
       </div>
       ${b.top ? html`<p class="home-brief__top"><span class="home-brief__top-label">Top story</span> <a href="${b.top.url}" target="_blank" rel="noopener noreferrer">${b.top.title}</a> <span class="home-brief__fig-from">${b.top.agent}</span></p>` : html``}
       <div class="home-brief__acts">
-        <a class="btn btn--sm btn--primary" href="/runs/${encodeURIComponent(b.lead.runId)}">Open ${b.lead.agent}</a>
-        <a class="btn btn--sm btn--ghost" href="/pulse">Pulse</a>
+        <a class="btn btn--sm btn--primary" href="/pulse">Read today's edition</a>
+        <a class="btn btn--sm btn--ghost" href="/pulse#agent-${encodeURIComponent(b.lead.agentId)}">${b.lead.agent}</a>
       </div>
     </section>`;
 }

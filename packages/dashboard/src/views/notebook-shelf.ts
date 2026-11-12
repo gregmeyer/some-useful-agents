@@ -1,5 +1,5 @@
 /**
- * Home's notebooks shelf (views/home-page.ts): a card per active notebook
+ * Home's notebooks shelf (views/home-page.ts): a card per recent notebook (one you decided or archived is marked)
  * with its picture, the best option so far, how far along it is, and a mark
  * when sua is waiting on you there; then + New notebook. Canvas artboard 24.
  */
@@ -21,7 +21,7 @@ function card(c: ShelfCard): SafeHtml {
         ${c.cover
           ? html`<img src="${c.cover}" alt="" loading="lazy" class="${pictureClass(c.coverKind, c.coverShape)}">`
           : coverArt(nb)}
-        ${c.waiting ? html`<span class="nbs-card__waiting">sua asked you</span>` : html``}
+        ${c.waiting ? html`<span class="nbs-card__waiting">sua asked you</span>` : c.mark ? html`<span class="nbs-card__mark">${c.mark}</span>` : html``}
         ${c.cover && c.coverKind ? html`<span class="nbs-card__kind">${COVER_KIND[c.coverKind] ?? ''}</span>` : html``}
       </span>
       <span class="nbs-card__body">
@@ -41,7 +41,7 @@ export function renderNotebookShelf(shelf: { cards: ShelfCard[]; total: number }
   return html`
     <section class="nbs" aria-labelledby="nbs-title">
       <div class="nbs__head">
-        <h2 class="nbs__title" id="nbs-title">Your notebooks</h2>
+        <h2 class="nbs__title" id="nbs-title">${shelf.cards.length ? 'Recent notebooks' : 'Your notebooks'}</h2>
         ${shelf.total ? html`<a class="nbs__all" href="/notebooks">All notebooks${shelf.total > shelf.cards.length ? ` (${String(shelf.total)})` : ''} →</a>` : html``}
       </div>
       <div class="nbs__row">
