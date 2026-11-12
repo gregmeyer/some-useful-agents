@@ -151,13 +151,17 @@ describe('boards are canvases', () => {
     expect(boards.loadDocOrDerive('user:morning')!.doc.components.filter((c) => c.component === 'AgentTile').map((c) => c.agentId)).toEqual(['news', 'weather', 'ghost']);
     page = await get(app, '/dashboards/user:morning');
     expect(page.text).toContain('sua suggests');
-    expect(page.text).toContain('round 1');
+    // One card: the goal and the button on top, what needs you under it.
+    expect(page.text).toContain('data-board-goal-card');
+    expect(page.text.indexOf('data-board-goal-card')).toBeLessThan(page.text.indexOf('data-canvas-toolbar'));
     expect(page.text).toContain('<textarea id="board-review-goal" name="goal" rows="2" maxlength="280">Know the weather and the news before I leave</textarea>');
     expect(page.text).toContain('<span class="board-review__what">Add notes</span><span class="board-review__why">Returns your notes, which nothing on the board shows.</span>');
     expect(page.text).toContain('<span class="board-review__what">Leave out ghost</span>');
     expect(page.text).not.toContain('made-up');
     expect(page.text).toContain('>Apply all 2</button>');
-    expect(page.text).toContain('>Look again</button>');
+    // The button keeps its name once you've started; there is no separate "Look again".
+    expect(page.text).toContain('>Improve this board</button>');
+    expect(page.text).not.toContain('Look again');
     // Take the goal as proposed: it's sua's.
     await post(app, '/boards/user:morning/goal', { goal: 'Know the weather and the news before I leave', proposed: 'Know the weather and the news before I leave' });
     expect(boards.goal('user:morning')).toMatchObject({ by: 'sua' });
@@ -175,6 +179,9 @@ describe('boards are canvases', () => {
     expect(page.text).toContain('<span class="board-review__state">Added</span>');
     expect(page.text).toContain('<span class="board-review__state">Skipped</span>');
     expect(page.text).toContain('That was all of them.');
+    // What you've handled is folded away under the card, not listed above the board.
+    expect(page.text).toContain('<summary>2 already handled</summary>');
+    expect(page.text).toContain('>Improve this board</button>');
     expect(boards.loadDocOrDerive('user:morning')!.doc.components.some((c) => c.agentId === 'ghost')).toBe(true);
     // Applying it again, or one from another board, does nothing.
     expect(decodeURIComponent((await post(app, `/boards/user:morning/review/${rid}/apply`, { key: 'add-agent:notes' })).headers.location)).toContain('nothing left to apply');
@@ -188,7 +195,7 @@ describe('boards are canvases', () => {
     expect(JSON.parse(asked[1].BOARD).agents.map((a: { id: string }) => a.id)).toEqual(['news', 'weather', 'notes']);
     expect(JSON.parse(asked[1].SKIPPED)).toEqual(['remove:ghost']);
     page = await get(app, '/dashboards/user:morning');
-    expect(page.text).toContain('round 2');
+    expect(page.text).not.toContain('already handled');
     expect(page.text).toContain('Nothing more to suggest for this goal.');
     expect(page.text).not.toContain('board-review-goal');
     // Leave out works when taken; a reviewer that fails says so; Pulse has no review.

@@ -49,7 +49,9 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 
 ## Improve this board
 
-**Improve this board**, in a board's toolbar, has sua review the board against its goal. Nothing changes until you press a suggestion's button.
+A board's goal and what sua suggests for it are one card under its title: the goal (with **Edit**) and **Improve this board** on top, and under them only what needs you now. The button keeps that name however many times you press it; each press is another look. The layout tools (**Arrange**, **Suggest a layout**, **Undo last save**, **How it looks**) sit under the card.
+
+**Improve this board** has sua review the board against its goal. Nothing changes until you press a suggestion's button.
 
 1. **A goal first.** If the board has none, sua proposes one from its name and what's on it. Change the words if they're off, then **Use this goal**.
 2. **Suggestions**, on the board under the goal, at most six:
@@ -62,9 +64,9 @@ Every board you make can say what it's for, in a sentence, under its title: **Go
 
    Each has a one-line reason. **Skip** turns one down, and it isn't offered again for this board. **Apply all** takes every open one.
 3. **What applying does**: for an agent added or left out, a new version of the board (**Undo last save** puts it back), the added agent runs once, and, when sua composed this board's page or it has none yet, sua redraws the page with the goal. A page you picked or arranged yourself is left as it is, with the new tile added in a section called Added. For content, sua redraws the board's page as something you asked for (so the page then counts as yours, and later additions leave it alone); the suggestion is marked **Drawn** once the page is saved.
-4. **Look again** runs another round, knowing what you applied and skipped. When nothing would make the board better for its goal it says so, and its note says what none of your agents covers.
+4. **Press Improve this board again** for another round, knowing what you applied and skipped. The goal decides: each round offers at least one agent, one you have or a new one to draft, that moves the board toward it. A gap in the goal that none of your agents fills becomes a draft suggestion, not a remark. It says there is nothing more only when the board gives you everything the goal asks for, or when you've turned down what would fill the gap.
 
-sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. Once every suggestion in a round is applied or skipped, the card folds to one line.
+sua is shown the agents on the board and up to 25 of your others, the most related first. Each round is one model run. Suggestions you've applied or skipped fold under "already handled"; the card shows what's still open.
 
 **A board you build starts with a review.** When a build from a request finishes, sua runs the first round by itself, against the request as the goal, so a new board arrives with its suggestions waiting. The planner that picks agents for a build is also told what each agent returns (the fields of its latest result and its first line), not only its name and description. See [ADR-0075](adr/0075-boards-have-goals-and-sua-reviews-them.md).
 

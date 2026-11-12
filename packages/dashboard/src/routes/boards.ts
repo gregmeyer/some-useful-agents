@@ -38,7 +38,7 @@ import type { PulseTile } from '../views/pulse-types.js';
 import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
-import { boardReviewCard, improveBoardButton } from '../views/board-review.js';
+import { boardGoalCard } from '../views/board-review.js';
 import { working } from '../views/working.js';
 import type { EditionAsk } from '../lib/edition-ask.js';
 
@@ -441,18 +441,18 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <form method="POST" action="/dashboards/${encodeURIComponent(id)}/restore" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Restore</button></form>
       </div>` : html``}
     ${buildBanner}
+    ${!isPulse ? (archivedAt === undefined
+      ? boardGoalCard(id, { goalLine: boardGoalLine(id, boardsOf(ctx).goal(id)), ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false })
+      : boardGoalLine(id, boardsOf(ctx).goal(id))) : html``}
     <div class="board-toolbar" data-canvas-toolbar>
-      <button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>
-      <button type="button" class="btn btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
-      ${!isPulse && archivedAt === undefined ? improveBoardButton(id, reviewsOf(ctx).latest(id)) : html``}
+      <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>Arrange</button>
+      <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
       ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">
         <button type="submit" class="btn btn--ghost btn--sm" title="Hide this board from your lists; restore it any time">Archive</button>
       </form>` : html``}
     </div>
-    ${!isPulse ? boardGoalLine(id, boardsOf(ctx).goal(id)) : html``}
-    ${!isPulse && archivedAt === undefined ? boardReviewCard(id, { ...(reviewsOf(ctx).latest(id) ? { review: reviewsOf(ctx).latest(id)! } : {}), ...(boardsOf(ctx).goal(id) ? { goal: boardsOf(ctx).goal(id)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, redrawing: ctx.boardPages?.has(id) ?? false }) : html``}
     ${!isPulse && archivedAt === undefined ? boardLooks(id, { board: { doc, ...(boardsOf(ctx).get(id)?.layoutMeta ? { layoutMeta: boardsOf(ctx).get(id)!.layoutMeta } : {}) }, composed: canvas.composed, working: ctx.boardPages?.has(id) ?? false }) : html``}
     ${canvas.errors.length ? html`<p class="flash flash--error">This board's layout couldn't be checked: ${canvas.errors[0]}</p>` : html``}
     <div class="canvas-workspace" data-canvas-workspace>
@@ -496,8 +496,8 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
       ${pulseTabs('today', true)}
       <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
     </div>
+    ${boardGoalCard(TODAY_BOARD_ID, { goalLine: boardGoalLine(TODAY_BOARD_ID, boardsOf(ctx).goal(TODAY_BOARD_ID)), label: "Improve today's edition", ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId })}
     <div class="board-toolbar">
-      ${improveBoardButton(TODAY_BOARD_ID, reviewsOf(ctx).latest(TODAY_BOARD_ID), "Improve today's edition")}
       <form method="POST" action="/pulse/edition/ask" class="edition-ask" role="search" aria-label="Change the edition by asking">
         <input type="text" name="text" maxlength="500" required placeholder="Ask for a change: lead with markets, drop the evening routine…" aria-label="What to change about the edition">
         <button type="submit" class="btn btn--sm">Ask sua</button>
@@ -505,8 +505,6 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
       ${editionPrefsStoreOf(ctx).canUndo() ? html`<form method="POST" action="/pulse/edition/undo" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Go back to how the edition was before your last change">Undo last change</button></form>` : html``}
       ${editionPrefsSet(editionPrefsOf(ctx)) ? html`<form method="POST" action="/pulse/edition/reset" style="margin: 0;"><button type="submit" class="btn btn--ghost btn--sm" title="Forget your changes: the edition decides everything again">Back to automatic</button></form>` : html``}
     </div>
-    ${boardGoalLine(TODAY_BOARD_ID, boardsOf(ctx).goal(TODAY_BOARD_ID))}
-    ${boardReviewCard(TODAY_BOARD_ID, { ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId })}
     ${editionAskCard(ctx.editionAsk)}
     ${editionChanges(ctx)}
     ${canvas.errors.length ? html`<p class="flash flash--error">Today's edition couldn't be laid out: ${canvas.errors[0]}</p>` : html``}
