@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent } from '@some-useful-agents/core';
-import { pickReads } from './home-reads.js';
+import { pickReads, readLine } from './home-reads.js';
 import { renderHomeReads } from '../views/home-reads.js';
 import { render } from '../views/html.js';
 
@@ -26,6 +26,30 @@ describe("Home's Today's reads", () => {
       { agentId: 'markets', name: 'MARKETS', runId: 'r1', at: ago(5), line: 'S&P up 0.4%' },
     ]);
     expect(pickReads(agents, (id) => runs[id] as never, NOW, 1)).toHaveLength(1);
+  });
+
+  it("says what the output is about, not its label: a short headline is followed by its summary or the first thing it lists", () => {
+    const line = (o: unknown) => readLine(JSON.stringify(o));
+    // A label for a headline, the news in the summary.
+    expect(line({ headline: 'Markets', summary: 'NASDAQ -1.46%, DOW +0.89%', indices: [{ name: 'NASDAQ' }] })).toBe('Markets: NASDAQ -1.46%, DOW +0.89%');
+    // A label and a list: the first story and how many more.
+    expect(line({ headline: 'HN Top 5', count: 5, stories: [{ title: 'A new SQLite release' }, { title: 'b' }, { title: 'c' }, { title: 'd' }, { title: 'e' }] })).toBe('HN Top 5: A new SQLite release, and 4 more');
+    // A headline that is the news stands alone.
+    expect(line({ headline: 'No reminders to review', summary: 'No reminder data was provided.' })).toBe('No reminders to review');
+    // No headline: the summary; else the list; else what it names, with its description.
+    expect(line({ match_count: 6, summary: 'Six roles passed all checks.' })).toBe('Six roles passed all checks.');
+    expect(line({ articles: [{ title: 'A new SQLite release', score: 354 }, { title: 'b' }] })).toBe('A new SQLite release, and 1 more');
+    expect(line({ articles: [{ title: 'Only one' }] })).toBe('Only one');
+    expect(line({ headline: 'Evening reset', items: [{ label: 'Clear the kitchen.' }, { label: 'b' }] })).toBe('Evening reset: Clear the kitchen, and 1 more');
+    expect(line({ hero_name: 'Iron Fist', real_identity: 'Danny Rand', hero_index: 22, bio: 'Channels the heart of a dragon.' })).toBe('Iron Fist: Channels the heart of a dragon.');
+    expect(line({ hero_name: 'Iron Fist', hero_index: 22 })).toBe('Iron Fist');
+    // A metric, prose, a fenced object, and nothing, as before.
+    expect(line({ label: 'Open PRs', value: 7 })).toBe('Open PRs: 7');
+    expect(readLine('Top story: a new SQLite release\nmore')).toBe('Top story: a new SQLite release');
+    expect(readLine('```json\n{"headline":"Weather","summary":"Rain by noon"}\n```')).toBe('Weather: Rain by noon');
+    expect(readLine('')).toBeUndefined();
+    // Long ones are cut.
+    expect(line({ summary: 'x'.repeat(300) })!.length).toBe(150);
   });
 
   it('draws nothing when there is nothing to read; else each name opens its run', () => {
