@@ -670,7 +670,10 @@ notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => 
       s.unarchive(id);
       res.redirect(303, back(id, 'Restored. It shows in your notebooks again.'));
     } else {
+      // Put away means stopped: a step that's running stops, and its step cards are retired.
+      stopNotebookStep(getContext(req.app.locals), id);
       const nb = s.archive(id);
+      reconcileStepCards(getContext(req.app.locals), id);
       res.redirect(303, `/notebooks?flash=${encodeURIComponent(`Archived “${nb.title}”. Find it under Archived to restore it.`)}`);
     }
   } catch (err) {

@@ -5585,6 +5585,57 @@ describe('run a notebook again as a new notebook', () => {
     expect(executeNotebookRerun(ctx, { ...accepted[0], inputs: { NOTEBOOK: 'nope' } })).toMatchObject({ status: 'failed', refusalReason: 'No such notebook.' });
     finderReply = undefined;
   });
+
+  it('an archived notebook stops: its steps do not start or move on, and archiving stops the step that is running', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep, moveOnFromStep, focusStepOnTop } = await import('../lib/notebook-steps.js');
+    const { startNotebookPipeline } = await import('../lib/notebook-pipeline.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const make = (title: string) => {
+      const nb = store.create({ title, statement: 'Find a job', params: [], criteria: [], pipeline: [], cadence: '' });
+      store.setFields(nb.id, [{ key: 'url', label: 'Page', type: 'url', role: 'link' }]);
+      store.setChecks(nb.id, ['Still open']);
+      store.setSteps(nb.id, [{ title: 'Find 5 jobs', kind: 'find', target: 5 }, { title: 'Check them', kind: 'check' }]);
+      return store.get(nb.id)!;
+    };
+
+    // Its first step met, then run again: Continue on the old one (a tab left open, a card in its conversation) does nothing.
+    const old = make('Find a job');
+    store.updateStep(old.id, old.steps![0].id, { status: 'met' });
+    finderReply = () => 'Found none.';
+    await post(app, `/notebooks/${old.id}/rerun`, {});
+    expect(store.get(old.id)!.archivedAt).toBeTruthy();
+    const archived = 'This notebook is archived. Restore it on its Edit page to';
+    expect(startNotebookStep(ctx, old.id)).toMatchObject({ started: false, reason: `${archived} work on its steps.` });
+    expect(moveOnFromStep(ctx, old.id)).toMatchObject({ moved: false, reason: `${archived} move on from its step.` });
+    expect(focusStepOnTop(ctx, old.id, old.steps![1].id, 3)).toMatchObject({ started: false, reason: `${archived} work on its steps.` });
+    expect(startNotebookPipeline(ctx, old.id)).toMatchObject({ started: false, reason: `${archived} run its pipeline.` });
+    expect(store.get(old.id)!.steps!.map((s) => s.status)).toEqual(['met', 'todo']);
+    // Its page says so in place of a Next step button.
+    const page = (await get(app, `/notebooks/${old.id}`)).text;
+    expect(page).toContain('Archived: restore it on its Edit page to work on its steps.');
+    // Restored, it works again.
+    await post(app, `/notebooks/${old.id}/archive`, { archived: '0' });
+    expect(startNotebookStep(ctx, old.id).started).toBe(true);
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(old.id); i++) await new Promise((r) => setTimeout(r, 10));
+
+    // Archived while a step runs: the step is stopped.
+    const busy = make('Find another job');
+    let release: (() => void) | undefined;
+    finderReply = (() => new Promise<string>((r) => { release = () => r('Found none.'); })) as never;
+    expect(startNotebookStep(ctx, busy.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 100 && !release; i++) await new Promise((r) => setTimeout(r, 10));
+    await post(app, `/notebooks/${busy.id}/archive`, {});
+    expect(ctx.notebookPipelines?.get(busy.id)?.stopped).toBe(true);
+    release?.();
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(busy.id); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(busy.id)!.steps![0].status).toBe('stuck');
+    expect(store.get(busy.id)!.steps![1].status).toBe('todo');
+    finderReply = undefined;
+  });
 });
 
 describe('notebook tags', () => {

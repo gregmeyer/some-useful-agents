@@ -27,7 +27,7 @@ Both are under **Manage**, in the column at the right of a notebook's **Edit** p
   - from your notebooks (**All** too), Home's shelf, Today, sua's notebook list and the agent catalog's "fills notebooks";
   - its schedule stops.
 
-  Nothing in it is deleted, and its address and its options' pages still open, with an "Archived" note and **Restore**. Find it under the **Archived** tab. Restoring it brings it back as it was; its schedule waits for its next slot rather than catching up. Its conversation with sua still shows the notebook's card, and sua still files into it there.
+  Nothing in it is deleted, and its address and its options' pages still open, with an "Archived" note and **Restore**. An archived notebook is stopped: a step that was running stops when you archive it (or run it again as a new one), its **Next step**, **Try again** and **Move on** buttons are gone from its page and its conversation, and nothing starts until you restore it. Find it under the **Archived** tab. Restoring it brings it back as it was; its schedule waits for its next slot rather than catching up. Its conversation with sua still shows the notebook's card, and sua still files into it there.
 - **Delete…** asks once, then removes the notebook and everything in it:
   - options, notes, evidence and decisions;
   - price history and searches;

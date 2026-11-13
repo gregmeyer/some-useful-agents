@@ -12,6 +12,7 @@ import {
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
+import { notebookClosedReason } from '@some-useful-agents/core';
 import { parseJsonFromOutput } from '../views/output-widgets.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -505,7 +506,8 @@ export function startNotebookPipeline(ctx: Ctx, notebookId: string, opts: { sche
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to run its pipeline.' };
+  const closed = notebookClosedReason(nb, 'run its pipeline');
+  if (closed) return { started: false, reason: closed };
   if (nb.pipeline.length === 0) return { started: false, reason: 'Add agents to the pipeline under Edit first.' };
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'Its pipeline is already running.' };

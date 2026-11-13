@@ -402,6 +402,8 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string; mov
   const steps = nb.steps ?? [];
   const i = steps.findIndex((x) => x.status !== 'done');
   if (i < 0) return undefined;
+  // Put away: nothing starts until it's restored.
+  if (nb.archivedAt) return { note: 'Archived: restore it on its Edit page to work on its steps.' };
   const step = steps[i];
   const next = steps[i + 1];
   const of = `of ${String(steps.length)}`;

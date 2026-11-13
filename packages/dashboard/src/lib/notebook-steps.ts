@@ -12,7 +12,7 @@
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, checksLeft, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { swapTalkingPoint, writeBriefing } from './notebook-write.js';
@@ -155,7 +155,8 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   const store = stores(ctx);
   let nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to work on its steps.' };
+  const closed = notebookClosedReason(nb, 'work on its steps');
+  if (closed) return { started: false, reason: closed };
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   let step = currentStep(nb);
@@ -277,7 +278,8 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to search again.' };
+  const closed = notebookClosedReason(nb, 'search again');
+  if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   const want = opts.stepId?.trim().toLowerCase();
   const step = want
@@ -360,7 +362,8 @@ export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to update it.' };
+  const closed = notebookClosedReason(nb, 'update it');
+  if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   const steps = updateSteps(nb);
   if (steps.length < 2) return { started: false, reason: steps.length ? `Only ${steps[0].title} can run again; use its own button.` : 'Nothing has run yet to update: start its first step.' };
@@ -476,6 +479,7 @@ export async function recheckOptions(ctx: Ctx, notebookId: string, ids: readonly
   const nb = store.get(notebookId);
   const step = nb?.steps?.find((s) => s.kind === 'check');
   if (!nb || !step) return 'there is no check step to check it again';
+  if (nb.archivedAt) return 'the notebook is archived, so nothing was checked again';
   const agent = stepAgent(ctx, step, notebookId);
   if (!agent.agentId) return `couldn't check it again: ${agent.reason ?? 'the check step has no agent'}`;
   const want = new Set(ids === 'all' ? [] : ids);
@@ -565,6 +569,7 @@ export function rewriteAfterDecide(ctx: Ctx, notebookId: string): { started: boo
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
+  if (nb.archivedAt) return { started: false, reason: notebookClosedReason(nb, 'write it up again') };
   const step = writeupStep(nb);
   if (!step) return { started: false, reason: 'The notebook has no write-up to write again.' };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
@@ -591,7 +596,8 @@ export function replaceTalkingPoint(ctx: Ctx, notebookId: string, at: number, te
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  if (nb.status !== 'active') return { started: false, reason: 'Reopen the notebook to change its talking points.' };
+  const closed = notebookClosedReason(nb, 'change its talking points');
+  if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running. Try again when it’s done.' };
   if (nb.briefing?.points[at]?.text !== text) return { started: false, reason: 'That point has changed since. Nothing was struck.' };
   const step = nb.steps?.find((s) => s.kind === 'write' && !s.shape);
@@ -1019,6 +1025,8 @@ export function moveOnFromStep(ctx: Ctx, notebookId: string, opts: { stepId?: st
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { moved: false, reason: 'No such notebook.' };
+  const closed = notebookClosedReason(nb, 'move on from its step');
+  if (closed) return { moved: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { moved: false, reason: 'It’s still running. Stop its run first.' };
   const step = currentStep(nb);
   if (!step) return { moved: false, reason: 'All its steps are done.' };
@@ -1048,6 +1056,8 @@ export function focusStepOnTop(ctx: Ctx, notebookId: string, stepId: string, top
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
+  const closed = notebookClosedReason(nb, 'work on its steps');
+  if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s still running. Stop its run first.' };
   const step = nb.steps?.find((x) => x.id === stepId);
   if (!step || (step.kind !== 'source' && step.kind !== 'check')) return { started: false, reason: 'Only a source or check step can focus on the top options.' };
