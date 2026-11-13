@@ -41,3 +41,16 @@ A spike on codex-cli 0.157.1 found:
   value). The goal framing asks it to use tools; this is model behaviour to watch, not wiring.
 - If a future codex renames `default_tools_approval_mode`, every tool call fails with the
   approval error; the tests pin the flag shape, and the error surfaces on the node.
+
+## Amendment (2026-11-12): the operator's reach is off on every run
+
+The operator's own MCP servers were switched off only on attempts that had sua tools, and
+codex's connected apps were never switched off. A notebook's search, given no profile to
+match, called the operator's Notion through codex apps (`notion.search "LinkedIn profile"`,
+`"resume"`), built a profile from it and reported jobs matched to that. Now every codex run
+gets `mcp_servers.<name>.enabled=false` for each configured server other than sua's, and
+`features.<f>=false` for `apps`, `plugins`, `remote_plugin`, `browser_use`,
+`browser_use_external`, `computer_use` and `memories` (`CODEX_OPERATOR_FEATURES`), whether
+or not the node has tools. Checked on codex-cli 0.157.1: with `features.apps=false` the
+Notion tools are not discoverable. Not changed: codex's own shell in its read-only sandbox,
+and the claude CLI (its non-interactive mode denies tools the node didn't allow).

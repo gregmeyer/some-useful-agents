@@ -351,6 +351,15 @@ describe('codexSpawner', () => {
     expect(args).toContain('--skip-git-repo-check');
   });
 
+  it("buildArgs switches off the operator's own reach on every run: their MCP servers, apps, plugins, browser, computer use and memories", () => {
+    // No tools asked for, and still nothing of the operator's is on.
+    const args = codexSpawner.buildArgs({ prompt: 'hi' });
+    const set = (kv: string) => args.some((a, i) => a === kv && args[i - 1] === '-c');
+    for (const f of ['apps', 'plugins', 'remote_plugin', 'browser_use', 'browser_use_external', 'computer_use', 'memories']) {
+      expect(set(`features.${f}=false`)).toBe(true);
+    }
+  });
+
   it('buildArgs threads through the model when set', () => {
     const args = codexSpawner.buildArgs({ prompt: 'hi', model: 'o3' });
     const i = args.indexOf('-m');

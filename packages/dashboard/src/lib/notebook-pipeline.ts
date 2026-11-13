@@ -208,6 +208,12 @@ export interface KeeperOutcome {
   criteriaMet: number;
   summary?: string;
   error?: string;
+  /**
+   * The run did no work because it depends on something the notebook refers
+   * to but doesn't contain (a profile, a résumé): what that is. Nothing was
+   * searched or filed.
+   */
+  needs?: string;
 }
 
 /**
@@ -218,8 +224,13 @@ export interface KeeperOutcome {
 export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: string, runId: string, raw: string, opts: { maxEntries?: number; trusted?: boolean; source?: string } = {}): KeeperOutcome {
   const block = extractTaggedJson(raw, 'notebook');
   if (!block) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper gave no <notebook> block.' };
-  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown };
+  let parsed: { entries?: unknown; criteriaMet?: unknown; summary?: unknown; fields?: unknown; stages?: unknown; facts?: unknown; checks?: unknown; sources?: unknown; needs?: unknown };
   try { parsed = JSON.parse(block) as typeof parsed; } catch { return { added: 0, skipped: 0, criteriaMet: 0, error: "The keeper's block wasn't JSON." }; }
+  // It needed something the notebook doesn't have: nothing was searched, so nothing is filed and no search is counted.
+  if (typeof parsed.needs === 'string' && parsed.needs.trim()) {
+    const needs = parsed.needs.replace(/\s+/g, ' ').trim().slice(0, 200);
+    return { added: 0, skipped: 0, criteriaMet: 0, needs, ...(typeof parsed.summary === 'string' ? { summary: parsed.summary.slice(0, 200) } : {}) };
+  }
   const searchAt = new Date().toISOString();
   // A notebook's fields are set once, by the first run that finds options.
   if (nb.fields.length === 0 && Array.isArray(parsed.fields) && parsed.fields.length > 0) {
@@ -372,6 +383,7 @@ export async function keepIntoNotebook(ctx: Ctx, nb: Notebook, agentId: string, 
 export function passNote(agentId: string, out: KeeperOutcome): string {
   const opts = out.options ?? out.added;
   const notes = out.added - opts;
+  if (out.needs) return `${agentId}: nothing searched; it needs ${out.needs}, which the notebook doesn't have`;
   return out.error ? `${agentId}: ran, but ${out.error}` : `${agentId}: ${String(opts)} new${notes > 0 ? `, ${String(notes)} note${notes === 1 ? '' : 's'}` : ''}${out.refreshed ? `, ${String(out.refreshed)} seen again` : ''}${out.factsSet && agentId !== NOTEBOOK_SETUP ? `, ${String(out.factsSet)} updated` : ''}${out.criteriaMet ? `, ${String(out.criteriaMet)} criteria met` : ''}${out.checksMet ? `, ${String(out.checksMet)} check${out.checksMet === 1 ? '' : 's'} met` : ''}${out.checksFailed ? `, ${String(out.checksFailed)} ruled out on a check` : ''}${out.checksKept ? `, ${String(out.checksKept)} failed on ones you chose (kept)` : ''}${out.factsDropped ? `, ${String(out.factsDropped)} number${out.factsDropped === 1 ? '' : 's'} not in its output left out` : ''}${out.direct ? ' (filed directly)' : ''}`;
 }
 
@@ -383,7 +395,9 @@ export function directBlock(output: string): string | undefined {
   const block = extractTaggedJson(output, 'notebook');
   if (!block) return undefined;
   try {
-    const v = JSON.parse(block) as { entries?: unknown; facts?: unknown };
+    const v = JSON.parse(block) as { entries?: unknown; facts?: unknown; needs?: unknown };
+    // It did nothing because it needs something the notebook doesn't have: its own word on that, never a keeper's reading.
+    if (typeof v.needs === 'string' && v.needs.trim()) return `<notebook>${block}</notebook>`;
     // Entries, or checks on options it already has (a checker's own verified block).
     const checks = Array.isArray(v.facts) && v.facts.some((f) => !!f && typeof f === 'object' && ('checked' in f || 'ruleOut' in f));
     return (Array.isArray(v.entries) && v.entries.length > 0) || checks ? `<notebook>${block}</notebook>` : undefined;

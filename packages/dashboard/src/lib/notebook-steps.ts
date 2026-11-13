@@ -760,6 +760,8 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     store.finishPass(passId, note);
     notes.push(note);
     last = { status: 'completed', out, ...(short ? { short } : {}) };
+    // It needs something the notebook doesn't have: another try would only ask again.
+    if (out.needs) { noCloser = true; break; }
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });

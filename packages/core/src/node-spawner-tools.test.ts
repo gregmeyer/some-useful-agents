@@ -127,10 +127,13 @@ emit({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 
     expect(res.toolCalls).toEqual([expect.objectContaining({ provider: 'codex', source: 'sua', toolId: 'json-parse', isError: false })]);
   });
 
-  it('runs codex without the MCP flags for a node with no tools', async () => {
+  it("runs codex for a node with no tools without sua's endpoint, and still with the operator's own servers and apps off", async () => {
     const res = await spawnNodeReal({ id: 'plain', type: 'llm-prompt', prompt: 'hi' }, env(), opts(['codex']));
     expect(res.exitCode).toBe(0);
-    expect(res.result).not.toContain('mcp_servers');
+    expect(res.result).not.toContain('bearer_token_env_var');
+    expect(res.result).toContain('mcp_servers.playwright.enabled=false');
+    expect(res.result).toContain('mcp_servers.notion.enabled=false');
+    expect(res.result).toContain('features.apps=false');
   });
 
   it('does not skip a CLI for the memory tools alone (they are extras, not requirements)', async () => {
