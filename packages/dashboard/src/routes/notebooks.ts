@@ -274,10 +274,12 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       } : {}),
     });
     // What you pasted on the draft page is read into the short form its steps use.
-    for (const g of nb.given ?? []) if (g.state === 'given' && !g.read) startGivenRead(ctx, nb.id, g.key);
+    const reading = (nb.given ?? []).filter((g) => g.state === 'given' && !g.read && startGivenRead(ctx, nb.id, g.key)).map((g) => g.label);
     // Started from a draft: it's done with.
     if (str(req.body?.draft)) discardDraft(ctx, str(req.body?.draft));
-    res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
+    res.redirect(303, back(nb.id, reading.length
+      ? `Notebook started. sua is reading ${reading.join(' and ')} first, about a minute. This page shows what it read when that's done; nothing searches before then.`
+      : 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
   } catch (err) {
     res.redirect(303, `/notebooks/new?flash=${encodeURIComponent(err instanceof Error ? err.message : String(err))}`);
   }
@@ -337,6 +339,8 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What sua is doing for this notebook in the background (shown as working in the header).
   const unfiled = unfiledRuns(ctx, nb).map((r) => ({ ...r, adding: addingRun(ctx, r.id) }));
   const busy = [
+    // What you gave it being read: its steps wait on that, so it shows as work (and Start stays away).
+    ...Object.entries(givenReadStates(ctx, nb)).filter(([, st]) => st === 'working').map(([key]) => `Reading ${nb.given?.find((g) => g.key === key)?.label ?? 'what you gave it'}`),
     ...(picturesRunning(ctx, nb.id) ? ['Finding photos'] : []),
     ...(ctx.notebookListingPhotos?.has(nb.id) ? ['Getting listing photos'] : []),
     ...(ctx.notebookFacets?.has(nb.id) ? ['Labelling facts for filters'] : []),

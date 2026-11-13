@@ -5525,7 +5525,7 @@ describe('a notebook that depends on something you have to give it', () => {
     store.saveDraft(id, { status: 'ready', text: 'Give me a job search matched to my LinkedIn profile https://www.linkedin.com/in/someone/', draft });
     const res = await post(app, '/notebooks', { draft: id, title: draft.title, statement: draft.statement, criteria: 'Five openings found', field: JSON.stringify(draft.fields[0]), stages: 'Found', checks: draft.checks[0], step_title: ['Find 5 matching jobs', 'Pick'], step_kind: ['find', 'decide'], step_agent: ['', ''], step_target: ['5', '3'], ...extra } as never);
     const nbId = decodeURIComponent(res.headers.location).split('/notebooks/')[1].split('?')[0];
-    return { store, nbId };
+    return { store, nbId, flash: decodeURIComponent(res.headers.location) };
   }
 
   it('reads what a draft needs, never any text for it', async () => {
@@ -5601,6 +5601,22 @@ describe('a notebook that depends on something you have to give it', () => {
     expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('<strong>sua needs');
   });
 
+  it('pasted on the draft page with a reader, the notebook says it is reading it first', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    let letGo: (v: string) => void = () => {};
+    ctx.notebookGivenReaderRun = () => new Promise((r) => { letGo = r; });
+    const { nbId, flash } = await started(app, { 'need_linkedin-profile': PROFILE });
+    expect(flash).toContain('Notebook started. sua is reading your LinkedIn profile first, about a minute.');
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).toContain('Reading your LinkedIn profile');
+    expect(page).not.toContain('class="nb-run"');
+    letGo('nothing');
+    letGo('nothing');
+    for (let i = 0; i < 200 && [...(ctx.notebookGivenReads?.values() ?? [])].some((x) => x.status === 'working'); i++) { letGo('nothing'); await new Promise((r) => setTimeout(r, 10)); }
+  });
+
   it('a paste is read into a short profile first: the step waits for it, then works from the reading, and you can fix it', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');
@@ -5619,13 +5635,19 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(readerInputs).toMatchObject({ LABEL: 'your LinkedIn profile', TEXT: paste.trim() });
     // Nothing starts on a paste that's half read; the page says it's reading.
     expect(startNotebookStep(ctx, nbId)).toMatchObject({ started: false, reason: expect.stringContaining('sua is reading your LinkedIn profile') });
-    expect((await get(app, `/notebooks/${nbId}`)).text).toContain('sua is reading your LinkedIn profile.');
+    const whileReading = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(whileReading).toContain('sua is reading your LinkedIn profile into a short form.</span> Nothing searches until that\'s done');
+    // The header shows it as work, and offers no Start while it is.
+    expect(whileReading).toContain('Reading your LinkedIn profile');
+    expect(whileReading).not.toContain('class="nb-run"');
     const words = PROFILE.split(/\s+/).slice(0, 6).join(' ');
     letGo(`<read>${JSON.stringify({ summary: 'An accountant.', facts: [{ label: 'Current role', value: 'Accountant', quote: words }, { label: 'Hobby', value: 'Plumbing in Reno', quote: 'loves plumbing and lives in Reno' }] })}</read>`);
     for (let i = 0; i < 200 && (ctx.notebookGivenReads?.size || ctx.notebookPipelines?.has(nbId) || !brief); i++) await new Promise((r) => setTimeout(r, 10));
     // Only the fact the paste says is kept; the step started and read the reading, not the paste.
     expect(store.get(nbId)!.given![0].read).toMatchObject({ summary: 'An accountant.', facts: [{ label: 'Current role', value: 'Accountant' }] });
     expect(store.get(nbId)!.given![0].read!.facts).toHaveLength(1);
+    // Its history says so.
+    expect(store.entries(nbId, 50).find((e) => e.title === 'Read your LinkedIn profile: 1 fact')).toMatchObject({ kind: 'note', by: 'sua', body: expect.stringContaining('An accountant.') });
     expect(brief).toContain('your LinkedIn profile, as read from what they pasted');
     expect(brief).toContain('Current role: Accountant');
     expect(brief).not.toContain('People also viewed');
@@ -5679,6 +5701,7 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(tries).toBe(2);
     expect(store.get(nbId)!.given![0].read).toBeUndefined();
     expect(brief).toContain(PROFILE);
+    expect(store.entries(nbId, 50).some((e) => e.title === 'Couldn\'t read your LinkedIn profile into a short form')).toBe(true);
     expect((await get(app, `/notebooks/${nbId}`)).text).toContain('sua couldn\'t read your LinkedIn profile into a short form.');
     finderReply = undefined;
   });
