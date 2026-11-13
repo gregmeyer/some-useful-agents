@@ -27,7 +27,7 @@ import { startConflictCheck } from '../lib/notebook-reconcile.js';
 import { CHECKING_WHO } from '../views/notebooks.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, meetingFromForm } from '../lib/notebook-draft.js';
 import {
-  NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  givenMissing, NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntry,
   type NotebookEntryKind,
@@ -35,7 +35,7 @@ import {
 import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
@@ -250,6 +250,10 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
     // what to note, the stages and the checks (so setup is skipped).
     const { steps } = draftSteps(stepsFromForm(req.body ?? {}), known);
     const fields = many(req.body?.field).map((f) => { try { return JSON.parse(f) as unknown; } catch { return undefined; } }).filter(Boolean);
+    // From a draft: what you asked in your own words (its links with it), and what the draft said it needs from you,
+    // with anything you pasted for it on the draft page.
+    const from = str(req.body?.draft) ? readDraft(ctx, str(req.body?.draft)) : undefined;
+    const needs = from?.status === 'ready' ? (from.draft.needs ?? []).map((n) => ({ ...n, text: str((req.body as Record<string, unknown> | undefined)?.[`need_${n.key}`]) })) : [];
     const nb = createNotebookFrom(ctx, {
       title: str(req.body?.title).trim() || titleFrom(statement),
       statement,
@@ -257,6 +261,8 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       criteria: many(req.body?.criteria),
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
+      ...(from?.text ? { asked: from.text } : {}),
+      ...(needs.length ? { given: needs } : {}),
       ...(steps ? { steps } : {}),
       ...(() => { const m = meetingFromForm(req.body ?? {}); return m ? { meeting: m } : {}; })(),
       ...(fields.length ? {
@@ -659,6 +665,36 @@ notebooksRouter.post('/notebooks/:id/rerun', (req: Request, res: Response) => {
     res.redirect(303, back(notebook.id, `${words} The one before is archived (Restore on its Edit page).`));
   } catch (err) {
     res.redirect(303, `/notebooks/${encodeURIComponent(id)}/edit?flash=${encodeURIComponent(`Couldn't run it again: ${err instanceof Error ? err.message : String(err)}`)}`);
+  }
+});
+
+// What the notebook is waiting on from you: paste it (text), go on without it (skip=1), or take it off (remove=1).
+// Once nothing is missing, the step that was waiting starts.
+notebooksRouter.post('/notebooks/:id/given/:key', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const ctx = getContext(req.app.locals);
+    const s = store(req);
+    const before = s.get(id);
+    if (!before) throw new Error('No such notebook.');
+    const g = before.given?.find((x) => x.key === String(req.params.key));
+    if (!g) throw new Error('The notebook isn’t waiting on that.');
+    const wasWaiting = givenMissing(before).length > 0;
+    const after = req.body?.remove === '1' ? s.answerGiven(id, g.key, { remove: true })
+      : req.body?.skip === '1' ? s.answerGiven(id, g.key, { skip: true })
+      : s.answerGiven(id, g.key, { text: str(req.body?.text) });
+    const said = req.body?.remove === '1' ? `Removed ${g.label}.`
+      : req.body?.skip === '1' ? `Going on without ${g.label}. Results won’t be matched to it.`
+      : `Got ${g.label}.`;
+    const left = givenMissing(after);
+    let then = '';
+    if (wasWaiting && !left.length && hasOpenSteps(after)) {
+      const out = startNotebookStep(ctx, id);
+      then = out.started ? ` ${out.step?.title ?? 'Its step'} is running.` : out.reason ? ` ${out.reason}` : '';
+    } else if (left.length) then = ` Still waiting on ${left.map((x) => x.label).join(', ')}.`;
+    res.redirect(303, back(id, `${said}${then}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
 });
 

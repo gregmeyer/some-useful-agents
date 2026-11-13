@@ -1585,3 +1585,57 @@ describe('corrections you make', () => {
     expect(s.get(nb.id)!.plan!.struck).toEqual(['Zoo']);
   });
 });
+
+describe('what a notebook depends on from you (given)', () => {
+  let dir2: string | undefined;
+  afterEach(() => { if (dir2) rmSync(dir2, { recursive: true, force: true }); dir2 = undefined; });
+  const open = () => {
+    dir2 = mkdtempSync(join(tmpdir(), 'sua-given-'));
+    return NotebookStore.fromHandle(new RunStore(join(dir2, 'runs.db')).databaseHandle());
+  };
+
+  it('cleans a list: a label each, one per key, text only makes it given, never more than four', async () => {
+    const { cleanGiven } = await import('./notebooks.js');
+    const out = cleanGiven([
+      { label: ' Your LinkedIn profile. ', link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' },
+      { label: 'my LinkedIn profile' },
+      { label: 'your résumé', text: 'x'.repeat(13000) },
+      { label: 'the spec', state: 'skipped', text: 'ignored' },
+      { label: '' }, 'junk', { label: 'a' }, { label: 'b' },
+    ], '2026-11-12T00:00:00.000Z');
+    expect(out.map((g) => [g.key, g.label, g.state])).toEqual([['linkedin-profile', 'Your LinkedIn profile', 'missing'], ['r-sum', 'your résumé', 'given'], ['spec', 'the spec', 'skipped'], ['it', 'a', 'missing']]);
+    expect(out[0]).toMatchObject({ link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' });
+    expect(out[1].text).toHaveLength(12000);
+    expect(out[2].text).toBeUndefined();
+  });
+
+  it('keeps what you asked and what it needs, takes your answer, and says it to agents', async () => {
+    const { givenBrief, givenMissing, givenWaitingReason, notebookGivenLinks } = await import('./notebooks.js');
+    const s = open();
+    const nb = s.create({ title: 'Jobs for me', statement: 'Jobs matched to my profile.', asked: 'jobs matched to my profile https://www.linkedin.com/in/someone/', given: [{ label: 'your LinkedIn profile' }, { label: 'your résumé' }] });
+    expect(nb.asked).toContain('linkedin.com/in/someone');
+    expect(notebookGivenLinks(nb)).toEqual(['https://www.linkedin.com/in/someone/']);
+    expect(givenMissing(nb).map((g) => g.key)).toEqual(['linkedin-profile', 'r-sum']);
+    expect(givenWaitingReason(nb)).toBe("It's waiting on your LinkedIn profile and your résumé. Paste them at the top of the notebook's page, or choose Go on without it.");
+    expect(givenBrief(nb)).toContain('NOT given: your LinkedIn profile.');
+    expect(() => s.answerGiven(nb.id, 'linkedin-profile', { text: 'too short' })).toThrow('Paste the text itself');
+    expect(() => s.answerGiven(nb.id, 'nope', { skip: true })).toThrow("isn't waiting on that");
+    const text = 'Staff accountant, six years in nonprofit audit, based in Conway.';
+    let now = s.answerGiven(nb.id, 'linkedin-profile', { text });
+    now = s.answerGiven(nb.id, 'r-sum', { skip: true });
+    expect(givenWaitingReason(now)).toBeUndefined();
+    const brief = givenBrief(now);
+    expect(brief).toContain(`What they gave you, your LinkedIn profile (this is all you know of it; use nothing else for it):\n"""\n${text}\n"""`);
+    expect(brief).toContain("NOT given: your résumé. They chose to go on without it: work from the rest, don't ask for it");
+    expect(givenBrief(now, 10)).toContain('Staff acco\n[cut short]');
+    // Skipped stays skipped when a search asks for it again; a new one is added as missing.
+    expect(s.addGiven(nb.id, { label: 'Your résumé' }).given!.map((g) => g.state)).toEqual(['given', 'skipped']);
+    expect(s.addGiven(nb.id, { label: 'your budget', why: 'The search depends on it.' }).given!.map((g) => g.state)).toEqual(['given', 'skipped', 'missing']);
+    expect(s.answerGiven(nb.id, 'budget', { remove: true }).given).toHaveLength(2);
+    // A notebook that depends on nothing has none of it.
+    const plain = s.create({ title: 'Buy a car' });
+    expect(plain.given).toBeUndefined();
+    expect(plain.asked).toBeUndefined();
+    expect(givenBrief(plain)).toBe('');
+  });
+});

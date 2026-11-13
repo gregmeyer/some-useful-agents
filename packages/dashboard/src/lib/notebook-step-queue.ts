@@ -7,7 +7,7 @@
  * was replaced) is retired with why; and a paused step always has its card.
  */
 import { createHash } from 'node:crypto';
-import { NotebookStore, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, givenMissing, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { parseActionMeta, publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { applyWaitingCorrections } from './notebook-correction.js';
@@ -37,7 +37,7 @@ const isRunning = (ctx: Ctx, notebookId: string) => !!ctx.notebookPipelines?.has
  * state it was in when the card was made.
  */
 export function stepCardLive(nb: Notebook, meta: Pick<InboxActionMeta, 'inputs'>, running: boolean): boolean {
-  if (running || nb.status !== 'active' || nb.archivedAt) return false;
+  if (running || nb.status !== 'active' || nb.archivedAt || givenMissing(nb).length) return false;
   const op = stepOp(meta);
   const { STEP, WAS } = meta.inputs;
   if (op === 'update') return updateSteps(nb).length >= 2;
@@ -89,7 +89,7 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
   for (const c of proposedStepCards(ctx, threadId, notebookId).reverse()) {
     const key = cardKey(c.meta);
     if (!stepCardLive(nb, c.meta, running)) {
-      retire(ctx, threadId, c.r, c.meta, running ? 'The notebook is already working on it.' : nb.archivedAt ? 'The notebook is archived.' : nb.status !== 'active' ? 'The notebook is closed.' : 'The notebook has moved on from this.');
+      retire(ctx, threadId, c.r, c.meta, running ? 'The notebook is already working on it.' : nb.archivedAt ? 'The notebook is archived.' : givenMissing(nb).length ? 'The notebook is waiting on something from you first.' : nb.status !== 'active' ? 'The notebook is closed.' : 'The notebook has moved on from this.');
     } else if (seen.has(key)) {
       retire(ctx, threadId, c.r, c.meta, 'A newer card asks the same.');
     } else {
@@ -97,7 +97,7 @@ export function reconcileStepCards(ctx: Ctx, notebookId: string): Array<{ r: Inb
       live.push(c);
     }
   }
-  if (running || nb.status !== 'active' || nb.archivedAt || live.some((c) => stepOp(c.meta) !== 'again' && stepOp(c.meta) !== 'update')) return live;
+  if (running || nb.status !== 'active' || nb.archivedAt || givenMissing(nb).length || live.some((c) => stepOp(c.meta) !== 'again' && stepOp(c.meta) !== 'update')) return live;
   const step = currentStep(nb);
   if (!step) return live;
   const p = step.status === 'met' ? { have: 0, want: 0, met: true } : stepProgress(nb, stores(ctx).entries(nb.id, 1000), step);

@@ -12,7 +12,7 @@ import {
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
-import { notebookClosedReason } from '@some-useful-agents/core';
+import { givenBrief, givenWaitingReason, notebookClosedReason } from '@some-useful-agents/core';
 import { parseJsonFromOutput } from '../views/output-widgets.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -106,6 +106,8 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
     nb.meeting?.goal ? `The meeting is for: ${nb.meeting.goal}. Find what bears on that.` : '',
     nb.params.length ? `Parameters: ${nb.params.join('; ')}` : '',
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
+    // What it depends on from you: its text, or that you went on without it (so no step fills it in).
+    givenBrief(nb),
     // A notebook that ends in a written answer or plan needs pages that explain, not only options.
     (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'))
       ? `It ends with a written ${(nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'plan') ? 'plan' : 'answer'}: besides options, it needs sources that explain how it works and what to weigh.`
@@ -506,7 +508,7 @@ export function startNotebookPipeline(ctx: Ctx, notebookId: string, opts: { sche
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  const closed = notebookClosedReason(nb, 'run its pipeline');
+  const closed = notebookClosedReason(nb, 'run its pipeline') ?? givenWaitingReason(nb);
   if (closed) return { started: false, reason: closed };
   if (nb.pipeline.length === 0) return { started: false, reason: 'Add agents to the pipeline under Edit first.' };
   ctx.notebookPipelines ??= new Map();

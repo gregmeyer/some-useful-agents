@@ -40,6 +40,10 @@ export interface NewNotebookSetup {
   meeting?: NotebookMeeting;
   /** A notebook whose tags it starts with (run again: the same topic, and your changes to its tags). */
   tagsFrom?: string;
+  /** What you asked for, as you typed it (links and all). */
+  asked?: string;
+  /** What it depends on from you: missing, given or skipped (core cleanGiven). */
+  given?: unknown;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -51,6 +55,8 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     criteria: input.criteria,
     pipeline: input.pipeline ?? [],
     cadence: input.cadence ?? '',
+    ...(input.asked ? { asked: input.asked } : {}),
+    ...(input.given ? { given: input.given } : {}),
   });
   // Its fields first: a source step's facts are kept only when they name the notebook's fields.
   if (input.fields?.length) {
@@ -103,6 +109,9 @@ export function rerunSetup(nb: Notebook): NewNotebookSetup {
     fields: t.fields, stages: t.stages, checks: t.checks, steps: t.steps,
     ...(t.layout ? { layout: t.layout, ...(nb.layoutBy ? { layoutBy: nb.layoutBy } : {}) } : {}),
     ...(nb.meeting ? { meeting: nb.meeting } : {}),
+    // What you asked and what you gave it are its setup, not what it found.
+    ...(nb.asked ? { asked: nb.asked } : {}),
+    ...(nb.given?.length ? { given: nb.given } : {}),
   };
 }
 

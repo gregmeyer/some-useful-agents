@@ -709,6 +709,14 @@ export interface Notebook {
   tags?: NotebookTags;
   /** How its TL;DR picture is drawn, once redrawn (none: the standard picture). */
   tldr?: TldrSpec;
+  /** What you asked for, in your own words, as you typed it (links and all); `statement` is the tidied sentence. */
+  asked?: string;
+  /**
+   * What it depends on that your request referred to but didn't contain (a
+   * profile, a résumé, a spec): each still missing, given (its text), or
+   * skipped on purpose. Its steps wait while any is missing (ADR-0077).
+   */
+  given?: NotebookGiven[];
   /** The work in steps, in order (absent: it just runs its pipeline). */
   steps?: NotebookStep[];
   /** Its page, as an A2UI document (absent: the shortlist; notebook-layout.ts). */
@@ -905,6 +913,78 @@ export interface NewOption {
   trustedFacts?: boolean;
 }
 
+/** Something a notebook depends on that has to come from you. */
+export interface NotebookGiven {
+  key: string;
+  /** What it is, as a short noun phrase ("your LinkedIn profile"). */
+  label: string;
+  /** The link you gave for it, when there was one (sua couldn't read it). */
+  link?: string;
+  /** Its text, once given. */
+  text?: string;
+  /** missing: its steps wait for it. given: steps receive `text`. skipped: you chose to go on without it, and steps are told it wasn't given. */
+  state: 'missing' | 'given' | 'skipped';
+  /** Why it's needed or couldn't be read, in one sentence. */
+  why?: string;
+  at: string;
+}
+
+/** The most of a given thing's text a notebook keeps. */
+export const NOTEBOOK_GIVEN_MAX = 12000;
+
+const givenKey = (label: string) => label.toLowerCase().replace(/\b(your|my|the|their|a|an)\b/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'it';
+
+/** A stored or drafted `given` list, cleaned: at most 4, each with a label, one per key. */
+export function cleanGiven(raw: unknown, now = new Date().toISOString()): NotebookGiven[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NotebookGiven[] = [];
+  for (const x of raw as Array<Record<string, unknown>>) {
+    if (!x || typeof x !== 'object' || typeof x.label !== 'string') continue;
+    const label = x.label.replace(/\s+/g, ' ').trim().replace(/[.]+$/, '').slice(0, 80);
+    if (!label) continue;
+    const key = typeof x.key === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(x.key) ? x.key : givenKey(label);
+    if (out.some((g) => g.key === key)) continue;
+    const text = typeof x.text === 'string' ? x.text.trim().slice(0, NOTEBOOK_GIVEN_MAX) : '';
+    const link = typeof x.link === 'string' && /^https?:\/\/\S+$/i.test(x.link.trim()) ? x.link.trim().slice(0, 500) : '';
+    const why = typeof x.why === 'string' ? x.why.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    const state = x.state === 'skipped' ? 'skipped' : text ? 'given' : 'missing';
+    out.push({ key, label, ...(link ? { link } : {}), ...(text && state === 'given' ? { text } : {}), state, ...(why ? { why } : {}), at: typeof x.at === 'string' ? x.at : now });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+/** What a notebook is still waiting on from you. */
+export function givenMissing(nb: Pick<Notebook, 'given'>): NotebookGiven[] {
+  return (nb.given ?? []).filter((g) => g.state === 'missing');
+}
+
+/** Why a notebook's steps can't start yet: what it's waiting on from you. Undefined when nothing. */
+export function givenWaitingReason(nb: Pick<Notebook, 'given'>): string | undefined {
+  const w = givenMissing(nb).map((g) => g.label);
+  if (!w.length) return undefined;
+  const list = w.length === 1 ? w[0] : `${w.slice(0, -1).join(', ')} and ${w[w.length - 1]}`;
+  return `It's waiting on ${list}. Paste ${w.length === 1 ? 'it' : 'them'} at the top of the notebook's page, or choose Go on without it.`;
+}
+
+/**
+ * What you gave a notebook, as its agents read it: each given thing with its
+ * text, and each thing you went on without as NOT given, so no step fills it
+ * in. Empty when the notebook depends on nothing of yours. `max` is the most
+ * text per thing.
+ */
+export function givenBrief(nb: Pick<Notebook, 'given'>, max = 8000): string {
+  const parts: string[] = [];
+  for (const g of nb.given ?? []) {
+    if (g.state === 'given' && g.text) {
+      parts.push(`What they gave you, ${g.label} (this is all you know of it; use nothing else for it):\n"""\n${g.text.length > max ? `${g.text.slice(0, max)}\n[cut short]` : g.text}\n"""`);
+    } else {
+      parts.push(`NOT given: ${g.label}. They chose to go on without it: work from the rest, don't ask for it, never assume it, look it up or fill it in, and never say anything matches it.`);
+    }
+  }
+  return parts.join('\n');
+}
+
 export interface NewNotebook {
   title: string;
   statement?: string;
@@ -912,6 +992,10 @@ export interface NewNotebook {
   criteria?: string[];
   pipeline?: string[];
   cadence?: string;
+  /** What you asked for, as you typed it. */
+  asked?: string;
+  /** What it depends on from you (cleanGiven). */
+  given?: unknown;
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
@@ -1305,7 +1389,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
     ] as const) {
@@ -2414,7 +2498,43 @@ export class NotebookStore {
       JSON.stringify(clean(input.pipeline, 10).filter((a) => ID_RE.test(a))),
       (input.cadence ?? '').trim(), now, now,
     );
+    const asked = (input.asked ?? '').trim().slice(0, 2000);
+    const given = cleanGiven(input.given, now);
+    if (asked || given.length) this.db.prepare('UPDATE notebooks SET asked = ?, given_json = ? WHERE id = ?').run(asked || null, given.length ? JSON.stringify(given) : null, id);
     return this.get(id)!;
+  }
+
+  /**
+   * Something the notebook turns out to depend on (its search said so):
+   * added as missing, unless it already has one by that name (then nothing
+   * changes: one you skipped stays skipped).
+   */
+  addGiven(id: string, g: { label: string; link?: string; why?: string }): Notebook {
+    const nb = this.mustGet(id);
+    const have = nb.given ?? [];
+    const next = cleanGiven([...have, { ...g, state: 'missing' }]);
+    if (next.length === have.length) return nb;
+    this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
+  /** Give it (`text`), go on without it (`skip`), or take it off the notebook (`remove`). */
+  answerGiven(id: string, key: string, a: { text: string } | { skip: true } | { remove: true }): Notebook {
+    const nb = this.mustGet(id);
+    const have = nb.given ?? [];
+    const g = have.find((x) => x.key === key);
+    if (!g) throw new Error('The notebook isn\'t waiting on that.');
+    const now = new Date().toISOString();
+    let next: NotebookGiven[];
+    if ('remove' in a) next = have.filter((x) => x.key !== key);
+    else if ('skip' in a) next = have.map((x) => (x.key === key ? { key: x.key, label: x.label, ...(x.link ? { link: x.link } : {}), state: 'skipped' as const, ...(x.why ? { why: x.why } : {}), at: now } : x));
+    else {
+      const text = a.text.trim().slice(0, NOTEBOOK_GIVEN_MAX);
+      if (text.length < 20) throw new Error('Paste the text itself (a few lines at least), or choose Go on without it.');
+      next = have.map((x) => (x.key === key ? { ...x, text, state: 'given' as const, at: now } : x));
+    }
+    this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(next.length ? JSON.stringify(next) : null, now, id);
+    return this.mustGet(id);
   }
 
   /** Save a draft's state (insert or replace); `draft` is the caller's own shape, kept as JSON. */
@@ -2776,6 +2896,8 @@ export class NotebookStore {
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
+      ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
+      ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
       // Checked when it was set (setLayout); read as stored.
@@ -3834,8 +3956,8 @@ export function notebookClosedReason(nb: Pick<Notebook, 'status' | 'archivedAt'>
 }
 
 /** The links you gave it (in what it's for, its meeting notes, what you asked), each once, in order. Pure. */
-export function notebookGivenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string[] {
-  const from = [nb.statement, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? [])].filter((x): x is string => typeof x === 'string');
+export function notebookGivenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'> & Partial<Pick<Notebook, 'asked' | 'given'>>): string[] {
+  const from = [nb.statement, nb.asked, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? []), ...(nb.given ?? []).map((g) => g.link)].filter((x): x is string => typeof x === 'string');
   const urls = from.flatMap((t) => t.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ''));
   return [...new Set(urls)];
 }
