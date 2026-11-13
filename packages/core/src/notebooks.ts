@@ -3367,6 +3367,7 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
       ...(e.suggestedAt ? { suggested: true } : {}),
     };
   });
+  distinctNames(options);
   options.sort((a, b) => Number(!!a.ruledOut) - Number(!!b.ruledOut));
   // A link several options share, or one shaped like a search page, isn't any one option's own.
   const linkF = nb.fields.find((f) => f.role === 'link');
@@ -3568,6 +3569,35 @@ export function looksLikeOneListing(url: string): boolean {
     if (/\/l-used-|searchresults|\/search\b|\/results\b/i.test(u.pathname)) return false;
     return /\d{5,}/.test(u.pathname + u.search);
   } catch { return false; }
+}
+
+/**
+ * Options that share a short name ("Staff Software Engineer" seven times in a
+ * job search) are told apart: whose it is goes first ("Acme · Staff Software
+ * Engineer"), and two of the same name from the same place also keep the
+ * next part of their title ("…, Applied AI"). A name nothing else shares
+ * stays as it is. Changes `name` in place.
+ */
+export function distinctNames(options: Array<{ name: string; title: string; org?: string }>): void {
+  const key = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const groups = (of: typeof options) => {
+    const m = new Map<string, typeof options>();
+    for (const o of of) m.set(key(o.name), [...(m.get(key(o.name)) ?? []), o]);
+    return [...m.values()].filter((g) => g.length > 1);
+  };
+  for (const g of groups(options)) {
+    // Whose it is tells them apart only when they aren't all the same one's.
+    if (new Set(g.map((o) => key(o.org ?? ''))).size < 2) continue;
+    for (const o of g) if (o.org && !key(o.name).includes(key(o.org))) o.name = `${o.org} · ${o.name}`;
+  }
+  for (const g of groups(options)) {
+    for (const o of g) {
+      const short = shortName(o.title);
+      if (short === o.title || !o.title.startsWith(short)) continue;
+      const next = /^\s*(?:,|[—–-])\s*((?:[^,(]|\([^)]*\))+?)(?:,|\s[—–-]\s|$)/.exec(o.title.slice(short.length))?.[1]?.trim();
+      if (next && !/[\d$]/.test(next)) o.name = `${o.name}, ${next}`;
+    }
+  }
 }
 
 /**
