@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, distinctNames, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -589,6 +589,28 @@ describe("an option's listing link and its photo", () => {
     s.savePhoto(nb.id, c.id, 'https://shop.example/p/A-1', { contentType: 'image/jpeg', bytes: new Uint8Array([9]) });
     expect(s.photoKind(c.id)).toBe('listing');
     expect(s.photoCandidates(nb.id)).toEqual([]);
+  });
+});
+
+describe('distinctNames', () => {
+  it('tells options that share a short name apart by whose they are, then by the next part of their title', () => {
+    const o = [
+      { name: 'Staff Software Engineer', title: 'Staff Software Engineer, GTM AI — SF, $320k–$405k', org: 'Acme' },
+      { name: 'Staff Software Engineer', title: 'Staff Software Engineer, Applied AI — SF — $200k–$275k', org: 'Globex' },
+      { name: 'Staff Software Engineer', title: 'Staff Software Engineer, Platform — remote, $180k', org: 'Initech' },
+      { name: 'Staff Software Engineer', title: 'Staff Software Engineer, Billing — remote, $170k', org: 'Initech' },
+      { name: 'Member of Technical Staff', title: 'Member of Technical Staff, $275k', org: 'Acme' },
+    ];
+    distinctNames(o);
+    expect(o.map((x) => x.name)).toEqual(['Acme · Staff Software Engineer', 'Globex · Staff Software Engineer', 'Initech · Staff Software Engineer, Platform', 'Initech · Staff Software Engineer, Billing', 'Member of Technical Staff']);
+    // All from the same place, or none said: the next part of the title alone; nothing to add leaves them be.
+    const same = [{ name: 'Toyota Corolla', title: 'Toyota Corolla, LE — 81,300 mi', org: 'Lot A' }, { name: 'Toyota Corolla', title: 'Toyota Corolla, SE — 60,000 mi', org: 'Lot A' }, { name: 'Civic', title: 'Civic' }, { name: 'Civic', title: 'Civic' }];
+    distinctNames(same);
+    expect(same.map((x) => x.name)).toEqual(['Toyota Corolla, LE', 'Toyota Corolla, SE', 'Civic', 'Civic']);
+    // A name that already says whose it is isn't given it twice.
+    const said = [{ name: 'Acme Staff Engineer', title: 'Acme Staff Engineer', org: 'Acme' }, { name: 'Acme Staff Engineer', title: 'Acme Staff Engineer', org: 'Globex' }];
+    distinctNames(said);
+    expect(said.map((x) => x.name)).toEqual(['Acme Staff Engineer', 'Globex · Acme Staff Engineer']);
   });
 });
 
