@@ -53,6 +53,13 @@ function searchedWords(sources: NonNullable<KeeperOutcome['sources']>, options: 
   return parts.map(sentence).join(' ');
 }
 
+/** A step that did nothing because the notebook refers to something it doesn't contain. */
+export function neededWords(needs: string): string {
+  // As the middle of a sentence: "Your LinkedIn profile" → "your LinkedIn profile".
+  const what = needs.replace(/[.\s]+$/, '').replace(/^[A-Z](?=[a-z]+\b)/, (c) => c.toLowerCase());
+  return `Nothing was searched: it needs ${what}, and the notebook doesn't have it. Nothing was guessed. Add it under Edit (in what the notebook is for, or as a limit), then Try again.`;
+}
+
 /**
  * Why a step that runs an agent stopped short of its goal. `stalled`: its
  * last try got it no closer (else it was still getting closer when it ran
@@ -63,6 +70,8 @@ export function stepWhy(step: Pick<NotebookStep, 'kind'>, last: StepTry | undefi
   if (last.status === 'stopped') return 'You stopped it.';
   if (last.status === 'failed') return `Its last try ${errorWords(last.error)}, so it found nothing more.`;
   const out = last.out;
+  // It never searched: say what to give it, not that it found nothing.
+  if (out?.needs) return neededWords(out.needs);
   const parts: string[] = [];
   if (!opts.stalled) parts.push(`It was still getting closer after ${plural(opts.tries, 'try', 'tries')}; Try again keeps going`);
   else if (out?.error) parts.push(`Its last try ran, but what it found couldn't be filed: ${out.error.replace(/\.$/, '')}`);

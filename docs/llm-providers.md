@@ -48,6 +48,8 @@ Two kinds of provider can sit in the waterfall:
 
 sua always runs codex with `exec -s read-only --skip-git-repo-check`: codex's own guard refuses to run outside a git repo it trusts, which would stop any sua project in a plain folder from using it, and the guard only matters when codex may edit files, which sua's runs can't.
 
+Every codex run sua starts also has **your own reach switched off**: the MCP servers in your codex config (`mcp_servers.<name>.enabled=false`; only sua's own tool endpoint is on, when the step has tools), and the codex features that reach your accounts and machine beyond what the step was given: connected apps (Notion, Drive and the like), plugins, the browser, computer use and memories (`features.<name>=false`). A step reads what its agent was given and what sua's tools return. Before this, a notebook search that had no profile to match went into the operator's Notion through codex's apps and matched jobs to what it found there.
+
 ### The Codex and Claude models
 
 The **Model** line on the codex and claude rows in **Settings → LLM** picks the model each runs when an agent or step doesn't name one. Its choices are the models that provider offers your account right now, read from the list its CLI keeps fresh itself:

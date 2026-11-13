@@ -90,6 +90,13 @@ nodes:
         two limits, is not a near miss.
       - Every fact comes from a page you opened. Leave out what the page
         doesn't say; never guess.
+      - Who it's for comes ONLY from "What the notebook is for" above.
+        Never use anything else you know or can find about the person:
+        not files or notes on this machine, not earlier work, not a guess
+        from their name. When the notebook refers to something it doesn't
+        contain (a profile, a résumé), you don't have it: a candidate's
+        "why" must not claim it matches that, only what its page shows
+        against what IS written above.
 
       If this is a LEARN search (kind: "{{inputs.KIND}}" is "learn"), skip
       candidates and the facts above: find up to 4 pages that explain what

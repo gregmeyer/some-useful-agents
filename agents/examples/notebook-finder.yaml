@@ -6,7 +6,13 @@
 # `notebook-find-one` run with its own turn limit, so one that runs long
 # answers with what it found (or fails) without sinking the rest:
 #
-#   have ── plan ── search (loop, 3 at once) ── merge
+#   have ── plan ── vet ── search (loop, 3 at once) ── merge
+#
+# `vet` is code: a plan that needs something the notebook doesn't have (a
+# profile it refers to but was never given), or whose queries carry blanks
+# like "[target role]", runs no search at all. A search for a profile it
+# didn't have once came back with jobs matched to a profile the searchers
+# made up. merge then says what was missing, and the step asks for it.
 #
 # `merge` is code: it files what the searches found, as they found it, in
 # the notebook's own <notebook> block (docs/notebooks.md "Filing directly"),
@@ -92,6 +98,16 @@ nodes:
       Never name a specific option, company, price or address as a result:
       say where and how to look, not what you'll find.
 
+      Use ONLY what is written above. When the search depends on something
+      the notebook refers to but doesn't contain ("my profile", "my
+      résumé", "the attached spec", "my budget" with no figure), don't
+      guess it, don't use anything you know about the person from
+      elsewhere, and don't write blanks like "[target role]" for it. Plan
+      nothing: on the LAST line give ONLY
+      {"needs":"what is missing, in a few plain words","searches":[]}
+      ("needs" names the thing itself, like "your LinkedIn profile or
+      résumé", with no reason after it.)
+
       When the notebook says it ends with a written answer or plan (or
       that its shortlist gets written up), make 1 or 2 of the searches
       LEARN searches, with "kind": "learn": they look
@@ -103,10 +119,47 @@ nodes:
       line, ONLY this JSON on one line:
       {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers","kind":"learn, only for a learn search"}]}
 
-  # 3. The searches, three at a time. A failed one is null; merge says so.
+  # 3. Vet the plan with code. It needs something the notebook doesn't
+  #    have, or a query carries a blank ("[profile location]", "<role>",
+  #    "TBD"): no search runs. Prints one line of JSON the loop reads.
+  - id: vet
+    type: shell
+    dependsOn: [plan]
+    timeout: 30
+    command: |
+      python3 << 'PYEOF'
+      import json, re
+      from sua_helpers import upstream
+
+      try:
+          plan = json.loads(upstream("PLAN").strip().splitlines()[-1])
+      except Exception:
+          plan = {}
+      plan = plan if isinstance(plan, dict) else {}
+      searches = [s for s in (plan.get("searches") or []) if isinstance(s, dict)]
+      needs = plan.get("needs") if isinstance(plan.get("needs"), str) else ""
+      needs = re.sub(r"\s+", " ", needs).strip()[:200]
+
+      # A blank: letters inside [], <> or {} (a site: scope or a quoted phrase is fine), or a word that stands for one.
+      BLANK = re.compile(r"\[[^\]]*[A-Za-z][^\]]*\]|<[^>]*[A-Za-z][^>]*>|\{[^}]*[A-Za-z][^}]*\}|\b(?:TBD|TODO|PLACEHOLDER)\b")
+      blanks = []
+      for s in searches:
+          q = s.get("query") if isinstance(s.get("query"), str) else ""
+          if not q.strip():
+              blanks.append("an empty search")
+          blanks += [m.group(0) for m in BLANK.finditer(q)]
+      if blanks and not needs:
+          seen = list(dict.fromkeys(blanks))[:4]
+          needs = "what " + ", ".join(seen) + (" stands" if len(seen) == 1 else " stand") + " for"
+      if needs:
+          searches = []
+      print(json.dumps({"searches": searches, **({"needs": needs} if needs else {})}))
+      PYEOF
+
+  # 4. The searches, three at a time. A failed one is null; merge says so.
   - id: search
     type: loop
-    dependsOn: [plan]
+    dependsOn: [vet]
     loopConfig:
       over: searches
       agentId: notebook-find-one
@@ -121,11 +174,11 @@ nodes:
         HAVE: "$upstream.have.result"
         FIELDS: "{{inputs.FIELDS}}"
 
-  # 4. File what they found: one option per page, facts by the notebook's
+  # 5. File what they found: one option per page, facts by the notebook's
   #    field keys, nothing added. Says which searches found nothing.
   - id: merge
     type: shell
-    dependsOn: [plan, search]
+    dependsOn: [vet, search]
     timeout: 60
     command: |
       python3 << 'PYEOF'
@@ -162,9 +215,17 @@ nodes:
                       have_urls.add(norm_url(s))
 
       try:
-          searches = json.loads(upstream("PLAN").strip().splitlines()[-1]).get("searches") or []
+          vetted = json.loads(upstream("VET").strip().splitlines()[-1])
       except Exception:
-          searches = []
+          vetted = {}
+      searches = vetted.get("searches") or []
+      # The plan needed something the notebook doesn't have: nothing was searched, and the step says what to give it.
+      if vetted.get("needs"):
+          needs = str(vetted["needs"])
+          summary = f"Nothing was searched: the search needs {needs}, and the notebook doesn't have it."
+          print(summary)
+          print("<notebook>" + json.dumps({"entries": [], "sources": [], "needs": needs, "summary": summary}) + "</notebook>")
+          raise SystemExit(0)
       try:
           items = json.loads(upstream("SEARCH") or "{}").get("items") or []
       except Exception:

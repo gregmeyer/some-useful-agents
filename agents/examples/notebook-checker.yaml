@@ -70,7 +70,13 @@ nodes:
         - "met" when its facts or notes show it is true;
         - "not met" only when they clearly show it is false;
         - "unknown" when they don't say. Never guess: unknown ones are
-          researched on the web next.
+          researched on the web next;
+        - "not given" when the check compares the option with something
+          about the person that the notebook refers to but does not
+          contain (their profile, résumé, experience, budget): you don't
+          have it, so it can't be judged here or on the web. Never fill it
+          in from anything else you know, and never call such a check met.
+          "why" says what the notebook wasn't given.
 
       For "met" and "not met", "quote" is the fact or words that show it,
       COPIED CHARACTER FOR CHARACTER from the option's facts or notes as
@@ -80,7 +86,7 @@ nodes:
 
       Reply with only this, as valid JSON:
       <verdicts>
-      [{"id": "option id", "check": "the check, as written", "verdict": "met|not met|unknown", "quote": "", "url": "notebook", "why": ""}]
+      [{"id": "option id", "check": "the check, as written", "verdict": "met|not met|unknown|not given", "quote": "", "url": "notebook", "why": ""}]
       </verdicts>
 
   # 2. What the option's own facts didn't settle: those options, with the
@@ -106,9 +112,10 @@ nodes:
       except Exception:
           checks = []
       # Settled from its own facts (subject to verify's quote check): met or not met.
+      # "not given" (it compares against something the notebook doesn't have) isn't researched either: no page has it.
       settled = set()
       for v in tagged_json(upstream("JUDGE"), "verdicts") or []:
-          if isinstance(v, dict) and str(v.get("verdict", "")).lower().strip() in ("met", "not met"):
+          if isinstance(v, dict) and str(v.get("verdict", "")).lower().strip() in ("met", "not met", "not given"):
               settled.add((str(v.get("id", "")), norm(str(v.get("check", "")))))
 
       items, open_checks, subjects = [], [], {}
@@ -295,8 +302,14 @@ nodes:
       unknown = sum(1 for oid, o in options.items() if oid not in out_reason
                     for c in (o.get("left") if isinstance(o.get("left"), list) else checks)
                     if canon.get(norm(str(c))) and (oid, canon[norm(str(c))]) not in tried)
+      # Not given: a check that compares against something the notebook was never given (a profile, a résumé).
+      ungiven = {(str(v.get("id", "")), canon.get(norm(str(v.get("check", ""))))) for v in verdicts
+                 if isinstance(v, dict) and str(v.get("verdict", "")).lower().strip() == "not given"}
+      ungiven = {x for x in ungiven if x[1] and x[0] in options and x[0] not in out_reason and x not in tried}
+      unknown = max(0, unknown - len(ungiven))
       bits = [f"{n_ticked} check{'s' if n_ticked != 1 else ''} met with a quote", f"{len(out_reason)} ruled out"]
       if unknown: bits.append(f"{unknown} unknown")
+      if ungiven: bits.append(f"{len(ungiven)} couldn't be judged (the notebook wasn't given what {'it compares' if len(ungiven) == 1 else 'they compare'} against)")
       # A "met" whose quote wasn't on the downloaded page (only a page, not the
       # notebook's own facts): a screenshot of the page gets a second look (look).
       second = []

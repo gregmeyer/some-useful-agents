@@ -5478,6 +5478,33 @@ describe('editing the talking points', () => {
   });
 });
 
+describe('a find step that needs something the notebook does not have', () => {
+  it('searches nothing, guesses nothing, tries once, and says what to give it', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Find jobs matched to my profile', statement: 'A job search matched to my LinkedIn profile.', params: [], criteria: [], pipeline: [], cadence: '' });
+    store.setFields(nb.id, [{ key: 'url', label: 'Posting', type: 'url', role: 'link' }]);
+    store.setSteps(nb.id, [{ title: 'Find 5 matching jobs', kind: 'find', target: 5 }, { title: 'Pick', kind: 'decide', target: 3 }]);
+    let asked = 0;
+    finderReply = () => { asked++; return `Nothing was searched.\n<notebook>${JSON.stringify({ entries: [], sources: [], needs: 'the LinkedIn profile it should match', summary: 'Nothing was searched.' })}</notebook>`; };
+    expect(startNotebookStep(ctx, nb.id)).toMatchObject({ started: true });
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 10));
+    const step = store.get(nb.id)!.steps![0];
+    expect(asked).toBe(1);
+    expect(step).toMatchObject({ status: 'stuck', tries: 1 });
+    expect(step.why).toBe("Nothing was searched: it needs the LinkedIn profile it should match, and the notebook doesn't have it. Nothing was guessed. Add it under Edit (in what the notebook is for, or as a limit), then Try again.");
+    expect(store.entries(nb.id).filter((e) => e.kind === 'option')).toEqual([]);
+    // No search is counted: nobody looked.
+    expect(store.searches(nb.id)).toEqual([]);
+    expect(store.passes(nb.id)[0].note).toContain("nothing searched; it needs the LinkedIn profile it should match, which the notebook doesn't have");
+    finderReply = undefined;
+  });
+});
+
 describe('run a notebook again as a new notebook', () => {
   const post = (app: Awaited<ReturnType<typeof makeApp>>, path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
   const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);

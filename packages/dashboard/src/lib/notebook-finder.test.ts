@@ -28,7 +28,7 @@ const FIELDS = JSON.stringify([
 describe('notebook-finder', () => {
   it('is sua’s own: a plan, the searches three at a time, and code that files them', () => {
     const finder = agent('notebook-finder');
-    expect(finder.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['have:shell', 'plan:llm-prompt', 'search:loop', 'merge:shell']);
+    expect(finder.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['have:shell', 'plan:llm-prompt', 'vet:shell', 'search:loop', 'merge:shell']);
     expect(finder.nodes.find((n) => n.id === 'search')!.loopConfig).toMatchObject({ agentId: 'notebook-find-one', concurrency: 3, over: 'searches' });
     const one = agent('notebook-find-one');
     expect(one.nodes[0]).toMatchObject({ type: 'llm-prompt', maxTurns: 8, tools: ['web-search', 'web-fetch', 'web-scrape'] });
@@ -51,7 +51,7 @@ describe('notebook-finder', () => {
       { where: 'Workday', candidates: [], note: 'nothing in Austin' },
     ];
     const { line, block } = merge({
-      UPSTREAM_PLAN_RESULT: PLAN,
+      UPSTREAM_VET_RESULT: PLAN,
       UPSTREAM_SEARCH_RESULT: JSON.stringify({ items, count: items.length }),
       FIELDS,
       OPTIONS: JSON.stringify([{ id: '1', name: 'Controller, Old Co', sources: ['https://jobs.lever.co/oldco/9'] }]),
@@ -83,7 +83,7 @@ describe('notebook-finder', () => {
       { where: 'Cars.com', candidates: [{ title: '2005 WRX wagon', url: 'https://cars.example/1' }] },
     ];
     const plan = JSON.stringify({ searches: [{ where: 'OfferUp' }, { where: 'Cars.com' }] });
-    const { line, block } = merge({ UPSTREAM_PLAN_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS, OPTIONS: '[]' });
+    const { line, block } = merge({ UPSTREAM_VET_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS, OPTIONS: '[]' });
     const options = block.entries.filter((e) => e.kind === 'option');
     // The one that fits comes first; a "near" one with no limit named is dropped.
     expect(options.map((e) => e.title)).toEqual(['2005 WRX wagon', '2008 Outback Sport, Everett']);
@@ -103,7 +103,7 @@ describe('notebook-finder', () => {
         { title: 'No page', takeaway: 'Nothing to cite' },
       ], note: 'opened 2 guides' }),
     ];
-    const { line, block } = merge({ UPSTREAM_PLAN_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS: '[]', OPTIONS: '[]' });
+    const { line, block } = merge({ UPSTREAM_VET_RESULT: plan, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items }), FIELDS: '[]', OPTIONS: '[]' });
     expect(block.entries.filter((e) => e.kind === 'option').map((e) => e.title)).toEqual(['Example Bank 12-month CD, 4.40% APY']);
     expect(block.entries.filter((e) => e.kind === 'evidence')).toEqual([{
       kind: 'evidence', title: 'A CD ladder staggers maturities so part of the money comes due each year.',
@@ -115,14 +115,66 @@ describe('notebook-finder', () => {
 
   it('cuts a long title at a word', () => {
     const long = 'Controller at Attivo Partners (remote fractional CFO and accounting firm), $170k–$200k plus 10% bonus, manages accounting staff';
-    const { block } = merge({ UPSTREAM_PLAN_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [{ candidates: [{ title: long, url: 'https://x.example/1' }] }] }), FIELDS: '[]', OPTIONS: '[]' });
+    const { block } = merge({ UPSTREAM_VET_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [{ candidates: [{ title: long, url: 'https://x.example/1' }] }] }), FIELDS: '[]', OPTIONS: '[]' });
     const title = block.entries[0].title as string;
     expect(title.length).toBeLessThanOrEqual(120);
     expect(title).toBe('Controller at Attivo Partners (remote fractional CFO and accounting firm), $170k–$200k plus 10% bonus, manages…');
   });
 
   it('with nothing found, it still notes where it looked', () => {
-    const { block } = merge({ UPSTREAM_PLAN_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [null, null], count: 2 }), FIELDS: '[]', OPTIONS: '[]' });
+    const { block } = merge({ UPSTREAM_VET_RESULT: PLAN, UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [null, null], count: 2 }), FIELDS: '[]', OPTIONS: '[]' });
     expect(block.entries).toEqual([{ kind: 'note', title: "Searched 2 places at once: Greenhouse (0), Lever (0). Greenhouse, Lever didn't finish." }]);
+  });
+});
+
+// A search once ran for "jobs matched to my LinkedIn profile" with no profile
+// in the notebook: the plan carried blanks, and the searchers made a profile
+// up. Code now vets the plan before any search runs.
+describe('notebook-finder vets its plan', () => {
+  const finder = agent('notebook-finder');
+  function vet(plan: string): { searches: unknown[]; needs?: string } {
+    const cmd = finder.nodes.find((n) => n.id === 'vet')!.command!;
+    const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', UPSTREAM_PLAN_RESULT: plan }), encoding: 'utf8' });
+    return JSON.parse(out.trim());
+  }
+  const plan = (o: unknown) => `How I split it.\n${JSON.stringify(o)}`;
+
+  it('runs between the plan and the searches, and the searches and merge read it', () => {
+    expect(finder.nodes.map((n) => `${n.id}:${n.type}`)).toEqual(['have:shell', 'plan:llm-prompt', 'vet:shell', 'search:loop', 'merge:shell']);
+    expect(finder.nodes.find((n) => n.id === 'search')!.dependsOn).toEqual(['vet']);
+    expect(finder.nodes.find((n) => n.id === 'merge')!.dependsOn).toEqual(['vet', 'search']);
+    const prompt = finder.nodes.find((n) => n.id === 'plan')!.prompt!;
+    expect(prompt).toContain('Use ONLY what is written above.');
+    expect(prompt).toContain('{"needs":"what is missing, in a few plain words","searches":[]}');
+    expect(agent('notebook-find-one').nodes[0].prompt).toContain('Never use anything else you know or can find about the person');
+  });
+
+  it('passes a plan with real queries as it is', () => {
+    const searches = [{ where: 'Greenhouse', query: 'site:job-boards.greenhouse.io "controller" "Austin" OR remote', why: 'x' }, { where: 'Open web', query: '"director of accounting" Austin careers apply', why: 'y' }];
+    expect(vet(plan({ searches }))).toEqual({ searches });
+  });
+
+  it('refuses the whole plan when a query carries a blank, and says which', () => {
+    const out = vet(plan({ searches: [
+      { where: 'Greenhouse', query: 'site:job-boards.greenhouse.io "[profile target role]" "[profile location]"', why: 'x' },
+      { where: 'Guides', query: 'how to weigh job offers', why: 'y', kind: 'learn' },
+    ] }));
+    expect(out.searches).toEqual([]);
+    expect(out.needs).toBe('what [profile target role], [profile location] stand for');
+    for (const q of ['"<role>" Austin', 'jobs for {title} in Austin', 'TBD accounting jobs', '   ']) {
+      expect(vet(plan({ searches: [{ where: 'Web', query: q }] })).searches).toEqual([]);
+    }
+  });
+
+  it('takes the plan at its word when it says what is missing', () => {
+    expect(vet(plan({ needs: 'the LinkedIn profile it should match', searches: [] }))).toEqual({ searches: [], needs: 'the LinkedIn profile it should match' });
+    // Even beside searches it wrote anyway.
+    expect(vet(plan({ needs: 'your résumé', searches: [{ where: 'Web', query: 'jobs' }] }))).toEqual({ searches: [], needs: 'your résumé' });
+  });
+
+  it('merge then files nothing and says what the search needs', () => {
+    const { line, block } = merge({ UPSTREAM_VET_RESULT: JSON.stringify({ searches: [], needs: 'the LinkedIn profile it should match' }), UPSTREAM_SEARCH_RESULT: JSON.stringify({ items: [], count: 0 }), FIELDS, OPTIONS: '[]' });
+    expect(line).toBe("Nothing was searched: the search needs the LinkedIn profile it should match, and the notebook doesn't have it.");
+    expect(block).toMatchObject({ entries: [], sources: [], needs: 'the LinkedIn profile it should match' });
   });
 });

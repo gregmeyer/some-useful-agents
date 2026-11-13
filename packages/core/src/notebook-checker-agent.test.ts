@@ -110,6 +110,24 @@ describe.skipIf(!hasPython)('notebook-checker verify step', () => {
     expect(out.summary).toBe('1 check met with a quote; 1 ruled out; 1 unknown; 1 quote not found word for word, left open.');
   });
 
+  it("leaves a check that compares against something the notebook wasn't given unjudged: not researched, never met, and says so", async () => {
+    const checks = ['The posting is still open', 'Required qualifications match the profile'];
+    const options = [{ id: 'a', name: 'Senior PM, Acme', facts: { Posted: '2026-11-01' }, text: 'Requires 5+ years of product management experience.', left: checks }];
+    const judge = [
+      { id: 'a', check: 'The posting is still open', verdict: 'unknown' },
+      { id: 'a', check: 'Required qualifications match the profile', verdict: 'not given', why: 'The notebook has no profile.' },
+    ];
+    expect(parseAgent(yaml).nodes.find((n) => n.id === 'judge')!.prompt).toContain('never call such a check met');
+    // Only the check a page could answer goes to the web.
+    const p = JSON.parse((await shellNode('pending', { UPSTREAM_JUDGE_RESULT: `<verdicts>${JSON.stringify(judge)}</verdicts>`, OPTIONS: JSON.stringify(options), CHECKS: JSON.stringify(checks) })).trim().split('\n').at(-1)!);
+    expect(JSON.parse(p.items_json)).toEqual([{ subject: 'Senior PM, Acme', hint: 'Checks still open for it: The posting is still open.' }]);
+    expect(Object.values(p.keys)).toEqual(['The posting is still open']);
+    // Nothing is ticked for it, and the summary says why.
+    const out = await verify(judge, options, checks);
+    expect(out.facts).toEqual([]);
+    expect(out.summary).toContain("1 unknown; 1 couldn't be judged (the notebook wasn't given what it compares against)");
+  });
+
   it('sends only the checks its own facts left open to the web, one item per option', async () => {
     const options = [
       { id: 'a', name: 'Acme', facts: { Website: 'https://acme.example', Employees: 300 }, sources: ['https://acme.example/about'], left: ['Headcount under 500', 'Why people buy is quoted'] },

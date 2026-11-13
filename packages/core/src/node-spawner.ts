@@ -823,6 +823,15 @@ export function codexConfiguredMcpServers(env?: Record<string, string>, now = Da
 /** Test seam: forget the cached codex server list. */
 export function resetCodexMcpServerCache(): void { codexServersCache = undefined; }
 
+/**
+ * Codex features that reach the operator's own accounts and machine beyond
+ * the run's inputs: connected apps (Notion, Drive…), plugins, the browser
+ * and computer use, and memories from their other sessions. Off for every
+ * run sua starts (`-c features.<name>=false`; codex ignores a name it
+ * doesn't know).
+ */
+export const CODEX_OPERATOR_FEATURES = ['apps', 'plugins', 'remote_plugin', 'browser_use', 'browser_use_external', 'computer_use', 'memories'] as const;
+
 export const codexSpawner: LlmSpawner = {
   binary: 'codex',
 
@@ -849,10 +858,19 @@ export const codexSpawner: LlmSpawner = {
     // claude's --strict-mcp-config), its tools are pre-approved (`exec` has
     // nobody to approve them), and the bearer token comes from the env so it
     // never appears in `ps`.
+    //
+    // The operator's own reach is off for EVERY run, with tools or without:
+    // their codex MCP servers, and the apps, plugins, browser and computer
+    // use and memories of their codex account. A notebook search with no
+    // profile to match once went into the operator's Notion through codex's
+    // apps, built a profile from what it found there, and reported jobs
+    // matched to it. An agent's run reads what the agent was given and what
+    // sua's own tools return, nothing else of the operator's.
+    for (const name of codexConfiguredMcpServers(env)) {
+      if (name !== TOOL_ENDPOINT_SERVER_NAME) args.push('-c', `mcp_servers.${name}.enabled=false`);
+    }
+    for (const feature of CODEX_OPERATOR_FEATURES) args.push('-c', `features.${feature}=false`);
     if (opts.mcpEndpoint) {
-      for (const name of codexConfiguredMcpServers(env)) {
-        if (name !== TOOL_ENDPOINT_SERVER_NAME) args.push('-c', `mcp_servers.${name}.enabled=false`);
-      }
       args.push('-c', `mcp_servers.${TOOL_ENDPOINT_SERVER_NAME}={url=${JSON.stringify(opts.mcpEndpoint.url)},bearer_token_env_var="${CODEX_TOOL_TOKEN_ENV}",default_tools_approval_mode="approve"}`);
     }
     // Live web search (the Responses web_search tool, no per-call approval).
