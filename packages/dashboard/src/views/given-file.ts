@@ -47,7 +47,7 @@ export const GIVEN_FILE_JS = `
       if (isText) {
         f.text().then(function (t) {
           if (!t.trim()) { tell('That file is empty.', true); done(); return; }
-          fill(t, 'Read ' + name + ' (' + t.trim().length.toLocaleString('en-US') + ' characters). Look it over, then press the button under the box.');
+          fill(t, 'Read ' + name + ' (' + t.trim().length.toLocaleString('en-US') + ' characters). Look it over, then press the button under the box. sua reads it into a short form before any search.');
         }).catch(function () { tell('That file couldn\\'t be read. Paste its text here.', true); done(); });
         return;
       }
@@ -56,7 +56,7 @@ export const GIVEN_FILE_JS = `
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
         .then(function (res) {
           if (!res.ok || !res.j || !res.j.text) { tell((res.j && res.j.error) || 'sua couldn\\'t read that PDF. Paste its text here.', true); done(); return; }
-          fill(res.j.text, 'Read ' + name + ': ' + res.j.said + ' Look it over, then press the button under the box.');
+          fill(res.j.text, 'Read ' + name + ': ' + res.j.said + ' Look it over, then press the button under the box. sua reads it into a short form before any search.');
         })
         .catch(function () { tell('sua couldn\\'t read that PDF. Paste its text here.', true); done(); });
     });

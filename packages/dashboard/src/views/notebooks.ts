@@ -1287,7 +1287,7 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
   const cutNote = (g: NotebookGiven) => (g.cut ? html`<p class="nb-given__note">Your paste was longer than sua keeps, so its end is missing. If something below is missing, paste a shorter copy under Edit.</p>` : html``);
   const got = (g: NotebookGiven) => {
     if (reading[g.key] === 'working') return html`
-      <div class="nb-given__item nb-given__item--reading" role="status"><span class="nb-given__mark">sua is reading ${g.label}.</span> Its steps start when that's done, usually within a minute.</div>`;
+      <div class="nb-given__item nb-given__item--reading" role="status"><span class="nb-given__mark">sua is reading ${g.label} into a short form.</span> Nothing searches until that's done, usually within a minute. This page updates by itself.</div>`;
     if (!g.read) return html`
       <div class="nb-given__item nb-given__item--unread">
         <p class="nb-given__say">${reading[g.key] === 'failed' ? html`<span class="nb-given__mark">sua couldn't read ${g.label} into a short form.</span>` : html`<span class="nb-given__mark">sua hasn't read ${g.label} yet.</span>`} Steps are using the first part of the text as you pasted it.</p>

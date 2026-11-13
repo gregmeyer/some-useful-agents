@@ -161,6 +161,15 @@ export function startGivenRead(ctx: Ctx, notebookId: string, key: string, opts: 
       } catch { /* the paste stands as it is */ }
     }
     if (kept) ctx.notebookGivenReads.delete(k); else ctx.notebookGivenReads.set(k, { ...state, status: 'failed' });
+    // The notebook's history says it happened (and when), read or not.
+    try {
+      if (kept && !('error' in out)) {
+        const n = out.read.facts.length;
+        store.addEntry(notebookId, { kind: 'note', title: `Read ${g.label}: ${String(n)} ${n === 1 ? 'fact' : 'facts'}`, body: `${out.read.summary ? `${out.read.summary} ` : ''}Its steps work from this in place of the text you gave. It's on the notebook's page to check and fix.`, by: 'sua' });
+      } else if (store.get(notebookId)?.given?.find((x) => x.key === key)?.text === text) {
+        store.addEntry(notebookId, { kind: 'note', title: `Couldn't read ${g.label} into a short form`, body: 'Its steps use the first part of the text as you gave it. Read it again from the notebook\'s page.', by: 'sua' });
+      }
+    } catch { /* the page still says how it stands */ }
     try { opts.then?.(); } catch { /* what was waiting says why itself */ }
   })();
   opts.onDone?.(work);
