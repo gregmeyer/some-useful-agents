@@ -57,7 +57,7 @@ function searchedWords(sources: NonNullable<KeeperOutcome['sources']>, options: 
 export function neededWords(needs: string): string {
   // As the middle of a sentence: "Your LinkedIn profile" → "your LinkedIn profile".
   const what = needs.replace(/[.\s]+$/, '').replace(/^[A-Z](?=[a-z]+\b)/, (c) => c.toLowerCase());
-  return `Nothing was searched: it needs ${what}, and the notebook doesn't have it. Nothing was guessed. Add it under Edit (in what the notebook is for, or as a limit), then Try again.`;
+  return `Nothing was searched: it needs ${what}, and the notebook doesn't have it. Nothing was guessed. Paste it at the top of the notebook's page, or choose Go on without it.`;
 }
 
 /**

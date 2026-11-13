@@ -12,6 +12,7 @@ import {
   notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, notebookReadoutText, type NotebookMeeting,
   answerSectionLines,
 } from '@some-useful-agents/core';
+import { givenMissing } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
@@ -533,10 +534,13 @@ export function greetNotebook(ctx: Ctx, notebookId: string): string | undefined 
   const threadId = notebookThread(ctx, nb);
   if (!threadId) return undefined;
   const now = store.get(notebookId) ?? nb;
-  const first = startableFirstStep(now);
+  // It depends on something of yours it doesn't have: it asks for that first, and nothing starts until then.
+  const waiting = givenMissing(now);
+  const first = waiting.length ? undefined : startableFirstStep(now);
   ctx.inboxStore.addResponse(threadId, 'triage', notebookGreeting(now, store.entries(notebookId, 50).some((e) => e.kind === 'option'))
     // The page it decided on (lib/notebook-page.ts), when it isn't the shortlist.
     + (now.layout?.about ? `\n\nIts page is drawn for what it's for: ${now.layout.about}. Ask me to change it, or undo it on **Edit**.` : '')
+    + (waiting.length ? `\n\nBefore I start, I need ${waiting.map((g) => `**${g.label}**`).join(' and ')}${waiting[0].link ? ` (I couldn't read the link you gave)` : ''}. Paste ${waiting.length === 1 ? 'it' : 'them'} at the top of [the notebook's page](/notebooks/${encodeURIComponent(now.id)}), or choose **Go on without it** there. I won't search on a guess.` : '')
     + (first ? `\n\nPress **Start** when you're ready and I'll begin with **${first.title}**.` : ''));
   // Its first step, one press away (the same card as a step's Continue).
   if (first) {

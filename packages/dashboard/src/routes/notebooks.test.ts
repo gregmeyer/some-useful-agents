@@ -5496,11 +5496,127 @@ describe('a find step that needs something the notebook does not have', () => {
     const step = store.get(nb.id)!.steps![0];
     expect(asked).toBe(1);
     expect(step).toMatchObject({ status: 'stuck', tries: 1 });
-    expect(step.why).toBe("Nothing was searched: it needs the LinkedIn profile it should match, and the notebook doesn't have it. Nothing was guessed. Add it under Edit (in what the notebook is for, or as a limit), then Try again.");
+    expect(step.why).toBe("Nothing was searched: it needs the LinkedIn profile it should match, and the notebook doesn't have it. Nothing was guessed. Paste it at the top of the notebook's page, or choose Go on without it.");
+    // The notebook now asks for it, and waits.
+    expect(store.get(nb.id)!.given).toMatchObject([{ label: 'the LinkedIn profile it should match', state: 'missing' }]);
+    expect(startNotebookStep(ctx, nb.id)).toMatchObject({ started: false, reason: "It's waiting on the LinkedIn profile it should match. Paste it at the top of the notebook's page, or choose Go on without it." });
     expect(store.entries(nb.id).filter((e) => e.kind === 'option')).toEqual([]);
     // No search is counted: nobody looked.
     expect(store.searches(nb.id)).toEqual([]);
     expect(store.passes(nb.id)[0].note).toContain("nothing searched; it needs the LinkedIn profile it should match, which the notebook doesn't have");
+    finderReply = undefined;
+  });
+});
+
+describe('a notebook that depends on something you have to give it', () => {
+  const post = (app: Awaited<ReturnType<typeof makeApp>>, path: string, body: Record<string, string>) => request(app).post(path).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
+  const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+  const PROFILE = 'Staff accountant, 6 years in nonprofit audit. Based in Conway, Arkansas. CPA licensed 2021. Looking for controller roles.';
+  const draft = {
+    title: 'Find jobs matched to my profile', statement: 'A job search matched to my LinkedIn profile.', params: [], criteria: ['Five openings found'],
+    fields: [{ key: 'url', label: 'Posting', type: 'url', role: 'link' }], checks: ['Required qualifications match the profile'], stages: ['Found'], pipeline: [], cadence: '',
+    steps: [{ id: 's1', title: 'Find 5 matching jobs', kind: 'find', status: 'todo', tries: 0, target: 5 }, { id: 's2', title: 'Pick', kind: 'decide', status: 'todo', tries: 0, target: 3 }],
+    needs: [{ key: 'linkedin-profile', label: 'your LinkedIn profile', link: 'https://www.linkedin.com/in/someone/', why: 'The jobs are matched to it.' }],
+  };
+  async function started(app: Awaited<ReturnType<typeof makeApp>>, extra: Record<string, string> = {}) {
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const id = `d-${String(Math.random()).slice(2, 8)}`;
+    store.saveDraft(id, { status: 'ready', text: 'Give me a job search matched to my LinkedIn profile https://www.linkedin.com/in/someone/', draft });
+    const res = await post(app, '/notebooks', { draft: id, title: draft.title, statement: draft.statement, criteria: 'Five openings found', field: JSON.stringify(draft.fields[0]), stages: 'Found', checks: draft.checks[0], step_title: ['Find 5 matching jobs', 'Pick'], step_kind: ['find', 'decide'], step_agent: ['', ''], step_target: ['5', '3'], ...extra } as never);
+    const nbId = decodeURIComponent(res.headers.location).split('/notebooks/')[1].split('?')[0];
+    return { store, nbId };
+  }
+
+  it('reads what a draft needs, never any text for it', async () => {
+    await makeApp();
+    const { parseNotebookDraft } = await import('../lib/notebook-draft.js');
+    const d = parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Jobs for me', statement: 'x', needs: [{ label: 'Your LinkedIn profile.', link: 'https://www.linkedin.com/in/someone/', why: 'The jobs are matched to it.', text: 'made up', state: 'given' }, { label: '' }, 'junk'] })}</draft>`, new Set());
+    expect('needs' in d && d.needs).toEqual([{ key: 'linkedin-profile', label: 'Your LinkedIn profile', link: 'https://www.linkedin.com/in/someone/', why: 'The jobs are matched to it.' }]);
+    expect('needs' in parseNotebookDraft('<draft>{"title":"Buy a car","needs":[]}</draft>', new Set())).toBe(false);
+  });
+
+  it('keeps what you asked (its link with it), asks for what it needs, and starts nothing until you answer', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const { notebookGivenLinks } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const { store, nbId } = await started(app);
+    const nb = store.get(nbId)!;
+    expect(nb.asked).toBe('Give me a job search matched to my LinkedIn profile https://www.linkedin.com/in/someone/');
+    expect(notebookGivenLinks(nb)).toEqual(['https://www.linkedin.com/in/someone/']);
+    expect(nb.given).toMatchObject([{ key: 'linkedin-profile', label: 'your LinkedIn profile', state: 'missing' }]);
+    // Nothing starts: not its step, not a search again.
+    let asked = 0;
+    finderReply = () => { asked++; return 'Found none.'; };
+    expect(startNotebookStep(ctx, nbId)).toMatchObject({ started: false, reason: "It's waiting on your LinkedIn profile. Paste it at the top of the notebook's page, or choose Go on without it." });
+    expect(asked).toBe(0);
+    // Its page asks, with a box and a way on; the header says it's waiting on you.
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).toContain('<strong>sua needs your LinkedIn profile.</strong>');
+    expect(page).toContain('linkedin.com</a>');
+    expect(page).toContain(`action="/notebooks/${nbId}/given/linkedin-profile"`);
+    expect(page).toContain('Go on without it');
+    expect(page).toContain('Waiting on you: paste your LinkedIn profile above, or go on without it.');
+    // Its conversation says so too, and offers no Start.
+    const thread = ctx.inboxStore!.listResponses(store.get(nbId)!.conversationId!).map((r) => r.body).join('\n');
+    expect(thread).toContain('Before I start, I need **your LinkedIn profile**');
+    expect(thread).not.toContain('Press **Start**');
+    // Too little isn't it.
+    expect(decodeURIComponent((await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { text: 'see link' })).headers.location)).toContain('Paste the text itself');
+    finderReply = undefined;
+  });
+
+  it('pasting it starts the step, and every search reads it', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const { store, nbId } = await started(app);
+    let brief = '';
+    finderReply = (inputs) => { brief = inputs.NOTEBOOK; return 'Found none.'; };
+    const res = await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { text: PROFILE });
+    expect(decodeURIComponent(res.headers.location)).toContain('Got your LinkedIn profile. Find 5 matching jobs is running.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nbId); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(nbId)!.given).toMatchObject([{ state: 'given', text: PROFILE }]);
+    expect(brief).toContain('What they gave you, your LinkedIn profile (this is all you know of it; use nothing else for it):');
+    expect(brief).toContain(PROFILE);
+    // The page no longer asks; Edit shows it, to replace or remove.
+    expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('data-nb-given');
+    const edit = (await get(app, `/notebooks/${nbId}/edit`)).text;
+    expect(edit).toContain('What you gave it');
+    expect(edit).toContain('characters, given to every step');
+    // Run again keeps it: it's the notebook's setup, not what it found.
+    const { rerunSetup } = await import('../lib/notebook-create.js');
+    expect(rerunSetup(store.get(nbId)!)).toMatchObject({ asked: expect.stringContaining('linkedin.com/in/someone'), given: [{ state: 'given', text: PROFILE }] });
+    finderReply = undefined;
+  });
+
+  it('pasted on the draft page, it never has to ask', async () => {
+    const app = await makeApp();
+    const { store, nbId } = await started(app, { 'need_linkedin-profile': PROFILE });
+    expect(store.get(nbId)!.given).toMatchObject([{ state: 'given', text: PROFILE }]);
+    expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('data-nb-given');
+  });
+
+  it('going on without it is recorded, told to every step, and shown on the page', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const { store, nbId } = await started(app);
+    let brief = '';
+    finderReply = (inputs) => { brief = inputs.NOTEBOOK; return 'Found none.'; };
+    const res = await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { skip: '1' });
+    expect(decodeURIComponent(res.headers.location)).toContain('Going on without your LinkedIn profile. Results won’t be matched to it. Find 5 matching jobs is running.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nbId); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(nbId)!.given).toMatchObject([{ state: 'skipped' }]);
+    expect(brief).toContain('NOT given: your LinkedIn profile. They chose to go on without it');
+    expect(brief).toContain('never say anything matches it');
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).toContain('Not matched to your LinkedIn profile:');
+    expect(page).not.toContain('<strong>sua needs');
+    // A search that asks for it again doesn't put the ask back.
+    expect(store.addGiven(nbId, { label: 'Your LinkedIn profile' }).given).toMatchObject([{ state: 'skipped' }]);
     finderReply = undefined;
   });
 });

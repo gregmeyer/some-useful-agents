@@ -177,8 +177,21 @@ nodes:
         out of it, in their words, "notes": what they already know}; only
         what they said, "" for the rest; else omit it.
       - "why": one short sentence on anything you assumed.
+      - "needs": what the work DEPENDS ON that they referred to but that
+        is not in their words: "matched to my LinkedIn profile", "based on
+        my résumé", "against the attached spec", "what fits my budget"
+        with no figure. Each is {"label": "what it is, as they'd say it
+        (your LinkedIn profile)", "link": "the link they gave for it, if
+        any", "why": "one sentence: what the notebook needs it for"}. You
+        can't open links, so a link to it is not the thing itself: it is
+        still needed. The notebook asks them for each before it starts, so
+        never guess its contents and never write limits, fields or checks
+        from what you imagine it says. NOT a need: the person or company a
+        meeting or briefing is about (a profile step looks them up), a
+        page of options to compare, or anything a search can find. Usually
+        there are none: [].
 
       Reply with only this, as valid JSON:
       <draft>
-      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "meeting": {"when": "", "goal": "", "notes": ""}, "why": ""}
+      {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "meeting": {"when": "", "goal": "", "notes": ""}, "why": "", "needs": []}
       </draft>

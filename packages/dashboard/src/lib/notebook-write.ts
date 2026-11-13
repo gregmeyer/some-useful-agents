@@ -89,6 +89,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
+      // What it depends on from you: its text, or that it wasn't given (never written as if known).
+      ...(nb.given?.length ? { given: nb.given.map((g) => (g.state === 'given' && g.text ? { what: g.label, text: g.text.slice(0, 8000) } : { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' })) } : {}),
       // What you struck isn't written again (points, findings, plan items); replacing some, the ones you're keeping.
       ...(struckOf(nb, step).length ? { skip: struckOf(nb, step) } : {}),
       ...(opts.keep ? { keep: opts.keep } : {}),

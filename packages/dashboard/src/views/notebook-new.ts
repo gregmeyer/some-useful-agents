@@ -331,6 +331,8 @@ export function notebookSetupEditor(v: SetupValues, agents: ReadonlyArray<{ id: 
       </div>`;
 }
 
+const needHost = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
+
 /** The draft to check: every part editable, then Start (POST /notebooks). */
 export function renderDraftReview(id: string, draft: NotebookDraft, agents: ReadonlyArray<{ id: string; description: string }>, error?: string): SafeHtml {
   return html`
@@ -342,6 +344,14 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
         <span class="nbd-draft__say"><strong class="nbd-draft__ready">Your notebook draft is ready.</strong> Change anything below, or start it now.${draft.why ? html` <span class="nbd-draft__why">${draft.why}</span>` : html``}</span>
         <button type="submit" class="btn btn--primary btn--sm nbd-draft__go">Looks right, start it</button>
       </div>
+      ${draft.needs?.length ? html`<div class="nbd-needs" data-nbd-needs>
+        ${draft.needs.map((n) => html`
+        <div class="nbd-needs__item">
+          <p class="nbd-needs__say"><strong>sua needs ${n.label}.</strong> ${n.link ? `It can't read ${needHost(n.link)}. ` : ''}${n.why ?? ''} Paste it here, or start the notebook and it will ask before it does anything.</p>
+          <label class="sr-only" for="nbd-need-${n.key}">${n.label}</label>
+          <textarea id="nbd-need-${n.key}" name="need_${n.key}" rows="5" class="form-field" placeholder="Paste the text here: copy it from the page or the file."></textarea>
+        </div>`) as unknown as SafeHtml[]}
+      </div>` : html``}
       ${notebookSetupEditor(draft, agents, { offered: draft.suggested ?? draft.pipeline })}
       <div class="nbd-draft__foot">
         <button type="submit" class="btn btn--primary">Looks right, start it</button>

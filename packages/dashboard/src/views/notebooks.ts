@@ -8,7 +8,7 @@
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
-import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookLayout } from '@some-useful-agents/core';
+import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import type { DraftState } from '../lib/notebook-draft.js';
@@ -404,6 +404,9 @@ export function nextStepAction(nb: Notebook): { label: string; hint: string; mov
   if (i < 0) return undefined;
   // Put away: nothing starts until it's restored.
   if (nb.archivedAt) return { note: 'Archived: restore it on its Edit page to work on its steps.' };
+  // It depends on something of yours it doesn't have: the box above asks for it.
+  const waiting = (nb.given ?? []).filter((g) => g.state === 'missing');
+  if (waiting.length) return { note: `Waiting on you: paste ${waiting.map((g) => g.label).join(' and ')} above, or go on without it.` };
   const step = steps[i];
   const next = steps[i + 1];
   const of = `of ${String(steps.length)}`;
@@ -1105,6 +1108,7 @@ export function renderNotebookEdit(args: NotebookEditView): string {
       </div>
       <aside class="nbe-rail" aria-label="This notebook">
         ${notebookTagEditor(nb, args.tab, args.tagVocabulary ?? [])}
+        ${givenRail(nb)}
         <section class="nbe-card" aria-labelledby="nbe-manage-h">
           <h2 class="nbe-card__h" id="nbe-manage-h">Manage</h2>
           ${notebookMoreActions(nb)}
@@ -1253,11 +1257,68 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
     </div>`;
 }
 
+/**
+ * What the notebook is waiting on from you (ADR-0077): each missing thing
+ * with why, a box to paste it into, and Go on without it. One you went on
+ * without is a quiet line that says so, with a way to add it after all.
+ * Nothing when it depends on nothing of yours, or has all of it.
+ */
+export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'>): SafeHtml {
+  const given = nb.given ?? [];
+  const missing = given.filter((g) => g.state === 'missing');
+  const skipped = given.filter((g) => g.state === 'skipped');
+  if (nb.archivedAt || (!missing.length && !skipped.length)) return html``;
+  const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
+  const box = (g: NotebookGiven, label: string) => html`
+        <form method="POST" action="${act(g.key)}" class="nb-given__form">
+          <label class="nb-given__label" for="nb-given-${g.key}">${label}</label>
+          <textarea id="nb-given-${g.key}" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here: copy it from the page or the file."></textarea>
+          <div class="nb-given__acts"><button type="submit" class="btn btn--primary btn--sm">Use this</button></div>
+        </form>`;
+  return html`<section class="nb-given" data-nb-given aria-label="What this notebook needs from you">
+    ${missing.map((g) => html`
+      <div class="nb-given__item nb-given__item--missing">
+        <p class="nb-given__say"><strong>sua needs ${g.label}.</strong> ${g.link ? html`It couldn't read <a href="${g.link}" target="_blank" rel="noopener">${hostOf(g.link)}</a>. ` : html``}${g.why ?? ''} Nothing runs until you paste it or go on without it, so nothing is guessed.</p>
+        ${box(g, `Paste ${g.label}`)}
+        <form method="POST" action="${act(g.key)}" class="nb-given__skip"><input type="hidden" name="skip" value="1"><button type="submit" class="btn btn--sm">Go on without it</button><span class="nb-given__hint">Results won't be matched to it, and the notebook will say so.</span></form>
+      </div>`) as unknown as SafeHtml[]}
+    ${skipped.map((g) => html`
+      <details class="nb-given__item nb-given__item--skipped">
+        <summary><span class="nb-given__mark">Not matched to ${g.label}:</span> it wasn't given, so nothing here is based on it. <span class="nb-given__add">Add it</span></summary>
+        ${box(g, `Paste ${g.label}`)}
+      </details>`) as unknown as SafeHtml[]}
+  </section>`;
+}
+
+/** Edit's rail: what you gave the notebook (see, replace or remove each), and what it's still waiting on. */
+export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
+  const given = nb.given ?? [];
+  if (!given.length) return html``;
+  const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
+  const words = (g: NotebookGiven) => (g.state === 'given' ? `${String((g.text ?? '').length.toLocaleString('en-US'))} characters, given to every step` : g.state === 'skipped' ? 'not given: you went on without it' : 'waiting on you');
+  return html`<section class="nbe-card nbe-given" aria-labelledby="nbe-given-h">
+          <h2 class="nbe-card__h" id="nbe-given-h">What you gave it</h2>
+          ${given.map((g) => html`
+          <details class="nbe-given__item">
+            <summary><span class="nbe-given__label">${g.label}</span><span class="nbe-given__state">${words(g)}</span></summary>
+            <form method="POST" action="${act(g.key)}" class="nbe-given__form">
+              <label class="sr-only" for="nbe-given-${g.key}">${g.label}</label>
+              <textarea id="nbe-given-${g.key}" name="text" rows="6" class="form-field" required minlength="20" placeholder="Paste the text here.">${g.text ?? ''}</textarea>
+              <button type="submit" class="btn btn--sm">${g.state === 'given' ? 'Replace' : 'Use this'}</button>
+            </form>
+            <form method="POST" action="${act(g.key)}"><input type="hidden" name="remove" value="1"><button type="submit" class="btn btn--sm btn--ghost">Remove</button></form>
+          </details>`) as unknown as SafeHtml[]}
+        </section>`;
+}
+
+const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
+
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
+    ${givenCard(args.nb)}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
     
     <div class="nb-body">

@@ -12,7 +12,7 @@
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, checksLeft, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { swapTalkingPoint, writeBriefing } from './notebook-write.js';
@@ -157,6 +157,9 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   if (!nb) return { started: false, reason: 'No such notebook.' };
   const closed = notebookClosedReason(nb, 'work on its steps');
   if (closed) return { started: false, reason: closed };
+  // It depends on something of yours it doesn't have yet: nothing runs on a guess (ADR-0077).
+  const waiting = givenWaitingReason(nb);
+  if (waiting) return { started: false, reason: waiting };
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   let step = currentStep(nb);
@@ -278,7 +281,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  const closed = notebookClosedReason(nb, 'search again');
+  const closed = notebookClosedReason(nb, 'search again') ?? givenWaitingReason(nb);
   if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   const want = opts.stepId?.trim().toLowerCase();
@@ -761,7 +764,8 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     notes.push(note);
     last = { status: 'completed', out, ...(short ? { short } : {}) };
     // It needs something the notebook doesn't have: another try would only ask again.
-    if (out.needs) { noCloser = true; break; }
+    // The notebook asks you for it (a paste box at the top of its page), unless you already chose to go on without it.
+    if (out.needs) { store.addGiven(notebookId, { label: out.needs, why: `${step.title} depends on it.` }); noCloser = true; break; }
     nb = store.get(notebookId)!;
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });

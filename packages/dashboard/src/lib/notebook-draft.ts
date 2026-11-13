@@ -17,6 +17,7 @@ import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { fitStepAgents } from './notebook-steps.js';
+import { cleanGiven } from '@some-useful-agents/core';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -42,6 +43,12 @@ export interface NotebookDraft {
   /** The meeting it prepares for (a meeting notebook): when, your goal, what you know. */
   meeting?: NotebookMeeting;
   why?: string;
+  /**
+   * What the request refers to but doesn't contain ("my LinkedIn profile",
+   * with a link sua can't read): the notebook asks for each before it
+   * starts (core NotebookGiven, ADR-0077).
+   */
+  needs?: Array<{ key: string; label: string; link?: string; why?: string }>;
 }
 
 export type DraftState =
@@ -129,7 +136,15 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     ...(() => { const m = cleanMeeting(v.meeting); return m ? { meeting: m } : {}; })(),
     // A long one ends at a sentence (else a word) with "…", never mid-word.
     ...(typeof v.why === 'string' && v.why.trim() ? { why: clipSentence(v.why.replace(/\s+/g, ' ').trim(), 400) } : {}),
+    ...draftNeeds(v.needs),
   };
+}
+
+/** A draft's `needs`, cleaned: what to ask for, never any text for it (that comes from you). */
+export function draftNeeds(raw: unknown): Pick<NotebookDraft, 'needs'> {
+  const needs = cleanGiven(Array.isArray(raw) ? raw.map((x) => (x && typeof x === 'object' ? { ...(x as object), text: undefined, state: undefined } : x)) : [])
+    .map((g) => ({ key: g.key, label: g.label, ...(g.link ? { link: g.link } : {}), ...(g.why ? { why: g.why } : {}) }));
+  return needs.length ? { needs } : {};
 }
 
 function toState(r: { status: string; text: string; draft?: unknown; error?: string; updatedAt: string }): DraftState {
@@ -217,6 +232,7 @@ export function saveDraftEdits(ctx: Ctx, id: string, body: Record<string, unknow
     cadence,
     ...(() => { const m = 'meeting_goal' in body || 'meeting_date' in body ? meetingFromForm(body) : cur.draft.meeting; return m ? { meeting: m } : {}; })(),
     ...(cur.draft.why ? { why: cur.draft.why } : {}),
+    ...(cur.draft.needs ? { needs: cur.draft.needs } : {}),
   };
   draftsOf(ctx).saveDraft(id, { status: 'ready', text: cur.text, draft });
   return true;
