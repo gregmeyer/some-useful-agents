@@ -3821,6 +3821,18 @@ export function cleanMeeting(raw: unknown): NotebookMeeting | undefined {
   return when || goal || notes ? { ...(when ? { when } : {}), ...(goal ? { goal } : {}), ...(notes ? { notes } : {}) } : undefined;
 }
 
+/**
+ * Why a notebook can't be worked on now (start a step, search again, check
+ * again), or undefined when it can: an archived one is put away until it is
+ * restored, and a decided or stopped one is closed until it is reopened.
+ * `to` finishes the sentence ("work on its steps").
+ */
+export function notebookClosedReason(nb: Pick<Notebook, 'status' | 'archivedAt'>, to: string): string | undefined {
+  if (nb.archivedAt) return `This notebook is archived. Restore it on its Edit page to ${to}.`;
+  if (nb.status !== 'active') return `Reopen the notebook to ${to}.`;
+  return undefined;
+}
+
 /** The links you gave it (in what it's for, its meeting notes, what you asked), each once, in order. Pure. */
 export function notebookGivenLinks(nb: Pick<Notebook, 'statement' | 'params' | 'meeting'>): string[] {
   const from = [nb.statement, nb.meeting?.notes, nb.meeting?.goal, ...(nb.params ?? [])].filter((x): x is string => typeof x === 'string');

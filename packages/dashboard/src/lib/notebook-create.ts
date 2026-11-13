@@ -7,7 +7,8 @@
  * and sua says hello in the notebook's conversation.
  */
 import { NotebookStore, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
-import { fitStepAgents, startNotebookStep } from './notebook-steps.js';
+import { fitStepAgents, startNotebookStep, stopNotebookStep } from './notebook-steps.js';
+import { reconcileStepCards } from './notebook-step-queue.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
@@ -110,6 +111,8 @@ export function rerunSetup(nb: Notebook): NewNotebookSetup {
  * none of its content, each noting the other, the old one archived (its
  * options, notes, answer and history stay there; Restore brings it back;
  * one already archived stays so), and the new one's first step started.
+ * The old one stops: a step of its that's running is stopped, and its step
+ * cards in its conversation are retired.
  * No template is made.
  */
 export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Notebook; started: boolean; reason?: string } {
@@ -120,7 +123,9 @@ export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Noteboo
   const link = (n: Notebook) => `[${n.title}](/notebooks/${encodeURIComponent(n.id)})`;
   store.addEntry(made.id, { kind: 'note', title: 'Started again', body: `Started again from ${link(old)}, with its setup and none of what it found. The old one is archived.`, by: 'you' });
   store.addEntry(old.id, { kind: 'note', title: 'Run again', body: `Run again as ${link(made)}; this one ${old.archivedAt ? 'stays' : 'is'} archived.`, by: 'you' });
+  stopNotebookStep(ctx, old.id);
   if (!old.archivedAt) store.archive(old.id);
+  reconcileStepCards(ctx, old.id);
   const fresh = store.get(made.id)!;
   if (!fresh.fields.length || !fresh.steps?.length) return { notebook: fresh, started: false, reason: fresh.steps?.length ? 'sua is still setting it up; start its first step from the page once it has.' : 'It has no steps; start a search from its page.' };
   const out = startNotebookStep(ctx, made.id);
