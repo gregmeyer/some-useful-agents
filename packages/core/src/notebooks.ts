@@ -926,11 +926,44 @@ export interface NotebookGiven {
   state: 'missing' | 'given' | 'skipped';
   /** Why it's needed or couldn't be read, in one sentence. */
   why?: string;
+  /** The paste was longer than a notebook keeps: its end is missing. */
+  cut?: boolean;
+  /** What sua read from `text`: the short form steps receive in its place. */
+  read?: NotebookGivenRead;
   at: string;
 }
 
-/** The most of a given thing's text a notebook keeps. */
-export const NOTEBOOK_GIVEN_MAX = 12000;
+/** One thing sua read from what you pasted. `quote` is where the paste says it; `byYou` marks one you wrote or corrected. */
+export interface NotebookGivenFact { label: string; value: string; quote?: string; byYou?: boolean }
+
+/** A given thing as sua read it: a summary and its facts. */
+export interface NotebookGivenRead { summary: string; facts: NotebookGivenFact[]; at: string }
+
+/** The most of a given thing's text a notebook keeps (steps get sua's reading of it, not all of this). */
+export const NOTEBOOK_GIVEN_MAX = 40000;
+/** The most facts a reading keeps. */
+export const NOTEBOOK_GIVEN_FACTS_MAX = 30;
+
+const oneLine = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+
+/** A stored or model-made reading, cleaned: a summary and up to 30 facts with a label and a value. Undefined when it says nothing. */
+export function cleanGivenRead(raw: unknown, now = new Date().toISOString()): NotebookGivenRead | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const facts: NotebookGivenFact[] = [];
+  for (const f of Array.isArray(r.facts) ? (r.facts as Array<Record<string, unknown>>) : []) {
+    if (!f || typeof f !== 'object') continue;
+    const label = oneLine(f.label, 60).replace(/:+$/, '');
+    const value = oneLine(f.value, 300);
+    if (!label || !value) continue;
+    const quote = oneLine(f.quote, 300);
+    facts.push({ label, value, ...(quote ? { quote } : {}), ...(f.byYou === true ? { byYou: true } : {}) });
+    if (facts.length >= NOTEBOOK_GIVEN_FACTS_MAX) break;
+  }
+  const summary = oneLine(r.summary, 400);
+  if (!summary && !facts.length) return undefined;
+  return { summary, facts, at: typeof r.at === 'string' ? r.at : now };
+}
 
 const givenKey = (label: string) => label.toLowerCase().replace(/\b(your|my|the|their|a|an)\b/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'it';
 
@@ -948,7 +981,10 @@ export function cleanGiven(raw: unknown, now = new Date().toISOString()): Notebo
     const link = typeof x.link === 'string' && /^https?:\/\/\S+$/i.test(x.link.trim()) ? x.link.trim().slice(0, 500) : '';
     const why = typeof x.why === 'string' ? x.why.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
     const state = x.state === 'skipped' ? 'skipped' : text ? 'given' : 'missing';
-    out.push({ key, label, ...(link ? { link } : {}), ...(text && state === 'given' ? { text } : {}), state, ...(why ? { why } : {}), at: typeof x.at === 'string' ? x.at : now });
+    const has = Boolean(text) && state === 'given';
+    const cut = has && (x.cut === true || (x.text as string).trim().length > NOTEBOOK_GIVEN_MAX);
+    const read = has ? cleanGivenRead(x.read, now) : undefined;
+    out.push({ key, label, ...(link ? { link } : {}), ...(has ? { text } : {}), state, ...(why ? { why } : {}), ...(cut ? { cut: true } : {}), ...(read ? { read } : {}), at: typeof x.at === 'string' ? x.at : now });
     if (out.length >= 4) break;
   }
   return out;
@@ -968,21 +1004,30 @@ export function givenWaitingReason(nb: Pick<Notebook, 'given'>): string | undefi
 }
 
 /**
- * What you gave a notebook, as its agents read it: each given thing with its
- * text, and each thing you went on without as NOT given, so no step fills it
- * in. Empty when the notebook depends on nothing of yours. `max` is the most
- * text per thing.
+ * One given thing as a step receives it. With a reading: sua's summary and
+ * facts (the short form, so the whole of a long paste counts, not its first
+ * pages). Without one: the text as pasted, up to `max`. `text` is the
+ * wording for a prompt; `facts` the same as lines, for JSON inputs.
+ */
+export function givenForStep(g: NotebookGiven, max = 8000): { given: boolean; text: string; lines?: string[] } {
+  if (g.state !== 'given' || !g.text) {
+    return { given: false, text: `NOT given: ${g.label}. They chose to go on without it: work from the rest, don't ask for it, never assume it, look it up or fill it in, and never say anything matches it.` };
+  }
+  if (g.read && (g.read.facts.length || g.read.summary)) {
+    const lines = [...(g.read.summary ? [g.read.summary] : []), ...g.read.facts.map((f) => `${f.label}: ${f.value}${f.byYou ? ' (they wrote this themselves)' : ''}`)];
+    return { given: true, lines, text: `What they gave you, ${g.label}, as read from what they pasted (this is all you know of it; use nothing else for it):\n"""\n${lines.join('\n')}\n"""` };
+  }
+  return { given: true, text: `What they gave you, ${g.label} (this is all you know of it; use nothing else for it):\n"""\n${g.text.length > max ? `${g.text.slice(0, max)}\n[cut short]` : g.text}\n"""` };
+}
+
+/**
+ * What you gave a notebook, as its agents read it: each given thing (sua's
+ * reading of it, or its text when it has none), and each thing you went on
+ * without as NOT given, so no step fills it in. Empty when the notebook
+ * depends on nothing of yours. `max` is the most pasted text per thing.
  */
 export function givenBrief(nb: Pick<Notebook, 'given'>, max = 8000): string {
-  const parts: string[] = [];
-  for (const g of nb.given ?? []) {
-    if (g.state === 'given' && g.text) {
-      parts.push(`What they gave you, ${g.label} (this is all you know of it; use nothing else for it):\n"""\n${g.text.length > max ? `${g.text.slice(0, max)}\n[cut short]` : g.text}\n"""`);
-    } else {
-      parts.push(`NOT given: ${g.label}. They chose to go on without it: work from the rest, don't ask for it, never assume it, look it up or fill it in, and never say anything matches it.`);
-    }
-  }
-  return parts.join('\n');
+  return (nb.given ?? []).map((g) => givenForStep(g, max).text).join('\n');
 }
 
 export interface NewNotebook {
@@ -2518,8 +2563,12 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  /** Give it (`text`), go on without it (`skip`), or take it off the notebook (`remove`). */
-  answerGiven(id: string, key: string, a: { text: string } | { skip: true } | { remove: true }): Notebook {
+  /**
+   * Give it (`text`), go on without it (`skip`), take it off the notebook
+   * (`remove`), or keep what sua read from it (`read`; null forgets the
+   * reading). New text forgets the reading of the old.
+   */
+  answerGiven(id: string, key: string, a: { text: string } | { skip: true } | { remove: true } | { read: NotebookGivenRead | null }): Notebook {
     const nb = this.mustGet(id);
     const have = nb.given ?? [];
     const g = have.find((x) => x.key === key);
@@ -2528,10 +2577,15 @@ export class NotebookStore {
     let next: NotebookGiven[];
     if ('remove' in a) next = have.filter((x) => x.key !== key);
     else if ('skip' in a) next = have.map((x) => (x.key === key ? { key: x.key, label: x.label, ...(x.link ? { link: x.link } : {}), state: 'skipped' as const, ...(x.why ? { why: x.why } : {}), at: now } : x));
-    else {
-      const text = a.text.trim().slice(0, NOTEBOOK_GIVEN_MAX);
+    else if ('read' in a) {
+      if (g.state !== 'given') throw new Error('There’s nothing pasted for that yet.');
+      const read = a.read ? cleanGivenRead(a.read, now) : undefined;
+      next = have.map((x) => { if (x.key !== key) return x; const { read: _old, ...rest } = x; return read ? { ...rest, read } : rest; });
+    } else {
+      const whole = a.text.trim();
+      const text = whole.slice(0, NOTEBOOK_GIVEN_MAX);
       if (text.length < 20) throw new Error('Paste the text itself (a few lines at least), or choose Go on without it.');
-      next = have.map((x) => (x.key === key ? { ...x, text, state: 'given' as const, at: now } : x));
+      next = have.map((x) => { if (x.key !== key) return x; const { read: _old, cut: _cut, ...rest } = x; return { ...rest, text, state: 'given' as const, ...(whole.length > NOTEBOOK_GIVEN_MAX ? { cut: true } : {}), at: now }; });
     }
     this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(next.length ? JSON.stringify(next) : null, now, id);
     return this.mustGet(id);

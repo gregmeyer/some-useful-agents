@@ -8,6 +8,7 @@
  */
 import { createHash } from 'node:crypto';
 import { NotebookStore, givenMissing, stepProgress, type InboxActionMeta, type InboxResponse, type Notebook, type NotebookStep } from '@some-useful-agents/core';
+import { givenReadState } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { parseActionMeta, publishInboxChanged, publishInboxEvent } from '../routes/inbox-shared.js';
 import { applyWaitingCorrections } from './notebook-correction.js';
@@ -219,7 +220,9 @@ export async function actOnStep(ctx: Ctx, notebookId: string, op: StepOp, opts: 
 export function stepsKey(ctx: Ctx, nb: Notebook): string {
   if (!nb.steps?.length) return '';
   const card = waitingStepCard(ctx, nb.id);
-  const parts = [nb.status, isRunning(ctx, nb.id), nb.steps.map((s) => [s.id, s.status, s.tries, s.note ?? '', !!s.stalled]), card ? `${card.ctaLabel ?? ''}|${card.rationale ?? ''}` : ''];
+  // What you pasted being read, or read: the page shows it, so it redraws when that changes.
+  const given = (nb.given ?? []).map((g) => [g.key, g.state, g.read?.at ?? '', givenReadState(ctx, nb.id, g.key)?.status ?? '']);
+  const parts = [nb.status, isRunning(ctx, nb.id), nb.steps.map((s) => [s.id, s.status, s.tries, s.note ?? '', !!s.stalled]), card ? `${card.ctaLabel ?? ''}|${card.rationale ?? ''}` : '', ...(given.length ? [given] : [])];
   return createHash('sha1').update(JSON.stringify(parts)).digest('hex').slice(0, 16);
 }
 

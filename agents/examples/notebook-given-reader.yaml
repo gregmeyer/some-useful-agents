@@ -1,0 +1,112 @@
+# Notebook given reader — reads what someone pasted for a notebook (a
+# LinkedIn profile, a résumé, a spec) into a short summary and a list of
+# facts, each with the words of the paste it comes from. The notebook's
+# steps then receive this reading in place of the raw paste, so the whole
+# of a long paste counts and page clutter doesn't. The dashboard drops any
+# fact whose quote isn't in the paste (lib/notebook-given-read.ts), so
+# nothing here is taken on trust. Route-dispatched only, when something is
+# pasted for a notebook; never proposed in triage.
+
+id: notebook-given-reader
+name: Notebook given reader
+description: >
+  Reads what someone pasted for a notebook (a profile, a résumé, a spec)
+  into a short summary and a list of facts quoted from the paste.
+status: active
+source: examples
+
+inputs:
+  LABEL:
+    type: string
+    required: true
+    description: What the pasted text is, as the person would say it ("your LinkedIn profile").
+  FOR:
+    type: string
+    required: true
+    description: What the notebook is for, so the reading keeps what matters to it.
+  TEXT:
+    type: string
+    required: true
+    description: The pasted text, as it was copied (it may carry page clutter).
+  ERRORS:
+    type: string
+    required: false
+    default: ""
+    description: Why the last answer couldn't be used (when trying again).
+
+nodes:
+  - id: read
+    type: llm-prompt
+    maxTurns: 1
+    timeout: 120
+    outputContract:
+      mustMatch: '<read>[\s\S]*?</read>'
+      description: a <read> JSON block
+    prompt: |
+      Someone is using a notebook: a goal they keep over time (a job
+      search, a shortlist, a decision). The notebook depends on something
+      of theirs, and they pasted it. Read the paste into a short form the
+      notebook's later steps will work from. Those steps will see only
+      your reading, not the paste, so keep everything that could matter
+      to what the notebook is for, and nothing else.
+
+      What the notebook is for:
+      {{inputs.FOR}}
+
+      What they pasted is: {{inputs.LABEL}}
+
+      The paste, between the lines:
+      ----------
+      {{inputs.TEXT}}
+      ----------
+
+      {{inputs.ERRORS}}
+
+      Rules:
+        - Use ONLY the paste. Nothing you know about the person, the
+          company or the subject from anywhere else. Nothing guessed or
+          filled in. If the paste doesn't say it, it isn't a fact.
+        - The paste was copied from a page or a file and may carry
+          clutter: menus, buttons ("see more", "follow", "message"),
+          adverts, counts of followers or reactions, and sections about
+          OTHER people ("People also viewed", "People you may know",
+          recommendations given to others). Ignore all of it. Read only
+          what is about the subject of the paste.
+        - Each fact has a short label, a value in plain words, and a
+          quote: a run of words copied from the paste EXACTLY as written
+          there (5 to 25 words, one place in the paste, no "..." and no
+          rewording) that shows the fact. A fact whose quote isn't in the
+          paste word for word is thrown away, so copy, don't retype from
+          memory.
+        - A value may put the paste's words more briefly, and may add up
+          what the paste states (years in a role from its dates), but it
+          never says more than the paste does. Don't judge or praise.
+        - At most 30 facts, the ones that matter most to what the
+          notebook is for first. One fact per thing: each past role is
+          its own fact, not one long list.
+
+      For a profile or a résumé, look for:
+        - Name
+        - Current role (title, organisation, since when)
+        - Location
+        - Level (only as the titles show it: "director level", "senior
+          individual contributor")
+        - Experience (about how many years in all, from the dates)
+        - Each past role: label "Past role", value "title, organisation,
+          years, and what they did or achieved there in a few words"
+        - Strengths (skills and kinds of work that recur across roles)
+        - Fields worked in (industries, kinds of organisation)
+        - Education, certifications
+        - Anything they say they want next
+      For anything else (a spec, a brief, a list of requirements), choose
+      labels that fit it: what it is, what it requires, its limits, its
+      dates, its numbers.
+
+      The summary is one or two sentences, 60 words at most, saying who
+      or what this is in the paste's own terms.
+
+      Reply with only this, nothing before or after it:
+
+      <read>
+      {"summary": "…", "facts": [{"label": "Current role", "value": "…", "quote": "…"}]}
+      </read>

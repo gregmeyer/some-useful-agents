@@ -37,6 +37,7 @@ import { getContext } from '../context.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
+import { correctedRead, givenReadingReason, givenReadStates, startGivenRead } from '../lib/notebook-given-read.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
@@ -271,6 +272,8 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
         checks: many(req.body?.checks),
       } : {}),
     });
+    // What you pasted on the draft page is read into the short form its steps use.
+    for (const g of nb.given ?? []) if (g.state === 'given' && !g.read) startGivenRead(ctx, nb.id, g.key);
     // Started from a draft: it's done with.
     if (str(req.body?.draft)) discardDraft(ctx, str(req.body?.draft));
     res.redirect(303, back(nb.id, 'Notebook started. sua is setting up what to track for it; tell it what you know.'));
@@ -347,7 +350,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What the latest run found that the one before didn't (a briefing rerun); never fails the page.
   let fresh: ReturnType<typeof whatsNew>;
   try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -680,6 +683,19 @@ notebooksRouter.post('/notebooks/:id/given/:key', (req: Request, res: Response) 
     const g = before.given?.find((x) => x.key === String(req.params.key));
     if (!g) throw new Error('The notebook isn’t waiting on that.');
     const wasWaiting = givenMissing(before).length > 0;
+    // Read it (again): sua reads what's pasted into the short form steps use.
+    if (req.body?.reread === '1') {
+      const going = startGivenRead(ctx, id, g.key);
+      res.redirect(303, back(id, going ? `sua is reading ${g.label}. This page shows what it read when it's done.` : givenReadingReason(ctx, before) ?? `sua can't read ${g.label} right now; steps use the text as pasted.`));
+      return;
+    }
+    // Your correction of what sua read: lines of "Label: value".
+    if (typeof req.body?.facts === 'string') {
+      s.answerGiven(id, g.key, { read: correctedRead(g.read, req.body.facts) ?? null });
+      res.redirect(303, `/notebooks/${encodeURIComponent(id)}/edit?flash=${encodeURIComponent(`Saved what ${g.label} says. Steps use it from now on; what's already found was matched to how it read before, so search again to match to this.`)}`);
+      return;
+    }
+    const pasted = req.body?.remove !== '1' && req.body?.skip !== '1';
     const after = req.body?.remove === '1' ? s.answerGiven(id, g.key, { remove: true })
       : req.body?.skip === '1' ? s.answerGiven(id, g.key, { skip: true })
       : s.answerGiven(id, g.key, { text: str(req.body?.text) });
@@ -687,8 +703,15 @@ notebooksRouter.post('/notebooks/:id/given/:key', (req: Request, res: Response) 
       : req.body?.skip === '1' ? `Going on without ${g.label}. Results won’t be matched to it.`
       : `Got ${g.label}.`;
     const left = givenMissing(after);
+    const starts = wasWaiting && !left.length && hasOpenSteps(after);
+    // A paste is read first (into the short form steps use); the step that was waiting starts when that's done, read or not.
+    const reading = pasted && startGivenRead(ctx, id, g.key, { then: () => {
+      const now = s.get(id);
+      if (wasWaiting && now && !givenMissing(now).length && hasOpenSteps(now)) startNotebookStep(ctx, id);
+    } });
     let then = '';
-    if (wasWaiting && !left.length && hasOpenSteps(after)) {
+    if (reading) then = ` sua is reading it${starts ? '; its next step starts when that’s done' : ''}.${left.length ? ` Still waiting on ${left.map((x) => x.label).join(', ')}.` : ''}`;
+    else if (starts) {
       const out = startNotebookStep(ctx, id);
       then = out.started ? ` ${out.step?.title ?? 'Its step'} is running.` : out.reason ? ` ${out.reason}` : '';
     } else if (left.length) then = ` Still waiting on ${left.map((x) => x.label).join(', ')}.`;

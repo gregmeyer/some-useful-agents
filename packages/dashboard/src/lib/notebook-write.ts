@@ -12,7 +12,7 @@
  * open (Notebook.answer); the Answer page and the brief show it.
  */
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
-import { NotebookStore, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, givenForStep, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -89,8 +89,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
-      // What it depends on from you: its text, or that it wasn't given (never written as if known).
-      ...(nb.given?.length ? { given: nb.given.map((g) => (g.state === 'given' && g.text ? { what: g.label, text: g.text.slice(0, 8000) } : { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' })) } : {}),
+      // What it depends on from you: sua's reading of it (or its text), or that it wasn't given (never written as if known).
+      ...(nb.given?.length ? { given: nb.given.map((g) => { const f = givenForStep(g); return !f.given ? { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' } : f.lines ? { what: g.label, asRead: f.lines } : { what: g.label, text: (g.text ?? '').slice(0, 8000) }; }) } : {}),
       // What you struck isn't written again (points, findings, plan items); replacing some, the ones you're keeping.
       ...(struckOf(nb, step).length ? { skip: struckOf(nb, step) } : {}),
       ...(opts.keep ? { keep: opts.keep } : {}),

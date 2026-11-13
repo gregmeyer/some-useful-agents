@@ -314,6 +314,10 @@ export interface DashboardContext {
   notebookTldrRedraws?: Map<string, import('./lib/notebook-tldr-redraw.js').TldrRedrawState>;
   /** Tests only: answer for the notebook-tldr agent instead of running it. */
   notebookTldrRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** What you pasted for a notebook being read, and readings that failed, by notebook and given thing (lib/notebook-given-read.ts). */
+  notebookGivenReads?: Map<string, import('./lib/notebook-given-read.js').GivenReadState>;
+  /** Tests only: answer for the notebook-given-reader agent instead of running it. */
+  notebookGivenReaderRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** TL;DR pictures made lately, by a hash of the card they were made from (routes/notebooks.ts tldr.png). */
   tldrPngs?: Map<string, Buffer>;
   /** True while sua tags notebooks (lib/notebook-tags.ts). */

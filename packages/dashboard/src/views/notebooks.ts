@@ -1258,24 +1258,50 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
 }
 
 /**
- * What the notebook is waiting on from you (ADR-0077): each missing thing
- * with why, a box to paste it into, and Go on without it. One you went on
+ * What the notebook depends on from you (ADR-0077). Each missing thing with
+ * why, a box to paste it into, and Go on without it. One you went on
  * without is a quiet line that says so, with a way to add it after all.
- * Nothing when it depends on nothing of yours, or has all of it.
+ * One you gave is a folded row with what sua read from it (the short form
+ * its steps use), so you can see it and fix it; `reading` says which are
+ * being read now or couldn't be. Nothing when it depends on nothing of yours.
  */
-export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'>): SafeHtml {
+export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { steps?: Notebook['steps'] }, reading: Record<string, 'working' | 'failed'> = {}): SafeHtml {
   const given = nb.given ?? [];
   const missing = given.filter((g) => g.state === 'missing');
   const skipped = given.filter((g) => g.state === 'skipped');
-  if (nb.archivedAt || (!missing.length && !skipped.length)) return html``;
+  const have = given.filter((g) => g.state === 'given');
+  if (nb.archivedAt || !given.length) return html``;
   const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  // Unfolded until a step has worked from it; after that it's a line to open.
+  const fresh = !(nb.steps ?? []).some((s) => s.tries > 0);
   const box = (g: NotebookGiven, label: string) => html`
         <form method="POST" action="${act(g.key)}" class="nb-given__form">
           <label class="nb-given__label" for="nb-given-${g.key}">${label}</label>
           <textarea id="nb-given-${g.key}" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here: copy it from the page or the file."></textarea>
           <div class="nb-given__acts"><button type="submit" class="btn btn--primary btn--sm">Use this</button></div>
         </form>`;
-  return html`<section class="nb-given" data-nb-given aria-label="What this notebook needs from you">
+  const reread = (g: NotebookGiven, label: string) => html`<form method="POST" action="${act(g.key)}" class="nb-given__again"><input type="hidden" name="reread" value="1"><button type="submit" class="btn btn--sm">${label}</button></form>`;
+  const cutNote = (g: NotebookGiven) => (g.cut ? html`<p class="nb-given__note">Your paste was longer than sua keeps, so its end is missing. If something below is missing, paste a shorter copy under Edit.</p>` : html``);
+  const got = (g: NotebookGiven) => {
+    if (reading[g.key] === 'working') return html`
+      <div class="nb-given__item nb-given__item--reading" role="status"><span class="nb-given__mark">sua is reading ${g.label}.</span> Its steps start when that's done, usually within a minute.</div>`;
+    if (!g.read) return html`
+      <div class="nb-given__item nb-given__item--unread">
+        <p class="nb-given__say">${reading[g.key] === 'failed' ? html`<span class="nb-given__mark">sua couldn't read ${g.label} into a short form.</span>` : html`<span class="nb-given__mark">sua hasn't read ${g.label} yet.</span>`} Steps are using the first part of the text as you pasted it.</p>
+        ${cutNote(g)}
+        ${reread(g, reading[g.key] === 'failed' ? 'Read it again' : 'Read it')}
+      </div>`;
+    return html`
+      <details class="nb-given__item nb-given__item--read"${fresh ? unsafeHtml(' open') : unsafeHtml('')}>
+        <summary><span class="nb-given__mark">${cap(g.label)}, as sua read it:</span> ${g.read.summary || `${String(g.read.facts.length)} ${g.read.facts.length === 1 ? 'fact' : 'facts'}`}</summary>
+        <p class="nb-given__note">This is what every step works from, in place of the text you pasted. Each line is taken from your paste.</p>
+        ${cutNote(g)}
+        <dl class="nb-given__facts">${g.read.facts.map((f) => html`<div><dt>${f.label}</dt><dd>${f.value}${f.byYou ? html` <span class="nb-given__yours">yours</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>
+        <div class="nb-given__acts"><a class="btn btn--sm" href="/notebooks/${encodeURIComponent(nb.id)}/edit#nbe-given-h">Fix this</a>${reread(g, 'Read it again')}</div>
+      </details>`;
+  };
+  return html`<section class="nb-given" data-nb-given aria-label="What this notebook depends on from you">
     ${missing.map((g) => html`
       <div class="nb-given__item nb-given__item--missing">
         <p class="nb-given__say"><strong>sua needs ${g.label}.</strong> ${g.link ? html`It couldn't read <a href="${g.link}" target="_blank" rel="noopener">${hostOf(g.link)}</a>. ` : html``}${g.why ?? ''} Nothing runs until you paste it or go on without it, so nothing is guessed.</p>
@@ -1287,22 +1313,31 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'>): Sa
         <summary><span class="nb-given__mark">Not matched to ${g.label}:</span> it wasn't given, so nothing here is based on it. <span class="nb-given__add">Add it</span></summary>
         ${box(g, `Paste ${g.label}`)}
       </details>`) as unknown as SafeHtml[]}
+    ${have.map(got) as unknown as SafeHtml[]}
   </section>`;
 }
 
-/** Edit's rail: what you gave the notebook (see, replace or remove each), and what it's still waiting on. */
+/** Edit's rail: what you gave the notebook (see, replace or remove each; fix what sua read from it), and what it's still waiting on. */
 export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
   const given = nb.given ?? [];
   if (!given.length) return html``;
   const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
-  const words = (g: NotebookGiven) => (g.state === 'given' ? `${String((g.text ?? '').length.toLocaleString('en-US'))} characters, given to every step` : g.state === 'skipped' ? 'not given: you went on without it' : 'waiting on you');
+  const words = (g: NotebookGiven) => (g.state === 'given'
+    ? (g.read ? `read into ${String(g.read.facts.length)} ${g.read.facts.length === 1 ? 'fact' : 'facts'}, given to every step` : `${String((g.text ?? '').length.toLocaleString('en-US'))} characters, given to every step as pasted`)
+    : g.state === 'skipped' ? 'not given: you went on without it' : 'waiting on you');
   return html`<section class="nbe-card nbe-given" aria-labelledby="nbe-given-h">
           <h2 class="nbe-card__h" id="nbe-given-h">What you gave it</h2>
           ${given.map((g) => html`
-          <details class="nbe-given__item">
+          <details class="nbe-given__item"${g.read ? unsafeHtml(' open') : unsafeHtml('')}>
             <summary><span class="nbe-given__label">${g.label}</span><span class="nbe-given__state">${words(g)}</span></summary>
+            ${g.read ? html`<form method="POST" action="${act(g.key)}" class="nbe-given__form">
+              <label class="nbe-given__sub" for="nbe-given-facts-${g.key}">What sua read from it</label>
+              <textarea id="nbe-given-facts-${g.key}" name="facts" rows="${String(Math.min(16, Math.max(6, g.read.facts.length + 1)))}" class="form-field" placeholder="Label: value">${g.read.facts.map((f) => `${f.label}: ${f.value}`).join('\n')}</textarea>
+              <span class="nbe-given__state">One per line, as Label: value. Change, add or delete lines; the ones you change are marked as yours.</span>
+              <button type="submit" class="btn btn--sm">Save</button>
+            </form>` : html``}
             <form method="POST" action="${act(g.key)}" class="nbe-given__form">
-              <label class="sr-only" for="nbe-given-${g.key}">${g.label}</label>
+              <label class="${g.read ? 'nbe-given__sub' : 'sr-only'}" for="nbe-given-${g.key}">${g.read ? 'The text you pasted' : g.label}</label>
               <textarea id="nbe-given-${g.key}" name="text" rows="6" class="form-field" required minlength="20" placeholder="Paste the text here.">${g.text ?? ''}</textarea>
               <button type="submit" class="btn btn--sm">${g.state === 'given' ? 'Replace' : 'Use this'}</button>
             </form>
@@ -1313,12 +1348,12 @@ export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${givenCard(args.nb)}
+    ${givenCard(args.nb, args.reading)}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
     
     <div class="nb-body">

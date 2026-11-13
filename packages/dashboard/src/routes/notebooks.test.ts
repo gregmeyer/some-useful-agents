@@ -5581,11 +5581,13 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(store.get(nbId)!.given).toMatchObject([{ state: 'given', text: PROFILE }]);
     expect(brief).toContain('What they gave you, your LinkedIn profile (this is all you know of it; use nothing else for it):');
     expect(brief).toContain(PROFILE);
-    // The page no longer asks; Edit shows it, to replace or remove.
-    expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('data-nb-given');
+    // The page no longer asks (with no reader here, it says the text is used as pasted); Edit shows it, to replace or remove.
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).not.toContain('<strong>sua needs');
+    expect(page).toContain('sua hasn\'t read your LinkedIn profile yet.');
     const edit = (await get(app, `/notebooks/${nbId}/edit`)).text;
     expect(edit).toContain('What you gave it');
-    expect(edit).toContain('characters, given to every step');
+    expect(edit).toContain('characters, given to every step as pasted');
     // Run again keeps it: it's the notebook's setup, not what it found.
     const { rerunSetup } = await import('../lib/notebook-create.js');
     expect(rerunSetup(store.get(nbId)!)).toMatchObject({ asked: expect.stringContaining('linkedin.com/in/someone'), given: [{ state: 'given', text: PROFILE }] });
@@ -5596,7 +5598,70 @@ describe('a notebook that depends on something you have to give it', () => {
     const app = await makeApp();
     const { store, nbId } = await started(app, { 'need_linkedin-profile': PROFILE });
     expect(store.get(nbId)!.given).toMatchObject([{ state: 'given', text: PROFILE }]);
-    expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('data-nb-given');
+    expect((await get(app, `/notebooks/${nbId}`)).text).not.toContain('<strong>sua needs');
+  });
+
+  it('a paste is read into a short profile first: the step waits for it, then works from the reading, and you can fix it', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { startNotebookStep } = await import('../lib/notebook-steps.js');
+    const ctx = getContext(app.locals);
+    const { store, nbId } = await started(app);
+    const paste = `Home My Network Jobs Messaging\n${PROFILE}\nPeople also viewed\nSomeone Else, Plumber in Reno\n`;
+    let brief = '';
+    finderReply = (inputs) => { brief = inputs.NOTEBOOK; return 'Found none.'; };
+    // The reader answers when let go; one fact's quote isn't in the paste.
+    let letGo: (v: string) => void = () => {};
+    let readerInputs: Record<string, string> = {};
+    ctx.notebookGivenReaderRun = (inputs) => { readerInputs = inputs; return new Promise((r) => { letGo = r; }); };
+    const res = await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { text: paste });
+    expect(decodeURIComponent(res.headers.location)).toContain('Got your LinkedIn profile. sua is reading it; its next step starts when that’s done.');
+    expect(readerInputs).toMatchObject({ LABEL: 'your LinkedIn profile', TEXT: paste.trim() });
+    // Nothing starts on a paste that's half read; the page says it's reading.
+    expect(startNotebookStep(ctx, nbId)).toMatchObject({ started: false, reason: expect.stringContaining('sua is reading your LinkedIn profile') });
+    expect((await get(app, `/notebooks/${nbId}`)).text).toContain('sua is reading your LinkedIn profile.');
+    const words = PROFILE.split(/\s+/).slice(0, 6).join(' ');
+    letGo(`<read>${JSON.stringify({ summary: 'An accountant.', facts: [{ label: 'Current role', value: 'Accountant', quote: words }, { label: 'Hobby', value: 'Plumbing in Reno', quote: 'loves plumbing and lives in Reno' }] })}</read>`);
+    for (let i = 0; i < 200 && (ctx.notebookGivenReads?.size || ctx.notebookPipelines?.has(nbId) || !brief); i++) await new Promise((r) => setTimeout(r, 10));
+    // Only the fact the paste says is kept; the step started and read the reading, not the paste.
+    expect(store.get(nbId)!.given![0].read).toMatchObject({ summary: 'An accountant.', facts: [{ label: 'Current role', value: 'Accountant' }] });
+    expect(store.get(nbId)!.given![0].read!.facts).toHaveLength(1);
+    expect(brief).toContain('your LinkedIn profile, as read from what they pasted');
+    expect(brief).toContain('Current role: Accountant');
+    expect(brief).not.toContain('People also viewed');
+    // The page shows what was read; Edit lets you fix it, and a line you change is yours.
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).toContain('Your LinkedIn profile, as sua read it:</span> An accountant.');
+    expect(page).toContain('<dt>Current role</dt><dd>Accountant</dd>');
+    expect((await get(app, `/notebooks/${nbId}/edit`)).text).toContain('Current role: Accountant</textarea>');
+    const saved = await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { facts: 'Current role: Accountant\nWants: A controller role\nnot a line' });
+    expect(decodeURIComponent(saved.headers.location)).toContain('Saved what your LinkedIn profile says.');
+    expect(store.get(nbId)!.given![0].read!.facts).toEqual([{ label: 'Current role', value: 'Accountant', quote: words }, { label: 'Wants', value: 'A controller role', byYou: true }]);
+    expect((await get(app, `/notebooks/${nbId}`)).text).toContain('A controller role <span class="nb-given__yours">yours</span>');
+    // Read it again asks the reader once more.
+    ctx.notebookGivenReaderRun = async () => `<read>${JSON.stringify({ summary: 'Read again.', facts: [{ label: 'Current role', value: 'Accountant', quote: words }] })}</read>`;
+    expect(decodeURIComponent((await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { reread: '1' })).headers.location)).toContain('sua is reading your LinkedIn profile.');
+    for (let i = 0; i < 200 && ctx.notebookGivenReads?.size; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(nbId)!.given![0].read!.summary).toBe('Read again.');
+    finderReply = undefined;
+  });
+
+  it('a paste that can\'t be read never blocks: the step starts on the text as pasted', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const { store, nbId } = await started(app);
+    let brief = '';
+    let tries = 0;
+    finderReply = (inputs) => { brief = inputs.NOTEBOOK; return 'Found none.'; };
+    ctx.notebookGivenReaderRun = async () => { tries++; return 'no block here'; };
+    await post(app, `/notebooks/${nbId}/given/linkedin-profile`, { text: PROFILE });
+    for (let i = 0; i < 200 && (ctx.notebookPipelines?.has(nbId) || !brief); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(tries).toBe(2);
+    expect(store.get(nbId)!.given![0].read).toBeUndefined();
+    expect(brief).toContain(PROFILE);
+    expect((await get(app, `/notebooks/${nbId}`)).text).toContain('sua couldn\'t read your LinkedIn profile into a short form.');
+    finderReply = undefined;
   });
 
   it('going on without it is recorded, told to every step, and shown on the page', async () => {

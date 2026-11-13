@@ -1599,13 +1599,16 @@ describe('what a notebook depends on from you (given)', () => {
     const out = cleanGiven([
       { label: ' Your LinkedIn profile. ', link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' },
       { label: 'my LinkedIn profile' },
-      { label: 'your résumé', text: 'x'.repeat(13000) },
+      { label: 'your résumé', text: 'x'.repeat(41000), read: { summary: ' An accountant. ', facts: [{ label: 'Current role:', value: 'Staff accountant', quote: 'Staff accountant', extra: 1 }, { label: '', value: 'dropped' }, 'junk'] } },
       { label: 'the spec', state: 'skipped', text: 'ignored' },
       { label: '' }, 'junk', { label: 'a' }, { label: 'b' },
     ], '2026-11-12T00:00:00.000Z');
     expect(out.map((g) => [g.key, g.label, g.state])).toEqual([['linkedin-profile', 'Your LinkedIn profile', 'missing'], ['r-sum', 'your résumé', 'given'], ['spec', 'the spec', 'skipped'], ['it', 'a', 'missing']]);
     expect(out[0]).toMatchObject({ link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' });
-    expect(out[1].text).toHaveLength(12000);
+    expect(out[1].text).toHaveLength(40000);
+    // Longer than a notebook keeps: it says so. What sua read from it stays, cleaned.
+    expect(out[1].cut).toBe(true);
+    expect(out[1].read).toEqual({ summary: 'An accountant.', facts: [{ label: 'Current role', value: 'Staff accountant', quote: 'Staff accountant' }], at: '2026-11-12T00:00:00.000Z' });
     expect(out[2].text).toBeUndefined();
   });
 
@@ -1628,6 +1631,22 @@ describe('what a notebook depends on from you (given)', () => {
     expect(brief).toContain(`What they gave you, your LinkedIn profile (this is all you know of it; use nothing else for it):\n"""\n${text}\n"""`);
     expect(brief).toContain("NOT given: your résumé. They chose to go on without it: work from the rest, don't ask for it");
     expect(givenBrief(now, 10)).toContain('Staff acco\n[cut short]');
+    // What sua read from it is what steps get, in place of the paste; a line you wrote is marked as yours.
+    const { givenForStep } = await import('./notebooks.js');
+    expect(() => s.answerGiven(nb.id, 'r-sum', { read: { summary: 'x', facts: [], at: '' } })).toThrow('nothing pasted');
+    now = s.answerGiven(nb.id, 'linkedin-profile', { read: { summary: 'A staff accountant in Conway.', facts: [{ label: 'Current role', value: 'Staff accountant', quote: 'Staff accountant' }, { label: 'Wants', value: 'A controller role', byYou: true }], at: '' } });
+    expect(now.given![0].read!.facts).toHaveLength(2);
+    const read = givenBrief(now);
+    expect(read).toContain('What they gave you, your LinkedIn profile, as read from what they pasted (this is all you know of it; use nothing else for it):\n"""\nA staff accountant in Conway.\nCurrent role: Staff accountant\nWants: A controller role (they wrote this themselves)\n"""');
+    expect(read).not.toContain('six years in nonprofit audit');
+    expect(givenForStep(now.given![0]).lines).toHaveLength(3);
+    // New text forgets the reading of the old; forgetting the reading leaves the paste.
+    expect(s.answerGiven(nb.id, 'linkedin-profile', { read: null }).given![0]).toMatchObject({ state: 'given', text });
+    s.answerGiven(nb.id, 'linkedin-profile', { read: { summary: 'x', facts: [{ label: 'a', value: 'b' }], at: '' } });
+    now = s.answerGiven(nb.id, 'linkedin-profile', { text: `${text} Now a controller.` });
+    expect(now.given![0].read).toBeUndefined();
+    expect(now.given![0].cut).toBeUndefined();
+    now = s.answerGiven(nb.id, 'linkedin-profile', { text });
     // Skipped stays skipped when a search asks for it again; a new one is added as missing.
     expect(s.addGiven(nb.id, { label: 'Your résumé' }).given!.map((g) => g.state)).toEqual(['given', 'skipped']);
     expect(s.addGiven(nb.id, { label: 'your budget', why: 'The search depends on it.' }).given!.map((g) => g.state)).toEqual(['given', 'skipped', 'missing']);
