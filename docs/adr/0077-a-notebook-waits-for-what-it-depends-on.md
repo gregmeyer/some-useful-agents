@@ -29,6 +29,8 @@ The fail mode: **a step runs without something it depends on, and the model fill
 - **The request is kept** as typed (`Notebook.asked`), so its links survive the drafter's rewrite; `notebookGivenLinks` reads it.
 - Both are setup, not content: **Run it again** carries them.
 
+**A file is a way to fill the box, not a second store.** A PDF chosen beside a paste box is turned into text (`POST /notebooks/given-file`, `unpdf`) and put in the box; the box's own form stores it. So there is one path in (text), the person sees what will be kept, and no file is held. A scan yields nothing and says so: reading text off pictures would be a guess at the person's own material.
+
 ## Alternatives
 
 - **Read the page for them** (fetch the link, store what comes back). Rejected for now: a blocked site returns a sign-in wall, and storing that as "the profile" is the same failure in a new place. Asking is certain. A reader that can show it read the real thing could fill `given` later.
