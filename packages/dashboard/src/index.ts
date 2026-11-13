@@ -91,6 +91,7 @@ import { startSchedulerHealthInbox } from './lib/scheduler-health-inbox.js';
 import { startModelWatch } from './lib/model-watch.js';
 import { installCatalogSorter } from './lib/agent-catalog-sort.js';
 import { installNotebookTagger } from './lib/notebook-tags.js';
+import { installGivenReader } from './lib/notebook-given-read.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -802,6 +803,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   try { installCatalogSorter(ctx); } catch { /* the catalog just stays unsorted */ }
   // The same for the Notebooks list's topic tags.
   try { installNotebookTagger(ctx); } catch { /* notebooks just stay untagged */ }
+  // And for reading what's pasted for a notebook into a short profile.
+  try { installGivenReader(ctx); } catch { /* steps just get the text as pasted */ }
 
   const app = buildDashboardApp(ctx);
 

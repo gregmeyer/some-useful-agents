@@ -13,6 +13,7 @@ import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
 import { NotebookStore, checksLeft, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { swapTalkingPoint, writeBriefing } from './notebook-write.js';
@@ -158,7 +159,7 @@ export function startNotebookStep(ctx: Ctx, notebookId: string, opts: { stepId?:
   const closed = notebookClosedReason(nb, 'work on its steps');
   if (closed) return { started: false, reason: closed };
   // It depends on something of yours it doesn't have yet: nothing runs on a guess (ADR-0077).
-  const waiting = givenWaitingReason(nb);
+  const waiting = givenWaitingReason(nb) ?? givenReadingReason(ctx, nb);
   if (waiting) return { started: false, reason: waiting };
   ctx.notebookPipelines ??= new Map();
   if (ctx.notebookPipelines.has(notebookId)) return { started: false, reason: 'It’s already running.' };
@@ -281,7 +282,7 @@ export function searchAgain(ctx: Ctx, notebookId: string, opts: { stepId?: strin
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
-  const closed = notebookClosedReason(nb, 'search again') ?? givenWaitingReason(nb);
+  const closed = notebookClosedReason(nb, 'search again') ?? givenWaitingReason(nb) ?? givenReadingReason(ctx, nb);
   if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
   const want = opts.stepId?.trim().toLowerCase();

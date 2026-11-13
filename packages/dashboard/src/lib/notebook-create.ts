@@ -9,6 +9,7 @@
 import { NotebookStore, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
 import { fitStepAgents, startNotebookStep, stopNotebookStep } from './notebook-steps.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
+import { startGivenRead } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { layOutNotebookSteps } from './notebook-draft.js';
 import { startNotebookSetup } from './notebook-pipeline.js';
@@ -137,6 +138,11 @@ export function rerunNotebook(ctx: Ctx, notebookId: string): { notebook: Noteboo
   reconcileStepCards(ctx, old.id);
   const fresh = store.get(made.id)!;
   if (!fresh.fields.length || !fresh.steps?.length) return { notebook: fresh, started: false, reason: fresh.steps?.length ? 'sua is still setting it up; start its first step from the page once it has.' : 'It has no steps; start a search from its page.' };
+  // Something you pasted that sua hasn't read yet (from before it read them): read first, then start.
+  const unread = (fresh.given ?? []).filter((g) => g.state === 'given' && !g.read);
+  const last = unread.length - 1;
+  const reading = unread.map((g, i) => startGivenRead(ctx, made.id, g.key, i === last ? { then: () => { startNotebookStep(ctx, made.id); } } : {})).some(Boolean);
+  if (reading) return { notebook: fresh, started: false, reason: 'sua is reading what you pasted for it; its first step starts when that\'s done.' };
   const out = startNotebookStep(ctx, made.id);
   return { notebook: store.get(made.id)!, started: out.started, ...(out.started ? {} : { reason: out.reason ?? 'Its first step didn\'t start; start it from the page.' }) };
 }

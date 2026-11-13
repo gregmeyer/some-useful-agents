@@ -1231,6 +1231,20 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-given__item--skipped[open] summary { margin-bottom: var(--space-3); }
 .nb-given__mark { font-weight: var(--weight-semibold); color: var(--color-text); }
 .nb-given__add { text-decoration: underline; }
+.nb-given__item--read, .nb-given__item--reading, .nb-given__item--unread { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nb-given__item--read summary { cursor: pointer; line-height: 1.5; }
+.nb-given__item--read[open] summary { margin-bottom: var(--space-2); }
+.nb-given__item--unread .nb-given__say { margin-bottom: var(--space-2); color: var(--color-text-muted); }
+.nb-given__note { margin: 0 0 var(--space-3); max-width: 72ch; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+.nb-given__facts { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); max-width: 88ch; }
+.nb-given__facts > div { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: var(--space-1) var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.nb-given__facts dt { font: var(--weight-semibold) var(--font-size-xs)/1.5 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+.nb-given__facts dd { margin: 0; line-height: 1.5; color: var(--color-text); overflow-wrap: anywhere; }
+.nb-given__yours { margin-left: var(--space-1); padding: 0 var(--space-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
+.nb-given__again { margin: 0; }
+.nb-given__acts { align-items: center; flex-wrap: wrap; }
+@media (max-width: 600px) { .nb-given__facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+.nbe-given__sub { font: var(--weight-semibold) var(--font-size-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
 .nbe-given__item { padding: var(--space-2) 0; border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); }
 .nbe-given__item:first-of-type { border-top: 0; }
 .nbe-given__item summary { display: grid; gap: 2px; cursor: pointer; }
