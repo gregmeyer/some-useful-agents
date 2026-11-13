@@ -7,7 +7,7 @@
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { createHash } from 'node:crypto';
-import { Router, type Request, type Response } from 'express';
+import express, { Router, type Request, type Response } from 'express';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { notebookMadeBy, type NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { whatsNew } from '../lib/notebook-whats-new.js';
@@ -27,7 +27,7 @@ import { startConflictCheck } from '../lib/notebook-reconcile.js';
 import { CHECKING_WHO } from '../views/notebooks.js';
 import { startNotebookDraft, readDraft, searchAgents, listDrafts, discardDraft, saveDraftEdits, draftSteps, stepsFromForm, meetingFromForm } from '../lib/notebook-draft.js';
 import {
-  givenMissing, NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
+  givenMissing, NOTEBOOK_GIVEN_MAX, NotebookStore, SurfaceStore, notebookLineage, notebookCsv, shortName, compileSurface, notebookEntryItems, notebookViewData, notebookPhotoPath, validateScheduleInterval, markdownToText,
   type Notebook,
   type NotebookEntry,
   type NotebookEntryKind,
@@ -38,6 +38,7 @@ import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { correctedRead, givenReadingReason, givenReadStates, startGivenRead } from '../lib/notebook-given-read.js';
+import { pdfText, PDF_MAX_BYTES } from '../lib/pdf-text.js';
 import { notebookLive, notebookLiveKey } from '../lib/notebook-live.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
@@ -669,6 +670,18 @@ notebooksRouter.post('/notebooks/:id/rerun', (req: Request, res: Response) => {
   } catch (err) {
     res.redirect(303, `/notebooks/${encodeURIComponent(id)}/edit?flash=${encodeURIComponent(`Couldn't run it again: ${err instanceof Error ? err.message : String(err)}`)}`);
   }
+});
+
+// A PDF chosen in place of a paste (what a notebook needs from you): its text, for the box on the page.
+// Nothing is kept here; the text is stored only when the box's own form is sent.
+notebooksRouter.post('/notebooks/given-file', express.raw({ type: 'application/pdf', limit: PDF_MAX_BYTES }), async (req: Request, res: Response) => {
+  const body: unknown = req.body;
+  if (!Buffer.isBuffer(body)) { res.status(415).json({ error: 'Send the PDF itself (application/pdf).' }); return; }
+  const out = await pdfText(body);
+  if ('error' in out) { res.status(422).json(out); return; }
+  const chars = out.text.length;
+  const over = chars > NOTEBOOK_GIVEN_MAX;
+  res.json({ text: out.text, pages: out.pages, chars, said: `${String(out.pages)} ${out.pages === 1 ? 'page' : 'pages'}, ${chars.toLocaleString('en-US')} characters.${over ? ` A notebook keeps the first ${NOTEBOOK_GIVEN_MAX.toLocaleString('en-US')}, so its end will be left out.` : ''}` });
 });
 
 // What the notebook is waiting on from you: paste it (text), go on without it (skip=1), or take it off (remove=1).

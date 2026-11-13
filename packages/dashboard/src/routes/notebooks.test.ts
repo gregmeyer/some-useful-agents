@@ -5646,6 +5646,25 @@ describe('a notebook that depends on something you have to give it', () => {
     finderReply = undefined;
   });
 
+  it('a PDF chosen in place of a paste comes back as its text, for the box; each box offers the choice', async () => {
+    const app = await makeApp();
+    const { makePdf } = await import('../lib/pdf-text.fixture.js');
+    const send = (body: Buffer, type = 'application/pdf') => request(app).post('/notebooks/given-file').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('Content-Type', type).send(body);
+    const ok = await send(Buffer.from(makePdf([['Dana Rivers', 'Director of Partnerships at Riverbend Trust'], ['Education', 'State University']])));
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ pages: 2, said: expect.stringMatching(/^2 pages, \d+ characters\.$/) });
+    expect(ok.body.text).toContain('Director of Partnerships at Riverbend Trust');
+    expect((await send(Buffer.from('not a pdf at all'))).body).toEqual({ error: "That isn't a PDF file." });
+    expect((await send(Buffer.from('text'), 'application/octet-stream')).status).toBe(415);
+    // Nothing is stored by it: the notebook still waits until the box's form is sent.
+    const { store, nbId } = await started(app);
+    expect(store.get(nbId)!.given).toMatchObject([{ state: 'missing' }]);
+    const page = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(page).toContain('data-given-file="nb-given-linkedin-profile"');
+    expect(page).toContain('Choose a PDF or text file');
+    expect((await request(app).get('/assets/dashboard.js').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text).toContain("fetch('/notebooks/given-file'");
+  });
+
   it('a paste that can\'t be read never blocks: the step starts on the text as pasted', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');

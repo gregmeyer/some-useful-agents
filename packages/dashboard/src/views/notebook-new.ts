@@ -4,6 +4,7 @@
  * arrives as a fragment (renderDraftReview) that notebook-new.js.ts puts in
  * place; the review is an ordinary form posting to POST /notebooks.
  */
+import { givenFilePick } from './given-file.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { working } from './working.js';
@@ -349,7 +350,8 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
         <div class="nbd-needs__item">
           <p class="nbd-needs__say"><strong>sua needs ${n.label}.</strong> ${n.link ? `It can't read ${needHost(n.link)}. ` : ''}${n.why ?? ''} Paste it here, or start the notebook and it will ask before it does anything.</p>
           <label class="sr-only" for="nbd-need-${n.key}">${n.label}</label>
-          <textarea id="nbd-need-${n.key}" name="need_${n.key}" rows="5" class="form-field" placeholder="Paste the text here: copy it from the page or the file."></textarea>
+          <textarea id="nbd-need-${n.key}" name="need_${n.key}" rows="5" class="form-field" placeholder="Paste the text here, or choose a file below."></textarea>
+          ${givenFilePick(`nbd-need-${n.key}`)}
         </div>`) as unknown as SafeHtml[]}
       </div>` : html``}
       ${notebookSetupEditor(draft, agents, { offered: draft.suggested ?? draft.pipeline })}

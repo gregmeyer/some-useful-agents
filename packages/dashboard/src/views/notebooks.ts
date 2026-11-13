@@ -11,6 +11,7 @@ import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-ne
 import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
+import { givenFilePick } from './given-file.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { pageName, meetingWhenWords, type NotebookEditTurn } from '../lib/notebook-edit.js';
 import { notebookLooks } from './notebook-look.js';
@@ -1278,7 +1279,8 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
   const box = (g: NotebookGiven, label: string) => html`
         <form method="POST" action="${act(g.key)}" class="nb-given__form">
           <label class="nb-given__label" for="nb-given-${g.key}">${label}</label>
-          <textarea id="nb-given-${g.key}" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here: copy it from the page or the file."></textarea>
+          <textarea id="nb-given-${g.key}" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here, or choose a file below."></textarea>
+          ${givenFilePick(`nb-given-${g.key}`)}
           <div class="nb-given__acts"><button type="submit" class="btn btn--primary btn--sm">Use this</button></div>
         </form>`;
   const reread = (g: NotebookGiven, label: string) => html`<form method="POST" action="${act(g.key)}" class="nb-given__again"><input type="hidden" name="reread" value="1"><button type="submit" class="btn btn--sm">${label}</button></form>`;
@@ -1339,6 +1341,7 @@ export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
             <form method="POST" action="${act(g.key)}" class="nbe-given__form">
               <label class="${g.read ? 'nbe-given__sub' : 'sr-only'}" for="nbe-given-${g.key}">${g.read ? 'The text you pasted' : g.label}</label>
               <textarea id="nbe-given-${g.key}" name="text" rows="6" class="form-field" required minlength="20" placeholder="Paste the text here.">${g.text ?? ''}</textarea>
+              ${givenFilePick(`nbe-given-${g.key}`)}
               <button type="submit" class="btn btn--sm">${g.state === 'given' ? 'Replace' : 'Use this'}</button>
             </form>
             <form method="POST" action="${act(g.key)}"><input type="hidden" name="remove" value="1"><button type="submit" class="btn btn--sm btn--ghost">Remove</button></form>

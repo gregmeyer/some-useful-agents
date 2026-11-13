@@ -1244,6 +1244,12 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-given__again { margin: 0; }
 .nb-given__acts { align-items: center; flex-wrap: wrap; }
 @media (max-width: 600px) { .nb-given__facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+/* Choose a file in place of pasting (views/given-file.ts). */
+.given-file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.given-file__pick { cursor: pointer; }
+.given-file__pick:focus-within { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.given-file__say { flex: 1 1 16rem; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+.given-file__say--bad { color: var(--color-warn); }
 .nbe-given__sub { font: var(--weight-semibold) var(--font-size-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
 .nbe-given__item { padding: var(--space-2) 0; border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); }
 .nbe-given__item:first-of-type { border-top: 0; }
