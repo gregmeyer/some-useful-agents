@@ -1267,6 +1267,18 @@ const titleFileName = (title: string): string => title.replace(/[\\/:*?"<>|\u000
 /** Content-Disposition for a download: an ASCII name every browser takes, and the real one (RFC 5987) for those that read it. */
 const attachment = (name: string): string => `attachment; filename="${name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, "'")}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 
+/**
+ * Said at the top of the brief when the PDF couldn't be made (screen only;
+ * it never prints). Self-contained: the PDF link saves what it gets, so this
+ * page may be opened from a file.
+ */
+const NO_PDF_NOTE = `<div class="no-pdf" role="status" style="font:14px/1.5 system-ui,sans-serif;margin:0 0 24px;padding:14px 16px;border:1px solid #b45309;border-radius:8px;background:rgba(180,83,9,0.1)">
+<style>@media print{.no-pdf{display:none!important}}</style>
+<strong>sua couldn't make the PDF here, so this is the print view.</strong>
+Its headless browser didn't start, which usually means a new version needs its browser downloaded: run <code>npx playwright install chromium</code> where sua runs, then press PDF again.
+To get a PDF now, <button type="button" onclick="print()" style="font:inherit;padding:2px 10px;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;cursor:pointer">Print</button> and choose Save as PDF.
+</div>`;
+
 /** A notebook as a brief to share: one self-contained page (?download=1 saves it). */
 notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) => {
   const s = store(req);
@@ -1274,7 +1286,11 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
   // Opened here, pictures load from the dashboard; a saved file carries its own.
   const download = req.query.download === '1';
-  const { page, full, latest } = briefPage(req, s, nb, { embed: download, print: req.query.print === '1' && !download });
+  // Sent here because the PDF couldn't be made: it says so (on screen only) in place of opening the print dialog unasked.
+  const noPdf = req.query.nopdf === '1' && !download;
+  const made = briefPage(req, s, nb, { embed: download || noPdf, print: req.query.print === '1' && !download && !noPdf });
+  const { full, latest } = made;
+  const page = noPdf ? made.page.replace(/<body[^>]*>/, (m) => `${m}${NO_PDF_NOTE}`) : made.page;
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
   res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store', ...(download ? { 'Content-Disposition': `attachment; filename="${name}"` } : {}) }).send(page);
 });
@@ -1285,8 +1301,8 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
  * dashboard's address on every page), its pictures inside it, and a small
  * footer with the title, the date and the page number. Named after the
  * notebook. ?full=1 and ?latest=1 as for the brief; ?paper=a4 for A4
- * (Letter otherwise). No browser here: the brief opens with the print
- * dialog instead, as before.
+ * (Letter otherwise). No browser here: the brief opens as its print view,
+ * saying the PDF couldn't be made and how to get one.
  */
 notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -1298,7 +1314,8 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   const opts = { footer: `${nb.title} · ${date}`, paper: req.query.paper === 'a4' ? 'A4' as const : 'Letter' as const };
   const out = await (ctx.notebookPdf ?? htmlToPdf)(page, opts);
   if (!out.available) {
-    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', 'print=1', 'theme=light'].filter(Boolean).join('&');
+    console.warn(`[notebooks] brief PDF not made for ${nb.id}: ${out.reason}`);
+    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', 'nopdf=1', 'theme=light'].filter(Boolean).join('&');
     res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/brief.html?${qs}`);
     return;
   }
