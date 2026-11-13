@@ -2595,11 +2595,17 @@ describe('a brief to share', () => {
     expect(ext.headers['content-disposition']).toContain(`filename="${nb.title} (extended).pdf"`);
     expect(made[1].opts.paper).toBe('A4');
     expect(made[1].html).toContain('id="b-full"');
-    // No browser on this machine: the brief opens with the print dialog instead.
+    // No browser on this machine: the brief opens as its print view and says so (on screen, never in print), with no dialog opened unasked.
     ctxForDrain!.notebookPdf = async () => ({ available: false, reason: 'no browser' });
     const none = await get(`/notebooks/${nb.id}/brief.pdf?full=1`);
     expect(none.status).toBe(303);
-    expect(none.headers.location).toBe(`/notebooks/${nb.id}/brief.html?full=1&print=1&theme=light`);
+    expect(none.headers.location).toBe(`/notebooks/${nb.id}/brief.html?full=1&nopdf=1&theme=light`);
+    const said = (await get(none.headers.location)).text;
+    expect(said).toContain('sua couldn\'t make the PDF here, so this is the print view.');
+    expect(said).toContain('npx playwright install chromium');
+    expect(said).toContain('@media print{.no-pdf{display:none!important}}');
+    expect(said).not.toContain('setTimeout(() => print()');
+    expect((await get(`/notebooks/${nb.id}/brief.html`)).text).not.toContain('class="no-pdf"');
     expect((await get('/notebooks/nope/brief.pdf')).status).toBe(404);
 
     // The TL;DR picture: the card as a page, and a PNG made from it (its lead's picture inside it), in the menu too.
