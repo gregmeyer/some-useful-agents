@@ -73,3 +73,29 @@ export function experimentsForTriage(ctx: Ctx): string {
     return '[]';
   }
 }
+
+/** An experiment as it is mentioned elsewhere: on the notebook its set came from, on the agent it tested. */
+export interface ExperimentMention { id: string; name: string; href: string; stands: string; found?: string; restsOn?: string }
+
+/**
+ * The experiments made from a notebook's options, or that tested an agent,
+ * newest first, each with what it found in its page's words (counted from
+ * its runs). Never throws: a page that mentions them still renders.
+ */
+export function experimentsOn(ctx: Ctx, of: { notebookId: string } | { agentId: string }): ExperimentMention[] {
+  try {
+    const s = ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
+    const mine = s.list().filter((e) => ('notebookId' in of ? e.from?.notebookId === of.notebookId : e.task.agentId === of.agentId)).slice(0, 8);
+    return mine.map((e) => {
+      const d = experimentDataFor(ctx, e.id);
+      const ran = !!d && d.label !== 'Not run yet';
+      return {
+        id: e.id, name: e.name, href: `/experiments/${encodeURIComponent(e.id)}`, stands: d?.runs ?? 'not run yet',
+        // The finding alone, without the figures after it.
+        ...(ran ? { found: (/^\*\*(.+?)\*\*/.exec(d.headline)?.[1] ?? d.headline).trim(), restsOn: d.rests } : {}),
+      };
+    });
+  } catch {
+    return [];
+  }
+}

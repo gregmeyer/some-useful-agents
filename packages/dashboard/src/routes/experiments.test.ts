@@ -418,4 +418,40 @@ describe('experiments', () => {
     const all = await post(app, '/experiments', { name: 'Everything', from: jobs.id });
     expect(s.cases(idOf(all.headers.location))[0].items).toHaveLength(15);
   });
+
+  it('is known where it matters: on the notebook its set came from, on the agent it tested, and to sua there', async () => {
+    const app = await makeApp();
+    installExperimentRanker(ctx);
+    const { experimentsOn } = await import('../lib/experiment-notebook.js');
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = nbs.create({ title: 'Jobs', statement: 'Find jobs', params: [], criteria: [] });
+    nbs.setFields(nb.id, [{ key: 'pay', label: 'Pay', type: 'money', role: 'price', better: 'higher' }]);
+    for (const [t, pay] of [['Role A', 300], ['Role B', 250], ['Role C', 200]] as const) nbs.upsertOption(nb.id, { title: t, data: { pay }, by: 'you' });
+    // Before any experiment, neither page mentions them.
+    expect((await get(app, `/notebooks/${nb.id}`)).text).not.toContain('Experiments on its options');
+    expect((await get(app, '/agents/experiment-ranker')).text).not.toContain('Experiments on this agent');
+
+    const made = await post(app, '/experiments', { name: 'Order test', from: nb.id, repeats: '2', c1_name: 'Build', c1_kind: 'instructions', c1_v1_name: 'By pay', c1_v1_text: 'Rank by pay.', c1_v2_name: 'Reverse', c1_v2_text: 'Reverse it.' });
+    const id = idOf(made.headers.location);
+    expect(experimentsOn(ctx, { notebookId: nb.id })).toEqual([{ id, name: 'Order test', href: `/experiments/${id}`, stands: 'not run yet' }]);
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain(`<a href="/experiments/${id}">Order test</a><span class="nb-exps__found">Not run yet.</span>`);
+
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const items = s.cases(id)[0].items.map((i) => i.id);
+    ctx.experimentTaskRun = async (inputs) => ranking(inputs.INSTRUCTIONS.includes('Reverse') ? [...items].reverse() : items);
+    await post(app, `/experiments/${id}/run`);
+    await settle();
+    // The finding, in a line, on the notebook and on the agent's page; with what it rests on for the agent.
+    const on = experimentsOn(ctx, { agentId: 'experiment-ranker' });
+    expect(on).toMatchObject([{ id, stands: '4 of 4 runs', found: 'Build changed the result, beyond run-to-run variation.', restsOn: '1 set, 2 conditions, 2 runs of each. It holds for this set only.' }]);
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain('<span class="nb-exps__found">Build changed the result, beyond run-to-run variation.</span>');
+    const agentPage = (await get(app, '/agents/experiment-ranker')).text;
+    expect(agentPage).toContain('Experiments on this agent');
+    expect(agentPage).toContain(`<a href="/experiments/${id}">Order test</a>`);
+    expect(agentPage).toContain('Build changed the result, beyond run-to-run variation.');
+    expect(agentPage).toContain('those runs are not in its history or its spend');
+    // An archived experiment is no longer mentioned.
+    await post(app, `/experiments/${id}/archive`);
+    expect(experimentsOn(ctx, { notebookId: nb.id })).toEqual([]);
+  });
 });

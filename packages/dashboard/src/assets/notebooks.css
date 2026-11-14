@@ -1216,6 +1216,13 @@ body.has-sua-panel .nb-toast { display: none; }
 
 /* What a notebook is waiting on from you (ADR-0077): a paste box, or go on without it. */
 .nb-given { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); }
+/* Experiments made from this notebook's options: a quiet strip, a line each. */
+.nb-exps { margin: var(--space-4) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.nb-exps__label { margin: 0 0 var(--space-1); font-family: var(--font-mono); font-size: var(--font-size-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+.nb-exps__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.nb-exps__list li { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); align-items: baseline; }
+.nb-exps__list a { font-weight: var(--weight-semibold); }
+.nb-exps__found { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .nb-given__item { padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
 .nb-given__item--missing { background: var(--color-warn-soft); border-color: var(--color-warn-border, var(--color-warn)); }
 .nb-given__say { margin: 0 0 var(--space-3); font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }

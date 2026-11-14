@@ -375,3 +375,10 @@
 }
 .agent-glance__note { margin: 0 0 var(--space-2); }
 .agent-how__live { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-primary); }
+
+/* Experiments that tested this agent: a line each, with what was found. */
+.agent-exps { margin: 0 0 var(--space-6); }
+.agent-exps__list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); }
+.agent-exps__list li { display: grid; gap: 2px; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }
+.agent-exps__list a { font-weight: var(--weight-semibold); }
+.agent-exps__found { font-size: var(--font-size-sm); }

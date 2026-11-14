@@ -34,7 +34,7 @@ import {
 } from '@some-useful-agents/core';
 import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
-import { experimentDataFor } from '../lib/experiment-notebook.js';
+import { experimentDataFor, experimentsOn } from '../lib/experiment-notebook.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
@@ -357,7 +357,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What the latest run found that the one before didn't (a briefing rerun); never fails the page.
   let fresh: ReturnType<typeof whatsNew>;
   try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ experiments: experimentsOn(ctx, { notebookId: nb.id }), nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {

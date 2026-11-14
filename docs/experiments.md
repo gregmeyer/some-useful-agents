@@ -72,6 +72,14 @@ Experiment runs are kept apart from the agent's own: they are filed under `exper
 - **It has no steps and nothing to decide.** Its main button is **Open the experiment**, which is where it is run, stopped and set up. Archiving the notebook leaves the experiment, and the other way round.
 - The experiment's page shows **Open its notebook** once it has one.
 
+## Where else an experiment shows
+
+- **On the notebook its set was copied from**: a strip, *Experiments on its options*, with each experiment and what it found in a line.
+- **On the agent it tested**: *Experiments on this agent* on the agent's page, with the finding and what it rests on. (The runs themselves stay out of the agent's history and spend.)
+- **In conversation**: sua is told your ten newest experiments and what each found, and, when you talk in a notebook, the experiments made from that notebook's options. It repeats a finding in the words the experiment's page uses.
+
+Archived experiments are not mentioned in any of these.
+
 ## Judges
 
 - **A judge never sees the build.** It is given the rubric, the items, the person's preferences and the ranking. It is not told which instructions, model or version produced the result, so it can't favour one.

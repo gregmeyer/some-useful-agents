@@ -224,6 +224,16 @@ export async function renderAgentOverview(args: AgentDetailArgs): Promise<string
     </div>
 
     ${goalCard(agent)}
+    ${args.experiments?.length ? html`
+      <section class="agent-exps" aria-labelledby="agent-exps-title">
+        <h2 class="section-label" id="agent-exps-title">Experiments on this agent</h2>
+        <ul class="agent-exps__list">${args.experiments.map((e) => html`<li>
+          <a href="${e.href}">${e.name}</a>
+          <span class="agent-exps__found">${e.found ?? (e.stands === 'not run yet' ? 'Not run yet.' : `No finding yet (${e.stands}).`)}</span>
+          ${e.found && e.restsOn ? html`<span class="agent-exps__rests dim text-xs">${e.restsOn}</span>` : html``}
+        </li>`) as unknown as SafeHtml[]}</ul>
+        <p class="dim text-xs" style="margin: var(--space-2) 0 0;">An experiment runs a copy of this agent under its own name, so those runs are not in its history or its spend.</p>
+      </section>` : html``}
     ${agent.nodes.length === 1 && agent.nodes[0].type === 'goal' ? html`` : html`
       <section class="agent-how" aria-labelledby="agent-how-title"${args.liveRun ? html` data-agent-live-run="${args.liveRun.run.id}" data-agent-live-agent="${agent.id}"` : html``}>
         <div class="agent-how__head">

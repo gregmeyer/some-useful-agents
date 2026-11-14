@@ -1,3 +1,4 @@
+import { experimentsOn } from '../../lib/experiment-notebook.js';
 import { Router, type Request, type Response } from 'express';
 import { MemoryStore, NotebookStore, SYSTEM_AGENT_IDS, loadShippedSkills, memorySettings, effectiveSpendLimits, startOfLocalDay, unenforceableProviders, type Memory, type RunStatus } from '@some-useful-agents/core';
 import { getContext } from '../../context.js';
@@ -140,6 +141,7 @@ agentDetailRouter.get('/agents/:name', async (req: Request, res: Response) => {
       .filter((a) => connected.has(a.id))
       .map((a) => [a.id, { status: a.status, description: a.description }]));
     const html = await renderAgentDetailV2({
+      experiments: experimentsOn(ctx, { agentId: v2Agent.id }),
       agent: v2Agent,
       recentRuns: rows,
       secretsStore: ctx.secretsStore,
