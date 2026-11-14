@@ -348,4 +348,74 @@ describe('experiments', () => {
     expect(told[0]).toMatchObject({ stands: '8 of 8 runs', restsOn: '1 set, 4 conditions, 2 runs of each. It holds for this set only.' });
     expect(String(told[0].found)).toMatch(/^Build changed the result; preferences did not, beyond run-to-run variation\./);
   });
+
+  it('suggests the set: the notebook that fits the question, a golden set of a long one, and its picks as the answer key', async () => {
+    const app = await makeApp();
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const jobs = nbs.create({ title: 'Find fitting jobs', statement: 'Job openings that fit', params: [], criteria: [] });
+    nbs.setFields(jobs.id, [{ key: 'pay', label: 'Pay', type: 'money', role: 'price', better: 'higher' }, { key: 'fit', label: 'Fit', type: 'number', role: 'score' }]);
+    const ids = Array.from({ length: 16 }, (_, i) => nbs.upsertOption(jobs.id, { title: `Job ${String(i + 1).padStart(2, '0')}`, data: { pay: 400 - i * 10, fit: 90 - i }, by: 'you' }).entry.id);
+    nbs.choose(jobs.id, ids[2]);
+    nbs.choose(jobs.id, ids[5]);
+    nbs.ruleOut(jobs.id, ids[15], 'Too junior', 'you');
+    const cars = nbs.create({ title: 'Buy a car', statement: 'A used car', params: [], criteria: [] });
+    nbs.setFields(cars.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }]);
+    for (const t of ['Car A', 'Car B', 'Car C']) nbs.upsertOption(cars.id, { title: t, data: { price: 9000 }, by: 'you' });
+
+    // Ranked for the question: the job notebook leads and is marked; the other says why not.
+    const sets = (await get(app, '/experiments/sets?question=Does%20the%20job%20agent%27s%20build%20change%20which%20jobs%20it%20picks%3F')).text;
+    expect(sets.indexOf('Find fitting jobs')).toBeLessThan(sets.indexOf('Buy a car'));
+    expect(sets).toContain('Find fitting jobs <span class="badge badge--ok">Suggested</span>');
+    expect(sets).toContain('For it: about job, as your question is; pay noted for every option; you picked 2 of them, so results can be scored against your picks; 1 ruled out with a reason, which a good result should keep low.');
+    expect(sets).toContain('Against it: only 3 options, so results will be coarse; not about what your question asks.');
+    expect(sets).not.toMatch(/name="from"[^>]* checked/);
+    // With no question, nothing is suggested on topic alone, but the page still lists them.
+    expect((await get(app, '/experiments/new')).text).toContain('Find fitting jobs');
+
+    // What would be copied from it: a golden set of 10 of the 15 in the running, with the two picks and the one ruled out.
+    const panel = (await get(app, `/experiments/sets?panel=1&from=${jobs.id}`)).text;
+    expect(panel).toContain('sua suggests a golden set of 10 in place of all 15: your 2 picks; 7 of the rest, spread from best to worst by fit; and 1 you ruled out (a good result keeps it low). Fewer items make quicker, clearer runs.');
+    expect(panel.match(/data-exp-item checked/g)).toHaveLength(10);
+    expect(panel.match(/data-exp-item/g)).toHaveLength(16);
+    expect(panel).toContain('Job 03 <span class="badge badge--ok">your pick</span>');
+    expect(panel).toContain('<span class="badge badge--muted">ruled out</span> <span class="exp-set__reason">Too junior</span>');
+    expect(panel).toContain(`name="key_${jobs.id}" value="1" data-exp-key checked`);
+    expect(panel).toContain('Score each result against your 2 picks: Job 03, Job 06; and against keeping what you ruled out low.');
+
+    // Set it up with five of them and the answer key: only those are frozen, without the notebook's own fit score, and scored against the picks.
+    const kept = [ids[0], ids[2], ids[5], ids[9], ids[15]];
+    const body = new URLSearchParams({ name: 'Golden', from: jobs.id, [`key_${jobs.id}`]: '1' });
+    for (const id of kept) body.append(`items_${jobs.id}`, id);
+    const made = await request(app).post('/experiments').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body.toString());
+    expect(made.status).toBe(303);
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const e = s.get(idOf(made.headers.location))!;
+    const items = s.cases(e.id)[0].items;
+    expect(items.map((i) => i.id)).toEqual(['job-01', 'job-03', 'job-06', 'job-10', 'job-16']);
+    expect(items[0].facts).toEqual({ Pay: '$400' });
+    expect(e.scorers).toEqual([
+      { id: 'your-picks-near-the-top', name: 'Your picks near the top', kind: 'top', items: ['job-03', 'job-06'], k: 4 },
+      { id: 'ruled-out-ones-kept-low', name: 'Ruled-out ones kept low', kind: 'top', items: ['job-16'], k: 3, avoid: true },
+    ]);
+    const page = (await get(app, `/experiments/${e.id}`)).text;
+    expect(page).toContain('5 items, copied from');
+    expect(page).toContain('(Job 16) kept out of the top 3');
+    // A ranking that puts the picks first and the ruled-out one last scores 100% on both.
+    ctx.experimentTaskRun = async () => ranking(['job-03', 'job-06', 'job-01', 'job-10', 'job-16']);
+    await post(app, `/experiments/${e.id}/run`);
+    await settle();
+    expect((await get(app, `/experiments/${e.id}`)).text).toContain('<td class="exp-n">100%</td><td class="exp-n">100%</td>');
+
+    // Fewer than two kept is refused, back on the set step with what was ticked.
+    const one = new URLSearchParams({ name: 'Too few', from: jobs.id });
+    one.append(`items_${jobs.id}`, ids[0]);
+    const refused = await request(app).post('/experiments').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(one.toString());
+    expect(refused.status).toBe(400);
+    expect(refused.text).toContain('Keep at least two items in the set');
+    expect(refused.text).toContain('data-exp-open="2"');
+    expect(refused.text.match(/data-exp-item checked/g)).toHaveLength(1);
+    // Nothing ticked at all (a page without scripts): every option in the running is used, as before.
+    const all = await post(app, '/experiments', { name: 'Everything', from: jobs.id });
+    expect(s.cases(idOf(all.headers.location))[0].items).toHaveLength(15);
+  });
 });

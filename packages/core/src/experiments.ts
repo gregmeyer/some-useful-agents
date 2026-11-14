@@ -59,13 +59,14 @@ export type ExperimentCondition = MeasuredCondition;
 /**
  * How each result is scored, beside how the results compare (ADR-0078).
  * - `top`: counted in code. The share of the named items that are in the
- *   result's top K ("these three should be near the top").
+ *   result's top K ("these three should be near the top"); with `avoid`,
+ *   the share kept out of it ("these two should stay low").
  * - `judge`: a model reads one result against a rubric written in plain
  *   words and gives 0 to 1 with a reason. It sees the items, the person's
  *   preferences and the ranking; never which build made it.
  */
 export type ExperimentScorer =
-  | { id: string; name: string; kind: 'top'; items: string[]; k: number }
+  | { id: string; name: string; kind: 'top'; items: string[]; k: number; /** Score the share kept OUT of the top K (things that should stay low). */ avoid?: boolean }
   | { id: string; name: string; kind: 'judge'; rubric: string; provider?: string; model?: string };
 
 /** One result's score from one scorer. */
@@ -280,7 +281,8 @@ export function cleanScorers(raw: unknown, cases: readonly ExperimentCase[] = []
       const items = [...new Set((Array.isArray(r.items) ? r.items : []).map((i) => (typeof i === 'string' ? i : '')).filter((i) => (cases.length ? known.has(i) : !!i)))].slice(0, 20);
       if (!items.length) continue;
       const k = int(r.k, 1, 60, topK);
-      out.push({ id: unique(slug(typeof r.id === 'string' && r.id ? r.id : name || 'in-the-top', 'top'), ids), name: name || `In the top ${String(k)}`, kind: 'top', items, k });
+      const avoid = r.avoid === true;
+      out.push({ id: unique(slug(typeof r.id === 'string' && r.id ? r.id : name || (avoid ? 'out-of-the-top' : 'in-the-top'), 'top'), ids), name: name || `${avoid ? 'Out of' : 'In'} the top ${String(k)}`, kind: 'top', items, k, ...(avoid ? { avoid } : {}) });
     } else if (r.kind === 'judge') {
       const rubric = text(r.rubric, 2000);
       if (!rubric) continue;
@@ -293,11 +295,13 @@ export function cleanScorers(raw: unknown, cases: readonly ExperimentCase[] = []
   return out;
 }
 
-/** A `top` scorer's score for one ranking: the share of its items in the first K. Pure. */
+/** A `top` scorer's score for one ranking: the share of its items in the first K (or, with `avoid`, kept out of it). Pure. */
 export function topScore(scorer: Extract<ExperimentScorer, { kind: 'top' }>, ranking: readonly string[]): number {
   const top = new Set(ranking.slice(0, scorer.k));
   const mine = scorer.items.filter((id) => ranking.includes(id));
-  return mine.length ? mine.filter((id) => top.has(id)).length / mine.length : 0;
+  if (!mine.length) return 0;
+  const inTop = mine.filter((id) => top.has(id)).length;
+  return (scorer.avoid ? mine.length - inTop : inTop) / mine.length;
 }
 
 /**

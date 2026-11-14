@@ -48,6 +48,20 @@
 /* Once a kind of change is chosen, only that choice stays, so its versions are next to it. */
 .exp-wiz .exp-change:not([data-kind=""]) .exp-choice:not(:has(input:checked)) { display: none; }
 .exp-new:not(.exp-wiz) [data-exp-rekind] { display: none; }
+.exp-sets { display: grid; gap: var(--space-2); }
+.exp-choice--suggested { border-color: var(--accent-teal); }
+.exp-choice__for, .exp-choice__but { font-size: var(--font-size-xs); }
+.exp-choice__but { color: var(--color-warn); }
+/* What will be copied from the chosen notebook. */
+.exp-set { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-left: 2px solid var(--accent-teal); background: var(--color-surface); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.exp-set__says { margin: 0; }
+.exp-set__list > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.exp-set__items { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--font-size-sm); max-height: 320px; overflow-y: auto; }
+.exp-set__items label { display: block; cursor: pointer; }
+.exp-set__reason { color: var(--color-text-muted); }
+.exp-set__key { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; font-size: var(--font-size-sm); cursor: pointer; }
+.exp-set__key input { margin-top: 3px; }
+.exp-set__keynote { display: block; color: var(--color-text-muted); }
 .exp-reveal { display: grid; gap: var(--space-3); padding: 0 0 var(--space-2) var(--space-4); border-left: 2px solid var(--color-border); justify-items: start; }
 .exp-reveal > * { width: 100%; }
 .exp-reveal > .btn { width: auto; }

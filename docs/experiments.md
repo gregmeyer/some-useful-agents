@@ -18,7 +18,7 @@ A [notebook](notebooks.md) finds things, checks them against sources and helps y
 - **Runs of each condition** (1 to 5, 3 by default). Repeats show how much the answer moves by itself. With one run of each, nothing is concluded.
 
 - **How to score each result** (optional, up to three). Without a score, results are only compared with each other: you learn which conditions differ, not which is better. A score says how good each result is by a standard you set.
-  - **Items that should be near the top**: part of an item's title, one a line. Counted in code: the share of those items that land in the top K. A line that matches no item is refused, not dropped.
+  - **Items that should be near the top**: part of an item's title, one a line. Counted in code: the share of those items that land in the top K. A line that matches no item is refused, not dropped. (A notebook's [answer key](#choosing-the-set) fills this in for you, and can also count ruled-out items kept *out* of the top.)
   - **A judge** (up to two): a rubric in plain words ("the top three match what the person asked for"). A model reads each result against it and gives 0 to 100% with a reason. You can choose which model judges.
 
 A pass makes at most 60 runs (sets × conditions × repeats, and once more for each judge, which reads every result); a larger setup is refused, saying what to cut.
@@ -28,7 +28,7 @@ A pass makes at most 60 runs (sets × conditions × repeats, and once more for e
 **New experiment** is five short steps. Nothing is made until the last one, and nothing runs until you press Run after that.
 
 1. **The question.** What you want to find out, in your own words.
-2. **What stays the same.** The set every run ranks: one of your notebooks that has two or more options (each shows how many, and the first few), or a list you paste. Nothing is chosen for you.
+2. **What stays the same.** The set every run ranks: one of your notebooks, or a list you paste. sua helps you choose (see [Choosing the set](#choosing-the-set)). Nothing is chosen for you.
 3. **What changes.** One change at a time. First what kind it is: how the agent is told to decide, what the person asks for, the model it runs on, or the version of the agent. Then what to call it and its versions, A and B (up to four), each a name and the one box that kind needs. **Change something else too** adds another, up to three. Changes you've made show as a line each, with Edit and Remove. You can go on with none: the experiment then only shows how much the result moves by itself.
 4. **Which is better.** Optional. Leave it off to learn only which versions differ. **Count it** names items that should be near the top; **Have a model judge it** takes a rubric in your words.
 5. **Check it.** The whole setup written out: the question, the set, each change and its versions, how it's scored, and what it comes to ("2 × 2 = 4 combinations × 3 runs = 12 runs", with every combination listed when there are eight or fewer). The name is here (sua uses your question if you leave it empty), and **How it runs** holds the two things most people never change: the agent, and how many times each combination is run. Every part has an Edit back to its step. **Set it up** makes it.
@@ -40,6 +40,15 @@ A link can fill it in: any field by its name in the address (`/experiments/new?q
 **Also make a notebook that shows its results** (on the last step, ticked to begin with) makes its [notebook](#showing-it-in-a-notebook) with it.
 
 **From a conversation.** Ask sua to test, prove or compare what changes an agent's answer ("does the model matter more than the instructions?") and it offers **Set up the experiment**: a link to this page with your question and its draft of the changes filled in, for you to check and edit. sua never invents the set (it names one of your notebooks, or leaves it for you to choose), never starts a notebook or builds an agent for such an ask, and never answers the question from reasoning. Nothing runs until you press Run. Ask sua later what an experiment found and it repeats the finding from the runs, with what it rests on.
+
+## Choosing the set
+
+Which set to hold fixed is the hardest question, so the step answers most of it from what your notebooks hold. Nothing here uses a model; it is all counted.
+
+- **Your notebooks are ranked for your question**, each with what speaks for it and against it: whether it is about what you asked, how many options it has, which facts are noted for every option and which are missing ("remote is missing for 9 of 14"), whether you picked any, and whether any were ruled out with a reason. The best fit is marked **Suggested**. A list of fewer than five options is never suggested, however well its title matches.
+- **A golden set.** Choose a notebook and sua shows what it would copy. A short list (12 or fewer) is used whole. A longer one is trimmed to about 10: your picks, a spread of the rest from best to worst by whatever the notebook ranks on, and up to two you ruled out with a reason. Fewer items make quicker, clearer runs. Every option is listed with the proposed ones ticked; tick or untick any.
+- **An answer key.** When the notebook has your picks, **Score each result against your picks** adds two counted scores: *Your picks near the top*, and, when ruled-out ones are in the set, *Ruled-out ones kept low*. The experiment then tells you which version agrees with what you actually chose, not only which versions differ. If you haven't decided in that notebook, sua's own picks stand in and the page says they are sua's, not yours.
+- The notebook's own fit score is never copied into the set: it is a judgement, and a run that was handed it would only repeat it.
 
 ## Running it
 

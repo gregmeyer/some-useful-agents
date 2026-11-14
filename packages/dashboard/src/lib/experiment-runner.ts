@@ -61,17 +61,22 @@ export function runningPass(ctx: Ctx, experimentId: string): string | undefined 
 }
 
 /**
- * A notebook's options as a case to freeze: the ones still in the running,
- * each with its facts as the page shows them, in name order. Not in the
- * notebook's own ranking: the order items are shown in would lean every run
- * toward it. Pure.
+ * A notebook's options as a case to freeze, each with its facts as the page
+ * shows them, in name order. Not in the notebook's own ranking: the order
+ * items are shown in would lean every run toward it. Nor with the
+ * notebook's own fit score: that is a judgement, and a run given it would
+ * only repeat it. By default the options still in the running; with `only`,
+ * exactly those entries (ruled-out ones too, when named). `refs` are the
+ * notebook entries the items came from, in the same order. Pure.
  */
-export function caseFromNotebook(nb: Notebook, entries: Parameters<typeof notebookViewData>[1]): { name: string; items: Array<Omit<ExperimentItem, 'id'> & { id?: string }> } {
-  const options = rankOptions(nb, notebookViewData(nb, entries).notebook.options);
-  const items = [...options].sort((a, b) => a.name.localeCompare(b.name)).map((o) => {
+export function caseFromNotebook(nb: Notebook, entries: Parameters<typeof notebookViewData>[1], opts: { only?: ReadonlySet<string> } = {}): { name: string; items: Array<Omit<ExperimentItem, 'id'> & { id?: string }>; refs: string[] } {
+  const all = notebookViewData(nb, entries).notebook.options;
+  const options = opts.only ? all.filter((o) => opts.only!.has(o.id)) : rankOptions(nb, all);
+  const sorted = [...options].sort((a, b) => a.name.localeCompare(b.name));
+  const items = sorted.map((o) => {
     const facts: Record<string, string> = {};
     for (const f of nb.fields) {
-      if (f.role === 'link' || f.type === 'url') continue;
+      if (f.role === 'link' || f.role === 'score' || f.type === 'url') continue;
       const v = o.fields[f.key];
       if (v === undefined || v === null || v === '') continue;
       try { facts[f.label] = formatFieldValue(f, v); } catch { /* a fact that can't be shown is left out */ }
@@ -79,17 +84,17 @@ export function caseFromNotebook(nb: Notebook, entries: Parameters<typeof notebo
     // The short name (it carries the company when several share a title) makes an id a reader can tell apart.
     return { id: o.name, title: o.title, facts };
   });
-  return { name: nb.title, items };
+  return { name: nb.title, items, refs: sorted.map((o) => o.id) };
 }
 
-/** Freeze a notebook's options as an experiment's case, or say why it can't be. */
-export function freezeNotebook(ctx: Ctx, notebookId: string): { cases: unknown[]; from: { notebookId: string; title: string } } | { error: string } {
+/** Freeze a notebook's options (all in the running, or only the entries named) as an experiment's case, or say why it can't be. */
+export function freezeNotebook(ctx: Ctx, notebookId: string, opts: { only?: ReadonlySet<string> } = {}): { cases: unknown[]; refs: string[]; from: { notebookId: string; title: string } } | { error: string } {
   const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = nbs.get(notebookId);
   if (!nb) return { error: 'No such notebook.' };
-  const c = caseFromNotebook(nb, nbs.entries(nb.id, 1000));
-  if (c.items.length < 2) return { error: `${nb.title} has ${String(c.items.length)} ${c.items.length === 1 ? 'option' : 'options'} in the running; an experiment needs at least two to rank.` };
-  return { cases: [c], from: { notebookId: nb.id, title: nb.title } };
+  const c = caseFromNotebook(nb, nbs.entries(nb.id, 1000), opts);
+  if (c.items.length < 2) return { error: opts.only ? 'Keep at least two items in the set: an experiment needs two or more to rank.' : `${nb.title} has ${String(c.items.length)} ${c.items.length === 1 ? 'option' : 'options'} in the running; an experiment needs at least two to rank.` };
+  return { cases: [{ name: c.name, items: c.items }], refs: c.refs, from: { notebookId: nb.id, title: nb.title } };
 }
 
 /** Lines of pasted text as a case: one item a line, "Title | Fact: value | Fact: value". */

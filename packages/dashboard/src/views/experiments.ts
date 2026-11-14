@@ -14,6 +14,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { working } from './working.js';
+import type { GoldenSet, SetCandidate } from '../lib/experiment-set.js';
 
 type Flash = { kind: 'error' | 'info' | 'ok'; message: string };
 const list = (xs: SafeHtml[]) => xs as unknown as SafeHtml[];
@@ -99,6 +100,64 @@ export function experimentStepForError(message: string): number {
 }
 
 /**
+ * The sets to choose from: your notebooks, the best fit for the question
+ * first, each with what speaks for it and against it; then a list you
+ * paste. The one that fits best is marked Suggested (never chosen for you).
+ */
+export function renderSetChoices(candidates: readonly SetCandidate[], selected: string, pasting: boolean): SafeHtml {
+  const on = (yes: boolean) => (yes ? unsafeHtml(' checked') : unsafeHtml(''));
+  return html`${list(candidates.map((n) => html`<label class="exp-choice${n.suggested ? ' exp-choice--suggested' : ''}">
+      <input type="radio" name="from" value="${n.id}" data-exp-from data-title="${n.title}" data-label="${plural(n.options, 'option')} copied from ${n.title}"${on(selected === n.id)}>
+      <span class="exp-choice__title">${n.title}${n.suggested ? html` <span class="badge badge--ok">Suggested</span>` : html``}</span>
+      <span class="exp-choice__says">${plural(n.options, 'option')}${n.sample.length ? `: ${n.sample.join(' · ')}${n.options > n.sample.length ? ` and ${String(n.options - n.sample.length)} more` : ''}` : ''}</span>
+      ${n.why.length ? html`<span class="exp-choice__says exp-choice__for">For it: ${n.why.join('; ')}.</span>` : html``}
+      ${n.but.length ? html`<span class="exp-choice__says exp-choice__but">Against it: ${n.but.join('; ')}.</span>` : html``}
+    </label>`))}
+    <label class="exp-choice">
+      <input type="radio" name="from" value="paste" data-exp-from data-title="" data-label="a list you pasted"${on(pasting)}>
+      <span class="exp-choice__title">A list I paste</span>
+      <span class="exp-choice__says">${candidates.length ? 'When none of your notebooks has the things to rank.' : 'None of your notebooks has two or more options yet.'}</span>
+    </label>`;
+}
+
+/**
+ * What will be copied from the chosen notebook, to check and change: the
+ * set sua proposes (all of a short list; a trimmed "golden set" of a long
+ * one) as a list of every option with the proposed ones ticked, and, when
+ * the notebook has picks, the offer to score results against them.
+ * `posted` are the items ticked last time (a page that came back).
+ */
+export function renderSetPanel(notebookId: string, g: GoldenSet, posted?: { items?: ReadonlySet<string>; key?: boolean }): SafeHtml {
+  const ticked = (id: string, inSet: boolean) => (posted?.items ? posted.items.has(id) : inSet);
+  const picks = g.items.filter((i) => i.why === 'pick' && i.inSet).length;
+  const spread = g.items.filter((i) => i.why === 'spread' && i.inSet).length;
+  const low = g.items.filter((i) => i.why === 'ruled-out' && i.inSet).length;
+  const running = g.items.filter((i) => i.why !== 'ruled-out').length;
+  const parts = [
+    ...(picks ? [`${g.key?.by === 'sua' ? 'sua\'s' : 'your'} ${plural(picks, 'pick')}`] : []),
+    ...(spread ? [`${String(spread)} of the rest, spread from best to worst${g.across ? ` by ${g.across}` : ''}`] : []),
+    ...(low ? [`${String(low)} you ruled out (a good result keeps ${low === 1 ? 'it' : 'them'} low)`] : []),
+  ];
+  const says = g.trimmed
+    ? `sua suggests a golden set of ${String(g.size)} in place of all ${String(running)}: ${parts.length > 1 ? `${parts.slice(0, -1).join('; ')}; and ${parts[parts.length - 1]}` : parts.join('')}. Fewer items make quicker, clearer runs.`
+    : `All ${String(running)} of its options${low ? `, and ${String(low)} you ruled out (a good result keeps ${low === 1 ? 'it' : 'them'} low)` : ''}.`;
+  const tag = (i: GoldenSet['items'][number]) => (i.why === 'pick' ? html` <span class="badge badge--ok">${g.key?.by === 'sua' ? 'sua\'s pick' : 'your pick'}</span>` : i.why === 'ruled-out' ? html` <span class="badge badge--muted">ruled out</span>${i.reason ? html` <span class="exp-set__reason">${i.reason}</span>` : html``}` : html``);
+  const keyOn = posted?.key ?? !!g.key;
+  return html`<div class="exp-set" data-exp-set data-total="${String(g.of)}">
+    <p class="exp-set__says">${says}</p>
+    <details class="exp-set__list"${g.trimmed ? unsafeHtml(' open') : unsafeHtml('')}>
+      <summary>See and change what's in it</summary>
+      <ul class="exp-set__items">
+        ${list(g.items.map((i) => html`<li><label><input type="checkbox" name="items_${notebookId}" value="${i.id}" data-exp-item${ticked(i.id, i.inSet) ? unsafeHtml(' checked') : unsafeHtml('')}> ${i.name}${tag(i)}</label></li>`))}
+      </ul>
+    </details>
+    ${g.key ? html`<label class="exp-set__key"><input type="checkbox" name="key_${notebookId}" value="1" data-exp-key${keyOn ? unsafeHtml(' checked') : unsafeHtml('')}>
+      <span>Score each result against ${g.key.by === 'sua' ? 'sua\'s' : 'your'} ${plural(g.key.ids.length, 'pick')}: ${g.key.names.join(', ')}${low ? `; and against keeping what you ruled out low` : ''}.
+      <span class="exp-set__keynote">${g.key.by === 'sua' ? 'You haven\'t decided in that notebook, so these are sua\'s picks, not yours.' : 'This tells you which version agrees with what you actually chose, not only which versions differ.'}</span></span></label>` : html``}
+  </div>`;
+}
+
+/**
  * The page that sets an experiment up, as five steps: the question, the set
  * every run ranks, what changes (one change at a time, each one kind of
  * change), whether results are scored, and a summary to check. It is one
@@ -107,7 +166,9 @@ export function experimentStepForError(message: string): number {
  * at the end. `open` is the step to start on.
  */
 export function renderExperimentNew(args: {
-  notebooks: ReadonlyArray<{ id: string; title: string; options: number; sample?: readonly string[] }>;
+  notebooks: readonly SetCandidate[];
+  /** What will be copied from the chosen notebook (renderSetPanel), when one is chosen. */
+  setPanel?: SafeHtml;
   agents: ReadonlyArray<{ id: string; name: string; costPerRun?: number }>;
   providers: readonly string[];
   defaultAgent: string;
@@ -211,21 +272,13 @@ export function renderExperimentNew(args: {
         <fieldset class="exp-choices">
           <legend class="exp-step__ask" id="exp-s2">Which set should every run rank?</legend>
           <p class="form-field__hint">It is copied now and never changes, so every run is judged on the same things.</p>
-          ${list(args.notebooks.map((n) => html`<label class="exp-choice">
-            <input type="radio" name="from" value="${n.id}" data-exp-from data-label="${plural(n.options, 'option')} copied from ${n.title}"${on(v.from === n.id, 'checked')}>
-            <span class="exp-choice__title">${n.title}</span>
-            <span class="exp-choice__says">${plural(n.options, 'option')}${n.sample?.length ? `: ${n.sample.join(' · ')}${n.options > n.sample.length ? ` and ${String(n.options - n.sample.length)} more` : ''}` : ''}</span>
-          </label>`))}
-          <label class="exp-choice">
-            <input type="radio" name="from" value="paste" data-exp-from data-label="a list you pasted"${on(pasting, 'checked')}>
-            <span class="exp-choice__title">A list I paste</span>
-            <span class="exp-choice__says">${args.notebooks.length ? 'When none of your notebooks has the things to rank.' : 'None of your notebooks has two or more options yet.'}</span>
-          </label>
+          <div class="exp-sets" data-exp-sets data-for-question="${(v.question ?? '').trim()}">${renderSetChoices(args.notebooks, v.from ?? '', pasting)}</div>
         </fieldset>
         <div class="exp-paste" data-exp-paste${on(!pasting, 'hidden')}>
           <textarea class="form-field__textarea" name="paste" rows="5" aria-label="The items, one a line" placeholder="Staff Engineer at Acme | Pay: $250,000 | Remote: yes&#10;Senior Engineer at Globex | Pay: $210,000 | Remote: no">${v.paste ?? ''}</textarea>
           <p class="form-field__hint">One item a line. Facts after the title are separated by | and written "Label: value".</p>
         </div>
+        <div data-exp-setpanel>${args.setPanel ?? html``}</div>
         <p class="exp-step__err" data-exp-err role="alert" hidden></p>
       </section>
 
@@ -456,7 +509,7 @@ export function renderExperimentPage(args: {
         <div><dt>Holds fixed</dt><dd>${list(cases.map((c) => html`${plural(c.items.length, 'item')}${e.from ? html`, copied from <a href="/notebooks/${encodeURIComponent(e.from.notebookId)}">${e.from.title}</a>` : html``} `))}</dd></div>
         ${list(e.factors.map((f) => html`<div><dt>Varies ${f.name.toLowerCase()}</dt><dd><ul class="exp-levels-said">${list(f.levels.map((l) => html`<li><strong>${l.name}:</strong> ${levelSays(l).join('; ')}</li>`))}</ul></dd></div>`))}
         ${list(e.scorers.map((sc) => html`<div><dt>Scores</dt><dd><strong>${sc.name}:</strong> ${sc.kind === 'top'
-          ? `counted: the share of ${plural(sc.items.length, 'named item')} (${sc.items.map((id) => titleOf.get(id) ?? id).join('; ')}) in the top ${String(sc.k)}`
+          ? `counted: the share of ${plural(sc.items.length, 'named item')} (${sc.items.map((id) => titleOf.get(id) ?? id).join('; ')}) ${sc.avoid ? 'kept out of' : 'in'} the top ${String(sc.k)}`
           : `judged${sc.provider || sc.model ? ` by ${[sc.provider, sc.model].filter(Boolean).join(' ')}` : ''}: “${sc.rubric}”`}</dd></div>`))}
         ${e.factors.length ? html`` : html`<div><dt>Varies</dt><dd>Nothing: it runs the agent as it is, ${plural(e.repeats, 'time')}, which shows how much its answer moves by itself.</dd></div>`}
       </dl>
@@ -562,6 +615,35 @@ export const EXPERIMENT_PAGE_JS = `
     return { line: line + '.', warn: warn, over: runs > MAX, combos: combos };
   }
 
+  // ----- step 2: the sets, ranked for the question, and what would be copied -----
+  var askedFor = null;
+  function getHtml(url) { return fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch' } }).then(function (r) { return r.ok ? r.text() : null; }); }
+  function chosenFrom() { var r = one('[data-exp-from]:checked'); return r ? r.value : ''; }
+  function loadPanel(from) {
+    var box = one('[data-exp-setpanel]');
+    if (!box) return;
+    if (!from || from === 'paste') { box.textContent = ''; return; }
+    box.setAttribute('data-for', from);
+    getHtml('/experiments/sets?panel=1&from=' + encodeURIComponent(from)).then(function (h) {
+      // Only if it's still the one chosen.
+      if (h !== null && box.getAttribute('data-for') === from && chosenFrom() === from) { box.innerHTML = h; if (cur === LAST) drawSummary(); }
+    }).catch(function () {});
+  }
+  /** The question changed since the sets were last ranked: rank them again, keeping what's chosen. */
+  function refreshSets() {
+    var q = text(form.elements.question);
+    var list = one('[data-exp-sets]');
+    if (!list || q === askedFor) return;
+    var first = askedFor === null;
+    askedFor = q;
+    // As the page came, it is already ranked for the question it came with.
+    if (first && q === (list.getAttribute('data-for-question') || '')) return;
+    getHtml('/experiments/sets?question=' + encodeURIComponent(q) + '&from=' + encodeURIComponent(chosenFrom())).then(function (h) {
+      if (h !== null && askedFor === q) list.innerHTML = h;
+    }).catch(function () {});
+  }
+  function setItems() { return all('[data-exp-setpanel] [data-exp-item]'); }
+
   // ----- step 3: one change at a time -----
   function clearChange(c) {
     all('input[type="text"], input[type="number"], input:not([type]), textarea', c).forEach(function (x) { x.value = ''; });
@@ -640,7 +722,11 @@ export const EXPERIMENT_PAGE_JS = `
     row(dl, 'Finds out', q || 'No question written down.', 1);
     var from = one('[data-exp-from]:checked');
     var lines = text(form.elements.paste).split(/\\n/).filter(function (l) { return l.trim(); }).length;
-    row(dl, 'Holds fixed', !from ? 'Nothing chosen yet.' : from.value === 'paste' ? lines + (lines === 1 ? ' item' : ' items') + ' you pasted' : from.getAttribute('data-label'), 2);
+    var boxes = setItems();
+    var kept = boxes.filter(function (x) { return x.checked; }).length;
+    var holds = !from ? 'Nothing chosen yet.' : from.value === 'paste' ? lines + (lines === 1 ? ' item' : ' items') + ' you pasted'
+      : boxes.length && kept < boxes.length ? kept + (kept === 1 ? ' item' : ' items') + ' from ' + from.getAttribute('data-title') + ' (a golden set; ' + (boxes.length - kept) + ' left out)' : from.getAttribute('data-label');
+    row(dl, 'Holds fixed', holds, 2);
     var ms = made();
     if (!ms.length) row(dl, 'Changes', 'Nothing. It will only show how much the result moves by itself.', 3);
     ms.forEach(function (x) {
@@ -660,6 +746,8 @@ export const EXPERIMENT_PAGE_JS = `
     var tops = count && count.checked ? text(form.elements.top_items).split(/\\n/).filter(function (l) { return l.trim(); }) : [];
     var js = judges();
     var scored = [];
+    var key = one('[data-exp-setpanel] [data-exp-key]');
+    if (from && from.value !== 'paste' && key && key.checked) scored.push('counts whether the picks in that notebook land near the top');
     if (tops.length) scored.push('counts how many of ' + tops.length + (tops.length === 1 ? ' named item lands' : ' named items land') + ' near the top');
     if (js) scored.push(js === 1 ? 'a model judges each result against your words' : js + ' models judge each result');
     var scores = scored.join('; and ');
@@ -692,6 +780,8 @@ export const EXPERIMENT_PAGE_JS = `
       var from = one('[data-exp-from]:checked');
       if (!from) return 'Choose the set every run ranks.';
       if (from.value === 'paste' && text(form.elements.paste).split(/\\n/).filter(function (l) { return l.trim(); }).length < 2) return 'Paste at least two items, one a line.';
+      var boxes = setItems();
+      if (from.value !== 'paste' && boxes.length && boxes.filter(function (x) { return x.checked; }).length < 2) return 'Keep at least two items in the set.';
     }
     if (n === 3) return closeEditing();
     return '';
@@ -708,6 +798,7 @@ export const EXPERIMENT_PAGE_JS = `
     one('[data-exp-back]').hidden = cur === 1;
     one('[data-exp-next]').hidden = cur === LAST;
     one('[data-exp-submit]').hidden = cur !== LAST;
+    if (cur === 2) refreshSets();
     if (cur === 3) enterChanges();
     if (cur === LAST) drawSummary();
     if (focus) {
@@ -731,7 +822,8 @@ export const EXPERIMENT_PAGE_JS = `
     var t = e.target;
     if (!t.matches) return;
     if (t.matches('[data-exp-kind]')) { applyKind(t.closest('[data-exp-change]')); drawChanges(); var n = one('.exp-ver__name', t.closest('[data-exp-change]')); if (n) n.focus(); }
-    if (t.matches('[data-exp-from]')) { one('[data-exp-paste]').hidden = t.value !== 'paste'; say(2, ''); }
+    if (t.matches('[data-exp-from]')) { one('[data-exp-paste]').hidden = t.value !== 'paste'; say(2, ''); loadPanel(t.value); }
+    if (t.matches('[data-exp-item]')) say(2, '');
     if (t.matches('[data-exp-reveal]')) {
       var box = one('[data-exp-revealed="' + t.getAttribute('data-exp-reveal') + '"]');
       box.hidden = !t.checked;
