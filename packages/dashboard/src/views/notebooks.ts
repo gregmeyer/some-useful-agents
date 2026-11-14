@@ -1357,13 +1357,27 @@ export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+/**
+ * Experiments made from this notebook's options: what each found, in a
+ * line, so the notebook that supplied a set shows what was learned from it.
+ * Nothing when there are none.
+ */
+export function experimentsStrip(experiments: ReadonlyArray<{ name: string; href: string; stands: string; found?: string }> = []): SafeHtml {
+  if (!experiments.length) return html``;
+  return html`<section class="nb-exps" aria-label="Experiments on this notebook's options">
+    <p class="nb-exps__label">Experiments on its options</p>
+    <ul class="nb-exps__list">${experiments.map((e) => html`<li><a href="${e.href}">${e.name}</a><span class="nb-exps__found">${e.found ?? (e.stands === 'not run yet' ? 'Not run yet.' : `No finding yet (${e.stands}).`)}</span></li>`) as unknown as SafeHtml[]}</ul>
+  </section>`;
+}
+
+export function renderNotebookPage(args: { experiments?: ReadonlyArray<{ name: string; href: string; stands: string; found?: string }>; nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
     ${givenCard(args.nb, args.reading)}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
+    ${experimentsStrip(args.experiments)}
     
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>

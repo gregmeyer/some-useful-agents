@@ -13,6 +13,8 @@ export type AgentTab = 'overview' | 'chat' | 'nodes' | 'config' | 'runs' | 'yaml
 export interface AgentDetailArgs {
   /** The number the next saved version gets (after a rollback it isn't current + 1). */
   nextVersion?: number;
+  /** Experiments that tested this agent, with what each found (ADR-0078). */
+  experiments?: ReadonlyArray<{ name: string; href: string; stands: string; found?: string; restsOn?: string }>;
   agent: Agent;
   recentRuns: Run[];
   secretsStore: SecretsStore;
