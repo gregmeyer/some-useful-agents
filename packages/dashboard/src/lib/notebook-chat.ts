@@ -426,7 +426,7 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       const t = saved ? { name: saved.name, setup: saved.setup } : draftTemplate(nb);
       return {
         saved: !!saved, name: t.name, ...(t.setup.subject ? { subject: t.setup.subject } : {}),
-        for: t.setup.statement, limits: t.setup.params, doneWhen: t.setup.criteria, checks: t.setup.checks,
+        for: t.setup.statement, limits: t.setup.params, doneWhen: t.setup.criteria, checks: t.setup.checks, asks: t.setup.asks ?? [],
         steps: Object.fromEntries(t.setup.steps.map((x) => [x.id, x.title])), fieldLabels: Object.fromEntries(t.setup.fields.map((f) => [f.key, f.label])),
         page: `/notebooks/${encodeURIComponent(nb.id)}/template`,
       };

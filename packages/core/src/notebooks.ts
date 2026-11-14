@@ -1118,6 +1118,41 @@ export interface NotebookTemplateSetup {
    * `{subject}` where it goes, and starting one fills it in (fillSubject).
    */
   subject?: NotebookTemplateSubject;
+  /**
+   * What a notebook from it asks you for (a profile saved as a PDF, a
+   * résumé): each becomes a box on the new notebook. Labels only, never
+   * what was given; `{subject}` in a label is filled in too.
+   */
+  asks?: NotebookTemplateAsk[];
+}
+
+/** Something a template's notebooks ask you for. `optional`: wanted, never waited for. */
+export interface NotebookTemplateAsk { label: string; why?: string; optional?: boolean }
+
+/** The most things a template asks for. */
+export const TEMPLATE_ASKS_MAX = 4;
+
+/** A template's asks, cleaned: a label each (one per name, any case), at most 4. */
+export function cleanTemplateAsks(raw: unknown): NotebookTemplateAsk[] {
+  if (!Array.isArray(raw)) return [];
+  const out: NotebookTemplateAsk[] = [];
+  for (const x of raw as Array<Record<string, unknown>>) {
+    if (!x || typeof x !== 'object' || typeof x.label !== 'string') continue;
+    const label = x.label.replace(/\s+/g, ' ').trim().replace(/[.]+$/, '').slice(0, 80);
+    if (!label || out.some((a) => a.label.toLowerCase() === label.toLowerCase())) continue;
+    const why = typeof x.why === 'string' ? x.why.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+    out.push({ label, ...(why ? { why } : {}), ...(x.optional === true ? { optional: true } : {}) });
+    if (out.length >= TEMPLATE_ASKS_MAX) break;
+  }
+  return out;
+}
+
+/** Why a notebook waits for something its template needs, when the template gives no reason of its own. */
+export const TEMPLATE_ASK_WHY = 'Its template asks for this before anything runs.';
+
+/** A template's asks as a new notebook's `given` (each still to be added), with this time's subject in the labels. */
+export function givenFromAsks(asks: readonly NotebookTemplateAsk[] | undefined, subject = ''): Array<{ label: string; why?: string; optional?: boolean }> {
+  return cleanTemplateAsks(asks).map((a) => ({ ...a, label: fillSubject(a.label, subject), ...(a.optional || a.why ? {} : { why: TEMPLATE_ASK_WHY }) }));
 }
 
 export interface NotebookTemplateSubject {
@@ -1141,6 +1176,8 @@ export interface NotebookTemplateEdits {
   /** What each option notes, relabelled, by field key. */
   fieldLabels?: Readonly<Record<string, string>>;
   subject?: NotebookTemplateSubject;
+  /** What it asks for; none given keeps what the notebook was given, as asks. */
+  asks?: readonly NotebookTemplateAsk[];
 }
 
 export interface NotebookTemplate {
@@ -1173,6 +1210,9 @@ export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
     cadence: nb.cadence,
     pipeline: [...nb.pipeline],
     ...(nb.layout ? { layout: nb.layout } : {}),
+    // What it was given becomes what the next one asks for: the label and why, never the text.
+    // Needed only when the notebook itself needed it (it says why, or names a link it couldn't read); what you added unasked is wanted.
+    ...((): { asks?: NotebookTemplateAsk[] } => { const asks = cleanTemplateAsks((nb.given ?? []).map((g) => ({ label: g.label, why: g.why === TEMPLATE_ASK_WHY ? undefined : g.why, optional: g.optional === true || (!g.why && !g.link) }))); return asks.length ? { asks } : {}; })(),
   };
 }
 
@@ -1281,13 +1321,16 @@ export function templateWithEdits(nb: Notebook, edits: NotebookTemplateEdits = {
   // What it's for already says ("company briefing" in "Create a company briefing for {subject}").
   setup.params = setup.params.filter((p) => !fillerLimit(p, { statement: setup.statement }));
   if (label && example) setup.subject = { label, example };
+  // What it asks for: as edited, else what the notebook was given; "Dana's LinkedIn profile" asks for {subject}'s.
+  const asks = cleanTemplateAsks(edits.asks ?? base.asks ?? []).map((a) => ({ ...a, label: sub(a.label) }));
+  if (asks.length) setup.asks = asks; else delete setup.asks;
   return setup;
 }
 
 /** "8 fields · 4 steps · 5 checks": what a template sets up. */
 export function describeTemplateSetup(t: NotebookTemplateSetup): string {
   const n = (k: number, one: string) => (k ? `${String(k)} ${one}${k === 1 ? '' : 's'}` : '');
-  return [n(t.fields.length, 'field'), n(t.steps.length, 'step'), n(t.checks.length, 'check'), n(t.params.length, 'limit')].filter(Boolean).join(' · ') || 'no setup yet';
+  return [n(t.fields.length, 'field'), n(t.steps.length, 'step'), n(t.checks.length, 'check'), n(t.params.length, 'limit'), t.asks?.length ? `asks for ${String(t.asks.length)}` : ''].filter(Boolean).join(' · ') || 'no setup yet';
 }
 
 function templateRecord(r: Record<string, unknown>): NotebookTemplate | undefined {
@@ -2637,7 +2680,8 @@ export class NotebookStore {
     if (text.trim().length < 20) throw new Error('Paste the text itself (a few lines at least), or choose a file.');
     if (!was) {
       if (have.length >= NOTEBOOK_GIVEN_ITEMS_MAX) throw new Error(`A notebook keeps up to ${String(NOTEBOOK_GIVEN_ITEMS_MAX)} things you gave it. Remove one under Edit first.`);
-      this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([...have, made]), new Date().toISOString(), id);
+      // Something you added unasked is wanted, not needed: a template made from this notebook asks for it without waiting.
+      this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([...have, { ...made, optional: true }]), new Date().toISOString(), id);
     }
     return this.answerGiven(id, made.key, { text });
   }

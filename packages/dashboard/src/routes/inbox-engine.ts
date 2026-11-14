@@ -59,7 +59,7 @@ import {
   partialInlineWidget,
   prepareViewForRender,
   viewToMessages,
-  fillSubject, subjectOut, layoutWords, templateWithEdits, templateSubjectGuess, similarNotebooks, notebookPurpose, notebookTags,
+  fillSubject, givenFromAsks, subjectOut, layoutWords, templateWithEdits, templateSubjectGuess, similarNotebooks, notebookPurpose, notebookTags,
   type NotebookTemplateSetup, type Notebook,
   notebookLayoutGuide,
   suaComponentDocs,
@@ -1282,6 +1282,8 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       stages: t.setup.stages,
       checks: listInput(meta.inputs.CHECKS, t.setup.checks).map(fill),
       steps,
+      // What the template asks you for: a box each on the new notebook (a needed one holds its first step).
+      ...(t.setup.asks?.length ? { given: givenFromAsks(t.setup.asks, subject) } : {}),
       // Like a notebook: its page stays whose it was (as when it's run again). From a template: the template's.
       ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage), ...(t.like?.layoutBy ? { layoutBy: t.like.layoutBy } : {}) } : {}),
     },

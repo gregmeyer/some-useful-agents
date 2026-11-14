@@ -50,6 +50,7 @@ export function renderTemplatePreview(p: TemplatePreview): SafeHtml {
       <h2 class="nbt-pv__name">${p.name}</h2>
       ${t.subject ? html`<p class="nbt-pv__asks"><span class="nbt-pv__k">Asks each time</span> <mark class="nbt-subj">${t.subject.label}</mark> <span class="nbt-pv__was">this time: ${t.subject.example}</span></p>` : html`<p class="nbt-pv__asks"><span class="nbt-pv__k">The same every time</span></p>`}
       <p class="nbt-pv__for">${withSubject(t.statement, label)}</p>
+      ${t.asks?.length ? html`<p class="nbt-pv__asks"><span class="nbt-pv__k">Asks you for</span> ${t.asks.map((a, i) => html`${i ? '; ' : ''}${withSubject(a.label, label)} <span class="nbt-pv__was">${a.optional ? 'if you have it' : 'waits for it'}</span>`) as unknown as SafeHtml[]}</p>` : html``}
       <div class="nbt-pv__grid">
         ${t.params.length ? html`<section><h3 class="nbt-pv__h">Limits</h3>${list(t.params)}</section>` : html``}
         ${t.criteria.length ? html`<section><h3 class="nbt-pv__h">Done when</h3>${list(t.criteria)}</section>` : html``}
@@ -77,6 +78,7 @@ export function renderTemplateSave(args: {
   const hand = {
     name: preview.name, label: preview.setup.subject?.label ?? '', example,
     statement: preview.setup.statement, params: preview.setup.params, criteria: preview.setup.criteria, checks: preview.setup.checks,
+    asksWait: (preview.setup.asks ?? []).filter((a) => !a.optional).map((a) => a.label), asksOptional: (preview.setup.asks ?? []).filter((a) => a.optional).map((a) => a.label),
     steps: Object.fromEntries(preview.setup.steps.map((x) => [x.id, x.title])) as Record<string, string>,
     fields: Object.fromEntries(preview.setup.fields.map((f) => [f.key, f.label])) as Record<string, string>,
   };
@@ -141,6 +143,11 @@ export function renderTemplateSave(args: {
         ${area('params', 'Limits', 'One per line. Drop any that only fit this time.', hand.params.join('\n'), Math.max(3, hand.params.length + 1))}
         ${area('criteria', 'Done when', 'One per line.', hand.criteria.join('\n'), Math.max(2, hand.criteria.length + 1))}
         ${area('checks', 'Checks on each option', 'One per line.', hand.checks.join('\n'), Math.max(2, hand.checks.length + 1))}
+        <fieldset class="nbt__subject">
+          <legend>What it asks you for</legend>
+          ${area('asks_optional', 'If you have it', 'One per line ("{subject}\u2019s LinkedIn profile"). A new notebook shows a box for each to paste into or choose a file for; nothing waits.', hand.asksOptional.join('\n'), Math.max(2, hand.asksOptional.length + 1))}
+          ${area('asks_wait', 'Needed before it starts', 'One per line ("Your résumé"). A new notebook runs nothing until you add each or choose to go on without it.', hand.asksWait.join('\n'), Math.max(2, hand.asksWait.length + 1))}
+        </fieldset>
         ${nb.steps?.length ? html`<fieldset class="nbt__steps">
           <legend>Steps</legend>
           ${nb.steps.map((s, i) => html`<label class="nb-label nbt__step"><span class="nbt__step-n">${String(i + 1)}</span>
@@ -181,6 +188,7 @@ export function templateEditsFrom(body: Record<string, unknown>, nb: Notebook): 
     statement: str('statement'),
     params: lines('params'), criteria: lines('criteria'), checks: lines('checks'),
     stepTitles, fieldLabels,
+    asks: [...lines('asks_wait').map((l) => ({ label: l })), ...lines('asks_optional').map((l) => ({ label: l, optional: true }))],
     ...(label && example ? { subject: { label, example } } : {}),
   };
 }
