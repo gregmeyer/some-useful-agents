@@ -14,7 +14,7 @@ import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
-import { experimentsForTriage } from '../lib/experiment-notebook.js';
+import { experimentsForTriage, experimentsLinked } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { previewBoardPage, executeBoardPage } from '../lib/board-page-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
@@ -2721,6 +2721,8 @@ export async function runTriageAgent(
           LAYOUT_GUIDE: threadNotebook ? notebookLayoutGuide(suaComponentDocs()) : '',
           // Their experiments: what each found, counted from its runs (EXPERIMENTS).
           EXPERIMENTS: experimentsForTriage(ctx),
+          // Experiments this thread links or the latest message names, read in full (as experiment-read reads them).
+          EXPERIMENTS_LINKED: experimentsLinked(ctx, [currentRequest, ...responsesSnapshot.map((r) => r.body).reverse(), message.body], [currentRequest]),
           // Their templates: start a notebook like one they've done (NOTEBOOK TEMPLATES).
           TEMPLATES: (() => {
             try {

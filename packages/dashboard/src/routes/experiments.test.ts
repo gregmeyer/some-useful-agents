@@ -513,4 +513,27 @@ describe('experiments', () => {
     // No question, nothing to read.
     expect((await post(app, '/experiments/sets/advice', { question: '' })).body).toEqual({ status: 'none' });
   });
+
+  it('a conversation reads an experiment in full when the thread links it or names it', async () => {
+    const app = await makeApp();
+    const { experimentsLinked } = await import('../lib/experiment-notebook.js');
+    const id = idOf((await post(app, '/experiments', FORM)).headers.location);
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const items = s.cases(id)[0].items.map((i) => i.id);
+    ctx.experimentTaskRun = async (inputs) => ranking(inputs.INSTRUCTIONS.includes('pay') ? [...items].reverse() : items);
+    await post(app, `/experiments/${id}/run`);
+    await settle();
+    // Nothing linked or named: nothing read.
+    expect(experimentsLinked(ctx, ['How are things?'], ['How are things?'])).toBe('');
+    // Linked anywhere in the thread, or named in the latest message: the whole readout, with its tables.
+    for (const read of [experimentsLinked(ctx, ['Which role moved most?', `See [it](/experiments/${id})`], ['Which role moved most?']), experimentsLinked(ctx, ['in what changes the ranking, which role moved most?'], ['in what changes the ranking, which role moved most?'])]) {
+      expect(read).toContain('# What changes the ranking');
+      expect(read).toContain('Build changed the result; preferences did not, beyond run-to-run variation.');
+      expect(read).toContain('## Each change by itself');
+      expect(read).toContain('## Where each item landed');
+      expect(read).toContain('- By letter: instructions: "Rank by title, A first."');
+    }
+    // The setup page and the sets list aren't experiments.
+    expect(experimentsLinked(ctx, ['[Set one up](/experiments/new?question=x) or /experiments/sets'], [])).toBe('');
+  });
 });

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
-import { AgentStore, NotebookStore, SessionStore, parseAgent } from '@some-useful-agents/core';
+import { AgentStore, ExperimentStore, NotebookStore, SessionStore, parseAgent } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
@@ -530,6 +530,36 @@ describe('MCP board tools', () => {
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-read', resources: [nb.id], effect: 'deny', reason: 'That one stays private.' }] }));
       const denied = await c.callTool({ name: 'notebook-read', arguments: { notebook: `/notebooks/${nb.id}` } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('That one stays private.');
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('experiment-read reads an experiment by id or name; a policy deny rule blocks one', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const notebooks = new NotebookStore(dbPath);
+    const experiments = ExperimentStore.fromHandle(notebooks.databaseHandle());
+    const e = experiments.create({ name: 'What changes the ranking', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: [{ name: 'Build', levels: [{ name: 'A' }, { name: 'B', instructions: 'Other way.' }] }], repeats: 1, cases: [{ items: [{ title: 'One' }, { title: 'Two' }] }] });
+    const pass = experiments.startPass(e.id);
+    for (const c of experiments.cells(pass.id)) experiments.updateCell(c.id, { status: 'done', ranking: c.conditionId === 'a' ? ['one', 'two'] : ['two', 'one'] });
+    notebooks.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      expect((await c.listTools()).tools.map((t) => t.name)).toContain('experiment-read');
+      expect(text(await c.callTool({ name: 'experiment-read', arguments: {} }))).toContain(`${e.id} — What changes the ranking (2 of 2 runs): Build or preferences?`);
+      const read = await c.callTool({ name: 'experiment-read', arguments: { experiment: 'ranking' } });
+      expect(read.isError).toBeFalsy();
+      expect(text(read)).toContain('# What changes the ranking');
+      expect(text(read)).toContain('Each condition was run once');
+      const json = JSON.parse(text(await c.callTool({ name: 'experiment-read', arguments: { experiment: e.id, format: 'json', part: 'setup' } }))) as { setup: { runs: string; changes: Array<{ name: string }> } };
+      expect(json.setup).toMatchObject({ runs: 'ranker', changes: [{ name: 'Build' }] });
+
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'experiment-read', resources: [e.id], effect: 'deny', reason: 'That one stays private.' }] }));
+      const denied = await c.callTool({ name: 'experiment-read', arguments: { experiment: `/experiments/${e.id}` } });
       expect(denied.isError).toBe(true);
       expect(text(denied)).toBe('That one stays private.');
     } finally {

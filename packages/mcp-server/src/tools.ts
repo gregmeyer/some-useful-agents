@@ -27,6 +27,7 @@ import {
   BoardsStore,
   NotebookStore,
   NOTEBOOK_READ_PARTS,
+  EXPERIMENT_READ_PARTS,
   type BuiltinToolContext,
   BoardBuildStore,
   queueBoardBuild,
@@ -405,7 +406,7 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     try { return opts.runStore ? NotebookStore.fromHandle(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
   })();
   // A builtin, behind the same tool policy an agent's call goes through.
-  const runBuiltinTool = async (toolId: 'board-read' | 'board-place' | 'notebook-read', args: Record<string, unknown>, ctx: BuiltinToolContext) => {
+  const runBuiltinTool = async (toolId: 'board-read' | 'board-place' | 'notebook-read' | 'experiment-read', args: Record<string, unknown>, ctx: BuiltinToolContext) => {
     if (opts.dataRoot) {
       const decision = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), {
         toolId, resource: policyResource(toolId, args), agentSource: 'local', agentId: 'mcp',
@@ -431,6 +432,22 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
     async ({ notebook, part, format }) => notebookStore
       ? runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore })
       : errorResult('Notebooks are not available on this server.'),
+  );
+
+  // Experiments: what one found (experiment-read). Read only; they are kept beside notebooks.
+  server.registerTool(
+    'experiment-read',
+    {
+      description: getBuiltinTool('experiment-read')!.definition.description,
+      inputSchema: {
+        experiment: z.string().optional().describe('The experiment: its id, a /experiments/<id> link, or words from its name. Omit to list experiments.'),
+        part: z.enum(EXPERIMENT_READ_PARTS).optional().describe('One part only (default all).'),
+        format: z.enum(['text', 'json']).optional().describe('text (default) or json.'),
+      },
+    },
+    async ({ experiment, part, format }) => notebookStore
+      ? runBuiltinTool('experiment-read', { experiment: experiment ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore })
+      : errorResult('Experiments are not available on this server.'),
   );
 
   server.registerTool(

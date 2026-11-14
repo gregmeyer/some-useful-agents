@@ -7,6 +7,9 @@ import type { Agent } from './agent-v2-types.js';
 import { experimentLayout, experimentPageData, missingExperimentData } from './experiment-notebook.js';
 import { checkNotebookLayout } from './notebook-layout.js';
 import { NotebookStore } from './notebooks.js';
+import { getBuiltinTool } from './builtin-tools.js';
+import { experimentReadoutJson, experimentReadoutText, findExperiment, readExperiment } from './experiment-readout.js';
+import { policyResource } from './policy-store.js';
 
 const FACTORS = [
   { name: 'Build', levels: [{ name: 'Rules A', instructions: 'Prefer seniority.' }, { name: 'Rules B', instructions: 'Prefer pay.', model: 'model-b', provider: 'codex' }] },
@@ -306,5 +309,84 @@ describe('an experiment shown in a notebook', () => {
     expect(nbs.forExperiment(e.id)).toMatchObject({ id: nb.id, experimentId: e.id });
     nbs.setExperiment(nb.id, null);
     expect(nbs.get(nb.id)!.experimentId).toBeUndefined();
+  });
+});
+
+describe('experiment-read', () => {
+  function made() {
+    const db = new DatabaseSync(':memory:');
+    const s = ExperimentStore.fromHandle(db);
+    const e = s.create({ name: 'What changes the ranking', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 2, cases: [{ name: 'Jobs', items: ITEMS }], scorers: [{ kind: 'top', name: 'A up top', items: ['a'], k: 1 }], from: { notebookId: 'jobs', title: 'Jobs' } });
+    const other = s.create({ name: 'What changes the price', task: { agentId: 'ranker' }, factors: [], cases: [{ items: ITEMS }] });
+    return { db, s, e, other };
+  }
+  const fwd = ['a', 'b', 'c', 'd', 'e', 'f'];
+
+  it('finds one by id, link, name or words, and lists several that match', () => {
+    const { s, e, other } = made();
+    expect(findExperiment(s, e.id)).toMatchObject({ experiment: { id: e.id } });
+    expect(findExperiment(s, `http://127.0.0.1:3000/experiments/${e.id}?flash=x`)).toMatchObject({ experiment: { id: e.id } });
+    expect(findExperiment(s, 'what changes the PRICE')).toMatchObject({ experiment: { id: other.id } });
+    expect(findExperiment(s, 'ranking')).toMatchObject({ experiment: { id: e.id } });
+    const several = findExperiment(s, 'what changes') as { matches: Array<{ id: string }> };
+    expect(several.matches.map((m) => m.id).sort()).toEqual([e.id, other.id].sort());
+    expect(findExperiment(s, 'nothing like it')).toBeUndefined();
+    s.archive(other.id);
+    expect(findExperiment(s, 'price')).toMatchObject({ experiment: { id: other.id, archivedAt: expect.any(String) } });
+  });
+
+  it('reads out what it found from the stored runs, as text or JSON, whole or a part', () => {
+    const { s, e } = made();
+    const before = experimentReadoutText(readExperiment(s, e.id)!);
+    expect(before).toContain('# What changes the ranking');
+    expect(before).toContain('Nothing has run yet, so it has found nothing.');
+    expect(before).toContain('Holds fixed: 6 items, copied from the notebook "Jobs" (/notebooks/jobs).');
+    expect(before).toContain('- Rules B: runs on codex model-b; instructions: "Prefer pay."');
+    expect(before).toContain('Scores "A up top": counted, the share of 1 named items in the top 1.');
+    expect(before).not.toContain('## Each condition against the baseline');
+
+    const p = s.startPass(e.id);
+    const cells = s.cells(p.id);
+    for (const c of cells) s.updateCell(c.id, { status: 'done', ranking: c.conditionId.startsWith('rules-b') ? [...fwd].reverse() : fwd });
+    s.updateCell(cells[7].id, { status: 'invalid', error: 'It left out f. Rank every item.' });
+    const read = readExperiment(s, e.id)!;
+    const text = experimentReadoutText(read);
+    expect(text).toContain('Build changed the result; preferences did not, beyond run-to-run variation.');
+    expect(text).toContain('Rests on: 1 set, 4 conditions, 1 run of each. It holds for this set only. 1 run couldn\'t be used and is not counted.');
+    expect(text).toContain('Repeat them as they are; do not restate them differently or apply them to other sets.');
+    expect(text).toContain('- Rules B · Profile 1: 2 of 2 runs; 4 of 5 of the baseline\'s top kept; items moved 3 places on average; A up top 0%');
+    expect(text).toContain('- Build, from "Rules A · Profile 1" to "Rules B · Profile 1": 4 of 5 of the top kept; items moved 3 places on average');
+    expect(text).toContain('## Where each item landed (1 is first; furthest moved first)');
+    expect(text).toContain('8 made: 7 usable, 1 that couldn\'t be used.');
+    expect(text).toContain('- Rules B · Profile 2, run 2: invalid: It left out f. Rank every item.');
+    // One part only.
+    const finding = experimentReadoutText(read, 'finding');
+    expect(finding).toContain('## What it found');
+    expect(finding).not.toContain('## How it is set up');
+    const json = experimentReadoutJson(read, 'conditions') as { conditions: Array<Record<string, string>>; eachChangeByItself: unknown[]; finding?: unknown };
+    expect(json.finding).toBeUndefined();
+    expect(json.conditions[2]).toEqual({ condition: 'Rules B · Profile 1', runs: '2 of 2', topKept: '4 of 5', placesMoved: '3', 'A up top': '0%' });
+    expect(json.eachChangeByItself).toHaveLength(4);
+    const all = experimentReadoutJson(read) as { setup: { changes: Array<{ name: string; versions: unknown[] }> }; items: Array<{ places: Record<string, string> }>; runs: { usable: number; unusable: number } };
+    expect(all.setup.changes.map((c) => c.name)).toEqual(['Build', 'Preferences']);
+    expect(Object.keys(all.items[0].places)).toEqual(['Rules A · Profile 1', 'Rules A · Profile 2', 'Rules B · Profile 1', 'Rules B · Profile 2']);
+    expect(all.runs).toMatchObject({ usable: 7, unusable: 1 });
+  });
+
+  it('is a built-in tool: lists, reads, says when there is none, and names its policy resource', async () => {
+    const { db, e, other } = made();
+    const tool = getBuiltinTool('experiment-read')!;
+    const ctx = { notebooks: NotebookStore.fromHandle(db) };
+    const listed = await tool.execute({}, ctx);
+    expect(listed.result).toContain(`${e.id} — What changes the ranking (not run yet): Build or preferences?`);
+    expect(listed.experiments).toHaveLength(2);
+    expect((await tool.execute({ experiment: e.id, part: 'setup' }, ctx)).result).toContain('## How it is set up');
+    expect(JSON.parse(String((await tool.execute({ experiment: `/experiments/${other.id}`, format: 'json' }, ctx)).result))).toMatchObject({ id: other.id, stands: 'not run yet' });
+    expect(await tool.execute({ experiment: 'what changes' }, ctx)).toMatchObject({ result: expect.stringContaining('Several experiments match "what changes"') });
+    expect(await tool.execute({ experiment: 'nope' }, ctx)).toMatchObject({ isError: true, result: expect.stringContaining('There\'s no experiment "nope".') });
+    expect(await tool.execute({ experiment: e.id, part: 'bogus' }, ctx)).toMatchObject({ isError: true });
+    expect(await tool.execute({ experiment: e.id }, {})).toMatchObject({ isError: true, result: 'Experiments are not available in this run.' });
+    expect(policyResource('experiment-read', { experiment: `http://x/experiments/${e.id}` })).toBe(e.id);
+    expect(policyResource('experiment-read', { experiment: 'the ranking one' })).toBe('the ranking one');
   });
 });

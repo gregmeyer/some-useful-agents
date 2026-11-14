@@ -1294,6 +1294,11 @@ export class NotebookStore {
     if (this.ownsConnection) this.db.close();
   }
 
+  /** The database it is kept in (experiments live in the same one, so a tool given notebooks can read those too). */
+  databaseHandle(): DatabaseSync {
+    return this.db;
+  }
+
   static fromHandle(db: DatabaseSync): NotebookStore {
     const store = Object.create(NotebookStore.prototype) as NotebookStore;
     (store as unknown as { db: DatabaseSync }).db = db;

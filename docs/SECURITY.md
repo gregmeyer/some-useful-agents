@@ -47,6 +47,10 @@ The bearer token's only job is to gate *any process that can hit localhost* from
 
 Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents` and `run-agent` tools. Agents without the flag respond as "not found" — not "forbidden" — so a compromised MCP client cannot enumerate the user's full catalog. Use `sua agent list` from the CLI to see everything.
 
+### Experiments over MCP
+
+`experiment-read` lets an MCP client read any experiment, archived ones included: its question, the instructions and preferences written into its versions, the items it holds fixed (copied from a notebook's options), and what it found. It can't run or change one. Anyone holding the token can read them, so to keep one out, deny `experiment-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).
+
 ### Notebooks over MCP
 
 `notebook-read` lets an MCP client read any notebook, archived ones included: its facts and their sources, what it wrote, its options and its notes. It can't change anything. Anyone holding the token can read your research, so to keep a notebook out, deny `notebook-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).

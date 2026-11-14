@@ -179,6 +179,15 @@ inputs:
       The operator's experiments (what changes an agent's answer, measured
       on a fixed set) as JSON: id, name, the question, how it stands, what
       it found and what that rests on (counted from its runs), and links.
+  EXPERIMENTS_LINKED:
+    type: string
+    required: false
+    default: ""
+    description: >
+      Experiments this thread links (/experiments/<id>) or the latest
+      message names, read in full as experiment-read reads them: the
+      finding, the setup, each condition, where each item landed. Empty
+      when none is.
   TEMPLATES:
     type: string
     required: false
@@ -425,6 +434,9 @@ nodes:
 
       Their experiments (see EXPERIMENTS):
       {{inputs.EXPERIMENTS}}
+
+      Experiments this thread links or names, read in full (see EXPERIMENTS):
+      {{inputs.EXPERIMENTS_LINKED}}
 
       The board they're on, when they asked from one (see WHERE THE OPERATOR IS):
       {{inputs.BOARD_OUTLINE}}

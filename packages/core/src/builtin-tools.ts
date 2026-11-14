@@ -20,6 +20,8 @@ import { screenshotWithBrowser, SHOT_VIEW_HEIGHT } from './web-fetch/browser.js'
 import { saveRunFile } from './run-files.js';
 import { notebookTags, type Notebook } from './notebooks.js';
 import { findNotebook, notebookReadoutJson, notebookReadoutText, NOTEBOOK_READ_PARTS, type NotebookReadPart } from './notebook-readout.js';
+import { ExperimentStore, type Experiment } from './experiments.js';
+import { findExperiment, readExperiment, experimentReadoutJson, experimentReadoutText, EXPERIMENT_READ_PARTS, type ExperimentReadPart } from './experiment-readout.js';
 
 /**
  * SSRF guard: resolve the hostname to an IP and reject private, loopback,
@@ -1090,10 +1092,69 @@ const NOTEBOOK_TOOLS: BuiltinToolEntry[] = [
   ),
 ];
 
+/**
+ * experiment-read — what an experiment found, for an agent, an MCP client or
+ * a conversation: its question, the finding and what it rests on, its
+ * setup, each condition, where each item landed, its runs. Read only;
+ * archived ones too. Every number is counted from the stored runs. See
+ * experiment-readout.ts / docs/tools/experiment-read.md.
+ */
+const EXPERIMENT_TOOLS: BuiltinToolEntry[] = [
+  def(
+    'experiment-read',
+    'Read an experiment',
+    'Read what an experiment found: an experiment runs one agent over the same fixed set of items under several named changes (instructions, preferences, model, agent version) and counts how far the results move. Returns its question, what it found and what that rests on, how it is set up, each condition against the baseline with any scores, where each item landed, and its runs. Every number is counted from its runs: repeat them as given, and never apply them to other sets. Read only; nothing is run. With no experiment, lists them.',
+    {
+      experiment: { type: 'string', description: 'The experiment: its id, a /experiments/<id> link, or words from its name. Empty lists them.' },
+      part: { type: 'string', description: `One part only: ${EXPERIMENT_READ_PARTS.join(', ')} (default all).` },
+      format: { type: 'string', description: 'text (default) or json.' },
+    },
+    {
+      experiment: { type: 'object', description: 'The experiment as JSON (with format json).' },
+      experiments: { type: 'array', description: 'When listing, or when several match: [{id, name, question, stands, archived}].' },
+    },
+    async (inputs, ctx) => {
+      // Experiments are kept in the same database as notebooks.
+      let store: ExperimentStore | undefined;
+      try { store = ctx.notebooks ? ExperimentStore.fromHandle(ctx.notebooks.databaseHandle()) : undefined; } catch { store = undefined; }
+      if (!store) return { result: 'Experiments are not available in this run.', isError: true };
+      const s = store;
+      const listed = (es: readonly Experiment[]) => es.map((e) => {
+        const pass = s.passes(e.id, 1)[0];
+        const cells = pass ? s.cells(pass.id) : [];
+        const done = cells.filter((c) => c.status === 'done').length;
+        return { id: e.id, name: e.name, ...(e.question ? { question: e.question } : {}), stands: cells.length ? `${String(done)} of ${String(cells.length)} runs` : 'not run yet', archived: !!e.archivedAt };
+      });
+      const lines = (es: ReturnType<typeof listed>) => es.map((e) => `${e.id} — ${e.name} (${e.stands}${e.archived ? ', archived' : ''})${e.question ? `: ${e.question}` : ''}`).join('\n');
+      const ask = String(inputs.experiment ?? '').trim();
+      if (!ask) {
+        const experiments = listed(s.list({ archived: true }));
+        return { experiments, result: experiments.length ? lines(experiments) : 'There are no experiments yet.' };
+      }
+      const partIn = String(inputs.part ?? 'all').trim().toLowerCase() || 'all';
+      if (!(EXPERIMENT_READ_PARTS as readonly string[]).includes(partIn)) return { result: `Unknown part "${partIn}". Use one of: ${EXPERIMENT_READ_PARTS.join(', ')}.`, isError: true };
+      const part = partIn as ExperimentReadPart;
+      const found = findExperiment(s, ask);
+      if (!found) return { result: `There's no experiment "${ask}". Call experiment-read with no experiment to list them.`, isError: true };
+      if ('matches' in found) {
+        const experiments = listed(found.matches);
+        return { experiments, result: `Several experiments match "${ask}"; read one by its id:\n${lines(experiments)}` };
+      }
+      const read = readExperiment(s, found.experiment.id)!;
+      if (String(inputs.format ?? '').trim().toLowerCase() === 'json') {
+        const experiment = experimentReadoutJson(read, part);
+        return { experiment, result: JSON.stringify(experiment) };
+      }
+      return { result: experimentReadoutText(read, part) };
+    },
+  ),
+];
+
 const REGISTRY = new Map<string, BuiltinToolEntry>();
 BUILTINS.push(...MEMORY_TOOLS);
 BUILTINS.push(...BOARD_TOOLS);
 BUILTINS.push(...NOTEBOOK_TOOLS);
+BUILTINS.push(...EXPERIMENT_TOOLS);
 
 /**
  * ask-human — the model asks the person something mid-step. The question

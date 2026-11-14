@@ -43,6 +43,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`oauth-loopback`](tools/oauth-loopback.md) | One-time OAuth2 authorization-code loopback; saves a refresh token to the vault |
 | `ask-human` | Ask the person mid-node; the run waits for the answer in the inbox, then the node starts again with it. Add to a node's `tools:`; see [ask-a-person.md](ask-a-person.md) |
 | `board-read`, `board-place` | Read and arrange a board (Pulse or a named dashboard): its sections, tabs, rows, grids and tiles, with the same operations as the Arrange editor, saved as an undoable version. Also offered over MCP; see [tools/board-place.md](tools/board-place.md) |
+| [`experiment-read`](tools/experiment-read.md) | Read what an experiment found: its question, the finding and what it rests on, its setup, each condition, where each item landed, its runs. Counted from its runs. Archived ones too. Also offered over MCP |
 | [`notebook-read`](tools/notebook-read.md) | Read what a notebook knows: who it's about (facts with sources), what it wrote, its options with facts and checks, its notes. Archived ones too. Also offered over MCP |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
