@@ -1,3 +1,4 @@
+import { attachPick } from './given-file.js';
 import { prepareViewForRender, viewToMessages, type ViewComponent } from '@some-useful-agents/core';
 import { parseCardSkills } from '../lib/skill-proposals.js';
 import { renderSurfaceHost } from '../lib/a2ui-surface.js';
@@ -457,12 +458,13 @@ export function renderInboxDetailFragment(opts: InboxDetailOptions): SafeHtml {
     : html`
       <div class="inbox-composer">
         <form id="inbox-reply-form" method="POST" action="/inbox/${message.id}/respond"
-          data-inbox-modal-form data-inbox-modal-keeps-triage="1" class="inbox-chatbar thread-composer">
+          data-inbox-modal-form data-inbox-modal-keeps-triage="1" data-attach class="inbox-chatbar thread-composer">
           <textarea name="body" rows="1" required maxlength="8192"
             ${triagePending || agentTurn ? 'disabled' : ''}
             placeholder="${triagePending ? 'sua is replying…' : agentTurn ? `${message.agentId ?? 'The agent'} is replying…` : message.source === 'conversation' && message.agentId ? `Reply to ${message.agentId}…` : 'Reply to sua…'}"
             class="inbox-chatbar__input" data-inbox-autogrow data-inbox-chat-enter
             aria-label="Reply to this thread"></textarea>
+          ${message.source === 'conversation' && message.agentId ? html`` : attachPick()}
           <button type="submit" class="thread-composer__send"
             title="Send (Enter)" aria-label="Send" ${triagePending || agentTurn ? 'disabled' : ''}>${SEND_ARROW}</button>
         </form>

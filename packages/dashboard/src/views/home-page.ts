@@ -6,6 +6,7 @@
  * the right: today's reads (what your scheduled agents produced) and your notebooks. Adjust
  * Home can move a part within its column or hide it (the surface document's `parts`). A row opens in the sua panel (home-page.js.ts).
  */
+import { attachPick } from './given-file.js';
 import { surfaceParts, HOME_PART_COLUMN, HOME_PART_TITLES, type AutonomyMode, type HomePart } from '@some-useful-agents/core';
 import { html, render, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -58,9 +59,10 @@ function renderAskCard(starters: readonly AskStarters[], offered: ReadonlySet<st
   return html`
     <section class="home-ask-card" aria-labelledby="home-ask-card-title">
       <h2 class="home-today__title" id="home-ask-card-title">Ask sua</h2>
-      <form class="home-ask-card__form" method="POST" action="/inbox/new" data-home-ask>
+      <form class="home-ask-card__form" method="POST" action="/inbox/new" data-home-ask data-attach>
         <textarea class="home-ask-card__input" name="body" rows="1" data-home-ask-input data-no-draft
           placeholder="Run, build, fix, or look something up…" aria-label="Ask sua" title="Enter sends · Shift+Enter for a new line"></textarea>
+        ${attachPick()}
         <button type="submit" class="btn btn--primary btn--sm" data-home-ask-send>Send ↵</button>
       </form>
       ${start?.pills.length ? html`<div class="home-ask-card__starters" data-ask-starters hidden>

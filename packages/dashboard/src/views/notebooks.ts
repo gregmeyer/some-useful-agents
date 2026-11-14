@@ -11,7 +11,7 @@ import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-ne
 import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
-import { givenFilePick } from './given-file.js';
+import { attachPick, givenFilePick } from './given-file.js';
 import type { DraftState } from '../lib/notebook-draft.js';
 import { pageName, meetingWhenWords, type NotebookEditTurn } from '../lib/notebook-edit.js';
 import { notebookLooks } from './notebook-look.js';
@@ -824,13 +824,13 @@ export function nextStep(nb: Notebook, entries: readonly NotebookEntry[]): { hin
 function talkForm(nb: Notebook, entries: readonly NotebookEntry[], big = false): SafeHtml {
   const step = nextStep(nb, entries);
   return html`
-    <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/ask" class="nb-talk__form ${big ? 'nb-talk__form--big' : ''}" data-ask-fix>
+    <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/ask" class="nb-talk__form ${big ? 'nb-talk__form--big' : ''}" data-ask-fix data-attach>
       <label class="nb-talk__next" for="nb-talk-${big ? 'big' : 'side'}">${step.hint}</label>
       <textarea id="nb-talk-${big ? 'big' : 'side'}" name="text" required rows="${big ? '4' : '3'}" class="form-field"
         placeholder="${step.placeholder}" data-enter-sends aria-describedby="nb-talk-keys-${big ? 'big' : 'side'}"></textarea>
       <div class="nb-talk__send">
         <span class="nb-talk__keys" id="nb-talk-keys-${big ? 'big' : 'side'}"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</span>
-        <button type="submit" class="btn btn--primary btn--sm">Tell sua</button>
+        <span class="nb-talk__acts">${attachPick()}<button type="submit" class="btn btn--primary btn--sm">Tell sua</button></span>
       </div>
     </form>`;
 }

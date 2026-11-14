@@ -1,3 +1,4 @@
+import { attachPick } from './given-file.js';
 import { html, type SafeHtml } from './html.js';
 import { formatAge } from './components.js';
 import { renderToday } from './home-surface.js';
@@ -119,9 +120,10 @@ export function renderPanelNew(): SafeHtml {
           ${SUGGESTIONS.map((s) => html`<button type="button" class="panel-new__starter" data-panel-ask="${s}">${s}</button>`) as unknown as SafeHtml[]}
         </div>
       </div>
-      <form class="panel-composer" method="POST" action="/inbox/new" data-home-ask>
+      <form class="panel-composer" method="POST" action="/inbox/new" data-home-ask data-attach>
         <textarea name="body" rows="2" required maxlength="8192" placeholder="Ask sua…" aria-label="Ask sua"
           class="panel-composer__input" data-home-ask-input data-panel-composer></textarea>
+        ${attachPick()}
         <button type="submit" class="panel-composer__send" aria-label="Send" data-home-ask-send>${SEND_ICON}</button>
       </form>
     </div>`;
