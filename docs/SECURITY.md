@@ -49,7 +49,7 @@ Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents`
 
 ### Experiments over MCP
 
-`experiment-read` lets an MCP client read any experiment, archived ones included: its question, the instructions and preferences written into its versions, the items it holds fixed (copied from a notebook's options), and what it found. It can't run or change one. Anyone holding the token can read them, so to keep one out, deny `experiment-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).
+`experiment-read` lets an MCP client read any experiment, archived ones included: its question, what its agent was asked, the values written into its versions, the items its runs listed, and what it found. It can't run or change one. Anyone holding the token can read them, so to keep one out, deny `experiment-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).
 
 ### Notebooks over MCP
 

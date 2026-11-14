@@ -541,21 +541,22 @@ describe('MCP board tools', () => {
     const dbPath = join(dataDir, 'runs.db');
     const notebooks = new NotebookStore(dbPath);
     const experiments = ExperimentStore.fromHandle(notebooks.databaseHandle());
-    const e = experiments.create({ name: 'What changes the ranking', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: [{ name: 'Build', levels: [{ name: 'A' }, { name: 'B', instructions: 'Other way.' }] }], repeats: 1, cases: [{ items: [{ title: 'One' }, { title: 'Two' }] }] });
+    const e = experiments.create({ name: 'Old or new finder', question: 'Does the new version find different jobs?', task: { agentId: 'finder' }, inputs: { TOPIC: 'jobs' }, factors: [{ name: 'Build', levels: [{ name: 'Old', version: 1 }, { name: 'New', version: 2 }] }], repeats: 1 });
     const pass = experiments.startPass(e.id);
-    for (const c of experiments.cells(pass.id)) experiments.updateCell(c.id, { status: 'done', ranking: c.conditionId === 'a' ? ['one', 'two'] : ['two', 'one'] });
+    for (const c of experiments.cells(pass.id)) experiments.updateCell(c.id, { status: 'done', items: [{ key: `name:${c.conditionId}`, title: c.conditionId === 'old' ? 'Role A' : 'Role B', facts: {} }] });
     notebooks.close();
     serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
     const c = await client();
     try {
       expect((await c.listTools()).tools.map((t) => t.name)).toContain('experiment-read');
-      expect(text(await c.callTool({ name: 'experiment-read', arguments: {} }))).toContain(`${e.id} — What changes the ranking (2 of 2 runs): Build or preferences?`);
-      const read = await c.callTool({ name: 'experiment-read', arguments: { experiment: 'ranking' } });
+      expect(text(await c.callTool({ name: 'experiment-read', arguments: {} }))).toContain(`${e.id} — Old or new finder (2 of 2 runs): Does the new version find different jobs?`);
+      const read = await c.callTool({ name: 'experiment-read', arguments: { experiment: 'finder' } });
       expect(read.isError).toBeFalsy();
-      expect(text(read)).toContain('# What changes the ranking');
-      expect(text(read)).toContain('Each condition was run once');
-      const json = JSON.parse(text(await c.callTool({ name: 'experiment-read', arguments: { experiment: e.id, format: 'json', part: 'setup' } }))) as { setup: { runs: string; changes: Array<{ name: string }> } };
-      expect(json.setup).toMatchObject({ runs: 'ranker', changes: [{ name: 'Build' }] });
+      expect(text(read)).toContain('# Old or new finder');
+      expect(text(read)).toContain('Each version was run once');
+      expect(text(read)).toContain('- Role A: Old: found, place 1; New: not found');
+      const json = JSON.parse(text(await c.callTool({ name: 'experiment-read', arguments: { experiment: e.id, format: 'json', part: 'setup' } }))) as { setup: { runs: string; ask: unknown; changes: Array<{ name: string }> } };
+      expect(json.setup).toMatchObject({ runs: 'finder', ask: { TOPIC: 'jobs' }, changes: [{ name: 'Build' }] });
 
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'experiment-read', resources: [e.id], effect: 'deny', reason: 'That one stays private.' }] }));

@@ -48,26 +48,17 @@
 /* Once a kind of change is chosen, only that choice stays, so its versions are next to it. */
 .exp-wiz .exp-change:not([data-kind=""]) .exp-choice:not(:has(input:checked)) { display: none; }
 .exp-new:not(.exp-wiz) [data-exp-rekind] { display: none; }
-.exp-sets { display: grid; gap: var(--space-2); }
-/* sua's reading of the question, above the counted list. */
-.exp-reading { padding: var(--space-3) var(--space-4); border-left: 2px solid var(--accent-teal); background: var(--color-surface); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-.exp-reading p { margin: 0; }
-.exp-reading p + p { margin-top: var(--space-1); }
-.exp-reading__label { margin-right: var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-teal); }
-.exp-reading__missing { font-size: var(--font-size-sm); color: var(--color-warn); }
-.exp-choice--suggested { border-color: var(--accent-teal); }
+.exp-find { max-width: 44ch; }
+.exp-findlist { display: grid; gap: var(--space-2); }
+.exp-ask { display: grid; gap: var(--space-3); }
 .exp-choice__for, .exp-choice__but { font-size: var(--font-size-xs); }
 .exp-choice__but { color: var(--color-warn); }
-/* What will be copied from the chosen notebook. */
-.exp-set { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-left: 2px solid var(--accent-teal); background: var(--color-surface); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-.exp-set__says { margin: 0; }
-.exp-set__list > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.exp-set__items { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-1); font-size: var(--font-size-sm); max-height: 320px; overflow-y: auto; }
-.exp-set__items label { display: block; cursor: pointer; }
-.exp-set__reason { color: var(--color-text-muted); }
-.exp-set__key { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; font-size: var(--font-size-sm); cursor: pointer; }
-.exp-set__key input { margin-top: 3px; }
-.exp-set__keynote { display: block; color: var(--color-text-muted); }
+.exp-choice--off { opacity: 0.5; cursor: not-allowed; }
+/* Once a kind of change is chosen, only that choice stays, so its versions are next to it. */
+.exp-wiz .exp-change:not([data-kind=""]) .exp-choice:not(:has(input:checked)) { display: none; }
+.exp-new:not(.exp-wiz) [data-exp-rekind] { display: none; }
+.exp-choice__for, .exp-choice__but { font-size: var(--font-size-xs); }
+.exp-choice__but { color: var(--color-warn); }
 .exp-reveal { display: grid; gap: var(--space-3); padding: 0 0 var(--space-2) var(--space-4); border-left: 2px solid var(--color-border); justify-items: start; }
 .exp-reveal > * { width: 100%; }
 .exp-reveal > .btn { width: auto; }
@@ -89,14 +80,15 @@
 .exp-ver__name { max-width: 28ch; }
 .exp-ver__value { grid-column: 2; display: grid; gap: var(--space-2); min-width: 0; }
 .exp-ver__model { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
-/* Each kind of change shows its own box: text for instructions and preferences, a provider and model, or a version number. */
+/* Each kind of change shows its own box: a value for an input, a provider and model, or a version number. */
 .exp-change [data-exp-for] { display: none; }
-.exp-change[data-kind="instructions"] [data-exp-for~="instructions"],
-.exp-change[data-kind="preferences"] [data-exp-for~="preferences"],
+.exp-change[data-kind="input"] [data-exp-for~="input"],
 .exp-change[data-kind="version"] [data-exp-for~="version"] { display: block; }
+.exp-change[data-kind="input"] label[data-exp-for~="input"] { display: grid; }
 .exp-change[data-kind="model"] [data-exp-for~="model"] { display: grid; }
-/* Without scripts nothing says which kind, so the text box (instructions, the default) shows. */
-.exp-new:not(.exp-wiz) .exp-change[data-kind=""] [data-exp-for~="instructions"] { display: block; }
+/* Without scripts nothing says which kind, so the boxes for an input (the default) show. */
+.exp-new:not(.exp-wiz) .exp-change[data-kind=""] [data-exp-for~="input"] { display: block; }
+.exp-new:not(.exp-wiz) .exp-change[data-kind=""] label[data-exp-for~="input"] { display: grid; }
 .exp-ver__num { max-width: 18ch; }
 .exp-made { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .exp-made__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--accent-teal); border-radius: var(--radius-md); background: var(--color-surface); }
@@ -158,6 +150,7 @@
 .exp-table .exp-n { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
 .exp-table thead .exp-n { white-space: normal; }
 .exp-table .exp-n--strong { font-weight: var(--weight-semibold); }
+.exp-table .exp-n--miss { color: var(--color-text-subtle); }
 .exp-range { color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .exp-cell__score { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); }
 .exp-cell__why { color: var(--color-text-muted); font-size: var(--font-size-sm); }

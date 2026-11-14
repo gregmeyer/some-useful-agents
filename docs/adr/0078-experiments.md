@@ -1,6 +1,6 @@
 # ADR-0078: Experiments are their own object: a frozen set, conditions, repeats, and measures counted in code
 
-- Status: accepted
+- Status: superseded in part by [ADR-0079](0079-experiments-compare-what-runs-produce.md): experiments now run the whole agent under each version and compare what the runs produced. The frozen set, the ranking measures, the golden set and the set advisor described below were removed. Experiments as their own object, passes, counted measures, run isolation, the notebook type, sua's guidance and the read tool stand.
 - Date: 2026-11-13
 - Deciders: Greg Meyer
 - Builds on: ADR-0055 (notebook steps), ADR-0077 (nothing runs on a guess)

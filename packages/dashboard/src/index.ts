@@ -92,9 +92,8 @@ import { startModelWatch } from './lib/model-watch.js';
 import { installCatalogSorter } from './lib/agent-catalog-sort.js';
 import { installNotebookTagger } from './lib/notebook-tags.js';
 import { installGivenReader } from './lib/notebook-given-read.js';
-import { installExperimentRanker, reconcileExperimentsOnBoot } from './lib/experiment-runner.js';
+import { installExperimentJudge, reconcileExperimentsOnBoot } from './lib/experiment-runner.js';
 import { experimentsRouter } from './routes/experiments.js';
-import { installSetAdvisor } from './lib/experiment-set-advice.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -816,9 +815,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   try { installNotebookTagger(ctx); } catch { /* notebooks just stay untagged */ }
   // And for reading what's pasted for a notebook into a short profile.
   try { installGivenReader(ctx); } catch { /* steps just get the text as pasted */ }
-  // And the default task of a ranking experiment.
-  try { installExperimentRanker(ctx); } catch { /* an experiment says its agent isn't installed */ }
-  try { installSetAdvisor(ctx); } catch { /* the set step keeps its counted suggestions */ }
+  // And the judge an experiment's scorers can use.
+  try { installExperimentJudge(ctx); } catch { /* a judge scorer says it isn't installed */ }
 
   const app = buildDashboardApp(ctx);
 

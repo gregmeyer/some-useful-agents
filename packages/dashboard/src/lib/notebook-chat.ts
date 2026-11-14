@@ -13,7 +13,7 @@ import {
   answerSectionLines,
 } from '@some-useful-agents/core';
 import { givenMissing } from '@some-useful-agents/core';
-import { experimentDataFor, experimentsOn } from './experiment-notebook.js';
+import { experimentDataFor } from './experiment-notebook.js';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
 import { formatFieldValue } from '../views/notebooks.js';
@@ -388,10 +388,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
     id: nb.id, title: nb.title, for: nb.statement, status: nb.status,
     params: nb.params, criteria: nb.criteria, stages: nb.stages, pipeline: nb.pipeline, cadence: nb.cadence,
     ...(nb.steps?.length ? { steps: nb.steps.map((x) => ({ id: x.id, title: x.title, kind: x.kind, agent: x.agentId, status: x.status, ...(x.note ? { note: x.note } : {}), ...(x.why ? { why: x.why } : {}), ...(x.movedOn ? { movedOn: true } : {}), ...(x.shape ? { shape: x.shape } : {}) })) } : {}),
-    // Experiments made from its options: what each found, counted from its runs (repeat, never restate).
-    ...(() => { const on = experimentsOn(ctx, { notebookId: nb.id }); return on.length ? { experimentsOnItsOptions: on.map((e) => ({ name: e.name, page: e.href, stands: e.stands, ...(e.found ? { found: e.found, restsOn: e.restsOn } : {}) })) } : {}; })(),
     // The experiment it shows: what it found, counted from its runs (never restate these numbers differently).
-    ...(nb.experimentId ? (() => { const x = experimentDataFor(ctx, nb.experimentId!); return x ? { experiment: { name: x.name, page: x.href, stands: x.runs, found: x.headline.replace(/\*\*/g, ''), restsOn: x.rests, conditions: x.conditions, eachChange: x.changes, items: x.items.slice(0, 20) } } : {}; })() : {}),
+    ...(nb.experimentId ? (() => { const x = experimentDataFor(ctx, nb.experimentId!); return x ? { experiment: { name: x.name, page: x.href, stands: x.runs, found: x.headline.replace(/\*\*/g, ''), restsOn: x.rests, versions: x.conditions, eachChange: x.changes, whatEachFound: x.items.slice(0, 25) } } : {}; })() : {}),
     // The answer its write step wrote, for "what did it find?".
     ...(nb.meeting ? { meeting: nb.meeting } : {}),
     // Who it's about, and where what was found disagrees (settled by Check it or by picking, on the page).

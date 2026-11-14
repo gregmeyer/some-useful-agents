@@ -318,14 +318,10 @@ export interface DashboardContext {
   notebookGivenReads?: Map<string, import('./lib/notebook-given-read.js').GivenReadState>;
   /** Experiment passes running in this process, by pass id (lib/experiment-runner.ts). */
   experimentPasses?: Map<string, import('./lib/experiment-runner.js').ExperimentPassState>;
-  /** Tests only: the answer of an experiment's task for one cell, instead of running its agent. */
-  experimentTaskRun?: (inputs: Record<string, string>, at: { conditionId: string; caseId: string; repeat: number }) => Promise<string | undefined>;
-  /** sua's readings of experiment questions, by what was asked (lib/experiment-set-advice.ts). */
-  experimentSetAdvice?: Map<string, import('./lib/experiment-set-advice.js').SetAdviceState>;
-  /** Tests only: the set advisor's answer, instead of running it. */
-  experimentSetAdvisorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Tests only: what an experiment's agent run produced for one cell, instead of running it. */
+  experimentTaskRun?: (inputs: Record<string, string>, at: { conditionId: string; repeat: number }) => Promise<string | undefined>;
   /** Tests only: an experiment judge's answer for one result, instead of running the judge. */
-  experimentJudgeRun?: (inputs: Record<string, string>, at: { conditionId: string; caseId: string; repeat: number; scorerId: string }) => Promise<string | undefined>;
+  experimentJudgeRun?: (inputs: Record<string, string>, at: { conditionId: string; repeat: number; scorerId: string }) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-given-reader agent instead of running it. */
   notebookGivenReaderRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** TL;DR pictures made lately, by a hash of the card they were made from (routes/notebooks.ts tldr.png). */

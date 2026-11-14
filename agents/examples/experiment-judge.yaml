@@ -1,15 +1,15 @@
-# Experiment judge — scores one result of a ranking experiment against a
-# rubric written in plain words (ADR-0078). It is shown the items, what the
-# person wants and the ranking; never which build produced it, so it can't
-# favour one. The dashboard keeps its score only when it is a number from 0
-# to 1 with a reason that points to items in the result
+# Experiment judge — scores what one run of an experiment produced against
+# a rubric written in plain words (ADR-0078). It is shown the ask and the
+# items the run's output listed; never which version of the agent produced
+# them, so it can't favour one. The dashboard keeps its score only when it
+# is a number from 0 to 1 with a reason that points to items in the list
 # (core cleanJudgement). Run only by an experiment; never proposed in triage.
 
 id: experiment-judge
 name: Experiment judge
 description: >
-  Scores one ranking from 0 to 1 against a rubric, with a reason and the
-  items the reason rests on. Used by an experiment's judge scorers.
+  Scores what one run produced from 0 to 1 against a rubric, with a reason
+  and the items the reason rests on. Used by an experiment's judge scorers.
 status: active
 source: examples
 
@@ -18,19 +18,17 @@ inputs:
     type: string
     required: true
     description: What a good result looks like, in plain words.
-  ITEMS:
-    type: string
-    required: true
-    description: The items that were ranked, as a JSON list of {id, title, facts}.
-  RANKING:
-    type: string
-    required: true
-    description: The result to score, as a JSON list of ids, best first.
-  PREFERENCES:
+  ASK:
     type: string
     required: false
     default: ""
-    description: What the person wants, in their words. May be empty.
+    description: What the agent was asked (its inputs), the same for every run.
+  RESULT:
+    type: string
+    required: true
+    description: >
+      What the run produced, as a JSON list of items in the order it gave
+      them: each {n, title, facts, link?}. May be an empty list.
   ERRORS:
     type: string
     required: false
@@ -46,51 +44,49 @@ nodes:
       mustMatch: '<score>[\s\S]*?</score>'
       description: a <score> JSON block
     prompt: |
-      Score one ranking against a rubric. You are one of several checks in
-      an experiment; you are not told how the ranking was made, and you
-      must not guess.
+      Score what one run of an agent produced, against a rubric. You are
+      one of several checks in an experiment that compares versions of the
+      agent; you are not told which version made this, and you must not
+      guess.
 
-      The rubric (what a good ranking looks like):
+      The rubric (what a good result looks like):
       ----------
       {{inputs.RUBRIC}}
       ----------
 
-      What the person wants. When this is empty, the rubric alone decides:
+      What the agent was asked. When this is empty, the rubric alone
+      decides:
       ----------
-      {{inputs.PREFERENCES}}
-      ----------
-
-      The items that were ranked, as a JSON list. Each has an "id", a
-      "title" and "facts":
-      ----------
-      {{inputs.ITEMS}}
+      {{inputs.ASK}}
       ----------
 
-      The ranking to score: the items' ids, best first:
+      What it produced: a JSON list of items, in the order it gave them.
+      Each has "n" (its number in the list), a "title", its "facts", and
+      sometimes a "link". An empty list means it produced nothing:
       ----------
-      {{inputs.RANKING}}
+      {{inputs.RESULT}}
       ----------
 
       {{inputs.ERRORS}}
 
       Rules:
-        - Judge ONLY from the facts given for each item. Nothing you know
+        - Judge ONLY from what is given for each item. Nothing you know
           about a company, product or place from anywhere else. A fact
-          that isn't given is unknown, not good or bad.
-        - Score how well this ranking meets the rubric: 1 means it meets
+          that isn't given is unknown, not good or bad. Do not open links.
+        - Score how well this result meets the rubric: 1 means it meets
           it fully, 0 means not at all, and in between for partly. Use the
           whole range; do not default to the middle.
-        - Give the same ranking the same score every time: decide from the
-          positions of the items the rubric cares about, not from an
-          overall impression.
-        - Your reason is one or two plain sentences that name where the
-          items it rests on are placed ("the two remote roles are 7th and
-          9th").
-        - "cites" is the ids of the items your reason rests on, exactly as
-          given. At least one.
+        - Give the same result the same score every time: decide from
+          what is and isn't in the list and where, not from an overall
+          impression.
+        - Your reason is one or two plain sentences that name the items
+          it rests on by what they are ("the two remote roles are 7th and
+          9th", "nothing in it is under $100").
+        - "cites" is the numbers ("n") of the items your reason rests on.
+          At least one, unless the list is empty.
 
       Answer with a <score> block and nothing after it:
 
       <score>
-      {"score": 0.0, "reason": "…", "cites": ["an-item-id"]}
+      {"score": 0.0, "reason": "…", "cites": [1]}
       </score>

@@ -176,9 +176,10 @@ inputs:
     required: false
     default: "[]"
     description: >
-      The operator's experiments (what changes an agent's answer, measured
-      on a fixed set) as JSON: id, name, the question, how it stands, what
-      it found and what that rests on (counted from its runs), and links.
+      The operator's experiments (the same ask given to one agent under
+      different versions of it, and how much what they produced has in
+      common) as JSON: id, name, the question, the agent, how it stands,
+      what it found and what that rests on (counted from its runs), links.
   EXPERIMENTS_LINKED:
     type: string
     required: false
@@ -186,7 +187,7 @@ inputs:
     description: >
       Experiments this thread links (/experiments/<id>) or the latest
       message names, read in full as experiment-read reads them: the
-      finding, the setup, each condition, where each item landed. Empty
+      finding, the setup, each version, what each version found. Empty
       when none is.
   TEMPLATES:
     type: string

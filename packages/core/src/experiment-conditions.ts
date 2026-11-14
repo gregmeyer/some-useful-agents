@@ -26,7 +26,6 @@ export function conditionSettings(levels: readonly ExperimentLevel[]): { version
     if (l.version !== undefined) out.version = l.version;
     if (l.provider) out.provider = l.provider;
     if (l.model) out.model = l.model;
-    if (l.instructions) out.inputs.INSTRUCTIONS = l.instructions;
     Object.assign(out.inputs, l.inputs ?? {});
   }
   return out;
