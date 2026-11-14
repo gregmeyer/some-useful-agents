@@ -4,6 +4,9 @@ import { ExperimentStore, cleanFactors, cleanCases, cleanRanking, cleanScorers, 
 import { topKOverlap, rankShift, experimentVerdict, verdictWords } from './experiment-measures.js';
 import { agentForCondition, conditionSettings, experimentAgentId, experimentAgentOf } from './experiment-conditions.js';
 import type { Agent } from './agent-v2-types.js';
+import { experimentLayout, experimentPageData, missingExperimentData } from './experiment-notebook.js';
+import { checkNotebookLayout } from './notebook-layout.js';
+import { NotebookStore } from './notebooks.js';
 
 const FACTORS = [
   { name: 'Build', levels: [{ name: 'Rules A', instructions: 'Prefer seniority.' }, { name: 'Rules B', instructions: 'Prefer pay.', model: 'model-b', provider: 'codex' }] },
@@ -245,5 +248,58 @@ describe('scoring each result', () => {
     expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c2.conditionId)).toBeUndefined();
     s.clearScores(c1.id);
     expect(s.scores(p.id)).toHaveLength(2);
+  });
+});
+
+describe('an experiment shown in a notebook', () => {
+  it('gives the page its finding, figures and tables from the stored runs, and says so before any', () => {
+    const db = new DatabaseSync(':memory:');
+    const s = ExperimentStore.fromHandle(db);
+    const e = s.create({ name: 'Shown', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 2, cases: [{ items: ITEMS }], scorers: [{ kind: 'top', name: 'A up top', items: ['a'], k: 1 }] });
+    const cases = s.cases(e.id);
+    const none = experimentPageData(e, cases, []);
+    expect(none).toMatchObject({ label: 'Not run yet', runs: 'not run yet', href: '/experiments/shown', figures: [], items: [] });
+    expect(none.headline).toContain('a pass makes 8 runs of ranker');
+    expect(none.conditions).toHaveLength(4);
+
+    const p = s.startPass(e.id);
+    const fwd = ['a', 'b', 'c', 'd', 'e', 'f'];
+    // Build B reverses the list; preferences change nothing.
+    for (const c of s.cells(p.id)) s.updateCell(c.id, { status: 'done', ranking: c.conditionId.startsWith('rules-b') ? [...fwd].reverse() : fwd });
+    const d = experimentPageData(e, cases, s.cells(p.id), s.scores(p.id));
+    expect(d.label).toBe('What it found');
+    expect(d.runs).toBe('8 of 8 runs');
+    expect(d.headline).toMatch(/^\*\*Build changed the result; preferences did not, beyond run-to-run variation\.\*\* Changing build: 4 of the top 5 stayed/);
+    expect(d.rests).toBe('1 set, 4 conditions, 2 runs of each. It holds for this set only.');
+    expect(d.figures.map((f) => [f.label, f.value, f.tone])).toEqual([
+      ['places moved by changing build', '3', 'ok'], ['places moved by changing preferences', '0', undefined], ['places moved between two runs of the same thing', '0', undefined],
+    ]);
+    expect(d.conditions[0]).toEqual({ condition: 'Rules A · Profile 1 (baseline)', runs: '2 of 2', kept: '', moved: '', s0: '100%' });
+    expect(d.conditions[2]).toEqual({ condition: 'Rules B · Profile 1', runs: '2 of 2', kept: '4 of 5', moved: '3', s0: '0%' });
+    expect(d.changes).toHaveLength(4);
+    expect(d.changes[0]).toEqual({ changing: 'Build', from: 'Rules A · Profile 1', to: 'Rules B · Profile 1', kept: '4 of 5', moved: '3' });
+    expect(d.items[0]).toMatchObject({ c0: '1', c2: '6', moved: '5' });
+    expect(['Role A', 'Role F']).toContain(d.items[0].item);
+    expect(experimentPageData(e, cases, s.cells(p.id), [], { running: true }).label).toBe('So far');
+    expect(missingExperimentData('gone').headline).toContain('no longer there');
+
+    // Its page: a column for each condition and scorer, and it checks out as a notebook layout.
+    const layout = experimentLayout(e);
+    const table = (id: string) => (layout.components.find((c) => c.id === id) as unknown as { columns: Array<{ key: string; label: string }> }).columns;
+    expect(table('conditions').map((c) => c.label)).toEqual(['Condition', 'Runs', 'Top 5 kept', 'Places moved', 'A up top']);
+    expect(table('items').map((c) => c.key)).toEqual(['item', 'c0', 'c1', 'c2', 'c3', 'moved']);
+    expect(checkNotebookLayout(layout.components)).toMatchObject({ ok: true });
+    // One thing varied: no "each change by itself".
+    expect(experimentLayout({ ...e, factors: [e.factors[0]] }).components.some((c) => c.id === 'changes')).toBe(false);
+
+    // A notebook is linked to the experiment it shows, and found by it.
+    const nbs = NotebookStore.fromHandle(db);
+    const nb = nbs.create({ title: 'Shown', statement: '', params: [], criteria: [] });
+    expect(nbs.forExperiment(e.id)).toBeUndefined();
+    nbs.setLayout(nb.id, layout, 'experiment');
+    nbs.setExperiment(nb.id, e.id);
+    expect(nbs.forExperiment(e.id)).toMatchObject({ id: nb.id, experimentId: e.id });
+    nbs.setExperiment(nb.id, null);
+    expect(nbs.get(nb.id)!.experimentId).toBeUndefined();
   });
 });

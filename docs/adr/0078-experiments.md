@@ -29,6 +29,8 @@ The fail mode: **a notebook has no way to say "run the same thing several ways a
 - Judges' runs count toward a pass's 60. Scores are reported per condition as a mean with the range; no "beyond noise" claim is made for them.
 - A judge as the thing under test (does the judge's own wording or model change its verdicts) is approached by putting two judges with the same rubric and different models side by side. An experiment whose task returns a score, not a ranking, would need a second `kind` and is not built.
 
+**A notebook can show an experiment; the experiment still owns the runs** (added with the notebook type). `Notebook.experimentId` links a notebook to one experiment. Its page (`experimentLayout`, generated for that experiment's conditions and scorers) binds to `/notebook/experiment`, which `experimentPageData` builds from the experiment's latest pass on every render. Nothing is copied, so the notebook can't disagree with the experiment. The runner touches the notebook as cells finish so an open page redraws. Such a notebook has no steps and offers no Decide; its header opens the experiment. sua's view of the notebook carries the same counted finding and tables.
+
 ## Alternatives
 
 - **A new notebook step kind.** Cheaper, but a notebook's options change as searches run, its steps run once in a line and pause for the person, its checks are per option, and the result could not be rerun as the agent changed. It would also have touched about thirty places that switch on step kind.

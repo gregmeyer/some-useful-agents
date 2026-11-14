@@ -34,6 +34,7 @@ import {
 } from '@some-useful-agents/core';
 import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { experimentDataFor } from '../lib/experiment-notebook.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
 import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
@@ -84,6 +85,7 @@ function widgetHistory(ctx: ReturnType<typeof getContext>, s: NotebookStore): No
     recentRuns: (agentId: string) => ctx.runStore.listRuns({ agentName: agentId, limit: 10 })
       .filter((r) => !r.parentRunId)
       .map((r) => ({ id: r.id, status: r.status, startedAt: r.startedAt, ...(r.error ? { error: r.error } : {}) })),
+    experiment: (experimentId: string) => experimentDataFor(ctx, experimentId),
   });
 }
 
