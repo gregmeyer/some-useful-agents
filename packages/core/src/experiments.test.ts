@@ -210,6 +210,11 @@ describe('scoring each result', () => {
     expect(topScore(top, ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(1);
     expect(topScore(top, ['a', 'b', 'd', 'c', 'e', 'f'])).toBe(0.5);
     expect(topScore(top, ['f', 'e', 'd', 'c', 'b', 'a'])).toBe(0);
+    // The other way round: things that should stay low score by how many are kept out of the top.
+    const low = cleanScorers([{ kind: 'top', avoid: true, items: ['f'], k: 2 }], cases, 3)[0] as typeof top;
+    expect(low).toMatchObject({ id: 'out-of-the-top', name: 'Out of the top 2', avoid: true });
+    expect(topScore(low, ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(1);
+    expect(topScore(low, ['f', 'b', 'c', 'd', 'e', 'a'])).toBe(0);
   });
 
   it('takes a judge\'s answer only as a number from 0 to 1 with a reason that points at real items', () => {
