@@ -103,19 +103,24 @@ describe('experiments', () => {
     const page = (await get(app, '/experiments/new')).text;
     expect(page).toContain('What do you want to find out?');
     expect(page).toContain('Experiment ranker (ranks a list as told)');
-    // Two changes shown, each with two versions; the rest wait behind their buttons.
-    expect(page.match(/data-exp-change data-kind="[a-z]+" aria-label/g)).toHaveLength(2);
-    expect(page.match(/data-exp-change data-kind="[a-z]+" hidden/g)).toHaveLength(1);
-    expect(page).toContain('+ another version');
-    expect(page).toContain('data-exp-sum');
-    // A link can fill it in.
+    // Five steps, opening on the first; no set chosen for you; the notebook is offered with it.
+    expect(page).toContain('data-exp-open="1"');
+    expect(page.match(/<section class="exp-step" data-exp-step="\d"/g)).toHaveLength(5);
+    for (const step of ['The question', 'What stays the same', 'What changes', 'Which is better', 'Check it']) expect(page).toContain(`</span> ${step}</button>`);
+    expect(page).not.toMatch(/name="from"[^>]* checked/);
+    expect(page).toContain('How it is told to decide');
+    expect(page).toContain('Do you also want to know which is better?');
+    expect(page).toContain('name="notebook" value="1" checked');
+    // A link that fills the changes in opens on the summary; one with only the question, on the set.
     const filled = (await get(app, '/experiments/new?question=Why%3F&c1_name=Model&c1_kind=model&c1_v2_model=m-2&c3_name=Third&c3_v1_text=x')).text;
+    expect(filled).toContain('data-exp-open="5"');
     expect(filled).toContain('>Why?</textarea>');
     expect(filled).toContain('name="c1_name" value="Model"');
-    expect(filled).toContain('data-exp-change data-kind="model" aria-label="Change 1"');
+    expect(filled).toContain('name="c1_kind" value="model" data-exp-kind data-call="Model" data-placeholder="" checked');
     expect(filled).toContain('name="c1_v2_model" value="m-2"');
-    expect(filled.match(/data-exp-change data-kind="[a-z]+" hidden/g)).toBeNull();
-
+    // A change that came with text but no kind is instructions.
+    expect(filled).toMatch(/name="c3_kind" value="instructions"[^>]* checked/);
+    expect((await get(app, '/experiments/new?question=Why%3F')).text).toContain('data-exp-open="2"');
     const made = await post(app, '/experiments', FORM);
     expect(made.status).toBe(303);
     const id = idOf(made.headers.location);
@@ -167,7 +172,9 @@ describe('experiments', () => {
     const nb = nbs.create({ title: 'Jobs', statement: 'Find jobs', params: [], criteria: [] });
     nbs.setFields(nb.id, [{ key: 'pay', label: 'Pay', type: 'money', role: 'price', better: 'higher' }, { key: 'company', label: 'Company', type: 'text', role: 'org' }]);
     for (const [title, pay, company] of [['Staff Engineer', 250000, 'Acme'], ['Staff Engineer', 210000, 'Globex'], ['Designer', 150000, 'Initech']] as const) nbs.upsertOption(nb.id, { title, data: { pay, company }, by: 'you' });
-    expect((await get(app, '/experiments/new')).text).toContain('Jobs (3 options)');
+    const picker = (await get(app, '/experiments/new')).text;
+    expect(picker).toContain('<span class="exp-choice__title">Jobs</span>');
+    expect(picker).toContain('3 options: Acme · Staff Engineer · Designer · Globex · Staff Engineer');
 
     const made = await post(app, '/experiments', { name: 'From a notebook', from: nb.id, repeats: '2', c1_name: 'Build', c1_v1_name: 'A', c1_v2_name: 'B', c1_v2_text: 'Other way.' });
     const id = idOf(made.headers.location);
@@ -211,6 +218,8 @@ describe('experiments', () => {
     expect(none.status).toBe(400);
     expect(none.text).toContain('It needs a set of at least two items to rank.');
     expect(none.text).toContain('value="Nothing to rank"');
+    // It comes back on the step the problem belongs to.
+    expect(none.text).toContain('data-exp-open="2"');
     expect(none.text).toContain('name="c1_name" value="Kept"');
     expect(none.text).toContain('name="c1_v1_name" value="Typed"');
     // With no name, the question names it.
@@ -263,7 +272,12 @@ describe('experiments', () => {
     expect(page).toContain('judged: “The top two fit what the person asked for.”');
     expect(page).toContain('<strong>Respects preferences:</strong> 25%. The first two are placed as asked.');
     expect(page).toContain('no score: It has no &lt;score&gt; block.');
-    expect((await get(app, '/experiments/new')).text).toContain('Score each result <span class="exp-score__opt">optional</span>');
+    expect((await get(app, '/experiments/new')).text).toContain('Have a model judge it');
+    // A scorer that names no item comes back on the scoring step.
+    const typo = await post(app, '/experiments', { ...FORM, top_items: 'Role Z' });
+    expect(typo.status).toBe(400);
+    expect(typo.text).toContain('data-exp-open="4"');
+    expect(typo.text).toContain('>Role Z</textarea>');
   });
 
   it('shows its results in a notebook made for it: one notebook, read from the runs, with nothing to decide', async () => {

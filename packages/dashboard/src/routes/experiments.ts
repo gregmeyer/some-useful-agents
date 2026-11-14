@@ -12,7 +12,7 @@ import {
 import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
-import { renderExperimentNew, renderExperimentPage, renderExperimentsList, experimentStateKey, type ExperimentStanding } from '../views/experiments.js';
+import { renderExperimentNew, renderExperimentPage, renderExperimentsList, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
 import { notebookForExperiment } from '../lib/experiment-notebook.js';
 import { EXPERIMENT_RANKER_ID, caseFromPaste, costPerRun, freezeNotebook, runningPass, startExperimentPass, stopExperimentPass } from '../lib/experiment-runner.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
@@ -110,7 +110,11 @@ export function nameFromQuestion(question: string): string {
 function newPage(req: Request, res: Response, values?: Parameters<typeof renderExperimentNew>[0]['values'], error?: string): void {
   const ctx = getContext(req.app.locals);
   const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  const notebooks = nbs.list().filter((n) => !n.archivedAt).map((n) => ({ id: n.id, title: n.title, options: notebookViewData(n, nbs.entries(n.id, 1000)).notebook.options.filter((o) => !o.ruledOut).length })).filter((n) => n.options >= 2);
+  // Each notebook with two or more options in the running, and the first few (by name, as they'd be copied) to recognise it by.
+  const notebooks = nbs.list().filter((n) => !n.archivedAt && !n.experimentId).map((n) => {
+    const names = notebookViewData(n, nbs.entries(n.id, 1000)).notebook.options.filter((o) => !o.ruledOut).map((o) => o.name).sort((a, b) => a.localeCompare(b));
+    return { id: n.id, title: n.title, options: names.length, sample: names.slice(0, 3) };
+  }).filter((n) => n.options >= 2);
   const agents = ctx.agentStore.listAgents().map((a) => { const cost = costPerRun(ctx, a.id); return { id: a.id, name: a.name, ...(cost !== undefined ? { costPerRun: cost } : {}) }; }).sort((a, b) => Number(b.id === EXPERIMENT_RANKER_ID) - Number(a.id === EXPERIMENT_RANKER_ID) || a.name.localeCompare(b.name));
   let providers: string[] = [];
   try { providers = [...(buildLlmSettingsSnapshot(ctx)?.providers ?? [])]; } catch { /* none offered */ }
@@ -119,6 +123,8 @@ function newPage(req: Request, res: Response, values?: Parameters<typeof renderE
     // A link can fill the page in (sua offers one from a conversation): any of the form's fields, by name.
     values: values ?? { from: str(req.query.from), name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), paste: str(req.query.paste), body: req.query as Record<string, unknown> },
     ...(error ? { flash: { kind: 'error' as const, message: error } } : flashOf(req) ? { flash: flashOf(req)! } : {}),
+    // Where to start: where a refusal belongs; the summary when a link filled the changes in; the set when it only gave the question.
+    open: error ? experimentStepForError(error) : Object.keys(req.query).some((k) => /^c\d_v\d_/.test(k)) ? 5 : str(req.query.question) ? 2 : 1,
   }));
 }
 
