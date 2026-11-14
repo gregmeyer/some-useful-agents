@@ -244,6 +244,8 @@ export function renderExperimentNew(args: {
         </div>
       </details>
 
+      <label class="exp-also"><input type="checkbox" name="notebook" value="1"${b('notebook') === '1' ? unsafeHtml(' checked') : unsafeHtml('')}> Also make a notebook that shows its results, to talk them over with sua</label>
+
       <div class="exp-sum">
         <p class="exp-sum__count" data-exp-sum aria-live="polite">Every combination of your changes, ${v.repeats || '3'} times each.</p>
         <div class="exp-new__acts">

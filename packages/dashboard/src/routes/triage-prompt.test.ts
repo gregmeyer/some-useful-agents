@@ -54,6 +54,21 @@ describe('loadTriageKernel', () => {
 });
 
 describe('a notebook like the one asked for', () => {
+  it('an ask to test what changes an agent\'s output is an experiment: offered as a link, its set never invented, its finding only repeated', () => {
+    const kernel = loadTriageKernel();
+    expect(kernel).toContain('EXPERIMENTS — "does the build matter more than what they ask for?"');
+    // Not a notebook, not a new agent, and not answered from reasoning.
+    expect(kernel).toMatch(/TEST, PROVE, MEASURE or COMPARE[\s\S]{0,500}Do NOT start a notebook for\s+it, do NOT build or run an agent for it, and do NOT answer the question\s+from reasoning/);
+    // One link to the setup page, filled in with the fields that page reads.
+    expect(kernel).toContain('[Set up the experiment](/experiments/new?question=');
+    for (const field of ['cN_kind', 'cN_vM_name', 'cN_vM_text', 'cN_vM_provider', 'cN_vM_version', 'notebook=1', 'j1_rubric']) expect(kernel).toContain(field);
+    expect(kernel).toContain('THE SET IS NEVER INVENTED.');
+    expect(kernel).toContain('Never write example items.');
+    // What one found comes from its runs, in those numbers.
+    expect(kernel).toMatch(/answer from EXPERIMENTS ONLY:\s+its "found" and "restsOn"/);
+    expect(kernel).toContain('never 1, which leaves nothing to conclude');
+  });
+
   it('the kernel reads NOTEBOOK_CANDIDATES before offering a new notebook: run the same one again, or set a new one up like it', async () => {
     const kernel = loadTriageKernel();
     expect(kernel).toContain('A NOTEBOOK LIKE THIS EXISTS');

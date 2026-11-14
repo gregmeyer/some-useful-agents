@@ -153,7 +153,10 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
       ...('from' in frozen ? { from: frozen.from } : {}),
     });
     const runs = experimentRunCount(e, cases.length);
-    res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass makes ${String(runs)} ${runs === 1 ? 'run' : 'runs'}. Check the setup below, then press Run.`));
+    // Asked for with it: the notebook that shows its results (made empty; it fills in as the experiment runs).
+    let also = '';
+    if (str(body.notebook) === '1') { try { notebookForExperiment(ctx, e.id); also = ' Its notebook is made too: Open its notebook, above.'; } catch { /* the page still offers it */ } }
+    res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass makes ${String(runs)} ${runs === 1 ? 'run' : 'runs'}. Check the setup below, then press Run.${also}`));
   } catch (err) {
     newPage(req, res, values, err instanceof Error ? err.message : String(err));
   }

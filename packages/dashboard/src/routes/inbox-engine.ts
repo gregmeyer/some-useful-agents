@@ -14,6 +14,7 @@ import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
+import { experimentsForTriage } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
 import { previewBoardPage, executeBoardPage } from '../lib/board-page-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
@@ -2718,6 +2719,8 @@ export async function runTriageAgent(
           })(),
           // How to draw a notebook's page (notebook-layout), only in a notebook's conversation.
           LAYOUT_GUIDE: threadNotebook ? notebookLayoutGuide(suaComponentDocs()) : '',
+          // Their experiments: what each found, counted from its runs (EXPERIMENTS).
+          EXPERIMENTS: experimentsForTriage(ctx),
           // Their templates: start a notebook like one they've done (NOTEBOOK TEMPLATES).
           TEMPLATES: (() => {
             try {

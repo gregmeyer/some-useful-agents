@@ -171,6 +171,14 @@ inputs:
     description: >
       The operator's notebooks (goals they keep over time) as JSON: id,
       title, what it's for, status, criteria met, entries, and its link.
+  EXPERIMENTS:
+    type: string
+    required: false
+    default: "[]"
+    description: >
+      The operator's experiments (what changes an agent's answer, measured
+      on a fixed set) as JSON: id, name, the question, how it stands, what
+      it found and what that rests on (counted from its runs), and links.
   TEMPLATES:
     type: string
     required: false
@@ -414,6 +422,9 @@ nodes:
 
       Their notebook templates (see NOTEBOOK TEMPLATES):
       {{inputs.TEMPLATES}}
+
+      Their experiments (see EXPERIMENTS):
+      {{inputs.EXPERIMENTS}}
 
       The board they're on, when they asked from one (see WHERE THE OPERATOR IS):
       {{inputs.BOARD_OUTLINE}}
