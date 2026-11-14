@@ -1261,6 +1261,14 @@ body.has-sua-panel .nb-toast { display: none; }
 .given-file__pick:focus-within { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .given-file__say { flex: 1 1 16rem; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
 .given-file__say--bad { color: var(--color-warn); }
+/* Attach a file to a message: a paperclip beside Send, and a line under the box that says what was attached. */
+.attach-pick { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: var(--control-h); height: var(--control-h); border-radius: var(--radius-sm); color: var(--color-text-muted); cursor: pointer; }
+.attach-pick:hover { color: var(--color-text); background: var(--color-surface-raised, var(--color-surface)); }
+.attach-pick:focus-within { outline: 2px solid var(--color-primary); outline-offset: 1px; }
+.attach-say { margin: var(--space-1) 0 0; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+.attach-say--bad { color: var(--color-warn); }
+.nb-talk__acts { display: inline-flex; flex: 0 0 auto; align-items: center; gap: var(--space-1); }
+.nb-talk__acts .btn { white-space: nowrap; }
 .nbe-given__sub { font: var(--weight-semibold) var(--font-size-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
 .nbe-given__item { padding: var(--space-2) 0; border-top: 1px solid var(--color-border); font-size: var(--font-size-sm); }
 .nbe-given__item:first-of-type { border-top: 0; }

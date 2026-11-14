@@ -5799,6 +5799,48 @@ describe('a notebook that depends on something you have to give it', () => {
     researchReply = undefined; writerReply = undefined;
   });
 
+  it('a file attached to a message is filed on the conversation\'s notebook in code; elsewhere it stays with the conversation until a notebook starts from it', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { takeAttachments, contextWithAttachments, fileThreadAttachments, withoutAttachMarkers } = await import('../lib/conversation-attach.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    ctx.notebookGivenReaderRun = async () => `<read>${JSON.stringify({ summary: 'An accountant.', facts: [] })}</read>`;
+    const attach = (label: string, text: string) => request(app).post('/notebooks/attach').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send({ label, text });
+    // Kept as text under an id; the page puts the marker in the message. Too little text is refused.
+    expect((await attach('Dana Reyes Profile', 'short')).status).toBe(422);
+    const kept = (await attach('Dana [Reyes] Profile', PROFILE)).body as { id: string; marker: string; label: string };
+    expect(kept.marker).toBe(`[file: Dana Reyes Profile · ${kept.id}]`);
+    expect(withoutAttachMarkers(`Use this ${kept.marker}`)).toBe('Use this');
+    // The page has the control beside Send.
+    const nb = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Help me prepare.' });
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain('data-attach-file');
+    // Sent in the notebook's conversation: filed on the notebook before sua's turn, and the message says so.
+    await post(app, `/notebooks/${nb.id}/ask`, { text: `Here is their profile.\n${kept.marker}` });
+    const now = store.get(nb.id)!;
+    expect(now.given).toMatchObject([{ label: 'Dana Reyes Profile', state: 'given', text: PROFILE, optional: true }]);
+    const said = ctx.inboxStore!.listResponses(now.conversationId!).filter((r) => r.role === 'user').pop()!.body;
+    expect(said).toBe('Here is their profile.\nAttached: Dana Reyes Profile (added to this notebook under What you gave it)');
+    // sua is told what was attached and where it went.
+    const told = JSON.parse(contextWithAttachments(ctx, now.conversationId!, JSON.stringify({ page: { kind: 'notebook', id: nb.id } }))) as { page: unknown; attached: Array<Record<string, unknown>> };
+    expect(told.page).toEqual({ kind: 'notebook', id: nb.id });
+    expect(told.attached).toEqual([{ name: 'Dana Reyes Profile', characters: PROFILE.length, startsWith: PROFILE, filedOnNotebook: 'Prepare for a meeting with Dana Reyes' }]);
+    // In a conversation about nothing yet: it stays with the conversation.
+    const thread = ctx.inboxStore!.add({ priority: 'medium', source: 'manual', title: 'A question', body: '(empty)' });
+    const other = (await attach('Resume', `${PROFILE} Second page.`)).body as { marker: string };
+    expect(takeAttachments(ctx, thread.id, `What roles fit this? ${other.marker}`)).toBe('What roles fit this? Attached: Resume');
+    expect(takeAttachments(ctx, thread.id, 'Nothing attached.')).toBe('Nothing attached.');
+    expect(takeAttachments(ctx, thread.id, 'Gone: [file: Old · 0123456789]')).toBe('Gone: Attached: Old (it wasn\'t kept; attach it again)');
+    expect(contextWithAttachments(ctx, thread.id, '')).toContain('"name":"Resume"');
+    expect(contextWithAttachments(ctx, 'no-such-thread', '{"a":1}')).toBe('{"a":1}');
+    // A notebook started from that conversation gets it, once.
+    const job = store.create({ title: 'Find a controller role' });
+    expect(fileThreadAttachments(ctx, thread.id, job.id)).toEqual(['Resume']);
+    expect(store.get(job.id)!.given).toMatchObject([{ label: 'Resume', state: 'given' }]);
+    expect(fileThreadAttachments(ctx, thread.id, job.id)).toEqual([]);
+  });
+
   it('going on without it is recorded, told to every step, and shown on the page', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');

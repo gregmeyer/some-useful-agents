@@ -156,7 +156,7 @@ describe('GET /inbox/:id and /:id/fragment', () => {
     expect(home.text).toContain('<input type="hidden" name="id" value="next:run-agent:weather">');
     // Ask sua: a one-line box, in the scope the fill buttons reach. No rows of generic starters.
     expect(home.text).toContain('class="home-main" data-ask-scope');
-    expect(home.text).toMatch(/class="home-ask-card"[\s\S]*data-home-ask>/);
+    expect(home.text).toMatch(/class="home-ask-card"[\s\S]*data-home-ask data-attach>/);
     expect(home.text).toContain('name="body" rows="1"');
     for (const verb of ['Run', 'Build or fix', 'Look up']) expect(home.text).not.toContain(`<span class="home-ask-card__verb">${verb}</span>`);
     // Nothing to tidy: Housekeeping is there but hidden.

@@ -31,6 +31,7 @@
  *   - inbox-engine.ts   — triage + action-execution + learning-extraction engine
  */
 
+import { takeAttachments, withoutAttachMarkers } from '../lib/conversation-attach.js';
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { renderNotebookShelf } from '../views/notebook-shelf.js';
 import { homeShelf } from '../lib/notebook-card.js';
@@ -504,7 +505,7 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
   const title = titleRaw.length > 0
     ? titleRaw.slice(0, 200)
     : bodyRaw
-      ? deriveTitleFromBody(bodyRaw)
+      ? deriveTitleFromBody(withoutAttachMarkers(bodyRaw) || bodyRaw)
       : DEFAULT_NEW_CONVERSATION_TITLE;
   try {
     const page = pageContextFrom(req.body?.page, req.body?.pageTitle);
@@ -528,9 +529,11 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
       } catch { /* the conversation still works without the link */ }
     }
     if (bodyRaw) {
-      const userResponse = ctx.inboxStore.addResponse(created.id, 'user', bodyRaw);
+      // A file attached to it is kept on the conversation (and filed on its notebook) before sua's turn.
+      const said = takeAttachments(ctx, created.id, bodyRaw);
+      const userResponse = ctx.inboxStore.addResponse(created.id, 'user', said);
       publishInboxEvent(ctx, created.id, 'message:created', {
-        responseId: userResponse.id, role: 'user', body: bodyRaw, createdAt: userResponse.createdAt,
+        responseId: userResponse.id, role: 'user', body: said, createdAt: userResponse.createdAt,
       });
       // Fire triage now — same path a first /respond takes on a manual thread.
       void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
@@ -800,9 +803,10 @@ export function addInboxReply(
   body: string,
 ): { ok: true } | { ok: false; status: number; message: string } {
   if (!ctx.inboxStore || !ctx.inboxStore.get(id)) return { ok: false, status: 404, message: 'Message not found.' };
-  const bodyRaw = body.trim();
-  if (!bodyRaw) return { ok: false, status: 400, message: 'Reply cannot be empty.' };
-  if (bodyRaw.length > 8192) return { ok: false, status: 400, message: 'Reply is too long (max 8 KB).' };
+  if (!body.trim()) return { ok: false, status: 400, message: 'Reply cannot be empty.' };
+  if (body.trim().length > 8192) return { ok: false, status: 400, message: 'Reply is too long (max 8 KB).' };
+  // A file attached to it is kept on the conversation (and filed on its notebook) before the turn.
+  const bodyRaw = takeAttachments(ctx, id, body.trim());
   // A fresh reply is genuine re-engagement, so lift any operator Stop and let
   // triage run again for this turn. Clears both the in-memory set and the
   // persisted `paused` column (the restart-surviving form of Stop).

@@ -12,7 +12,7 @@ import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } fr
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import type { DatabaseSync } from 'node:sqlite';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
 import type { Item } from './items/types.js';
 
@@ -955,6 +955,15 @@ export const NOTEBOOK_GIVEN_FACTS_MAX = 30;
 
 const oneLine = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 
+/** A file's text attached to a message in a conversation. `notebookId`: the notebook it was filed on. */
+export interface NotebookAttachment { id: string; label: string; text: string; threadId?: string; notebookId?: string; createdAt: string }
+
+const attachmentRow = (r: Record<string, unknown>): NotebookAttachment => ({
+  id: String(r.id), label: String(r.label), text: String(r.text), createdAt: String(r.created_at),
+  ...(typeof r.thread_id === 'string' && r.thread_id ? { threadId: r.thread_id } : {}),
+  ...(typeof r.notebook_id === 'string' && r.notebook_id ? { notebookId: r.notebook_id } : {}),
+});
+
 /** A stored or model-made reading, cleaned: a summary and up to 30 facts with a label and a value. Undefined when it says nothing. */
 export function cleanGivenRead(raw: unknown, now = new Date().toISOString()): NotebookGivenRead | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -1456,6 +1465,16 @@ export class NotebookStore {
         error TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
+      );
+      -- A file attached to a message in a conversation (its text; the file isn't kept): held until the
+      -- message is sent, then on its conversation, and filed on the notebook the conversation is about.
+      CREATE TABLE IF NOT EXISTS notebook_attachments (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT,
+        label TEXT NOT NULL,
+        text TEXT NOT NULL,
+        notebook_id TEXT,
+        created_at TEXT NOT NULL
       );
       -- Layouts a change replaced, newest last, to undo to (setLayout).
       CREATE TABLE IF NOT EXISTS notebook_layout_history (
@@ -2712,6 +2731,37 @@ export class NotebookStore {
     }
     this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(next.length ? JSON.stringify(next) : null, now, id);
     return this.mustGet(id);
+  }
+
+  /**
+   * Keep a file's text until its message is sent (the file itself isn't
+   * kept). Ones never sent are dropped after a day. Returns its id.
+   */
+  addAttachment(a: { label: string; text: string }, now = new Date().toISOString()): NotebookAttachment {
+    const label = a.label.replace(/\s+/g, ' ').trim().replace(/[\][]/g, '').slice(0, 80);
+    const text = a.text.trim().slice(0, NOTEBOOK_GIVEN_MAX);
+    if (!label) throw new Error('Say what it is, in a few words.');
+    if (text.length < 20) throw new Error('There’s too little text in that to keep.');
+    this.db.prepare('DELETE FROM notebook_attachments WHERE thread_id IS NULL AND created_at < ?').run(new Date(Date.parse(now) - 86_400_000).toISOString());
+    const id = randomBytes(5).toString('hex');
+    this.db.prepare('INSERT INTO notebook_attachments (id, label, text, created_at) VALUES (?, ?, ?, ?)').run(id, label, text, now);
+    return { id, label, text, createdAt: now };
+  }
+
+  attachment(id: string): NotebookAttachment | undefined {
+    const r = this.db.prepare('SELECT * FROM notebook_attachments WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return r ? attachmentRow(r) : undefined;
+  }
+
+  /** The message it rode on was sent: it belongs to that conversation; `notebookId` when it was filed on a notebook. */
+  placeAttachment(id: string, where: { threadId?: string; notebookId?: string }): void {
+    if (where.threadId) this.db.prepare('UPDATE notebook_attachments SET thread_id = ? WHERE id = ?').run(where.threadId, id);
+    if (where.notebookId) this.db.prepare('UPDATE notebook_attachments SET notebook_id = ? WHERE id = ?').run(where.notebookId, id);
+  }
+
+  /** What was attached in a conversation, oldest first (at most 8). */
+  threadAttachments(threadId: string): NotebookAttachment[] {
+    return (this.db.prepare('SELECT * FROM notebook_attachments WHERE thread_id = ? ORDER BY created_at LIMIT 8').all(threadId) as Array<Record<string, unknown>>).map(attachmentRow);
   }
 
   /** Save a draft's state (insert or replace); `draft` is the caller's own shape, kept as JSON. */

@@ -9,6 +9,7 @@
  * exported entry points only.
  */
 
+import { contextWithAttachments, fileThreadAttachments } from '../lib/conversation-attach.js';
 import { randomUUID } from 'node:crypto';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
@@ -936,7 +937,7 @@ async function executeRouteHandledAgent(
     return applyNotebookCorrection(ctx, messageId, meta);
   }
   if (meta.agentId === 'notebook-create') {
-    return executeNotebookCreate(ctx, meta);
+    return executeNotebookCreate(ctx, meta, messageId);
   }
   if (meta.agentId === 'notebook-rerun') {
     return executeNotebookRerun(ctx, meta);
@@ -1346,14 +1347,17 @@ export function notebookSetupSource(ctx: ReturnType<typeof getContext>, meta: In
 export function executeNotebookCreate(
   ctx: ReturnType<typeof getContext>,
   meta: InboxActionMeta,
+  threadId?: string,
 ): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
   const made = startNotebookFrom(ctx, meta.inputs);
   if ('error' in made) return { status: 'failed', refusalReason: made.error };
   const { notebook: nb, from } = made;
+  // What was attached in the conversation it was started from goes on it.
+  const attached = threadId ? fileThreadAttachments(ctx, threadId, nb.id) : [];
   const first = nb.steps?.[0];
   return {
     status: 'completed',
-    summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) ${from.like ? `set up like [${from.like.title}](/notebooks/${encodeURIComponent(from.like.id)})` : `from your ${from.name} template`} (${from.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.`,
+    summary: `Created [${nb.title}](/notebooks/${encodeURIComponent(nb.id)}) ${from.like ? `set up like [${from.like.title}](/notebooks/${encodeURIComponent(from.like.id)})` : `from your ${from.name} template`} (${from.description}). It starts empty${first ? `; its first step is **${first.title}**: press Next step on the notebook when you're ready` : ''}.${attached.length ? ` Added what you attached (${attached.join(', ')}) under What you gave it.` : ''}`,
   };
 }
 
@@ -2707,7 +2711,7 @@ export async function runTriageAgent(
           NOW: localIsoNow(),
           MESSAGE_PRIORITY: message.priority,
           MESSAGE_SOURCE: message.source,
-          CONTEXT_JSON: message.contextJson ?? '',
+          CONTEXT_JSON: contextWithAttachments(ctx, messageId, message.contextJson),
           RELEVANT_LEARNINGS: relevantLearnings,
           CONVERSATION: conversation,
           FOCUS_AGENT: focusAgentId ?? '',

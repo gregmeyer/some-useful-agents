@@ -4,6 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { takeAttachments } from '../lib/conversation-attach.js';
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
 import { createHash } from 'node:crypto';
@@ -693,6 +694,17 @@ notebooksRouter.post('/notebooks/given-file', express.raw({ type: 'application/p
   res.json({ text: out.text, pages: out.pages, chars, said: `${String(out.pages)} ${out.pages === 1 ? 'page' : 'pages'}, ${chars.toLocaleString('en-US')} characters.${over ? ` A notebook keeps the first ${NOTEBOOK_GIVEN_MAX.toLocaleString('en-US')}, so its end will be left out.` : ''}` });
 });
 
+// A file's text kept until its message is sent (the conversation's attach control): returns the marker to put in the message.
+notebooksRouter.post('/notebooks/attach', express.json({ limit: '300kb' }), (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const a = store(req).addAttachment({ label: str(body.label), text: str(body.text) });
+    res.json({ id: a.id, label: a.label, marker: `[file: ${a.label} · ${a.id}]`, chars: a.text.length });
+  } catch (err) {
+    res.status(422).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 // Something of yours the notebook didn't ask for (a profile saved as a PDF, notes): say what it is and paste it or
 // choose a file. Kept as given and read; nothing runs again because of it (the page offers that once it's read).
 notebooksRouter.post('/notebooks/:id/given', (req: Request, res: Response) => {
@@ -1261,7 +1273,9 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const option = optionId ? s.entries(nb.id, 1000).find((e) => e.id === optionId && e.kind === 'option') : undefined;
   setThreadOptionFocus(ctx, threadId, option?.id);
   // From its template page: sua drafts the template (notebook-template).
-  const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${text}` : str(req.body?.template) === '1' ? `About this notebook's template: ${text}` : text);
+  // A file attached to it is filed on the notebook before sua's turn.
+  const sent = takeAttachments(ctx, threadId, text);
+  const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${sent}` : str(req.body?.template) === '1' ? `About this notebook's template: ${sent}` : sent);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
   void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
   publishInboxChanged(ctx, threadId, 'open');
