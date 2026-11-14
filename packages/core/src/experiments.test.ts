@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { ExperimentStore, cleanFactors, cleanCases, cleanRanking, experimentConditions, conditionLevels, experimentRunCount, passProgress, EXPERIMENT_MAX_RUNS } from './experiments.js';
+import { ExperimentStore, cleanFactors, cleanCases, cleanRanking, cleanScorers, cleanJudgement, topScore, scoreSummaries, experimentConditions, conditionLevels, experimentRunCount, passProgress, EXPERIMENT_MAX_RUNS } from './experiments.js';
 import { topKOverlap, rankShift, experimentVerdict, verdictWords } from './experiment-measures.js';
 import { agentForCondition, conditionSettings, experimentAgentId, experimentAgentOf } from './experiment-conditions.js';
 import type { Agent } from './agent-v2-types.js';
@@ -185,5 +185,65 @@ describe('a condition as an agent to run', () => {
     expect(agent.id).toBe('ranker');
     expect(experimentAgentOf(experimentAgentId('ranker'))).toBe('ranker');
     expect(experimentAgentOf('ranker')).toBeUndefined();
+  });
+});
+
+describe('scoring each result', () => {
+  const cases = cleanCases([{ name: 'Jobs', items: ITEMS }]);
+
+  it('keeps a counted scorer with real items and a judge with a rubric, and nothing else', () => {
+    const sc = cleanScorers([
+      { kind: 'top', name: 'Remote roles up top', items: ['a', 'c', 'nope', 'a'] },
+      { kind: 'top', items: ['nope'] },
+      { kind: 'judge', name: 'Respects preferences', rubric: 'The top three are remote.', provider: 'codex', model: 'm' },
+      { kind: 'judge', rubric: '' },
+      { kind: 'other' },
+    ], cases, 3);
+    expect(sc).toEqual([
+      { id: 'remote-roles-up-top', name: 'Remote roles up top', kind: 'top', items: ['a', 'c'], k: 3 },
+      { id: 'respects-preferences', name: 'Respects preferences', kind: 'judge', rubric: 'The top three are remote.', provider: 'codex', model: 'm' },
+    ]);
+    const top = sc[0] as Extract<(typeof sc)[number], { kind: 'top' }>;
+    expect(topScore(top, ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(1);
+    expect(topScore(top, ['a', 'b', 'd', 'c', 'e', 'f'])).toBe(0.5);
+    expect(topScore(top, ['f', 'e', 'd', 'c', 'b', 'a'])).toBe(0);
+  });
+
+  it('takes a judge\'s answer only as a number from 0 to 1 with a reason that points at real items', () => {
+    expect(cleanJudgement({ score: 0.8, reason: 'The remote roles are 1st and 2nd.', cites: ['a', 'b', 'a'] }, ITEMS)).toEqual({ value: 0.8, reason: 'The remote roles are 1st and 2nd.', cites: ['a', 'b'] });
+    expect(cleanJudgement({ score: 1.2, reason: 'x', cites: ['a'] }, ITEMS)).toEqual({ error: 'Its score is not a number from 0 to 1.' });
+    expect(cleanJudgement({ score: '0.5', reason: 'x', cites: ['a'] }, ITEMS)).toEqual({ error: 'Its score is not a number from 0 to 1.' });
+    expect(cleanJudgement({ score: 0.5, cites: ['a'] }, ITEMS)).toEqual({ error: 'It gave no reason.' });
+    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.' }, ITEMS)).toEqual({ error: 'It cites no item. Name the ids of the items its reason rests on.' });
+    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.', cites: ['zz'] }, ITEMS)).toEqual({ error: 'It cites "zz", which is not one of the items\' ids.' });
+    expect(cleanJudgement([0.5], ITEMS)).toEqual({ error: 'It gave no score object.' });
+  });
+
+  it('stores judges\' scores, averages every scorer by condition, and counts judges in a pass\'s runs', () => {
+    const s = ExperimentStore.fromHandle(new DatabaseSync(':memory:'));
+    const scorers = [{ kind: 'top', name: 'A and B up top', items: ['a', 'b'], k: 2 }, { kind: 'judge', name: 'Judge', rubric: 'Good.' }];
+    const e = s.create({ name: 'Scored', task: { agentId: 'ranker' }, factors: [FACTORS[0]], repeats: 2, cases: [{ items: ITEMS }], scorers });
+    expect(e.scorers.map((x) => x.kind)).toEqual(['top', 'judge']);
+    expect(experimentRunCount(e, 1)).toBe(8); // 2 conditions × 2 repeats, each read by one judge
+    expect(() => s.create({ name: 'Too many', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 5, cases: [{ items: ITEMS }, { items: ITEMS }], scorers })).toThrow('80 runs a pass (each judge reads every result)');
+    const p = s.startPass(e.id);
+    const [c1, c2, c3] = s.cells(p.id);
+    s.updateCell(c1.id, { status: 'done', ranking: ['a', 'b', 'c', 'd', 'e', 'f'] });
+    s.updateCell(c2.id, { status: 'done', ranking: ['f', 'e', 'd', 'c', 'b', 'a'] });
+    s.updateCell(c3.id, { status: 'done', ranking: ['a', 'c', 'b', 'd', 'e', 'f'] });
+    s.setScore(p.id, { cellId: c1.id, scorerId: 'judge', value: 0.9, reason: 'Good.', cites: ['a'], runId: 'r1' });
+    s.setScore(p.id, { cellId: c3.id, scorerId: 'judge', value: 0.5, reason: 'Half.', cites: ['c'] });
+    s.setScore(p.id, { cellId: c2.id, scorerId: 'judge', error: 'It has no <score> block.' });
+    s.setScore(p.id, { cellId: c1.id, scorerId: 'judge', value: 0.7, reason: 'Better said.', cites: ['a'] });
+    expect(s.scores(p.id)).toHaveLength(3);
+    const sums = scoreSummaries(e.scorers, s.cells(p.id), s.scores(p.id));
+    // Condition 1 has cells 1 and 3 (repeats 1 and 2); condition 2 has cell 2.
+    expect(sums.find((x) => x.scorerId === 'a-and-b-up-top' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.75, min: 0.5, max: 1, n: 2 });
+    expect(sums.find((x) => x.scorerId === 'a-and-b-up-top' && x.conditionId === c2.conditionId)).toMatchObject({ mean: 0, n: 1 });
+    expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.6, min: 0.5, max: 0.7, n: 2 });
+    // A judge that gave no usable score for a result is not averaged in.
+    expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c2.conditionId)).toBeUndefined();
+    s.clearScores(c1.id);
+    expect(s.scores(p.id)).toHaveLength(2);
   });
 });

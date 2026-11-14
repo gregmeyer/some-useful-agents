@@ -320,6 +320,8 @@ export interface DashboardContext {
   experimentPasses?: Map<string, import('./lib/experiment-runner.js').ExperimentPassState>;
   /** Tests only: the answer of an experiment's task for one cell, instead of running its agent. */
   experimentTaskRun?: (inputs: Record<string, string>, at: { conditionId: string; caseId: string; repeat: number }) => Promise<string | undefined>;
+  /** Tests only: an experiment judge's answer for one result, instead of running the judge. */
+  experimentJudgeRun?: (inputs: Record<string, string>, at: { conditionId: string; caseId: string; repeat: number; scorerId: string }) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-given-reader agent instead of running it. */
   notebookGivenReaderRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** TL;DR pictures made lately, by a hash of the card they were made from (routes/notebooks.ts tldr.png). */

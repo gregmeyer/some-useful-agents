@@ -12,7 +12,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-  ExperimentStore, agentForCondition, cleanRanking, conditionLevels, conditionSettings, executeAgentDag, experimentAgentId, experimentConditions,
+  ExperimentStore, agentForCondition, cleanJudgement, cleanRanking, conditionLevels, conditionSettings, executeAgentDag, experimentAgentId, experimentConditions,
   extractTaggedJson, formatFieldValue, notebookViewData, passProgress, rankOptions, NotebookStore,
   type Agent, type Experiment, type ExperimentCase, type ExperimentCell, type ExperimentItem, type ExperimentPass, type Notebook,
 } from '@some-useful-agents/core';
@@ -23,6 +23,7 @@ import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 type Ctx = ReturnType<typeof getContext>;
 
 export const EXPERIMENT_RANKER_ID = 'experiment-ranker';
+export const EXPERIMENT_JUDGE_ID = 'experiment-judge';
 /** Cells run at once. */
 const POOL = 2;
 /** A cell's run is given up on after this long. */
@@ -33,9 +34,10 @@ export interface ExperimentPassState { experimentId: string; startedAt: string; 
 
 const stores = (ctx: Ctx) => ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
 
-/** Put the default ranking agent in the catalog and keep it current (at startup). */
+/** Put the default ranking agent and the judge in the catalog and keep them current (at startup). */
 export function installExperimentRanker(ctx: Ctx): boolean {
-  return ensureSystemAgentCurrent(ctx, EXPERIMENT_RANKER_ID, 'ranking a fixed list in an experiment');
+  const judge = ensureSystemAgentCurrent(ctx, EXPERIMENT_JUDGE_ID, 'scoring an experiment\'s results against a rubric');
+  return ensureSystemAgentCurrent(ctx, EXPERIMENT_RANKER_ID, 'ranking a fixed list in an experiment') && judge;
 }
 
 /** At boot: cells a restart left running are stopped where they were, to be resumed. Returns how many passes. */
@@ -121,9 +123,10 @@ export function cellInputs(agent: Pick<Agent, 'inputs'>, c: ExperimentCase, set:
 interface CellRun { text?: string; runId?: string; usedProvider?: string; usedModel?: string; costUsd?: number; error?: string }
 
 /** One run of the task for a cell (or the test's stand-in). Never throws. */
-async function runTask(ctx: Ctx, state: ExperimentPassState, agent: Agent, inputs: Record<string, string>, provider: string | undefined, at: { conditionId: string; caseId: string; repeat: number }): Promise<CellRun> {
+async function runTask(ctx: Ctx, state: ExperimentPassState, agent: Agent, inputs: Record<string, string>, provider: string | undefined, at: { conditionId: string; caseId: string; repeat: number; judge?: string }): Promise<CellRun> {
   try {
-    if (ctx.experimentTaskRun) return { text: await ctx.experimentTaskRun(inputs, at) };
+    if (at.judge) { if (ctx.experimentJudgeRun) return { text: await ctx.experimentJudgeRun(inputs, { ...at, scorerId: at.judge }) }; }
+    else if (ctx.experimentTaskRun) return { text: await ctx.experimentTaskRun(inputs, at) };
     const runId = randomUUID();
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), CELL_TIMEOUT_MS);
@@ -195,6 +198,45 @@ async function runCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassSt
   // The condition named a provider and the run used another: it isn't a run of that condition.
   if (set.provider && last.usedProvider && last.usedProvider !== set.provider) { store.updateCell(cell.id, { ...common, status: 'invalid', error: `It ran on ${last.usedProvider}, not ${set.provider}.` }); return; }
   store.updateCell(cell.id, { ...common, status: 'done', ranking: out.ranking });
+  await judgeCell(ctx, store, state, e, c, cell, out.ranking, set.inputs.PREFERENCES ?? '');
+}
+
+/** A judge's answer as a score, or why it can't be used. */
+export function parseJudgement(text: string | undefined, c: ExperimentCase): ReturnType<typeof cleanJudgement> {
+  let v: unknown;
+  try { v = JSON.parse(extractTaggedJson(text ?? '', 'score') ?? 'null'); } catch { return { error: 'Its <score> block is not valid JSON.' }; }
+  if (v === null) return { error: 'It has no <score> block.' };
+  return cleanJudgement(v, c.items);
+}
+
+/**
+ * Each judge reads the result once (and once more, told why, when its
+ * answer can't be used). A judge sees the items, the preferences and the
+ * ranking, never the build's instructions. A judge that fails leaves the
+ * result standing with no score from it.
+ */
+async function judgeCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, c: ExperimentCase, cell: ExperimentCell, ranking: string[], preferences: string): Promise<void> {
+  store.clearScores(cell.id);
+  for (const s of e.scorers) {
+    if (s.kind !== 'judge' || state.stop) continue;
+    const installed = ctx.agentStore.getAgent(EXPERIMENT_JUDGE_ID);
+    if (!installed && !ctx.experimentJudgeRun) { store.setScore(cell.passId, { cellId: cell.id, scorerId: s.id, error: 'The judge isn\'t installed.' }); continue; }
+    const judge = installed ? agentForCondition(installed, [{ id: s.id, name: s.name, ...(s.provider ? { provider: s.provider } : {}), ...(s.model ? { model: s.model } : {}) }]) : ({ id: experimentAgentId(EXPERIMENT_JUDGE_ID), nodes: [] } as unknown as Agent);
+    const inputs = (errors: string) => ({
+      RUBRIC: s.rubric, PREFERENCES: preferences, RANKING: JSON.stringify(ranking),
+      ITEMS: JSON.stringify(c.items.map((i) => ({ id: i.id, title: i.title, facts: i.facts }))),
+      ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that.` : '',
+    });
+    let last: CellRun = {};
+    let out: ReturnType<typeof parseJudgement> = { error: 'It was not run.' };
+    for (let attempt = 0; attempt < 2 && !state.stop; attempt++) {
+      last = await runTask(ctx, state, judge, inputs(attempt && 'error' in out ? out.error : ''), s.provider, { conditionId: cell.conditionId, caseId: cell.caseId, repeat: cell.repeat, judge: s.id });
+      if (last.error) { out = { error: last.error }; break; }
+      out = parseJudgement(last.text, c);
+      if (!('error' in out)) break;
+    }
+    store.setScore(cell.passId, { cellId: cell.id, scorerId: s.id, ...(last.runId ? { runId: last.runId } : {}), ...('error' in out ? { error: out.error } : out) });
+  }
 }
 
 /**

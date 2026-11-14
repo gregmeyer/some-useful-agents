@@ -9,7 +9,7 @@ import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
 import { caseFromPaste, cellInputs, installExperimentRanker, parseRanking, reconcileExperimentsOnBoot } from '../lib/experiment-runner.js';
-import { factorsFromForm } from './experiments.js';
+import { factorsFromForm, scorersFromForm } from './experiments.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3996;
@@ -193,5 +193,47 @@ describe('experiments', () => {
     expect((await get(app, '/experiments?archived=1')).text).toContain('From a notebook');
     await post(app, `/experiments/${id}/archive`, { restore: '1' });
     expect(s.get(id)!.archivedAt).toBeUndefined();
+  });
+
+  it('scores each result: a counted scorer and a judge that never sees the build, kept only with a usable answer', async () => {
+    const app = await makeApp();
+    expect(() => scorersFromForm({ top_items: 'Role Z' }, [{ id: 's', name: 's', items: [{ id: 'role-a', title: 'Role A', facts: {} }] }])).toThrow('"Role Z" matches none of the items.');
+    const made = await post(app, '/experiments', { ...FORM, repeats: '1', top_items: 'role a\nRole D', j1_name: 'Respects preferences', j1_rubric: 'The top two fit what the person asked for.' });
+    const id = idOf(made.headers.location);
+    // 4 conditions, each read by the judge: 8 runs.
+    expect(decodeURIComponent(made.headers.location)).toContain('a pass makes 8 runs');
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const e = s.get(id)!;
+    expect(e.scorers).toMatchObject([{ kind: 'top', name: 'Should be near the top', items: ['role-a', 'role-d'], k: 4 }, { kind: 'judge', name: 'Respects preferences' }]);
+    const ids = s.cases(id)[0].items.map((i) => i.id);
+    ctx.experimentTaskRun = async (inputs) => ranking(inputs.INSTRUCTIONS.includes('pay') ? ['role-d', 'role-a', 'role-b', 'role-c', 'role-e'] : ['role-b', 'role-c', 'role-e', 'role-a', 'role-d']);
+    const judged: Array<Record<string, string>> = [];
+    let bad = 1;
+    ctx.experimentJudgeRun = async (inputs) => {
+      judged.push(inputs);
+      if (bad) { bad--; return '<score>{"score": 0.9, "reason": "Fine."}</score>'; }
+      if (inputs.PREFERENCES.includes('office') && JSON.parse(inputs.RANKING)[0] === 'role-b') return 'I cannot say.';
+      return `<score>${JSON.stringify({ score: JSON.parse(inputs.RANKING)[0] === 'role-d' ? 0.25 : 1, reason: 'The first two are placed as asked.', cites: [ids[0]] })}</score>`;
+    };
+    await post(app, `/experiments/${id}/run`);
+    await settle();
+    // The judge sees the rubric, the preferences, the items and the ranking; never the build's instructions.
+    expect(Object.keys(judged[0]).sort()).toEqual(['ERRORS', 'ITEMS', 'PREFERENCES', 'RANKING', 'RUBRIC']);
+    expect(judged.some((j) => j.ERRORS.includes('It cites no item.'))).toBe(true);
+    const pass = s.passes(id)[0];
+    const scores = s.scores(pass.id);
+    expect(scores).toHaveLength(4);
+    // One result got no usable answer from the judge twice: it stands, without that score.
+    expect(scores.filter((x) => x.value === undefined)).toMatchObject([{ error: 'It has no <score> block.' }]);
+    expect(s.cells(pass.id).every((c) => c.status === 'done')).toBe(true);
+    const page = (await get(app, `/experiments/${id}`)).text;
+    expect(page).toContain('<th scope="col" class="exp-n">Should be near the top</th><th scope="col" class="exp-n">Respects preferences</th>');
+    // By pay: both named items in the top 4 (100%), the judge gives 25%. By letter: one of two (50%).
+    expect(page).toContain('<td class="exp-n">100%</td><td class="exp-n">25%</td>');
+    expect(page).toContain('<td class="exp-n">50%</td>');
+    expect(page).toContain('judged: “The top two fit what the person asked for.”');
+    expect(page).toContain('<strong>Respects preferences:</strong> 25%. The first two are placed as asked.');
+    expect(page).toContain('no score: It has no &lt;score&gt; block.');
+    expect((await get(app, '/experiments/new')).text).toContain('How to score each result (optional)');
   });
 });

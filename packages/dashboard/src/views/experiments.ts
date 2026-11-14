@@ -8,7 +8,7 @@
 import {
   experimentConditions, experimentRunCount, passProgress, verdictWords,
   EXPERIMENT_MAX_LEVELS, EXPERIMENT_MAX_REPEATS, EXPERIMENT_MAX_RUNS,
-  type Experiment, type ExperimentCase, type ExperimentCell, type ExperimentLevel, type ExperimentPass, type ExperimentVerdict,
+  type Experiment, type ExperimentCase, type ExperimentCell, type ExperimentLevel, type ExperimentPass, type ExperimentScore, type ExperimentVerdict, type ScoreSummary,
 } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
@@ -18,6 +18,7 @@ import { working } from './working.js';
 type Flash = { kind: 'error' | 'info' | 'ok'; message: string };
 const list = (xs: SafeHtml[]) => xs as unknown as SafeHtml[];
 const num = (n: number) => (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, '');
+const pct = (n: number) => `${String(Math.round(n * 100))}%`;
 const money = (n: number) => (n < 0.01 ? 'under $0.01' : `$${n.toFixed(2)}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${String(n)} ${n === 1 ? one : many}`;
 
@@ -27,6 +28,9 @@ export interface ExperimentStanding {
   running: boolean;
   pass?: ExperimentPass;
   cells: ExperimentCell[];
+  /** Judges' scores for the pass, and each scorer's average for each condition. */
+  scores?: ExperimentScore[];
+  summaries?: ScoreSummary[];
   verdict?: ExperimentVerdict;
 }
 
@@ -161,6 +165,32 @@ export function renderExperimentNew(args: {
         ${factor(2, 'Preferences', 'For example what the person asks for: two preference profiles.')}
       </section>
 
+      <section class="card">
+        <h2 class="card__title">How to score each result (optional)</h2>
+        <p class="form-field__hint">Without this, results are only compared with each other. A score says how good each one is by a standard you set, so you can see which condition does better, not just which differ.</p>
+        <label class="form-field__label" for="exp-top">Items that should be near the top</label>
+        <textarea class="form-field__textarea" id="exp-top" name="top_items" rows="3" placeholder="Part of an item's title, one a line">${b('top_items')}</textarea>
+        <p class="form-field__hint">Counted, not judged: the share of these that land in the top places.</p>
+        ${list([1, 2].map((n) => html`<fieldset class="exp-level exp-judge">
+          <legend>Judge ${String(n)} (optional)</legend>
+          <label class="form-field__label" for="j${String(n)}_name">Name</label>
+          <input class="form-field__input" id="j${String(n)}_name" name="j${String(n)}_name" value="${b(`j${String(n)}_name`)}" maxlength="60" placeholder="Respects the preferences">
+          <label class="form-field__label" for="j${String(n)}_rubric">What a good result looks like</label>
+          <textarea class="form-field__textarea" id="j${String(n)}_rubric" name="j${String(n)}_rubric" rows="3" placeholder="The top three match what the person asked for; nothing they ruled out is in the top five.">${b(`j${String(n)}_rubric`)}</textarea>
+          <details class="exp-level__more">
+            <summary>Which model judges</summary>
+            <label class="form-field__label" for="j${String(n)}_provider">Provider</label>
+            <select class="form-field__input" id="j${String(n)}_provider" name="j${String(n)}_provider">
+              <option value="">the default</option>
+              ${list(args.providers.map((p) => html`<option value="${p}"${b(`j${String(n)}_provider`) === p ? unsafeHtml(' selected') : unsafeHtml('')}>${p}</option>`))}
+            </select>
+            <label class="form-field__label" for="j${String(n)}_model">Model</label>
+            <input class="form-field__input" id="j${String(n)}_model" name="j${String(n)}_model" value="${b(`j${String(n)}_model`)}" maxlength="80" placeholder="the provider's default">
+          </details>
+        </fieldset>`))}
+        <p class="form-field__hint">A judge is a model that reads each result against your words and gives 0 to 100%, with a reason. It sees the items, the preferences and the ranking, never which build made it. Each judge reads every result, so it doubles the runs. Two judges with the same words and different models show whether judges agree.</p>
+      </section>
+
       <div class="exp-new__acts">
         <button type="submit" class="btn btn--primary">Set it up</button>
         <a class="btn btn--ghost" href="/experiments">Cancel</a>
@@ -254,6 +284,7 @@ export function renderExperimentPage(args: {
       <td class="exp-n">${standing.pass ? `${String(done)} of ${String(cs.length)}` : '—'}</td>
       <td class="exp-n">${i === 0 ? '—' : m?.vsBaseline ? `${num(m.vsBaseline.overlap)} of ${String(v!.topK)}` : '…'}</td>
       <td class="exp-n">${i === 0 ? '—' : m?.vsBaseline ? num(m.vsBaseline.shift) : '…'}</td>
+      ${list(e.scorers.map((sc) => { const sm = standing.summaries?.find((x) => x.scorerId === sc.id && x.conditionId === c.id); return html`<td class="exp-n">${sm ? html`${pct(sm.mean)}${sm.n > 1 && sm.min !== sm.max ? html` <span class="exp-range">${pct(sm.min)}–${pct(sm.max)}</span>` : html``}` : standing.pass ? '…' : '—'}</td>`; }))}
     </tr>`;
   });
 
@@ -285,9 +316,9 @@ export function renderExperimentPage(args: {
 
     <section class="exp-section">
       <h2>Each condition against the baseline</h2>
-      <p class="exp-section__note">How many of the baseline's top ${String(e.topK)} are still in the top ${String(e.topK)}, and how many places an item moved on average.</p>
+      <p class="exp-section__note">How many of the baseline's top ${String(e.topK)} are still in the top ${String(e.topK)}, and how many places an item moved on average.${e.scorers.length ? ' Then each score, averaged over the condition\'s runs (with the lowest and highest when they differ). The baseline has scores too: a score is about one result, not a comparison.' : ''}</p>
       <div class="exp-scroll"><table class="table exp-table">
-        <thead><tr><th scope="col">Condition</th><th scope="col" class="exp-n">Runs</th><th scope="col" class="exp-n">Top ${String(e.topK)} kept</th><th scope="col" class="exp-n">Places moved</th></tr></thead>
+        <thead><tr><th scope="col">Condition</th><th scope="col" class="exp-n">Runs</th><th scope="col" class="exp-n">Top ${String(e.topK)} kept</th><th scope="col" class="exp-n">Places moved</th>${list(e.scorers.map((sc) => html`<th scope="col" class="exp-n">${sc.name}</th>`))}</tr></thead>
         <tbody>${list(conditionRows)}</tbody>
       </table></div>
     </section>
@@ -320,6 +351,9 @@ export function renderExperimentPage(args: {
         <div><dt>Runs</dt><dd>${args.agent?.name ?? e.task.agentId}, ${plural(e.repeats, 'time')} for each condition</dd></div>
         <div><dt>Holds fixed</dt><dd>${list(cases.map((c) => html`${plural(c.items.length, 'item')}${e.from ? html`, copied from <a href="/notebooks/${encodeURIComponent(e.from.notebookId)}">${e.from.title}</a>` : html``} `))}</dd></div>
         ${list(e.factors.map((f) => html`<div><dt>Varies ${f.name.toLowerCase()}</dt><dd><ul class="exp-levels-said">${list(f.levels.map((l) => html`<li><strong>${l.name}:</strong> ${levelSays(l).join('; ')}</li>`))}</ul></dd></div>`))}
+        ${list(e.scorers.map((sc) => html`<div><dt>Scores</dt><dd><strong>${sc.name}:</strong> ${sc.kind === 'top'
+          ? `counted: the share of ${plural(sc.items.length, 'named item')} (${sc.items.map((id) => titleOf.get(id) ?? id).join('; ')}) in the top ${String(sc.k)}`
+          : `judged${sc.provider || sc.model ? ` by ${[sc.provider, sc.model].filter(Boolean).join(' ')}` : ''}: “${sc.rubric}”`}</dd></div>`))}
         ${e.factors.length ? html`` : html`<div><dt>Varies</dt><dd>Nothing: it runs the agent as it is, ${plural(e.repeats, 'time')}, which shows how much its answer moves by itself.</dd></div>`}
       </dl>
       <details class="exp-fold"><summary>The ${plural(cases.reduce((s, c) => s + c.items.length, 0), 'item')} held fixed</summary>
@@ -335,7 +369,7 @@ export function renderExperimentPage(args: {
             <th scope="row">${conditions.find((x) => x.id === c.conditionId)?.name ?? c.conditionId}</th>
             <td class="exp-n">${String(c.repeat)}</td>
             <td><span class="badge ${CELL_BADGE[c.status]}">${CELL_WORD[c.status]}</span>${c.runId ? html` <a href="/runs/${encodeURIComponent(c.runId)}">the run</a>` : html``}${c.error ? html` <span class="exp-cell__why">${c.error}</span>` : html``}</td>
-            <td>${c.ranking ? c.ranking.slice(0, e.topK).map((id) => titleOf.get(id) ?? id).join(' · ') : ''}</td>
+            <td>${c.ranking ? c.ranking.slice(0, e.topK).map((id) => titleOf.get(id) ?? id).join(' · ') : ''}${list((standing.scores ?? []).filter((x) => x.cellId === c.id).map((x) => { const sc = e.scorers.find((y) => y.id === x.scorerId); return html`<p class="exp-cell__score"><strong>${sc?.name ?? x.scorerId}:</strong> ${x.value !== undefined ? html`${pct(x.value)}. ${x.reason ?? ''}` : html`<span class="exp-cell__why">no score: ${x.error ?? 'it gave none'}</span>`}${x.runId ? html` <a href="/runs/${encodeURIComponent(x.runId)}">the judge's run</a>` : html``}</p>`; }))}</td>
           </tr>`))}</tbody>
         </table></div>
       </details>

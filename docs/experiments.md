@@ -17,7 +17,11 @@ A [notebook](notebooks.md) finds things, checks them against sources and helps y
   Every combination is a **condition**; the first level of each thing is the **baseline**. Two things with two levels each is four conditions.
 - **Runs of each condition** (1 to 5, 3 by default). Repeats show how much the answer moves by itself. With one run of each, nothing is concluded.
 
-A pass makes at most 60 runs (sets × conditions × repeats); a larger setup is refused, saying what to cut.
+- **How to score each result** (optional, up to three). Without a score, results are only compared with each other: you learn which conditions differ, not which is better. A score says how good each result is by a standard you set.
+  - **Items that should be near the top**: part of an item's title, one a line. Counted in code: the share of those items that land in the top K. A line that matches no item is refused, not dropped.
+  - **A judge** (up to two): a rubric in plain words ("the top three match what the person asked for"). A model reads each result against it and gives 0 to 100% with a reason. You can choose which model judges.
+
+A pass makes at most 60 runs (sets × conditions × repeats, and once more for each judge, which reads every result); a larger setup is refused, saying what to cut.
 
 ## Running it
 
@@ -32,13 +36,20 @@ An answer is used only when it ranks every item once and names nothing else. An 
 
 Experiment runs are kept apart from the agent's own: they are filed under `experiment--<agent>`, so they never become the agent's latest result, never count toward its daily spend limit, and leave nothing in its state or memory. Each is still an ordinary run you can open from **Every run**.
 
+## Judges
+
+- **A judge never sees the build.** It is given the rubric, the items, the person's preferences and the ranking. It is not told which instructions, model or version produced the result, so it can't favour one.
+- **Its answer is checked before it counts.** The score must be a number from 0 to 1, with a reason, and it must name the items the reason rests on; each must be an item of the set. An answer that fails gets one more try, told why. After that the result stands with no score from that judge, and the page says so.
+- **A judge is one more model, and can be wrong.** Its scores are shown as an average for each condition with the lowest and highest seen, and every run lists its score and reason with a link to the judge's own run. To see whether judges agree, add two judges with the same rubric and different models: their columns sit side by side.
+- **Counted scores first.** When what you care about can be counted ("these roles should be near the top"), use that: it gives the same number every time.
+
 ## What the page tells you
 
 - **What it found**, in a sentence, with what it rests on: "Build changed the result; preferences did not, beyond run-to-run variation. 1 set, 4 conditions, 3 runs of each. It holds for this set only."
 - **How far the result moved** for each thing you varied, next to how far it moves between two runs of the same thing. Two measures are used:
   - **Top K kept**: of the top K under one condition, how many are still in the top K under the other (K is 5, or fewer for a small set).
   - **Places moved**: how many places an item moves on average.
-- **Each condition against the baseline.**
+- **Each condition against the baseline**, and each score averaged for every condition (the baseline too: a score is about one result, not a comparison).
 - **Each change by itself**: the same change made with everything else held at one setting. When these differ a lot, the thing you varied matters under some settings and not others (preferences that reorder everything under one set of instructions and nothing under another).
 - **Where each item landed** under every condition, the ones that moved furthest first.
 - **How it is set up**, and **every run** with its result and a link to the run.
@@ -57,6 +68,7 @@ Experiment runs are kept apart from the agent's own: they are filed under `exper
 | Repeats | 1 to 5 |
 | Sets | 5 |
 | Items a set | 2 to 60 |
-| Runs a pass | 60 |
+| Scorers | 3 (2 judges on the page) |
+| Runs a pass | 60, judges' included |
 | Runs at a time | 2 |
 | Time allowed a run | 5 minutes |
