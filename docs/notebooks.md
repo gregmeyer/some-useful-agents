@@ -617,13 +617,9 @@ Normally sua's keeper reads a run's output and decides what to file. An agent th
 
 **Checks on options the notebook already has:** `"facts": [{"id": "<option id>", "checked": ["Sells enterprise software"], "ruleOut": "Fails …"}]`. Each named check (matched to the notebook's checks, ignoring case) is ticked, and `ruleOut` rules the option out. Only a directly filed block can do this, never sua's keeper, so tick a check only when your agent's code confirmed it. A block with checks but no entries is still filed directly. A block with neither entries nor checks (or that isn't valid JSON) goes to the keeper as usual. The pass note says "(filed directly)".
 
-## A notebook whose options were tested
-
-When an [experiment](experiments.md) was set up on a notebook's options, the notebook's page shows **Experiments on its options**: each one and what it found, in a line, linked to the experiment.
-
 ## A notebook that shows an experiment
 
-An [experiment](experiments.md) measures what changes an agent's answer. **Show it in a notebook**, on the experiment's page, makes a notebook whose page is that experiment's results: the finding, the figures, each condition, and where each item landed, read from the experiment each time the page opens. It has no steps and nothing to decide; **Open the experiment** is where it is run. Talk to sua there about what the results mean. See [Experiments: showing it in a notebook](experiments.md#showing-it-in-a-notebook).
+An [experiment](experiments.md) measures what changes what an agent produces. **Show it in a notebook**, on the experiment's page, makes a notebook whose page is that experiment's results: the finding, the figures, each version, and what each version found, read from the experiment each time the page opens. It has no steps and nothing to decide; **Open the experiment** is where it is run. Talk to sua there about what the results mean. See [Experiments: showing it in a notebook](experiments.md#showing-it-in-a-notebook).
 
 ## Reading a notebook from elsewhere
 

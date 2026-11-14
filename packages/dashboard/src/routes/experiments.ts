@@ -1,23 +1,17 @@
 /**
  * Experiments (ADR-0078): the list, setting one up, and an experiment's
  * page with Run, Stop, Go on and Archive. The runs themselves are made by
- * lib/experiment-runner.ts; what they found is counted by core
- * experimentVerdict from the stored cells on every page load.
+ * lib/experiment-runner.ts; what they found is counted from the stored
+ * cells on every page load (core experimentPageData).
  */
 import { Router, type Request, type Response } from 'express';
-import {
-  ExperimentStore, NotebookStore, cleanCases, experimentConditions, experimentRunCount, experimentVerdict, notebookViewData, scoreSummaries,
-  EXPERIMENT_MAX_LEVELS, type Experiment, type ExperimentCase,
-} from '@some-useful-agents/core';
+import { ExperimentStore, NotebookStore, experimentConditions, EXPERIMENT_MAX_LEVELS, type Experiment } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
-import { renderExperimentNew, renderExperimentPage, renderExperimentsList, renderSetChoices, renderSetPanel, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
-import { applySetAdvice, goldenSet, rankSetCandidates, setCandidate, type SetCandidate } from '../lib/experiment-set.js';
-import { setAdviceKey, setAdviceState, startSetAdvice } from '../lib/experiment-set-advice.js';
-import { html, render } from '../views/html.js';
+import { renderExperimentNew, renderExperimentPage, renderExperimentsList, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
 import { notebookForExperiment } from '../lib/experiment-notebook.js';
-import { EXPERIMENT_RANKER_ID, caseFromPaste, costPerRun, freezeNotebook, runningPass, startExperimentPass, stopExperimentPass } from '../lib/experiment-runner.js';
+import { costPerRun, runningPass, startExperimentPass, stopExperimentPass, testableAgents } from '../lib/experiment-runner.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
 export const experimentsRouter: Router = Router();
@@ -25,38 +19,32 @@ export const experimentsRouter: Router = Router();
 type Ctx = ReturnType<typeof getContext>;
 const store = (ctx: Ctx) => ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+const lines = (v: unknown): string[] => str(v).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 function flashOf(req: Request): { kind: 'ok' | 'error' | 'info'; message: string } | undefined {
   return parseQueryFlash(req) ?? (typeof req.query.flash === 'string' && req.query.flash ? { kind: 'info', message: req.query.flash } : undefined);
 }
 const back = (id: string, flash: string) => `/experiments/${encodeURIComponent(id)}?flash=${encodeURIComponent(flash)}`;
 
-/** How an experiment stands: its latest pass, that pass's cells, and what they measured. */
+/** How an experiment stands: its latest pass, that pass's cells and scores. */
 export function experimentStanding(ctx: Ctx, e: Experiment): ExperimentStanding {
   const s = store(ctx);
   const pass = s.passes(e.id, 1)[0];
-  const cells = pass ? s.cells(pass.id) : [];
-  const ranked = cells.flatMap((c) => (c.status === 'done' && c.ranking ? [{ caseId: c.caseId, conditionId: c.conditionId, repeat: c.repeat, ranking: c.ranking }] : []));
-  return {
-    running: !!runningPass(ctx, e.id),
-    ...(pass ? { pass } : {}),
-    cells,
-    scores: pass ? s.scores(pass.id) : [],
-    summaries: pass ? scoreSummaries(e.scorers, cells, s.scores(pass.id)) : [],
-    ...(pass ? { verdict: experimentVerdict({ factors: e.factors, conditions: experimentConditions(e.factors), cells: ranked, topK: e.topK }) } : {}),
-  };
+  return { running: !!runningPass(ctx, e.id), ...(pass ? { pass } : {}), cells: pass ? s.cells(pass.id) : [], scores: pass ? s.scores(pass.id) : [] };
 }
 
 /**
- * The things to change that the new-experiment form describes: c1…c3, each
- * one kind of change with versions v1…v4. A version is a name and the one
- * thing its kind sets; a version with neither is left out, and one with no
- * name is called A, B, C or D.
+ * The changes the new-experiment form describes: c1…c3, each one kind of
+ * change with versions v1…v4. A version is a name and the one thing its
+ * kind sets (an agent version, a provider and model, or a value for the
+ * input the change names); a version with neither is left out, and one
+ * with no name is called A, B, C or D.
  */
 export function factorsFromForm(body: Record<string, unknown>): unknown[] {
   const out: unknown[] = [];
   for (let c = 1; c <= 3; c++) {
     const k = `c${String(c)}`;
-    const kind = str(body[`${k}_kind`]) || 'instructions';
+    const kind = str(body[`${k}_kind`]) || 'input';
+    const input = str(body[`${k}_input`]).trim();
     const levels: unknown[] = [];
     for (let n = 1; n <= EXPERIMENT_MAX_LEVELS; n++) {
       const v = `${k}_v${String(n)}`;
@@ -66,35 +54,24 @@ export function factorsFromForm(body: Record<string, unknown>): unknown[] {
       const model = str(body[`${v}_model`]).trim();
       const version = str(body[`${v}_version`]).trim();
       const sets = kind === 'model' ? { provider, model } : kind === 'version' ? (version ? { version: Number(version) } : {})
-        : kind === 'preferences' ? (text ? { inputs: { PREFERENCES: text } } : {}) : (text ? { instructions: text } : {});
+        : (text && input ? { inputs: { [input]: text } } : {});
       const set = Object.values(sets).some((x) => (typeof x === 'object' ? true : !!x));
       if (!name && !set) continue;
       levels.push({ name: name || String.fromCharCode(64 + n), ...sets });
     }
     if (levels.length < 2) continue;
-    out.push({ name: str(body[`${k}_name`]).trim() || `Change ${String(c)}`, levels });
+    out.push({ name: str(body[`${k}_name`]).trim() || (kind === 'version' ? 'Agent version' : kind === 'model' ? 'Model' : input || `Change ${String(c)}`), levels });
   }
   return out;
 }
 
-/**
- * The scorers the new-experiment form describes: items that should be near
- * the top (lines, each part of an item's title) and up to two judges.
- * Throws when a line matches no item, so a typo isn't silently dropped.
- */
-export function scorersFromForm(body: Record<string, unknown>, cases: readonly ExperimentCase[]): unknown[] {
+/** The scorers the form describes: things that should, and should not, be in the results (a line each), and up to two judges. */
+export function scorersFromForm(body: Record<string, unknown>): unknown[] {
   const out: unknown[] = [];
-  const wanted = str(body.top_items).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (wanted.length) {
-    const all = cases.flatMap((c) => c.items);
-    const ids: string[] = [];
-    for (const w of wanted) {
-      const hits = all.filter((i) => i.title.toLowerCase().includes(w.toLowerCase()) || i.id === w);
-      if (!hits.length) throw new Error(`"${w}" matches none of the items. Use part of an item's title.`);
-      ids.push(...hits.map((i) => i.id));
-    }
-    out.push({ kind: 'top', name: str(body.top_name).trim() || 'Should be near the top', items: ids });
-  }
+  const inn = lines(body.should_find);
+  const not = lines(body.should_not_find);
+  if (inn.length) out.push({ kind: 'found', name: 'Found what it should', items: inn });
+  if (not.length) out.push({ kind: 'found', avoid: true, name: 'Left out what it should', items: not });
   for (const n of [1, 2]) {
     const rubric = str(body[`j${String(n)}_rubric`]).trim();
     if (!rubric) continue;
@@ -103,26 +80,11 @@ export function scorersFromForm(body: Record<string, unknown>, cases: readonly E
   return out;
 }
 
-/**
- * The scorers a notebook's answer key gives: its picks should land near the
- * top, and what was ruled out should stay out of it. Only for items that
- * are in the set (`refs` are the notebook entries behind the case's items,
- * in order).
- */
-function keyScorers(ctx: Ctx, notebookId: string, refs: readonly string[], cases: readonly ExperimentCase[]): unknown[] {
-  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  const nb = nbs.get(notebookId);
-  const items = cases[0]?.items ?? [];
-  if (!nb || items.length !== refs.length) return [];
-  const itemOf = new Map(refs.map((ref, i) => [ref, items[i].id] as const));
-  const g = goldenSet(nb, nbs.entries(nb.id, 1000));
-  const picks = (g.key?.ids ?? []).map((id) => itemOf.get(id)).filter((x): x is string => !!x);
-  const low = g.items.filter((i) => i.why === 'ruled-out').map((i) => itemOf.get(i.id)).filter((x): x is string => !!x);
-  // "Near the top" is as many places as there are picks, so every pick can be there and nothing else need be.
-  return [
-    ...(picks.length ? [{ kind: 'top', name: g.key!.by === 'sua' ? 'sua\'s picks near the top' : 'Your picks near the top', items: picks, k: Math.max(picks.length, Math.min(5, items.length - 1)) }] : []),
-    ...(low.length ? [{ kind: 'top', avoid: true, name: 'Ruled-out ones kept low', items: low, k: Math.max(1, Math.ceil(items.length / 2)) }] : []),
-  ];
+/** The ask the form describes: a value for each of the agent's inputs (`in_<NAME>`). */
+export function askFromForm(body: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(body)) if (k.startsWith('in_') && str(v).trim()) out[k.slice(3)] = str(v).trim();
+  return out;
 }
 
 /** A name for an experiment that was given only its question: the question's first words, without the question mark. */
@@ -132,41 +94,17 @@ export function nameFromQuestion(question: string): string {
   return `${q.slice(0, 70).replace(/\s+\S*$/, '')}…`;
 }
 
-const many = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string' && x !== '');
-
-/** Your notebooks as sets an experiment could hold fixed, the best fit for the question first (lib/experiment-set.ts). */
-function setCandidatesFor(ctx: Ctx, question: string): SetCandidate[] {
-  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  // One that shows an experiment has nothing of its own to rank.
-  return rankSetCandidates(nbs.list().filter((n) => !n.archivedAt && !n.experimentId).map((n) => setCandidate(n, nbs.entries(n.id, 1000), question)));
-}
-
-/** What would be copied from a notebook: the set sua proposes, to check and change. */
-function setPanelFor(ctx: Ctx, notebookId: string, posted?: { items?: ReadonlySet<string>; key?: boolean }) {
-  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  const nb = nbs.get(notebookId);
-  return nb ? renderSetPanel(nb.id, goldenSet(nb, nbs.entries(nb.id, 1000)), posted) : undefined;
-}
-
 function newPage(req: Request, res: Response, values?: Parameters<typeof renderExperimentNew>[0]['values'], error?: string): void {
   const ctx = getContext(req.app.locals);
-  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  const question = values?.question ?? str(req.query.question);
-  const from = values?.from ?? str(req.query.from);
-  const notebooks = setCandidatesFor(ctx, question);
-  // What would be copied from the chosen one, with what was ticked when the page came back.
-  const posted = values?.body ? (() => { const items = many(values.body![`items_${from}`]); return { ...(items.length ? { items: new Set(items) } : {}), key: values.body![`key_${from}`] === '1' }; })() : undefined;
-  const setPanel = from && from !== 'paste' ? setPanelFor(ctx, from, posted) : undefined;
-  const agents = ctx.agentStore.listAgents().map((a) => { const cost = costPerRun(ctx, a.id); return { id: a.id, name: a.name, ...(cost !== undefined ? { costPerRun: cost } : {}) }; }).sort((a, b) => Number(b.id === EXPERIMENT_RANKER_ID) - Number(a.id === EXPERIMENT_RANKER_ID) || a.name.localeCompare(b.name));
   let providers: string[] = [];
   try { providers = [...(buildLlmSettingsSnapshot(ctx)?.providers ?? [])]; } catch { /* none offered */ }
   res.status(error ? 400 : 200).type('html').send(renderExperimentNew({
-    notebooks, agents, providers, defaultAgent: EXPERIMENT_RANKER_ID, ...(setPanel ? { setPanel } : {}),
+    agents: testableAgents(ctx), providers,
     // A link can fill the page in (sua offers one from a conversation): any of the form's fields, by name.
-    values: values ?? { from: str(req.query.from), name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), paste: str(req.query.paste), body: req.query as Record<string, unknown> },
+    values: values ?? { name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), ...(Object.keys(req.query).length ? { body: req.query as Record<string, unknown> } : {}) },
     ...(error ? { flash: { kind: 'error' as const, message: error } } : flashOf(req) ? { flash: flashOf(req)! } : {}),
-    // Where to start: where a refusal belongs; the summary when a link filled the changes in; the set when it only gave the question.
-    open: error ? experimentStepForError(error) : Object.keys(req.query).some((k) => /^c\d_v\d_/.test(k)) ? 5 : str(req.query.question) ? 2 : 1,
+    // Where to start: where a refusal belongs; the summary when a link filled the changes in; the agent when it gave only the question.
+    open: error ? experimentStepForError(error) : Object.keys(req.query).some((k) => /^c\d_v\d_/.test(k)) && str(req.query.agent) ? 6 : str(req.query.question) ? 2 : 1,
   }));
 }
 
@@ -177,7 +115,7 @@ experimentsRouter.get('/experiments', (req: Request, res: Response) => {
   const all = s.list({ archived: true });
   const shown = all.filter((e) => !!e.archivedAt === archived);
   res.type('html').send(renderExperimentsList({
-    experiments: shown.map((e) => ({ e, standing: experimentStanding(ctx, e), items: s.cases(e.id).reduce((n, c) => n + c.items.length, 0) })),
+    experiments: shown.map((e) => ({ e, standing: experimentStanding(ctx, e) })),
     archived, archivedCount: all.filter((e) => e.archivedAt).length,
     ...(flashOf(req) ? { flash: flashOf(req)! } : {}),
   }));
@@ -185,60 +123,30 @@ experimentsRouter.get('/experiments', (req: Request, res: Response) => {
 
 experimentsRouter.get('/experiments/new', (req: Request, res: Response) => { newPage(req, res); });
 
-/**
- * For the New experiment page as it is filled in: the sets to choose from,
- * ranked for the question typed so far; or, with `panel=1`, what would be
- * copied from one notebook. Reads only.
- */
-experimentsRouter.get('/experiments/sets', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const from = str(req.query.from);
-  res.set('Cache-Control', 'no-store').type('html');
-  if (req.query.panel === '1') { res.send(render(setPanelFor(ctx, from) ?? html``)); return; }
-  const question = str(req.query.question).slice(0, 1000);
-  const counted = setCandidatesFor(ctx, question);
-  // sua's reading of the question, when one was asked for: laid over the counted ranking once it's in.
-  const reading = question.trim() ? setAdviceState(ctx, setAdviceKey(question, str(req.query.changes).slice(0, 2000), counted)) : undefined;
-  const candidates = reading?.status === 'ready' && reading.advice ? applySetAdvice(counted, reading.advice) : counted;
-  res.send(render(renderSetChoices(candidates, from, from === 'paste', reading ? { status: reading.status, ...(reading.advice ? { advice: reading.advice } : {}) } : undefined)));
-});
-
-/**
- * Ask sua to read the question (and what changes) and say which facts the
- * experiment turns on. Starts it in the background; the sets list shows it
- * when it's in. A POST, since it runs a model.
- */
-experimentsRouter.post('/experiments/sets/advice', (req: Request, res: Response) => {
-  const ctx = getContext(req.app.locals);
-  const question = str(req.body?.question).slice(0, 1000);
-  const state = startSetAdvice(ctx, question, str(req.body?.changes).slice(0, 2000), setCandidatesFor(ctx, question));
-  res.set('Cache-Control', 'no-store').json({ status: state?.status ?? 'none' });
-});
-
 experimentsRouter.post('/experiments', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const values = { name: str(body.name), question: str(body.question), agent: str(body.agent), from: str(body.from), paste: str(body.paste), repeats: str(body.repeats), body };
+  const values = { name: str(body.name), question: str(body.question), agent: str(body.agent), repeats: str(body.repeats), body };
   try {
-    const from = str(body.from) === 'paste' ? '' : str(body.from);
-    if (!from && !str(body.paste).trim()) throw new Error('Choose the notebook whose options to hold fixed, or paste a list.');
-    // The items ticked for that notebook (none posted: all it has in the running).
-    const only = from ? many(body[`items_${from}`]) : [];
-    const frozen = from ? freezeNotebook(ctx, from, only.length ? { only: new Set(only) } : {}) : { cases: [caseFromPaste(str(body.paste))] };
-    if ('error' in frozen) throw new Error(frozen.error);
-    const cases = cleanCases(frozen.cases);
-    // Scored against the notebook's picks, and against keeping what was ruled out low, when asked.
-    const keyed = from && 'refs' in frozen && body[`key_${from}`] === '1' ? keyScorers(ctx, from, frozen.refs, cases) : [];
+    const agentId = str(body.agent).trim();
+    if (!agentId) throw new Error('Choose the agent to run.');
+    const agent = ctx.agentStore.getAgent(agentId);
+    if (!agent) throw new Error(`No such agent: ${agentId}.`);
+    const ask = askFromForm(body);
+    const factors = factorsFromForm(body);
+    // An input the agent needs has to come from the ask, or from every version of a change that sets it.
+    const changed = new Set((factors as Array<{ levels: Array<{ inputs?: Record<string, string> }> }>).flatMap((f) => (f.levels.every((l) => l.inputs && Object.keys(l.inputs).length) ? Object.keys(f.levels[0].inputs ?? {}) : [])));
+    const missing = Object.entries(agent.inputs ?? {}).filter(([name, spec]) => (spec as { required?: boolean; default?: unknown }).required && (spec as { default?: unknown }).default === undefined && !ask[name] && !changed.has(name)).map(([name]) => name);
+    if (missing.length) throw new Error(`${agent.name} needs a value for ${missing.join(', ')}. Give it under "What you ask it".`);
     const e = store(ctx).create({
-      name: str(body.name).trim() || nameFromQuestion(str(body.question)), question: str(body.question), task: { agentId: str(body.agent) || EXPERIMENT_RANKER_ID },
-      factors: factorsFromForm(body), cases, repeats: Number(body.repeats) || 3, scorers: [...keyed, ...scorersFromForm(body, cases)],
-      ...('from' in frozen ? { from: frozen.from } : {}),
+      name: str(body.name).trim() || nameFromQuestion(str(body.question)) || `${agent.name} experiment`, question: str(body.question), task: { agentId },
+      inputs: ask, factors, repeats: Number(body.repeats) || 2, scorers: scorersFromForm(body),
     });
-    const runs = experimentRunCount(e, cases.length);
+    const runs = experimentConditions(e.factors).length * e.repeats;
     // Asked for with it: the notebook that shows its results (made empty; it fills in as the experiment runs).
     let also = '';
     if (str(body.notebook) === '1') { try { notebookForExperiment(ctx, e.id); also = ' Its notebook is made too: Open its notebook, above.'; } catch { /* the page still offers it */ } }
-    res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass makes ${String(runs)} ${runs === 1 ? 'run' : 'runs'}. Check the setup below, then press Run.${also}`));
+    res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass runs ${agent.name} ${String(runs)} ${runs === 1 ? 'time' : 'times'}. Check the setup below, then press Run.${also}`));
   } catch (err) {
     newPage(req, res, values, err instanceof Error ? err.message : String(err));
   }
@@ -252,7 +160,7 @@ experimentsRouter.get('/experiments/:id', (req: Request, res: Response) => {
   const agent = ctx.agentStore.getAgent(e.task.agentId);
   const cost = costPerRun(ctx, e.task.agentId);
   res.type('html').send(renderExperimentPage({
-    e, cases: s.cases(e.id), standing: experimentStanding(ctx, e),
+    e, standing: experimentStanding(ctx, e),
     ...(cost !== undefined ? { costPerRun: cost } : {}),
     ...(() => { const nb = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).forExperiment(e.id); return nb && !nb.archivedAt ? { notebook: { id: nb.id, title: nb.title } } : {}; })(),
     ...(agent ? { agent: { name: agent.name, ...(agent.version !== undefined ? { version: agent.version } : {}) } } : {}),
@@ -272,7 +180,7 @@ experimentsRouter.get('/experiments/:id/state', (req: Request, res: Response) =>
 experimentsRouter.post('/experiments/:id/run', (req: Request, res: Response) => {
   const id = String(req.params.id);
   const out = startExperimentPass(getContext(req.app.locals), id);
-  res.redirect(303, back(id, out.started ? 'Running. This page fills in as the runs come back.' : out.reason ?? 'It could not start.'));
+  res.redirect(303, back(id, out.started ? 'Running. Each run is the whole agent, so it can take a while; this page fills in as they come back.' : out.reason ?? 'It could not start.'));
 });
 
 experimentsRouter.post('/experiments/:id/resume', (req: Request, res: Response) => {

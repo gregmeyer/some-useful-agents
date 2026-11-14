@@ -18,6 +18,7 @@ export * from './human-questions.js';
 export * from './notebooks.js';
 export * from './experiments.js';
 export * from './experiment-measures.js';
+export * from './experiment-output.js';
 export * from './experiment-conditions.js';
 export * from './experiment-notebook.js';
 export * from './experiment-readout.js';

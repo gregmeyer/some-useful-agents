@@ -17,7 +17,7 @@ export function experimentDataFor(ctx: Ctx, experimentId: string): ExperimentPag
     const e = s.get(experimentId);
     if (!e) return undefined;
     const pass = s.passes(e.id, 1)[0];
-    return experimentPageData(e, s.cases(e.id), pass ? s.cells(pass.id) : [], pass ? s.scores(pass.id) : [], { running: !!runningPass(ctx, e.id) });
+    return experimentPageData(e, pass ? s.cells(pass.id) : [], pass ? s.scores(pass.id) : [], { running: !!runningPass(ctx, e.id) });
   } catch {
     return undefined;
   }
@@ -39,7 +39,7 @@ export function notebookForExperiment(ctx: Ctx, experimentId: string): { noteboo
     if (have.archivedAt) nbs.unarchive(have.id);
     return { notebook: nbs.get(have.id)!, made: false };
   }
-  const nb = nbs.create({ title: e.name, statement: e.question || `What changes the result of ${e.task.agentId}, measured on a fixed set.`, params: [], criteria: [] });
+  const nb = nbs.create({ title: e.name, statement: e.question || `What changes what ${e.task.agentId} produces, measured from its runs.`, params: [], criteria: [] });
   // Nothing to set up or search for: its content is the experiment's.
   nbs.markSetup(nb.id);
   nbs.setLayout(nb.id, experimentLayout(e), 'experiment');
@@ -74,18 +74,18 @@ export function experimentsForTriage(ctx: Ctx): string {
   }
 }
 
-/** An experiment as it is mentioned elsewhere: on the notebook its set came from, on the agent it tested. */
+/** An experiment as it is mentioned elsewhere: on the page of the agent it ran. */
 export interface ExperimentMention { id: string; name: string; href: string; stands: string; found?: string; restsOn?: string }
 
 /**
- * The experiments made from a notebook's options, or that tested an agent,
- * newest first, each with what it found in its page's words (counted from
- * its runs). Never throws: a page that mentions them still renders.
+ * The experiments that ran an agent, newest first, each with what it found
+ * in its page's words (counted from its runs). Never throws: a page that
+ * mentions them still renders.
  */
-export function experimentsOn(ctx: Ctx, of: { notebookId: string } | { agentId: string }): ExperimentMention[] {
+export function experimentsOn(ctx: Ctx, of: { agentId: string }): ExperimentMention[] {
   try {
     const s = ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
-    const mine = s.list().filter((e) => ('notebookId' in of ? e.from?.notebookId === of.notebookId : e.task.agentId === of.agentId)).slice(0, 8);
+    const mine = s.list().filter((e) => e.task.agentId === of.agentId).slice(0, 8);
     return mine.map((e) => {
       const d = experimentDataFor(ctx, e.id);
       const ran = !!d && d.label !== 'Not run yet';

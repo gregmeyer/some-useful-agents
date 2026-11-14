@@ -54,21 +54,24 @@ describe('loadTriageKernel', () => {
 });
 
 describe('a notebook like the one asked for', () => {
-  it('an ask to test what changes an agent\'s output is an experiment: offered as a link, its set never invented, its finding only repeated', () => {
+  it('an ask to test what changes an agent\'s output is an experiment: offered as a link, its values never invented, its finding only repeated', () => {
     const kernel = loadTriageKernel();
     expect(kernel).toContain('EXPERIMENTS — "does the build matter more than what they ask for?"');
+    // What one is: the whole agent run under versions of it, and what they produced compared.
+    expect(kernel).toMatch(/runs the whole\s+agent a few times under each, reads the items each run's output lists/);
     // Not a notebook, not a new agent, and not answered from reasoning.
-    expect(kernel).toMatch(/TEST, PROVE, MEASURE or COMPARE[\s\S]{0,500}Do NOT start a notebook for\s+it, do NOT build or run an agent for it, and do NOT answer the question\s+from reasoning/);
+    expect(kernel).toMatch(/TEST, PROVE, MEASURE or COMPARE[\s\S]{0,500}Do NOT start a notebook\s+for it, do NOT build or run an agent for it, and do NOT answer the\s+question from reasoning/);
     // One link to the setup page, filled in with the fields that page reads.
     expect(kernel).toContain('[Set up the experiment](/experiments/new?question=');
-    for (const field of ['cN_kind', 'cN_vM_name', 'cN_vM_text', 'cN_vM_provider', 'cN_vM_version', 'notebook=1', 'j1_rubric']) expect(kernel).toContain(field);
-    expect(kernel).toContain('THE SET IS NEVER INVENTED.');
-    expect(kernel).toContain('Never write example items.');
-    // What one found comes from its runs, in those numbers.
+    for (const field of ['agent:', 'cN_kind', '`version`', '`input`', 'cN_input', 'cN_vM_text', 'cN_vM_version', 'cN_vM_provider', 'notebook=1', 'j1_rubric']) expect(kernel).toContain(field);
+    // Its agent is theirs, and nothing about it is made up.
+    expect(kernel).toMatch(/It\s+must be THEIR agent that does the thing in question/);
+    expect(kernel).toMatch(/Only name an input the agent has, and only a version number the\s+agent has/);
+    expect(kernel).toContain('THE WHOLE AGENT RUNS EACH TIME');
+    // What one found comes from its runs, in those numbers; one linked or named is read in full.
     expect(kernel).toMatch(/answer from EXPERIMENTS ONLY:\s+its "found" and "restsOn"/);
-    expect(kernel).toContain('never 1, which leaves nothing to conclude');
-    // One linked or named is read in full, for questions the headline doesn't answer.
     expect(kernel).toMatch(/EXPERIMENTS_LINKED has an experiment in full when this thread links it\s+or they name it/);
+    expect(kernel).toMatch(/never\s+1, which leaves nothing to conclude/);
   });
 
   it('the kernel reads NOTEBOOK_CANDIDATES before offering a new notebook: run the same one again, or set a new one up like it', async () => {

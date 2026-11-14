@@ -1,20 +1,21 @@
 /**
- * Running an experiment's pass (ADR-0078): each cell runs the task agent
- * once under its condition and keeps the ranking that run returned. Two
+ * Running an experiment's pass (ADR-0078): each cell runs the whole agent
+ * once under its version, and keeps the items that run's output lists. Two
  * cells run at a time; progress is kept cell by cell in the store, so Stop,
  * Resume and a restart all leave the pass where it was.
  *
  * A cell's run is an unsaved copy of the agent under an experiment's id
- * (core agentForCondition), with no state folder, memory or notifications:
- * the agent's own history, spend and state never see it. When a condition
- * names a provider the run may use no other; a run that still used another
- * is invalid, not counted.
+ * (core agentForCondition), so the agent's own history, spend, memory and
+ * state never see it. It is otherwise the agent as it is: it searches,
+ * reads and uses its tools. When a version names a provider the run may
+ * use no other; a run that still used another is invalid, not counted. A
+ * run whose output has no list sua can read is invalid too.
  */
 import { randomUUID } from 'node:crypto';
 import {
-  ExperimentStore, agentForCondition, cleanJudgement, cleanRanking, conditionLevels, conditionSettings, executeAgentDag, experimentAgentId, experimentConditions,
-  extractTaggedJson, formatFieldValue, notebookViewData, passProgress, rankOptions, NotebookStore,
-  type Agent, type Experiment, type ExperimentCase, type ExperimentCell, type ExperimentItem, type ExperimentPass, type Notebook,
+  ExperimentStore, NotebookStore, SYSTEM_AGENT_IDS, agentForCondition, cleanJudgement, conditionLevels, conditionSettings, executeAgentDag, experimentAgentId, experimentAgentOf, experimentConditions,
+  extractPriorAgentInputs, extractTaggedJson, passProgress, readOutput,
+  type Agent, type Experiment, type ExperimentCell, type ExperimentPass, type OutputItem,
 } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -22,12 +23,12 @@ import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
-export const EXPERIMENT_RANKER_ID = 'experiment-ranker';
 export const EXPERIMENT_JUDGE_ID = 'experiment-judge';
 /** Cells run at once. */
 const POOL = 2;
-/** A cell's run is given up on after this long. */
-const CELL_TIMEOUT_MS = 5 * 60 * 1000;
+/** A cell's run is given up on after this long (it is the whole agent). */
+const CELL_TIMEOUT_MS = 15 * 60 * 1000;
+const JUDGE_TIMEOUT_MS = 4 * 60 * 1000;
 
 /** A pass under way in this process. */
 export interface ExperimentPassState { experimentId: string; startedAt: string; stop: boolean; runs: Set<string>; done?: Promise<void> }
@@ -43,10 +44,9 @@ function touchNotebook(ctx: Ctx, experimentId: string): void {
   } catch { /* the page shows it when next opened */ }
 }
 
-/** Put the default ranking agent and the judge in the catalog and keep them current (at startup). */
-export function installExperimentRanker(ctx: Ctx): boolean {
-  const judge = ensureSystemAgentCurrent(ctx, EXPERIMENT_JUDGE_ID, 'scoring an experiment\'s results against a rubric');
-  return ensureSystemAgentCurrent(ctx, EXPERIMENT_RANKER_ID, 'ranking a fixed list in an experiment') && judge;
+/** Put the judge in the catalog and keep it current (at startup). */
+export function installExperimentJudge(ctx: Ctx): boolean {
+  return ensureSystemAgentCurrent(ctx, EXPERIMENT_JUDGE_ID, 'scoring an experiment\'s results against a rubric');
 }
 
 /** At boot: cells a restart left running are stopped where they were, to be resumed. Returns how many passes. */
@@ -60,59 +60,7 @@ export function runningPass(ctx: Ctx, experimentId: string): string | undefined 
   return undefined;
 }
 
-/**
- * A notebook's options as a case to freeze, each with its facts as the page
- * shows them, in name order. Not in the notebook's own ranking: the order
- * items are shown in would lean every run toward it. Nor with the
- * notebook's own fit score: that is a judgement, and a run given it would
- * only repeat it. By default the options still in the running; with `only`,
- * exactly those entries (ruled-out ones too, when named). `refs` are the
- * notebook entries the items came from, in the same order. Pure.
- */
-export function caseFromNotebook(nb: Notebook, entries: Parameters<typeof notebookViewData>[1], opts: { only?: ReadonlySet<string> } = {}): { name: string; items: Array<Omit<ExperimentItem, 'id'> & { id?: string }>; refs: string[] } {
-  const all = notebookViewData(nb, entries).notebook.options;
-  const options = opts.only ? all.filter((o) => opts.only!.has(o.id)) : rankOptions(nb, all);
-  const sorted = [...options].sort((a, b) => a.name.localeCompare(b.name));
-  const items = sorted.map((o) => {
-    const facts: Record<string, string> = {};
-    for (const f of nb.fields) {
-      if (f.role === 'link' || f.role === 'score' || f.type === 'url') continue;
-      const v = o.fields[f.key];
-      if (v === undefined || v === null || v === '') continue;
-      try { facts[f.label] = formatFieldValue(f, v); } catch { /* a fact that can't be shown is left out */ }
-    }
-    // The short name (it carries the company when several share a title) makes an id a reader can tell apart.
-    return { id: o.name, title: o.title, facts };
-  });
-  return { name: nb.title, items, refs: sorted.map((o) => o.id) };
-}
-
-/** Freeze a notebook's options (all in the running, or only the entries named) as an experiment's case, or say why it can't be. */
-export function freezeNotebook(ctx: Ctx, notebookId: string, opts: { only?: ReadonlySet<string> } = {}): { cases: unknown[]; refs: string[]; from: { notebookId: string; title: string } } | { error: string } {
-  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
-  const nb = nbs.get(notebookId);
-  if (!nb) return { error: 'No such notebook.' };
-  const c = caseFromNotebook(nb, nbs.entries(nb.id, 1000), opts);
-  if (c.items.length < 2) return { error: opts.only ? 'Keep at least two items in the set: an experiment needs two or more to rank.' : `${nb.title} has ${String(c.items.length)} ${c.items.length === 1 ? 'option' : 'options'} in the running; an experiment needs at least two to rank.` };
-  return { cases: [{ name: c.name, items: c.items }], refs: c.refs, from: { notebookId: nb.id, title: nb.title } };
-}
-
-/** Lines of pasted text as a case: one item a line, "Title | Fact: value | Fact: value". */
-export function caseFromPaste(text: string): { name: string; items: Array<{ title: string; facts: Record<string, string> }> } {
-  const items = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
-    const [title, ...rest] = l.split('|').map((p) => p.trim());
-    const facts: Record<string, string> = {};
-    for (const p of rest) { const m = /^([^:]{1,60}):\s*(.+)$/.exec(p); if (m) facts[m[1].trim()] = m[2].trim(); else if (p) facts[`Note ${String(Object.keys(facts).length + 1)}`] = p; }
-    return { title, facts };
-  }).filter((i) => i.title);
-  return { name: 'Pasted set', items };
-}
-
-/**
- * What one run of this experiment's task has cost lately, on average (its
- * own runs and earlier experiment runs of it). Undefined when none has a
- * recorded cost.
- */
+/** What one run of this agent has cost lately, on average (its own runs and earlier experiment runs of it). Undefined when none has a recorded cost. */
 export function costPerRun(ctx: Ctx, agentId: string): number | undefined {
   try {
     const rows = [agentId, experimentAgentId(agentId)].flatMap((name) => ctx.runStore.queryRuns({ agentName: name, statuses: ['completed'], limit: 20 }).rows);
@@ -123,36 +71,77 @@ export function costPerRun(ctx: Ctx, agentId: string): number | undefined {
   }
 }
 
-/** The task's inputs for a cell: the case's items, what the condition sets, and only what the agent declares. */
-export function cellInputs(agent: Pick<Agent, 'inputs'>, c: ExperimentCase, set: Record<string, string>, errors = ''): Record<string, string> {
-  const all: Record<string, string> = {
-    ITEMS: JSON.stringify(c.items.map((i) => ({ id: i.id, title: i.title, facts: i.facts }))),
-    ...set,
-    ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that.` : '',
-  };
-  const declared = agent.inputs ? new Set(Object.keys(agent.inputs)) : undefined;
-  return declared ? Object.fromEntries(Object.entries(all).filter(([k]) => declared.has(k))) : all;
+/** An agent that could be run in an experiment, with how much it has been run. */
+export interface TestableAgent {
+  id: string; name: string; description?: string; runs: number; current?: number;
+  versions: Array<{ v: number; at: string; note?: string }>;
+  /** Its inputs, with what its last run was given (the ask starts from these). */
+  inputs: Array<{ name: string; description?: string; required?: boolean; last?: string; fallback?: string }>;
+  /** Its latest completed run lists items sua can read (so its results can be compared). */
+  lists?: number;
+  costPerRun?: number;
 }
 
-interface CellRun { text?: string; runId?: string; usedProvider?: string; usedModel?: string; costUsd?: number; error?: string }
+/** The operator's own agents (not sua's, not an experiment's copies), the most run first. */
+export function testableAgents(ctx: Ctx): TestableAgent[] {
+  const out: TestableAgent[] = [];
+  for (const a of ctx.agentStore.listAgents()) {
+    if (SYSTEM_AGENT_IDS.has(a.id) || experimentAgentOf(a.id)) continue;
+    let runs = 0;
+    let lastId: string | undefined;
+    try { const q = ctx.runStore.queryRuns({ agentName: a.id, statuses: ['completed'], limit: 1 }); runs = q.total; lastId = q.rows[0]?.id; } catch { runs = 0; }
+    let versions: TestableAgent['versions'] = [];
+    try { versions = ctx.agentStore.listVersions(a.id).slice(0, 20).map((v) => ({ v: v.version, at: v.createdAt.slice(0, 10), ...(v.commitMessage ? { note: v.commitMessage.slice(0, 60) } : {}) })); } catch { versions = []; }
+    let last: Record<string, string> = {};
+    try { if (lastId) last = extractPriorAgentInputs(a, lastId, ctx.runStore); } catch { last = {}; }
+    const inputs = Object.entries(a.inputs ?? {}).slice(0, 16).map(([name, spec]) => {
+      const s = spec as { description?: string; required?: boolean; default?: unknown };
+      return { name, ...(s.description ? { description: s.description.slice(0, 160) } : {}), ...(s.required ? { required: true } : {}), ...(last[name] ? { last: last[name].slice(0, 2000) } : {}), ...(s.default !== undefined && s.default !== '' ? { fallback: String(s.default).slice(0, 2000) } : {}) };
+    });
+    out.push({ id: a.id, name: a.name, ...(a.description ? { description: a.description } : {}), runs, ...(a.version !== undefined ? { current: a.version } : {}), versions, inputs });
+  }
+  out.sort((x, y) => y.runs - x.runs || x.name.localeCompare(y.name));
+  // Whether its results can be read is looked up for the most run only (it reads a run's output).
+  for (const a of out.slice(0, 12)) {
+    try {
+      const row = ctx.runStore.queryRuns({ agentName: a.id, statuses: ['completed'], limit: 1 }).rows[0];
+      if (row) a.lists = readRun(ctx, row.id).items.length;
+      const cost = costPerRun(ctx, a.id);
+      if (cost !== undefined) a.costPerRun = cost;
+    } catch { /* unknown */ }
+  }
+  return out;
+}
 
-/** One run of the task for a cell (or the test's stand-in). Never throws. */
-async function runTask(ctx: Ctx, state: ExperimentPassState, agent: Agent, inputs: Record<string, string>, provider: string | undefined, at: { conditionId: string; caseId: string; repeat: number; judge?: string }): Promise<CellRun> {
+/** The items a run's output lists: its result, else its steps' outputs, the last first. */
+export function readRun(ctx: Ctx, runId: string): { listed: boolean; items: OutputItem[] } {
+  const run = ctx.runStore.getRun(runId);
+  let out = readOutput(run?.result);
+  if (out.listed) return out;
+  try { for (const n of [...ctx.runStore.listNodeExecutions(runId)].reverse()) { out = readOutput(n.result ?? undefined); if (out.listed) return out; } } catch { /* its result was all there was */ }
+  return { listed: false, items: [] };
+}
+
+interface CellRun { text?: string; runId?: string; usedProvider?: string; costUsd?: number; error?: string }
+
+/** One run of an agent for a cell (or the test's stand-in). Never throws. */
+async function runAgent(ctx: Ctx, state: ExperimentPassState, agent: Agent, inputs: Record<string, string>, provider: string | undefined, timeoutMs: number, at: { conditionId: string; repeat: number; judge?: string }): Promise<CellRun> {
   try {
     if (at.judge) { if (ctx.experimentJudgeRun) return { text: await ctx.experimentJudgeRun(inputs, { ...at, scorerId: at.judge }) }; }
     else if (ctx.experimentTaskRun) return { text: await ctx.experimentTaskRun(inputs, at) };
     const runId = randomUUID();
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), CELL_TIMEOUT_MS);
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
     ctx.activeRuns.set(runId, ac);
     state.runs.add(runId);
     try {
       const snap = buildLlmSettingsSnapshot(ctx);
-      // No dataRoot, memory or run hooks: an experiment's run leaves nothing in the agent's own state and raises nothing in the inbox.
+      // No run hooks: a failed run is an unusable cell on the experiment's page, not an inbox item.
       await executeAgentDag(agent, { triggeredBy: 'experiment', runId, signal: ac.signal, inputs, suppressNotify: true }, {
         runStore: ctx.runStore, secretsStore: ctx.secretsStore, variablesStore: ctx.variablesStore, integrationsStore: ctx.integrationsStore,
-        toolStore: ctx.toolStore, agentStore: ctx.agentStore, allowUntrustedShell: ctx.allowUntrustedShell,
-        // A condition that names a provider may use no other: no quiet switch to the next one.
+        toolStore: ctx.toolStore, agentStore: ctx.agentStore, allowUntrustedShell: ctx.allowUntrustedShell, dashboardBaseUrl: ctx.dashboardBaseUrl,
+        dataRoot: ctx.agentStore.dataRoot,
+        // A version that names a provider may use no other: no quiet switch to the next one.
         llmSettings: provider && snap ? { ...snap, providers: [provider] } : snap,
         spawnNode: ctx.workflowSpawnNode,
       });
@@ -162,7 +151,7 @@ async function runTask(ctx: Ctx, state: ExperimentPassState, agent: Agent, input
       const cost = (run as { costUsd?: number } | undefined)?.costUsd;
       return {
         runId,
-        ...(run?.status === 'completed' && run.result ? { text: run.result } : { error: run?.error ?? (ac.signal.aborted ? 'It was stopped.' : 'The run did not complete.') }),
+        ...(run?.status === 'completed' ? { text: run.result ?? '' } : { error: run?.error ?? (ac.signal.aborted ? 'It was stopped, or ran out of time.' : 'The run did not complete.') }),
         ...(used.length ? { usedProvider: used.join(', ') } : {}),
         ...(typeof cost === 'number' ? { costUsd: cost } : {}),
       };
@@ -176,60 +165,51 @@ async function runTask(ctx: Ctx, state: ExperimentPassState, agent: Agent, input
   }
 }
 
-/** A run's answer as a ranking of the case, or why it can't be used. */
-export function parseRanking(text: string | undefined, c: ExperimentCase): { ranking: string[] } | { error: string } {
-  let v: unknown;
-  try { v = JSON.parse(extractTaggedJson(text ?? '', 'ranking') ?? 'null'); } catch { return { error: 'Its <ranking> block is not valid JSON.' }; }
-  if (v === null) return { error: 'It has no <ranking> block.' };
-  return cleanRanking(v, c.items);
+/** The inputs a cell's run is given: the ask, with what its version changes laid over; only inputs the agent declares. */
+export function cellInputs(agent: Pick<Agent, 'inputs'> | undefined, ask: Record<string, string>, changed: Record<string, string>): Record<string, string> {
+  const all = { ...ask, ...changed };
+  const declared = agent?.inputs ? new Set(Object.keys(agent.inputs)) : undefined;
+  return declared ? Object.fromEntries(Object.entries(all).filter(([k]) => declared.has(k))) : all;
 }
 
-async function runCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, cases: ExperimentCase[], cell: ExperimentCell): Promise<void> {
-  const c = cases.find((x) => x.id === cell.caseId);
+async function runCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, cell: ExperimentCell): Promise<void> {
   const condition = experimentConditions(e.factors).find((x) => x.id === cell.conditionId);
-  if (!c || !condition) { store.updateCell(cell.id, { status: 'failed', error: 'Its case or condition is no longer part of the experiment.' }); return; }
-  const set = conditionSettings(conditionLevels(e.factors, condition));
+  if (!condition) { store.updateCell(cell.id, { status: 'failed', error: 'Its version is no longer part of the experiment.' }); return; }
+  const levels = conditionLevels(e.factors, condition);
+  const set = conditionSettings(levels);
   const base = set.version !== undefined ? ctx.agentStore.getAgentAtVersion(e.task.agentId, set.version) : ctx.agentStore.getAgent(e.task.agentId);
   if (!base && !ctx.experimentTaskRun) { store.updateCell(cell.id, { status: 'failed', error: set.version !== undefined ? `${e.task.agentId} has no version ${String(set.version)}.` : `${e.task.agentId} isn't installed.` }); return; }
-  const agent = base ? agentForCondition(base, conditionLevels(e.factors, condition)) : ({ id: experimentAgentId(e.task.agentId), nodes: [] } as unknown as Agent);
-  const at = { conditionId: cell.conditionId, caseId: cell.caseId, repeat: cell.repeat };
-  let cost = 0;
-  let last: CellRun = {};
-  let out: ReturnType<typeof parseRanking> = { error: 'It was not run.' };
-  // One more try when the answer can't be used, told why.
-  for (let attempt = 0; attempt < 2 && !state.stop; attempt++) {
-    last = await runTask(ctx, state, agent, cellInputs(agent, c, set.inputs, attempt && 'error' in out ? out.error : ''), set.provider, at);
-    cost += last.costUsd ?? 0;
-    if (last.runId) store.updateCell(cell.id, { runId: last.runId });
-    if (last.error) { out = { error: last.error }; break; }
-    out = parseRanking(last.text, c);
-    if (!('error' in out)) break;
-  }
-  const common = { ...(base?.version !== undefined ? { agentVersion: base.version } : {}), ...(last.usedProvider ? { usedProvider: last.usedProvider } : {}), ...(set.model ? { usedModel: set.model } : {}), ...(cost ? { costUsd: cost } : {}) };
-  if (state.stop && 'error' in out) { store.updateCell(cell.id, { ...common, status: 'stopped', error: 'Stopped.' }); return; }
+  const agent = base ? agentForCondition(base, levels) : ({ id: experimentAgentId(e.task.agentId), nodes: [] } as unknown as Agent);
+  const inputs = cellInputs(base ?? undefined, e.inputs, set.inputs);
+  const last = await runAgent(ctx, state, agent, inputs, set.provider, CELL_TIMEOUT_MS, { conditionId: cell.conditionId, repeat: cell.repeat });
+  if (last.runId) store.updateCell(cell.id, { runId: last.runId });
+  const common = { ...(base?.version !== undefined ? { agentVersion: base.version } : {}), ...(last.usedProvider ? { usedProvider: last.usedProvider } : {}), ...(set.model ? { usedModel: set.model } : {}), ...(last.costUsd ? { costUsd: last.costUsd } : {}) };
+  if (state.stop && last.error) { store.updateCell(cell.id, { ...common, status: 'stopped', error: 'Stopped.' }); return; }
   if (last.error) { store.updateCell(cell.id, { ...common, status: 'failed', error: last.error }); return; }
-  if ('error' in out) { store.updateCell(cell.id, { ...common, status: 'invalid', error: out.error }); return; }
-  // The condition named a provider and the run used another: it isn't a run of that condition.
+  // The version named a provider and the run used another: it isn't a run of that version.
   if (set.provider && last.usedProvider && last.usedProvider !== set.provider) { store.updateCell(cell.id, { ...common, status: 'invalid', error: `It ran on ${last.usedProvider}, not ${set.provider}.` }); return; }
-  store.updateCell(cell.id, { ...common, status: 'done', ranking: out.ranking });
-  await judgeCell(ctx, store, state, e, c, cell, out.ranking, set.inputs.PREFERENCES ?? '');
+  // What it produced, as items: from the run's result, else from its steps' outputs.
+  const out = last.runId ? readRun(ctx, last.runId) : readOutput(last.text);
+  if (!out.listed) { store.updateCell(cell.id, { ...common, status: 'invalid', error: 'Its output has no list of items sua could read (it looks for JSON with a list of things, or a bulleted list).' }); return; }
+  store.updateCell(cell.id, { ...common, status: 'done', items: out.items });
+  await judgeCell(ctx, store, state, e, cell, out.items, inputs);
 }
 
 /** A judge's answer as a score, or why it can't be used. */
-export function parseJudgement(text: string | undefined, c: ExperimentCase): ReturnType<typeof cleanJudgement> {
+export function parseJudgement(text: string | undefined, itemCount: number): ReturnType<typeof cleanJudgement> {
   let v: unknown;
   try { v = JSON.parse(extractTaggedJson(text ?? '', 'score') ?? 'null'); } catch { return { error: 'Its <score> block is not valid JSON.' }; }
   if (v === null) return { error: 'It has no <score> block.' };
-  return cleanJudgement(v, c.items);
+  return cleanJudgement(v, itemCount);
 }
 
 /**
  * Each judge reads the result once (and once more, told why, when its
- * answer can't be used). A judge sees the items, the preferences and the
- * ranking, never the build's instructions. A judge that fails leaves the
- * result standing with no score from it.
+ * answer can't be used). A judge sees the ask as that run was given it and
+ * the items it listed, never which version it was. A judge that fails
+ * leaves the result standing with no score from it.
  */
-async function judgeCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, c: ExperimentCase, cell: ExperimentCell, ranking: string[], preferences: string): Promise<void> {
+async function judgeCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, cell: ExperimentCell, items: readonly OutputItem[], asked: Record<string, string>): Promise<void> {
   store.clearScores(cell.id);
   for (const s of e.scorers) {
     if (s.kind !== 'judge' || state.stop) continue;
@@ -237,16 +217,17 @@ async function judgeCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPass
     if (!installed && !ctx.experimentJudgeRun) { store.setScore(cell.passId, { cellId: cell.id, scorerId: s.id, error: 'The judge isn\'t installed.' }); continue; }
     const judge = installed ? agentForCondition(installed, [{ id: s.id, name: s.name, ...(s.provider ? { provider: s.provider } : {}), ...(s.model ? { model: s.model } : {}) }]) : ({ id: experimentAgentId(EXPERIMENT_JUDGE_ID), nodes: [] } as unknown as Agent);
     const inputs = (errors: string) => ({
-      RUBRIC: s.rubric, PREFERENCES: preferences, RANKING: JSON.stringify(ranking),
-      ITEMS: JSON.stringify(c.items.map((i) => ({ id: i.id, title: i.title, facts: i.facts }))),
+      RUBRIC: s.rubric,
+      ASK: Object.entries(asked).map(([k, v]) => `${k}: ${v.length > 1500 ? `${v.slice(0, 1499)}…` : v}`).join('\n'),
+      RESULT: JSON.stringify(items.slice(0, 60).map((i, n) => ({ n: n + 1, title: i.title, facts: i.facts, ...(i.link ? { link: i.link } : {}) }))),
       ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that.` : '',
     });
     let last: CellRun = {};
     let out: ReturnType<typeof parseJudgement> = { error: 'It was not run.' };
     for (let attempt = 0; attempt < 2 && !state.stop; attempt++) {
-      last = await runTask(ctx, state, judge, inputs(attempt && 'error' in out ? out.error : ''), s.provider, { conditionId: cell.conditionId, caseId: cell.caseId, repeat: cell.repeat, judge: s.id });
+      last = await runAgent(ctx, state, judge, inputs(attempt && 'error' in out ? out.error : ''), s.provider, JUDGE_TIMEOUT_MS, { conditionId: cell.conditionId, repeat: cell.repeat, judge: s.id });
       if (last.error) { out = { error: last.error }; break; }
-      out = parseJudgement(last.text, c);
+      out = parseJudgement(last.text, Math.min(items.length, 60));
       if (!('error' in out)) break;
     }
     store.setScore(cell.passId, { cellId: cell.id, scorerId: s.id, ...(last.runId ? { runId: last.runId } : {}), ...('error' in out ? { error: out.error } : out) });
@@ -255,8 +236,8 @@ async function judgeCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPass
 
 /**
  * Start a pass of an experiment (or go on with one that was stopped), in
- * the background. Refuses when one is already running, or its task agent
- * isn't installed.
+ * the background. Refuses when one is already running, or its agent isn't
+ * installed.
  */
 export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resume?: string; retry?: boolean } = {}): { started: boolean; pass?: ExperimentPass; reason?: string } {
   const store = stores(ctx);
@@ -277,7 +258,6 @@ export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resu
   }
   if (!pass) return { started: false, reason: 'The pass could not be started.' };
   const passId = pass.id;
-  const cases = store.cases(experimentId);
   const state: ExperimentPassState = { experimentId, startedAt: new Date().toISOString(), stop: false, runs: new Set() };
   ctx.experimentPasses ??= new Map();
   ctx.experimentPasses.set(passId, state);
@@ -286,7 +266,7 @@ export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resu
     while (!state.stop) {
       const cell = store.claimCell(passId);
       if (!cell) return;
-      try { await runCell(ctx, store, state, e, cases, cell); } catch (err) { store.updateCell(cell.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) }); }
+      try { await runCell(ctx, store, state, e, cell); } catch (err) { store.updateCell(cell.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) }); }
       touchNotebook(ctx, experimentId);
     }
   };

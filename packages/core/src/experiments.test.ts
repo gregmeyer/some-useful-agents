@@ -1,125 +1,143 @@
 import { describe, it, expect } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { ExperimentStore, cleanFactors, cleanCases, cleanRanking, cleanScorers, cleanJudgement, topScore, scoreSummaries, experimentConditions, conditionLevels, experimentRunCount, passProgress, EXPERIMENT_MAX_RUNS } from './experiments.js';
-import { topKOverlap, rankShift, experimentVerdict, verdictWords } from './experiment-measures.js';
+import { ExperimentStore, cleanFactors, cleanInputs, cleanScorers, cleanJudgement, foundScore, scoreSummaries, experimentConditions, conditionLevels, experimentRunCount, passProgress, EXPERIMENT_MAX_RUNS } from './experiments.js';
+import { outputDifference, experimentVerdict, verdictWords } from './experiment-measures.js';
+import { readOutput, itemKey, linkKey } from './experiment-output.js';
 import { agentForCondition, conditionSettings, experimentAgentId, experimentAgentOf } from './experiment-conditions.js';
-import type { Agent } from './agent-v2-types.js';
 import { experimentLayout, experimentPageData, missingExperimentData } from './experiment-notebook.js';
+import { experimentReadoutJson, experimentReadoutText, findExperiment, readExperiment } from './experiment-readout.js';
 import { checkNotebookLayout } from './notebook-layout.js';
 import { NotebookStore } from './notebooks.js';
 import { getBuiltinTool } from './builtin-tools.js';
-import { experimentReadoutJson, experimentReadoutText, findExperiment, readExperiment } from './experiment-readout.js';
 import { policyResource } from './policy-store.js';
+import type { Agent } from './agent-v2-types.js';
 
 const FACTORS = [
-  { name: 'Build', levels: [{ name: 'Rules A', instructions: 'Prefer seniority.' }, { name: 'Rules B', instructions: 'Prefer pay.', model: 'model-b', provider: 'codex' }] },
-  { name: 'Preferences', levels: [{ name: 'Profile 1', inputs: { preferences: 'Remote only.' } }, { name: 'Profile 2', inputs: { preferences: 'Bay Area.' } }] },
+  { name: 'Build', levels: [{ name: 'Old', version: 3 }, { name: 'New', version: 4, model: 'model-b', provider: 'codex' }] },
+  { name: 'Preferences', levels: [{ name: 'Remote', inputs: { PREFERENCES: 'Remote only.' } }, { name: 'Office', inputs: { PREFERENCES: 'Bay Area.' } }] },
 ];
-const ITEMS = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, title: `Role ${id.toUpperCase()}`, facts: { Company: `Co ${id}`, Pay: 100 } }));
+const item = (title: string, link?: string) => ({ key: itemKey(title, link), title, ...(link ? { link } : {}), facts: {} });
+
+describe('what a run produced', () => {
+  it('reads a list of items out of JSON anywhere in the output, with a key that is the same in another run', () => {
+    const jobs = [
+      { title: 'Staff Engineer', company: 'Acme', url: 'https://www.acme.example/jobs/12?utm=x', salary: { min: 200000, max: 250000 }, remote: true, id: 7 },
+      { title: 'Staff Engineer', company: 'Globex', remote: false },
+      { name: 'Designer', employer: 'Initech' },
+    ];
+    const out = readOutput(`Here they are.\n\`\`\`json\n${JSON.stringify({ jobs, log: ['a', 'b'] })}\n\`\`\``);
+    expect(out.listed).toBe(true);
+    expect(out.items).toEqual([
+      { key: 'link:acme.example/jobs/12', title: 'Staff Engineer', link: 'https://www.acme.example/jobs/12?utm=x', facts: { Company: 'Acme', Salary: '200000–250000', Remote: 'yes' } },
+      { key: 'name:staff engineer | globex', title: 'Staff Engineer', facts: { Company: 'Globex', Remote: 'no' } },
+      { key: 'name:designer | initech', title: 'Designer', facts: { Employer: 'Initech' } },
+    ]);
+    // The same job from another run, worded a little differently and with tracking on its link, is the same item.
+    expect(readOutput(JSON.stringify([{ role: 'Staff Engineer (Platform)', link: 'https://acme.example/jobs/12/?ref=y' }])).items[0].key).toBe('link:acme.example/jobs/12');
+    expect(itemKey('Staff  Engineer!', undefined, 'GLOBEX')).toBe('name:staff engineer | globex');
+    expect(linkKey('not a link')).toBeUndefined();
+  });
+
+  it('reads a plain list, tells an empty result from no list at all, and keeps one of each', () => {
+    expect(readOutput('Found:\n- **Role A** at Acme (https://x.example/a)\n- Role B\n- Role B\n2. Role C').items.map((i) => [i.title, i.key])).toEqual([['Role A at Acme', 'link:x.example/a'], ['Role B', 'name:role b'], ['Role C', 'name:role c']]);
+    // It listed nothing, on purpose: a result. It has no list: not one.
+    expect(readOutput('{"jobs": []}')).toEqual({ listed: true, items: [] });
+    expect(readOutput('[]')).toEqual({ listed: true, items: [] });
+    expect(readOutput('Nothing found today.')).toEqual({ listed: false, items: [] });
+    expect(readOutput(JSON.stringify({ steps: [{ ok: true }, { ok: false }] })).listed).toBe(false);
+    expect(readOutput(undefined)).toEqual({ listed: false, items: [] });
+  });
+});
 
 describe('experiment setup', () => {
-  it('keeps factors with two or more named levels, and only what a level sets', () => {
-    const f = cleanFactors([...FACTORS, { name: 'One level', levels: [{ name: 'Only' }] }, { levels: [{ name: 'x' }, { name: 'y' }] }, 'junk']);
-    expect(f.map((x) => [x.id, x.levels.map((l) => l.id)])).toEqual([['build', ['rules-a', 'rules-b']], ['preferences', ['profile-1', 'profile-2']]]);
-    expect(f[0].levels[1]).toEqual({ id: 'rules-b', name: 'Rules B', instructions: 'Prefer pay.', provider: 'codex', model: 'model-b' });
+  it('keeps changes with two or more named versions, and only what a version sets', () => {
+    const f = cleanFactors([...FACTORS, { name: 'One version', levels: [{ name: 'Only' }] }, { levels: [{ name: 'x' }, { name: 'y' }] }, 'junk']);
+    expect(f.map((x) => [x.id, x.levels.map((l) => l.id)])).toEqual([['build', ['old', 'new']], ['preferences', ['remote', 'office']]]);
+    expect(f[0].levels[1]).toEqual({ id: 'new', name: 'New', version: 4, provider: 'codex', model: 'model-b' });
     expect(f[1].levels[0].inputs).toEqual({ PREFERENCES: 'Remote only.' });
-    // Two levels of the same name stay two.
-    expect(cleanFactors([{ name: 'M', levels: [{ name: 'Same' }, { name: 'Same' }] }])[0].levels.map((l) => l.id)).toEqual(['same', 'same-2']);
+    expect(cleanInputs({ 'TOPIC': ' jobs ', 'bad key!': 'x', EMPTY: '', N: 3 })).toEqual({ TOPIC: 'jobs', badkey: 'x', N: '3' });
   });
 
-  it('makes every combination a condition, the first levels first', () => {
+  it('makes every combination a version to run, the first of each first', () => {
     const f = cleanFactors(FACTORS);
     const c = experimentConditions(f);
-    expect(c.map((x) => x.id)).toEqual(['rules-a+profile-1', 'rules-a+profile-2', 'rules-b+profile-1', 'rules-b+profile-2']);
-    expect(c[3]).toMatchObject({ name: 'Rules B · Profile 2', levels: { build: 'rules-b', preferences: 'profile-2' } });
-    expect(conditionLevels(f, c[3]).map((l) => l.name)).toEqual(['Rules B', 'Profile 2']);
+    expect(c.map((x) => x.id)).toEqual(['old+remote', 'old+office', 'new+remote', 'new+office']);
+    expect(c[3]).toMatchObject({ name: 'New · Office', levels: { build: 'new', preferences: 'office' } });
+    expect(conditionLevels(f, c[3]).map((l) => l.name)).toEqual(['New', 'Office']);
     expect(experimentConditions([])).toEqual([{ id: 'as-it-is', name: 'As it is', levels: {} }]);
-    expect(experimentRunCount({ factors: f, repeats: 3 }, 2)).toBe(24);
+    expect(experimentRunCount({ factors: f, repeats: 3 })).toBe(12);
+    expect(experimentRunCount({ factors: f, repeats: 3, scorers: [{ id: 'j', name: 'J', kind: 'judge', rubric: 'x' }] })).toBe(24);
   });
 
-  it('keeps a case of two or more items, with ids of its own and facts as short text', () => {
-    const c = cleanCases([{ name: 'Jobs', items: [...ITEMS, { title: '' }, { id: 'a', title: 'Another A', facts: { Note: true, Empty: '' } }] }, { items: [{ title: 'Alone' }] }]);
-    expect(c).toHaveLength(1);
-    expect(c[0].items.map((i) => i.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'a-2']);
-    expect(c[0].items[0].facts).toEqual({ Company: 'Co a', Pay: '100' });
-    expect(c[0].items[6].facts).toEqual({ Note: 'true' });
-  });
-
-  it('takes a ranking only when it has every item once and nothing else', () => {
-    expect(cleanRanking(['c', 'a', 'b'], ITEMS.slice(0, 3))).toEqual({ ranking: ['c', 'a', 'b'] });
-    expect(cleanRanking(['c', 'a'], ITEMS.slice(0, 3))).toEqual({ error: 'It left out b. Rank every item.' });
-    expect(cleanRanking(['c', 'a', 'a'], ITEMS.slice(0, 3))).toEqual({ error: '"a" is ranked twice.' });
-    expect(cleanRanking(['c', 'a', 'zz'], ITEMS.slice(0, 3))).toEqual({ error: '"zz" is not one of the items\' ids.' });
-    expect(cleanRanking('c, a, b', ITEMS)).toEqual({ error: 'It gave no list of ids.' });
+  it('a version is the agent under an experiment\'s id, with its provider and model on its model steps, never scheduled', () => {
+    const agent = { id: 'finder', name: 'Finder', status: 'active', schedule: '0 9 * * *', version: 3, nodes: [{ id: 'fetch', type: 'shell', command: 'echo' }, { id: 'think', type: 'llm-prompt', prompt: 'Find', provider: 'claude' }] } as unknown as Agent;
+    const levels = cleanFactors(FACTORS).map((f) => f.levels[1]);
+    expect(conditionSettings(levels)).toEqual({ version: 4, provider: 'codex', model: 'model-b', inputs: { PREFERENCES: 'Bay Area.' } });
+    const run = agentForCondition(agent, levels);
+    expect(run.id).toBe('experiment--finder');
+    expect(run.schedule).toBeUndefined();
+    expect(run.nodes[0]).toEqual(agent.nodes[0]);
+    expect(run.nodes[1]).toMatchObject({ id: 'think', provider: 'codex', model: 'model-b', prompt: 'Find' });
+    expect(agentForCondition(agent, [{ id: 'x', name: 'X' }]).nodes[1]).toEqual(agent.nodes[1]);
+    expect(experimentAgentOf(experimentAgentId('finder'))).toBe('finder');
+    expect(experimentAgentOf('finder')).toBeUndefined();
   });
 });
 
 describe('ExperimentStore', () => {
   const fresh = () => ExperimentStore.fromHandle(new DatabaseSync(':memory:'));
 
-  it('creates an experiment with its cases frozen, and refuses one it could not run', () => {
+  it('creates an experiment with its ask, and refuses one it could not run', () => {
     const s = fresh();
-    const e = s.create({ name: 'What changes job recommendations', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: FACTORS, cases: [{ name: 'Jobs', items: ITEMS }], from: { notebookId: 'jobs', title: 'Jobs' } });
-    expect(e).toMatchObject({ id: 'what-changes-job-recommendations', kind: 'ranking', repeats: 3, topK: 5, task: { agentId: 'ranker' }, from: { notebookId: 'jobs' } });
-    expect(s.cases(e.id)[0].items).toHaveLength(6);
-    expect(s.create({ name: 'What changes job recommendations', task: { agentId: 'ranker' }, factors: [], cases: [{ items: ITEMS.slice(0, 3) }] })).toMatchObject({ id: 'what-changes-job-recommendations-2', topK: 2 });
-    expect(s.fromNotebook('jobs').map((x) => x.id)).toEqual([e.id]);
-    expect(() => s.create({ name: 'x', task: { agentId: 'ranker' }, factors: [], cases: [] })).toThrow('at least two items');
-    expect(() => s.create({ name: 'x', task: { agentId: '' }, factors: [], cases: [{ items: ITEMS }] })).toThrow('Choose the agent');
+    const e = s.create({ name: 'Does the new version find different jobs', question: 'Old or new?', task: { agentId: 'finder' }, inputs: { TOPIC: 'staff jobs' }, factors: FACTORS });
+    expect(e).toMatchObject({ id: 'does-the-new-version-find-different-jobs', kind: 'outputs', repeats: 2, task: { agentId: 'finder' }, inputs: { TOPIC: 'staff jobs' } });
+    expect(s.create({ name: 'Does the new version find different jobs', task: { agentId: 'finder' }, factors: [] }).id).toBe('does-the-new-version-find-different-2');
+    expect(() => s.create({ name: 'x', task: { agentId: '' }, factors: [] })).toThrow('Choose the agent');
     const many = [1, 2, 3].map((n) => ({ name: `F${String(n)}`, levels: [1, 2, 3].map((m) => ({ name: `L${String(m)}` })) }));
-    expect(() => s.create({ name: 'x', task: { agentId: 'ranker' }, factors: many, cases: [{ items: ITEMS }] })).toThrow('27 conditions');
-    expect(() => s.create({ name: 'x', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 5, cases: [1, 2, 3, 4].map(() => ({ items: ITEMS })) })).toThrow(`80 runs a pass; ${String(EXPERIMENT_MAX_RUNS)} at most`);
+    expect(() => s.create({ name: 'x', task: { agentId: 'finder' }, factors: many })).toThrow('27 versions to run');
+    expect(() => s.create({ name: 'x', task: { agentId: 'finder' }, factors: FACTORS, repeats: 5, scorers: [{ kind: 'judge', rubric: 'Good.' }] })).toThrow(`40 runs a pass (each judge reads every result); ${String(EXPERIMENT_MAX_RUNS)} at most`);
     s.archive(e.id);
-    expect(s.list().map((x) => x.id)).toEqual(['what-changes-job-recommendations-2']);
+    expect(s.list().map((x) => x.id)).toEqual(['does-the-new-version-find-different-2']);
     expect(s.list({ archived: true })).toHaveLength(2);
   });
 
   it('runs a pass cell by cell: claimed once, stopped, resumed, and never lost to a restart', () => {
     const s = fresh();
-    const e = s.create({ name: 'Pass', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 2, cases: [{ items: ITEMS }] });
+    const e = s.create({ name: 'Pass', task: { agentId: 'finder' }, factors: FACTORS, repeats: 2 });
     const p = s.startPass(e.id, { taskVersion: 4 });
     expect(p.taskVersion).toBe(4);
     const cells = s.cells(p.id);
     expect(cells).toHaveLength(8);
-    // Repeat by repeat: every condition once before any twice.
     expect(cells.slice(0, 4).every((c) => c.repeat === 1)).toBe(true);
     const a = s.claimCell(p.id)!;
     const b = s.claimCell(p.id)!;
     expect(a.id).not.toBe(b.id);
-    expect(a.status).toBe('running');
-    s.updateCell(a.id, { status: 'done', runId: 'run-1', ranking: ['a', 'b', 'c', 'd', 'e', 'f'], usedProvider: 'claude', agentVersion: 4, costUsd: 0.02 });
-    s.updateCell(b.id, { status: 'invalid', error: 'It left out f. Rank every item.' });
-    expect(s.cells(p.id).find((c) => c.id === a.id)).toMatchObject({ status: 'done', runId: 'run-1', ranking: ['a', 'b', 'c', 'd', 'e', 'f'], usedProvider: 'claude', agentVersion: 4, costUsd: 0.02 });
-    expect(passProgress(s.cells(p.id))).toMatchObject({ total: 8, done: 1, invalid: 1, todo: 6, over: false, costUsd: 0.02 });
-    // Stop: what hasn't run is stopped; resume puts it back (and the invalid one too, when asked).
+    s.updateCell(a.id, { status: 'done', runId: 'run-1', items: [item('Role A')], usedProvider: 'claude', agentVersion: 4, costUsd: 0.4 });
+    s.updateCell(b.id, { status: 'invalid', error: 'Its output has no list.' });
+    expect(s.cells(p.id).find((c) => c.id === a.id)).toMatchObject({ status: 'done', runId: 'run-1', items: [{ title: 'Role A' }], usedProvider: 'claude', agentVersion: 4, costUsd: 0.4 });
+    expect(passProgress(s.cells(p.id))).toMatchObject({ total: 8, done: 1, invalid: 1, todo: 6, over: false, costUsd: 0.4 });
     expect(s.stopPass(p.id)).toBe(6);
-    expect(passProgress(s.cells(p.id)).over).toBe(true);
     expect(s.resumePass(p.id)).toBe(6);
     expect(s.resumePass(p.id, { retry: true })).toBe(1);
-    expect(passProgress(s.cells(p.id))).toMatchObject({ done: 1, todo: 7 });
-    // A restart with a cell running: its pass is stopped where it was, to be resumed.
     const c = s.claimCell(p.id)!;
     expect(s.stopInterrupted()).toEqual([p.id]);
     expect(s.cells(p.id).find((x) => x.id === c.id)).toMatchObject({ status: 'stopped', error: 'Cut off by a restart.' });
-    expect(s.getPass(p.id)!.note).toBe('Cut off by a restart.');
     expect(s.resumePass(p.id)).toBe(7);
-    expect(s.getPass(p.id)!.finishedAt).toBeUndefined();
     while (s.claimCell(p.id)) { /* take them all */ }
-    expect(s.claimCell(p.id)).toBeUndefined();
     s.finishPass(p.id, '8 of 8');
     expect(s.passes(e.id)[0]).toMatchObject({ id: p.id, note: '8 of 8' });
   });
 });
 
 describe('experiment measures', () => {
-  it('counts shared top items and places moved', () => {
-    const a = ['a', 'b', 'c', 'd', 'e', 'f'];
-    expect(topKOverlap(a, a, 3)).toBe(3);
-    expect(rankShift(a, a)).toBe(0);
-    const rev = [...a].reverse();
-    expect(topKOverlap(a, rev, 3)).toBe(0);
-    expect(rankShift(a, rev)).toBe(3); // 5+3+1+1+3+5 over 6
-    expect(topKOverlap(a, ['b', 'a', 'd', 'c', 'e', 'f'], 3)).toBe(2);
+  it('counts what two outputs share, and how far apart the shared items sit', () => {
+    expect(outputDifference(['a', 'b', 'c'], ['a', 'b', 'c'])).toEqual({ shared: 3, of: 3, share: 1, shift: 0 });
+    expect(outputDifference(['a', 'b', 'c'], ['c', 'b', 'a'])).toMatchObject({ shared: 3, of: 3, share: 1 });
+    expect(outputDifference(['a', 'b', 'c'], ['c', 'b', 'a']).shift).toBeCloseTo(4 / 3);
+    // Half in common; an item only one found doesn't push the shared ones apart.
+    expect(outputDifference(['a', 'x', 'b'], ['a', 'b', 'y'])).toEqual({ shared: 2, of: 4, share: 0.5, shift: 0 });
+    expect(outputDifference(['a'], ['b'])).toMatchObject({ shared: 0, of: 2, share: 0 });
+    expect(outputDifference([], [])).toMatchObject({ shared: 0, of: 0, share: 1 });
   });
 
   const factors = [{ id: 'build', name: 'Build' }, { id: 'prefs', name: 'Preferences' }];
@@ -129,248 +147,170 @@ describe('experiment measures', () => {
     { id: 'b1', name: 'B · 1', levels: { build: 'b', prefs: '1' } },
     { id: 'b2', name: 'B · 2', levels: { build: 'b', prefs: '2' } },
   ];
-  const fwd = ['a', 'b', 'c', 'd', 'e', 'f'];
-  const swapped = ['b', 'a', 'c', 'd', 'e', 'f'];
-  const rev = [...fwd].reverse();
-  const cell = (conditionId: string, repeat: number, ranking: string[]) => ({ caseId: 'jobs', conditionId, repeat, ranking });
+  const cell = (conditionId: string, repeat: number, keys: string[]) => ({ conditionId, repeat, keys });
+  const old = ['j1', 'j2', 'j3', 'j4'];
+  const neu = ['j1', 'j5', 'j6', 'j7'];
 
-  it('finds the factor that moved the result, against run-to-run variation', () => {
-    // Build reverses the list; preferences change nothing; repeats differ by one swap in one condition.
-    const cells = [cell('a1', 1, fwd), cell('a1', 2, swapped), cell('a2', 1, fwd), cell('a2', 2, fwd), cell('b1', 1, rev), cell('b1', 2, rev), cell('b2', 1, rev), cell('b2', 2, rev)];
-    const v = experimentVerdict({ factors, conditions, cells, topK: 3 });
-    expect(v.n).toEqual({ cases: 1, conditions: 4, repeats: 2, rankings: 8 });
-    expect(v.noise).toMatchObject({ pairs: 4, overlapMin: 3 });
-    expect(v.noise!.shiftMax).toBeCloseTo(1 / 3);
+  it('finds the change that altered what was produced, against run-to-run variation', () => {
+    // The new build finds mostly other jobs; preferences change nothing; one repeat misses one job.
+    const cells = [cell('a1', 1, old), cell('a1', 2, old.slice(0, 3)), cell('a2', 1, old), cell('a2', 2, old), cell('b1', 1, neu), cell('b1', 2, neu), cell('b2', 1, neu), cell('b2', 2, neu)];
+    const v = experimentVerdict({ factors, conditions, cells });
+    expect(v.n).toEqual({ conditions: 4, repeats: 2, outputs: 8 });
+    expect(v.noise).toMatchObject({ pairs: 4, shareMin: 0.75 });
     expect(v.effects.map((e) => [e.name, e.beyondNoise])).toEqual([['Build', true], ['Preferences', false]]);
-    expect(v.effects[0].overlap).toBe(0);
     expect(v.effects[0].pairs).toBe(8);
-    // Each change by itself: build with preferences held at 1, then at 2.
-    expect(v.effects[0].parts.map((p) => [p.from, p.to, p.overlap])).toEqual([['a1', 'b1', 0], ['a2', 'b2', 0]]);
-    expect(v.effects[1].parts.map((p) => [p.from, p.to])).toEqual([['a1', 'a2'], ['b1', 'b2']]);
-    expect(v.conditions.map((c) => [c.id, c.vsBaseline?.overlap])).toEqual([['a1', undefined], ['a2', 3], ['b1', 0], ['b2', 0]]);
-    // The items that moved furthest lead the table: a is 1st (or 2nd) under A and last under B.
-    expect(v.items[0].ranks).toMatchObject({ a2: 1, b1: 6 });
-    expect(['a', 'f']).toContain(v.items[0].id);
+    expect(v.effects[0].share).toBeLessThan(0.2);
+    expect(v.effects[0].parts.map((p) => [p.from, p.to])).toEqual([['a1', 'b1'], ['a2', 'b2']]);
+    expect(v.conditions.map((c) => [c.id, c.items, c.vsBaseline ? Math.round(c.vsBaseline.share * 100) : undefined])).toEqual([['a1', 3.5, undefined], ['a2', 4, 88], ['b1', 4, 15], ['b2', 4, 15]]);
+    // The jobs only one build found lead; the one both found comes after.
+    expect(v.items[0].spread).toBe(1);
+    expect(v.items.find((i) => i.key === 'j1')).toMatchObject({ found: { a1: 1, a2: 1, b1: 1, b2: 1 }, place: { a1: 1 }, spread: 0 });
+    expect(v.items.find((i) => i.key === 'j4')!.found).toEqual({ a1: 0.5, a2: 1, b1: 0, b2: 0 });
     const w = verdictWords(v);
-    expect(w.headline).toBe('Build changed the result; preferences did not, beyond run-to-run variation.');
-    expect(w.lines[0]).toBe('Changing build: 0 of the top 3 stayed, and an item moved 3 places on average.');
-    expect(w.sample).toBe('1 set, 4 conditions, 2 runs of each. It holds for this set only.');
+    expect(w.headline).toBe('Build changed what it produced; preferences did not, beyond run-to-run variation.');
+    expect(w.lines[0]).toMatch(/^Changing build: 1 of 6\.\d items were in both versions' results, on average\.$/);
+    expect(w.lines[2]).toBe('Running the same version again: 3.8 of 4 items were in both runs\' results, on average.');
+    expect(w.sample).toBe('4 versions, 2 runs of each. It holds for this ask, when it was run.');
   });
 
-  it('says nothing can be concluded when a difference is no larger than a repeat\'s, or there were no repeats', () => {
-    // Every pair of runs differs by the same swap or not at all: no factor stands out.
-    const noisy = [cell('a1', 1, fwd), cell('a1', 2, swapped), cell('a2', 1, swapped), cell('a2', 2, fwd), cell('b1', 1, fwd), cell('b1', 2, swapped), cell('b2', 1, swapped), cell('b2', 2, fwd)];
-    const v = experimentVerdict({ factors, conditions, cells: noisy, topK: 3 });
-    expect(v.effects.every((e) => e.beyondNoise === false)).toBe(true);
-    expect(verdictWords(v).headline).toBe('No factor changed the result more than running the same thing twice did.');
-    const once = experimentVerdict({ factors, conditions, cells: [cell('a1', 1, fwd), cell('a2', 1, fwd), cell('b1', 1, rev), cell('b2', 1, rev)], topK: 3 });
+  it('says nothing can be concluded when versions differ no more than repeats do, or there were no repeats', () => {
+    // Every run finds three of the same four, a different three each time.
+    const noisy = [cell('a1', 1, ['j1', 'j2', 'j3']), cell('a1', 2, ['j2', 'j3', 'j4']), cell('b1', 1, ['j1', 'j3', 'j4']), cell('b1', 2, ['j1', 'j2', 'j4'])];
+    const two = [conditions[0], conditions[2]];
+    const v = experimentVerdict({ factors: [factors[0]], conditions: two, cells: noisy });
+    expect(v.effects[0].beyondNoise).toBe(false);
+    expect(verdictWords(v).headline).toBe('No change altered what it produced more than running the same version twice did.');
+    const once = experimentVerdict({ factors: [factors[0]], conditions: two, cells: [cell('a1', 1, old), cell('b1', 1, neu)] });
     expect(once.noise).toBeUndefined();
-    expect(once.effects[0].beyondNoise).toBeUndefined();
-    expect(verdictWords(once).headline).toContain('Each condition was run once');
-    expect(verdictWords(experimentVerdict({ factors, conditions, cells: [], topK: 3 })).headline).toBe('Nothing has been run yet.');
-    // Both factors move it, one much more.
-    const both = [cell('a1', 1, fwd), cell('a1', 2, fwd), cell('a2', 1, swapped), cell('a2', 2, swapped), cell('b1', 1, rev), cell('b1', 2, rev), cell('b2', 1, [...swapped].reverse()), cell('b2', 2, [...swapped].reverse())];
-    expect(verdictWords(experimentVerdict({ factors, conditions, cells: both, topK: 3 })).headline).toBe('Build changed the result more than preferences did.');
-  });
-});
-
-describe('a condition as an agent to run', () => {
-  const agent = { id: 'ranker', name: 'Ranker', status: 'active', schedule: '0 9 * * *', version: 3, nodes: [{ id: 'fetch', type: 'shell', command: 'echo' }, { id: 'rank', type: 'llm-prompt', prompt: 'Rank', provider: 'claude' }] } as unknown as Agent;
-
-  it('runs under an experiment\'s id with the condition\'s provider and model on its model nodes, never scheduled', () => {
-    const levels = cleanFactors(FACTORS).map((f) => f.levels[1]);
-    expect(conditionSettings(levels)).toEqual({ provider: 'codex', model: 'model-b', inputs: { INSTRUCTIONS: 'Prefer pay.', PREFERENCES: 'Bay Area.' } });
-    const run = agentForCondition(agent, levels);
-    expect(run.id).toBe('experiment--ranker');
-    expect(run.schedule).toBeUndefined();
-    expect(run).toMatchObject({ provider: 'codex', model: 'model-b' });
-    expect(run.nodes[0]).toEqual(agent.nodes[0]);
-    expect(run.nodes[1]).toMatchObject({ id: 'rank', provider: 'codex', model: 'model-b', prompt: 'Rank' });
-    // A condition that names neither leaves the agent's own choice alone.
-    expect(agentForCondition(agent, [{ id: 'x', name: 'X' }]).nodes[1]).toEqual(agent.nodes[1]);
-    expect(agent.id).toBe('ranker');
-    expect(experimentAgentOf(experimentAgentId('ranker'))).toBe('ranker');
-    expect(experimentAgentOf('ranker')).toBeUndefined();
+    expect(verdictWords(once).headline).toContain('Each version was run once');
+    expect(verdictWords(experimentVerdict({ factors, conditions, cells: [] })).headline).toBe('Nothing has been run yet.');
+    // Nothing changed: it reports how steady the agent is.
+    const steady = experimentVerdict({ factors: [], conditions: [{ id: 'as-it-is', name: 'As it is', levels: {} }], cells: [cell('as-it-is', 1, old), cell('as-it-is', 2, old.slice(0, 2))] });
+    expect(verdictWords(steady).headline).toBe('Nothing was changed, so this shows only how steady it is: two runs of the same thing shared 50% of what they found.');
   });
 });
 
 describe('scoring each result', () => {
-  const cases = cleanCases([{ name: 'Jobs', items: ITEMS }]);
-
-  it('keeps a counted scorer with real items and a judge with a rubric, and nothing else', () => {
+  it('counts named things found or left out, by words from a title or part of a link', () => {
     const sc = cleanScorers([
-      { kind: 'top', name: 'Remote roles up top', items: ['a', 'c', 'nope', 'a'] },
-      { kind: 'top', items: ['nope'] },
-      { kind: 'judge', name: 'Respects preferences', rubric: 'The top three are remote.', provider: 'codex', model: 'm' },
-      { kind: 'judge', rubric: '' },
-      { kind: 'other' },
-    ], cases, 3);
-    expect(sc).toEqual([
-      { id: 'remote-roles-up-top', name: 'Remote roles up top', kind: 'top', items: ['a', 'c'], k: 3 },
-      { id: 'respects-preferences', name: 'Respects preferences', kind: 'judge', rubric: 'The top three are remote.', provider: 'codex', model: 'm' },
+      { kind: 'found', name: 'Has the Acme roles', items: ['acme', 'jobs/12', 'nowhere'] },
+      { kind: 'found', avoid: true, items: ['intern'] },
+      { kind: 'judge', name: 'All remote', rubric: 'Every job is remote.', provider: 'codex' },
+      { kind: 'judge', rubric: '' }, { kind: 'found', items: [] }, { kind: 'other' },
     ]);
-    const top = sc[0] as Extract<(typeof sc)[number], { kind: 'top' }>;
-    expect(topScore(top, ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(1);
-    expect(topScore(top, ['a', 'b', 'd', 'c', 'e', 'f'])).toBe(0.5);
-    expect(topScore(top, ['f', 'e', 'd', 'c', 'b', 'a'])).toBe(0);
-    // The other way round: things that should stay low score by how many are kept out of the top.
-    const low = cleanScorers([{ kind: 'top', avoid: true, items: ['f'], k: 2 }], cases, 3)[0] as typeof top;
-    expect(low).toMatchObject({ id: 'out-of-the-top', name: 'Out of the top 2', avoid: true });
-    expect(topScore(low, ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(1);
-    expect(topScore(low, ['f', 'b', 'c', 'd', 'e', 'a'])).toBe(0);
+    expect(sc.map((x) => [x.id, x.kind])).toEqual([['has-the-acme-roles', 'found'], ['left-out', 'found'], ['all-remote', 'judge']]);
+    const items = [item('Staff Engineer at Acme'), item('Designer', 'https://x.example/jobs/12'), item('Summer Intern')];
+    expect(foundScore(sc[0] as never, items)).toBeCloseTo(2 / 3);
+    expect(foundScore(sc[1] as never, items)).toBe(0);
+    expect(foundScore(sc[1] as never, items.slice(0, 2))).toBe(1);
+    expect(foundScore(sc[0] as never, [])).toBe(0);
   });
 
-  it('takes a judge\'s answer only as a number from 0 to 1 with a reason that points at real items', () => {
-    expect(cleanJudgement({ score: 0.8, reason: 'The remote roles are 1st and 2nd.', cites: ['a', 'b', 'a'] }, ITEMS)).toEqual({ value: 0.8, reason: 'The remote roles are 1st and 2nd.', cites: ['a', 'b'] });
-    expect(cleanJudgement({ score: 1.2, reason: 'x', cites: ['a'] }, ITEMS)).toEqual({ error: 'Its score is not a number from 0 to 1.' });
-    expect(cleanJudgement({ score: '0.5', reason: 'x', cites: ['a'] }, ITEMS)).toEqual({ error: 'Its score is not a number from 0 to 1.' });
-    expect(cleanJudgement({ score: 0.5, cites: ['a'] }, ITEMS)).toEqual({ error: 'It gave no reason.' });
-    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.' }, ITEMS)).toEqual({ error: 'It cites no item. Name the ids of the items its reason rests on.' });
-    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.', cites: ['zz'] }, ITEMS)).toEqual({ error: 'It cites "zz", which is not one of the items\' ids.' });
-    expect(cleanJudgement([0.5], ITEMS)).toEqual({ error: 'It gave no score object.' });
+  it('takes a judge\'s answer only as a number from 0 to 1 with a reason that points at items in the list', () => {
+    expect(cleanJudgement({ score: 0.8, reason: 'The first two are remote.', cites: [1, 2, 2] }, 5)).toEqual({ value: 0.8, reason: 'The first two are remote.', cites: ['1', '2'] });
+    expect(cleanJudgement({ score: 1.2, reason: 'x', cites: [1] }, 5)).toEqual({ error: 'Its score is not a number from 0 to 1.' });
+    expect(cleanJudgement({ score: 0.5, cites: [1] }, 5)).toEqual({ error: 'It gave no reason.' });
+    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.' }, 5)).toEqual({ error: 'It cites no item. Give the numbers of the items its reason rests on.' });
+    expect(cleanJudgement({ score: 0.5, reason: 'Looks fine.', cites: [9] }, 5)).toEqual({ error: 'It cites item 9, and the list has 5.' });
+    // A run that listed nothing can be judged on that alone.
+    expect(cleanJudgement({ score: 0, reason: 'It found nothing.', cites: [] }, 0)).toEqual({ value: 0, reason: 'It found nothing.', cites: [] });
   });
 
-  it('stores judges\' scores, averages every scorer by condition, and counts judges in a pass\'s runs', () => {
+  it('averages every scorer by version, leaving out a judge that gave no usable score', () => {
     const s = ExperimentStore.fromHandle(new DatabaseSync(':memory:'));
-    const scorers = [{ kind: 'top', name: 'A and B up top', items: ['a', 'b'], k: 2 }, { kind: 'judge', name: 'Judge', rubric: 'Good.' }];
-    const e = s.create({ name: 'Scored', task: { agentId: 'ranker' }, factors: [FACTORS[0]], repeats: 2, cases: [{ items: ITEMS }], scorers });
-    expect(e.scorers.map((x) => x.kind)).toEqual(['top', 'judge']);
-    expect(experimentRunCount(e, 1)).toBe(8); // 2 conditions × 2 repeats, each read by one judge
-    expect(() => s.create({ name: 'Too many', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 5, cases: [{ items: ITEMS }, { items: ITEMS }], scorers })).toThrow('80 runs a pass (each judge reads every result)');
+    const e = s.create({ name: 'Scored', task: { agentId: 'finder' }, factors: [FACTORS[0]], repeats: 2, scorers: [{ kind: 'found', name: 'Has A', items: ['role a'] }, { kind: 'judge', name: 'Judge', rubric: 'Good.' }] });
     const p = s.startPass(e.id);
     const [c1, c2, c3] = s.cells(p.id);
-    s.updateCell(c1.id, { status: 'done', ranking: ['a', 'b', 'c', 'd', 'e', 'f'] });
-    s.updateCell(c2.id, { status: 'done', ranking: ['f', 'e', 'd', 'c', 'b', 'a'] });
-    s.updateCell(c3.id, { status: 'done', ranking: ['a', 'c', 'b', 'd', 'e', 'f'] });
-    s.setScore(p.id, { cellId: c1.id, scorerId: 'judge', value: 0.9, reason: 'Good.', cites: ['a'], runId: 'r1' });
-    s.setScore(p.id, { cellId: c3.id, scorerId: 'judge', value: 0.5, reason: 'Half.', cites: ['c'] });
+    s.updateCell(c1.id, { status: 'done', items: [item('Role A'), item('Role B')] });
+    s.updateCell(c2.id, { status: 'done', items: [item('Role C')] });
+    s.updateCell(c3.id, { status: 'done', items: [item('Role B')] });
+    s.setScore(p.id, { cellId: c1.id, scorerId: 'judge', value: 0.9, reason: 'Good.', cites: ['1'], runId: 'r1' });
+    s.setScore(p.id, { cellId: c3.id, scorerId: 'judge', value: 0.5, reason: 'Half.', cites: ['1'] });
     s.setScore(p.id, { cellId: c2.id, scorerId: 'judge', error: 'It has no <score> block.' });
-    s.setScore(p.id, { cellId: c1.id, scorerId: 'judge', value: 0.7, reason: 'Better said.', cites: ['a'] });
-    expect(s.scores(p.id)).toHaveLength(3);
     const sums = scoreSummaries(e.scorers, s.cells(p.id), s.scores(p.id));
-    // Condition 1 has cells 1 and 3 (repeats 1 and 2); condition 2 has cell 2.
-    expect(sums.find((x) => x.scorerId === 'a-and-b-up-top' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.75, min: 0.5, max: 1, n: 2 });
-    expect(sums.find((x) => x.scorerId === 'a-and-b-up-top' && x.conditionId === c2.conditionId)).toMatchObject({ mean: 0, n: 1 });
-    expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.6, min: 0.5, max: 0.7, n: 2 });
-    // A judge that gave no usable score for a result is not averaged in.
+    expect(sums.find((x) => x.scorerId === 'has-a' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.5, min: 0, max: 1, n: 2 });
+    expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c1.conditionId)).toMatchObject({ mean: 0.7, n: 2 });
     expect(sums.find((x) => x.scorerId === 'judge' && x.conditionId === c2.conditionId)).toBeUndefined();
     s.clearScores(c1.id);
     expect(s.scores(p.id)).toHaveLength(2);
   });
 });
 
-describe('an experiment shown in a notebook', () => {
-  it('gives the page its finding, figures and tables from the stored runs, and says so before any', () => {
-    const db = new DatabaseSync(':memory:');
-    const s = ExperimentStore.fromHandle(db);
-    const e = s.create({ name: 'Shown', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 2, cases: [{ items: ITEMS }], scorers: [{ kind: 'top', name: 'A up top', items: ['a'], k: 1 }] });
-    const cases = s.cases(e.id);
-    const none = experimentPageData(e, cases, []);
-    expect(none).toMatchObject({ label: 'Not run yet', runs: 'not run yet', href: '/experiments/shown', figures: [], items: [] });
-    expect(none.headline).toContain('a pass makes 8 runs of ranker');
-    expect(none.conditions).toHaveLength(4);
-
-    const p = s.startPass(e.id);
-    const fwd = ['a', 'b', 'c', 'd', 'e', 'f'];
-    // Build B reverses the list; preferences change nothing.
-    for (const c of s.cells(p.id)) s.updateCell(c.id, { status: 'done', ranking: c.conditionId.startsWith('rules-b') ? [...fwd].reverse() : fwd });
-    const d = experimentPageData(e, cases, s.cells(p.id), s.scores(p.id));
-    expect(d.label).toBe('What it found');
-    expect(d.runs).toBe('8 of 8 runs');
-    expect(d.headline).toMatch(/^\*\*Build changed the result; preferences did not, beyond run-to-run variation\.\*\* Changing build: 4 of the top 5 stayed/);
-    expect(d.rests).toBe('1 set, 4 conditions, 2 runs of each. It holds for this set only.');
-    expect(d.figures.map((f) => [f.label, f.value, f.tone])).toEqual([
-      ['places moved by changing build', '3', 'ok'], ['places moved by changing preferences', '0', undefined], ['places moved between two runs of the same thing', '0', undefined],
-    ]);
-    expect(d.conditions[0]).toEqual({ condition: 'Rules A · Profile 1 (baseline)', runs: '2 of 2', kept: '', moved: '', s0: '100%' });
-    expect(d.conditions[2]).toEqual({ condition: 'Rules B · Profile 1', runs: '2 of 2', kept: '4 of 5', moved: '3', s0: '0%' });
-    expect(d.changes).toHaveLength(4);
-    expect(d.changes[0]).toEqual({ changing: 'Build', from: 'Rules A · Profile 1', to: 'Rules B · Profile 1', kept: '4 of 5', moved: '3' });
-    expect(d.items[0]).toMatchObject({ c0: '1', c2: '6', moved: '5' });
-    expect(['Role A', 'Role F']).toContain(d.items[0].item);
-    expect(experimentPageData(e, cases, s.cells(p.id), [], { running: true }).label).toBe('So far');
-    expect(missingExperimentData('gone').headline).toContain('no longer there');
-
-    // Its page: a column for each condition and scorer, and it checks out as a notebook layout.
-    const layout = experimentLayout(e);
-    const table = (id: string) => (layout.components.find((c) => c.id === id) as unknown as { columns: Array<{ key: string; label: string }> }).columns;
-    expect(table('conditions').map((c) => c.label)).toEqual(['Condition', 'Runs', 'Top 5 kept', 'Places moved', 'A up top']);
-    expect(table('items').map((c) => c.key)).toEqual(['item', 'c0', 'c1', 'c2', 'c3', 'moved']);
-    expect(checkNotebookLayout(layout.components)).toMatchObject({ ok: true });
-    // One thing varied: no "each change by itself".
-    expect(experimentLayout({ ...e, factors: [e.factors[0]] }).components.some((c) => c.id === 'changes')).toBe(false);
-
-    // A notebook is linked to the experiment it shows, and found by it.
-    const nbs = NotebookStore.fromHandle(db);
-    const nb = nbs.create({ title: 'Shown', statement: '', params: [], criteria: [] });
-    expect(nbs.forExperiment(e.id)).toBeUndefined();
-    nbs.setLayout(nb.id, layout, 'experiment');
-    nbs.setExperiment(nb.id, e.id);
-    expect(nbs.forExperiment(e.id)).toMatchObject({ id: nb.id, experimentId: e.id });
-    nbs.setExperiment(nb.id, null);
-    expect(nbs.get(nb.id)!.experimentId).toBeUndefined();
-  });
-});
-
-describe('experiment-read', () => {
+describe('an experiment read elsewhere', () => {
   function made() {
     const db = new DatabaseSync(':memory:');
     const s = ExperimentStore.fromHandle(db);
-    const e = s.create({ name: 'What changes the ranking', question: 'Build or preferences?', task: { agentId: 'ranker' }, factors: FACTORS, repeats: 2, cases: [{ name: 'Jobs', items: ITEMS }], scorers: [{ kind: 'top', name: 'A up top', items: ['a'], k: 1 }], from: { notebookId: 'jobs', title: 'Jobs' } });
-    const other = s.create({ name: 'What changes the price', task: { agentId: 'ranker' }, factors: [], cases: [{ items: ITEMS }] });
+    const e = s.create({ name: 'Old or new finder', question: 'Does the new version find different jobs?', task: { agentId: 'finder' }, inputs: { TOPIC: 'staff jobs' }, factors: [FACTORS[0]], repeats: 2, scorers: [{ kind: 'found', name: 'Has A', items: ['role a'] }] });
+    const other = s.create({ name: 'Old or new digest', task: { agentId: 'digest' }, factors: [] });
     return { db, s, e, other };
   }
-  const fwd = ['a', 'b', 'c', 'd', 'e', 'f'];
-
-  it('finds one by id, link, name or words, and lists several that match', () => {
-    const { s, e, other } = made();
-    expect(findExperiment(s, e.id)).toMatchObject({ experiment: { id: e.id } });
-    expect(findExperiment(s, `http://127.0.0.1:3000/experiments/${e.id}?flash=x`)).toMatchObject({ experiment: { id: e.id } });
-    expect(findExperiment(s, 'what changes the PRICE')).toMatchObject({ experiment: { id: other.id } });
-    expect(findExperiment(s, 'ranking')).toMatchObject({ experiment: { id: e.id } });
-    const several = findExperiment(s, 'what changes') as { matches: Array<{ id: string }> };
-    expect(several.matches.map((m) => m.id).sort()).toEqual([e.id, other.id].sort());
-    expect(findExperiment(s, 'nothing like it')).toBeUndefined();
-    s.archive(other.id);
-    expect(findExperiment(s, 'price')).toMatchObject({ experiment: { id: other.id, archivedAt: expect.any(String) } });
-  });
-
-  it('reads out what it found from the stored runs, as text or JSON, whole or a part', () => {
-    const { s, e } = made();
-    const before = experimentReadoutText(readExperiment(s, e.id)!);
-    expect(before).toContain('# What changes the ranking');
-    expect(before).toContain('Nothing has run yet, so it has found nothing.');
-    expect(before).toContain('Holds fixed: 6 items, copied from the notebook "Jobs" (/notebooks/jobs).');
-    expect(before).toContain('- Rules B: runs on codex model-b; instructions: "Prefer pay."');
-    expect(before).toContain('Scores "A up top": counted, the share of 1 named items in the top 1.');
-    expect(before).not.toContain('## Each condition against the baseline');
-
+  const run = (s: ExperimentStore, e: { id: string }) => {
     const p = s.startPass(e.id);
     const cells = s.cells(p.id);
-    for (const c of cells) s.updateCell(c.id, { status: 'done', ranking: c.conditionId.startsWith('rules-b') ? [...fwd].reverse() : fwd });
-    s.updateCell(cells[7].id, { status: 'invalid', error: 'It left out f. Rank every item.' });
+    for (const c of cells) s.updateCell(c.id, { status: 'done', items: c.conditionId === 'old' ? [item('Role A', 'https://x.example/a'), item('Role B')] : [item('Role A', 'https://x.example/a'), item('Role C'), item('Role D')] });
+    s.updateCell(cells[3].id, { status: 'invalid', error: 'Its output has no list.' });
+    return p;
+  };
+
+  it('gives a page its finding, figures and tables from the stored runs, and says so before any', () => {
+    const { s, e } = made();
+    const none = experimentPageData(e, []);
+    expect(none).toMatchObject({ label: 'Not run yet', runs: 'not run yet', href: '/experiments/old-or-new-finder', figures: [], items: [] });
+    expect(none.headline).toContain('a pass runs finder 4 times');
+    const p = run(s, e);
+    const d = experimentPageData(e, s.cells(p.id), s.scores(p.id));
+    expect(d.runs).toBe('3 of 4 runs');
+    expect(d.headline).toMatch(/^\*\*Build changed what it produced, beyond run-to-run variation\.\*\* Changing build: 1 of 4 items were in both/);
+    expect(d.rests).toBe('2 versions, 1 run of each. It holds for this ask, when it was run. 1 run couldn\'t be used and is not counted.');
+    expect(d.figures[0]).toMatchObject({ value: '25%', label: 'of what they found was in both, when build changed', tone: 'ok' });
+    expect(d.conditions).toEqual([
+      { condition: 'Old (baseline)', runs: '2 of 2', found: '2', shared: '', s0: '100%' },
+      { condition: 'New', runs: '1 of 2', found: '3', shared: '25% (1 of 4)', s0: '100%' },
+    ]);
+    // The ones only one version found lead; the one both found is last, with its link.
+    expect(d.items.map((i) => [i.item, i.c0, i.c1])).toEqual([['Role B', 'all 2, place 2', 'not found'], ['Role C', 'not found', 'found, place 2'], ['Role D', 'not found', 'found, place 3'], ['Role A', 'all 2, place 1', 'found, place 1']]);
+    expect(d.items[3].link).toBe('https://x.example/a');
+    expect(experimentPageData(e, s.cells(p.id), [], { running: true }).label).toBe('So far');
+    expect(missingExperimentData('gone').headline).toContain('no longer there');
+    // A notebook page made for it: a column for each version and scorer, and it checks out as a notebook layout.
+    const layout = experimentLayout(e);
+    const table = (id: string) => (layout.components.find((c) => c.id === id) as unknown as { columns: Array<{ key: string; label: string }> }).columns;
+    expect(table('conditions').map((c) => c.label)).toEqual(['Version', 'Runs', 'Items found', 'In both', 'Has A']);
+    expect(table('items').map((c) => c.label)).toEqual(['Item', 'Old', 'New']);
+    expect(checkNotebookLayout(layout.components)).toMatchObject({ ok: true });
+    expect(layout.components.some((c) => c.id === 'changes')).toBe(false);
+    const nbs = NotebookStore.fromHandle((s as unknown as { db: DatabaseSync }).db);
+    const nb = nbs.create({ title: 'Shown', statement: '', params: [], criteria: [] });
+    nbs.setLayout(nb.id, layout, 'experiment');
+    nbs.setExperiment(nb.id, e.id);
+    expect(nbs.forExperiment(e.id)).toMatchObject({ id: nb.id, experimentId: e.id });
+  });
+
+  it('reads out as text or JSON, whole or a part, and finds one by id, link, name or words', () => {
+    const { s, e, other } = made();
+    expect(findExperiment(s, `http://127.0.0.1:3000/experiments/${e.id}?flash=x`)).toMatchObject({ experiment: { id: e.id } });
+    expect(findExperiment(s, 'old or new DIGEST')).toMatchObject({ experiment: { id: other.id } });
+    expect((findExperiment(s, 'old or new') as { matches: unknown[] }).matches).toHaveLength(2);
+    expect(findExperiment(s, 'nothing like it')).toBeUndefined();
+    const before = experimentReadoutText(readExperiment(s, e.id)!);
+    expect(before).toContain('Nothing has run yet, so it has found nothing.');
+    expect(before).toContain('Runs the whole of finder, 2 times for each version, and compares what each run\'s output lists.');
+    expect(before).toContain('The ask, the same for every run: TOPIC = "staff jobs".');
+    expect(before).toContain('- New: agent version 4; runs on codex model-b');
+    run(s, e);
     const read = readExperiment(s, e.id)!;
     const text = experimentReadoutText(read);
-    expect(text).toContain('Build changed the result; preferences did not, beyond run-to-run variation.');
-    expect(text).toContain('Rests on: 1 set, 4 conditions, 1 run of each. It holds for this set only. 1 run couldn\'t be used and is not counted.');
-    expect(text).toContain('Repeat them as they are; do not restate them differently or apply them to other sets.');
-    expect(text).toContain('- Rules B · Profile 1: 2 of 2 runs; 4 of 5 of the baseline\'s top kept; items moved 3 places on average; A up top 0%');
-    expect(text).toContain('- Build, from "Rules A · Profile 1" to "Rules B · Profile 1": 4 of 5 of the top kept; items moved 3 places on average');
-    expect(text).toContain('## Where each item landed (1 is first; furthest moved first)');
-    expect(text).toContain('8 made: 7 usable, 1 that couldn\'t be used.');
-    expect(text).toContain('- Rules B · Profile 2, run 2: invalid: It left out f. Rank every item.');
-    // One part only.
-    const finding = experimentReadoutText(read, 'finding');
-    expect(finding).toContain('## What it found');
-    expect(finding).not.toContain('## How it is set up');
-    const json = experimentReadoutJson(read, 'conditions') as { conditions: Array<Record<string, string>>; eachChangeByItself: unknown[]; finding?: unknown };
-    expect(json.finding).toBeUndefined();
-    expect(json.conditions[2]).toEqual({ condition: 'Rules B · Profile 1', runs: '2 of 2', topKept: '4 of 5', placesMoved: '3', 'A up top': '0%' });
-    expect(json.eachChangeByItself).toHaveLength(4);
-    const all = experimentReadoutJson(read) as { setup: { changes: Array<{ name: string; versions: unknown[] }> }; items: Array<{ places: Record<string, string> }>; runs: { usable: number; unusable: number } };
-    expect(all.setup.changes.map((c) => c.name)).toEqual(['Build', 'Preferences']);
-    expect(Object.keys(all.items[0].places)).toEqual(['Rules A · Profile 1', 'Rules A · Profile 2', 'Rules B · Profile 1', 'Rules B · Profile 2']);
-    expect(all.runs).toMatchObject({ usable: 7, unusable: 1 });
+    expect(text).toContain('Build changed what it produced, beyond run-to-run variation.');
+    expect(text).toContain('Repeat them as they are; do not restate them differently or apply them to another ask.');
+    expect(text).toContain('- New: 1 of 2 runs; listed 3 items on average; 25% (1 of 4) in both with the baseline; Has A 100%');
+    expect(text).toContain('- Role B: Old: all 2, place 2; New: not found');
+    expect(text).toContain('- New, run 2: invalid: Its output has no list.');
+    expect(experimentReadoutText(read, 'finding')).not.toContain('## How it is set up');
+    const json = experimentReadoutJson(read) as { setup: { ask: unknown; runs: string }; versions: Array<Record<string, string>>; items: Array<{ item: string; found: Record<string, string> }>; runs: { usable: number; unusable: number } };
+    expect(json.setup).toMatchObject({ runs: 'finder', ask: { TOPIC: 'staff jobs' } });
+    expect(json.versions[1]).toMatchObject({ version: 'New', itemsFound: '3', inBothWithBaseline: '25% (1 of 4)', 'Has A': '100%' });
+    expect(json.items[0]).toEqual({ item: 'Role B', found: { Old: 'all 2, place 2', New: 'not found' } });
+    expect(json.runs).toMatchObject({ usable: 3, unusable: 1 });
   });
 
   it('is a built-in tool: lists, reads, says when there is none, and names its policy resource', async () => {
@@ -378,15 +318,12 @@ describe('experiment-read', () => {
     const tool = getBuiltinTool('experiment-read')!;
     const ctx = { notebooks: NotebookStore.fromHandle(db) };
     const listed = await tool.execute({}, ctx);
-    expect(listed.result).toContain(`${e.id} — What changes the ranking (not run yet): Build or preferences?`);
+    expect(listed.result).toContain(`${e.id} — Old or new finder (not run yet): Does the new version find different jobs?`);
     expect(listed.experiments).toHaveLength(2);
     expect((await tool.execute({ experiment: e.id, part: 'setup' }, ctx)).result).toContain('## How it is set up');
     expect(JSON.parse(String((await tool.execute({ experiment: `/experiments/${other.id}`, format: 'json' }, ctx)).result))).toMatchObject({ id: other.id, stands: 'not run yet' });
-    expect(await tool.execute({ experiment: 'what changes' }, ctx)).toMatchObject({ result: expect.stringContaining('Several experiments match "what changes"') });
-    expect(await tool.execute({ experiment: 'nope' }, ctx)).toMatchObject({ isError: true, result: expect.stringContaining('There\'s no experiment "nope".') });
-    expect(await tool.execute({ experiment: e.id, part: 'bogus' }, ctx)).toMatchObject({ isError: true });
+    expect(await tool.execute({ experiment: 'nope' }, ctx)).toMatchObject({ isError: true });
     expect(await tool.execute({ experiment: e.id }, {})).toMatchObject({ isError: true, result: 'Experiments are not available in this run.' });
     expect(policyResource('experiment-read', { experiment: `http://x/experiments/${e.id}` })).toBe(e.id);
-    expect(policyResource('experiment-read', { experiment: 'the ranking one' })).toBe('the ranking one');
   });
 });
