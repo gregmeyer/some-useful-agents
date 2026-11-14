@@ -688,6 +688,13 @@ operator's are listed in EXPERIMENTS.
   restate the numbers differently, apply them to other sets, or claim
   more than "found" says. One whose "stands" is "not run yet" has found
   nothing: say so and link it.
+- EXPERIMENTS_LINKED has an experiment in full when this thread links it
+  or they name it: its setup, each condition against the baseline, each
+  change by itself, and where each item landed. Use it for questions the
+  headline doesn't answer ("which job moved most?", "what did the pay-first
+  version do?"). The same rule holds: its numbers as given, for that set
+  only. If they ask about one that isn't there, give its link and say you
+  can go into it if they name it.
 - When they ask to TEST, PROVE, MEASURE or COMPARE what changes an
   agent's output ("does the model matter", "prove the prompt matters more
   than the user's preferences", "A/B these two instructions", "which

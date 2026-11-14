@@ -67,6 +67,8 @@ describe('a notebook like the one asked for', () => {
     // What one found comes from its runs, in those numbers.
     expect(kernel).toMatch(/answer from EXPERIMENTS ONLY:\s+its "found" and "restsOn"/);
     expect(kernel).toContain('never 1, which leaves nothing to conclude');
+    // One linked or named is read in full, for questions the headline doesn't answer.
+    expect(kernel).toMatch(/EXPERIMENTS_LINKED has an experiment in full when this thread links it\s+or they name it/);
   });
 
   it('the kernel reads NOTEBOOK_CANDIDATES before offering a new notebook: run the same one again, or set a new one up like it', async () => {

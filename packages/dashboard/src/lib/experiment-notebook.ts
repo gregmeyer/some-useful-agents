@@ -4,7 +4,7 @@
  * from the latest pass each time, and is where you talk to sua about it.
  * One notebook an experiment: asking again opens the one it has.
  */
-import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
+import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, experimentReadoutText, findExperiment, readExperiment, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runningPass } from './experiment-runner.js';
 
@@ -97,5 +97,43 @@ export function experimentsOn(ctx: Ctx, of: { notebookId: string } | { agentId: 
     });
   } catch {
     return [];
+  }
+}
+
+/** Experiments read in full into one conversation turn, at most, and how much of each. */
+const LINKED_MAX = 2;
+const LINKED_CHARS = 6000;
+
+/**
+ * The experiments a thread links (`/experiments/<id>`, newest mention
+ * first) or that the latest message names by their name, as experiment-read
+ * reads them, for EXPERIMENTS_LINKED: so "what did the build experiment
+ * find about the Anthropic role?" can be answered from its conditions and
+ * item table, not only its headline. Archived ones too.
+ */
+export function experimentsLinked(ctx: Ctx, texts: readonly string[], named: readonly string[] = []): string {
+  try {
+    const s = ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
+    const ids: string[] = [];
+    for (const text of texts) {
+      for (const m of [...text.matchAll(/\/experiments\/([A-Za-z0-9_-]+)/g)].reverse()) if (!ids.includes(m[1]) && m[1] !== 'new' && m[1] !== 'sets') ids.push(m[1]);
+    }
+    // Named in so many words: its whole name appears in what they said.
+    for (const said of named) {
+      const lower = said.toLowerCase();
+      for (const e of s.list({ archived: true })) if (e.name.length >= 8 && lower.includes(e.name.toLowerCase()) && !ids.includes(e.id)) ids.push(e.id);
+    }
+    const out: string[] = [];
+    for (const id of ids) {
+      if (out.length >= LINKED_MAX) break;
+      const found = findExperiment(s, id);
+      const read = found && 'experiment' in found ? readExperiment(s, found.experiment.id) : undefined;
+      if (!read) continue;
+      const text = experimentReadoutText(read);
+      out.push(text.length > LINKED_CHARS ? `${text.slice(0, LINKED_CHARS)}\n…(cut short; the rest is on its page)` : text);
+    }
+    return out.join('\n\n────────\n\n');
+  } catch {
+    return '';
   }
 }

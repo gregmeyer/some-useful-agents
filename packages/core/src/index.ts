@@ -20,6 +20,7 @@ export * from './experiments.js';
 export * from './experiment-measures.js';
 export * from './experiment-conditions.js';
 export * from './experiment-notebook.js';
+export * from './experiment-readout.js';
 export * from './notebook-similar.js';
 export * from './notebook-tldr-spec.js';
 export * from './notebook-field-format.js';

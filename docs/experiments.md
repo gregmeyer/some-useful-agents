@@ -87,6 +87,14 @@ Experiment runs are kept apart from the agent's own: they are filed under `exper
 
 Archived experiments are not mentioned in any of these.
 
+## Reading one from elsewhere
+
+- **An agent** adds [`experiment-read`](tools/experiment-read.md) to a node's `tools:` and names the experiment by id, link or words from its name. It gets the finding, the setup, each condition and where each item landed, all counted from the runs.
+- **Another app** over MCP gets the same tool from `sua mcp`.
+- **A conversation with sua** reads one in full when the thread links it or you name it, so you can ask what the headline doesn't say ("which job moved most?", "what did the pay-first version do?").
+
+It only reads. Your [tool policy](tool-policies.md) can keep an experiment private: deny `experiment-read` for its id.
+
 ## Judges
 
 - **A judge never sees the build.** It is given the rubric, the items, the person's preferences and the ranking. It is not told which instructions, model or version produced the result, so it can't favour one.
