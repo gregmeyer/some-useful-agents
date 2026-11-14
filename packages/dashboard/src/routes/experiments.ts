@@ -43,27 +43,33 @@ export function experimentStanding(ctx: Ctx, e: Experiment): ExperimentStanding 
   };
 }
 
-/** The factors the new-experiment form describes: f1…f2, each with l1…l4. */
+/**
+ * The things to change that the new-experiment form describes: c1…c3, each
+ * one kind of change with versions v1…v4. A version is a name and the one
+ * thing its kind sets; a version with neither is left out, and one with no
+ * name is called A, B, C or D.
+ */
 export function factorsFromForm(body: Record<string, unknown>): unknown[] {
   const out: unknown[] = [];
-  for (let f = 1; f <= 2; f++) {
-    const name = str(body[`f${String(f)}_name`]).trim();
+  for (let c = 1; c <= 3; c++) {
+    const k = `c${String(c)}`;
+    const kind = str(body[`${k}_kind`]) || 'instructions';
     const levels: unknown[] = [];
-    for (let l = 1; l <= EXPERIMENT_MAX_LEVELS; l++) {
-      const k = `f${String(f)}_l${String(l)}`;
-      const lname = str(body[`${k}_name`]).trim();
-      if (!lname) continue;
-      const preferences = str(body[`${k}_preferences`]).trim();
-      levels.push({
-        name: lname,
-        instructions: str(body[`${k}_instructions`]),
-        provider: str(body[`${k}_provider`]),
-        model: str(body[`${k}_model`]),
-        version: str(body[`${k}_version`]) ? Number(body[`${k}_version`]) : undefined,
-        ...(preferences ? { inputs: { PREFERENCES: preferences } } : {}),
-      });
+    for (let n = 1; n <= EXPERIMENT_MAX_LEVELS; n++) {
+      const v = `${k}_v${String(n)}`;
+      const name = str(body[`${v}_name`]).trim();
+      const text = str(body[`${v}_text`]).trim();
+      const provider = str(body[`${v}_provider`]).trim();
+      const model = str(body[`${v}_model`]).trim();
+      const version = str(body[`${v}_version`]).trim();
+      const sets = kind === 'model' ? { provider, model } : kind === 'version' ? (version ? { version: Number(version) } : {})
+        : kind === 'preferences' ? (text ? { inputs: { PREFERENCES: text } } : {}) : (text ? { instructions: text } : {});
+      const set = Object.values(sets).some((x) => (typeof x === 'object' ? true : !!x));
+      if (!name && !set) continue;
+      levels.push({ name: name || String.fromCharCode(64 + n), ...sets });
     }
-    if (name && levels.length) out.push({ name, levels });
+    if (levels.length < 2) continue;
+    out.push({ name: str(body[`${k}_name`]).trim() || `Change ${String(c)}`, levels });
   }
   return out;
 }
@@ -94,16 +100,24 @@ export function scorersFromForm(body: Record<string, unknown>, cases: readonly E
   return out;
 }
 
+/** A name for an experiment that was given only its question: the question's first words, without the question mark. */
+export function nameFromQuestion(question: string): string {
+  const q = question.replace(/\s+/g, ' ').trim().replace(/[?.!]+$/, '');
+  if (q.length <= 70) return q;
+  return `${q.slice(0, 70).replace(/\s+\S*$/, '')}…`;
+}
+
 function newPage(req: Request, res: Response, values?: Parameters<typeof renderExperimentNew>[0]['values'], error?: string): void {
   const ctx = getContext(req.app.locals);
   const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const notebooks = nbs.list().filter((n) => !n.archivedAt).map((n) => ({ id: n.id, title: n.title, options: notebookViewData(n, nbs.entries(n.id, 1000)).notebook.options.filter((o) => !o.ruledOut).length })).filter((n) => n.options >= 2);
-  const agents = ctx.agentStore.listAgents().map((a) => ({ id: a.id, name: a.name })).sort((a, b) => Number(b.id === EXPERIMENT_RANKER_ID) - Number(a.id === EXPERIMENT_RANKER_ID) || a.name.localeCompare(b.name));
+  const agents = ctx.agentStore.listAgents().map((a) => { const cost = costPerRun(ctx, a.id); return { id: a.id, name: a.name, ...(cost !== undefined ? { costPerRun: cost } : {}) }; }).sort((a, b) => Number(b.id === EXPERIMENT_RANKER_ID) - Number(a.id === EXPERIMENT_RANKER_ID) || a.name.localeCompare(b.name));
   let providers: string[] = [];
   try { providers = [...(buildLlmSettingsSnapshot(ctx)?.providers ?? [])]; } catch { /* none offered */ }
   res.status(error ? 400 : 200).type('html').send(renderExperimentNew({
     notebooks, agents, providers, defaultAgent: EXPERIMENT_RANKER_ID,
-    values: values ?? { from: str(req.query.from), name: str(req.query.name), question: str(req.query.question) },
+    // A link can fill the page in (sua offers one from a conversation): any of the form's fields, by name.
+    values: values ?? { from: str(req.query.from), name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), paste: str(req.query.paste), body: req.query as Record<string, unknown> },
     ...(error ? { flash: { kind: 'error' as const, message: error } } : flashOf(req) ? { flash: flashOf(req)! } : {}),
   }));
 }
@@ -128,12 +142,13 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const values = { name: str(body.name), question: str(body.question), agent: str(body.agent), from: str(body.from), paste: str(body.paste), repeats: str(body.repeats), body };
   try {
-    const from = str(body.from);
+    const from = str(body.from) === 'paste' ? '' : str(body.from);
+    if (!from && !str(body.paste).trim()) throw new Error('Choose the notebook whose options to hold fixed, or paste a list.');
     const frozen = from ? freezeNotebook(ctx, from) : { cases: [caseFromPaste(str(body.paste))] };
     if ('error' in frozen) throw new Error(frozen.error);
     const cases = cleanCases(frozen.cases);
     const e = store(ctx).create({
-      name: str(body.name), question: str(body.question), task: { agentId: str(body.agent) || EXPERIMENT_RANKER_ID },
+      name: str(body.name).trim() || nameFromQuestion(str(body.question)), question: str(body.question), task: { agentId: str(body.agent) || EXPERIMENT_RANKER_ID },
       factors: factorsFromForm(body), cases, repeats: Number(body.repeats) || 3, scorers: scorersFromForm(body, cases),
       ...('from' in frozen ? { from: frozen.from } : {}),
     });

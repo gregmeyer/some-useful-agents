@@ -9,7 +9,7 @@ import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
 import { MemorySecretsSession } from '../secrets-session.js';
 import { caseFromPaste, cellInputs, installExperimentRanker, parseRanking, reconcileExperimentsOnBoot } from '../lib/experiment-runner.js';
-import { factorsFromForm, scorersFromForm } from './experiments.js';
+import { factorsFromForm, nameFromQuestion, scorersFromForm } from './experiments.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3996;
@@ -65,17 +65,28 @@ const settle = async () => { for (const s of [...(ctx.experimentPasses?.values()
 const PASTE = ['Role A | Pay: $250,000 | Remote: yes', 'Role B | Pay: $210,000 | Remote: no', 'Role C | Pay: $190,000 | Remote: yes', 'Role D | Pay: $300,000 | Remote: no', 'Role E | Pay: $150,000 | Remote: yes'].join('\n');
 const FORM = {
   name: 'What changes the ranking', question: 'Build or preferences?', paste: PASTE, repeats: '2',
-  f1_name: 'Build', f1_l1_name: 'By pay', f1_l1_instructions: 'Rank by pay, highest first.', f1_l2_name: 'By letter', f1_l2_instructions: 'Rank by title, A first.',
-  f2_name: 'Preferences', f2_l1_name: 'Remote', f2_l1_preferences: 'Remote only.', f2_l2_name: 'Office', f2_l2_preferences: 'In an office.',
+  c1_name: 'Build', c1_kind: 'instructions', c1_v1_name: 'By pay', c1_v1_text: 'Rank by pay, highest first.', c1_v2_name: 'By letter', c1_v2_text: 'Rank by title, A first.',
+  c2_name: 'Preferences', c2_kind: 'preferences', c2_v1_name: 'Remote', c2_v1_text: 'Remote only.', c2_v2_name: 'Office', c2_v2_text: 'In an office.',
 };
 const ranking = (ids: string[]) => `Here it is.\n<ranking>${JSON.stringify(ids)}</ranking>`;
 
 describe('experiments', () => {
   it('reads the form and a pasted list', () => {
     expect(factorsFromForm(FORM)).toEqual([
-      { name: 'Build', levels: [{ name: 'By pay', instructions: 'Rank by pay, highest first.', provider: '', model: '', version: undefined }, { name: 'By letter', instructions: 'Rank by title, A first.', provider: '', model: '', version: undefined }] },
-      { name: 'Preferences', levels: [{ name: 'Remote', instructions: '', provider: '', model: '', version: undefined, inputs: { PREFERENCES: 'Remote only.' } }, { name: 'Office', instructions: '', provider: '', model: '', version: undefined, inputs: { PREFERENCES: 'In an office.' } }] },
+      { name: 'Build', levels: [{ name: 'By pay', instructions: 'Rank by pay, highest first.' }, { name: 'By letter', instructions: 'Rank by title, A first.' }] },
+      { name: 'Preferences', levels: [{ name: 'Remote', inputs: { PREFERENCES: 'Remote only.' } }, { name: 'Office', inputs: { PREFERENCES: 'In an office.' } }] },
     ]);
+    // Each kind of change sets its one thing; a version with no name is lettered; a change with one version is left out.
+    expect(factorsFromForm({
+      c1_kind: 'model', c1_v1_name: 'As it is', c1_v2_provider: 'codex', c1_v2_model: 'm-2', c1_v3_text: 'ignored for a model change',
+      c2_name: 'Agent', c2_kind: 'version', c2_v1_version: '3', c2_v2_version: '4', c2_v2_name: 'Newest',
+      c3_name: 'Lonely', c3_kind: 'instructions', c3_v1_text: 'Only one.',
+    })).toEqual([
+      { name: 'Change 1', levels: [{ name: 'As it is', provider: '', model: '' }, { name: 'B', provider: 'codex', model: 'm-2' }] },
+      { name: 'Agent', levels: [{ name: 'A', version: 3 }, { name: 'Newest', version: 4 }] },
+    ]);
+    expect(nameFromQuestion('Does the build change its picks more than what the person asks for?')).toBe('Does the build change its picks more than what the person asks for');
+    expect(nameFromQuestion(`${'word '.repeat(30)}?`).length).toBeLessThanOrEqual(71);
     expect(caseFromPaste(PASTE).items[0]).toEqual({ title: 'Role A', facts: { Pay: '$250,000', Remote: 'yes' } });
     const c = { id: 's', name: 's', items: [{ id: 'a', title: 'A', facts: {} }, { id: 'b', title: 'B', facts: {} }] };
     expect(parseRanking(ranking(['b', 'a']), c)).toEqual({ ranking: ['b', 'a'] });
@@ -90,8 +101,20 @@ describe('experiments', () => {
     expect(installExperimentRanker(ctx)).toBe(true);
     expect((await get(app, '/experiments')).text).toContain('No experiments yet.');
     const page = (await get(app, '/experiments/new')).text;
-    expect(page).toContain('The set to hold fixed');
-    expect(page).toContain('Experiment ranker (ranks a list as instructed)');
+    expect(page).toContain('What do you want to find out?');
+    expect(page).toContain('Experiment ranker (ranks a list as told)');
+    // Two changes shown, each with two versions; the rest wait behind their buttons.
+    expect(page.match(/data-exp-change data-kind="[a-z]+" aria-label/g)).toHaveLength(2);
+    expect(page.match(/data-exp-change data-kind="[a-z]+" hidden/g)).toHaveLength(1);
+    expect(page).toContain('+ another version');
+    expect(page).toContain('data-exp-sum');
+    // A link can fill it in.
+    const filled = (await get(app, '/experiments/new?question=Why%3F&c1_name=Model&c1_kind=model&c1_v2_model=m-2&c3_name=Third&c3_v1_text=x')).text;
+    expect(filled).toContain('>Why?</textarea>');
+    expect(filled).toContain('name="c1_name" value="Model"');
+    expect(filled).toContain('data-exp-change data-kind="model" aria-label="Change 1"');
+    expect(filled).toContain('name="c1_v2_model" value="m-2"');
+    expect(filled.match(/data-exp-change data-kind="[a-z]+" hidden/g)).toBeNull();
 
     const made = await post(app, '/experiments', FORM);
     expect(made.status).toBe(303);
@@ -146,7 +169,7 @@ describe('experiments', () => {
     for (const [title, pay, company] of [['Staff Engineer', 250000, 'Acme'], ['Staff Engineer', 210000, 'Globex'], ['Designer', 150000, 'Initech']] as const) nbs.upsertOption(nb.id, { title, data: { pay, company }, by: 'you' });
     expect((await get(app, '/experiments/new')).text).toContain('Jobs (3 options)');
 
-    const made = await post(app, '/experiments', { name: 'From a notebook', from: nb.id, repeats: '2', f1_name: 'Build', f1_l1_name: 'A', f1_l2_name: 'B', f1_l2_instructions: 'Other way.' });
+    const made = await post(app, '/experiments', { name: 'From a notebook', from: nb.id, repeats: '2', c1_name: 'Build', c1_v1_name: 'A', c1_v2_name: 'B', c1_v2_text: 'Other way.' });
     const id = idOf(made.headers.location);
     const s = ExperimentStore.fromHandle(runStore.databaseHandle());
     const items = s.cases(id)[0].items;
@@ -183,10 +206,16 @@ describe('experiments', () => {
     expect((await get(app, `/experiments/${id}`)).text).toContain('Go on (4 runs left)');
 
     // Refusals come back to the form with what was typed.
-    const none = await post(app, '/experiments', { name: 'Nothing to rank', paste: 'Only one' });
+    expect((await post(app, '/experiments', { name: 'No set' })).text).toContain('Choose the notebook whose options to hold fixed, or paste a list.');
+    const none = await post(app, '/experiments', { name: 'Nothing to rank', from: 'paste', paste: 'Only one', c1_name: 'Kept', c1_v1_name: 'Typed' });
     expect(none.status).toBe(400);
     expect(none.text).toContain('It needs a set of at least two items to rank.');
     expect(none.text).toContain('value="Nothing to rank"');
+    expect(none.text).toContain('name="c1_name" value="Kept"');
+    expect(none.text).toContain('name="c1_v1_name" value="Typed"');
+    // With no name, the question names it.
+    const named = await post(app, '/experiments', { question: 'Does order matter?', paste: PASTE });
+    expect(s.get(idOf(named.headers.location))).toMatchObject({ name: 'Does order matter', question: 'Does order matter?', factors: [] });
     // Archive stops it and takes it off the list; restore brings it back.
     await post(app, `/experiments/${id}/archive`);
     expect((await get(app, '/experiments')).text).toContain('1 archived experiment');
@@ -234,7 +263,7 @@ describe('experiments', () => {
     expect(page).toContain('judged: “The top two fit what the person asked for.”');
     expect(page).toContain('<strong>Respects preferences:</strong> 25%. The first two are placed as asked.');
     expect(page).toContain('no score: It has no &lt;score&gt; block.');
-    expect((await get(app, '/experiments/new')).text).toContain('How to score each result (optional)');
+    expect((await get(app, '/experiments/new')).text).toContain('Score each result <span class="exp-score__opt">optional</span>');
   });
 
   it('shows its results in a notebook made for it: one notebook, read from the runs, with nothing to decide', async () => {

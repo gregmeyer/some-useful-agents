@@ -7,7 +7,7 @@
  */
 import {
   experimentConditions, experimentRunCount, passProgress, verdictWords,
-  EXPERIMENT_MAX_LEVELS, EXPERIMENT_MAX_REPEATS, EXPERIMENT_MAX_RUNS,
+  EXPERIMENT_MAX_REPEATS, EXPERIMENT_MAX_RUNS,
   type Experiment, type ExperimentCase, type ExperimentCell, type ExperimentLevel, type ExperimentPass, type ExperimentScore, type ExperimentVerdict, type ScoreSummary,
 } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
@@ -75,10 +75,31 @@ export function renderExperimentsList(args: { experiments: Array<{ e: Experiment
 
 export interface ExperimentNewValues { name?: string; question?: string; agent?: string; from?: string; paste?: string; repeats?: string; body?: Record<string, unknown> }
 
-/** The page that sets an experiment up. Two factors are offered, each with up to four levels. */
+/** What one thing you change can be: the control each of its versions shows. */
+export const EXPERIMENT_CHANGE_KINDS = [
+  { id: 'instructions', label: 'the instructions it is given', placeholder: 'How this version tells the agent to decide what fits. Leave empty for the agent as it is.' },
+  { id: 'preferences', label: 'what the person asks for', placeholder: 'What the person wants, in their words.' },
+  { id: 'model', label: 'the model it runs on', placeholder: '' },
+  { id: 'version', label: 'the version of the agent', placeholder: '' },
+] as const;
+export type ExperimentChangeKind = (typeof EXPERIMENT_CHANGE_KINDS)[number]['id'];
+const CHANGE_DEFAULTS: Array<{ name: string; kind: ExperimentChangeKind; versions: string[] }> = [
+  { name: 'Build', kind: 'instructions', versions: ['As built', 'Pay first'] },
+  { name: 'Preferences', kind: 'preferences', versions: ['Wants remote', 'Wants an office'] },
+  { name: '', kind: 'model', versions: ['', ''] },
+];
+
+/**
+ * The page that sets an experiment up: the question, the set, what runs,
+ * and up to three things to change. Each thing changed is one kind of
+ * change (instructions, preferences, model, agent version), so each of its
+ * versions is a name and one box. A line at the foot counts what it comes
+ * to as you type. Works without scripts for two changes of two versions;
+ * the buttons that add more need them.
+ */
 export function renderExperimentNew(args: {
   notebooks: ReadonlyArray<{ id: string; title: string; options: number }>;
-  agents: ReadonlyArray<{ id: string; name: string }>;
+  agents: ReadonlyArray<{ id: string; name: string; costPerRun?: number }>;
   providers: readonly string[];
   defaultAgent: string;
   values?: ExperimentNewValues;
@@ -87,113 +108,148 @@ export function renderExperimentNew(args: {
   const v = args.values ?? {};
   const b = (k: string) => { const x = v.body?.[k]; return typeof x === 'string' ? x : ''; };
   const agent = v.agent || args.defaultAgent;
-  const level = (f: number, l: number) => {
-    const k = `f${String(f)}_l${String(l)}`;
-    const optional = l > 2;
-    return html`<fieldset class="exp-level">
-      <legend>Level ${String(l)}${optional ? ' (optional)' : ''}</legend>
-      <label class="form-field__label" for="${k}_name">Name</label>
-      <input class="form-field__input" id="${k}_name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="${f === 1 ? (l === 1 ? 'As built' : 'Pay first') : (l === 1 ? 'Wants remote' : 'Wants seniority')}">
-      <label class="form-field__label" for="${k}_instructions">Instructions to the agent</label>
-      <textarea class="form-field__textarea" id="${k}_instructions" name="${k}_instructions" rows="3" placeholder="How this level tells the agent to decide what fits. Leave empty if this level doesn't change it.">${b(`${k}_instructions`)}</textarea>
-      <label class="form-field__label" for="${k}_preferences">The person's preferences</label>
-      <textarea class="form-field__textarea" id="${k}_preferences" name="${k}_preferences" rows="3" placeholder="What the person wants, in their words. Leave empty if this level doesn't change it.">${b(`${k}_preferences`)}</textarea>
-      <details class="exp-level__more">
-        <summary>Model or agent version</summary>
-        <label class="form-field__label" for="${k}_provider">Provider</label>
-        <select class="form-field__input" id="${k}_provider" name="${k}_provider">
-          <option value="">the agent's own</option>
-          ${list(args.providers.map((p) => html`<option value="${p}"${b(`${k}_provider`) === p ? unsafeHtml(' selected') : unsafeHtml('')}>${p}</option>`))}
-        </select>
-        <label class="form-field__label" for="${k}_model">Model</label>
-        <input class="form-field__input" id="${k}_model" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="the provider's default">
-        <label class="form-field__label" for="${k}_version">Agent version</label>
-        <input class="form-field__input" id="${k}_version" name="${k}_version" type="number" min="1" value="${b(`${k}_version`)}" placeholder="its current one">
-      </details>
-    </fieldset>`;
+  const sel = (on: boolean) => (on ? unsafeHtml(' selected') : unsafeHtml(''));
+  const hide = (on: boolean) => (on ? unsafeHtml(' hidden') : unsafeHtml(''));
+
+  const version = (c: number, n: number, kind: string, shown: boolean) => {
+    const k = `c${String(c)}_v${String(n)}`;
+    const letter = String.fromCharCode(64 + n);
+    const hint = CHANGE_DEFAULTS[c - 1]?.versions[n - 1] ?? '';
+    return html`<div class="exp-ver" data-exp-ver${hide(!shown)}>
+      <span class="exp-ver__letter" aria-hidden="true">${letter}</span>
+      <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="${hint || `Version ${letter}`}" aria-label="Name of version ${letter}">
+      <div class="exp-ver__value">
+        <textarea class="form-field__textarea" name="${k}_text" rows="2" data-exp-for="instructions preferences" aria-label="What version ${letter} says" placeholder="${EXPERIMENT_CHANGE_KINDS.find((x) => x.id === kind)?.placeholder ?? ''}">${b(`${k}_text`)}</textarea>
+        <span class="exp-ver__model" data-exp-for="model">
+          <select class="form-field__input" name="${k}_provider" aria-label="Provider for version ${letter}">
+            <option value="">the agent's own provider</option>
+            ${list(args.providers.map((p) => html`<option value="${p}"${sel(b(`${k}_provider`) === p)}>${p}</option>`))}
+          </select>
+          <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (the provider's default if empty)" aria-label="Model for version ${letter}">
+        </span>
+        <input class="form-field__input exp-ver__num" name="${k}_version" type="number" min="1" value="${b(`${k}_version`)}" data-exp-for="version" placeholder="its current one" aria-label="Agent version for version ${letter}">
+      </div>
+    </div>`;
   };
-  const factor = (f: number, name: string, hint: string) => html`<section class="exp-factor" aria-labelledby="f${String(f)}_h">
-    <h3 id="f${String(f)}_h">Thing to vary ${String(f)}${f > 1 ? ' (optional)' : ''}</h3>
-    <p class="form-field__hint">${hint}</p>
-    <label class="form-field__label" for="f${String(f)}_name">What is varied</label>
-    <input class="form-field__input" id="f${String(f)}_name" name="f${String(f)}_name" value="${b(`f${String(f)}_name`) || (v.body ? '' : name)}" maxlength="40">
-    <div class="exp-levels">${list(Array.from({ length: EXPERIMENT_MAX_LEVELS }, (_, i) => level(f, i + 1)))}</div>
-  </section>`;
+  const change = (c: number) => {
+    const d = CHANGE_DEFAULTS[c - 1];
+    const k = `c${String(c)}`;
+    const kind = (EXPERIMENT_CHANGE_KINDS.find((x) => x.id === b(`${k}_kind`))?.id ?? d.kind) as string;
+    const name = b(`${k}_name`) || d.name;
+    const used = (n: number) => !!(b(`${k}_v${String(n)}_name`) || b(`${k}_v${String(n)}_text`) || b(`${k}_v${String(n)}_model`) || b(`${k}_v${String(n)}_provider`) || b(`${k}_v${String(n)}_version`));
+    // Shown: the first two always; one you filled in; a third change only once it's asked for or has something in it.
+    const shownChange = c < 3 || !!name || [1, 2, 3, 4].some(used);
+    return html`<section class="exp-change" data-exp-change data-kind="${kind}"${hide(!shownChange)} aria-label="Change ${String(c)}">
+      <div class="exp-change__head">
+        <span class="exp-change__n">Change ${String(c)}</span>
+        <input class="form-field__input exp-change__name" name="${k}_name" value="${name}" maxlength="40" placeholder="what you call it" aria-label="What change ${String(c)} is called">
+        <label class="exp-change__by">by changing
+          <select class="form-field__input" name="${k}_kind" data-exp-kind>
+            ${list(EXPERIMENT_CHANGE_KINDS.map((x) => html`<option value="${x.id}" data-placeholder="${x.placeholder}"${sel(kind === x.id)}>${x.label}</option>`))}
+          </select>
+        </label>
+        ${c > 1 ? html`<button type="button" class="btn btn--ghost btn--sm exp-change__remove" data-exp-remove-change>Remove</button>` : html``}
+      </div>
+      <div class="exp-vers">${list([1, 2, 3, 4].map((n) => version(c, n, kind, n <= 2 || used(n))))}</div>
+      <button type="button" class="btn btn--ghost btn--sm" data-exp-add-version>+ another version</button>
+    </section>`;
+  };
+  const judge = (n: number) => {
+    const k = `j${String(n)}`;
+    const shown = n === 1 || !!b(`${k}_rubric`);
+    return html`<div class="exp-judge" data-exp-judge${hide(!shown)}>
+      <div class="exp-ver">
+        <span class="exp-ver__letter" aria-hidden="true">${String(n)}</span>
+        <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="Respects the preferences" aria-label="Name of judge ${String(n)}">
+        <div class="exp-ver__value">
+          <textarea class="form-field__textarea" name="${k}_rubric" rows="2" aria-label="What a good result looks like, for judge ${String(n)}" placeholder="What a good result looks like: the top three match what the person asked for.">${b(`${k}_rubric`)}</textarea>
+          <span class="exp-ver__model exp-ver__model--on">
+            <select class="form-field__input" name="${k}_provider" aria-label="Provider for judge ${String(n)}">
+              <option value="">judged by the default model</option>
+              ${list(args.providers.map((p) => html`<option value="${p}"${sel(b(`${k}_provider`) === p)}>${p}</option>`))}
+            </select>
+            <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (optional)" aria-label="Model for judge ${String(n)}">
+          </span>
+        </div>
+      </div>
+    </div>`;
+  };
+  const scoring = !!(b('top_items') || b('j1_rubric') || b('j2_rubric'));
+  const pasting = v.from === 'paste' || (!v.from && (!!v.paste || !args.notebooks.length));
+
   const body = html`
     ${pageHeader({
       crumbs: [{ label: 'Home', href: '/' }, { label: 'Experiments', href: '/experiments' }, { label: 'New' }],
       title: 'New experiment',
-      description: 'Name what you want to find out, pick the set to hold fixed, and say what to vary. Nothing runs until you press Run on the next page.',
+      description: 'Say what you want to find out, pick the set to hold fixed, and name what to change. Nothing runs until you press Run on the next page.',
     })}
-    <form method="POST" action="/experiments" class="exp-new">
-      <section class="card">
-        <label class="form-field__label" for="exp-name">Name</label>
-        <input class="form-field__input" id="exp-name" name="name" required maxlength="120" value="${v.name ?? ''}" placeholder="What changes job recommendations">
-        <label class="form-field__label" for="exp-question">What do you want to find out?</label>
-        <textarea class="form-field__textarea" id="exp-question" name="question" rows="2" maxlength="1000" placeholder="Does the way the agent was built change its picks more than what the person asks for?">${v.question ?? ''}</textarea>
-      </section>
+    <form method="POST" action="/experiments" class="exp-new" data-exp-new data-max-runs="${String(EXPERIMENT_MAX_RUNS)}">
+      <div class="exp-q">
+        <label class="exp-q__label" for="exp-question">What do you want to find out?</label>
+        <textarea class="form-field__textarea exp-q__box" id="exp-question" name="question" rows="2" maxlength="1000" placeholder="Does the way the agent was built change its picks more than what the person asks for?">${v.question ?? ''}</textarea>
+        <input class="form-field__input exp-q__name" name="name" maxlength="120" value="${v.name ?? ''}" placeholder="A short name (sua uses your question if you leave this empty)" aria-label="A short name for the experiment">
+      </div>
 
-      <section class="card">
-        <h2 class="card__title">The set to hold fixed</h2>
-        <p class="form-field__hint">Every run ranks these same items. They are copied now and never change, even if the notebook does.</p>
-        <label class="form-field__label" for="exp-from">Copy the options of a notebook</label>
-        <select class="form-field__input" id="exp-from" name="from">
-          <option value="">none: I'll paste a list below</option>
-          ${list(args.notebooks.map((n) => html`<option value="${n.id}"${v.from === n.id ? unsafeHtml(' selected') : unsafeHtml('')}>${n.title} (${plural(n.options, 'option')})</option>`))}
-        </select>
-        <label class="form-field__label" for="exp-paste">Or paste a list, one item a line</label>
-        <textarea class="form-field__textarea" id="exp-paste" name="paste" rows="5" placeholder="Staff Engineer at Acme | Pay: $250,000 | Remote: yes&#10;Senior Engineer at Globex | Pay: $210,000 | Remote: no">${v.paste ?? ''}</textarea>
-        <p class="form-field__hint">Facts after the title are separated by | and written "Label: value". Used only when no notebook is chosen.</p>
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">What runs</h2>
-        <label class="form-field__label" for="exp-agent">The agent</label>
-        <select class="form-field__input" id="exp-agent" name="agent">
-          ${list(args.agents.map((a) => html`<option value="${a.id}"${agent === a.id ? unsafeHtml(' selected') : unsafeHtml('')}>${a.name}${a.id === args.defaultAgent ? ' (ranks a list as instructed)' : ''}</option>`))}
-        </select>
-        <p class="form-field__hint">It is given the items (ITEMS) and whatever each level sets (INSTRUCTIONS, PREFERENCES), and must answer with every item's id, best first, in a &lt;ranking&gt; block.</p>
-        <label class="form-field__label" for="exp-repeats">Runs of each condition</label>
-        <input class="form-field__input exp-new__short" id="exp-repeats" name="repeats" type="number" min="1" max="${String(EXPERIMENT_MAX_REPEATS)}" value="${v.repeats ?? '3'}">
-        <p class="form-field__hint">Running each condition more than once shows how much the result moves by itself. With one run, nothing can be concluded. A pass makes ${String(EXPERIMENT_MAX_RUNS)} runs at most.</p>
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">What to vary</h2>
-        <p class="form-field__hint">Each thing you vary needs two or more levels. Every combination is run, so two things with two levels each is four conditions. In each level, fill only what that level changes.</p>
-        ${factor(1, 'Build', 'For example the build: two sets of instructions, two models, or two versions of the agent.')}
-        ${factor(2, 'Preferences', 'For example what the person asks for: two preference profiles.')}
-      </section>
-
-      <section class="card">
-        <h2 class="card__title">How to score each result (optional)</h2>
-        <p class="form-field__hint">Without this, results are only compared with each other. A score says how good each one is by a standard you set, so you can see which condition does better, not just which differ.</p>
-        <label class="form-field__label" for="exp-top">Items that should be near the top</label>
-        <textarea class="form-field__textarea" id="exp-top" name="top_items" rows="3" placeholder="Part of an item's title, one a line">${b('top_items')}</textarea>
-        <p class="form-field__hint">Counted, not judged: the share of these that land in the top places.</p>
-        ${list([1, 2].map((n) => html`<fieldset class="exp-level exp-judge">
-          <legend>Judge ${String(n)} (optional)</legend>
-          <label class="form-field__label" for="j${String(n)}_name">Name</label>
-          <input class="form-field__input" id="j${String(n)}_name" name="j${String(n)}_name" value="${b(`j${String(n)}_name`)}" maxlength="60" placeholder="Respects the preferences">
-          <label class="form-field__label" for="j${String(n)}_rubric">What a good result looks like</label>
-          <textarea class="form-field__textarea" id="j${String(n)}_rubric" name="j${String(n)}_rubric" rows="3" placeholder="The top three match what the person asked for; nothing they ruled out is in the top five.">${b(`j${String(n)}_rubric`)}</textarea>
-          <details class="exp-level__more">
-            <summary>Which model judges</summary>
-            <label class="form-field__label" for="j${String(n)}_provider">Provider</label>
-            <select class="form-field__input" id="j${String(n)}_provider" name="j${String(n)}_provider">
-              <option value="">the default</option>
-              ${list(args.providers.map((p) => html`<option value="${p}"${b(`j${String(n)}_provider`) === p ? unsafeHtml(' selected') : unsafeHtml('')}>${p}</option>`))}
+      <div class="exp-rows">
+        <div class="exp-row2">
+          <label class="exp-row2__label" for="exp-from">Hold fixed</label>
+          <div class="exp-row2__field">
+            <select class="form-field__input" id="exp-from" name="from" data-exp-from>
+              <option value=""${sel(!v.from && !pasting)}>Choose a notebook to copy its options…</option>
+              ${list(args.notebooks.map((n) => html`<option value="${n.id}"${sel(v.from === n.id)}>${n.title} (${plural(n.options, 'option')})</option>`))}
+              <option value="paste"${sel(pasting)}>a list I paste</option>
             </select>
-            <label class="form-field__label" for="j${String(n)}_model">Model</label>
-            <input class="form-field__input" id="j${String(n)}_model" name="j${String(n)}_model" value="${b(`j${String(n)}_model`)}" maxlength="80" placeholder="the provider's default">
-          </details>
-        </fieldset>`))}
-        <p class="form-field__hint">A judge is a model that reads each result against your words and gives 0 to 100%, with a reason. It sees the items, the preferences and the ranking, never which build made it. Each judge reads every result, so it doubles the runs. Two judges with the same words and different models show whether judges agree.</p>
-      </section>
+            <div class="exp-paste" data-exp-paste${hide(!pasting)}>
+              <textarea class="form-field__textarea" name="paste" rows="4" aria-label="The items, one a line" placeholder="Staff Engineer at Acme | Pay: $250,000 | Remote: yes&#10;Senior Engineer at Globex | Pay: $210,000 | Remote: no">${v.paste ?? ''}</textarea>
+              <p class="form-field__hint">One item a line. Facts after the title are separated by | and written "Label: value".</p>
+            </div>
+            <p class="form-field__hint">Every run ranks these same items. They are copied now and never change.</p>
+          </div>
+        </div>
+        <div class="exp-row2">
+          <label class="exp-row2__label" for="exp-agent">Run</label>
+          <div class="exp-row2__field exp-row2__field--inline">
+            <select class="form-field__input" id="exp-agent" name="agent" data-exp-agent>
+              ${list(args.agents.map((a) => html`<option value="${a.id}"${a.costPerRun !== undefined ? unsafeHtml(` data-cost="${String(a.costPerRun)}"`) : unsafeHtml('')}${sel(agent === a.id)}>${a.name}${a.id === args.defaultAgent ? ' (ranks a list as told)' : ''}</option>`))}
+            </select>
+            <input class="form-field__input exp-new__short" id="exp-repeats" name="repeats" type="number" min="1" max="${String(EXPERIMENT_MAX_REPEATS)}" value="${v.repeats || '3'}" data-exp-repeats aria-label="Runs of each condition">
+            <span class="exp-row2__after">times each</span>
+          </div>
+        </div>
+      </div>
 
-      <div class="exp-new__acts">
-        <button type="submit" class="btn btn--primary">Set it up</button>
-        <a class="btn btn--ghost" href="/experiments">Cancel</a>
+      <div class="exp-changes">
+        ${list([1, 2, 3].map(change))}
+        <button type="button" class="btn btn--ghost btn--sm" data-exp-add-change>+ change something else</button>
+        <p class="form-field__hint">Every combination is run: two changes with two versions each is four conditions. The first version of each is the baseline the others are compared with. A change with only one version filled in is left out.</p>
+      </div>
+
+      <details class="exp-score"${scoring ? unsafeHtml(' open') : unsafeHtml('')}>
+        <summary>Score each result <span class="exp-score__opt">optional</span></summary>
+        <p class="form-field__hint">Without a score you learn which conditions differ, not which is better.</p>
+        <div class="exp-row2">
+          <label class="exp-row2__label" for="exp-top">Should be near the top</label>
+          <div class="exp-row2__field">
+            <textarea class="form-field__textarea" id="exp-top" name="top_items" rows="2" placeholder="Part of an item's title, one a line">${b('top_items')}</textarea>
+            <p class="form-field__hint">Counted: the share of these that land in the top places.</p>
+          </div>
+        </div>
+        <div class="exp-row2">
+          <span class="exp-row2__label">A judge</span>
+          <div class="exp-row2__field">
+            ${list([1, 2].map(judge))}
+            <button type="button" class="btn btn--ghost btn--sm" data-exp-add-judge>+ another judge</button>
+            <p class="form-field__hint">A model reads each result against your words and gives 0 to 100% with a reason. It never sees which version made the result. Each judge reads every result, so it doubles the runs.</p>
+          </div>
+        </div>
+      </details>
+
+      <div class="exp-sum">
+        <p class="exp-sum__count" data-exp-sum aria-live="polite">Every combination of your changes, ${v.repeats || '3'} times each.</p>
+        <div class="exp-new__acts">
+          <a class="btn btn--ghost" href="/experiments">Cancel</a>
+          <button type="submit" class="btn btn--primary">Set it up</button>
+        </div>
       </div>
     </form>`;
   return render(layout({ title: 'New experiment', activeNav: 'experiments', ...(args.flash ? { flash: args.flash } : {}) }, body));
@@ -386,7 +442,11 @@ export function renderExperimentPage(args: {
   return render(layout({ title: e.name, activeNav: 'experiments', wide: true, ...(args.flash ? { flash: args.flash } : {}) }, body));
 }
 
-/** In the browser: an experiment's page reloads when its pass moves on. */
+/**
+ * In the browser: an experiment's page reloads when its pass moves on; and
+ * the New experiment page shows the right box for each kind of change, adds
+ * versions, changes and a judge, and counts what the setup comes to.
+ */
 export const EXPERIMENT_PAGE_JS = `
 (function () {
   var el = document.querySelector('[data-exp-state]');
@@ -401,5 +461,91 @@ export const EXPERIMENT_PAGE_JS = `
       .catch(function () {});
   }
   setInterval(check, el.getAttribute('data-exp-running') ? 4000 : 20000);
+})();
+(function () {
+  var form = document.querySelector('[data-exp-new]');
+  if (!form) return;
+  var MAX = Number(form.getAttribute('data-max-runs')) || 60;
+  function all(sel, root) { return Array.prototype.slice.call((root || form).querySelectorAll(sel)); }
+  function filled(ver) {
+    return all('input, textarea, select', ver).some(function (f) { return f.offsetParent !== null && String(f.value || '').trim() !== ''; });
+  }
+  function nextHidden(list) { for (var i = 0; i < list.length; i++) if (list[i].hidden) return list[i]; return null; }
+  function tidy() {
+    all('[data-exp-change]').forEach(function (c) {
+      var add = c.querySelector('[data-exp-add-version]');
+      if (add) add.hidden = !nextHidden(all('[data-exp-ver]', c));
+    });
+    var addChange = form.querySelector('[data-exp-add-change]');
+    if (addChange) addChange.hidden = !nextHidden(all('[data-exp-change]'));
+    var addJudge = form.querySelector('[data-exp-add-judge]');
+    if (addJudge) addJudge.hidden = !nextHidden(all('[data-exp-judge]'));
+  }
+  function count() {
+    var sizes = [];
+    all('[data-exp-change]').forEach(function (c) {
+      if (c.hidden) return;
+      var n = all('[data-exp-ver]', c).filter(function (v) { return !v.hidden && filled(v); }).length;
+      if (n >= 2) sizes.push(n);
+    });
+    var conditions = sizes.reduce(function (a, b) { return a * b; }, 1);
+    var repeats = Math.max(1, Math.min(5, Number((form.querySelector('[data-exp-repeats]') || {}).value) || 3));
+    var judges = all('[data-exp-judge]').filter(function (j) { return !j.hidden && String((j.querySelector('textarea') || {}).value || '').trim(); }).length;
+    var runs = conditions * repeats * (1 + judges);
+    var out = form.querySelector('[data-exp-sum]');
+    if (!out) return;
+    var parts = sizes.length > 1 ? sizes.join(' \u00d7 ') + ' = ' : '';
+    var text = parts + conditions + (conditions === 1 ? ' condition' : ' conditions') + ' \u00d7 ' + repeats + (repeats === 1 ? ' run' : ' runs')
+      + (judges ? ', each read by ' + judges + (judges === 1 ? ' judge' : ' judges') : '') + ' = ' + runs + (runs === 1 ? ' run' : ' runs');
+    var agent = form.querySelector('[data-exp-agent]');
+    var opt = agent && agent.options[agent.selectedIndex];
+    var cost = opt ? Number(opt.getAttribute('data-cost')) : 0;
+    if (cost > 0) { var est = cost * conditions * repeats; text += ', about ' + (est < 0.01 ? 'under $0.01' : '$' + est.toFixed(2)); }
+    var note = '';
+    if (!sizes.length) note = ' Nothing is changed yet, so this only shows how much the result moves by itself.';
+    else if (repeats === 1) note = ' With one run of each, nothing can be concluded: use 2 or more.';
+    if (runs > MAX) note = ' That is more than the ' + MAX + ' a pass may make: use fewer versions, runs or judges.';
+    out.textContent = text + '.' + note;
+    out.classList.toggle('exp-sum__count--over', runs > MAX);
+  }
+  form.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.matches && t.matches('[data-exp-kind]')) {
+      var c = t.closest('[data-exp-change]');
+      c.setAttribute('data-kind', t.value);
+      var ph = t.options[t.selectedIndex].getAttribute('data-placeholder') || '';
+      all('textarea', c).forEach(function (x) { x.placeholder = ph; });
+    }
+    if (t.matches && t.matches('[data-exp-from]')) {
+      var p = form.querySelector('[data-exp-paste]');
+      if (p) p.hidden = t.value !== 'paste';
+    }
+    count();
+  });
+  form.addEventListener('input', count);
+  form.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t.closest) return;
+    var b;
+    if ((b = t.closest('[data-exp-add-version]'))) {
+      var v = nextHidden(all('[data-exp-ver]', b.closest('[data-exp-change]')));
+      if (v) { v.hidden = false; var f = v.querySelector('input'); if (f) f.focus(); }
+    } else if ((b = t.closest('[data-exp-add-change]'))) {
+      var c = nextHidden(all('[data-exp-change]'));
+      if (c) { c.hidden = false; var n = c.querySelector('input'); if (n) n.focus(); }
+    } else if ((b = t.closest('[data-exp-remove-change]'))) {
+      var gone = b.closest('[data-exp-change]');
+      all('input, textarea', gone).forEach(function (x) { x.value = ''; });
+      all('select', gone).forEach(function (x) { if (!x.matches('[data-exp-kind]')) x.selectedIndex = 0; });
+      gone.hidden = true;
+    } else if ((b = t.closest('[data-exp-add-judge]'))) {
+      var j = nextHidden(all('[data-exp-judge]'));
+      if (j) { j.hidden = false; var jn = j.querySelector('input'); if (jn) jn.focus(); }
+    } else return;
+    tidy();
+    count();
+  });
+  tidy();
+  count();
 })();
 `;
