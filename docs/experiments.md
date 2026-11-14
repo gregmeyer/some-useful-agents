@@ -29,6 +29,10 @@ A pass makes at most 60 runs (sets × conditions × repeats, and once more for e
 
 A link can fill the page in: any field by its name in the address (`/experiments/new?question=…&from=<notebook id>&c1_name=Build&c1_kind=instructions&c1_v1_name=…&c1_v1_text=…`).
 
+Tick **Also make a notebook that shows its results** to get its [notebook](#showing-it-in-a-notebook) made with it.
+
+**From a conversation.** Ask sua to test, prove or compare what changes an agent's answer ("does the model matter more than the instructions?") and it offers **Set up the experiment**: a link to this page with your question and its draft of the changes filled in, for you to check and edit. sua never invents the set (it names one of your notebooks, or leaves it for you to choose), never starts a notebook or builds an agent for such an ask, and never answers the question from reasoning. Nothing runs until you press Run. Ask sua later what an experiment found and it repeats the finding from the runs, with what it rests on.
+
 ## Running it
 
 Setting one up runs nothing. Its page shows how many runs a pass makes and, when the agent has run before, roughly what that will cost. **Run it** starts a pass: two runs go at a time and the page fills in by itself.

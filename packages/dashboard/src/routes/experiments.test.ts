@@ -305,4 +305,33 @@ describe('experiments', () => {
     await post(app, `/experiments/${id}/notebook`);
     expect(nbs.get(nbId)!.archivedAt).toBeUndefined();
   });
+
+  it('sua is told what each experiment found in its page\'s words, and a link from sua fills the page in and makes the notebook', async () => {
+    const app = await makeApp();
+    const { experimentsForTriage } = await import('../lib/experiment-notebook.js');
+    expect(experimentsForTriage(ctx)).toBe('[]');
+    // The link sua offers: the question, two changes, and the notebook asked for with it.
+    const link = '/experiments/new?question=Does%20order%20matter%3F&notebook=1&c1_name=Build&c1_kind=instructions&c1_v1_name=By%20pay&c1_v1_text=Rank%20by%20pay.&c1_v2_name=By%20letter&c1_v2_text=Rank%20by%20title.';
+    const page = (await get(app, link)).text;
+    expect(page).toContain('name="notebook" value="1" checked');
+    expect(page).toContain('name="c1_v2_name" value="By letter"');
+    expect(page).toContain('>Rank by title.</textarea>');
+    const made = await post(app, '/experiments', { ...FORM, notebook: '1' });
+    const id = idOf(made.headers.location);
+    expect(decodeURIComponent(made.headers.location)).toContain('Its notebook is made too');
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = nbs.forExperiment(id)!;
+    expect(nb.experimentId).toBe(id);
+    let told = JSON.parse(experimentsForTriage(ctx)) as Array<Record<string, unknown>>;
+    expect(told).toMatchObject([{ id, name: 'What changes the ranking', stands: 'not run yet', changes: ['Build: By pay | By letter', 'Preferences: Remote | Office'], link: `/experiments/${id}`, notebook: `/notebooks/${nb.id}` }]);
+    expect(told[0].found).toBeUndefined();
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const items = s.cases(id)[0].items.map((i) => i.id);
+    ctx.experimentTaskRun = async (inputs) => ranking(inputs.INSTRUCTIONS.includes('pay') ? [...items].reverse() : items);
+    await post(app, `/experiments/${id}/run`);
+    await settle();
+    told = JSON.parse(experimentsForTriage(ctx)) as Array<Record<string, unknown>>;
+    expect(told[0]).toMatchObject({ stands: '8 of 8 runs', restsOn: '1 set, 4 conditions, 2 runs of each. It holds for this set only.' });
+    expect(String(told[0].found)).toMatch(/^Build changed the result; preferences did not, beyond run-to-run variation\./);
+  });
 });

@@ -47,3 +47,29 @@ export function notebookForExperiment(ctx: Ctx, experimentId: string): { noteboo
   nbs.addEntry(nb.id, { kind: 'note', title: 'Shows an experiment', body: `This notebook shows the results of the experiment [${e.name}](/experiments/${encodeURIComponent(e.id)}). The runs are made and kept there; this page reads them each time it opens.`, by: 'sua' });
   return { notebook: nbs.get(nb.id)!, made: true };
 }
+
+/**
+ * The operator's experiments as sua is told them: the newest ten, each
+ * with how it stands and what it found in the words its page uses (counted
+ * from its runs), so sua repeats the finding and never makes one up.
+ */
+export function experimentsForTriage(ctx: Ctx): string {
+  try {
+    const s = ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    return JSON.stringify(s.list().slice(0, 10).map((e) => {
+      const d = experimentDataFor(ctx, e.id);
+      const nb = nbs.forExperiment(e.id);
+      return {
+        id: e.id, name: e.name, ...(e.question ? { question: e.question } : {}), runs: e.task.agentId,
+        changes: e.factors.map((f) => `${f.name}: ${f.levels.map((l) => l.name).join(' | ')}`),
+        stands: d?.runs ?? 'not run yet',
+        ...(d && d.label !== 'Not run yet' ? { found: d.headline.replace(/\*\*/g, ''), restsOn: d.rests } : {}),
+        link: `/experiments/${encodeURIComponent(e.id)}`,
+        ...(nb && !nb.archivedAt ? { notebook: `/notebooks/${encodeURIComponent(nb.id)}` } : {}),
+      };
+    }));
+  } catch {
+    return '[]';
+  }
+}

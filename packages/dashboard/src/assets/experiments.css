@@ -52,6 +52,7 @@
 .exp-score__opt { font-weight: var(--weight-regular); font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .exp-score[open] { display: grid; gap: var(--space-4); }
 .exp-judge + .exp-judge { margin-top: var(--space-2); }
+.exp-also { display: flex; gap: var(--space-2); align-items: center; font-size: var(--font-size-sm); }
 .exp-sum { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border-strong); background: var(--color-bg); }
 .exp-sum__count { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-sm); max-width: 62ch; }
 .exp-sum__count--over { color: var(--color-err); }
