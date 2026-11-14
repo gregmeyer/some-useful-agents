@@ -1,6 +1,6 @@
 # Experiments
 
-An experiment answers a question about an agent: **what changes what it produces, and by how much?** It gives one agent the same ask under different versions of it, runs the whole agent a few times under each, reads what each run produced, and counts how much the versions' results have in common. The numbers are counted from the runs; no model writes them. ([ADR-0078](adr/0078-experiments.md))
+An experiment answers a question about an agent, or about a whole notebook: **what changes what it produces, and by how much?** It gives one agent the same ask under different versions of it, runs the whole agent a few times under each, reads what each run produced, and counts how much the versions' results have in common. With a notebook, each run is a fresh copy of the notebook taken through its steps ([Running a whole notebook](#running-a-whole-notebook)). The numbers are counted from the runs; no model writes them. ([ADR-0078](adr/0078-experiments.md))
 
 "Does the new version of my job search agent find different jobs?" "Does the model change what the digest picks?" "Does the build matter more than the preferences I give it?" Each is an experiment.
 
@@ -20,7 +20,7 @@ Every combination of versions is run; the first version of each change is the **
 **New experiment** is six short steps. Nothing is made until the last one, and nothing runs until you press Run after that.
 
 1. **The question.** What you want to find out, in your own words.
-2. **The agent.** Your agents, the most run first, each with how many times it has run, how many versions it has, and how many items its last run listed. Type to search. sua's own agents aren't listed. An agent whose last run had no list sua could read says so: an experiment compares the lists runs produce.
+2. **What to run.** An agent or a notebook ([Running a whole notebook](#running-a-whole-notebook)). Your agents, the most run first, each with how many times it has run, how many versions it has, and how many items its last run listed. Type to search. sua's own agents aren't listed. An agent whose last run had no list sua could read says so: an experiment compares the lists runs produce.
 3. **What you ask it.** A value for each of the agent's inputs, starting from what it was given on its last run. This is the same for every run.
 4. **What changes.** One change at a time. First the kind:
    - **Which version of the agent runs.** The page says which versions the agent has and offers them.
@@ -50,6 +50,26 @@ A run is given up on after 15 minutes.
 
 **The agent runs for real.** It uses its tools, reads what it reads, and does whatever it normally does. If it sends messages, files into a notebook or changes something outside itself, it does that on every run of the experiment. Experiment runs are kept apart from the agent's own life in these ways only: they are filed under `experiment--<agent>`, so they never become the agent's latest result, never count toward its daily spend limit, and use a memory and state folder of their own; and they raise nothing in your inbox. Each is still an ordinary run you can open from **Every run**.
 
+## Running a whole notebook
+
+On step 2, choose one of your notebooks in place of an agent. Notebooks that have steps sua runs are listed, the latest first.
+
+| | |
+|---|---|
+| **Held the same** | The notebook's setup: what it is for, its limits, checks, the facts it records, its steps, and what you gave it. There is no separate ask. |
+| **Changed** | Its **limits and checks** (each version's, in full, starting from the notebook's own); **something you gave it** (other text for a profile or a résumé); **who does a step** (another agent, or an earlier version of the one it has); or **the model** its steps run on. |
+| **Run** | A fresh copy of the notebook for every version, a few times each, taken through its steps with nobody pressing Continue. |
+| **Compared** | The options each copy is left with: the ones still in the running, sua's picks first, then in the order found. |
+
+- **Your notebook is not touched.** A copy has its setup and none of what it found.
+- **Nobody is asked anything.** A step that reaches its goal goes on to the next. A step that stops short, where you would be asked *Try again* or *Move on*, moves on with what it has; the run's line under **Every run** says so.
+- **Nothing is decided.** A copy stops before the first step that is yours (Decide).
+- **Text you change is read first.** When a version gives the notebook other text for something of yours, sua reads it before the steps run, as it does for you.
+- **Copies are kept, archived.** Each is marked with its experiment, version and run, stays out of your notebook lists, has no conversation and raises nothing in your inbox. **Its copy**, under **Every run**, opens it: its options, what was ruled out and why, and anything it wrote. Ruled-out options and write-ups are there to read; the comparison counts the options left.
+- **It is slow.** A copy is a search, a check and often a write-up: several agent runs, commonly 10 minutes or more. A pass makes 12 copies at most, two at a time, and gives each 45 minutes.
+- **Its agents run for real**, filed under `experiment--<agent>` like an agent experiment's runs. Helper agents a step's agent calls for itself run under their own names.
+- **A model change** sets the provider and model on each step's agent. Unlike an agent experiment, a copy is not checked for having run on that provider.
+
 ## Reading what a run produced
 
 To compare runs, sua reads each run's output into a list of items, in code:
@@ -70,7 +90,7 @@ An output that lists nothing on purpose (`{"jobs": []}`) is a result: it found n
 - **What each version found**: every item any run listed, with how many of each version's runs listed it and about where, the ones versions disagree on first. Items with a link are linked.
 - **How it is set up**, and **every run** with what it listed and a link to the run.
 
-**When a difference counts.** A change is said to have altered what was produced only when two versions share less than the least any two runs of the same version shared. That is strict on purpose: with a few runs there is too little for a finer test, and it can be checked by eye against the table. A difference no larger than that is reported as no more than run-to-run variation.
+**When a difference counts.** A change is said to have altered what was produced only when no two runs of different versions share as much as the least any two runs of the same version shared: the versions' results never overlap as much as a version overlaps with itself. That is strict on purpose: with a few runs there is too little for a finer test, and it can be checked by eye against the table. A difference no larger than that is reported as no more than run-to-run variation.
 
 **What it does not tell you.** The finding holds for the ask you gave, at the time it was run. A search agent's results change from day to day whatever you do, which is what the repeats measure; another ask, or another week, can give a different answer.
 
@@ -109,11 +129,13 @@ Archived experiments are not mentioned on the agent's page or to sua.
 | Runs of each | 1 to 5 (2 to begin with) |
 | Scores | 3 (2 judges) |
 | Runs a pass | 36, judges' included |
+| Notebook copies a pass | 12 |
+| Time allowed a notebook copy | 45 minutes |
 | Runs at a time | 2 |
 | Time allowed a run | 15 minutes |
 | Items read from a run | 100 |
 
 ## Not yet
 
-- **Comparing notebooks.** Running a whole notebook (find, check, write) under each version and comparing the notebooks it makes. Agents come first; this follows.
+- **Comparing what notebooks wrote, or ruled out.** A notebook experiment compares the options each copy is left with. Its write-up and what it ruled out are in each copy to read, and a judge can score the options, but they are not counted.
 - **Outputs that aren't lists.** An agent that writes prose, or one answer, has nothing to count in common. A judge can score it, but the comparison needs a list.

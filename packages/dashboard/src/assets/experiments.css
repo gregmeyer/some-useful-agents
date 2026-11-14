@@ -86,10 +86,24 @@
 .exp-change[data-kind="version"] [data-exp-for~="version"] { display: block; }
 .exp-change[data-kind="input"] label[data-exp-for~="input"] { display: grid; }
 .exp-change[data-kind="model"] [data-exp-for~="model"] { display: grid; }
+/* A notebook's kinds: its limits and checks, something it was given, who does a step. */
+.exp-change[data-kind="given"] [data-exp-for~="given"],
+.exp-change[data-kind="step"] [data-exp-for~="step"] { display: block; }
+.exp-change[data-kind="given"] label[data-exp-for~="given"],
+.exp-change[data-kind="step"] label[data-exp-for~="step"],
+.exp-change[data-kind="setup"] [data-exp-for~="setup"] { display: grid; }
+.exp-ver__setup { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
+@media (max-width: 640px) { .exp-ver__setup { grid-template-columns: minmax(0, 1fr); } }
+/* A notebook's setup, as what every copy is asked. */
+.exp-setup { display: grid; gap: var(--space-2); margin: 0; }
+.exp-setup > div { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: var(--space-3); }
+.exp-setup dt { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+.exp-setup dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .exp-setup > div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 /* Without scripts nothing says which kind, so the boxes for an input (the default) show. */
 .exp-new:not(.exp-wiz) .exp-change[data-kind=""] [data-exp-for~="input"] { display: block; }
 .exp-new:not(.exp-wiz) .exp-change[data-kind=""] label[data-exp-for~="input"] { display: grid; }
-.exp-ver__num { max-width: 18ch; }
+.exp-ver__num { max-width: 24ch; }
 .exp-made { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .exp-made__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--accent-teal); border-radius: var(--radius-md); background: var(--color-surface); }
 .exp-made__words { flex: 1 1 24ch; min-width: 0; overflow-wrap: anywhere; }

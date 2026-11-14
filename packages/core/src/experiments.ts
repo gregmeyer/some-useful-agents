@@ -35,6 +35,8 @@ export const EXPERIMENT_MAX_CONDITIONS = 12;
 export const EXPERIMENT_MAX_REPEATS = 5;
 /** Runs one pass may make, at most (conditions × repeats, and once more for each judge). Each is the whole agent. */
 export const EXPERIMENT_MAX_RUNS = 36;
+/** Notebook copies one pass may make, at most: each is a whole notebook (a search, a check, a write-up). */
+export const EXPERIMENT_MAX_COPIES = 12;
 export const EXPERIMENT_MAX_SCORERS = 3;
 
 /** One version of a thing that is changed. */
@@ -47,6 +49,14 @@ export interface ExperimentLevel {
   model?: string;
   /** Values for the agent's inputs, in place of the ask's. */
   inputs?: Record<string, string>;
+  /** A notebook's limits, in place of its own (a notebook experiment). */
+  params?: string[];
+  /** A notebook's checks, in place of its own. */
+  checks?: string[];
+  /** What the notebook was given, by its key, in place of its own (a profile, a résumé). */
+  given?: Record<string, string>;
+  /** Which agent does one of the notebook's steps (empty: sua's own for that step); `version` then names that agent's version. */
+  step?: { id: string; agentId?: string };
 }
 export interface ExperimentFactor { id: string; name: string; levels: ExperimentLevel[] }
 export type ExperimentCondition = MeasuredCondition;
@@ -75,9 +85,12 @@ export interface Experiment {
   /** What it is meant to find out, in the words it was asked in. */
   question: string;
   kind: ExperimentKind;
-  /** The agent every cell runs, whole. */
-  task: { agentId: string };
-  /** The ask: the agent's inputs, the same for every run. */
+  /**
+   * What every cell runs, whole: an agent; or, with `notebookId`, a fresh
+   * copy of that notebook taken through its steps (`agentId` is then empty).
+   */
+  task: { agentId: string; notebookId?: string; title?: string };
+  /** The ask: the agent's inputs, the same for every run (a notebook's ask is its own setup). */
   inputs: Record<string, string>;
   factors: ExperimentFactor[];
   repeats: number;
@@ -100,8 +113,12 @@ export interface ExperimentCell {
   agentVersion?: number;
   usedProvider?: string;
   usedModel?: string;
-  /** What the run's output listed, in its order. */
+  /** What the run's output listed, in its order (a notebook copy: its options still in the running, best first). */
   items?: OutputItem[];
+  /** The notebook copy this cell made and ran (a notebook experiment). */
+  notebookId?: string;
+  /** How it went, in a line (a notebook copy: each step's note). */
+  note?: string;
   /** Why it is invalid or failed. */
   error?: string;
   costUsd?: number;
@@ -112,7 +129,7 @@ export interface ExperimentCell {
 export interface NewExperiment {
   name: string;
   question?: string;
-  task: { agentId: string };
+  task: { agentId?: string; notebookId?: string; title?: string };
   inputs?: unknown;
   factors: unknown;
   repeats?: number;
@@ -166,12 +183,24 @@ export function cleanFactors(raw: unknown): ExperimentFactor[] {
       const version = Number(lr.version);
       const provider = line(lr.provider, 40);
       const model = line(lr.model, 80);
+      const lines = (v: unknown, max: number) => (Array.isArray(v) ? v.map((x) => line(x, 300)).filter(Boolean).slice(0, max) : undefined);
+      const params = lines(lr.params, 20);
+      const checks = lines(lr.checks, 8);
+      const given: Record<string, string> = {};
+      if (lr.given && typeof lr.given === 'object' && !Array.isArray(lr.given)) for (const [k, v] of Object.entries(lr.given as Record<string, unknown>).slice(0, 4)) { const val = text(v, 40000); if (k && val) given[k.slice(0, 80)] = val; }
+      const sr = lr.step && typeof lr.step === 'object' ? lr.step as Record<string, unknown> : undefined;
+      const stepId = line(sr?.id, 40);
+      const stepAgent = line(sr?.agentId, 120);
       levels.push({
         id: unique(slug(typeof lr.id === 'string' && lr.id ? lr.id : lname, 'level'), levelIds), name: lname,
         ...(Number.isInteger(version) && version > 0 ? { version } : {}),
         ...(provider ? { provider } : {}),
         ...(model ? { model } : {}),
         ...(Object.keys(inputs).length ? { inputs } : {}),
+        ...(params ? { params } : {}),
+        ...(checks ? { checks } : {}),
+        ...(Object.keys(given).length ? { given } : {}),
+        ...(stepId ? { step: { id: stepId, ...(stepAgent ? { agentId: stepAgent } : {}) } } : {}),
       });
       if (levels.length === EXPERIMENT_MAX_LEVELS) break;
     }
@@ -260,6 +289,11 @@ export function cleanJudgement(raw: unknown, itemCount: number): { value: number
   const bad = cites.find((n) => n < 1 || n > itemCount);
   if (bad !== undefined) return { error: `It cites item ${String(bad)}, and the list has ${String(itemCount)}.` };
   return { value, reason, cites: cites.slice(0, 10).map(String) };
+}
+
+/** What an experiment runs, as a reader would call it: the notebook's title, else the agent's id. */
+export function experimentSubject(e: Pick<Experiment, 'task'>): string {
+  return e.task.notebookId ? (e.task.title || e.task.notebookId) : e.task.agentId;
 }
 
 /** How many runs one pass makes: the agent once per condition and repeat, and one more for each judge. */
@@ -371,7 +405,7 @@ export class ExperimentStore {
       );
       CREATE INDEX IF NOT EXISTS idx_experiment_scores_pass ON experiment_scores(pass_id);
     `);
-    for (const [table, col] of [['experiments', "scorers_json TEXT NOT NULL DEFAULT '[]'"], ['experiments', "inputs_json TEXT NOT NULL DEFAULT '{}'"], ['experiment_cells', 'items_json TEXT']] as const) {
+    for (const [table, col] of [['experiments', "scorers_json TEXT NOT NULL DEFAULT '[]'"], ['experiments', "inputs_json TEXT NOT NULL DEFAULT '{}'"], ['experiment_cells', 'items_json TEXT'], ['experiment_cells', 'notebook_id TEXT'], ['experiment_cells', 'note TEXT']] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
   }
@@ -393,7 +427,8 @@ export class ExperimentStore {
     const name = line(input.name, 120);
     if (!name) throw new Error('Give the experiment a name.');
     const agentId = line(input.task?.agentId, 120);
-    if (!agentId) throw new Error('Choose the agent to run.');
+    const notebookId = line(input.task?.notebookId, 120);
+    if (!agentId && !notebookId) throw new Error('Choose the agent or the notebook to run.');
     const factors = cleanFactors(input.factors);
     const repeats = int(input.repeats, 1, EXPERIMENT_MAX_REPEATS, 2);
     const conditions = experimentConditions(factors).length;
@@ -401,12 +436,13 @@ export class ExperimentStore {
     const scorers = cleanScorers(input.scorers);
     const judges = scorers.filter((x) => x.kind === 'judge').length;
     const runs = conditions * repeats * (1 + judges);
+    if (notebookId && conditions * repeats > EXPERIMENT_MAX_COPIES) throw new Error(`That is ${String(conditions * repeats)} copies of the notebook a pass; ${String(EXPERIMENT_MAX_COPIES)} at most, since each is a whole notebook. Use fewer repeats or versions.`);
     if (runs > EXPERIMENT_MAX_RUNS) throw new Error(`That is ${String(runs)} runs a pass${judges ? ' (each judge reads every result)' : ''}; ${String(EXPERIMENT_MAX_RUNS)} at most, since each is the whole agent. Use fewer repeats, versions or judges.`);
     let id = slug(name, 'experiment');
     for (let n = 2; this.get(id); n++) id = `${slug(name, 'experiment').slice(0, 36).replace(/-+$/, '')}-${String(n)}`;
     const now = new Date().toISOString();
     this.db.prepare(`INSERT INTO experiments (id, name, question, kind, task_json, inputs_json, factors_json, repeats, scorers_json, created_at, updated_at)
-      VALUES (?, ?, ?, 'outputs', ?, ?, ?, ?, ?, ?, ?)`).run(id, name, text(input.question, 1000), JSON.stringify({ agentId }), JSON.stringify(cleanInputs(input.inputs)), JSON.stringify(factors), repeats, JSON.stringify(scorers), now, now);
+      VALUES (?, ?, ?, 'outputs', ?, ?, ?, ?, ?, ?, ?)`).run(id, name, text(input.question, 1000), JSON.stringify(notebookId ? { agentId: '', notebookId, title: line(input.task?.title, 200) } : { agentId }), JSON.stringify(cleanInputs(input.inputs)), JSON.stringify(factors), repeats, JSON.stringify(scorers), now, now);
     return this.get(id)!;
   }
 
@@ -442,7 +478,7 @@ export class ExperimentStore {
       repeat: Number(r.repeat), status: String(r.status) as ExperimentCellStatus,
       ...opt('runId', r.run_id), ...(r.agent_version !== null && r.agent_version !== undefined ? { agentVersion: Number(r.agent_version) } : {}),
       ...opt('usedProvider', r.used_provider), ...opt('usedModel', r.used_model),
-      ...(items ? { items } : {}), ...opt('error', r.error),
+      ...(items ? { items } : {}), ...opt('error', r.error), ...opt('notebookId', r.notebook_id), ...opt('note', r.note),
       ...(r.cost_usd !== null && r.cost_usd !== undefined ? { costUsd: Number(r.cost_usd) } : {}),
       ...opt('startedAt', r.started_at), ...opt('finishedAt', r.finished_at),
     };
@@ -506,7 +542,7 @@ export class ExperimentStore {
   }
 
   /** How a cell ended (or which run it is making). */
-  updateCell(cellId: string, patch: Partial<Pick<ExperimentCell, 'status' | 'runId' | 'agentVersion' | 'usedProvider' | 'usedModel' | 'items' | 'error' | 'costUsd'>>): void {
+  updateCell(cellId: string, patch: Partial<Pick<ExperimentCell, 'status' | 'runId' | 'agentVersion' | 'usedProvider' | 'usedModel' | 'items' | 'error' | 'costUsd' | 'notebookId' | 'note'>>): void {
     const sets: string[] = [];
     const vals: Array<string | number | null> = [];
     const set = (col: string, v: string | number | null | undefined) => { if (v !== undefined) { sets.push(`${col} = ?`); vals.push(v); } };
@@ -518,6 +554,8 @@ export class ExperimentStore {
     set('items_json', patch.items ? JSON.stringify(patch.items) : undefined);
     set('error', patch.error === undefined ? undefined : patch.error.slice(0, 500));
     set('cost_usd', patch.costUsd);
+    set('notebook_id', patch.notebookId);
+    set('note', patch.note === undefined ? undefined : patch.note.slice(0, 600));
     if (patch.status && patch.status !== 'running' && patch.status !== 'todo') set('finished_at', new Date().toISOString());
     if (!sets.length) return;
     this.db.prepare(`UPDATE experiment_cells SET ${sets.join(', ')} WHERE id = ?`).run(...vals, cellId);

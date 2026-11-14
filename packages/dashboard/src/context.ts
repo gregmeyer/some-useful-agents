@@ -318,6 +318,8 @@ export interface DashboardContext {
   notebookGivenReads?: Map<string, import('./lib/notebook-given-read.js').GivenReadState>;
   /** Experiment passes running in this process, by pass id (lib/experiment-runner.ts). */
   experimentPasses?: Map<string, import('./lib/experiment-runner.js').ExperimentPassState>;
+  /** Notebook copies an experiment is running, by notebook id: how each step's agent is swapped for that copy (lib/experiment-copy-agent.ts). */
+  experimentCopies?: Map<string, import('./lib/experiment-copy-agent.js').CopySwap>;
   /** Tests only: what an experiment's agent run produced for one cell, instead of running it. */
   experimentTaskRun?: (inputs: Record<string, string>, at: { conditionId: string; repeat: number }) => Promise<string | undefined>;
   /** Tests only: an experiment judge's answer for one result, instead of running the judge. */

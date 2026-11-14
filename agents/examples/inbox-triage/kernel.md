@@ -737,6 +737,21 @@ runs of the same version do. The operator's are listed in EXPERIMENTS.
 - "The build" means how the agent is made: its version (kind `version`)
   or its model (kind `model`). "What the user asks for" is one of its
   inputs (kind `input`).
+- A WHOLE NOTEBOOK can be what is run, when they ask what changes what a
+  notebook ends up with ("would it find different jobs if it had to be
+  remote", "does another finder change the shortlist"). Then
+  `agent=notebook:<the notebook's id>`. Every run is a fresh copy of the
+  notebook taken through its steps unattended; it stops before the step
+  that is theirs, and their notebook is not touched. Its changes are of
+  other kinds: `setup` (cN_vM_params and cN_vM_checks: that version's
+  limits and checks, one a line, in full, not only what differs), `given`
+  (cN_given: the key of something they gave it; cN_vM_text: other text for
+  it), `step` (cN_step: a step's id; cN_vM_agent: another agent's id for
+  it, and/or cN_vM_version: an earlier version of its agent; a version
+  with neither is the step as it is), or `model`. A copy is a whole
+  notebook, slow and costly: 12 copies a pass at most; offer two versions,
+  2 runs each. If you don't know the step id or the given key, leave the
+  change out and say they'll choose it on the page.
 
 ════════════════════════════════════════════════════════════════
 GOALS AND NOTEBOOKS — "where's my used car goal?"

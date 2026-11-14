@@ -6,7 +6,7 @@
  * counted from the stored runs (experimentPageData); a reader repeats it,
  * it does not re-derive it.
  */
-import { experimentConditions, passProgress, type Experiment, type ExperimentCell, type ExperimentPass, type ExperimentScore, type ExperimentStore } from './experiments.js';
+import { experimentConditions, experimentSubject, passProgress, type Experiment, type ExperimentCell, type ExperimentPass, type ExperimentScore, type ExperimentStore } from './experiments.js';
 import { experimentPageData } from './experiment-notebook.js';
 
 export const EXPERIMENT_READ_PARTS = ['all', 'finding', 'setup', 'conditions', 'items', 'runs'] as const;
@@ -49,6 +49,10 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 const levelSays = (l: Experiment['factors'][number]['levels'][number]) => [
   l.version !== undefined ? `agent version ${String(l.version)}` : '',
   l.provider || l.model ? `runs on ${[l.provider, l.model].filter(Boolean).join(' ')}` : '',
+  l.step ? `step ${l.step.id} done by ${l.step.agentId || 'sua\'s own agent'}` : '',
+  l.params ? `limits: ${l.params.join('; ') || 'none'}` : '',
+  l.checks ? `checks: ${l.checks.join('; ') || 'none'}` : '',
+  ...Object.entries(l.given ?? {}).map(([k, v]) => `given ${k}: "${clip(v, 200)}"`),
   ...Object.entries(l.inputs ?? {}).map(([k, v]) => `${k} = "${clip(v, 300)}"`),
 ].filter(Boolean);
 
@@ -66,7 +70,7 @@ export function experimentReadoutJson(r: ExperimentRead, part: ExperimentReadPar
     ...(want('finding') ? { finding: ran ? { found: d.headline.replace(/\*\*/g, ''), restsOn: d.rests, figures: d.figures.map((f) => ({ what: f.label, value: f.value, ...(f.sub ? { detail: f.sub } : {}) })) } : { found: 'Nothing has run yet, so it has found nothing.' } } : {}),
     ...(want('setup') ? {
       setup: {
-        runs: e.task.agentId, timesEach: e.repeats, ask: e.inputs,
+        runs: experimentSubject(e), ...(e.task.notebookId ? { notebook: `/notebooks/${encodeURIComponent(e.task.notebookId)}` } : {}), timesEach: e.repeats, ask: e.inputs,
         changes: e.factors.map((f) => ({ name: f.name, versions: f.levels.map((l) => ({ name: l.name, ...(l.inputs ? { inputs: l.inputs } : {}), ...(l.provider ? { provider: l.provider } : {}), ...(l.model ? { model: l.model } : {}), ...(l.version !== undefined ? { agentVersion: l.version } : {}) })) })),
         scoredBy: e.scorers.map((s) => (s.kind === 'found'
           ? { name: s.name, how: `counted: the share of ${String(s.items.length)} named things its results ${s.avoid ? 'leave out' : 'list'}`, things: s.items }
@@ -82,7 +86,7 @@ export function experimentReadoutJson(r: ExperimentRead, part: ExperimentReadPar
     ...(want('runs') ? {
       runs: {
         made: p.total, usable: p.done, unusable: p.invalid + p.failed, stopped: p.stopped, ...(p.costUsd ? { costUsd: Math.round(p.costUsd * 1000) / 1000 } : {}),
-        each: cells.map((c) => ({ version: conditions.find((x) => x.id === c.conditionId)?.name ?? c.conditionId, run: c.repeat, status: c.status, ...(c.items ? { listed: c.items.length } : {}), ...(c.runId ? { runId: c.runId } : {}), ...(c.error ? { why: c.error } : {}) })),
+        each: cells.map((c) => ({ version: conditions.find((x) => x.id === c.conditionId)?.name ?? c.conditionId, run: c.repeat, status: c.status, ...(c.items ? { listed: c.items.length } : {}), ...(c.runId ? { runId: c.runId } : {}), ...(c.notebookId ? { copy: `/notebooks/${encodeURIComponent(c.notebookId)}` } : {}), ...(c.note ? { note: c.note } : {}), ...(c.error ? { why: c.error } : {}) })),
       },
     } : {}),
   };
@@ -108,9 +112,12 @@ export function experimentReadoutText(r: ExperimentRead, part: ExperimentReadPar
   }
   if (want('setup')) {
     out.push('', '## How it is set up');
-    out.push(`Runs the whole of ${e.task.agentId}, ${String(e.repeats)} ${e.repeats === 1 ? 'time' : 'times'} for each version, and compares what each run's output lists.`);
     const ask = Object.entries(e.inputs);
-    out.push(ask.length ? `The ask, the same for every run: ${ask.map(([k, v]) => `${k} = "${clip(v, 300)}"`).join('; ')}.` : 'The ask: the agent as it runs with no inputs given.');
+    if (e.task.notebookId) out.push(`Runs a fresh copy of the notebook "${experimentSubject(e)}" (/notebooks/${e.task.notebookId}) through its steps, ${String(e.repeats)} ${e.repeats === 1 ? 'time' : 'times'} for each version, and compares the options each copy is left with. Its setup is the same for every copy but for what is changed.`);
+    else {
+      out.push(`Runs the whole of ${e.task.agentId}, ${String(e.repeats)} ${e.repeats === 1 ? 'time' : 'times'} for each version, and compares what each run's output lists.`);
+      out.push(ask.length ? `The ask, the same for every run: ${ask.map(([k, v]) => `${k} = "${clip(v, 300)}"`).join('; ')}.` : 'The ask: the agent as it runs with no inputs given.');
+    }
     for (const f of e.factors) {
       out.push(`Changes ${f.name.toLowerCase()}:`);
       for (const l of f.levels) { const says = levelSays(l); out.push(`- ${l.name}: ${says.length ? says.join('; ') : 'the agent as it is'}`); }

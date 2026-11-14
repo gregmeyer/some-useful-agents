@@ -11,6 +11,9 @@
  * use no other; a run that still used another is invalid, not counted. A
  * run whose output has no list sua can read is invalid too.
  */
+import { isYourStep } from './notebook-steps.js';
+import { suaStepAgent } from './notebook-step-agents.js';
+import { notebookUntestable, runNotebookCopy } from './experiment-notebook-run.js';
 import { randomUUID } from 'node:crypto';
 import {
   ExperimentStore, NotebookStore, SYSTEM_AGENT_IDS, agentForCondition, cleanJudgement, conditionLevels, conditionSettings, executeAgentDag, experimentAgentId, experimentAgentOf, experimentConditions,
@@ -80,6 +83,44 @@ export interface TestableAgent {
   /** Its latest completed run lists items sua can read (so its results can be compared). */
   lists?: number;
   costPerRun?: number;
+}
+
+/** A notebook an experiment can run copies of, as the setup page needs it. */
+export interface TestableNotebook {
+  id: string; title: string; statement: string; params: string[]; checks: string[];
+  given: Array<{ key: string; label: string }>;
+  /** The steps sua runs, in order, each with who does it now. */
+  steps: Array<{ id: string; title: string; kind: string; agent?: string; agentVersion?: number }>;
+  /** The first step that is yours, where a copy stops. */
+  stopsAt?: string;
+  /** Options in it now. */
+  options: number;
+}
+
+/** The operator's notebooks that have steps sua runs (not archived, not an experiment's), the latest first. */
+export function testableNotebooks(ctx: Ctx): TestableNotebook[] {
+  const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const out: TestableNotebook[] = [];
+  for (const nb of nbs.list()) {
+    if (notebookUntestable(nb)) continue;
+    const all = nb.steps ?? [];
+    const yours = all.find((s) => isYourStep(s));
+    const steps = (yours ? all.slice(0, all.indexOf(yours)) : all).filter((s) => !isYourStep(s)).map((s) => {
+      const agent = s.agentId ?? suaStepAgent(s.kind);
+      const version = agent ? ctx.agentStore.getAgent(agent)?.version : undefined;
+      return { id: s.id, title: s.title, kind: s.kind, ...(agent ? { agent } : {}), ...(version !== undefined ? { agentVersion: version } : {}) };
+    });
+    if (!steps.length) continue;
+    let options = 0;
+    try { options = nbs.entries(nb.id, 1000).filter((x) => x.kind === 'option' && !x.ruledOut).length; } catch { options = 0; }
+    out.push({
+      id: nb.id, title: nb.title, statement: nb.statement.slice(0, 600), params: [...nb.params], checks: [...nb.checks],
+      given: (nb.given ?? []).filter((g) => g.state === 'given' && g.text).map((g) => ({ key: g.key, label: g.label })),
+      steps, ...(yours ? { stopsAt: yours.title } : {}), options,
+    });
+    if (out.length === 60) break;
+  }
+  return out;
 }
 
 /** The operator's own agents (not sua's, not an experiment's copies), the most run first. */
@@ -173,6 +214,15 @@ export function cellInputs(agent: Pick<Agent, 'inputs'> | undefined, ask: Record
 }
 
 async function runCell(ctx: Ctx, store: ExperimentStore, state: ExperimentPassState, e: Experiment, cell: ExperimentCell): Promise<void> {
+  if (e.task.notebookId) {
+    // A notebook experiment: the cell is a whole copy of the notebook, run through its steps.
+    const out = await runNotebookCopy(ctx, store, e, cell, () => state.stop);
+    const common = { ...(out.notebookId ? { notebookId: out.notebookId } : {}), ...(out.note ? { note: out.note } : {}) };
+    if (out.status !== 'done') { store.updateCell(cell.id, { ...common, status: out.status, error: out.error ?? 'It did not finish.' }); return; }
+    store.updateCell(cell.id, { ...common, status: 'done', items: out.items ?? [] });
+    await judgeCell(ctx, store, state, e, cell, out.items ?? [], out.asked);
+    return;
+  }
   const condition = experimentConditions(e.factors).find((x) => x.id === cell.conditionId);
   if (!condition) { store.updateCell(cell.id, { status: 'failed', error: 'Its version is no longer part of the experiment.' }); return; }
   const levels = conditionLevels(e.factors, condition);
@@ -245,8 +295,11 @@ export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resu
   if (!e) return { started: false, reason: 'No such experiment.' };
   if (e.archivedAt) return { started: false, reason: 'It is archived. Restore it to run it.' };
   if (runningPass(ctx, experimentId)) return { started: false, reason: 'It is already running.' };
-  const agent = ctx.agentStore.getAgent(e.task.agentId);
-  if (!agent && !ctx.experimentTaskRun) return { started: false, reason: `Its agent, ${e.task.agentId}, isn't installed.` };
+  const agent = e.task.notebookId ? undefined : ctx.agentStore.getAgent(e.task.agentId);
+  if (e.task.notebookId) {
+    const why = notebookUntestable(NotebookStore.fromHandle(ctx.runStore.databaseHandle()).get(e.task.notebookId));
+    if (why) return { started: false, reason: why };
+  } else if (!agent && !ctx.experimentTaskRun) return { started: false, reason: `Its agent, ${e.task.agentId}, isn't installed.` };
   let pass: ExperimentPass | undefined;
   if (opts.resume) {
     pass = store.getPass(opts.resume);
