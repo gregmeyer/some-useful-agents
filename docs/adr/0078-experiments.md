@@ -22,6 +22,13 @@ The fail mode: **a notebook has no way to say "run the same thing several ways a
 - **The measures are counted in code** (`core/src/experiment-measures.ts`): how many of the top K two rankings share, and how many places an item moves. Repeats of one condition give the run-to-run variation. A factor's effect is the average over pairs of conditions that differ in that factor alone. An effect is reported as real only when it is larger than the largest difference seen between two repeats of the same condition; with no repeats, nothing is concluded. The sentence a page shows (`verdictWords`) is built from these numbers and always states the sample and that it holds for those sets only.
 - **Experiment runs stay out of the agent's own life.** A condition runs an unsaved copy of the agent under the id `experiment--<agent>` (`core/src/experiment-conditions.ts`), with `triggeredBy: 'experiment'`. Every lookup keyed by the agent's id (its last result, its view history, its daily spend limit, its state folder) therefore never sees them.
 
+**Scores sit beside the comparison, not in place of it** (added with scorers). Comparing rankings says which conditions differ; it cannot say which is better. An experiment may carry up to three scorers:
+
+- `top`, counted in code: the share of named items in a result's top K.
+- `judge`: the `experiment-judge` agent reads one result against a rubric and returns 0 to 1 with a reason and the items it rests on. It is given the rubric, items, preferences and ranking, **never the build's instructions**, so it is blind to the condition. `cleanJudgement` rejects an answer without a number in range, a reason, or at least one cited item that is in the set; one retry, then the result stands unscored by that judge.
+- Judges' runs count toward a pass's 60. Scores are reported per condition as a mean with the range; no "beyond noise" claim is made for them.
+- A judge as the thing under test (does the judge's own wording or model change its verdicts) is approached by putting two judges with the same rubric and different models side by side. An experiment whose task returns a score, not a ranking, would need a second `kind` and is not built.
+
 ## Alternatives
 
 - **A new notebook step kind.** Cheaper, but a notebook's options change as searches run, its steps run once in a line and pause for the person, its checks are per option, and the result could not be rerun as the agent changed. It would also have touched about thirty places that switch on step kind.

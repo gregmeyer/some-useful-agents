@@ -56,6 +56,9 @@
 .exp-table .exp-n { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
 .exp-table thead .exp-n { white-space: normal; }
 .exp-table .exp-n--strong { font-weight: var(--weight-semibold); }
+.exp-range { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.exp-cell__score { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); }
+.exp-judge { margin-top: var(--space-3); }
 .exp-cell__why { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .exp-fold { margin-top: var(--space-3); }
 .exp-fold > summary { cursor: pointer; color: var(--color-text-muted); font-size: var(--font-size-sm); margin-bottom: var(--space-3); }

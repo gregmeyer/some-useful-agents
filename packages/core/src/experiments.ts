@@ -34,6 +34,7 @@ export const EXPERIMENT_MAX_CASES = 5;
 export const EXPERIMENT_MAX_ITEMS = 60;
 /** Runs one pass may make, at most (cases × conditions × repeats). */
 export const EXPERIMENT_MAX_RUNS = 60;
+export const EXPERIMENT_MAX_SCORERS = 3;
 
 /** One thing in a case: what is ranked. Facts are short strings by label. */
 export interface ExperimentItem { id: string; title: string; facts: Record<string, string> }
@@ -55,6 +56,21 @@ export interface ExperimentLevel {
 export interface ExperimentFactor { id: string; name: string; levels: ExperimentLevel[] }
 export type ExperimentCondition = MeasuredCondition;
 
+/**
+ * How each result is scored, beside how the results compare (ADR-0078).
+ * - `top`: counted in code. The share of the named items that are in the
+ *   result's top K ("these three should be near the top").
+ * - `judge`: a model reads one result against a rubric written in plain
+ *   words and gives 0 to 1 with a reason. It sees the items, the person's
+ *   preferences and the ranking; never which build made it.
+ */
+export type ExperimentScorer =
+  | { id: string; name: string; kind: 'top'; items: string[]; k: number }
+  | { id: string; name: string; kind: 'judge'; rubric: string; provider?: string; model?: string };
+
+/** One result's score from one scorer. */
+export interface ExperimentScore { cellId: string; scorerId: string; value?: number; reason?: string; cites?: string[]; runId?: string; error?: string }
+
 export type ExperimentCellStatus = 'todo' | 'running' | 'done' | 'invalid' | 'failed' | 'stopped';
 
 export interface Experiment {
@@ -68,6 +84,8 @@ export interface Experiment {
   factors: ExperimentFactor[];
   repeats: number;
   topK: number;
+  /** How each result is scored (none: results are only compared with each other). */
+  scorers: ExperimentScorer[];
   /** The notebook its cases were copied from, when they were. */
   from?: { notebookId: string; title: string };
   createdAt: string;
@@ -106,6 +124,7 @@ export interface NewExperiment {
   cases: unknown;
   repeats?: number;
   topK?: number;
+  scorers?: unknown;
   from?: { notebookId: string; title: string };
 }
 
@@ -245,9 +264,90 @@ export function cleanRanking(raw: unknown, items: readonly Pick<ExperimentItem, 
   return { ranking: [...seen] };
 }
 
-/** How many runs one pass makes. */
-export function experimentRunCount(e: Pick<Experiment, 'factors' | 'repeats'>, cases: number): number {
-  return cases * experimentConditions(e.factors).length * e.repeats;
+/**
+ * Scorers as kept: up to three. A `top` scorer keeps only ids that are items
+ * of a case and needs at least one; a `judge` needs a rubric. Pure.
+ */
+export function cleanScorers(raw: unknown, cases: readonly ExperimentCase[] = [], topK = 5): ExperimentScorer[] {
+  const out: ExperimentScorer[] = [];
+  const ids = new Set<string>();
+  const known = new Set(cases.flatMap((c) => c.items.map((i) => i.id)));
+  for (const x of Array.isArray(raw) ? raw : []) {
+    if (!x || typeof x !== 'object') continue;
+    const r = x as Record<string, unknown>;
+    const name = line(r.name, 60);
+    if (r.kind === 'top') {
+      const items = [...new Set((Array.isArray(r.items) ? r.items : []).map((i) => (typeof i === 'string' ? i : '')).filter((i) => (cases.length ? known.has(i) : !!i)))].slice(0, 20);
+      if (!items.length) continue;
+      const k = int(r.k, 1, 60, topK);
+      out.push({ id: unique(slug(typeof r.id === 'string' && r.id ? r.id : name || 'in-the-top', 'top'), ids), name: name || `In the top ${String(k)}`, kind: 'top', items, k });
+    } else if (r.kind === 'judge') {
+      const rubric = text(r.rubric, 2000);
+      if (!rubric) continue;
+      const provider = line(r.provider, 40);
+      const model = line(r.model, 80);
+      out.push({ id: unique(slug(typeof r.id === 'string' && r.id ? r.id : name || 'judge', 'judge'), ids), name: name || 'Judge', kind: 'judge', rubric, ...(provider ? { provider } : {}), ...(model ? { model } : {}) });
+    }
+    if (out.length === EXPERIMENT_MAX_SCORERS) break;
+  }
+  return out;
+}
+
+/** A `top` scorer's score for one ranking: the share of its items in the first K. Pure. */
+export function topScore(scorer: Extract<ExperimentScorer, { kind: 'top' }>, ranking: readonly string[]): number {
+  const top = new Set(ranking.slice(0, scorer.k));
+  const mine = scorer.items.filter((id) => ranking.includes(id));
+  return mine.length ? mine.filter((id) => top.has(id)).length / mine.length : 0;
+}
+
+/**
+ * A judge's answer as a score, or why it can't be used: a number from 0 to
+ * 1, a reason, and at least one item it points to, each one of the case's
+ * (a judge that cites nothing, or something not in the result, is not
+ * taken on trust). Pure.
+ */
+export function cleanJudgement(raw: unknown, items: readonly Pick<ExperimentItem, 'id'>[]): { value: number; reason: string; cites: string[] } | { error: string } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'It gave no score object.' };
+  const r = raw as Record<string, unknown>;
+  const value = typeof r.score === 'number' ? r.score : Number.NaN;
+  if (!Number.isFinite(value) || value < 0 || value > 1) return { error: 'Its score is not a number from 0 to 1.' };
+  const reason = line(r.reason, 400);
+  if (!reason) return { error: 'It gave no reason.' };
+  const known = new Set(items.map((i) => i.id));
+  const cites = [...new Set((Array.isArray(r.cites) ? r.cites : []).map((c) => (typeof c === 'string' ? c.trim() : '')))].filter(Boolean);
+  if (!cites.length) return { error: 'It cites no item. Name the ids of the items its reason rests on.' };
+  const unknown = cites.find((c) => !known.has(c));
+  if (unknown) return { error: `It cites "${unknown.slice(0, 40)}", which is not one of the items' ids.` };
+  return { value, reason, cites: cites.slice(0, 10) };
+}
+
+/** How many runs one pass makes: one of the task per case, condition and repeat, and one more for each judge. */
+export function experimentRunCount(e: Pick<Experiment, 'factors' | 'repeats'> & { scorers?: readonly ExperimentScorer[] }, cases: number): number {
+  const judges = (e.scorers ?? []).filter((s) => s.kind === 'judge').length;
+  return cases * experimentConditions(e.factors).length * e.repeats * (1 + judges);
+}
+
+/** One scorer's scores for one condition, over that condition's results. */
+export interface ScoreSummary { scorerId: string; conditionId: string; mean: number; min: number; max: number; n: number }
+
+/**
+ * Each scorer's average for each condition (with the lowest and highest
+ * seen): `top` scorers counted here from the rankings, judges from their
+ * stored scores. Pure.
+ */
+export function scoreSummaries(scorers: readonly ExperimentScorer[], cells: readonly Pick<ExperimentCell, 'id' | 'conditionId' | 'status' | 'ranking'>[], scores: readonly ExperimentScore[]): ScoreSummary[] {
+  const out: ScoreSummary[] = [];
+  const done = cells.filter((c) => c.status === 'done' && c.ranking);
+  for (const s of scorers) {
+    for (const conditionId of [...new Set(done.map((c) => c.conditionId))]) {
+      const mine = done.filter((c) => c.conditionId === conditionId);
+      const values = s.kind === 'top'
+        ? mine.map((c) => topScore(s, c.ranking!))
+        : mine.flatMap((c) => { const sc = scores.find((x) => x.cellId === c.id && x.scorerId === s.id); return sc?.value !== undefined ? [sc.value] : []; });
+      if (values.length) out.push({ scorerId: s.id, conditionId, mean: values.reduce((a, b) => a + b, 0) / values.length, min: Math.min(...values), max: Math.max(...values), n: values.length });
+    }
+  }
+  return out;
 }
 
 export class ExperimentStore {
@@ -327,7 +427,22 @@ export class ExperimentStore {
         finished_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_experiment_cells_pass ON experiment_cells(pass_id);
+      CREATE TABLE IF NOT EXISTS experiment_scores (
+        cell_id TEXT NOT NULL,
+        scorer_id TEXT NOT NULL,
+        pass_id TEXT NOT NULL,
+        value REAL,
+        reason TEXT,
+        cites_json TEXT,
+        run_id TEXT,
+        error TEXT,
+        PRIMARY KEY (cell_id, scorer_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_experiment_scores_pass ON experiment_scores(pass_id);
     `);
+    for (const [table, col] of [['experiments', "scorers_json TEXT NOT NULL DEFAULT '[]'"]] as const) {
+      try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
+    }
   }
 
   private row(r: Record<string, unknown>): Experiment {
@@ -337,6 +452,7 @@ export class ExperimentStore {
       id: String(r.id), name: String(r.name), question: String(r.question ?? ''), kind: 'ranking',
       task: json(r.task_json, { agentId: '' }), factors: cleanFactors(json(r.factors_json, [])),
       repeats: Number(r.repeats), topK: Number(r.top_k),
+      scorers: cleanScorers(json(r.scorers_json, []), [], Number(r.top_k)),
       ...(from?.notebookId ? { from } : {}),
       createdAt: String(r.created_at), updatedAt: String(r.updated_at),
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
@@ -358,18 +474,20 @@ export class ExperimentStore {
     const repeats = int(input.repeats, 1, EXPERIMENT_MAX_REPEATS, 3);
     const conditions = experimentConditions(factors).length;
     if (conditions > EXPERIMENT_MAX_CONDITIONS) throw new Error(`That is ${String(conditions)} conditions; ${String(EXPERIMENT_MAX_CONDITIONS)} at most. Use fewer factors or levels.`);
-    const runs = cases.length * conditions * repeats;
-    if (runs > EXPERIMENT_MAX_RUNS) throw new Error(`That is ${String(runs)} runs a pass; ${String(EXPERIMENT_MAX_RUNS)} at most. Use fewer repeats, levels or sets.`);
     const smallest = Math.min(...cases.map((c) => c.items.length));
     const topK = int(input.topK, 1, Math.max(1, smallest - 1), Math.min(5, Math.max(1, smallest - 1)));
+    const scorers = cleanScorers(input.scorers, cases, topK);
+    const judges = scorers.filter((x) => x.kind === 'judge').length;
+    const runs = cases.length * conditions * repeats * (1 + judges);
+    if (runs > EXPERIMENT_MAX_RUNS) throw new Error(`That is ${String(runs)} runs a pass${judges ? ' (each judge reads every result)' : ''}; ${String(EXPERIMENT_MAX_RUNS)} at most. Use fewer repeats, levels, sets or judges.`);
     let id = slug(name, 'experiment');
     for (let n = 2; this.get(id); n++) id = `${slug(name, 'experiment').slice(0, 36)}-${String(n)}`;
     const now = new Date().toISOString();
     const from = input.from?.notebookId ? { notebookId: line(input.from.notebookId, 120), title: line(input.from.title, 200) } : undefined;
     this.db.exec('BEGIN');
     try {
-      this.db.prepare(`INSERT INTO experiments (id, name, question, kind, task_json, factors_json, repeats, top_k, from_json, created_at, updated_at)
-        VALUES (?, ?, ?, 'ranking', ?, ?, ?, ?, ?, ?, ?)`).run(id, name, text(input.question, 1000), JSON.stringify({ agentId }), JSON.stringify(factors), repeats, topK, from ? JSON.stringify(from) : null, now, now);
+      this.db.prepare(`INSERT INTO experiments (id, name, question, kind, task_json, factors_json, repeats, top_k, from_json, scorers_json, created_at, updated_at)
+        VALUES (?, ?, ?, 'ranking', ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, name, text(input.question, 1000), JSON.stringify({ agentId }), JSON.stringify(factors), repeats, topK, from ? JSON.stringify(from) : null, JSON.stringify(scorers), now, now);
       const ins = this.db.prepare('INSERT INTO experiment_cases (experiment_id, id, position, name, items_json) VALUES (?, ?, ?, ?, ?)');
       cases.forEach((c, i) => ins.run(id, c.id, i, c.name, JSON.stringify(c.items)));
       this.db.exec('COMMIT');
@@ -535,6 +653,33 @@ export class ExperimentStore {
       this.db.prepare('UPDATE experiment_passes SET finished_at = ?, note = ? WHERE id = ?').run(now, 'Cut off by a restart.', r.pass_id);
     }
     return rows.map((r) => r.pass_id);
+  }
+
+  /** Keep one result's score from one scorer (replacing an earlier one). */
+  setScore(passId: string, score: ExperimentScore): void {
+    this.db.prepare(`INSERT INTO experiment_scores (cell_id, scorer_id, pass_id, value, reason, cites_json, run_id, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(cell_id, scorer_id) DO UPDATE SET value = excluded.value, reason = excluded.reason, cites_json = excluded.cites_json, run_id = excluded.run_id, error = excluded.error`)
+      .run(score.cellId, score.scorerId, passId, score.value ?? null, score.reason ? score.reason.slice(0, 400) : null, score.cites ? JSON.stringify(score.cites) : null, score.runId ?? null, score.error ? score.error.slice(0, 300) : null);
+  }
+
+  /** A result's scores are dropped when it is run again. */
+  clearScores(cellId: string): void {
+    this.db.prepare('DELETE FROM experiment_scores WHERE cell_id = ?').run(cellId);
+  }
+
+  /** A pass's stored scores (judges'; `top` scorers are counted from the rankings). */
+  scores(passId: string): ExperimentScore[] {
+    const rows = this.db.prepare('SELECT * FROM experiment_scores WHERE pass_id = ?').all(passId) as Array<Record<string, unknown>>;
+    return rows.map((r) => {
+      let cites: string[] | undefined;
+      try { const v = r.cites_json ? JSON.parse(String(r.cites_json)) as unknown : undefined; if (Array.isArray(v)) cites = v.map(String); } catch { /* none */ }
+      return {
+        cellId: String(r.cell_id), scorerId: String(r.scorer_id),
+        ...(r.value !== null && r.value !== undefined ? { value: Number(r.value) } : {}),
+        ...(r.reason ? { reason: String(r.reason) } : {}), ...(cites ? { cites } : {}),
+        ...(r.run_id ? { runId: String(r.run_id) } : {}), ...(r.error ? { error: String(r.error) } : {}),
+      };
+    });
   }
 
   finishPass(passId: string, note?: string): void {

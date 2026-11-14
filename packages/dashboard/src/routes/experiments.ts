@@ -6,8 +6,8 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  ExperimentStore, NotebookStore, experimentConditions, experimentRunCount, experimentVerdict, notebookViewData,
-  EXPERIMENT_MAX_LEVELS, type Experiment,
+  ExperimentStore, NotebookStore, cleanCases, experimentConditions, experimentRunCount, experimentVerdict, notebookViewData, scoreSummaries,
+  EXPERIMENT_MAX_LEVELS, type Experiment, type ExperimentCase,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
@@ -36,6 +36,8 @@ export function experimentStanding(ctx: Ctx, e: Experiment): ExperimentStanding 
     running: !!runningPass(ctx, e.id),
     ...(pass ? { pass } : {}),
     cells,
+    scores: pass ? s.scores(pass.id) : [],
+    summaries: pass ? scoreSummaries(e.scorers, cells, s.scores(pass.id)) : [],
     ...(pass ? { verdict: experimentVerdict({ factors: e.factors, conditions: experimentConditions(e.factors), cells: ranked, topK: e.topK }) } : {}),
   };
 }
@@ -61,6 +63,32 @@ export function factorsFromForm(body: Record<string, unknown>): unknown[] {
       });
     }
     if (name && levels.length) out.push({ name, levels });
+  }
+  return out;
+}
+
+/**
+ * The scorers the new-experiment form describes: items that should be near
+ * the top (lines, each part of an item's title) and up to two judges.
+ * Throws when a line matches no item, so a typo isn't silently dropped.
+ */
+export function scorersFromForm(body: Record<string, unknown>, cases: readonly ExperimentCase[]): unknown[] {
+  const out: unknown[] = [];
+  const wanted = str(body.top_items).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (wanted.length) {
+    const all = cases.flatMap((c) => c.items);
+    const ids: string[] = [];
+    for (const w of wanted) {
+      const hits = all.filter((i) => i.title.toLowerCase().includes(w.toLowerCase()) || i.id === w);
+      if (!hits.length) throw new Error(`"${w}" matches none of the items. Use part of an item's title.`);
+      ids.push(...hits.map((i) => i.id));
+    }
+    out.push({ kind: 'top', name: str(body.top_name).trim() || 'Should be near the top', items: ids });
+  }
+  for (const n of [1, 2]) {
+    const rubric = str(body[`j${String(n)}_rubric`]).trim();
+    if (!rubric) continue;
+    out.push({ kind: 'judge', name: str(body[`j${String(n)}_name`]).trim() || `Judge ${String(n)}`, rubric, provider: str(body[`j${String(n)}_provider`]), model: str(body[`j${String(n)}_model`]) });
   }
   return out;
 }
@@ -102,12 +130,13 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
     const from = str(body.from);
     const frozen = from ? freezeNotebook(ctx, from) : { cases: [caseFromPaste(str(body.paste))] };
     if ('error' in frozen) throw new Error(frozen.error);
+    const cases = cleanCases(frozen.cases);
     const e = store(ctx).create({
       name: str(body.name), question: str(body.question), task: { agentId: str(body.agent) || EXPERIMENT_RANKER_ID },
-      factors: factorsFromForm(body), cases: frozen.cases, repeats: Number(body.repeats) || 3,
+      factors: factorsFromForm(body), cases, repeats: Number(body.repeats) || 3, scorers: scorersFromForm(body, cases),
       ...('from' in frozen ? { from: frozen.from } : {}),
     });
-    const runs = experimentRunCount(e, 1);
+    const runs = experimentRunCount(e, cases.length);
     res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass makes ${String(runs)} ${runs === 1 ? 'run' : 'runs'}. Check the setup below, then press Run.`));
   } catch (err) {
     newPage(req, res, values, err instanceof Error ? err.message : String(err));
