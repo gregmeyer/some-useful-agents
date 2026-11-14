@@ -772,6 +772,7 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/picture': 'The notebook\'s TL;DR picture ({src, alt, href, caption}: Picture picture): one image of the best lead or who it\'s about, the numbers and the options, as it was last redrawn. Always there.',
   '/notebook/numbers/lead': 'The deciding field\'s numbers ({best, high, low, count}: the same as /notebook/numbers/<leadField>): a fixed path for a page that can\'t know the field\'s key (the ready-made shortlist and watch).',
   '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out. A diagram with what-ifs (the written part says "whatIf") draws its own sliders; nothing to add.',
+  '/notebook/experiment': 'For a notebook that shows an experiment (ADR-0078): {label, headline, rests, figures: [{label, value, sub, tone?}] (StatStrip), conditions, changes and items (Table rows), href, runs}. Counted from the experiment\'s runs; empty rows before it has run.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
   '/notebook/planIntro/text': 'The plan in a sentence or two; before then, where the notebook stands (Callout text).',

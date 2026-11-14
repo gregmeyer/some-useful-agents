@@ -285,6 +285,8 @@ export function renderExperimentPage(args: {
   costPerRun?: number;
   /** Its agent's name, and whether it is installed. */
   agent?: { name: string; version?: number };
+  /** The notebook that shows it, when it has one. */
+  notebook?: { id: string; title: string };
   flash?: Flash;
 }): string {
   const { e, cases, standing } = args;
@@ -300,6 +302,9 @@ export function renderExperimentPage(args: {
   const unusable = p.invalid + p.failed;
   const titleOf = new Map(cases.flatMap((c) => c.items.map((i) => [i.id, i.title] as const)));
 
+  const inNotebook = args.notebook
+    ? html`<a class="btn" href="/notebooks/${encodeURIComponent(args.notebook.id)}">Open its notebook</a>`
+    : post('notebook', 'Show it in a notebook');
   const actions = e.archivedAt
     ? post('archive', 'Restore', 'btn', html`<input type="hidden" name="restore" value="1">`)
     : standing.running
@@ -307,7 +312,8 @@ export function renderExperimentPage(args: {
       : html`
         ${standing.pass && left ? post('resume', `Go on (${plural(left, 'run')} left)`, 'btn btn--primary') : html``}
         ${standing.pass && !left && unusable ? post('resume', `Try the ${String(unusable)} unusable again`, 'btn', html`<input type="hidden" name="retry" value="1">`) : html``}
-        ${post('run', standing.pass ? 'Run it again' : `Run it (${plural(runs, 'run')}${estimate})`, standing.pass && left ? 'btn' : standing.pass ? 'btn' : 'btn btn--primary')}`;
+        ${post('run', standing.pass ? 'Run it again' : `Run it (${plural(runs, 'run')}${estimate})`, standing.pass ? 'btn' : 'btn btn--primary')}
+        ${inNotebook}`;
 
   const verdictBlock = !standing.pass
     ? html`<section class="exp-verdict exp-verdict--none"><p class="exp-verdict__headline">Not run yet.</p><p class="exp-verdict__sample">A pass makes ${plural(runs, 'run')}: ${plural(conditions.length, 'condition')} × ${plural(e.repeats, 'repeat')}${cases.length > 1 ? ` × ${plural(cases.length, 'set')}` : ''}${estimate}. Two run at a time.</p></section>`

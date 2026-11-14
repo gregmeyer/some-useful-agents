@@ -2,7 +2,7 @@
 
 An experiment answers a question about an agent, not about the world: **what changes its answer, and by how much?** It holds a set of items fixed, runs one agent over that same set under each combination you name, repeats each, and counts how far the results move. The numbers are counted from the runs; no model writes them. ([ADR-0078](adr/0078-experiments.md))
 
-A [notebook](notebooks.md) finds things, checks them against sources and helps you decide. It can supply the set an experiment holds fixed, but it can't run one: its options change as searches run, and nothing in it means "run this several ways and compare".
+A [notebook](notebooks.md) finds things, checks them against sources and helps you decide. It can supply the set an experiment holds fixed, and it can [show an experiment's results](#showing-it-in-a-notebook), but it doesn't run one: its options change as searches run, and nothing in it means "run this several ways and compare".
 
 ## What one is made of
 
@@ -41,6 +41,15 @@ Setting one up runs nothing. Its page shows how many runs a pass makes and, when
 An answer is used only when it ranks every item once and names nothing else. An answer that leaves an item out or invents one gets one more try, told why; after that the run is marked unusable and is not counted. When a level names a provider, the run may use no other; one that still ran elsewhere is unusable.
 
 Experiment runs are kept apart from the agent's own: they are filed under `experiment--<agent>`, so they never become the agent's latest result, never count toward its daily spend limit, and leave nothing in its state or memory. Each is still an ordinary run you can open from **Every run**.
+
+## Showing it in a notebook
+
+**Show it in a notebook** (on the experiment's page) makes a notebook for the experiment, of its own type: its page leads with what the experiment found, then the figures, each condition against the baseline with a column for every score, each change by itself, and where each item landed. The notebook is where you talk to sua about the results; sua is given the finding, the conditions and the item table, counted from the runs.
+
+- **It reads the experiment every time.** Nothing is copied into the notebook, so it never goes stale: run the experiment again and the notebook shows the new pass. An open page redraws as runs come back.
+- **One notebook an experiment.** Asking again opens the one it has; an archived one is restored.
+- **It has no steps and nothing to decide.** Its main button is **Open the experiment**, which is where it is run, stopped and set up. Archiving the notebook leaves the experiment, and the other way round.
+- The experiment's page shows **Open its notebook** once it has one.
 
 ## Judges
 

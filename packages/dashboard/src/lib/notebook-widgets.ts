@@ -13,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { rankBy, rankOptions, isRange,
+import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
@@ -38,6 +38,8 @@ export interface NotebookWidgetHistory extends NotebookViewHistory {
   passes?(notebookId: string, limit?: number): Array<{ runIds: string[]; startedAt?: string; finishedAt?: string; stepId?: string; note?: string }>;
   /** The notebooks an agent works for (a failed run of an agent only this notebook uses is this notebook's). */
   notebooksFedBy?(agentId: string): string[];
+  /** The results of the experiment a notebook shows (ADR-0078), from its latest pass. */
+  experiment?(experimentId: string): import('@some-useful-agents/core').ExperimentPageData | undefined;
 }
 
 /** Words a limit uses for a field's unit ("mi" → "miles"). */
@@ -462,6 +464,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       bands: limitBands(nb),
       summary,
       next,
+      // A notebook that shows an experiment: its results, read from the experiment each time.
+      ...(nb.experimentId ? { experiment: history?.experiment?.(nb.experimentId) ?? missingExperimentData(nb.experimentId) } : {}),
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
       numbers,

@@ -265,4 +265,44 @@ describe('experiments', () => {
     expect(page).toContain('no score: It has no &lt;score&gt; block.');
     expect((await get(app, '/experiments/new')).text).toContain('Score each result <span class="exp-score__opt">optional</span>');
   });
+
+  it('shows its results in a notebook made for it: one notebook, read from the runs, with nothing to decide', async () => {
+    const app = await makeApp();
+    const id = idOf((await post(app, '/experiments', FORM)).headers.location);
+    expect((await get(app, `/experiments/${id}`)).text).toContain('Show it in a notebook');
+    const made = await post(app, `/experiments/${id}/notebook`);
+    const nbId = decodeURIComponent(made.headers.location).split('/notebooks/')[1].split('?')[0];
+    expect(decodeURIComponent(made.headers.location)).toContain('This notebook shows the experiment\'s results as they stand');
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    expect(nbs.get(nbId)).toMatchObject({ title: 'What changes the ranking', statement: 'Build or preferences?', experimentId: id, layoutBy: 'experiment' });
+    // Asking again opens the same one; the experiment's page links to it.
+    expect((await post(app, `/experiments/${id}/notebook`)).headers.location).toContain(`/notebooks/${nbId}?`);
+    expect(nbs.list().filter((n) => n.experimentId === id)).toHaveLength(1);
+    expect((await get(app, `/experiments/${id}`)).text).toContain(`href="/notebooks/${nbId}">Open its notebook</a>`);
+
+    const before = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(before).toContain('Open the experiment</a>');
+    expect(before).not.toContain('Decide…');
+    expect(before).toContain('Ask what the results mean, or what to try next.');
+    expect(before).toContain('Nothing has run yet.');
+
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const items = s.cases(id)[0].items.map((i) => i.id);
+    ctx.experimentTaskRun = async (inputs) => ranking(inputs.INSTRUCTIONS.includes('pay') ? [...items].reverse() : items);
+    const stamp = nbs.get(nbId)!.updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    await post(app, `/experiments/${id}/run`);
+    await settle();
+    // The notebook is told its results moved on, and its page reads them.
+    expect(nbs.get(nbId)!.updatedAt > stamp).toBe(true);
+    const after = (await get(app, `/notebooks/${nbId}`)).text;
+    expect(after).toContain('Build changed the result; preferences did not, beyond run-to-run variation.');
+    expect(after).toContain('places moved by changing build');
+    expect(after).toContain('By letter · Office');
+    // Archiving the notebook leaves the experiment; asking again brings the notebook back.
+    nbs.archive(nbId);
+    expect((await get(app, `/experiments/${id}`)).text).toContain('Show it in a notebook');
+    await post(app, `/experiments/${id}/notebook`);
+    expect(nbs.get(nbId)!.archivedAt).toBeUndefined();
+  });
 });

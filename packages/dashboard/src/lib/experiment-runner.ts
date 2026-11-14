@@ -34,6 +34,15 @@ export interface ExperimentPassState { experimentId: string; startedAt: string; 
 
 const stores = (ctx: Ctx) => ExperimentStore.fromHandle(ctx.runStore.databaseHandle());
 
+/** Tell the notebook that shows an experiment that its results moved on, so an open page redraws. */
+function touchNotebook(ctx: Ctx, experimentId: string): void {
+  try {
+    const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+    const nb = nbs.forExperiment(experimentId);
+    if (nb && !nb.archivedAt) nbs.touch(nb.id);
+  } catch { /* the page shows it when next opened */ }
+}
+
 /** Put the default ranking agent and the judge in the catalog and keep them current (at startup). */
 export function installExperimentRanker(ctx: Ctx): boolean {
   const judge = ensureSystemAgentCurrent(ctx, EXPERIMENT_JUDGE_ID, 'scoring an experiment\'s results against a rubric');
@@ -267,11 +276,13 @@ export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resu
   const state: ExperimentPassState = { experimentId, startedAt: new Date().toISOString(), stop: false, runs: new Set() };
   ctx.experimentPasses ??= new Map();
   ctx.experimentPasses.set(passId, state);
+  touchNotebook(ctx, experimentId);
   const worker = async () => {
     while (!state.stop) {
       const cell = store.claimCell(passId);
       if (!cell) return;
       try { await runCell(ctx, store, state, e, cases, cell); } catch (err) { store.updateCell(cell.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) }); }
+      touchNotebook(ctx, experimentId);
     }
   };
   state.done = Promise.all(Array.from({ length: POOL }, worker)).then(() => undefined, () => undefined).finally(() => {
@@ -280,6 +291,7 @@ export function startExperimentPass(ctx: Ctx, experimentId: string, opts: { resu
       store.finishPass(passId, state.stop ? `Stopped: ${String(p.done)} of ${String(p.total)} run.` : `${String(p.done)} of ${String(p.total)} run${p.invalid + p.failed ? `, ${String(p.invalid + p.failed)} couldn't be used` : ''}.`);
     } catch { /* the cells say how it went */ }
     ctx.experimentPasses?.delete(passId);
+    touchNotebook(ctx, experimentId);
   });
   return { started: true, pass };
 }

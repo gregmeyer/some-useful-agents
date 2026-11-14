@@ -13,6 +13,7 @@ import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderExperimentNew, renderExperimentPage, renderExperimentsList, experimentStateKey, type ExperimentStanding } from '../views/experiments.js';
+import { notebookForExperiment } from '../lib/experiment-notebook.js';
 import { EXPERIMENT_RANKER_ID, caseFromPaste, costPerRun, freezeNotebook, runningPass, startExperimentPass, stopExperimentPass } from '../lib/experiment-runner.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
@@ -168,6 +169,7 @@ experimentsRouter.get('/experiments/:id', (req: Request, res: Response) => {
   res.type('html').send(renderExperimentPage({
     e, cases: s.cases(e.id), standing: experimentStanding(ctx, e),
     ...(cost !== undefined ? { costPerRun: cost } : {}),
+    ...(() => { const nb = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).forExperiment(e.id); return nb && !nb.archivedAt ? { notebook: { id: nb.id, title: nb.title } } : {}; })(),
     ...(agent ? { agent: { name: agent.name, ...(agent.version !== undefined ? { version: agent.version } : {}) } } : {}),
     ...(flashOf(req) ? { flash: flashOf(req)! } : {}),
   }));
@@ -200,6 +202,17 @@ experimentsRouter.post('/experiments/:id/stop', (req: Request, res: Response) =>
   const id = String(req.params.id);
   const stopped = stopExperimentPass(getContext(req.app.locals), id);
   res.redirect(303, back(id, stopped ? 'Stopping. What has run is kept; Go on picks it up again.' : 'It isn\'t running.'));
+});
+
+/** Its notebook: where its results show and you can talk to sua about them. Made on the first ask, opened after. */
+experimentsRouter.post('/experiments/:id/notebook', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  try {
+    const { notebook, made } = notebookForExperiment(getContext(req.app.locals), id);
+    res.redirect(303, `/notebooks/${encodeURIComponent(notebook.id)}?flash=${encodeURIComponent(made ? 'This notebook shows the experiment\'s results as they stand, and updates as it runs. Ask sua about them here.' : 'This is the notebook that shows it.')}`);
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
 });
 
 experimentsRouter.post('/experiments/:id/archive', (req: Request, res: Response) => {
