@@ -1272,12 +1272,16 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
  * its steps use), so you can see it and fix it; `reading` says which are
  * being read now or couldn't be. Nothing when it depends on nothing of yours.
  */
-export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { steps?: Notebook['steps'] }, reading: Record<string, 'working' | 'failed'> = {}): SafeHtml {
+export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { steps?: Notebook['steps']; experimentRun?: Notebook['experimentRun'] }, reading: Record<string, 'working' | 'failed'> = {}, notUsed?: GivenNotUsed): SafeHtml {
   const given = nb.given ?? [];
-  const missing = given.filter((g) => g.state === 'missing');
+  const missing = given.filter((g) => g.state === 'missing' && !g.optional);
+  const wanted = given.filter((g) => g.state === 'missing' && g.optional);
   const skipped = given.filter((g) => g.state === 'skipped');
   const have = given.filter((g) => g.state === 'given');
   if (nb.archivedAt || !given.length) return html``;
+  // What you added since its steps last ran: read first, then offered (nothing runs again unless you press it).
+  const stale = notUsed && notUsed.given.length && !notUsed.given.some((g) => reading[g.key] === 'working') ? notUsed : undefined;
+  const names = (l: readonly string[]) => (l.length === 1 ? l[0] : `${l.slice(0, -1).join(', ')} and ${l[l.length - 1]}`);
   const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
   const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   // Unfolded until a step has worked from it; after that it's a line to open.
@@ -1309,7 +1313,12 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
         <div class="nb-given__acts"><a class="btn btn--sm" href="/notebooks/${encodeURIComponent(nb.id)}/edit#nbe-given-h">Fix this</a>${reread(g, 'Read it again')}</div>
       </details>`;
   };
-  return html`<section class="nb-given" data-nb-given aria-label="What this notebook depends on from you">
+  return html`<section class="nb-given" data-nb-given aria-label="What you gave this notebook">
+    ${stale ? html`
+      <div class="nb-given__item nb-given__item--new" role="status">
+        <p class="nb-given__say"><span class="nb-given__mark">${cap(names(stale.given.map((g) => g.label)))} ${stale.given.length === 1 ? 'was' : 'were'} added after ${names(stale.steps.map((x) => x.title))} last ran,</span> so ${stale.steps.length === 1 ? 'it doesn\'t' : 'they don\'t'} use it yet. Nothing runs again unless you say so.</p>
+        <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/given-update" class="nb-given__again"><button type="submit" class="btn btn--primary btn--sm">${givenUpdateLabel(stale.steps)}</button></form>
+      </div>` : html``}
     ${missing.map((g) => html`
       <div class="nb-given__item nb-given__item--missing">
         <p class="nb-given__say"><strong>sua needs ${g.label}.</strong> ${g.link ? html`It couldn't read <a href="${g.link}" target="_blank" rel="noopener">${hostOf(g.link)}</a>. ` : html``}${g.why ?? ''} Nothing runs until you paste it or go on without it, so nothing is guessed.</p>
@@ -1321,18 +1330,61 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
         <summary><span class="nb-given__mark">Not matched to ${g.label}:</span> it wasn't given, so nothing here is based on it. <span class="nb-given__add">Add it</span></summary>
         ${box(g, `Paste ${g.label}`)}
       </details>`) as unknown as SafeHtml[]}
+    ${wanted.map((g) => html`
+      <details class="nb-given__item nb-given__item--skipped">
+        <summary><span class="nb-given__mark">If you have ${g.label}:</span> ${g.why ?? 'its steps work from it when it\'s here.'} Nothing waits for it. <span class="nb-given__add">Add it</span></summary>
+        ${box(g, `Paste ${g.label}`)}
+      </details>`) as unknown as SafeHtml[]}
     ${have.map(got) as unknown as SafeHtml[]}
+    ${givenAdd(nb, 'nb-given-new')}
   </section>`;
 }
 
+/** What you added that its steps haven't worked from, and the steps that would. */
+export interface GivenNotUsed { given: ReadonlyArray<Pick<NotebookGiven, 'key' | 'label'>>; steps: ReadonlyArray<{ kind: string; title: string }> }
+
+/** The button that runs those steps again. */
+export function givenUpdateLabel(steps: ReadonlyArray<{ kind: string }>): string {
+  const profile = steps.some((s) => s.kind === 'profile');
+  const write = steps.some((s) => s.kind === 'write');
+  if (profile && write) return 'Update the profile and brief with this';
+  if (profile) return 'Update the profile with this';
+  if (steps.length === 1 && write) return 'Write it again with this';
+  return 'Run its steps again with this';
+}
+
+/**
+ * Add something of yours to a notebook, asked for or not: say what it is,
+ * then paste it or choose a file. A folded row until opened. `id` keeps its
+ * fields apart when the page has two; `to` is where its form returns.
+ * Nothing for an archived notebook or an experiment's copy.
+ */
+export function givenAdd(nb: Pick<Notebook, 'id'> & { archivedAt?: string; experimentRun?: Notebook['experimentRun'] }, id: string, to?: 'edit'): SafeHtml {
+  if (nb.archivedAt || nb.experimentRun) return html``;
+  return html`
+      <details class="nb-given__item nb-given__item--add" data-nb-given-add>
+        <summary><span class="nb-given__mark">Add a file or paste</span> <span class="nb-given__hint">A profile saved as a PDF, a résumé, your notes: its steps work from it.</span></summary>
+        <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/given" class="nb-given__form">
+          ${to ? html`<input type="hidden" name="to" value="${to}">` : html``}
+          <label class="nb-given__label" for="${id}-label">What is it?</label>
+          <input id="${id}-label" name="label" type="text" class="form-field__input nb-given__name" required maxlength="80" autocomplete="off" list="${id}-kinds" placeholder="Their LinkedIn profile">
+          <datalist id="${id}-kinds"><option value="Their LinkedIn profile"></option><option value="My résumé"></option><option value="The job description"></option><option value="My notes"></option></datalist>
+          <label class="nb-given__label" for="${id}-text">Its text</label>
+          <textarea id="${id}-text" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here, or choose a file below."></textarea>
+          ${givenFilePick(`${id}-text`, `${id}-label`)}
+          <div class="nb-given__acts"><button type="submit" class="btn btn--sm">Add it</button><span class="nb-given__hint">sua reads it into a short form you can check. The file itself isn't kept.</span></div>
+        </form>
+      </details>`;
+}
+
 /** Edit's rail: what you gave the notebook (see, replace or remove each; fix what sua read from it), and what it's still waiting on. */
-export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
+export function givenRail(nb: Pick<Notebook, 'id' | 'given'> & { archivedAt?: string; experimentRun?: Notebook['experimentRun'] }): SafeHtml {
   const given = nb.given ?? [];
-  if (!given.length) return html``;
+  if (!given.length && (nb.archivedAt || nb.experimentRun)) return html``;
   const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
   const words = (g: NotebookGiven) => (g.state === 'given'
     ? (g.read ? `read into ${String(g.read.facts.length)} ${g.read.facts.length === 1 ? 'fact' : 'facts'}, given to every step` : `${String((g.text ?? '').length.toLocaleString('en-US'))} characters, given to every step as pasted`)
-    : g.state === 'skipped' ? 'not given: you went on without it' : 'waiting on you');
+    : g.state === 'skipped' ? 'not given: you went on without it' : g.optional ? 'not added: nothing waits for it' : 'waiting on you');
   return html`<section class="nbe-card nbe-given" aria-labelledby="nbe-given-h">
           <h2 class="nbe-card__h" id="nbe-given-h">What you gave it</h2>
           ${given.map((g) => html`
@@ -1352,18 +1404,21 @@ export function givenRail(nb: Pick<Notebook, 'id' | 'given'>): SafeHtml {
             </form>
             <form method="POST" action="${act(g.key)}"><input type="hidden" name="remove" value="1"><button type="submit" class="btn btn--sm btn--ghost">Remove</button></form>
           </details>`) as unknown as SafeHtml[]}
+          ${!given.length ? html`<p class="nbe-given__state">Nothing yet. Add a profile, a résumé or your notes, and its steps work from it.</p>` : html``}
+          ${givenAdd(nb, 'nbe-given-new', 'edit')}
         </section>`;
 }
 
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
-export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   return render(layout({ title: args.nb.title, activeNav: 'notebooks', flash: args.flash, wide: true }, html`
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${givenCard(args.nb, args.reading)}
+    ${givenCard(args.nb, args.reading, args.givenNotUsed)}
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
+    ${args.nb.given?.length ? html`` : html`<section class="nb-given nb-given--quiet" aria-label="Give this notebook something">${givenAdd(args.nb, 'nb-given-new')}</section>`}
     
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>

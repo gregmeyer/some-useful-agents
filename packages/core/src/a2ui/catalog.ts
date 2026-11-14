@@ -252,7 +252,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'FactSheet',
-    summary: 'What is known, from an array of {label, value, url?, at?, estimate?, group?}: rows under their group, each with its source ↗ and date, estimates marked ≈; `missing` (an array of strings) lists what wasn\'t found.',
+    summary: 'What is known, from an array of {label, value, url?, from?, at?, estimate?, group?}: rows under their group, each with its source ↗ (or `from`, when it came from something given, not a page) and date, estimates marked ≈; `missing` (an array of strings) lists what wasn\'t found.',
     example: { id: 'facts', component: 'FactSheet', facts: { path: '/outputs/facts' }, missing: { path: '/outputs/not_found' } },
     schema: Common.extend({ facts: CS.DynamicValue, missing: CS.DynamicValue.optional(), variant: z.enum(['grid', 'ruled']).optional() }).strict(),
   },

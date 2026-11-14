@@ -1616,7 +1616,7 @@ describe('what a notebook depends on from you (given)', () => {
     return NotebookStore.fromHandle(new RunStore(join(dir2, 'runs.db')).databaseHandle());
   };
 
-  it('cleans a list: a label each, one per key, text only makes it given, never more than four', async () => {
+  it('cleans a list: a label each, one per key, text only makes it given, never more than eight', async () => {
     const { cleanGiven } = await import('./notebooks.js');
     const out = cleanGiven([
       { label: ' Your LinkedIn profile. ', link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' },
@@ -1625,7 +1625,8 @@ describe('what a notebook depends on from you (given)', () => {
       { label: 'the spec', state: 'skipped', text: 'ignored' },
       { label: '' }, 'junk', { label: 'a' }, { label: 'b' },
     ], '2026-11-12T00:00:00.000Z');
-    expect(out.map((g) => [g.key, g.label, g.state])).toEqual([['linkedin-profile', 'Your LinkedIn profile', 'missing'], ['r-sum', 'your résumé', 'given'], ['spec', 'the spec', 'skipped'], ['it', 'a', 'missing']]);
+    expect(out.map((g) => [g.key, g.label, g.state])).toEqual([['linkedin-profile', 'Your LinkedIn profile', 'missing'], ['r-sum', 'your résumé', 'given'], ['spec', 'the spec', 'skipped'], ['it', 'a', 'missing'], ['b', 'b', 'missing']]);
+    expect(cleanGiven(Array.from({ length: 12 }, (_, i) => ({ label: `paper ${String(i + 1)}` })))).toHaveLength(8);
     expect(out[0]).toMatchObject({ link: 'https://www.linkedin.com/in/someone/', why: 'Jobs are matched to it.' });
     expect(out[1].text).toHaveLength(40000);
     // Longer than a notebook keeps: it says so. What sua read from it stays, cleaned.
@@ -1635,7 +1636,7 @@ describe('what a notebook depends on from you (given)', () => {
   });
 
   it('keeps what you asked and what it needs, takes your answer, and says it to agents', async () => {
-    const { givenBrief, givenMissing, givenWaitingReason, notebookGivenLinks } = await import('./notebooks.js');
+    const { givenBrief, givenMissing, givenForSteps, givenNewSince, givenWaitingReason, notebookGivenLinks } = await import('./notebooks.js');
     const s = open();
     const nb = s.create({ title: 'Jobs for me', statement: 'Jobs matched to my profile.', asked: 'jobs matched to my profile https://www.linkedin.com/in/someone/', given: [{ label: 'your LinkedIn profile' }, { label: 'your résumé' }] });
     expect(nb.asked).toContain('linkedin.com/in/someone');
@@ -1673,6 +1674,27 @@ describe('what a notebook depends on from you (given)', () => {
     expect(s.addGiven(nb.id, { label: 'Your résumé' }).given!.map((g) => g.state)).toEqual(['given', 'skipped']);
     expect(s.addGiven(nb.id, { label: 'your budget', why: 'The search depends on it.' }).given!.map((g) => g.state)).toEqual(['given', 'skipped', 'missing']);
     expect(s.answerGiven(nb.id, 'budget', { remove: true }).given).toHaveLength(2);
+    // Something you add yourself is given at once; one by that name takes the new text; a short paste is refused.
+    const mine = s.create({ title: 'Prepare for a meeting with Dana' });
+    const notes = 'Dana ran operations at two logistics firms before this one.';
+    expect(s.addGiven(mine.id, { label: 'Their LinkedIn profile', text: notes }).given).toMatchObject([{ key: 'linkedin-profile', state: 'given', text: notes }]);
+    expect(s.addGiven(mine.id, { label: 'their LinkedIn profile', text: `${notes} More.` }).given).toMatchObject([{ text: `${notes} More.` }]);
+    expect(() => s.addGiven(mine.id, { label: 'Notes', text: 'short' })).toThrow('Paste the text itself');
+    expect(() => s.addGiven(mine.id, { label: ' ', text: notes })).toThrow('Say what it is');
+    // A wanted thing isn't waited for, and steps aren't told it's missing; a needed one is both.
+    const both = s.addGiven(s.addGiven(mine.id, { label: 'Their résumé', optional: true }).id, { label: 'the agenda' });
+    expect(givenMissing(both).map((g) => g.label)).toEqual(['the agenda']);
+    expect(givenForSteps(both).map((g) => g.key)).toEqual(['linkedin-profile', 'agenda']);
+    expect(givenBrief(both)).not.toContain('résumé');
+    // What was given after a time: what a step that ran then hasn't seen.
+    expect(givenNewSince(both, '2000-01-01T00:00:00.000Z').map((g) => g.key)).toEqual(['linkedin-profile']);
+    expect(givenNewSince(both, '2999-01-01T00:00:00.000Z')).toEqual([]);
+    // It keeps up to eight.
+    for (let i = 0; i < 5; i++) s.addGiven(mine.id, { label: `Paper ${String(i + 1)}`, text: notes });
+    expect(s.get(mine.id)!.given).toHaveLength(8);
+    expect(() => s.addGiven(mine.id, { label: 'One more', text: notes })).toThrow('keeps up to 8');
+    // A fact that came from what you gave says so, and has no page.
+    expect(mergeAbout(undefined, { name: 'Dana', facts: [{ key: 'role', value: 'COO', from: 'their LinkedIn profile' }, { key: 'location', value: 'Austin', source: 'https://x.example', from: 'ignored' }] }, '2026-11-14T00:00:00.000Z').facts.map((f) => [f.key, f.from, f.source])).toEqual([['role', 'their LinkedIn profile', undefined], ['location', undefined, 'https://x.example']]);
     // A notebook that depends on nothing has none of it.
     const plain = s.create({ title: 'Buy a car' });
     expect(plain.given).toBeUndefined();

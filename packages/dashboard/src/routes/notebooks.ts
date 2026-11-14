@@ -36,7 +36,7 @@ import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZE
 import { getContext } from '../context.js';
 import { experimentDataFor } from '../lib/experiment-notebook.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
-import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep } from '../lib/notebook-steps.js';
+import { confirmDoneStepsAndSay, fitStepAgents, focusStepOnTop, givenNotUsed, givenUpdateSteps, hasOpenSteps, replaceTalkingPoint, rewriteAfterDecide, startNotebookStep, stopNotebookStep, updateWithGiven } from '../lib/notebook-steps.js';
 import { actOnStep, reconcileStepCards, stepsKey } from '../lib/notebook-step-queue.js';
 import { correctedRead, givenReadingReason, givenReadStates, startGivenRead } from '../lib/notebook-given-read.js';
 import { pdfText, PDF_MAX_BYTES } from '../lib/pdf-text.js';
@@ -357,7 +357,7 @@ notebooksRouter.get('/notebooks/:id', (req: Request, res: Response) => {
   // What the latest run found that the one before didn't (a briefing rerun); never fails the page.
   let fresh: ReturnType<typeof whatsNew>;
   try { fresh = whatsNew(nb, entries, s.passes(nb.id, 60)); } catch { fresh = undefined; }
-  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
+  res.type('html').send(renderNotebookPage({ nb, unfiled, busy, live, reading: givenReadStates(ctx, nb), givenNotUsed: givenNotUsed(nb, s.passes(nb.id, 60)), liveKey: notebookLiveKey(live), ...(fresh ? { whatsNew: fresh } : {}), ...(coverPhoto ? { cover: coverPhoto } : {}), entries, compiled, history: widgetHistory(ctx, s), settingUp: setupRunning(ctx, nb.id), stages, running: running ? { step: running.step, of: running.of } : undefined, ...(lastWord ? { lastWord } : {}), stepsKey: stepsKey(ctx, s.get(nb.id) ?? nb), ...(madeBy ? { madeBy } : {}), flash: parseFlash(req) }));
 });
 
 notebooksRouter.post('/notebooks/:id/entries', (req: Request, res: Response) => {
@@ -688,6 +688,42 @@ notebooksRouter.post('/notebooks/given-file', express.raw({ type: 'application/p
   const chars = out.text.length;
   const over = chars > NOTEBOOK_GIVEN_MAX;
   res.json({ text: out.text, pages: out.pages, chars, said: `${String(out.pages)} ${out.pages === 1 ? 'page' : 'pages'}, ${chars.toLocaleString('en-US')} characters.${over ? ` A notebook keeps the first ${NOTEBOOK_GIVEN_MAX.toLocaleString('en-US')}, so its end will be left out.` : ''}` });
+});
+
+// Something of yours the notebook didn't ask for (a profile saved as a PDF, notes): say what it is and paste it or
+// choose a file. Kept as given and read; nothing runs again because of it (the page offers that once it's read).
+notebooksRouter.post('/notebooks/:id/given', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const toEdit = req.body?.to === 'edit';
+  const say = (flash: string) => (toEdit ? `/notebooks/${encodeURIComponent(id)}/edit?flash=${encodeURIComponent(flash)}` : back(id, flash));
+  try {
+    const ctx = getContext(req.app.locals);
+    const s = store(req);
+    const before = s.get(id);
+    if (!before) throw new Error('No such notebook.');
+    if (before.archivedAt) throw new Error('This notebook is archived. Restore it to add to it.');
+    if (before.experimentRun) throw new Error('This is an experiment\u2019s copy. Add to the notebook it was copied from.');
+    const text = str(req.body?.text);
+    const after = s.addGiven(id, { label: str(req.body?.label), text });
+    const g = [...(after.given ?? [])].filter((x) => x.state === 'given').sort((a, b) => b.at.localeCompare(a.at))[0];
+    if (!g) throw new Error('It couldn\u2019t be added.');
+    const wasWaiting = givenMissing(before).length > 0;
+    const reading = startGivenRead(ctx, id, g.key, { then: () => {
+      const now = s.get(id);
+      if (wasWaiting && now && !givenMissing(now).length && hasOpenSteps(now)) startNotebookStep(ctx, id);
+    } });
+    const ran = givenUpdateSteps(after).length > 0;
+    res.redirect(303, say(`Added ${g.label}.${reading ? ' sua is reading it.' : ''}${ran ? ' Steps that already ran don\u2019t use it yet: the notebook\u2019s page offers to update them.' : ' Its steps work from it when they run.'}`));
+  } catch (err) {
+    res.redirect(303, say(err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// Run the steps that work from what you gave it again, now that you added something.
+notebooksRouter.post('/notebooks/:id/given-update', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const out = updateWithGiven(getContext(req.app.locals), id);
+  res.redirect(303, back(id, out.started ? `Running ${(out.steps ?? []).map((x) => x.title).join(', then ')} again with what you added.` : out.reason ?? 'It could not start.'));
 });
 
 // What the notebook is waiting on from you: paste it (text), go on without it (skip=1), or take it off (remove=1).

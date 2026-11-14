@@ -101,6 +101,8 @@ export interface NotebookAboutFact {
   source?: string;
   /** The words on that page that say it. */
   quote?: string;
+  /** Not from a page: from something you gave the notebook ("their LinkedIn profile"). */
+  from?: string;
   /** When it was learned (last written). */
   at: string;
   /** When it was first learned (none: before this was kept). */
@@ -228,7 +230,8 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
       : { ...(old.firstAt ? { firstAt: old.firstAt } : {}),
         ...(same ? { ...(old.changedAt ? { changedAt: old.changedAt } : {}), ...(old.was ? { was: old.was } : {}) }
           : { changedAt: now, was: { value: old.value, ...(old.source ? { source: old.source } : {}), at: old.at } }) };
-    const fact: NotebookAboutFact = { key, label, value, ...(source ? { source } : {}), ...(quote ? { quote } : {}), at: now, ...before };
+    const from = !source && typeof f.from === 'string' && f.from.trim() ? f.from.replace(/\s+/g, ' ').trim().slice(0, 80) : undefined;
+    const fact: NotebookAboutFact = { key, label, value, ...(source ? { source } : {}), ...(quote ? { quote } : {}), ...(from ? { from } : {}), at: now, ...before };
     if (old) facts[i] = fact; else facts.push(fact);
   }
   const have = new Set(facts.map((f) => f.label.toLowerCase()).concat(facts.map((f) => f.key)));
@@ -930,6 +933,8 @@ export interface NotebookGiven {
   state: 'missing' | 'given' | 'skipped';
   /** Why it's needed or couldn't be read, in one sentence. */
   why?: string;
+  /** Wanted, not needed: its steps don't wait for it, and aren't told it's missing. */
+  optional?: boolean;
   /** The paste was longer than a notebook keeps: its end is missing. */
   cut?: boolean;
   /** What sua read from `text`: the short form steps receive in its place. */
@@ -971,7 +976,10 @@ export function cleanGivenRead(raw: unknown, now = new Date().toISOString()): No
 
 const givenKey = (label: string) => label.toLowerCase().replace(/\b(your|my|the|their|a|an)\b/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'it';
 
-/** A stored or drafted `given` list, cleaned: at most 4, each with a label, one per key. */
+/** The most things a notebook keeps that you gave it. */
+export const NOTEBOOK_GIVEN_ITEMS_MAX = 8;
+
+/** A stored or drafted `given` list, cleaned: at most 8, each with a label, one per key. */
 export function cleanGiven(raw: unknown, now = new Date().toISOString()): NotebookGiven[] {
   if (!Array.isArray(raw)) return [];
   const out: NotebookGiven[] = [];
@@ -988,15 +996,28 @@ export function cleanGiven(raw: unknown, now = new Date().toISOString()): Notebo
     const has = Boolean(text) && state === 'given';
     const cut = has && (x.cut === true || (x.text as string).trim().length > NOTEBOOK_GIVEN_MAX);
     const read = has ? cleanGivenRead(x.read, now) : undefined;
-    out.push({ key, label, ...(link ? { link } : {}), ...(has ? { text } : {}), state, ...(why ? { why } : {}), ...(cut ? { cut: true } : {}), ...(read ? { read } : {}), at: typeof x.at === 'string' ? x.at : now });
-    if (out.length >= 4) break;
+    out.push({ key, label, ...(link ? { link } : {}), ...(has ? { text } : {}), state, ...(why ? { why } : {}), ...(x.optional === true ? { optional: true } : {}), ...(cut ? { cut: true } : {}), ...(read ? { read } : {}), at: typeof x.at === 'string' ? x.at : now });
+    if (out.length >= NOTEBOOK_GIVEN_ITEMS_MAX) break;
   }
   return out;
 }
 
-/** What a notebook is still waiting on from you. */
+/** What a notebook is still waiting on from you (not what it would only like to have). */
 export function givenMissing(nb: Pick<Notebook, 'given'>): NotebookGiven[] {
-  return (nb.given ?? []).filter((g) => g.state === 'missing');
+  return (nb.given ?? []).filter((g) => g.state === 'missing' && !g.optional);
+}
+
+/** What its steps are told about: everything but a wanted thing you haven't added (that one is simply not there). */
+export function givenForSteps(nb: Pick<Notebook, 'given'>): NotebookGiven[] {
+  return (nb.given ?? []).filter((g) => !(g.optional && g.state !== 'given'));
+}
+
+/**
+ * What you gave it (or sua read again, or you corrected) after `at`: what a
+ * step that last ran then hasn't worked from. Pure.
+ */
+export function givenNewSince(nb: Pick<Notebook, 'given'>, at: string): NotebookGiven[] {
+  return (nb.given ?? []).filter((g) => g.state === 'given' && (g.at > at || (g.read?.at ?? '') > at));
 }
 
 /** Why a notebook's steps can't start yet: what it's waiting on from you. Undefined when nothing. */
@@ -1031,7 +1052,7 @@ export function givenForStep(g: NotebookGiven, max = 8000): { given: boolean; te
  * depends on nothing of yours. `max` is the most pasted text per thing.
  */
 export function givenBrief(nb: Pick<Notebook, 'given'>, max = 8000): string {
-  return (nb.given ?? []).map((g) => givenForStep(g, max).text).join('\n');
+  return givenForSteps(nb).map((g) => givenForStep(g, max).text).join('\n');
 }
 
 export interface NewNotebook {
@@ -1693,6 +1714,26 @@ export class NotebookStore {
     const about: NotebookAbout = { ...(nb.about ?? {}), [who]: mergeAbout(nb.about?.[who], next, now) };
     this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(about), now, id);
     return this.get(id)!;
+  }
+
+  /**
+   * Forget what was learned about one of them: the named facts, or (no
+   * keys) everything, its picture too. For when who it is has changed (the
+   * person's company is another one now), so the old one's facts don't stay
+   * under the new name.
+   */
+  forgetAbout(id: string, who: NotebookAboutWho, keys?: readonly string[], now = new Date().toISOString()): Notebook {
+    const nb = this.mustGet(id);
+    const one = nb.about?.[who];
+    if (!one) return nb;
+    const about: NotebookAbout = { ...(nb.about ?? {}) };
+    if (keys) about[who] = { ...one, facts: one.facts.filter((f) => !keys.includes(f.key)) };
+    else {
+      delete about[who];
+      this.db.prepare('DELETE FROM notebook_about_photos WHERE notebook_id = ? AND who = ?').run(id, who);
+    }
+    this.db.prepare('UPDATE notebooks SET about_json = ?, updated_at = ? WHERE id = ?').run(Object.keys(about).length ? JSON.stringify(about) : null, now, id);
+    return this.mustGet(id);
   }
 
   /**
@@ -2577,15 +2618,28 @@ export class NotebookStore {
   /**
    * Something the notebook turns out to depend on (its search said so):
    * added as missing, unless it already has one by that name (then nothing
-   * changes: one you skipped stays skipped).
+   * changes: one you skipped stays skipped). With `text`, it's something you
+   * added yourself: kept as given at once (one by that name takes the text).
+   * `optional`: wanted, never waited for.
    */
-  addGiven(id: string, g: { label: string; link?: string; why?: string }): Notebook {
+  addGiven(id: string, g: { label: string; text?: string; link?: string; why?: string; optional?: boolean }): Notebook {
     const nb = this.mustGet(id);
     const have = nb.given ?? [];
-    const next = cleanGiven([...have, { ...g, state: 'missing' }]);
-    if (next.length === have.length) return nb;
-    this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(next), new Date().toISOString(), id);
-    return this.mustGet(id);
+    const { text, ...rest } = g;
+    const [made] = cleanGiven([{ ...rest, state: 'missing' }]);
+    if (!made) throw new Error('Say what it is, in a few words ("their LinkedIn profile").');
+    const was = have.find((x) => x.key === made.key);
+    if (text === undefined) {
+      if (was || have.length >= NOTEBOOK_GIVEN_ITEMS_MAX) return nb;
+      this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([...have, made]), new Date().toISOString(), id);
+      return this.mustGet(id);
+    }
+    if (text.trim().length < 20) throw new Error('Paste the text itself (a few lines at least), or choose a file.');
+    if (!was) {
+      if (have.length >= NOTEBOOK_GIVEN_ITEMS_MAX) throw new Error(`A notebook keeps up to ${String(NOTEBOOK_GIVEN_ITEMS_MAX)} things you gave it. Remove one under Edit first.`);
+      this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify([...have, made]), new Date().toISOString(), id);
+    }
+    return this.answerGiven(id, made.key, { text });
   }
 
   /**

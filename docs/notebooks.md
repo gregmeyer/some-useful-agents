@@ -74,6 +74,21 @@ Some notebooks depend on something you referred to but didn't put in the request
 - **A search can ask too.** When a find step's plan says it needs something the draft didn't foresee (see [sua's finder](#suas-finder)), the step stops, and the same box appears at the top of the page.
 - **Edit → What you gave it** (the column at the right) lists each one with what sua read from it (to correct) and the text you pasted (to replace or remove).
 
+### Adding a file or a paste it didn't ask for
+
+Any notebook takes something of yours, asked for or not: the LinkedIn profile of the person you're meeting saved as a PDF, your résumé, a job description, your notes.
+
+- **Where:** **Add a file or paste**, a folded row under the notebook's header (inside the card at the top when the notebook already has something of yours), and under **Edit → What you gave it**.
+- **How:** say what it is ("Their LinkedIn profile"), then paste its text or press **Choose a PDF or text file**. A chosen file fills in its own name when you haven't typed one. Press **Add it**.
+- **What's kept:** the text (up to 40,000 characters) and sua's reading of it. The file itself is not kept. A notebook holds up to 8 things you gave it; adding one under a name it already has replaces that one's text.
+- **It's read at once**, the same way as something the notebook asked for: a summary and facts you can check and fix.
+- **Nothing runs again because of it.** Steps that haven't run yet work from it when they do. When steps have already run, the card says so ("Their LinkedIn profile was added after Learn about Dana Reyes and Write talking points last ran") with one button:
+  - **Update the profile and brief with this**, on a notebook about a person or company: the profile step looks again and the write-up is written again. No new search for options is run.
+  - **Run its steps again with this**, on other notebooks: every step an update runs.
+- **The profile step works from it.** The researcher is given the reading as first-hand: it answers from it before searching, keeps it where a page disagrees, and uses it to tell which of a shared name is the right one. A fact taken from it shows "from their LinkedIn profile" where a page's link would be.
+- **When it changes their company.** If what you gave says they work somewhere else than the profile had, the profile takes the new company, the old one moves to their other companies, and what was learned about the old company (its facts and logo) is dropped so it never shows under the new name.
+- **Not for:** an archived notebook, or an experiment's copy of one (add to the notebook it was copied from).
+
 The notebook also keeps your request as you typed it, links included (the drafter's tidied sentence under "What it's for" may leave a link out). **Run it again** carries both the request and what you gave it to the new notebook.
 
 ### When you ask for one you already have

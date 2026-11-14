@@ -174,13 +174,13 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       </div>`;
     }
     case 'FactSheet': {
-      const facts = list(v('facts')) as Array<{ label?: unknown; value?: unknown; url?: unknown; group?: unknown; mark?: unknown; was?: unknown }>;
+      const facts = list(v('facts')) as Array<{ label?: unknown; value?: unknown; url?: unknown; from?: unknown; group?: unknown; mark?: unknown; was?: unknown }>;
       // What the latest run learned or changed: new, or changed with what it was.
       const mark = (f: (typeof facts)[number]) => (f.mark === 'new' ? html` <span class="mark">new</span>` : f.mark === 'changed' ? html` <span class="mark">changed</span>${text(f.was) ? html` <span class="muted">(was ${text(f.was)})</span>` : html``}` : html``);
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : html``}</dd>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">from ${text(f.from)}</span>` : html``}</dd>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {

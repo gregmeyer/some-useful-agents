@@ -45,3 +45,13 @@ The fail mode: **a step runs without something it depends on, and the model fill
 - A paste costs one short model run before the waiting step starts. Steps trust the reading: a fact the reader missed is not seen by them until the person adds it under Edit, which is why the page shows the reading.
 - A drafter that names a need the notebook doesn't really have blocks its start until you choose **Go on without it** or remove it under Edit. The drafter is told needs are rare and what is not one (who a meeting is about, anything a search can find).
 - Notebooks made before this have no `asked` or `given`; a find step that needs something adds the ask when it runs.
+
+## Amendment (2026-11-14): a notebook takes what it didn't ask for
+
+`given` started as the answer to an ask. A meeting brief never asks (who it's about is looked up), so there was nowhere to put the person's profile saved as a PDF, and the profile step read only links.
+
+- **Any notebook takes something of yours**: `POST /notebooks/:id/given` (a label and text) through `addGiven` with `text`, from **Add a file or paste** on the page and under Edit. Still text only: the file fills the box and is not kept.
+- **`optional`** on a given thing: wanted, never waited for (`givenMissing` leaves it out), and steps aren't told it's missing (`givenForSteps`).
+- **The profile step is given it** (`GIVEN` on research-one) as first-hand: answered from before searching, kept over a page that disagrees. A fact from it has no page; it is stored with `from` (what you gave) in place of `source`.
+- **Adding never reruns anything.** The page compares what was given with when the steps that use it last started (`givenNotUsed`) and offers one button. Rerunning automatically was rejected: each add would cost a research run and a rewrite the person may not want yet.
+- The cap is 8 things, up from 4.

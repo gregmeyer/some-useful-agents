@@ -13,7 +13,7 @@ import { agentForCopy } from './experiment-copy-agent.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -355,6 +355,40 @@ export function updateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
 }
 
 /**
+ * The steps that work from what you gave the notebook and have already run:
+ * with a profile step, the profile and what's written from it (a search
+ * isn't run again for a file about one person); else every step an update
+ * runs. Pure.
+ */
+export function givenUpdateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
+  const steps = updateSteps(nb);
+  return steps.some((s) => s.kind === 'profile') ? steps.filter((s) => s.kind === 'profile' || s.kind === 'write') : steps;
+}
+
+/**
+ * What you gave it that its steps haven't worked from: given, read again or
+ * corrected after the last of those steps started. None when nothing has
+ * run yet (its first run reads it) or while it's running. Pure.
+ */
+export function givenNotUsed(nb: Pick<Notebook, 'given' | 'steps'>, passes: ReadonlyArray<{ startedAt: string; stepId?: string }>): { given: NotebookGiven[]; steps: NotebookStep[] } {
+  const steps = givenUpdateSteps(nb);
+  const ids = new Set(steps.map((s) => s.id));
+  const last = passes.filter((p) => p.stepId && ids.has(p.stepId)).map((p) => p.startedAt).sort().pop();
+  if (!last || (nb.steps ?? []).some((s) => s.status === 'running')) return { given: [], steps };
+  return { given: givenNewSince(nb, last), steps };
+}
+
+/** Run those steps again with what you added: one alone is that step's own again, more are an update of just them. */
+export function updateWithGiven(ctx: Ctx, notebookId: string): { started: boolean; reason?: string; steps?: NotebookStep[] } {
+  const nb = stores(ctx).get(notebookId);
+  if (!nb) return { started: false, reason: 'No such notebook.' };
+  const steps = givenUpdateSteps(nb);
+  if (!steps.length) return { started: false, reason: 'Nothing has run yet: its first step reads what you added.' };
+  if (steps.length === 1) { const a = searchAgain(ctx, notebookId, { stepId: steps[0].id }); return { started: a.started, ...(a.reason ? { reason: a.reason } : {}), steps }; }
+  return updateBriefing(ctx, notebookId, { only: steps.map((s) => s.id) });
+}
+
+/**
  * Update a notebook: Look again, Search again, source and check the new
  * ones, and Write again, each done step of those kinds once more in the
  * notebook's order, as one run (Stop stops it between steps); then one
@@ -363,14 +397,15 @@ export function updateSteps(nb: Pick<Notebook, 'steps'>): NotebookStep[] {
  * your picks stay as they are. Needs two of them: one alone is that step's
  * own again.
  */
-export function updateBriefing(ctx: Ctx, notebookId: string): { started: boolean; reason?: string; steps?: NotebookStep[] } {
+export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: readonly string[] } = {}): { started: boolean; reason?: string; steps?: NotebookStep[] } {
   const store = stores(ctx);
   const nb = store.get(notebookId);
   if (!nb) return { started: false, reason: 'No such notebook.' };
   const closed = notebookClosedReason(nb, 'update it');
   if (closed) return { started: false, reason: closed };
   if (ctx.notebookPipelines?.has(notebookId)) return { started: false, reason: 'It’s already running.' };
-  const steps = updateSteps(nb);
+  // `only`: just these steps of the ones an update runs (what you added reaches the profile and the write-up, not a new search).
+  const steps = updateSteps(nb).filter((s) => !opts.only || opts.only.includes(s.id));
   if (steps.length < 2) return { started: false, reason: steps.length ? `Only ${steps[0].title} can run again; use its own button.` : 'Nothing has run yet to update: start its first step.' };
   const all = nb.steps!;
   const running: { agentId: string; step: number; of: number; startedAt: number; runId?: string; stopped?: boolean; again: boolean } = { agentId: NOTEBOOK_RESEARCHER_ID, step: all.indexOf(steps[0]) + 1, of: all.length, startedAt: Date.now(), again: true };
