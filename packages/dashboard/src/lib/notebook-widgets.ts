@@ -545,7 +545,7 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who:
   const linkKeys = new Set(['linkedin', 'website', 'company_website']);
   const rows = (one: typeof p, who: 'person' | 'company') => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => {
     const m = marks[`${who}:${f.key}`];
-    return { label: f.label, value: f.value, ...(f.source ? { url: f.source } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
+    return { label: f.label, value: f.value, ...(f.source ? { url: f.source } : f.from ? { from: f.from } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
   }) : []);
   return {
     ...(person ? { person } : {}),

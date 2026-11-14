@@ -5712,6 +5712,67 @@ describe('a notebook that depends on something you have to give it', () => {
     finderReply = undefined;
   });
 
+  it('any notebook takes a file or a paste it never asked for: read at once, nothing reruns until you say, and the profile is then told it', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Help me prepare.' });
+    const [profile, write] = store.setSteps(nb.id, [{ title: 'Learn about Dana Reyes', kind: 'profile', subject: 'Dana Reyes' }, { title: 'Write talking points', kind: 'write' }]).steps!;
+    // It asked for nothing, and still offers the box: on its page and under Edit.
+    let page = (await get(app, `/notebooks/${nb.id}`)).text;
+    expect(page).toContain(`action="/notebooks/${nb.id}/given"`);
+    expect(page).toContain('Add a file or paste');
+    expect(page).toContain('data-given-file="nb-given-new-text" data-given-file-name="nb-given-new-label"');
+    expect((await get(app, `/notebooks/${nb.id}/edit`)).text).toContain('data-given-file="nbe-given-new-text"');
+    // Both steps ran before anything was added.
+    for (const st of [profile, write]) { const id = store.startPass(nb.id, 'pipeline', '2026-10-26T10:00:00.000Z', { stepId: st.id }); store.finishPass(id, 'ran', '2026-10-26T10:05:00.000Z'); store.updateStep(nb.id, st.id, { status: 'done' }); }
+    store.setAbout(nb.id, 'person', { name: 'Dana Reyes', facts: [{ key: 'role', value: 'VP Ops', source: 'https://old.example/dana' }, { key: 'organization', value: 'Oldco' }, { key: 'company_website', value: 'https://oldco.example' }] });
+    store.setAbout(nb.id, 'company', { name: 'Oldco', facts: [{ key: 'size', value: '15000', source: 'https://oldco.example/about' }] });
+    // Too little is refused; a name is needed.
+    expect(decodeURIComponent((await post(app, `/notebooks/${nb.id}/given`, { label: 'Their LinkedIn profile', text: 'see link' })).headers.location)).toContain('Paste the text itself');
+    expect(decodeURIComponent((await post(app, `/notebooks/${nb.id}/given`, { label: ' ', text: PROFILE })).headers.location)).toContain('Say what it is');
+    expect(store.get(nb.id)!.given).toBeUndefined();
+    ctx.notebookGivenReaderRun = async () => `<read>${JSON.stringify({ summary: 'An accountant in Conway.', facts: [{ label: 'Role', value: 'Staff accountant', quote: 'Staff accountant' }] })}</read>`;
+    const before = researchAsked.length;
+    const res = await post(app, `/notebooks/${nb.id}/given`, { label: 'Their LinkedIn profile', text: PROFILE });
+    expect(decodeURIComponent(res.headers.location)).toContain('Added Their LinkedIn profile. sua is reading it. Steps that already ran don’t use it yet');
+    for (let i = 0; i < 200 && !store.get(nb.id)!.given?.[0]?.read; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(nb.id)!.given).toMatchObject([{ key: 'linkedin-profile', state: 'given', text: PROFILE, read: { summary: 'An accountant in Conway.' } }]);
+    // Nothing ran again because of it; the page offers to.
+    expect(researchAsked.length).toBe(before);
+    page = (await get(app, `/notebooks/${nb.id}`)).text;
+    expect(page).toContain('Their LinkedIn profile was added after Learn about Dana Reyes and Write talking points last ran,');
+    expect(page).toContain(`action="/notebooks/${nb.id}/given-update"`);
+    expect(page).toContain('Update the profile and brief with this');
+    // Pressed: the researcher is given the reading, and a fact it took from it says so (no page to link).
+    researchReply = (inputs) => (inputs.SUBJECT === 'Dana Reyes' ? JSON.stringify({ found: { kind: { value: 'person' }, role: { value: 'Staff accountant', source: 'given', quote: 'Staff accountant' }, organization: { value: 'Northwind', source: 'given' }, location: { value: 'Conway, Arkansas', source: 'https://x.example/dana' } }, not_found: [] })
+      : inputs.SUBJECT === 'Northwind' ? JSON.stringify({ found: { what_they_do: { value: 'Audits nonprofits', source: 'https://northwind.example' } }, not_found: [] }) : undefined);
+    writerReply = () => `<briefing>${JSON.stringify({ points: [{ text: 'Ask about audit work', from: [] }] })}</briefing>`;
+    const up = await post(app, `/notebooks/${nb.id}/given-update`, {});
+    expect(decodeURIComponent(up.headers.location)).toContain('Running Learn about Dana Reyes, then Write talking points again with what you added.');
+    for (let i = 0; i < 300 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 10));
+    const asked = researchAsked.find((x) => x.SUBJECT === 'Dana Reyes' && x.GIVEN);
+    expect(asked!.GIVEN).toContain('Their LinkedIn profile:\nAn accountant in Conway.\nRole: Staff accountant');
+    const facts = store.get(nb.id)!.about!.person!.facts;
+    expect(facts.find((f) => f.key === 'role')).toMatchObject({ value: 'Staff accountant', from: 'Their LinkedIn profile' });
+    expect(facts.find((f) => f.key === 'role')!.source).toBeUndefined();
+    expect(facts.find((f) => f.key === 'location')).toMatchObject({ source: 'https://x.example/dana' });
+    // What you gave says they're at another company: the old one's site and facts don't stay under the new name.
+    expect(facts.find((f) => f.key === 'company_website')).toBeUndefined();
+    expect(store.get(nb.id)!.about!.company).toMatchObject({ name: 'Northwind', facts: [{ key: 'what_they_do', value: 'Audits nonprofits' }] });
+    expect(store.get(nb.id)!.about!.person!.affiliations).toMatchObject([{ name: 'Oldco' }]);
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    expect(notebookWidgetData(store.get(nb.id)!, [], store).notebook.facts.find((f) => f.label === 'Role')).toMatchObject({ from: 'Their LinkedIn profile' });
+    // Used now: the offer is gone.
+    expect((await get(app, `/notebooks/${nb.id}`)).text).not.toContain('given-update');
+    // An archived notebook and an experiment's copy take nothing.
+    store.setExperimentRun(nb.id, { experimentId: 'e1', label: 'A · run 1' });
+    expect(decodeURIComponent((await post(app, `/notebooks/${nb.id}/given`, { label: 'Notes', text: PROFILE })).headers.location)).toContain('experiment’s copy');
+    researchReply = undefined; writerReply = undefined;
+  });
+
   it('going on without it is recorded, told to every step, and shown on the page', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');

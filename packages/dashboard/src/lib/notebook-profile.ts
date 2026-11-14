@@ -9,7 +9,7 @@
  * (`/notebook/person`, `/notebook/company`, `/notebook/facts`) and the cover.
  */
 import { notebookAffiliations } from './notebook-widgets.js';
-import { NotebookStore, type NotebookAboutOne, cleanAffiliations, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
+import { NotebookStore, type NotebookAboutOne, givenForStep, cleanAffiliations, cleanCompetitors, fetchImage, notebookGivenLinks, findPersonPhoto, imageSize, type Notebook, type NotebookAboutWho, type NotebookStep, type PersonPhotoFound } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { defaultLogoDeps, findLogo } from './notebook-logos.js';
@@ -86,14 +86,15 @@ const text = (f: Found, key: string): string => {
 };
 
 /** Found facts as the notebook keeps them (labelled, sourced), and what wasn't found by label. Pure. */
-export function aboutFrom(f: Found, ask: readonly Ask[]): { facts: Array<{ key: string; label: string; value: string; source?: string; quote?: string }>; notFound: string[] } {
+export function aboutFrom(f: Found, ask: readonly Ask[], from?: string): { facts: Array<{ key: string; label: string; value: string; source?: string; quote?: string; from?: string }>; notFound: string[] } {
   const label = (k: string) => ask.find((a) => a.key === k)?.label ?? k.replace(/_/g, ' ');
   const facts = ask.filter((a) => !NOT_FACTS.has(a.key) && text(f, a.key)).map((a) => {
     const x = f.found[a.key]!;
     return {
       key: a.key, label: a.label, value: text(f, a.key),
-      ...(typeof x.source === 'string' ? { source: x.source } : {}),
+      ...(typeof x.source === 'string' && x.source !== GIVEN_SOURCE ? { source: x.source } : {}),
       ...(typeof x.quote === 'string' ? { quote: x.quote } : {}),
+      ...(x.source === GIVEN_SOURCE && from ? { from } : {}),
     };
   });
   const notFound = f.notFound.filter((k) => !NOT_FACTS.has(k)).map(label);
@@ -126,6 +127,8 @@ export function mainCompany(was: NotebookAboutOne | undefined, facts: ReturnType
   return { org, facts: kept, also };
 }
 
+const sameName = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
+
 /** Who a profile step is about: its own subject, else the notebook's title without "Prepare for a meeting with". Pure. */
 export function profileSubject(nb: Pick<Notebook, 'title'>, step: Pick<NotebookStep, 'subject'>): string {
   if (step.subject) return step.subject;
@@ -143,6 +146,28 @@ export function profileContext(nb: Pick<Notebook, 'statement' | 'params' | 'meet
     links.length ? `Links you were given about them (the right one is the one these are about): ${links.join(' ')}` : '',
     nb.statement, ...nb.params, nb.meeting?.goal ? `Meeting goal: ${nb.meeting.goal}` : '', nb.meeting?.notes ? `Already known: ${nb.meeting.notes}` : '',
   ].filter(Boolean).join('; ').slice(0, 900);
+}
+
+/** The source research-one gives a fact it took from what you gave the notebook, not from a page. */
+export const GIVEN_SOURCE = 'given';
+
+/**
+ * What you gave the notebook, for the researcher: sua's reading of each
+ * (summary and facts), else its text, up to `max` in all. First-hand, so it
+ * stands over what a search finds. Empty when you gave nothing. Pure.
+ */
+export function profileGiven(nb: Pick<Notebook, 'given'>, max = 6000): string {
+  const parts = (nb.given ?? []).filter((g) => g.state === 'given' && g.text).map((g) => {
+    const f = givenForStep(g, 3000);
+    return `${g.label}:\n${f.lines ? f.lines.join('\n') : (g.text ?? '').slice(0, 3000)}`;
+  });
+  return parts.join('\n\n').slice(0, max);
+}
+
+/** What a fact taken from what you gave is said to be from: the one thing you gave, else "what you gave it". Pure. */
+export function givenFromWords(nb: Pick<Notebook, 'given'>): string {
+  const have = (nb.given ?? []).filter((g) => g.state === 'given');
+  return have.length === 1 ? have[0].label : 'what you gave it';
 }
 
 /** A LinkedIn profile you gave is their LinkedIn (it can't be read, so research never finds it): kept as given, over any found. Pure. */
@@ -318,7 +343,10 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   const ask = (list: readonly Ask[]) => JSON.stringify(list);
   const context = profileContext(nb);
 
-  const first = await research(ctx, { SUBJECT: subject, ASK: ask(PERSON_ASK), CONTEXT: context, DEPTH: 'thorough' });
+  // What you gave the notebook (a profile saved as a PDF, notes): first-hand, so it stands over what a search finds.
+  const given = profileGiven(nb);
+  const from = givenFromWords(nb);
+  const first = await research(ctx, { SUBJECT: subject, ASK: ask(PERSON_ASK), CONTEXT: context, DEPTH: 'thorough', ...(given ? { GIVEN: given } : {}) });
   if (first.runId) onRun?.(first.runId);
   const person = readResearch(first.result);
   if (!person) { notes.push(`${RESEARCH_ONE_ID}: ${first.error ?? 'no answer'}`); return notes; }
@@ -328,11 +356,14 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   if (isCompany) {
     company = { name: subject, ...(text(person, 'website') ? { site: text(person, 'website') } : {}) };
   } else {
-    const { facts, notFound } = withGivenLinkedIn(aboutFrom(person, PERSON_ASK), notebookGivenLinks(nb));
+    const { facts, notFound } = withGivenLinkedIn(aboutFrom(person, PERSON_ASK, from), notebookGivenLinks(nb));
     // Their main company: the one you settled, if you did; the research's (and the one before) are others then.
     const { org: mainOrg, facts: kept, also } = mainCompany(nb.about?.person, facts, person.found.organization?.source);
     // Their other companies: their own list, never their main one.
     const others = cleanAffiliations([...also, ...(Array.isArray(person.found.other_companies?.value) ? person.found.other_companies.value : [])], mainOrg);
+    // Their company is another one now (what you gave says so, or a newer page): the old one's site isn't theirs.
+    const orgBefore = nb.about?.person?.facts.find((f) => f.key === 'organization')?.value;
+    if (orgBefore && mainOrg && !sameName(orgBefore, mainOrg) && !kept.some((f) => f.key === 'company_website')) store.forgetAbout(nb.id, 'person', ['company_website']);
     store.setAbout(nb.id, 'person', { name: subject, facts: kept, notFound, ...(person.summary ? { summary: person.summary } : {}), ...(others.length ? { affiliations: others } : {}) });
     if (others.length) notes.push(`found ${String(others.length)} other compan${others.length === 1 ? 'y' : 'ies'} of theirs`);
     // A quick look at each other company not looked at yet: what it does, its industry and stage.
@@ -350,11 +381,14 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
   }
 
   if (company) {
-    const second = await research(ctx, { SUBJECT: company.name, ASK: ask(COMPANY_ASK), CONTEXT: isCompany ? context : `${subject}'s company${company.site ? `, ${company.site}` : ''}`, DEPTH: isCompany ? 'thorough' : 'quick' });
+    // Another company than the one learned about before: that one's facts and logo go, so they never show under this name.
+    const was = store.get(nb.id)?.about?.company;
+    if (was?.name && !sameName(was.name, company.name)) { store.forgetAbout(nb.id, 'company'); notes.push(`their company is ${company.name} now, not ${was.name}`); }
+    const second = await research(ctx, { SUBJECT: company.name, ASK: ask(COMPANY_ASK), CONTEXT: isCompany ? context : `${subject}'s company${company.site ? `, ${company.site}` : ''}`, DEPTH: isCompany ? 'thorough' : 'quick', ...(given ? { GIVEN: given } : {}) });
     if (second.runId) onRun?.(second.runId);
     const c = readResearch(second.result);
     if (c) {
-      const { facts, notFound } = aboutFrom(c, COMPANY_ASK);
+      const { facts, notFound } = aboutFrom(c, COMPANY_ASK, from);
       // Its competitors: their own list, each from the page that names it (the answer's page for any that don't say).
       const rivals = cleanCompetitors(c.found.competitors?.value, company.name, typeof c.found.competitors?.source === 'string' ? c.found.competitors.source : undefined);
       store.setAbout(nb.id, 'company', { name: company.name, facts, notFound, ...(c.summary ? { summary: c.summary } : {}), ...(rivals.length ? { competitors: rivals } : {}) });

@@ -1101,6 +1101,8 @@ const FactSheet = define('FactSheet', 'sua-a2ui-fact-sheet',
     };
     const source = (f) => {
       const u = safeUrl(f.url ?? f.source);
+      // Not from a page: from something the person gave the notebook.
+      if (!u && !f.at && f.from) return html`<span class="src">from ${f.from}</span>`;
       if (!u && !f.at) return nothing;
       return html`<span class="src">${u ? html`<a href=${u} target="_blank" rel="noopener noreferrer" title=${u}>${sourceName(u) || 'source'} ↗</a>` : nothing}${u && f.at ? ' · ' : ''}${f.at ?? ''}</span>`;
     };

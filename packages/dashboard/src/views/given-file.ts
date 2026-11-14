@@ -7,10 +7,10 @@
  */
 import { html, type SafeHtml } from './html.js';
 
-/** The control: `boxId` is the textarea it fills. */
-export function givenFilePick(boxId: string): SafeHtml {
+/** The control: `boxId` is the textarea it fills; `nameId`, a "what is it?" field it fills from the file's name when that's empty. */
+export function givenFilePick(boxId: string, nameId?: string): SafeHtml {
   return html`<div class="given-file">
-            <label class="btn btn--sm given-file__pick">Choose a PDF or text file<input type="file" class="sr-only" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" data-given-file="${boxId}"></label>
+            <label class="btn btn--sm given-file__pick">Choose a PDF or text file<input type="file" class="sr-only" accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown" data-given-file="${boxId}"${nameId ? html` data-given-file-name="${nameId}"` : html``}></label>
             <span class="given-file__say" data-given-file-say aria-live="polite">A profile or résumé saved as PDF works. Its text lands in the box above.</span>
           </div>`;
 }
@@ -29,6 +29,9 @@ export const GIVEN_FILE_JS = `
       function tell(t, bad) { say.textContent = t; say.classList.toggle('given-file__say--bad', !!bad); }
       function done() { inp.value = ''; }
       function fill(text, msg) {
+        // What it is, from the file's name ("Dana-Reyes-Profile.pdf" → "Dana Reyes Profile"), unless you already said.
+        var nameBox = inp.getAttribute('data-given-file-name') && document.getElementById(inp.getAttribute('data-given-file-name'));
+        if (nameBox && !nameBox.value.trim()) nameBox.value = (dot > 0 ? name.slice(0, dot) : name).replace(/[_-]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 80);
         box.value = text;
         // A page that keeps drafts as you type hears this as typing.
         box.dispatchEvent(new Event('input', { bubbles: true }));

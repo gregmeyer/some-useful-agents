@@ -1242,6 +1242,17 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-given__facts dd { margin: 0; line-height: 1.5; color: var(--color-text); overflow-wrap: anywhere; }
 .nb-given__yours { margin-left: var(--space-1); padding: 0 var(--space-1); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: var(--font-size-xs)/1.4 var(--font-mono); color: var(--color-text-muted); }
 .nb-given__again { margin: 0; }
+/* Add a file or paste: a folded row; alone under the header when the notebook has nothing of yours yet. */
+.nb-given__item--add { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.nb-given__item--add summary { cursor: pointer; line-height: 1.5; }
+.nb-given__item--add[open] summary { margin-bottom: var(--space-3); }
+.nb-given__name { width: 100%; max-width: 32rem; }
+.nb-given--quiet { margin-top: var(--space-3); }
+.nb-given--quiet .nb-given__item--add:not([open]) { padding: var(--space-2) var(--space-4); border-style: dashed; background: transparent; }
+/* Added after its steps ran: the one thing on the card to act on. */
+.nb-given__item--new { border-color: var(--color-primary); }
+.nb-given__item--new .nb-given__say { margin-bottom: var(--space-2); color: var(--color-text-muted); }
+.nbe-given .nb-given__item--add { margin-top: var(--space-2); padding: var(--space-2) 0 0; border: 0; border-top: 1px solid var(--color-border); border-radius: 0; background: transparent; }
 .nb-given__acts { align-items: center; flex-wrap: wrap; }
 @media (max-width: 600px) { .nb-given__facts > div { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 /* Choose a file in place of pasting (views/given-file.ts). */

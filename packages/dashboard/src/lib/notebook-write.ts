@@ -13,7 +13,7 @@
  */
 import { agentForCopy } from './experiment-copy-agent.js';
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
-import { NotebookStore, givenForStep, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -91,7 +91,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
       // What it depends on from you: sua's reading of it (or its text), or that it wasn't given (never written as if known).
-      ...(nb.given?.length ? { given: nb.given.map((g) => { const f = givenForStep(g); return !f.given ? { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' } : f.lines ? { what: g.label, asRead: f.lines } : { what: g.label, text: (g.text ?? '').slice(0, 8000) }; }) } : {}),
+      ...(givenForSteps(nb).length ? { given: givenForSteps(nb).map((g) => { const f = givenForStep(g); return !f.given ? { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' } : f.lines ? { what: g.label, asRead: f.lines } : { what: g.label, text: (g.text ?? '').slice(0, 8000) }; }) } : {}),
       // What you struck isn't written again (points, findings, plan items); replacing some, the ones you're keeping.
       ...(struckOf(nb, step).length ? { skip: struckOf(nb, step) } : {}),
       ...(opts.keep ? { keep: opts.keep } : {}),
