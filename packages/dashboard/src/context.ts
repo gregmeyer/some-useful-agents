@@ -316,6 +316,10 @@ export interface DashboardContext {
   notebookTldrRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** What you pasted for a notebook being read, and readings that failed, by notebook and given thing (lib/notebook-given-read.ts). */
   notebookGivenReads?: Map<string, import('./lib/notebook-given-read.js').GivenReadState>;
+  /** Experiment passes running in this process, by pass id (lib/experiment-runner.ts). */
+  experimentPasses?: Map<string, import('./lib/experiment-runner.js').ExperimentPassState>;
+  /** Tests only: the answer of an experiment's task for one cell, instead of running its agent. */
+  experimentTaskRun?: (inputs: Record<string, string>, at: { conditionId: string; caseId: string; repeat: number }) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-given-reader agent instead of running it. */
   notebookGivenReaderRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** TL;DR pictures made lately, by a hash of the card they were made from (routes/notebooks.ts tldr.png). */

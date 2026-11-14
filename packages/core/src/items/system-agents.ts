@@ -35,6 +35,7 @@ export const SYSTEM_AGENT_IDS: ReadonlySet<string> = new Set([
   'notebook-page',
   'notebook-tldr',
   'notebook-given-reader',
+  'experiment-ranker',
   'notebook-writer',
   'notebook-reconciler',
   'notebook-checker',

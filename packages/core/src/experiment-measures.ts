@@ -60,6 +60,12 @@ export interface FactorEffect extends MeasuredSpread {
   name: string;
   /** Larger than anything seen between repeats of one condition. Undefined when there were no repeats to compare. */
   beyondNoise?: boolean;
+  /**
+   * Each pair of conditions it is the average of: the same change made with
+   * everything else held at one setting. They can differ a lot (a factor
+   * that matters under one build and not under another).
+   */
+  parts: Array<RankDifference & { from: string; to: string }>;
 }
 
 /** One item's place under each condition (1 = first), averaged over repeats. */
@@ -115,6 +121,7 @@ export function experimentVerdict(input: { factors: readonly MeasuredFactor[]; c
   const effects: FactorEffect[] = [];
   for (const f of factors) {
     const diffs: RankDifference[] = [];
+    const parts: FactorEffect['parts'] = [];
     for (let i = 0; i < conditions.length; i++) {
       for (let j = i + 1; j < conditions.length; j++) {
         const a = conditions[i];
@@ -122,12 +129,15 @@ export function experimentVerdict(input: { factors: readonly MeasuredFactor[]; c
         // The pair tests this factor only when it is the one thing they differ in.
         const differ = factors.filter((x) => a.levels[x.id] !== b.levels[x.id]).map((x) => x.id);
         if (differ.length !== 1 || differ[0] !== f.id) continue;
-        for (const cs of cases) diffs.push(...between(of(cs, a.id), of(cs, b.id), topK));
+        const pair = cases.flatMap((cs) => between(of(cs, a.id), of(cs, b.id), topK));
+        diffs.push(...pair);
+        const ps = spread(pair);
+        if (ps) parts.push({ from: a.id, to: b.id, overlap: ps.overlap, shift: ps.shift });
       }
     }
     const s = spread(diffs);
     if (!s) continue;
-    effects.push({ factorId: f.id, name: f.name, ...s, ...(noise ? { beyondNoise: s.shift > noise.shiftMax || s.overlap < noise.overlapMin } : {}) });
+    effects.push({ factorId: f.id, name: f.name, ...s, parts, ...(noise ? { beyondNoise: s.shift > noise.shiftMax || s.overlap < noise.overlapMin } : {}) });
   }
   effects.sort((a, b) => b.shift - a.shift || a.overlap - b.overlap);
 

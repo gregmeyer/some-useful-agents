@@ -138,6 +138,9 @@ describe('experiment measures', () => {
     expect(v.effects.map((e) => [e.name, e.beyondNoise])).toEqual([['Build', true], ['Preferences', false]]);
     expect(v.effects[0].overlap).toBe(0);
     expect(v.effects[0].pairs).toBe(8);
+    // Each change by itself: build with preferences held at 1, then at 2.
+    expect(v.effects[0].parts.map((p) => [p.from, p.to, p.overlap])).toEqual([['a1', 'b1', 0], ['a2', 'b2', 0]]);
+    expect(v.effects[1].parts.map((p) => [p.from, p.to])).toEqual([['a1', 'a2'], ['b1', 'b2']]);
     expect(v.conditions.map((c) => [c.id, c.vsBaseline?.overlap])).toEqual([['a1', undefined], ['a2', 3], ['b1', 0], ['b2', 0]]);
     // The items that moved furthest lead the table: a is 1st (or 2nd) under A and last under B.
     expect(v.items[0].ranks).toMatchObject({ a2: 1, b1: 6 });

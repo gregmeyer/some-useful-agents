@@ -92,6 +92,8 @@ import { startModelWatch } from './lib/model-watch.js';
 import { installCatalogSorter } from './lib/agent-catalog-sort.js';
 import { installNotebookTagger } from './lib/notebook-tags.js';
 import { installGivenReader } from './lib/notebook-given-read.js';
+import { installExperimentRanker, reconcileExperimentsOnBoot } from './lib/experiment-runner.js';
+import { experimentsRouter } from './routes/experiments.js';
 import { publishInboxEvent, publishInboxChanged, SYSTEM_AGENT_IDS } from './routes/inbox-shared.js';
 import { runTriageAgent, maybeProposeFixForRepeatedFailures } from './routes/inbox-engine.js';
 import { reconcileInboxOnBoot } from './routes/inbox-reconcile.js';
@@ -311,6 +313,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   app.use(itemsRouter);
   app.use(surfacesRouter);
   app.use(notebooksRouter);
+  app.use(experimentsRouter);
   app.use(inboxEventsRouter);
   app.use(inboxRouter);
   app.use(toolsRouter);
@@ -750,6 +753,13 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   } catch (err) {
     console.warn('[inbox-reconcile] boot pass failed:', err instanceof Error ? err.message : String(err));
   }
+  // Experiment passes a restart cut off stop where they were, to be resumed from their page (ADR-0078).
+  try {
+    const cut = reconcileExperimentsOnBoot(ctx);
+    if (cut) console.log(`[experiments] ${String(cut)} pass(es) cut off by a restart; resume them from their pages.`);
+  } catch (err) {
+    console.warn('[experiments] boot pass failed:', err instanceof Error ? err.message : String(err));
+  }
   // Notebook steps a restart left running stop there, with Try again / Move on (ADR-0055).
   try {
     const stopped = reconcileStepsOnBoot(ctx);
@@ -805,6 +815,8 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   try { installNotebookTagger(ctx); } catch { /* notebooks just stay untagged */ }
   // And for reading what's pasted for a notebook into a short profile.
   try { installGivenReader(ctx); } catch { /* steps just get the text as pasted */ }
+  // And the default task of a ranking experiment.
+  try { installExperimentRanker(ctx); } catch { /* an experiment says its agent isn't installed */ }
 
   const app = buildDashboardApp(ctx);
 
