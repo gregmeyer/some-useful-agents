@@ -900,13 +900,20 @@ its words made to fit any time it's used:
                "SUBJECT_EXAMPLE": "<what it is in this notebook: the name as written>",
                "STATEMENT": "<what it's for>", "PARAMS": ["<limits>"], "CRITERIA": ["<done-whens>"],
                "CHECKS": ["<checks>"], "STEP_TITLES": { "<step id>": "<title>" },
-               "FIELD_LABELS": { "<field key>": "<label>" } } }`
+               "FIELD_LABELS": { "<field key>": "<label>" },
+               "ASKS": [{ "label": "<what to ask them for: {subject}'s LinkedIn profile>", "optional": true }] } }`
 - The subject is the one thing that changes each time (a person, a company,
   a place). Write {subject} where it goes, or leave the name: every
   occurrence of SUBJECT_EXAMPLE becomes {subject} when it's saved. No
   subject (SUBJECT_* empty) for a template that's the same every time.
-- Drop limits that only fit this time ("LinkedIn profile provided"),
-  make pronouns fit anyone ("him" → "them"), and keep checks and steps
+- ASKS is what each new notebook asks them to add (a file or a paste): a
+  profile saved as a PDF, a résumé, a job description. "optional": true
+  shows a box and waits for nothing; without it, the notebook runs nothing
+  until they add it or go on without it. Keep "asks" from the template in
+  NOTEBOOK_FOCUS unless they say otherwise; [] asks for nothing. A limit
+  that says something was provided ("LinkedIn profile provided") is an
+  ask, not a limit: move it there.
+- Drop limits that only fit this time, make pronouns fit anyone ("him" → "them"), and keep checks and steps
   that make the work good. Finish any text that was cut off.
 - Then say in a line what changed; they see the template's page update
   once they save. Each later request ("call it Meeting prep", "drop the

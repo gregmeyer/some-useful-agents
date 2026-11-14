@@ -355,6 +355,17 @@ export function renderDraftReview(id: string, draft: NotebookDraft, agents: Read
         </div>`) as unknown as SafeHtml[]}
       </div>` : html``}
       ${notebookSetupEditor(draft, agents, { offered: draft.suggested ?? draft.pipeline })}
+      <details class="nbd-add" data-nbd-add-file>
+        <summary><span class="nbd-add__h">Add a file or paste</span> <span class="nbd-add__hint">A profile saved as a PDF, a résumé, your notes: its steps work from it from the start.</span></summary>
+        <div class="nbd-add__body">
+          <label class="nb-given__label" for="nbd-add-label">What is it?</label>
+          <input id="nbd-add-label" name="add_label" type="text" class="form-field__input nb-given__name" maxlength="80" autocomplete="off" placeholder="Their LinkedIn profile">
+          <label class="nb-given__label" for="nbd-add-text">Its text</label>
+          <textarea id="nbd-add-text" name="add_text" rows="5" class="form-field" placeholder="Paste the text here, or choose a file below."></textarea>
+          ${givenFilePick('nbd-add-text', 'nbd-add-label')}
+          <span class="nbd-add__hint">Kept when you start the notebook. The file itself isn't kept.</span>
+        </div>
+      </details>
       <div class="nbd-draft__foot">
         <button type="submit" class="btn btn--primary">Looks right, start it</button>
         <span class="nbd-saved" data-nbd-saved aria-live="polite">Draft kept: come back to it any time.</span>

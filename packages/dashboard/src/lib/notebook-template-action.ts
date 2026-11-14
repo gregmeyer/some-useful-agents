@@ -6,8 +6,8 @@
  * template's words; saving the same name again replaces it.
  */
 import {
-  templateSubjectGuess, templateWithEdits,
-  type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookTemplate, type NotebookTemplateEdits, type NotebookTemplateSetup,
+  cleanTemplateAsks, templateSubjectGuess, templateWithEdits,
+  type NotebookTemplateAsk, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookTemplate, type NotebookTemplateEdits, type NotebookTemplateSetup,
 } from '@some-useful-agents/core';
 import { notebooksOf } from './notebook-chat.js';
 import { templateNameFrom } from '../views/notebook-template.js';
@@ -48,6 +48,16 @@ const map = (raw: string | undefined): Record<string, string> | undefined => {
   return undefined;
 };
 
+/** ASKS: a JSON list of {label, why?, optional?} (or of labels), or a label per line; a bare label is wanted, not waited for. */
+const asksInput = (raw: string | undefined): NotebookTemplateAsk[] | undefined => {
+  if (raw === undefined) return undefined;
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (Array.isArray(v)) return cleanTemplateAsks(v.map((x) => (typeof x === 'string' ? { label: x, optional: true } : x)));
+  } catch { /* one per line */ }
+  return cleanTemplateAsks(raw.split('\n').map((x) => ({ label: x.trim(), optional: true })));
+};
+
 /** The card's inputs as the edits saveTemplate takes. */
 export function templateEditsFromInputs(inputs: Readonly<Record<string, string>>): NotebookTemplateEdits {
   const label = (inputs.SUBJECT_LABEL ?? '').trim();
@@ -57,7 +67,9 @@ export function templateEditsFromInputs(inputs: Readonly<Record<string, string>>
   const checks = list(inputs.CHECKS);
   const stepTitles = map(inputs.STEP_TITLES);
   const fieldLabels = map(inputs.FIELD_LABELS);
+  const asks = asksInput(inputs.ASKS);
   return {
+    ...(asks ? { asks } : {}),
     ...(inputs.STATEMENT !== undefined ? { statement: inputs.STATEMENT } : {}),
     ...(params ? { params } : {}), ...(criteria ? { criteria } : {}), ...(checks ? { checks } : {}),
     ...(stepTitles ? { stepTitles } : {}), ...(fieldLabels ? { fieldLabels } : {}),
@@ -83,11 +95,14 @@ export function previewNotebookTemplate(ctx: Ctx, action: InboxActionMeta): Inbo
       row('limits', joined(setup.params), was ? joined(was.setup.params) : undefined),
       row('done when', joined(setup.criteria), was ? joined(was.setup.criteria) : undefined),
       ...(setup.checks.length ? [row('checks', joined(setup.checks), was ? joined(was.setup.checks) : undefined)] : []),
+      ...(setup.asks?.length || was?.setup.asks?.length ? [row('asks you for', joined((setup.asks ?? []).map(askWords)), was ? joined((was.setup.asks ?? []).map(askWords)) : undefined)] : []),
       ...(setup.steps.length ? [row('steps', setup.steps.map((s, i) => `${String(i + 1)}. ${s.title}`).join('; '), was ? was.setup.steps.map((s, i) => `${String(i + 1)}. ${s.title}`).join('; ') : undefined)] : []),
       ...(setup.fields.length ? [row('facts each notes', setup.fields.map((f) => f.label).join(', '), was ? was.setup.fields.map((f) => f.label).join(', ') : undefined)] : []),
     ],
   };
 }
+
+const askWords = (a: NotebookTemplateAsk) => `${a.label} (${a.optional ? 'if you have it' : 'waits for it'})`;
 
 export function executeNotebookTemplate(ctx: Ctx, meta: InboxActionMeta): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
   const nb = notebooksOf(ctx).get(meta.inputs.NOTEBOOK ?? '');

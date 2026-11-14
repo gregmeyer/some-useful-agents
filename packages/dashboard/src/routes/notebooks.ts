@@ -258,6 +258,9 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
     // with anything you pasted for it on the draft page.
     const from = str(req.body?.draft) ? readDraft(ctx, str(req.body?.draft)) : undefined;
     const needs = from?.status === 'ready' ? (from.draft.needs ?? []).map((n) => ({ ...n, text: str((req.body as Record<string, unknown> | undefined)?.[`need_${n.key}`]) })) : [];
+    // Something you added on the draft page without being asked: kept as given, wanted not needed.
+    const added = str(req.body?.add_text).trim();
+    const given = [...needs, ...(added.length >= 20 ? [{ label: str(req.body?.add_label).trim() || 'What you added', text: added, optional: true }] : [])];
     const nb = createNotebookFrom(ctx, {
       title: str(req.body?.title).trim() || titleFrom(statement),
       statement,
@@ -266,7 +269,7 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
       ...(from?.text ? { asked: from.text } : {}),
-      ...(needs.length ? { given: needs } : {}),
+      ...(given.length ? { given } : {}),
       ...(steps ? { steps } : {}),
       ...(() => { const m = meetingFromForm(req.body ?? {}); return m ? { meeting: m } : {}; })(),
       ...(fields.length ? {

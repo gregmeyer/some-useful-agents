@@ -1273,3 +1273,11 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbd-needs__say { margin: 0 0 var(--space-2); font-size: var(--font-size-sm); line-height: 1.5; }
 .nbd-needs__say strong { color: var(--color-warn); }
 .nbd-needs__item textarea { width: 100%; resize: vertical; }
+/* Add a file or paste on the draft: a folded row above its Start button. */
+.nbd-add { margin: var(--space-4) var(--space-4) 0; padding: var(--space-2) var(--space-4); border: 1px dashed var(--color-border); border-radius: var(--radius-md); font-size: var(--font-size-sm); }
+.nbd-add[open] { border-style: solid; padding-bottom: var(--space-3); }
+.nbd-add summary { cursor: pointer; line-height: 1.5; }
+.nbd-add__h { font-weight: var(--weight-semibold); color: var(--color-text); }
+.nbd-add__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nbd-add__body { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.nbd-add__body textarea { width: 100%; resize: vertical; }

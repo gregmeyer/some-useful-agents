@@ -2944,6 +2944,27 @@ describe('notebook templates', () => {
     db.prepare('UPDATE notebook_templates SET setup_json = ? WHERE id = ?').run(JSON.stringify({ ...withPage.setup, layout: coPage }), 'company-briefing');
     expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'company-briefing', TITLE: 'Brief Pipe', SUBJECT: 'Pipe' } }).status).toBe('completed');
     expect(store.list().find((n) => n.title === 'Brief Pipe')!.layout?.about).toBe('a company briefing: who Pipe is and what it offers');
+
+    // What it asks you for: what a notebook was given becomes asks (labels, never the text); a new one shows a box for each.
+    const dana = store.create({ title: 'Prepare for a meeting with Dana Reyes', statement: 'Prepare me to meet Dana Reyes.' });
+    store.addGiven(dana.id, { label: 'Dana Reyes\'s LinkedIn profile', text: 'Dana ran operations at two logistics firms before this one.' });
+    store.addGiven(dana.id, { label: 'the agenda', why: 'Points are matched to it.' });
+    const mt = store.saveTemplate('Meeting asks', dana.id, undefined, { subject: { label: 'Who', example: 'Dana Reyes' } });
+    expect(mt.setup.asks).toEqual([{ label: '{subject}\'s LinkedIn profile', optional: true }, { label: 'the agenda', why: 'Points are matched to it.' }]);
+    expect(JSON.stringify(mt.setup)).not.toContain('logistics');
+    expect(mt.description).toContain('asks for 2');
+    expect(executeNotebookCreate(ctx, { ...base, inputs: { TEMPLATE: 'meeting-asks', TITLE: 'Meet Lee', SUBJECT: 'Lee Park' } }).status).toBe('completed');
+    const lee = store.list().find((n) => n.title === 'Meet Lee')!;
+    expect(lee.given).toMatchObject([{ label: 'Lee Park\'s LinkedIn profile', state: 'missing', optional: true }, { label: 'the agenda', state: 'missing' }]);
+    const leePage = (await request(app).get(`/notebooks/${lee.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`)).text;
+    expect(leePage).toContain('If you have Lee Park&#39;s LinkedIn profile:');
+    expect(leePage).toContain('sua needs the agenda.');
+    // Edited: the asks as given replace them; none asks for nothing. sua's card takes labels (wanted) or {label, optional}.
+    expect(store.saveTemplate('Meeting asks', dana.id, undefined, { asks: [] }).setup.asks).toBeUndefined();
+    const { templateEditsFromInputs } = await import('../lib/notebook-template-action.js');
+    expect(templateEditsFromInputs({ ASKS: '["Their résumé", {"label": "The job description"}]' }).asks).toEqual([{ label: 'Their résumé', optional: true }, { label: 'The job description' }]);
+    const { templateEditsFrom } = await import('../views/notebook-template.js');
+    expect(templateEditsFrom({ asks_wait: 'Your résumé', asks_optional: 'Their profile\n' }, dana).asks).toEqual([{ label: 'Your résumé' }, { label: 'Their profile', optional: true }]);
   });
 });
 
@@ -5770,6 +5791,11 @@ describe('a notebook that depends on something you have to give it', () => {
     // An archived notebook and an experiment's copy take nothing.
     store.setExperimentRun(nb.id, { experimentId: 'e1', label: 'A · run 1' });
     expect(decodeURIComponent((await post(app, `/notebooks/${nb.id}/given`, { label: 'Notes', text: PROFILE })).headers.location)).toContain('experiment’s copy');
+    // Starting a notebook with something added on the draft page: kept as given, wanted not needed, and read.
+    const made = await post(app, '/notebooks', { title: 'Meet Lee Park', statement: 'Prepare me to meet Lee Park.', add_label: 'Their LinkedIn profile', add_text: PROFILE });
+    const lee = store.list().find((n) => n.title === 'Meet Lee Park')!;
+    expect(lee.given).toMatchObject([{ label: 'Their LinkedIn profile', state: 'given', text: PROFILE, optional: true }]);
+    expect(decodeURIComponent(made.headers.location)).toContain('sua is reading Their LinkedIn profile first');
     researchReply = undefined; writerReply = undefined;
   });
 
