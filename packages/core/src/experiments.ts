@@ -89,6 +89,8 @@ export interface Experiment {
   scorers: ExperimentScorer[];
   /** The notebook its cases were copied from, when they were. */
   from?: { notebookId: string; title: string };
+  /** The agent run whose results its cases were taken from, when they were ("Job search, run of Nov 13"). */
+  fromRun?: { runId: string; title: string };
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
@@ -127,6 +129,7 @@ export interface NewExperiment {
   topK?: number;
   scorers?: unknown;
   from?: { notebookId: string; title: string };
+  fromRun?: { runId: string; title: string };
 }
 
 const line = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
@@ -458,6 +461,7 @@ export class ExperimentStore {
       repeats: Number(r.repeats), topK: Number(r.top_k),
       scorers: cleanScorers(json(r.scorers_json, []), [], Number(r.top_k)),
       ...(from?.notebookId ? { from } : {}),
+      ...((): { fromRun?: Experiment['fromRun'] } => { const fr = json<{ runId?: string; title?: string } | undefined>(r.from_json, undefined); return fr?.runId ? { fromRun: { runId: String(fr.runId), title: String(fr.title ?? '') } } : {}; })(),
       createdAt: String(r.created_at), updatedAt: String(r.updated_at),
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
     };
@@ -487,7 +491,8 @@ export class ExperimentStore {
     let id = slug(name, 'experiment');
     for (let n = 2; this.get(id); n++) id = `${slug(name, 'experiment').slice(0, 36)}-${String(n)}`;
     const now = new Date().toISOString();
-    const from = input.from?.notebookId ? { notebookId: line(input.from.notebookId, 120), title: line(input.from.title, 200) } : undefined;
+    const from = input.from?.notebookId ? { notebookId: line(input.from.notebookId, 120), title: line(input.from.title, 200) }
+      : input.fromRun?.runId ? { runId: line(input.fromRun.runId, 120), title: line(input.fromRun.title, 200) } : undefined;
     this.db.exec('BEGIN');
     try {
       this.db.prepare(`INSERT INTO experiments (id, name, question, kind, task_json, factors_json, repeats, top_k, from_json, scorers_json, created_at, updated_at)

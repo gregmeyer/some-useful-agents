@@ -6,15 +6,16 @@
  */
 import { Router, type Request, type Response } from 'express';
 import {
-  ExperimentStore, NotebookStore, cleanCases, experimentConditions, experimentRunCount, experimentVerdict, notebookViewData, scoreSummaries,
+  ExperimentStore, NotebookStore, cleanCases, experimentConditions, experimentRunCount, experimentVerdict, notebookTags, scoreSummaries,
   EXPERIMENT_MAX_LEVELS, type Experiment, type ExperimentCase,
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
-import { renderExperimentNew, renderExperimentPage, renderExperimentsList, renderSetChoices, renderSetPanel, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
+import { renderExperimentNew, renderExperimentPage, renderExperimentsList, renderSetChoices, renderSetPanel, renderRunPanel, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
 import { applySetAdvice, goldenSet, rankSetCandidates, setCandidate, type SetCandidate } from '../lib/experiment-set.js';
 import { setAdviceKey, setAdviceState, startSetAdvice } from '../lib/experiment-set-advice.js';
+import { agentRunCounts, freezeRun, runItems, runSetCandidates } from '../lib/experiment-run-set.js';
 import { html, render } from '../views/html.js';
 import { notebookForExperiment } from '../lib/experiment-notebook.js';
 import { EXPERIMENT_RANKER_ID, caseFromPaste, costPerRun, freezeNotebook, runningPass, startExperimentPass, stopExperimentPass } from '../lib/experiment-runner.js';
@@ -135,10 +136,30 @@ export function nameFromQuestion(question: string): string {
 const many = (v: unknown): string[] => (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string' && x !== '');
 
 /** Your notebooks as sets an experiment could hold fixed, the best fit for the question first (lib/experiment-set.ts). */
-function setCandidatesFor(ctx: Ctx, question: string): SetCandidate[] {
+function setCandidatesFor(ctx: Ctx, question: string, search = ''): SetCandidate[] {
   const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean);
+  // Searching reaches archived notebooks too; without a search only the ones in use are listed.
   // One that shows an experiment has nothing of its own to rank.
-  return rankSetCandidates(nbs.list().filter((n) => !n.archivedAt && !n.experimentId).map((n) => setCandidate(n, nbs.entries(n.id, 1000), question)));
+  const mine = nbs.list(words.length ? { archived: 'include' } : {}).filter((n) => !n.experimentId && (words.length || !n.archivedAt))
+    .filter((n) => { const t = `${n.title} ${n.id} ${n.statement} ${notebookTags(n).join(' ')}`.toLowerCase(); return words.every((w) => t.includes(w)); });
+  return rankSetCandidates(mine.map((n) => setCandidate(n, nbs.entries(n.id, 1000), question)));
+}
+
+/** Notebooks listed before a search is asked for. */
+const SETS_SHOWN = 8;
+
+/** The agents that could be tested: sua's ranker first, then the operator's own, the most run first. */
+function testableAgents(ctx: Ctx): Parameters<typeof renderExperimentNew>[0]['agents'] {
+  const versionsOf = (id: string) => { try { return ctx.agentStore.listVersions(id).slice(0, 20).map((v) => ({ v: v.version, at: v.createdAt.slice(0, 10), ...(v.commitMessage ? { note: v.commitMessage.slice(0, 60) } : {}) })); } catch { return []; } };
+  const cost = (id: string) => { const c = costPerRun(ctx, id); return c !== undefined ? { costPerRun: c } : {}; };
+  const ranker = ctx.agentStore.getAgent(EXPERIMENT_RANKER_ID);
+  return [
+    ...(ranker ? [{ id: ranker.id, name: ranker.name, takesItems: true, runs: 0, versions: [], ...cost(ranker.id) }] : []),
+    ...agentRunCounts(ctx).sort((a, b) => b.runs - a.runs || a.name.localeCompare(b.name)).map((a) => ({
+      id: a.id, name: a.name, ...(a.description ? { description: a.description } : {}), takesItems: a.takesItems, runs: a.runs, versions: versionsOf(a.id), ...(a.current !== undefined ? { current: a.current } : {}), ...cost(a.id),
+    })),
+  ];
 }
 
 /** What would be copied from a notebook: the set sua proposes, to check and change. */
@@ -148,25 +169,34 @@ function setPanelFor(ctx: Ctx, notebookId: string, posted?: { items?: ReadonlySe
   return nb ? renderSetPanel(nb.id, goldenSet(nb, nbs.entries(nb.id, 1000)), posted) : undefined;
 }
 
+/** What would be taken from a run: the items sua read out of its results. */
+function runPanelFor(ctx: Ctx, runId: string) {
+  const read = runItems(ctx, runId);
+  return read ? renderRunPanel(read.items) : undefined;
+}
+
 function newPage(req: Request, res: Response, values?: Parameters<typeof renderExperimentNew>[0]['values'], error?: string): void {
   const ctx = getContext(req.app.locals);
   const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const question = values?.question ?? str(req.query.question);
   const from = values?.from ?? str(req.query.from);
-  const notebooks = setCandidatesFor(ctx, question);
+  const ranked = setCandidatesFor(ctx, question);
+  // The chosen one always shows, though it may be below the first few.
+  const notebooks = [...ranked.slice(0, SETS_SHOWN), ...ranked.slice(SETS_SHOWN).filter((n) => n.id === from)];
+  const runs = runSetCandidates(ctx);
   // What would be copied from the chosen one, with what was ticked when the page came back.
   const posted = values?.body ? (() => { const items = many(values.body![`items_${from}`]); return { ...(items.length ? { items: new Set(items) } : {}), key: values.body![`key_${from}`] === '1' }; })() : undefined;
-  const setPanel = from && from !== 'paste' ? setPanelFor(ctx, from, posted) : undefined;
-  const agents = ctx.agentStore.listAgents().map((a) => { const cost = costPerRun(ctx, a.id); return { id: a.id, name: a.name, ...(cost !== undefined ? { costPerRun: cost } : {}) }; }).sort((a, b) => Number(b.id === EXPERIMENT_RANKER_ID) - Number(a.id === EXPERIMENT_RANKER_ID) || a.name.localeCompare(b.name));
+  const setPanel = from.startsWith('run:') ? runPanelFor(ctx, from.slice(4)) : from && from !== 'paste' ? setPanelFor(ctx, from, posted) : undefined;
+  const agents = testableAgents(ctx);
   let providers: string[] = [];
   try { providers = [...(buildLlmSettingsSnapshot(ctx)?.providers ?? [])]; } catch { /* none offered */ }
   res.status(error ? 400 : 200).type('html').send(renderExperimentNew({
-    notebooks, agents, providers, defaultAgent: EXPERIMENT_RANKER_ID, ...(setPanel ? { setPanel } : {}),
+    notebooks, runs, moreNotebooks: Math.max(0, ranked.length - notebooks.length), agents, providers, defaultAgent: EXPERIMENT_RANKER_ID, ...(setPanel ? { setPanel } : {}),
     // A link can fill the page in (sua offers one from a conversation): any of the form's fields, by name.
     values: values ?? { from: str(req.query.from), name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), paste: str(req.query.paste), body: req.query as Record<string, unknown> },
     ...(error ? { flash: { kind: 'error' as const, message: error } } : flashOf(req) ? { flash: flashOf(req)! } : {}),
     // Where to start: where a refusal belongs; the summary when a link filled the changes in; the set when it only gave the question.
-    open: error ? experimentStepForError(error) : Object.keys(req.query).some((k) => /^c\d_v\d_/.test(k)) ? 5 : str(req.query.question) ? 2 : 1,
+    open: error ? experimentStepForError(error) : Object.keys(req.query).some((k) => /^c\d_v\d_/.test(k)) ? 6 : str(req.query.question) ? 2 : 1,
   }));
 }
 
@@ -194,13 +224,17 @@ experimentsRouter.get('/experiments/sets', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const from = str(req.query.from);
   res.set('Cache-Control', 'no-store').type('html');
-  if (req.query.panel === '1') { res.send(render(setPanelFor(ctx, from) ?? html``)); return; }
+  if (req.query.panel === '1') { res.send(render((from.startsWith('run:') ? runPanelFor(ctx, from.slice(4)) : setPanelFor(ctx, from)) ?? html``)); return; }
   const question = str(req.query.question).slice(0, 1000);
-  const counted = setCandidatesFor(ctx, question);
+  const search = str(req.query.q).trim().slice(0, 100);
+  const found = setCandidatesFor(ctx, question, search);
+  // With no search, the first few; the one chosen always shows.
+  const counted = search ? found : [...found.slice(0, SETS_SHOWN), ...found.slice(SETS_SHOWN).filter((n) => n.id === from)];
   // sua's reading of the question, when one was asked for: laid over the counted ranking once it's in.
   const reading = question.trim() ? setAdviceState(ctx, setAdviceKey(question, str(req.query.changes).slice(0, 2000), counted)) : undefined;
   const candidates = reading?.status === 'ready' && reading.advice ? applySetAdvice(counted, reading.advice) : counted;
-  res.send(render(renderSetChoices(candidates, from, from === 'paste', reading ? { status: reading.status, ...(reading.advice ? { advice: reading.advice } : {}) } : undefined)));
+  res.send(render(renderSetChoices(candidates, from, from === 'paste', reading ? { status: reading.status, ...(reading.advice ? { advice: reading.advice } : {}) } : undefined,
+    { search, more: search ? 0 : Math.max(0, found.length - counted.length) }, runSetCandidates(ctx, search))));
 });
 
 /**
@@ -220,11 +254,12 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const values = { name: str(body.name), question: str(body.question), agent: str(body.agent), from: str(body.from), paste: str(body.paste), repeats: str(body.repeats), body };
   try {
-    const from = str(body.from) === 'paste' ? '' : str(body.from);
-    if (!from && !str(body.paste).trim()) throw new Error('Choose the notebook whose options to hold fixed, or paste a list.');
+    const fromRun = str(body.from).startsWith('run:') ? str(body.from).slice(4) : '';
+    const from = str(body.from) === 'paste' || fromRun ? '' : str(body.from);
+    if (!from && !fromRun && !str(body.paste).trim()) throw new Error('Choose the notebook whose options to hold fixed, a run\'s results, or paste a list.');
     // The items ticked for that notebook (none posted: all it has in the running).
     const only = from ? many(body[`items_${from}`]) : [];
-    const frozen = from ? freezeNotebook(ctx, from, only.length ? { only: new Set(only) } : {}) : { cases: [caseFromPaste(str(body.paste))] };
+    const frozen = fromRun ? freezeRun(ctx, fromRun) : from ? freezeNotebook(ctx, from, only.length ? { only: new Set(only) } : {}) : { cases: [caseFromPaste(str(body.paste))] };
     if ('error' in frozen) throw new Error(frozen.error);
     const cases = cleanCases(frozen.cases);
     // Scored against the notebook's picks, and against keeping what was ruled out low, when asked.
@@ -233,6 +268,7 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
       name: str(body.name).trim() || nameFromQuestion(str(body.question)), question: str(body.question), task: { agentId: str(body.agent) || EXPERIMENT_RANKER_ID },
       factors: factorsFromForm(body), cases, repeats: Number(body.repeats) || 3, scorers: [...keyed, ...scorersFromForm(body, cases)],
       ...('from' in frozen ? { from: frozen.from } : {}),
+      ...('fromRun' in frozen ? { fromRun: frozen.fromRun } : {}),
     });
     const runs = experimentRunCount(e, cases.length);
     // Asked for with it: the notebook that shows its results (made empty; it fills in as the experiment runs).

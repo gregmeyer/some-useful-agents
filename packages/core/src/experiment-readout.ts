@@ -62,7 +62,7 @@ export function experimentReadoutJson(r: ExperimentRead, part: ExperimentReadPar
     ...(want('setup') ? {
       setup: {
         runs: e.task.agentId, timesEach: e.repeats, topK: e.topK,
-        holdsFixed: cases.map((c) => ({ items: c.items.length, ...(e.from ? { copiedFrom: e.from.title, notebook: `/notebooks/${encodeURIComponent(e.from.notebookId)}` } : {}) })),
+        holdsFixed: cases.map((c) => ({ items: c.items.length, ...(e.from ? { copiedFrom: e.from.title, notebook: `/notebooks/${encodeURIComponent(e.from.notebookId)}` } : {}), ...(e.fromRun ? { takenFrom: e.fromRun.title, run: `/runs/${encodeURIComponent(e.fromRun.runId)}` } : {}) })),
         changes: e.factors.map((f) => ({
           name: f.name,
           versions: f.levels.map((l) => ({ name: l.name, ...(l.instructions ? { instructions: l.instructions } : {}), ...(l.inputs ? { inputs: l.inputs } : {}), ...(l.provider ? { provider: l.provider } : {}), ...(l.model ? { model: l.model } : {}), ...(l.version !== undefined ? { agentVersion: l.version } : {}) })),
@@ -108,7 +108,7 @@ export function experimentReadoutText(r: ExperimentRead, part: ExperimentReadPar
   if (want('setup')) {
     out.push('', '## How it is set up');
     out.push(`Runs ${e.task.agentId}, ${String(e.repeats)} ${e.repeats === 1 ? 'time' : 'times'} for each condition; "the top" is the first ${String(e.topK)}.`);
-    for (const c of cases) out.push(`Holds fixed: ${String(c.items.length)} items${e.from ? `, copied from the notebook "${e.from.title}" (/notebooks/${e.from.notebookId})` : ''}.`);
+    for (const c of cases) out.push(`Holds fixed: ${String(c.items.length)} items${e.from ? `, copied from the notebook "${e.from.title}" (/notebooks/${e.from.notebookId})` : ''}${e.fromRun ? `, taken from ${e.fromRun.title} (/runs/${e.fromRun.runId})` : ''}.`);
     for (const f of e.factors) {
       out.push(`Changes ${f.name.toLowerCase()}:`);
       for (const l of f.levels) {

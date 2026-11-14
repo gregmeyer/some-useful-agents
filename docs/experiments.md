@@ -25,13 +25,17 @@ A pass makes at most 60 runs (sets × conditions × repeats, and once more for e
 
 ## Setting one up
 
-**New experiment** is five short steps. Nothing is made until the last one, and nothing runs until you press Run after that.
+**New experiment** is six short steps. Nothing is made until the last one, and nothing runs until you press Run after that.
 
 1. **The question.** What you want to find out, in your own words.
-2. **What stays the same.** The set every run ranks: one of your notebooks, or a list you paste. sua helps you choose (see [Choosing the set](#choosing-the-set)). Nothing is chosen for you.
-3. **What changes.** One change at a time. First what kind it is: how the agent is told to decide, what the person asks for, the model it runs on, or the version of the agent. Then what to call it and its versions, A and B (up to four), each a name and the one box that kind needs. **Change something else too** adds another, up to three. Changes you've made show as a line each, with Edit and Remove. You can go on with none: the experiment then only shows how much the result moves by itself.
-4. **Which is better.** Optional. Leave it off to learn only which versions differ. **Count it** names items that should be near the top; **Have a model judge it** takes a rubric in your words.
-5. **Check it.** The whole setup written out: the question, the set, each change and its versions, how it's scored, and what it comes to ("2 × 2 = 4 combinations × 3 runs = 12 runs", with every combination listed when there are eight or fewer). The name is here (sua uses your question if you leave it empty), and **How it runs** holds the two things most people never change: the agent, and how many times each combination is run. Every part has an Edit back to its step. **Set it up** makes it.
+2. **What you're testing.** The agent every run uses. **Experiment ranker** is suggested: it ranks the set the way each version tells it to, so you can test instructions, preferences or models without an agent of your own. Below it are your agents, the most run first, each with how many times it has run and how many versions it has. Type to search them. An agent that has no `ITEMS` input says so: an experiment can't hand it the set, so its runs would be unusable.
+3. **What stays the same.** The set every run ranks. Nothing is chosen for you. It can be:
+   - **one of your notebooks** (see [Choosing the set](#choosing-the-set)); the first few are listed, and the search box finds the rest, archived ones too;
+   - **the results of a run**: sua reads the list of items out of a run's output (the jobs a search run found, say). The latest such runs of your most-run agents are listed; search by an agent's name for others. Choosing one shows every item it read, with its facts, before anything is copied;
+   - **a list you paste**.
+4. **What changes.** One change at a time. First what kind it is: how the agent is told to decide, what the person asks for, the model it runs on, or the version of the agent. Then what to call it and its versions, A and B (up to four), each a name and the one box that kind needs. For the version of the agent, the page says which versions the agent you chose has and offers them. **Change something else too** adds another, up to three. Changes you've made show as a line each, with Edit and Remove. You can go on with none: the experiment then only shows how much the result moves by itself.
+5. **Which is better.** Optional. Leave it off to learn only which versions differ. **Count it** names items that should be near the top; **Have a model judge it** takes a rubric in your words.
+6. **Check it.** The whole setup written out: the question, the agent, the set, each change and its versions, how it's scored, and what it comes to ("2 × 2 = 4 combinations × 3 runs = 12 runs", with every combination listed when there are eight or fewer). The name is here (sua uses your question if you leave it empty), and **How it runs** holds how many times each combination is run. Every part has an Edit back to its step. **Set it up** makes it.
 
 Next checks only the step you're on, and Back never loses what you typed. A setup that is refused (too many runs, a scoring line that matches no item) comes back on the step the problem belongs to. Without scripts the five steps show one after another on one page.
 
@@ -56,6 +60,10 @@ Which set to hold fixed is the hardest question, so the step answers most of it 
 
   sua can only name facts your notebooks actually note and notebooks actually listed; anything else in its answer is dropped. Looking at the list never runs a model; opening the step with a question does, once per question.
 - The notebook's own fit score is never copied into the set: it is a judgement, and a run that was handed it would only repeat it.
+
+### A run's results as the set
+
+Reading a list out of a run is done in code, not by a model. sua looks for JSON anywhere in the output (the whole of it, a fenced block, a tagged block) and takes the largest list of objects; an item's title is its title-like field (`title`, `name`, `role`, …) and its other short fields are its facts. If there is no such list, a bulleted or numbered list is read, a line an item, with no facts. Fields that would hand a ranker its answer are left out: the run's own score, rank, fit and reason. Links and ids are left out too. A run that doesn't list two or more items isn't offered. The experiment's page links back to the run its set was taken from.
 
 ## Running it
 

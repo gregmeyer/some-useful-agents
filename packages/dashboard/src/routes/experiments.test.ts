@@ -102,18 +102,21 @@ describe('experiments', () => {
     expect((await get(app, '/experiments')).text).toContain('No experiments yet.');
     const page = (await get(app, '/experiments/new')).text;
     expect(page).toContain('What do you want to find out?');
-    expect(page).toContain('Experiment ranker (ranks a list as told)');
-    // Five steps, opening on the first; no set chosen for you; the notebook is offered with it.
+    expect(page).toContain('Experiment ranker <span class="badge badge--ok">Suggested</span>');
+    // Six steps, opening on the first; the ranker is the agent unless you choose another; no set chosen for you.
     expect(page).toContain('data-exp-open="1"');
-    expect(page.match(/<section class="exp-step" data-exp-step="\d"/g)).toHaveLength(5);
-    for (const step of ['The question', 'What stays the same', 'What changes', 'Which is better', 'Check it']) expect(page).toContain(`</span> ${step}</button>`);
+    expect(page.match(/<section class="exp-step" data-exp-step="\d"/g)).toHaveLength(6);
+    for (const step of ['The question', 'What you&#39;re testing', 'What stays the same', 'What changes', 'Which is better', 'Check it']) expect(page).toContain(`</span> ${step}</button>`);
     expect(page).not.toMatch(/name="from"[^>]* checked/);
+    expect(page).toMatch(/name="agent" value="experiment-ranker"[^>]* checked/);
+    expect(page).toContain('Which agent are you testing?');
+    expect(page).toContain('Search your notebooks (archived ones too)');
     expect(page).toContain('How it is told to decide');
     expect(page).toContain('Do you also want to know which is better?');
     expect(page).toContain('name="notebook" value="1" checked');
     // A link that fills the changes in opens on the summary; one with only the question, on the set.
     const filled = (await get(app, '/experiments/new?question=Why%3F&c1_name=Model&c1_kind=model&c1_v2_model=m-2&c3_name=Third&c3_v1_text=x')).text;
-    expect(filled).toContain('data-exp-open="5"');
+    expect(filled).toContain('data-exp-open="6"');
     expect(filled).toContain('>Why?</textarea>');
     expect(filled).toContain('name="c1_name" value="Model"');
     expect(filled).toContain('name="c1_kind" value="model" data-exp-kind data-call="Model" data-placeholder="" checked');
@@ -213,13 +216,13 @@ describe('experiments', () => {
     expect((await get(app, `/experiments/${id}`)).text).toContain('Go on (4 runs left)');
 
     // Refusals come back to the form with what was typed.
-    expect((await post(app, '/experiments', { name: 'No set' })).text).toContain('Choose the notebook whose options to hold fixed, or paste a list.');
+    expect((await post(app, '/experiments', { name: 'No set' })).text).toContain('Choose the notebook whose options to hold fixed, a run&#39;s results, or paste a list.');
     const none = await post(app, '/experiments', { name: 'Nothing to rank', from: 'paste', paste: 'Only one', c1_name: 'Kept', c1_v1_name: 'Typed' });
     expect(none.status).toBe(400);
     expect(none.text).toContain('It needs a set of at least two items to rank.');
     expect(none.text).toContain('value="Nothing to rank"');
     // It comes back on the step the problem belongs to.
-    expect(none.text).toContain('data-exp-open="2"');
+    expect(none.text).toContain('data-exp-open="3"');
     expect(none.text).toContain('name="c1_name" value="Kept"');
     expect(none.text).toContain('name="c1_v1_name" value="Typed"');
     // With no name, the question names it.
@@ -276,7 +279,7 @@ describe('experiments', () => {
     // A scorer that names no item comes back on the scoring step.
     const typo = await post(app, '/experiments', { ...FORM, top_items: 'Role Z' });
     expect(typo.status).toBe(400);
-    expect(typo.text).toContain('data-exp-open="4"');
+    expect(typo.text).toContain('data-exp-open="5"');
     expect(typo.text).toContain('>Role Z</textarea>');
   });
 
@@ -412,7 +415,7 @@ describe('experiments', () => {
     const refused = await request(app).post('/experiments').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(one.toString());
     expect(refused.status).toBe(400);
     expect(refused.text).toContain('Keep at least two items in the set');
-    expect(refused.text).toContain('data-exp-open="2"');
+    expect(refused.text).toContain('data-exp-open="3"');
     expect(refused.text.match(/data-exp-item checked/g)).toHaveLength(1);
     // Nothing ticked at all (a page without scripts): every option in the running is used, as before.
     const all = await post(app, '/experiments', { name: 'Everything', from: jobs.id });
@@ -535,5 +538,79 @@ describe('experiments', () => {
     }
     // The setup page and the sets list aren't experiments.
     expect(experimentsLinked(ctx, ['[Set one up](/experiments/new?question=x) or /experiments/sets'], [])).toBe('');
+  });
+
+  it('finds what to test and what to hold fixed: agents by how much they ran, archived notebooks by search, and a run\'s results as the set', async () => {
+    const app = await makeApp();
+    installExperimentRanker(ctx);
+    const { itemsFromOutput } = await import('../lib/experiment-run-set.js');
+    // A list of items is read out of a run's output: JSON anywhere in it, or a plain list.
+    const found = [{ title: 'Staff Engineer', company: 'Acme', salary: { min: 200000, max: 250000 }, remote: true, url: 'https://x.example/1', score: 91 }, { title: 'Senior Engineer', company: 'Globex', salary: { min: 180000, max: 210000 }, remote: false, url: 'https://x.example/2', score: 80 }, { title: 'Designer', company: 'Initech', remote: true }];
+    expect(itemsFromOutput(`Here are the jobs.\n\`\`\`json\n${JSON.stringify({ jobs: found, notes: ['a', 'b'] })}\n\`\`\``)).toEqual([
+      { title: 'Staff Engineer', facts: { Company: 'Acme', Salary: '200000–250000', Remote: 'yes' } },
+      { title: 'Senior Engineer', facts: { Company: 'Globex', Salary: '180000–210000', Remote: 'no' } },
+      { title: 'Designer', facts: { Company: 'Initech', Remote: 'yes' } },
+    ]);
+    expect(itemsFromOutput('Found these:\n- **Role A** at Acme\n- Role B at Globex\n2. Role C')).toEqual([{ title: 'Role A at Acme', facts: {} }, { title: 'Role B at Globex', facts: {} }, { title: 'Role C', facts: {} }]);
+    expect(itemsFromOutput('Nothing found today.')).toEqual([]);
+    expect(itemsFromOutput(JSON.stringify({ steps: [{ ok: true }, { ok: false }] }))).toEqual([]);
+
+    // Two agents of the operator's: one run three times with two versions, one never run.
+    const mk = (id: string, name: string) => agentStore.createAgent({ id, name, description: `${name} for testing`, status: 'active', source: 'local', mcp: false, nodes: [{ id: 'n', type: 'shell', command: 'echo hi', dependsOn: [] }] }, 'cli');
+    mk('job-finder', 'Job finder');
+    mk('idle-agent', 'Idle agent');
+    agentStore.createNewVersion('job-finder', { ...agentStore.getAgent('job-finder')!, description: 'Job finder, improved' }, 'dashboard', 'Tighter search');
+    const run = (id: string, at: string, result: string) => runStore.createRun({ id, agentName: 'job-finder', status: 'completed', startedAt: at, completedAt: at, result, triggeredBy: 'dashboard' });
+    run('run-1', '2026-11-10T10:00:00.000Z', 'Nothing found today.');
+    run('run-2', '2026-11-11T10:00:00.000Z', JSON.stringify({ jobs: found }));
+    run('run-3', '2026-11-12T10:00:00.000Z', JSON.stringify({ jobs: found.slice(0, 2) }));
+
+    const page = (await get(app, '/experiments/new')).text;
+    // Agents: the ranker first, then by how much they ran, each with its runs and versions; one that can't take the set says so.
+    expect(page.indexOf('value="experiment-ranker"')).toBeLessThan(page.indexOf('value="job-finder"'));
+    expect(page.indexOf('value="job-finder"')).toBeLessThan(page.indexOf('value="idle-agent"'));
+    expect(page).toContain('Run 3 times · 2 versions, now on 2');
+    expect(page).toContain('Not run yet · 1 version, now on 1');
+    expect(page).toContain('It has no ITEMS input, so an experiment can\'t hand it the set.');
+    expect(page).toMatch(/value="job-finder"[^>]*data-versions="\[\{&quot;v&quot;:2,/);
+    expect(page).not.toContain('value="inbox-triage"');
+    // The set: the latest run that lists items is offered.
+    expect(page).toContain('Or the results of a run');
+    expect(page).toContain('value="run:run-3" data-exp-from data-title="Job finder, run of Nov 12" data-label="2 items from Job finder, run of Nov 12"');
+    expect(page).toContain('2 items read from its results: Staff Engineer · Senior Engineer');
+
+    // Searching finds an archived notebook and an agent's other runs.
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const old = nbs.create({ title: 'Old job hunt', statement: 'Jobs from last year', params: [], criteria: [] });
+    nbs.setFields(old.id, [{ key: 'pay', label: 'Pay', type: 'money', role: 'price' }]);
+    for (const t of ['One', 'Two', 'Three']) nbs.upsertOption(old.id, { title: t, data: { pay: 1 }, by: 'you' });
+    nbs.archive(old.id);
+    expect((await get(app, '/experiments/sets?question=')).text).not.toContain('Old job hunt');
+    const hunt = (await get(app, '/experiments/sets?question=&q=old%20job')).text;
+    expect(hunt).toContain('Old job hunt <span class="badge badge--muted">archived</span>');
+    const byAgent = (await get(app, '/experiments/sets?question=&q=job%20finder')).text;
+    expect(byAgent).toContain('value="run:run-3"');
+    expect(byAgent).toContain('value="run:run-2"');
+    expect((await get(app, '/experiments/sets?question=&q=zzzz')).text).toContain('No notebook or run with two or more items matches “zzzz”.');
+    // What would be taken from a run, to check first.
+    const panel = (await get(app, '/experiments/sets?panel=1&from=run:run-2')).text;
+    expect(panel).toContain('sua read 3 items out of that run\'s results.');
+    expect(panel).toContain('<strong>Staff Engineer</strong> <span class="exp-set__reason">Company: Acme · Salary: 200000–250000 · Remote: yes</span>');
+
+    // Set up from a run, testing two versions of that agent; and from the archived notebook.
+    const made = await post(app, '/experiments', { name: 'From a run', from: 'run:run-2', agent: 'job-finder', c1_name: 'Agent version', c1_kind: 'version', c1_v1_version: '1', c1_v2_version: '2' });
+    const s = ExperimentStore.fromHandle(runStore.databaseHandle());
+    const e = s.get(idOf(made.headers.location))!;
+    expect(e).toMatchObject({ task: { agentId: 'job-finder' }, fromRun: { runId: 'run-2', title: 'Job finder, run of Nov 11' }, factors: [{ name: 'Agent version', levels: [{ version: 1 }, { version: 2 }] }] });
+    expect(s.cases(e.id)[0].items.map((i) => i.title)).toEqual(['Staff Engineer', 'Senior Engineer', 'Designer']);
+    // The fit score a run gave its own items is not carried into the set.
+    expect(JSON.stringify(s.cases(e.id)[0].items)).not.toContain('91');
+    expect((await get(app, `/experiments/${e.id}`)).text).toContain('3 items, taken from <a href="/runs/run-2">Job finder, run of Nov 11</a>');
+    const fromOld = await post(app, '/experiments', { name: 'From an archived notebook', from: old.id });
+    expect(s.cases(idOf(fromOld.headers.location))[0].items).toHaveLength(3);
+    // A run with nothing to read is refused on the set step.
+    const none = await post(app, '/experiments', { name: 'Nothing to read', from: 'run:run-1' });
+    expect(none.status).toBe(400);
+    expect(none.text).toContain('data-exp-open="3"');
   });
 });

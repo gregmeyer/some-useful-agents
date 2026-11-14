@@ -125,6 +125,8 @@ export interface SetCandidate {
   score: number;
   /** The one to lead with. */
   suggested?: boolean;
+  /** It is archived (found by searching; its options can still be copied). */
+  archived?: boolean;
   key?: AnswerKey;
   /** What it is for, and the facts its options note (label, and for how many of them), for a reading of the question. */
   about: string;
@@ -181,7 +183,7 @@ export function setCandidate(nb: Notebook, entries: readonly NotebookEntry[], qu
     facts: Object.fromEntries(facts.filter((f) => has(f, o)).slice(0, 8).map((f) => { let v = ''; try { v = formatFieldValue(f, o.fields[f.key]); } catch { v = String(o.fields[f.key]); } return [f.label, v.slice(0, 80)]; })),
   }));
   return {
-    id: nb.id, title: nb.title, options: running.length, sample: names.slice(0, 3), matched, why, but, score, ...(key ? { key } : {}),
+    id: nb.id, title: nb.title, options: running.length, sample: names.slice(0, 3), matched, why, but, score, ...(key ? { key } : {}), ...(nb.archivedAt ? { archived: true } : {}),
     about: nb.statement.slice(0, 200), facts: filled.map((f) => ({ label: f.label, noted: running.length - f.missing })), examples,
   };
 }
