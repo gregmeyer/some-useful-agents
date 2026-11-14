@@ -711,6 +711,8 @@ export interface Notebook {
   tldr?: TldrSpec;
   /** What you asked for, in your own words, as you typed it (links and all); `statement` is the tidied sentence. */
   asked?: string;
+  /** The experiment whose results its page shows (ADR-0078): the notebook holds the conversation, the experiment the runs. */
+  experimentId?: string;
   /**
    * What it depends on that your request referred to but didn't contain (a
    * profile, a résumé, a spec): each still missing, given (its text), or
@@ -1436,7 +1438,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -2253,6 +2255,17 @@ export class NotebookStore {
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
 
+  /** Make this the notebook that shows an experiment's results (null: it no longer does). */
+  setExperiment(id: string, experimentId: string | null): void {
+    this.db.prepare('UPDATE notebooks SET experiment_id = ?, updated_at = ? WHERE id = ?').run(experimentId, new Date().toISOString(), id);
+  }
+
+  /** The notebook that shows this experiment's results, if one does (an archived one counts: Restore brings it back). */
+  forExperiment(experimentId: string): Notebook | undefined {
+    const r = this.db.prepare('SELECT id FROM notebooks WHERE experiment_id = ? ORDER BY archived_at IS NOT NULL, created_at DESC LIMIT 1').get(experimentId) as { id: string } | undefined;
+    return r ? this.get(r.id) : undefined;
+  }
+
   /** Note that setup ran (or was tried) for this notebook. */
   markSetup(id: string): void {
     this.db.prepare('UPDATE notebooks SET setup_at = ? WHERE id = ?').run(new Date().toISOString(), id);
@@ -2951,6 +2964,7 @@ export class NotebookStore {
       ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
       ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
+      ...(typeof r.experiment_id === 'string' && r.experiment_id ? { experimentId: r.experiment_id } : {}),
       ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),

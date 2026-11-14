@@ -792,6 +792,9 @@ export function nextStep(nb: Notebook, entries: readonly NotebookEntry[]): { hin
   const notes = entries.filter((e) => e.kind === 'note');
   const goal = (nb.statement || nb.title).replace(/[.!?]+$/, '');
   const short = (s: string, n = 48) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  if (nb.experimentId) {
+    return { hint: 'Ask what the results mean, or what to try next.', placeholder: 'e.g. why did the pay-first build do worse, or what would you change and run again?' };
+  }
   if (nb.status === 'decided') {
     return { hint: 'Decided. Anything learned since is still worth keeping.', placeholder: `e.g. how the decision is working out, or anything that would change it` };
   }
@@ -1208,7 +1211,9 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
  * steps end in sua writing something (a meeting's talking points) has
  * nothing to pick from.
  */
-export function offersDecide(nb: Pick<Notebook, 'steps'>): boolean {
+export function offersDecide(nb: Pick<Notebook, 'steps' | 'experimentId'>): boolean {
+  // One that shows an experiment has results to read, not options to pick from.
+  if (nb.experimentId) return false;
   return !nb.steps?.length || nb.steps.some((s) => s.kind === 'decide' || s.kind === 'narrow');
 }
 
@@ -1231,6 +1236,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         : step
           ? html`${stepButton(nb, step, true)}${step.alt ? stepButton(nb, step.alt, false) : html``}`
           : html``}
+      ${nb.experimentId ? html`<a class="btn btn--sm btn--primary" href="/experiments/${encodeURIComponent(nb.experimentId)}">Open the experiment</a>` : html``}
       ${nb.status === 'active' && narrowing && !running ? html`
         <details class="nb-act nb-decide nb-narrow" data-nb-act data-nb-act-name="narrow">
           <summary class="btn btn--sm btn--primary" title="${narrowing.title}">Narrow…</summary>
