@@ -43,11 +43,18 @@ A link can fill it in: any field by its name in the address (`/experiments/new?q
 
 ## Choosing the set
 
-Which set to hold fixed is the hardest question, so the step answers most of it from what your notebooks hold. Nothing here uses a model; it is all counted.
+Which set to hold fixed is the hardest question, so the step answers most of it from what your notebooks hold. The ranking, the golden set and the answer key are counted, with no model. On top of that, sua reads your question.
 
 - **Your notebooks are ranked for your question**, each with what speaks for it and against it: whether it is about what you asked, how many options it has, which facts are noted for every option and which are missing ("remote is missing for 9 of 14"), whether you picked any, and whether any were ruled out with a reason. The best fit is marked **Suggested**. A list of fewer than five options is never suggested, however well its title matches.
 - **A golden set.** Choose a notebook and sua shows what it would copy. A short list (12 or fewer) is used whole. A longer one is trimmed to about 10: your picks, a spread of the rest from best to worst by whatever the notebook ranks on, and up to two you ruled out with a reason. Fewer items make quicker, clearer runs. Every option is listed with the proposed ones ticked; tick or untick any.
 - **An answer key.** When the notebook has your picks, **Score each result against your picks** adds two counted scores: *Your picks near the top*, and, when ruled-out ones are in the set, *Ruled-out ones kept low*. The experiment then tells you which version agrees with what you actually chose, not only which versions differ. If you haven't decided in that notebook, sua's own picks stand in and the page says they are sua's, not yours.
+- **sua reads your question.** When the step opens, sua reads what you want to find out (and what you change, once you've said) and names up to four facts the rankings will turn on: a question about pay against remote preferences turns on pay and remote status. It takes about ten seconds; the counted list is there meanwhile and stands if the reading fails. Then:
+  - each notebook says for how many of its options each of those facts is noted ("remote noted for 5 of 5; salary noted for 3 of 5"), counted by code, and one that lacks them says so under *Against it*;
+  - a notebook that calls a fact by another name ("Remote status") is matched and says which name; one with no such fact says "nothing called salary";
+  - the suggestion moves to sua's pick only when that notebook has five or more options and notes those facts for most of them. Otherwise the counted suggestion stays;
+  - anything the question needs that none of your notebooks note is listed, as sua's reading.
+
+  sua can only name facts your notebooks actually note and notebooks actually listed; anything else in its answer is dropped. Looking at the list never runs a model; opening the step with a question does, once per question.
 - The notebook's own fit score is never copied into the set: it is a judgement, and a run that was handed it would only repeat it.
 
 ## Running it

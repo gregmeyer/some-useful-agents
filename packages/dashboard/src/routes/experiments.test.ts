@@ -454,4 +454,63 @@ describe('experiments', () => {
     await post(app, `/experiments/${id}/archive`);
     expect(experimentsOn(ctx, { notebookId: nb.id })).toEqual([]);
   });
+
+  it('asks sua to read the question when the set step opens, and lays its reading over the counted list', async () => {
+    const app = await makeApp();
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const mk = (title: string, n: number, remote: number) => {
+      const nb = nbs.create({ title, statement: title, params: [], criteria: [] });
+      nbs.setFields(nb.id, [{ key: 'pay', label: 'Pay', type: 'money', role: 'price', better: 'higher' }, { key: 'remote', label: 'Remote', type: 'text' }]);
+      for (let i = 0; i < n; i++) nbs.upsertOption(nb.id, { title: `${title} ${String(i)}`, data: { pay: 100 + i, ...(i < remote ? { remote: 'yes' } : {}) }, by: 'you' });
+      return nb.id;
+    };
+    const jobs = mk('Job openings', 6, 1);
+    const roles = mk('Senior roles', 8, 8);
+    const q = 'Does the job agent rank by pay more than by remote preferences?';
+    const sets = (extra = '') => get(app, `/experiments/sets?question=${encodeURIComponent(q)}&changes=${encodeURIComponent('Build: A | B')}${extra}`);
+    // Nothing is asked of a model by looking at the list.
+    expect((await sets()).text).toContain('data-exp-advice="none"');
+    expect(ctx.experimentSetAdvice?.size ?? 0).toBe(0);
+
+    let letGo: (v: string) => void = () => {};
+    const asked: Array<Record<string, string>> = [];
+    ctx.experimentSetAdvisorRun = (inputs) => { asked.push(inputs); return new Promise((r) => { letGo = r; }); };
+    const started = await post(app, '/experiments/sets/advice', { question: q, changes: 'Build: A | B' });
+    expect(started.body).toEqual({ status: 'working' });
+    expect(asked[0]).toMatchObject({ QUESTION: q, CHANGES: 'Build: A | B' });
+    // While it reads, the counted list stands and says so; asking again doesn't start a second reading.
+    const during = (await sets()).text;
+    expect(during).toContain('data-exp-advice="working"');
+    expect(during).toContain('sua is reading your question');
+    expect(during).toContain('Job openings <span class="badge badge--ok">Suggested</span>');
+    await post(app, '/experiments/sets/advice', { question: q, changes: 'Build: A | B' });
+    expect(asked).toHaveLength(1);
+
+    letGo(`<advice>${JSON.stringify({ turnsOn: [{ fact: 'Pay', because: 'the build ranks by it' }, { fact: 'Remote', because: 'the preferences are about it' }, { fact: 'Mood' }], pick: roles, why: 'Every role notes both pay and remote.', missing: ['seniority'] })}</advice>`);
+    for (let i = 0; i < 100 && [...(ctx.experimentSetAdvice?.values() ?? [])].some((x) => x.status === 'working'); i++) await new Promise((r) => setTimeout(r, 10));
+    const after = (await sets(`&from=${jobs}`)).text;
+    expect(after).toContain('data-exp-advice="ready"');
+    expect(after).toContain('Your question turns on <strong>pay</strong> (the build ranks by it) and <strong>remote</strong> (the preferences are about it).');
+    expect(after).not.toContain('Mood');
+    expect(after).toContain('Not noted in any of your notebooks: seniority.');
+    // The suggestion moved to the set that has those facts, with sua's sentence; the other says what it lacks; what was chosen stays chosen.
+    expect(after).toContain('Senior roles <span class="badge badge--ok">Suggested</span>');
+    expect(after).toContain('sua: Every role notes both pay and remote.');
+    expect(after).toContain('What your question turns on: pay noted for 8 of 8; remote noted for 8 of 8.');
+    expect(after).toContain('remote, which your question turns on, is noted for 1 of 6');
+    expect(after).not.toContain('Job openings <span class="badge badge--ok">Suggested</span>');
+    expect(after).toMatch(new RegExp(`value="${jobs}"[^>]* checked`));
+
+    // An answer that can't be used twice: the counted list stands, and says sua couldn't read it.
+    ctx.experimentSetAdvisorRun = async () => 'nothing usable';
+    const q2 = 'Does the model matter for job ranking?';
+    await post(app, '/experiments/sets/advice', { question: q2, changes: '' });
+    for (let i = 0; i < 100 && [...(ctx.experimentSetAdvice?.values() ?? [])].some((x) => x.status === 'working'); i++) await new Promise((r) => setTimeout(r, 10));
+    const failed = (await get(app, `/experiments/sets?question=${encodeURIComponent(q2)}`)).text;
+    expect(failed).toContain('data-exp-advice="failed"');
+    expect(failed).toContain('sua couldn\'t read your question just now.');
+    expect(failed).toContain('Job openings');
+    // No question, nothing to read.
+    expect((await post(app, '/experiments/sets/advice', { question: '' })).body).toEqual({ status: 'none' });
+  });
 });

@@ -49,6 +49,12 @@
 .exp-wiz .exp-change:not([data-kind=""]) .exp-choice:not(:has(input:checked)) { display: none; }
 .exp-new:not(.exp-wiz) [data-exp-rekind] { display: none; }
 .exp-sets { display: grid; gap: var(--space-2); }
+/* sua's reading of the question, above the counted list. */
+.exp-reading { padding: var(--space-3) var(--space-4); border-left: 2px solid var(--accent-teal); background: var(--color-surface); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.exp-reading p { margin: 0; }
+.exp-reading p + p { margin-top: var(--space-1); }
+.exp-reading__label { margin-right: var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-teal); }
+.exp-reading__missing { font-size: var(--font-size-sm); color: var(--color-warn); }
 .exp-choice--suggested { border-color: var(--accent-teal); }
 .exp-choice__for, .exp-choice__but { font-size: var(--font-size-xs); }
 .exp-choice__but { color: var(--color-warn); }

@@ -14,7 +14,7 @@ import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { working } from './working.js';
-import type { GoldenSet, SetCandidate } from '../lib/experiment-set.js';
+import type { GoldenSet, SetAdvice, SetCandidate } from '../lib/experiment-set.js';
 
 type Flash = { kind: 'error' | 'info' | 'ok'; message: string };
 const list = (xs: SafeHtml[]) => xs as unknown as SafeHtml[];
@@ -104,12 +104,25 @@ export function experimentStepForError(message: string): number {
  * first, each with what speaks for it and against it; then a list you
  * paste. The one that fits best is marked Suggested (never chosen for you).
  */
-export function renderSetChoices(candidates: readonly SetCandidate[], selected: string, pasting: boolean): SafeHtml {
+export function renderSetChoices(candidates: readonly SetCandidate[], selected: string, pasting: boolean, reading?: { status: 'working' | 'ready' | 'failed'; advice?: SetAdvice }): SafeHtml {
   const on = (yes: boolean) => (yes ? unsafeHtml(' checked') : unsafeHtml(''));
-  return html`${list(candidates.map((n) => html`<label class="exp-choice${n.suggested ? ' exp-choice--suggested' : ''}">
+  const and = (xs: SafeHtml[]) => xs.map((x, i) => html`${i === 0 ? '' : i === xs.length - 1 ? ' and ' : ', '}${x}`);
+  // sua's reading of the question, over the counted ranking: under way, done, or not to be had.
+  const read = !reading ? html`<div data-exp-advice="none"></div>`
+    : reading.status === 'working' ? html`<div class="exp-reading" data-exp-advice="working">${working({ text: 'sua is reading your question to see which facts it turns on. The list below is already ranked on what your notebooks hold.' })}</div>`
+    : reading.status === 'ready' && reading.advice ? html`<div class="exp-reading" data-exp-advice="ready">
+        <p class="exp-reading__says"><span class="exp-reading__label">sua's reading</span> ${reading.advice.turnsOn.length
+          ? html`Your question turns on ${list(and(reading.advice.turnsOn.map((t) => html`<strong>${t.fact.toLowerCase()}</strong>${t.because ? ` (${t.because})` : ''}`)))}. Each notebook below says for how many of its options that is noted.`
+          : html`It couldn't tie your question to a fact your notebooks note.`}</p>
+        ${reading.advice.missing.length ? html`<p class="exp-reading__missing">Not noted in any of your notebooks: ${reading.advice.missing.join('; ')}. Runs can't tell items apart on what isn't there.</p>` : html``}
+      </div>`
+    : html`<div class="exp-reading" data-exp-advice="failed"><p class="form-field__hint">sua couldn't read your question just now. These are ranked on what your notebooks hold.</p></div>`;
+  return html`${read}${list(candidates.map((n) => html`<label class="exp-choice${n.suggested ? ' exp-choice--suggested' : ''}">
       <input type="radio" name="from" value="${n.id}" data-exp-from data-title="${n.title}" data-label="${plural(n.options, 'option')} copied from ${n.title}"${on(selected === n.id)}>
       <span class="exp-choice__title">${n.title}${n.suggested ? html` <span class="badge badge--ok">Suggested</span>` : html``}</span>
       <span class="exp-choice__says">${plural(n.options, 'option')}${n.sample.length ? `: ${n.sample.join(' · ')}${n.options > n.sample.length ? ` and ${String(n.options - n.sample.length)} more` : ''}` : ''}</span>
+      ${n.reading ? html`<span class="exp-choice__says exp-choice__for">sua: ${n.reading}</span>` : html``}
+      ${n.turnsOn?.length ? html`<span class="exp-choice__says exp-choice__for">What your question turns on: ${n.turnsOn.map((t) => (t.noted === undefined ? `nothing called ${t.label.toLowerCase()}` : `${t.label.toLowerCase()}${t.as ? ` (here “${t.as}”)` : ''} noted for ${String(t.noted)} of ${String(n.options)}`)).join('; ')}.</span>` : html``}
       ${n.why.length ? html`<span class="exp-choice__says exp-choice__for">For it: ${n.why.join('; ')}.</span>` : html``}
       ${n.but.length ? html`<span class="exp-choice__says exp-choice__but">Against it: ${n.but.join('; ')}.</span>` : html``}
     </label>`))}
@@ -629,18 +642,37 @@ export const EXPERIMENT_PAGE_JS = `
       if (h !== null && box.getAttribute('data-for') === from && chosenFrom() === from) { box.innerHTML = h; if (cur === LAST) drawSummary(); }
     }).catch(function () {});
   }
-  /** The question changed since the sets were last ranked: rank them again, keeping what's chosen. */
+  /** What is changed, in a few lines, for sua's reading of the question. */
+  function changesSaid() {
+    return made().map(function (x) { return x.name + ' (' + x.kindTitle.toLowerCase() + '): ' + x.versions.map(function (v) { return v.name + (v.says ? ' = ' + v.says.slice(0, 200) : ''); }).join(' | '); }).join('\\n');
+  }
+  /**
+   * The question (or what changes) is new since the sets were last ranked:
+   * rank them again, keeping what's chosen, and ask sua to read the question.
+   * Its reading arrives a little later and is laid over the same list.
+   */
   function refreshSets() {
     var q = text(form.elements.question);
+    var ch = changesSaid();
+    var ask = q + '\\n' + ch;
     var list = one('[data-exp-sets]');
-    if (!list || q === askedFor) return;
-    var first = askedFor === null;
-    askedFor = q;
-    // As the page came, it is already ranked for the question it came with.
-    if (first && q === (list.getAttribute('data-for-question') || '')) return;
-    getHtml('/experiments/sets?question=' + encodeURIComponent(q) + '&from=' + encodeURIComponent(chosenFrom())).then(function (h) {
-      if (h !== null && askedFor === q) list.innerHTML = h;
-    }).catch(function () {});
+    if (!list || ask === askedFor) return;
+    askedFor = ask;
+    var url = function () { return '/experiments/sets?question=' + encodeURIComponent(q) + '&changes=' + encodeURIComponent(ch) + '&from=' + encodeURIComponent(chosenFrom()); };
+    var tries = 0;
+    function draw() {
+      getHtml(url()).then(function (h) {
+        if (h === null || askedFor !== ask) return;
+        list.innerHTML = h;
+        var a = one('[data-exp-advice]', list);
+        // Still reading: look again shortly, for about a minute.
+        if (a && a.getAttribute('data-exp-advice') === 'working' && tries++ < 20) setTimeout(draw, 3000);
+      }).catch(function () {});
+    }
+    if (!q) { draw(); return; }
+    var body = 'question=' + encodeURIComponent(q) + '&changes=' + encodeURIComponent(ch);
+    fetch('/experiments/sets/advice', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body })
+      .then(draw, draw);
   }
   function setItems() { return all('[data-exp-setpanel] [data-exp-item]'); }
 
