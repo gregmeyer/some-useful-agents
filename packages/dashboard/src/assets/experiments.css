@@ -11,34 +11,63 @@
 .exp-empty p:last-child { margin-bottom: 0; }
 .exp-foot { margin: var(--space-6) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
-.exp-new { display: grid; gap: var(--space-6); max-width: 880px; }
+.exp-new { display: grid; gap: var(--space-6); max-width: 760px; }
 .exp-new [hidden] { display: none !important; }
 .exp-new .form-field__input, .exp-new .form-field__textarea { width: 100%; min-width: 0; }
 .exp-new .form-field__hint { margin: var(--space-1) 0 0; }
-.exp-q { display: grid; gap: var(--space-2); }
-.exp-q__label { font-size: var(--font-size-lg); font-weight: var(--weight-semibold); }
+
+/* The steps. Without scripts every step shows, one after another; with them (.exp-wiz) only the one you're on. */
+.exp-steps { display: none; }
+.exp-wiz .exp-steps { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); list-style: none; margin: 0; padding: 0 0 var(--space-3); border-bottom: 1px solid var(--color-border); }
+.exp-steps__step { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-1) 0; border: 0; background: none; font: inherit; font-size: var(--font-size-sm); color: var(--color-text-subtle); cursor: pointer; }
+.exp-steps__n { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; border: 1px solid var(--color-border-strong); border-radius: 50%; font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.exp-steps__step.is-done { color: var(--color-text-muted); }
+.exp-steps__step.is-done .exp-steps__n { border-color: var(--accent-teal); color: var(--accent-teal); }
+.exp-steps__step.is-on { color: var(--color-text); font-weight: var(--weight-semibold); }
+.exp-steps__step.is-on .exp-steps__n { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-bg); }
+.exp-steps__step:focus-visible { outline: none; box-shadow: var(--shadow-focus); border-radius: var(--radius-sm); }
+
+.exp-step { display: grid; gap: var(--space-3); padding-bottom: var(--space-6); border-bottom: 1px solid var(--color-border); }
+.exp-wiz .exp-step { display: none; padding-bottom: 0; border-bottom: 0; }
+.exp-wiz .exp-step.is-on { display: grid; }
+.exp-step__ask { margin: 0; padding: 0; font-size: var(--font-size-xl); line-height: var(--line-heading); font-weight: var(--weight-semibold); }
+.exp-step__title { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); font-weight: var(--weight-regular); }
+.exp-step__err { margin: 0; color: var(--color-err); font-size: var(--font-size-sm); }
 .exp-q__box { font-size: var(--font-size-md); }
-.exp-q__name { font-size: var(--font-size-sm); }
-.exp-rows { display: grid; gap: var(--space-4); }
-.exp-row2 { display: grid; grid-template-columns: 16ch minmax(0, 1fr); gap: var(--space-3); align-items: start; }
-.exp-row2__label { padding-top: var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
-.exp-row2__field { display: grid; gap: var(--space-2); min-width: 0; justify-items: start; }
-.exp-row2__field > .form-field__input, .exp-row2__field > .form-field__textarea, .exp-row2__field > .exp-paste, .exp-row2__field > .exp-judge { width: 100%; }
-.exp-row2__field--inline { grid-template-columns: minmax(0, 1fr) 7ch auto; align-items: center; }
-.exp-row2__after { font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
-.exp-new__short { max-width: 7ch; }
-.exp-changes { display: grid; gap: var(--space-4); justify-items: start; }
-.exp-change { width: 100%; display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); justify-items: start; }
-.exp-change__head { width: 100%; display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
-.exp-change__head .exp-change__name { width: 22ch; flex: 0 1 22ch; }
-.exp-change__remove { margin-left: auto; }
-.exp-change__n { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); white-space: nowrap; }
-.exp-change__name { font-weight: var(--weight-semibold); }
-.exp-change__by { display: grid; grid-template-columns: auto minmax(0, 30ch); gap: var(--space-2); align-items: center; font-size: var(--font-size-sm); color: var(--color-text-muted); white-space: nowrap; }
-.exp-vers { width: 100%; display: grid; gap: var(--space-2); }
-.exp-ver { display: grid; grid-template-columns: 2ch minmax(10ch, 22ch) minmax(0, 1fr); gap: var(--space-3); align-items: start; }
+
+/* A choice: a row to press, with a line saying what it means. */
+.exp-choices { display: grid; gap: var(--space-2); margin: 0; padding: 0; border: 0; min-width: 0; }
+.exp-choices > legend { margin-bottom: var(--space-2); }
+.exp-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px var(--space-3); align-items: baseline; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.exp-choice:hover { border-color: var(--color-border-strong); }
+.exp-choice:has(input:checked) { border-color: var(--color-primary); background: var(--color-primary-soft); }
+.exp-choice:focus-within { box-shadow: var(--shadow-focus); }
+.exp-choice input { grid-row: 1 / span 2; align-self: center; margin: 0; }
+.exp-choice__title { font-weight: var(--weight-semibold); }
+.exp-choice__says { grid-column: 2; font-size: var(--font-size-sm); color: var(--color-text-muted); overflow-wrap: anywhere; }
+/* Once a kind of change is chosen, only that choice stays, so its versions are next to it. */
+.exp-wiz .exp-change:not([data-kind=""]) .exp-choice:not(:has(input:checked)) { display: none; }
+.exp-new:not(.exp-wiz) [data-exp-rekind] { display: none; }
+.exp-reveal { display: grid; gap: var(--space-3); padding: 0 0 var(--space-2) var(--space-4); border-left: 2px solid var(--color-border); justify-items: start; }
+.exp-reveal > * { width: 100%; }
+.exp-reveal > .btn { width: auto; }
+
+.exp-field { display: grid; gap: var(--space-1); }
+.exp-field__label { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.exp-new__short { max-width: 8ch; }
+
+/* One change: its kind is asked first; its name and versions show once that's chosen. */
+.exp-change { display: grid; gap: var(--space-4); }
+.exp-change + .exp-change { padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.exp-wiz .exp-change + .exp-change { padding-top: 0; border-top: 0; }
+.exp-change__body { display: grid; gap: var(--space-3); }
+.exp-change__name { max-width: 28ch; font-weight: var(--weight-semibold); }
+.exp-change__acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.exp-vers { display: grid; gap: var(--space-3); }
+.exp-ver { display: grid; grid-template-columns: 2ch minmax(0, 1fr); gap: var(--space-2) var(--space-3); align-items: start; }
 .exp-ver__letter { padding-top: var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-sm); color: var(--accent-teal); }
-.exp-ver__value { display: grid; gap: var(--space-2); min-width: 0; }
+.exp-ver__name { max-width: 28ch; }
+.exp-ver__value { grid-column: 2; display: grid; gap: var(--space-2); min-width: 0; }
 .exp-ver__model { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2); }
 /* Each kind of change shows its own box: text for instructions and preferences, a provider and model, or a version number. */
 .exp-change [data-exp-for] { display: none; }
@@ -46,17 +75,37 @@
 .exp-change[data-kind="preferences"] [data-exp-for~="preferences"],
 .exp-change[data-kind="version"] [data-exp-for~="version"] { display: block; }
 .exp-change[data-kind="model"] [data-exp-for~="model"] { display: grid; }
+/* Without scripts nothing says which kind, so the text box (instructions, the default) shows. */
+.exp-new:not(.exp-wiz) .exp-change[data-kind=""] [data-exp-for~="instructions"] { display: block; }
 .exp-ver__num { max-width: 18ch; }
-.exp-score { border-top: 1px solid var(--color-border); padding-top: var(--space-4); }
-.exp-score > summary { cursor: pointer; font-weight: var(--weight-semibold); }
-.exp-score__opt { font-weight: var(--weight-regular); font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.exp-score[open] { display: grid; gap: var(--space-4); }
-.exp-judge + .exp-judge { margin-top: var(--space-2); }
+.exp-made { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.exp-made__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-left: 3px solid var(--accent-teal); border-radius: var(--radius-md); background: var(--color-surface); }
+.exp-made__words { flex: 1 1 24ch; min-width: 0; overflow-wrap: anywhere; }
+.exp-more { display: grid; gap: var(--space-2); justify-items: start; }
+.exp-judge { display: grid; gap: var(--space-2); }
+.exp-judge__more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+
+/* The last step: the setup written out. */
+.exp-check { margin: 0; display: grid; border-top: 1px solid var(--color-border); }
+.exp-check__row { display: grid; grid-template-columns: 16ch minmax(0, 1fr); gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+.exp-check__row dt { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); padding-top: 3px; overflow-wrap: anywhere; }
+.exp-check__row dd { margin: 0; display: flex; gap: var(--space-3); align-items: flex-start; justify-content: space-between; min-width: 0; }
+.exp-check__row dd > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.exp-check__edit { flex: none; }
+.exp-check__kind { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.exp-check__versions { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.exp-check__versions li { margin: 0 0 var(--space-1); }
+.exp-check__count { font-family: var(--font-mono); font-size: var(--font-size-sm); }
+.exp-check__combos { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.exp-check__warn { margin: var(--space-1) 0 0; font-size: var(--font-size-sm); color: var(--color-err); }
+.exp-how { font-size: var(--font-size-sm); }
+.exp-how > summary { cursor: pointer; color: var(--color-text-muted); }
+.exp-how[open] { display: grid; gap: var(--space-3); }
 .exp-also { display: flex; gap: var(--space-2); align-items: center; font-size: var(--font-size-sm); }
-.exp-sum { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-border-strong); background: var(--color-bg); }
-.exp-sum__count { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-sm); max-width: 62ch; }
-.exp-sum__count--over { color: var(--color-err); }
-.exp-new__acts { display: flex; gap: var(--space-3); margin-left: auto; }
+
+.exp-nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.exp-nav [data-exp-next], .exp-nav [data-exp-submit] { margin-left: auto; }
+.exp-new:not(.exp-wiz) .exp-nav [data-exp-back], .exp-new:not(.exp-wiz) .exp-nav [data-exp-next] { display: none; }
 
 .exp-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
 .exp-act { display: inline; margin: 0; }
@@ -106,13 +155,9 @@
 .exp-items__facts { color: var(--color-text-muted); }
 
 @media (max-width: 720px) {
-  .exp-row2 { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
-  .exp-row2__label { padding-top: 0; }
-  .exp-change__head .exp-change__name { flex: 1 1 12ch; }
-  .exp-change__by { flex: 1 1 100%; grid-template-columns: auto minmax(0, 1fr); }
-  .exp-ver { grid-template-columns: 2ch minmax(0, 1fr); }
-  .exp-ver__value { grid-column: 2; }
-  .exp-ver__model { grid-template-columns: minmax(0, 1fr); }
+  .exp-ver__model, .exp-judge__more { grid-template-columns: minmax(0, 1fr); }
+  .exp-check__row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .exp-step__ask { font-size: var(--font-size-lg); }
   .exp-setup > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .exp-verdict { padding: var(--space-3) var(--space-4); }
   .exp-acts { justify-content: flex-start; }

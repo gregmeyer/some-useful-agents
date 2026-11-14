@@ -25,11 +25,19 @@ A pass makes at most 60 runs (sets × conditions × repeats, and once more for e
 
 ## Setting one up
 
-**New experiment** is one short page: the question (a short name is optional; sua uses your question), the set to hold fixed, the agent and how many times to run each condition, then your changes. **+ another version**, **+ change something else** and **Score each result** open more only when you want them. A line at the foot counts what it comes to as you type ("2 × 2 = 4 conditions × 3 runs = 12 runs, about $0.40") and says when that is more than a pass may make, or when one run of each would leave nothing to conclude.
+**New experiment** is five short steps. Nothing is made until the last one, and nothing runs until you press Run after that.
 
-A link can fill the page in: any field by its name in the address (`/experiments/new?question=…&from=<notebook id>&c1_name=Build&c1_kind=instructions&c1_v1_name=…&c1_v1_text=…`).
+1. **The question.** What you want to find out, in your own words.
+2. **What stays the same.** The set every run ranks: one of your notebooks that has two or more options (each shows how many, and the first few), or a list you paste. Nothing is chosen for you.
+3. **What changes.** One change at a time. First what kind it is: how the agent is told to decide, what the person asks for, the model it runs on, or the version of the agent. Then what to call it and its versions, A and B (up to four), each a name and the one box that kind needs. **Change something else too** adds another, up to three. Changes you've made show as a line each, with Edit and Remove. You can go on with none: the experiment then only shows how much the result moves by itself.
+4. **Which is better.** Optional. Leave it off to learn only which versions differ. **Count it** names items that should be near the top; **Have a model judge it** takes a rubric in your words.
+5. **Check it.** The whole setup written out: the question, the set, each change and its versions, how it's scored, and what it comes to ("2 × 2 = 4 combinations × 3 runs = 12 runs", with every combination listed when there are eight or fewer). The name is here (sua uses your question if you leave it empty), and **How it runs** holds the two things most people never change: the agent, and how many times each combination is run. Every part has an Edit back to its step. **Set it up** makes it.
 
-Tick **Also make a notebook that shows its results** to get its [notebook](#showing-it-in-a-notebook) made with it.
+Next checks only the step you're on, and Back never loses what you typed. A setup that is refused (too many runs, a scoring line that matches no item) comes back on the step the problem belongs to. Without scripts the five steps show one after another on one page.
+
+A link can fill it in: any field by its name in the address (`/experiments/new?question=…&from=<notebook id>&c1_name=Build&c1_kind=instructions&c1_v1_name=…&c1_v1_text=…`). A link that carries a change opens on **Check it**, so you start from the summary.
+
+**Also make a notebook that shows its results** (on the last step, ticked to begin with) makes its [notebook](#showing-it-in-a-notebook) with it.
 
 **From a conversation.** Ask sua to test, prove or compare what changes an agent's answer ("does the model matter more than the instructions?") and it offers **Set up the experiment**: a link to this page with your question and its draft of the changes filled in, for you to check and edit. sua never invents the set (it names one of your notebooks, or leaves it for you to choose), never starts a notebook or builds an agent for such an ask, and never answers the question from reasoning. Nothing runs until you press Run. Ask sua later what an experiment found and it repeats the finding from the runs, with what it rests on.
 

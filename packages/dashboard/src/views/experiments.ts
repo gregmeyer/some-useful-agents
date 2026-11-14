@@ -75,55 +75,66 @@ export function renderExperimentsList(args: { experiments: Array<{ e: Experiment
 
 export interface ExperimentNewValues { name?: string; question?: string; agent?: string; from?: string; paste?: string; repeats?: string; body?: Record<string, unknown> }
 
-/** What one thing you change can be: the control each of its versions shows. */
+/** What one thing you change can be: the box each of its versions shows. */
 export const EXPERIMENT_CHANGE_KINDS = [
-  { id: 'instructions', label: 'the instructions it is given', placeholder: 'How this version tells the agent to decide what fits. Leave empty for the agent as it is.' },
-  { id: 'preferences', label: 'what the person asks for', placeholder: 'What the person wants, in their words.' },
-  { id: 'model', label: 'the model it runs on', placeholder: '' },
-  { id: 'version', label: 'the version of the agent', placeholder: '' },
+  { id: 'instructions', title: 'How it is told to decide', says: 'Two or more sets of instructions for the agent.', call: 'Build', placeholder: 'How this version tells the agent to decide what fits. Leave empty for the agent as it is.' },
+  { id: 'preferences', title: 'What the person asks for', says: 'Two or more people\'s preferences, in their words.', call: 'Preferences', placeholder: 'What this person wants, in their words.' },
+  { id: 'model', title: 'The model it runs on', says: 'The same instructions on different models.', call: 'Model', placeholder: '' },
+  { id: 'version', title: 'The version of the agent', says: 'An earlier version of the agent against a later one.', call: 'Agent version', placeholder: '' },
 ] as const;
 export type ExperimentChangeKind = (typeof EXPERIMENT_CHANGE_KINDS)[number]['id'];
-const CHANGE_DEFAULTS: Array<{ name: string; kind: ExperimentChangeKind; versions: string[] }> = [
-  { name: 'Build', kind: 'instructions', versions: ['As built', 'Pay first'] },
-  { name: 'Preferences', kind: 'preferences', versions: ['Wants remote', 'Wants an office'] },
-  { name: '', kind: 'model', versions: ['', ''] },
-];
+
+/** The wizard's steps, in order. */
+export const EXPERIMENT_NEW_STEPS = ['The question', 'What stays the same', 'What changes', 'Which is better', 'Check it'] as const;
 
 /**
- * The page that sets an experiment up: the question, the set, what runs,
- * and up to three things to change. Each thing changed is one kind of
- * change (instructions, preferences, model, agent version), so each of its
- * versions is a name and one box. A line at the foot counts what it comes
- * to as you type. Works without scripts for two changes of two versions;
- * the buttons that add more need them.
+ * The step a refusal belongs to, so the page comes back where the problem
+ * is: the set (2), a scorer that names no item (4), anything else on the
+ * summary (5).
+ */
+export function experimentStepForError(message: string): number {
+  if (/Choose the notebook|at least two items|in the running|No such notebook/.test(message)) return 2;
+  if (/matches none of the items/.test(message)) return 4;
+  return 5;
+}
+
+/**
+ * The page that sets an experiment up, as five steps: the question, the set
+ * every run ranks, what changes (one change at a time, each one kind of
+ * change), whether results are scored, and a summary to check. It is one
+ * form posted once; the steps are shown one at a time by the page's script
+ * (EXPERIMENT_PAGE_JS), and without scripts they stack with the same button
+ * at the end. `open` is the step to start on.
  */
 export function renderExperimentNew(args: {
-  notebooks: ReadonlyArray<{ id: string; title: string; options: number }>;
+  notebooks: ReadonlyArray<{ id: string; title: string; options: number; sample?: readonly string[] }>;
   agents: ReadonlyArray<{ id: string; name: string; costPerRun?: number }>;
   providers: readonly string[];
   defaultAgent: string;
   values?: ExperimentNewValues;
+  /** The step to open on (1 to 5). */
+  open?: number;
   flash?: Flash;
 }): string {
   const v = args.values ?? {};
   const b = (k: string) => { const x = v.body?.[k]; return typeof x === 'string' ? x : ''; };
+  const fresh = !v.body || !Object.keys(v.body).length;
   const agent = v.agent || args.defaultAgent;
-  const sel = (on: boolean) => (on ? unsafeHtml(' selected') : unsafeHtml(''));
-  const hide = (on: boolean) => (on ? unsafeHtml(' hidden') : unsafeHtml(''));
+  const on = (yes: boolean, attr: string) => (yes ? unsafeHtml(` ${attr}`) : unsafeHtml(''));
+  const pasting = v.from === 'paste' || (!v.from && !!v.paste);
 
   const version = (c: number, n: number, kind: string, shown: boolean) => {
     const k = `c${String(c)}_v${String(n)}`;
     const letter = String.fromCharCode(64 + n);
-    const hint = CHANGE_DEFAULTS[c - 1]?.versions[n - 1] ?? '';
-    return html`<div class="exp-ver" data-exp-ver${hide(!shown)}>
+    return html`<div class="exp-ver" data-exp-ver${on(!shown, 'hidden')}>
       <span class="exp-ver__letter" aria-hidden="true">${letter}</span>
-      <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="${hint || `Version ${letter}`}" aria-label="Name of version ${letter}">
+      <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="Name of version ${letter}" aria-label="Name of version ${letter}">
       <div class="exp-ver__value">
-        <textarea class="form-field__textarea" name="${k}_text" rows="2" data-exp-for="instructions preferences" aria-label="What version ${letter} says" placeholder="${EXPERIMENT_CHANGE_KINDS.find((x) => x.id === kind)?.placeholder ?? ''}">${b(`${k}_text`)}</textarea>
+        <textarea class="form-field__textarea" name="${k}_text" rows="3" data-exp-for="instructions preferences" aria-label="What version ${letter} says" placeholder="${EXPERIMENT_CHANGE_KINDS.find((x) => x.id === kind)?.placeholder ?? ''}">${b(`${k}_text`)}</textarea>
         <span class="exp-ver__model" data-exp-for="model">
           <select class="form-field__input" name="${k}_provider" aria-label="Provider for version ${letter}">
             <option value="">the agent's own provider</option>
-            ${list(args.providers.map((p) => html`<option value="${p}"${sel(b(`${k}_provider`) === p)}>${p}</option>`))}
+            ${list(args.providers.map((p) => html`<option value="${p}"${on(b(`${k}_provider`) === p, 'selected')}>${p}</option>`))}
           </select>
           <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (the provider's default if empty)" aria-label="Model for version ${letter}">
         </span>
@@ -132,126 +143,155 @@ export function renderExperimentNew(args: {
     </div>`;
   };
   const change = (c: number) => {
-    const d = CHANGE_DEFAULTS[c - 1];
     const k = `c${String(c)}`;
-    const kind = (EXPERIMENT_CHANGE_KINDS.find((x) => x.id === b(`${k}_kind`))?.id ?? d.kind) as string;
-    const name = b(`${k}_name`) || d.name;
     const used = (n: number) => !!(b(`${k}_v${String(n)}_name`) || b(`${k}_v${String(n)}_text`) || b(`${k}_v${String(n)}_model`) || b(`${k}_v${String(n)}_provider`) || b(`${k}_v${String(n)}_version`));
-    // Shown: the first two always; one you filled in; a third change only once it's asked for or has something in it.
-    const shownChange = c < 3 || !!name || [1, 2, 3, 4].some(used);
-    return html`<section class="exp-change" data-exp-change data-kind="${kind}"${hide(!shownChange)} aria-label="Change ${String(c)}">
-      <div class="exp-change__head">
-        <span class="exp-change__n">Change ${String(c)}</span>
-        <input class="form-field__input exp-change__name" name="${k}_name" value="${name}" maxlength="40" placeholder="what you call it" aria-label="What change ${String(c)} is called">
-        <label class="exp-change__by">by changing
-          <select class="form-field__input" name="${k}_kind" data-exp-kind>
-            ${list(EXPERIMENT_CHANGE_KINDS.map((x) => html`<option value="${x.id}" data-placeholder="${x.placeholder}"${sel(kind === x.id)}>${x.label}</option>`))}
-          </select>
-        </label>
-        ${c > 1 ? html`<button type="button" class="btn btn--ghost btn--sm exp-change__remove" data-exp-remove-change>Remove</button>` : html``}
-      </div>
-      <div class="exp-vers">${list([1, 2, 3, 4].map((n) => version(c, n, kind, n <= 2 || used(n))))}</div>
-      <button type="button" class="btn btn--ghost btn--sm" data-exp-add-version>+ another version</button>
-    </section>`;
-  };
-  const judge = (n: number) => {
-    const k = `j${String(n)}`;
-    const shown = n === 1 || !!b(`${k}_rubric`);
-    return html`<div class="exp-judge" data-exp-judge${hide(!shown)}>
-      <div class="exp-ver">
-        <span class="exp-ver__letter" aria-hidden="true">${String(n)}</span>
-        <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="Respects the preferences" aria-label="Name of judge ${String(n)}">
-        <div class="exp-ver__value">
-          <textarea class="form-field__textarea" name="${k}_rubric" rows="2" aria-label="What a good result looks like, for judge ${String(n)}" placeholder="What a good result looks like: the top three match what the person asked for.">${b(`${k}_rubric`)}</textarea>
-          <span class="exp-ver__model exp-ver__model--on">
-            <select class="form-field__input" name="${k}_provider" aria-label="Provider for judge ${String(n)}">
-              <option value="">judged by the default model</option>
-              ${list(args.providers.map((p) => html`<option value="${p}"${sel(b(`${k}_provider`) === p)}>${p}</option>`))}
-            </select>
-            <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (optional)" aria-label="Model for judge ${String(n)}">
-          </span>
+    const any = [1, 2, 3, 4].some(used);
+    // A change that came filled in keeps its kind (instructions when it named none); an empty one waits to be asked.
+    const kind = EXPERIMENT_CHANGE_KINDS.find((x) => x.id === b(`${k}_kind`))?.id ?? (any ? 'instructions' : '');
+    return html`<div class="exp-change" data-exp-change data-kind="${kind}">
+      <fieldset class="exp-choices" data-exp-kinds>
+        <legend class="exp-step__ask">${c === 1 ? 'What do you want to change?' : 'What else do you want to change?'}</legend>
+        ${list(EXPERIMENT_CHANGE_KINDS.map((x) => html`<label class="exp-choice">
+          <input type="radio" name="${k}_kind" value="${x.id}" data-exp-kind data-call="${x.call}" data-placeholder="${x.placeholder}"${on(kind === x.id, 'checked')}>
+          <span class="exp-choice__title">${x.title}</span>
+          <span class="exp-choice__says">${x.says}</span>
+        </label>`))}
+      </fieldset>
+      <div class="exp-change__body" data-exp-change-body>
+        <label class="exp-field"><span class="exp-field__label">What to call it</span>
+          <input class="form-field__input exp-change__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="40" placeholder="Build"></label>
+        <p class="exp-field__label">Its versions. A is what the others are compared with.</p>
+        <div class="exp-vers">${list([1, 2, 3, 4].map((n) => version(c, n, kind, n <= 2 || used(n))))}</div>
+        <div class="exp-change__acts">
+          <button type="button" class="btn btn--ghost btn--sm" data-exp-add-version>+ another version</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-exp-rekind>Change a different thing</button>
+          <button type="button" class="btn btn--ghost btn--sm" data-exp-remove-change>Remove this change</button>
         </div>
       </div>
     </div>`;
   };
-  const scoring = !!(b('top_items') || b('j1_rubric') || b('j2_rubric'));
-  const pasting = v.from === 'paste' || (!v.from && (!!v.paste || !args.notebooks.length));
+  const judge = (n: number) => {
+    const k = `j${String(n)}`;
+    return html`<div class="exp-judge" data-exp-judge${on(n > 1 && !b(`${k}_rubric`), 'hidden')}>
+      <label class="exp-field"><span class="exp-field__label">What a good result looks like${n > 1 ? ' (second judge)' : ''}</span>
+        <textarea class="form-field__textarea" name="${k}_rubric" rows="3" placeholder="The top three match what the person asked for; nothing they ruled out is in the top five.">${b(`${k}_rubric`)}</textarea></label>
+      <div class="exp-judge__more">
+        <input class="form-field__input" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="What to call this score" aria-label="Name of judge ${String(n)}">
+        <select class="form-field__input" name="${k}_provider" aria-label="Provider for judge ${String(n)}">
+          <option value="">judged by the default model</option>
+          ${list(args.providers.map((p) => html`<option value="${p}"${on(b(`${k}_provider`) === p, 'selected')}>${p}</option>`))}
+        </select>
+        <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (optional)" aria-label="Model for judge ${String(n)}">
+      </div>
+    </div>`;
+  };
+  const counting = !!b('top_items');
+  const judging = !!(b('j1_rubric') || b('j2_rubric'));
+  const open = Math.min(5, Math.max(1, args.open ?? 1));
 
   const body = html`
     ${pageHeader({
       crumbs: [{ label: 'Home', href: '/' }, { label: 'Experiments', href: '/experiments' }, { label: 'New' }],
       title: 'New experiment',
-      description: 'Say what you want to find out, pick the set to hold fixed, and name what to change. Nothing runs until you press Run on the next page.',
+      description: 'Five short steps. Nothing is made until the last one, and nothing runs until you press Run after that.',
     })}
-    <form method="POST" action="/experiments" class="exp-new" data-exp-new data-max-runs="${String(EXPERIMENT_MAX_RUNS)}">
-      <div class="exp-q">
-        <label class="exp-q__label" for="exp-question">What do you want to find out?</label>
-        <textarea class="form-field__textarea exp-q__box" id="exp-question" name="question" rows="2" maxlength="1000" placeholder="Does the way the agent was built change its picks more than what the person asks for?">${v.question ?? ''}</textarea>
-        <input class="form-field__input exp-q__name" name="name" maxlength="120" value="${v.name ?? ''}" placeholder="A short name (sua uses your question if you leave this empty)" aria-label="A short name for the experiment">
-      </div>
+    <form method="POST" action="/experiments" class="exp-new" data-exp-new data-exp-open="${String(open)}" data-max-runs="${String(EXPERIMENT_MAX_RUNS)}">
+      <ol class="exp-steps" data-exp-progress aria-label="Steps">
+        ${list(EXPERIMENT_NEW_STEPS.map((s, i) => html`<li><button type="button" class="exp-steps__step" data-exp-go="${String(i + 1)}"><span class="exp-steps__n">${String(i + 1)}</span> ${s}</button></li>`))}
+      </ol>
 
-      <div class="exp-rows">
-        <div class="exp-row2">
-          <label class="exp-row2__label" for="exp-from">Hold fixed</label>
-          <div class="exp-row2__field">
-            <select class="form-field__input" id="exp-from" name="from" data-exp-from>
-              <option value=""${sel(!v.from && !pasting)}>Choose a notebook to copy its options…</option>
-              ${list(args.notebooks.map((n) => html`<option value="${n.id}"${sel(v.from === n.id)}>${n.title} (${plural(n.options, 'option')})</option>`))}
-              <option value="paste"${sel(pasting)}>a list I paste</option>
-            </select>
-            <div class="exp-paste" data-exp-paste${hide(!pasting)}>
-              <textarea class="form-field__textarea" name="paste" rows="4" aria-label="The items, one a line" placeholder="Staff Engineer at Acme | Pay: $250,000 | Remote: yes&#10;Senior Engineer at Globex | Pay: $210,000 | Remote: no">${v.paste ?? ''}</textarea>
-              <p class="form-field__hint">One item a line. Facts after the title are separated by | and written "Label: value".</p>
-            </div>
-            <p class="form-field__hint">Every run ranks these same items. They are copied now and never change.</p>
-          </div>
-        </div>
-        <div class="exp-row2">
-          <label class="exp-row2__label" for="exp-agent">Run</label>
-          <div class="exp-row2__field exp-row2__field--inline">
-            <select class="form-field__input" id="exp-agent" name="agent" data-exp-agent>
-              ${list(args.agents.map((a) => html`<option value="${a.id}"${a.costPerRun !== undefined ? unsafeHtml(` data-cost="${String(a.costPerRun)}"`) : unsafeHtml('')}${sel(agent === a.id)}>${a.name}${a.id === args.defaultAgent ? ' (ranks a list as told)' : ''}</option>`))}
-            </select>
-            <input class="form-field__input exp-new__short" id="exp-repeats" name="repeats" type="number" min="1" max="${String(EXPERIMENT_MAX_REPEATS)}" value="${v.repeats || '3'}" data-exp-repeats aria-label="Runs of each condition">
-            <span class="exp-row2__after">times each</span>
-          </div>
-        </div>
-      </div>
+      <section class="exp-step" data-exp-step="1" aria-labelledby="exp-s1">
+        <h2 class="exp-step__ask" id="exp-s1"><label for="exp-question">What do you want to find out?</label></h2>
+        <textarea class="form-field__textarea exp-q__box" id="exp-question" name="question" rows="3" maxlength="1000" placeholder="Does the way the agent was built change its picks more than what the person asks for?">${v.question ?? ''}</textarea>
+        <p class="form-field__hint">In your own words. An experiment runs one agent over the same set of things several ways and counts how far its answer moves.</p>
+        <p class="exp-step__err" data-exp-err role="alert" hidden></p>
+      </section>
 
-      <div class="exp-changes">
+      <section class="exp-step" data-exp-step="2" aria-labelledby="exp-s2">
+        <fieldset class="exp-choices">
+          <legend class="exp-step__ask" id="exp-s2">Which set should every run rank?</legend>
+          <p class="form-field__hint">It is copied now and never changes, so every run is judged on the same things.</p>
+          ${list(args.notebooks.map((n) => html`<label class="exp-choice">
+            <input type="radio" name="from" value="${n.id}" data-exp-from data-label="${plural(n.options, 'option')} copied from ${n.title}"${on(v.from === n.id, 'checked')}>
+            <span class="exp-choice__title">${n.title}</span>
+            <span class="exp-choice__says">${plural(n.options, 'option')}${n.sample?.length ? `: ${n.sample.join(' · ')}${n.options > n.sample.length ? ` and ${String(n.options - n.sample.length)} more` : ''}` : ''}</span>
+          </label>`))}
+          <label class="exp-choice">
+            <input type="radio" name="from" value="paste" data-exp-from data-label="a list you pasted"${on(pasting, 'checked')}>
+            <span class="exp-choice__title">A list I paste</span>
+            <span class="exp-choice__says">${args.notebooks.length ? 'When none of your notebooks has the things to rank.' : 'None of your notebooks has two or more options yet.'}</span>
+          </label>
+        </fieldset>
+        <div class="exp-paste" data-exp-paste${on(!pasting, 'hidden')}>
+          <textarea class="form-field__textarea" name="paste" rows="5" aria-label="The items, one a line" placeholder="Staff Engineer at Acme | Pay: $250,000 | Remote: yes&#10;Senior Engineer at Globex | Pay: $210,000 | Remote: no">${v.paste ?? ''}</textarea>
+          <p class="form-field__hint">One item a line. Facts after the title are separated by | and written "Label: value".</p>
+        </div>
+        <p class="exp-step__err" data-exp-err role="alert" hidden></p>
+      </section>
+
+      <section class="exp-step" data-exp-step="3" aria-labelledby="exp-s3">
+        <h2 class="exp-step__title" id="exp-s3">What changes</h2>
+        <ul class="exp-made" data-exp-made hidden></ul>
         ${list([1, 2, 3].map(change))}
-        <button type="button" class="btn btn--ghost btn--sm" data-exp-add-change>+ change something else</button>
-        <p class="form-field__hint">Every combination is run: two changes with two versions each is four conditions. The first version of each is the baseline the others are compared with. A change with only one version filled in is left out.</p>
-      </div>
-
-      <details class="exp-score"${scoring ? unsafeHtml(' open') : unsafeHtml('')}>
-        <summary>Score each result <span class="exp-score__opt">optional</span></summary>
-        <p class="form-field__hint">Without a score you learn which conditions differ, not which is better.</p>
-        <div class="exp-row2">
-          <label class="exp-row2__label" for="exp-top">Should be near the top</label>
-          <div class="exp-row2__field">
-            <textarea class="form-field__textarea" id="exp-top" name="top_items" rows="2" placeholder="Part of an item's title, one a line">${b('top_items')}</textarea>
-            <p class="form-field__hint">Counted: the share of these that land in the top places.</p>
-          </div>
+        <div class="exp-more" data-exp-more hidden>
+          <button type="button" class="btn" data-exp-add-change>Change something else too</button>
+          <p class="form-field__hint" data-exp-count></p>
         </div>
-        <div class="exp-row2">
-          <span class="exp-row2__label">A judge</span>
-          <div class="exp-row2__field">
+        <p class="form-field__hint" data-exp-nochange hidden>With nothing changed, it only shows how much the result moves by itself when the same thing is run again.</p>
+        <p class="exp-step__err" data-exp-err role="alert" hidden></p>
+      </section>
+
+      <section class="exp-step" data-exp-step="4" aria-labelledby="exp-s4">
+        <fieldset class="exp-choices">
+          <legend class="exp-step__ask" id="exp-s4">Do you also want to know which is better?</legend>
+          <p class="form-field__hint">Comparing results shows which versions differ. To say which is better you need a standard. Leave both off to skip this.</p>
+          <label class="exp-choice">
+            <input type="checkbox" data-exp-reveal="count"${on(counting, 'checked')}>
+            <span class="exp-choice__title">Count it</span>
+            <span class="exp-choice__says">Name items that should be near the top. Counted the same way every time.</span>
+          </label>
+          <div class="exp-reveal" data-exp-revealed="count"${on(!counting, 'hidden')}>
+            <label class="exp-field"><span class="exp-field__label">Items that should be near the top</span>
+              <textarea class="form-field__textarea" name="top_items" rows="3" placeholder="Part of an item's title, one a line">${b('top_items')}</textarea></label>
+          </div>
+          <label class="exp-choice">
+            <input type="checkbox" data-exp-reveal="judge"${on(judging, 'checked')}>
+            <span class="exp-choice__title">Have a model judge it</span>
+            <span class="exp-choice__says">It reads each result against your words and gives 0 to 100% with a reason. It never sees which version made the result. This doubles the runs.</span>
+          </label>
+          <div class="exp-reveal" data-exp-revealed="judge"${on(!judging, 'hidden')}>
             ${list([1, 2].map(judge))}
             <button type="button" class="btn btn--ghost btn--sm" data-exp-add-judge>+ another judge</button>
-            <p class="form-field__hint">A model reads each result against your words and gives 0 to 100% with a reason. It never sees which version made the result. Each judge reads every result, so it doubles the runs.</p>
           </div>
-        </div>
-      </details>
+        </fieldset>
+        <p class="exp-step__err" data-exp-err role="alert" hidden></p>
+      </section>
 
-      <label class="exp-also"><input type="checkbox" name="notebook" value="1"${b('notebook') === '1' ? unsafeHtml(' checked') : unsafeHtml('')}> Also make a notebook that shows its results, to talk them over with sua</label>
+      <section class="exp-step" data-exp-step="5" aria-labelledby="exp-s5">
+        <h2 class="exp-step__ask" id="exp-s5">Check it</h2>
+        <dl class="exp-check" data-exp-summary></dl>
+        <label class="exp-field"><span class="exp-field__label">Name</span>
+          <input class="form-field__input" name="name" maxlength="120" value="${v.name ?? ''}" placeholder="sua uses your question if you leave this empty" data-exp-name></label>
+        <details class="exp-how">
+          <summary>How it runs</summary>
+          <label class="exp-field"><span class="exp-field__label">The agent</span>
+            <select class="form-field__input" name="agent" data-exp-agent>
+              ${list(args.agents.map((a) => html`<option value="${a.id}"${a.costPerRun !== undefined ? unsafeHtml(` data-cost="${String(a.costPerRun)}"`) : unsafeHtml('')}${on(agent === a.id, 'selected')}>${a.name}${a.id === args.defaultAgent ? ' (ranks a list as told)' : ''}</option>`))}
+            </select></label>
+          <p class="form-field__hint">It is given the items and what each version sets, and must answer with every item's id, best first.</p>
+          <label class="exp-field"><span class="exp-field__label">Runs of each combination</span>
+            <input class="form-field__input exp-new__short" name="repeats" type="number" min="1" max="${String(EXPERIMENT_MAX_REPEATS)}" value="${v.repeats || '3'}" data-exp-repeats></label>
+          <p class="form-field__hint">Running each more than once shows how much the result moves by itself. With one run, nothing can be concluded.</p>
+        </details>
+        <label class="exp-also"><input type="checkbox" name="notebook" value="1"${on(fresh || b('notebook') === '1', 'checked')}> Also make a notebook that shows its results, to talk them over with sua</label>
+        <p class="exp-step__err" data-exp-err role="alert" hidden></p>
+      </section>
 
-      <div class="exp-sum">
-        <p class="exp-sum__count" data-exp-sum aria-live="polite">Every combination of your changes, ${v.repeats || '3'} times each.</p>
-        <div class="exp-new__acts">
-          <a class="btn btn--ghost" href="/experiments">Cancel</a>
-          <button type="submit" class="btn btn--primary">Set it up</button>
-        </div>
+      <div class="exp-nav">
+        <button type="button" class="btn" data-exp-back>Back</button>
+        <a class="btn btn--ghost" href="/experiments">Cancel</a>
+        <button type="button" class="btn btn--primary" data-exp-next>Next</button>
+        <button type="submit" class="btn btn--primary" data-exp-submit>Set it up</button>
       </div>
     </form>`;
   return render(layout({ title: 'New experiment', activeNav: 'experiments', ...(args.flash ? { flash: args.flash } : {}) }, body));
@@ -446,8 +486,9 @@ export function renderExperimentPage(args: {
 
 /**
  * In the browser: an experiment's page reloads when its pass moves on; and
- * the New experiment page shows the right box for each kind of change, adds
- * versions, changes and a judge, and counts what the setup comes to.
+ * the New experiment page becomes five steps shown one at a time: Next
+ * checks only the step you're on, the changes are made one at a time, and
+ * the last step writes the whole setup out from what the form holds.
  */
 export const EXPERIMENT_PAGE_JS = `
 (function () {
@@ -468,86 +509,286 @@ export const EXPERIMENT_PAGE_JS = `
   var form = document.querySelector('[data-exp-new]');
   if (!form) return;
   var MAX = Number(form.getAttribute('data-max-runs')) || 60;
+  var LAST = 5;
   function all(sel, root) { return Array.prototype.slice.call((root || form).querySelectorAll(sel)); }
-  function filled(ver) {
-    return all('input, textarea, select', ver).some(function (f) { return f.offsetParent !== null && String(f.value || '').trim() !== ''; });
-  }
+  function one(sel, root) { return (root || form).querySelector(sel); }
+  function text(f) { return f ? String(f.value || '').trim() : ''; }
+  function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; }
   function nextHidden(list) { for (var i = 0; i < list.length; i++) if (list[i].hidden) return list[i]; return null; }
-  function tidy() {
-    all('[data-exp-change]').forEach(function (c) {
-      var add = c.querySelector('[data-exp-add-version]');
-      if (add) add.hidden = !nextHidden(all('[data-exp-ver]', c));
+
+  var steps = all('[data-exp-step]');
+  var changes = all('[data-exp-change]');
+  var cur = 1;
+  /** The change being filled in (its index), or -1 when none is. */
+  var editing = -1;
+
+  // ----- what the form says -----
+  function kindOf(c) { var r = one('[data-exp-kind]:checked', c); return r ? r.value : ''; }
+  function versionsOf(c) {
+    var kind = kindOf(c);
+    var out = [];
+    all('[data-exp-ver]', c).forEach(function (v, i) {
+      var name = text(one('.exp-ver__name', v));
+      var says = kind === 'model' ? [text(one('select', v)), text(one('.exp-ver__model input', v))].filter(Boolean).join(' ')
+        : kind === 'version' ? (text(one('.exp-ver__num', v)) ? 'version ' + text(one('.exp-ver__num', v)) : '')
+        : text(one('textarea', v));
+      if (name || says) out.push({ name: name || String.fromCharCode(65 + i), says: says });
     });
-    var addChange = form.querySelector('[data-exp-add-change]');
-    if (addChange) addChange.hidden = !nextHidden(all('[data-exp-change]'));
-    var addJudge = form.querySelector('[data-exp-add-judge]');
-    if (addJudge) addJudge.hidden = !nextHidden(all('[data-exp-judge]'));
+    return out;
   }
-  function count() {
-    var sizes = [];
-    all('[data-exp-change]').forEach(function (c) {
-      if (c.hidden) return;
-      var n = all('[data-exp-ver]', c).filter(function (v) { return !v.hidden && filled(v); }).length;
-      if (n >= 2) sizes.push(n);
-    });
-    var conditions = sizes.reduce(function (a, b) { return a * b; }, 1);
-    var repeats = Math.max(1, Math.min(5, Number((form.querySelector('[data-exp-repeats]') || {}).value) || 3));
-    var judges = all('[data-exp-judge]').filter(function (j) { return !j.hidden && String((j.querySelector('textarea') || {}).value || '').trim(); }).length;
-    var runs = conditions * repeats * (1 + judges);
-    var out = form.querySelector('[data-exp-sum]');
-    if (!out) return;
-    var parts = sizes.length > 1 ? sizes.join(' \u00d7 ') + ' = ' : '';
-    var text = parts + conditions + (conditions === 1 ? ' condition' : ' conditions') + ' \u00d7 ' + repeats + (repeats === 1 ? ' run' : ' runs')
-      + (judges ? ', each read by ' + judges + (judges === 1 ? ' judge' : ' judges') : '') + ' = ' + runs + (runs === 1 ? ' run' : ' runs');
-    var agent = form.querySelector('[data-exp-agent]');
+  function info(c) {
+    var vs = versionsOf(c);
+    var r = one('[data-exp-kind]:checked', c);
+    return { kind: kindOf(c), name: text(one('.exp-change__name', c)) || (r ? r.getAttribute('data-call') : ''), kindTitle: r ? text({ value: one('.exp-choice__title', r.parentNode).textContent }) : '', versions: vs, made: vs.length >= 2, touched: vs.length > 0 };
+  }
+  function made() { return changes.map(info).filter(function (x) { return x.made; }); }
+  function judges() { var r = one('[data-exp-reveal="judge"]'); return r && r.checked ? all('[data-exp-judge]').filter(function (j) { return !j.hidden && text(one('textarea', j)); }).length : 0; }
+  function repeats() { return Math.max(1, Math.min(5, Number(text(one('[data-exp-repeats]'))) || 3)); }
+  function countLine() {
+    var sizes = made().map(function (x) { return x.versions.length; });
+    var combos = sizes.reduce(function (a, b) { return a * b; }, 1);
+    var r = repeats();
+    var j = judges();
+    var runs = combos * r * (1 + j);
+    var line = (sizes.length > 1 ? sizes.join(' × ') + ' = ' : '') + combos + (combos === 1 ? ' combination' : ' combinations') + ' × ' + r + (r === 1 ? ' run' : ' runs')
+      + (j ? ', each read by ' + j + (j === 1 ? ' judge' : ' judges') : '') + ' = ' + runs + (runs === 1 ? ' run' : ' runs');
+    var agent = one('[data-exp-agent]');
     var opt = agent && agent.options[agent.selectedIndex];
     var cost = opt ? Number(opt.getAttribute('data-cost')) : 0;
-    if (cost > 0) { var est = cost * conditions * repeats; text += ', about ' + (est < 0.01 ? 'under $0.01' : '$' + est.toFixed(2)); }
-    var note = '';
-    if (!sizes.length) note = ' Nothing is changed yet, so this only shows how much the result moves by itself.';
-    else if (repeats === 1) note = ' With one run of each, nothing can be concluded: use 2 or more.';
-    if (runs > MAX) note = ' That is more than the ' + MAX + ' a pass may make: use fewer versions, runs or judges.';
-    out.textContent = text + '.' + note;
-    out.classList.toggle('exp-sum__count--over', runs > MAX);
+    if (cost > 0) { var est = cost * combos * r; line += ', about ' + (est < 0.01 ? 'under $0.01' : '$' + est.toFixed(2)); }
+    var warn = '';
+    if (runs > MAX) warn = 'That is more than the ' + MAX + ' runs one pass may make. Use fewer versions, runs or judges.';
+    else if (r === 1) warn = 'With one run of each, nothing can be concluded. Use 2 or more under How it runs.';
+    return { line: line + '.', warn: warn, over: runs > MAX, combos: combos };
   }
+
+  // ----- step 3: one change at a time -----
+  function clearChange(c) {
+    all('input[type="text"], input[type="number"], input:not([type]), textarea', c).forEach(function (x) { x.value = ''; });
+    all('select', c).forEach(function (x) { x.selectedIndex = 0; });
+    all('[data-exp-kind]', c).forEach(function (x) { x.checked = false; });
+    all('[data-exp-ver]', c).forEach(function (v, i) { v.hidden = i > 1; });
+    c.setAttribute('data-kind', '');
+  }
+  function applyKind(c) {
+    var r = one('[data-exp-kind]:checked', c);
+    c.setAttribute('data-kind', r ? r.value : '');
+    if (!r) return;
+    all('textarea', c).forEach(function (x) { x.placeholder = r.getAttribute('data-placeholder') || ''; });
+    var name = one('.exp-change__name', c);
+    var calls = all('[data-exp-kind]', c).map(function (x) { return x.getAttribute('data-call'); });
+    if (name && (!text(name) || calls.indexOf(text(name)) >= 0)) name.value = r.getAttribute('data-call') || '';
+  }
+  function drawChanges() {
+    var list = one('[data-exp-made]');
+    list.textContent = '';
+    changes.forEach(function (c, i) {
+      c.hidden = i !== editing;
+      var body = one('[data-exp-change-body]', c);
+      if (body) body.hidden = !kindOf(c);
+      var add = one('[data-exp-add-version]', c);
+      if (add) add.hidden = !nextHidden(all('[data-exp-ver]', c));
+      var x = info(c);
+      if (!x.made || i === editing) return;
+      var li = el('li', 'exp-made__item');
+      var words = el('span', 'exp-made__words');
+      words.appendChild(el('strong', '', x.name));
+      words.appendChild(document.createTextNode(' (' + x.kindTitle.toLowerCase() + '): ' + x.versions.map(function (v) { return v.name; }).join(' | ')));
+      li.appendChild(words);
+      var edit = el('button', 'btn btn--ghost btn--sm', 'Edit'); edit.type = 'button'; edit.setAttribute('data-exp-edit', String(i));
+      var rm = el('button', 'btn btn--ghost btn--sm', 'Remove'); rm.type = 'button'; rm.setAttribute('data-exp-remove', String(i));
+      li.appendChild(edit); li.appendChild(rm);
+      list.appendChild(li);
+    });
+    list.hidden = !list.children.length;
+    var more = one('[data-exp-more]');
+    var free = changes.some(function (c, i) { return i !== editing && !info(c).made; });
+    more.hidden = editing >= 0;
+    one('[data-exp-add-change]', more).hidden = !free;
+    one('[data-exp-add-change]', more).textContent = made().length ? 'Change something else too' : 'Change something';
+    one('[data-exp-count]', more).textContent = made().length ? 'Every combination is run: ' + countLine().line : '';
+    one('[data-exp-nochange]').hidden = !(editing < 0 && !made().length);
+  }
+  /** Finish the change being filled in. Returns what's wrong with it, or ''. */
+  function closeEditing() {
+    if (editing < 0) return '';
+    var c = changes[editing];
+    var x = info(c);
+    if (x.made) { editing = -1; return ''; }
+    if (!x.touched) { clearChange(c); editing = -1; return ''; }
+    return 'Give it a second version to compare with, or remove this change.';
+  }
+  function enterChanges() {
+    if (editing < 0 && !made().length) editing = 0;
+    drawChanges();
+  }
+
+  // ----- step 5: the summary -----
+  function row(dl, label, value, step) {
+    var wrap = el('div', 'exp-check__row');
+    wrap.appendChild(el('dt', '', label));
+    var dd = el('dd');
+    if (typeof value === 'string') dd.appendChild(el('span', '', value)); else dd.appendChild(value);
+    if (step) { var b = el('button', 'btn btn--ghost btn--sm exp-check__edit', 'Edit'); b.type = 'button'; b.setAttribute('data-exp-go', String(step)); dd.appendChild(b); }
+    wrap.appendChild(dd);
+    dl.appendChild(wrap);
+  }
+  function drawSummary() {
+    var dl = one('[data-exp-summary]');
+    dl.textContent = '';
+    var q = text(form.elements.question);
+    row(dl, 'Finds out', q || 'No question written down.', 1);
+    var from = one('[data-exp-from]:checked');
+    var lines = text(form.elements.paste).split(/\\n/).filter(function (l) { return l.trim(); }).length;
+    row(dl, 'Holds fixed', !from ? 'Nothing chosen yet.' : from.value === 'paste' ? lines + (lines === 1 ? ' item' : ' items') + ' you pasted' : from.getAttribute('data-label'), 2);
+    var ms = made();
+    if (!ms.length) row(dl, 'Changes', 'Nothing. It will only show how much the result moves by itself.', 3);
+    ms.forEach(function (x) {
+      var ul = el('ul', 'exp-check__versions');
+      x.versions.forEach(function (v, i) {
+        var li = el('li');
+        li.appendChild(el('strong', '', v.name + (i === 0 ? ' (compared against)' : '')));
+        if (v.says) li.appendChild(document.createTextNode(': ' + (v.says.length > 160 ? v.says.slice(0, 159) + '…' : v.says)));
+        ul.appendChild(li);
+      });
+      var box = el('div');
+      box.appendChild(el('span', 'exp-check__kind', x.kindTitle));
+      box.appendChild(ul);
+      row(dl, 'Changes ' + x.name.toLowerCase(), box, 3);
+    });
+    var count = one('[data-exp-reveal="count"]');
+    var tops = count && count.checked ? text(form.elements.top_items).split(/\\n/).filter(function (l) { return l.trim(); }) : [];
+    var js = judges();
+    var scored = [];
+    if (tops.length) scored.push('counts how many of ' + tops.length + (tops.length === 1 ? ' named item lands' : ' named items land') + ' near the top');
+    if (js) scored.push(js === 1 ? 'a model judges each result against your words' : js + ' models judge each result');
+    var scores = scored.join('; and ');
+    row(dl, 'Scores', scored.length ? scores.charAt(0).toUpperCase() + scores.slice(1) + '.' : 'Nothing. It shows which versions differ, not which is better.', 4);
+    var c = countLine();
+    var runs = el('div');
+    runs.appendChild(el('span', 'exp-check__count', c.line));
+    if (ms.length > 1 && c.combos <= 8) {
+      var combos = [[]];
+      ms.forEach(function (x) { var next = []; combos.forEach(function (p) { x.versions.forEach(function (v) { next.push(p.concat([v.name])); }); }); combos = next; });
+      runs.appendChild(el('p', 'exp-check__combos', 'Every combination is run: ' + combos.map(function (p) { return p.join(' · '); }).join(', ') + '.'));
+    }
+    if (c.warn) runs.appendChild(el('p', 'exp-check__warn', c.warn));
+    row(dl, 'Comes to', runs);
+    var name = one('[data-exp-name]');
+    if (name) name.placeholder = q ? q.replace(/[?.!]+$/, '').slice(0, 70) : 'A name for it';
+    var submit = one('[data-exp-submit]');
+    if (submit) submit.disabled = c.over;
+  }
+
+  // ----- moving between steps -----
+  function say(n, msg) {
+    var p = one('[data-exp-err]', steps[n - 1]);
+    if (!p) return;
+    p.textContent = msg || '';
+    p.hidden = !msg;
+  }
+  function check(n) {
+    if (n === 2) {
+      var from = one('[data-exp-from]:checked');
+      if (!from) return 'Choose the set every run ranks.';
+      if (from.value === 'paste' && text(form.elements.paste).split(/\\n/).filter(function (l) { return l.trim(); }).length < 2) return 'Paste at least two items, one a line.';
+    }
+    if (n === 3) return closeEditing();
+    return '';
+  }
+  function show(n, focus) {
+    cur = Math.max(1, Math.min(LAST, n));
+    steps.forEach(function (s, i) { s.classList.toggle('is-on', i + 1 === cur); });
+    all('[data-exp-progress] [data-exp-go]').forEach(function (b) {
+      var k = Number(b.getAttribute('data-exp-go'));
+      b.classList.toggle('is-on', k === cur);
+      b.classList.toggle('is-done', k < cur);
+      if (k === cur) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    });
+    one('[data-exp-back]').hidden = cur === 1;
+    one('[data-exp-next]').hidden = cur === LAST;
+    one('[data-exp-submit]').hidden = cur !== LAST;
+    if (cur === 3) enterChanges();
+    if (cur === LAST) drawSummary();
+    if (focus) {
+      var f = one('textarea, input:not([type="hidden"]), select, button', steps[cur - 1]);
+      if (f && cur !== LAST) f.focus();
+      form.scrollIntoView({ block: 'start' });
+    }
+  }
+  /** Go to a step, stopping at the first one on the way that isn't finished. */
+  function go(n) {
+    if (n <= cur) { say(cur, ''); show(n, true); return; }
+    for (var k = cur; k < n; k++) {
+      var msg = check(k);
+      say(k, msg);
+      if (msg) { show(k, true); if (k === 3) drawChanges(); return; }
+    }
+    show(n, true);
+  }
+
   form.addEventListener('change', function (e) {
     var t = e.target;
-    if (t.matches && t.matches('[data-exp-kind]')) {
-      var c = t.closest('[data-exp-change]');
-      c.setAttribute('data-kind', t.value);
-      var ph = t.options[t.selectedIndex].getAttribute('data-placeholder') || '';
-      all('textarea', c).forEach(function (x) { x.placeholder = ph; });
+    if (!t.matches) return;
+    if (t.matches('[data-exp-kind]')) { applyKind(t.closest('[data-exp-change]')); drawChanges(); var n = one('.exp-ver__name', t.closest('[data-exp-change]')); if (n) n.focus(); }
+    if (t.matches('[data-exp-from]')) { one('[data-exp-paste]').hidden = t.value !== 'paste'; say(2, ''); }
+    if (t.matches('[data-exp-reveal]')) {
+      var box = one('[data-exp-revealed="' + t.getAttribute('data-exp-reveal') + '"]');
+      box.hidden = !t.checked;
+      if (!t.checked) all('textarea, input', box).forEach(function (x) { x.value = ''; });
+      else { var f = one('textarea', box); if (f) f.focus(); }
     }
-    if (t.matches && t.matches('[data-exp-from]')) {
-      var p = form.querySelector('[data-exp-paste]');
-      if (p) p.hidden = t.value !== 'paste';
-    }
-    count();
+    if (cur === LAST) drawSummary();
   });
-  form.addEventListener('input', count);
+  form.addEventListener('input', function () { if (cur === LAST) drawSummary(); });
   form.addEventListener('click', function (e) {
     var t = e.target;
     if (!t.closest) return;
     var b;
+    if ((b = t.closest('[data-exp-go]'))) { go(Number(b.getAttribute('data-exp-go'))); return; }
+    if (t.closest('[data-exp-next]')) { go(cur + 1); return; }
+    if (t.closest('[data-exp-back]')) { go(cur - 1); return; }
     if ((b = t.closest('[data-exp-add-version]'))) {
       var v = nextHidden(all('[data-exp-ver]', b.closest('[data-exp-change]')));
-      if (v) { v.hidden = false; var f = v.querySelector('input'); if (f) f.focus(); }
-    } else if ((b = t.closest('[data-exp-add-change]'))) {
-      var c = nextHidden(all('[data-exp-change]'));
-      if (c) { c.hidden = false; var n = c.querySelector('input'); if (n) n.focus(); }
+      if (v) { v.hidden = false; var f = one('input', v); if (f) f.focus(); }
+    } else if (t.closest('[data-exp-add-change]')) {
+      for (var i = 0; i < changes.length; i++) if (!info(changes[i]).made) { clearChange(changes[i]); editing = i; break; }
+    } else if ((b = t.closest('[data-exp-rekind]'))) {
+      var rc = b.closest('[data-exp-change]');
+      all('[data-exp-kind]', rc).forEach(function (x) { x.checked = false; });
+      rc.setAttribute('data-kind', '');
     } else if ((b = t.closest('[data-exp-remove-change]'))) {
-      var gone = b.closest('[data-exp-change]');
-      all('input, textarea', gone).forEach(function (x) { x.value = ''; });
-      all('select', gone).forEach(function (x) { if (!x.matches('[data-exp-kind]')) x.selectedIndex = 0; });
-      gone.hidden = true;
-    } else if ((b = t.closest('[data-exp-add-judge]'))) {
+      clearChange(b.closest('[data-exp-change]')); editing = -1; say(3, '');
+    } else if ((b = t.closest('[data-exp-edit]'))) {
+      var bad = closeEditing();
+      if (bad) { say(3, bad); drawChanges(); return; }
+      editing = Number(b.getAttribute('data-exp-edit'));
+    } else if ((b = t.closest('[data-exp-remove]'))) {
+      clearChange(changes[Number(b.getAttribute('data-exp-remove'))]);
+    } else if (t.closest('[data-exp-add-judge]')) {
       var j = nextHidden(all('[data-exp-judge]'));
-      if (j) { j.hidden = false; var jn = j.querySelector('input'); if (jn) jn.focus(); }
+      if (j) { j.hidden = false; var jf = one('textarea', j); if (jf) jf.focus(); }
+      t.closest('[data-exp-add-judge]').hidden = !nextHidden(all('[data-exp-judge]'));
+      return;
     } else return;
-    tidy();
-    count();
+    drawChanges();
   });
-  tidy();
-  count();
+  // Enter in a one-line box goes on, as Next does; it never sends a half-made experiment.
+  form.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || !e.target.matches || !e.target.matches('input:not([type="checkbox"]):not([type="radio"])')) return;
+    if (cur === LAST) return;
+    e.preventDefault();
+    go(cur + 1);
+  });
+  form.addEventListener('submit', function (e) {
+    for (var k = 1; k < LAST; k++) { var msg = check(k); if (msg) { e.preventDefault(); say(k, msg); show(k, true); return; } }
+  });
+
+  form.classList.add('exp-wiz');
+  changes.forEach(applyKindKeepName);
+  function applyKindKeepName(c) { var r = one('[data-exp-kind]:checked', c); c.setAttribute('data-kind', r ? r.value : ''); }
+  var addJudge = one('[data-exp-add-judge]');
+  if (addJudge) addJudge.hidden = !nextHidden(all('[data-exp-judge]'));
+  show(Number(form.getAttribute('data-exp-open')) || 1, false);
 })();
 `;
