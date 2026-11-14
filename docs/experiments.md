@@ -8,13 +8,13 @@ A [notebook](notebooks.md) finds things, checks them against sources and helps y
 
 - **The set to hold fixed.** Copied once from a notebook's options (the ones still in the running, in name order so the notebook's own ranking doesn't lean the runs), or pasted as a list, one item a line: `Title | Label: value | Label: value`. After that it never changes, even if the notebook does. 2 to 60 items.
 - **The agent it runs.** By default **Experiment ranker**, which ranks the items for a person's preferences following the instructions it is given. Any installed agent can be used if it takes the items as `ITEMS` and answers with every item's id, best first, in a `<ranking>` block.
-- **What to vary.** Up to two things on the page (three in the store), each with two to four levels. A level says what it changes for a run:
-  - **Instructions to the agent** (how this build decides what fits),
-  - **The person's preferences**,
-  - **Provider and model**,
-  - **Agent version** (an earlier version of the same agent).
+- **What to change.** Up to three changes. For each you say what it is called ("Build") and what kind of change it is; each of its **versions** (two to four, lettered A to D) is then a name and one box:
+  - **the instructions it is given**: how that version tells the agent to decide what fits. Left empty, it is the agent as it is.
+  - **what the person asks for**: their preferences, in their words.
+  - **the model it runs on**: a provider and a model.
+  - **the version of the agent**: an earlier version number of the same agent.
 
-  Every combination is a **condition**; the first level of each thing is the **baseline**. Two things with two levels each is four conditions.
+  Every combination is a **condition**; version A of each change is the **baseline**. Two changes with two versions each is four conditions. A change with only one version filled in is left out.
 - **Runs of each condition** (1 to 5, 3 by default). Repeats show how much the answer moves by itself. With one run of each, nothing is concluded.
 
 - **How to score each result** (optional, up to three). Without a score, results are only compared with each other: you learn which conditions differ, not which is better. A score says how good each result is by a standard you set.
@@ -22,6 +22,12 @@ A [notebook](notebooks.md) finds things, checks them against sources and helps y
   - **A judge** (up to two): a rubric in plain words ("the top three match what the person asked for"). A model reads each result against it and gives 0 to 100% with a reason. You can choose which model judges.
 
 A pass makes at most 60 runs (sets × conditions × repeats, and once more for each judge, which reads every result); a larger setup is refused, saying what to cut.
+
+## Setting one up
+
+**New experiment** is one short page: the question (a short name is optional; sua uses your question), the set to hold fixed, the agent and how many times to run each condition, then your changes. **+ another version**, **+ change something else** and **Score each result** open more only when you want them. A line at the foot counts what it comes to as you type ("2 × 2 = 4 conditions × 3 runs = 12 runs, about $0.40") and says when that is more than a pass may make, or when one run of each would leave nothing to conclude.
+
+A link can fill the page in: any field by its name in the address (`/experiments/new?question=…&from=<notebook id>&c1_name=Build&c1_kind=instructions&c1_v1_name=…&c1_v1_text=…`).
 
 ## Running it
 
@@ -62,8 +68,8 @@ Experiment runs are kept apart from the agent's own: they are filed under `exper
 
 | | |
 |---|---|
-| Things varied | 3 (2 on the page) |
-| Levels each | 2 to 4 |
+| Changes | 3 |
+| Versions of each | 2 to 4 |
 | Conditions | 16 |
 | Repeats | 1 to 5 |
 | Sets | 5 |
