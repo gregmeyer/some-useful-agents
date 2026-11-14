@@ -119,7 +119,8 @@ export async function applyPictures(store: NotebookStore, notebookId: string, as
 export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   const store = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
   const nb = store.get(notebookId);
-  if (!nb) return false;
+  // A copy an experiment runs is read, not looked at: no pictures are drawn for it.
+  if (!nb || nb.experimentRun) return false;
   // Logos found before logos were their own kind were kept as example photos.
   if (wantsLogos(nb)) store.relabelLogos(notebookId);
   const candidates = store.pictureCandidates(notebookId, 8);

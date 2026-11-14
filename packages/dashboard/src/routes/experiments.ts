@@ -5,13 +5,14 @@
  * cells on every page load (core experimentPageData).
  */
 import { Router, type Request, type Response } from 'express';
-import { ExperimentStore, NotebookStore, experimentConditions, EXPERIMENT_MAX_LEVELS, type Experiment } from '@some-useful-agents/core';
+import { ExperimentStore, NotebookStore, cleanFactors, experimentConditions, EXPERIMENT_MAX_LEVELS, type Experiment } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderExperimentNew, renderExperimentPage, renderExperimentsList, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
 import { notebookForExperiment } from '../lib/experiment-notebook.js';
-import { costPerRun, runningPass, startExperimentPass, stopExperimentPass, testableAgents } from '../lib/experiment-runner.js';
+import { costPerRun, runningPass, startExperimentPass, stopExperimentPass, testableAgents, testableNotebooks } from '../lib/experiment-runner.js';
+import { copySetup, notebookUntestable } from '../lib/experiment-notebook-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 
 export const experimentsRouter: Router = Router();
@@ -45,6 +46,8 @@ export function factorsFromForm(body: Record<string, unknown>): unknown[] {
     const k = `c${String(c)}`;
     const kind = str(body[`${k}_kind`]) || 'input';
     const input = str(body[`${k}_input`]).trim();
+    const givenKey = str(body[`${k}_given`]).trim();
+    const stepId = str(body[`${k}_step`]).trim();
     const levels: unknown[] = [];
     for (let n = 1; n <= EXPERIMENT_MAX_LEVELS; n++) {
       const v = `${k}_v${String(n)}`;
@@ -53,14 +56,21 @@ export function factorsFromForm(body: Record<string, unknown>): unknown[] {
       const provider = str(body[`${v}_provider`]).trim();
       const model = str(body[`${v}_model`]).trim();
       const version = str(body[`${v}_version`]).trim();
-      const sets = kind === 'model' ? { provider, model } : kind === 'version' ? (version ? { version: Number(version) } : {})
-        : (text && input ? { inputs: { [input]: text } } : {});
-      const set = Object.values(sets).some((x) => (typeof x === 'object' ? true : !!x));
+      const agent = str(body[`${v}_agent`]).trim();
+      const params = lines(body[`${v}_params`]);
+      const checks = lines(body[`${v}_checks`]);
+      // What the version sets, and whether it sets anything (a named version that sets nothing is "as it is").
+      const [sets, set]: [Record<string, unknown>, boolean] = kind === 'model' ? [{ provider, model }, !!(provider || model)]
+        : kind === 'version' ? [version ? { version: Number(version) } : {}, !!version]
+        : kind === 'setup' ? [{ params, checks }, params.length + checks.length > 0]
+        : kind === 'given' ? [text && givenKey ? { given: { [givenKey]: text } } : {}, !!(text && givenKey)]
+        : kind === 'step' ? [stepId ? { step: { id: stepId, ...(agent ? { agentId: agent } : {}) }, ...(version ? { version: Number(version) } : {}) } : {}, !!(stepId && (agent || version))]
+        : [text && input ? { inputs: { [input]: text } } : {}, !!(text && input)];
       if (!name && !set) continue;
       levels.push({ name: name || String.fromCharCode(64 + n), ...sets });
     }
     if (levels.length < 2) continue;
-    out.push({ name: str(body[`${k}_name`]).trim() || (kind === 'version' ? 'Agent version' : kind === 'model' ? 'Model' : input || `Change ${String(c)}`), levels });
+    out.push({ name: str(body[`${k}_name`]).trim() || (kind === 'version' ? 'Agent version' : kind === 'model' ? 'Model' : kind === 'setup' ? 'Limits and checks' : kind === 'given' ? givenKey || 'What it was given' : kind === 'step' ? `Step ${stepId}` : input || `Change ${String(c)}`), levels });
   }
   return out;
 }
@@ -99,7 +109,7 @@ function newPage(req: Request, res: Response, values?: Parameters<typeof renderE
   let providers: string[] = [];
   try { providers = [...(buildLlmSettingsSnapshot(ctx)?.providers ?? [])]; } catch { /* none offered */ }
   res.status(error ? 400 : 200).type('html').send(renderExperimentNew({
-    agents: testableAgents(ctx), providers,
+    agents: testableAgents(ctx), notebooks: testableNotebooks(ctx), providers,
     // A link can fill the page in (sua offers one from a conversation): any of the form's fields, by name.
     values: values ?? { name: str(req.query.name), question: str(req.query.question), agent: str(req.query.agent), repeats: str(req.query.repeats), ...(Object.keys(req.query).length ? { body: req.query as Record<string, unknown> } : {}) },
     ...(error ? { flash: { kind: 'error' as const, message: error } } : flashOf(req) ? { flash: flashOf(req)! } : {}),
@@ -129,7 +139,26 @@ experimentsRouter.post('/experiments', (req: Request, res: Response) => {
   const values = { name: str(body.name), question: str(body.question), agent: str(body.agent), repeats: str(body.repeats), body };
   try {
     const agentId = str(body.agent).trim();
-    if (!agentId) throw new Error('Choose the agent to run.');
+    if (!agentId) throw new Error('Choose what to run.');
+    if (agentId.startsWith('notebook:')) {
+      // A notebook: every run is a fresh copy of it, taken through its steps.
+      const nbs = NotebookStore.fromHandle(ctx.runStore.databaseHandle());
+      const nb = nbs.get(agentId.slice('notebook:'.length));
+      const why = notebookUntestable(nb);
+      if (!nb || why) throw new Error(why ?? 'That notebook is gone.');
+      const factors = cleanFactors(factorsFromForm(body));
+      // Every version has to fit the notebook: a step it has, something it was given.
+      for (const f of factors) for (const l of f.levels) { const p = copySetup(nb, [l]).problem; if (p) throw new Error(`${f.name}, ${l.name}: ${p}`); }
+      const e = store(ctx).create({
+        name: str(body.name).trim() || nameFromQuestion(str(body.question)) || `${nb.title} experiment`, question: str(body.question), task: { notebookId: nb.id, title: nb.title },
+        factors, repeats: Number(body.repeats) || 2, scorers: scorersFromForm(body),
+      });
+      const copies = experimentConditions(e.factors).length * e.repeats;
+      let also = '';
+      if (str(body.notebook) === '1') { try { notebookForExperiment(ctx, e.id); also = ' The notebook that shows its results is made too: Open its notebook, above.'; } catch { /* the page still offers it */ } }
+      res.redirect(303, back(e.id, `Set up. Nothing has run yet: a pass makes ${String(copies)} ${copies === 1 ? 'copy' : 'copies'} of ${nb.title} and runs each through its steps. Check the setup below, then press Run.${also}`));
+      return;
+    }
     const agent = ctx.agentStore.getAgent(agentId);
     if (!agent) throw new Error(`No such agent: ${agentId}.`);
     const ask = askFromForm(body);
@@ -157,13 +186,15 @@ experimentsRouter.get('/experiments/:id', (req: Request, res: Response) => {
   const s = store(ctx);
   const e = s.get(String(req.params.id));
   if (!e) { res.status(404).type('html').send(renderNotFoundPage({ path: req.path, message: 'No such experiment. It may have been removed.' })); return; }
-  const agent = ctx.agentStore.getAgent(e.task.agentId);
-  const cost = costPerRun(ctx, e.task.agentId);
+  const subjectNb = e.task.notebookId ? NotebookStore.fromHandle(ctx.runStore.databaseHandle()).get(e.task.notebookId) : undefined;
+  const agent = e.task.notebookId ? { name: `a copy of ${subjectNb?.title ?? e.task.title ?? 'the notebook'}` } : ctx.agentStore.getAgent(e.task.agentId);
+  const cost = e.task.notebookId ? undefined : costPerRun(ctx, e.task.agentId);
   res.type('html').send(renderExperimentPage({
     e, standing: experimentStanding(ctx, e),
     ...(cost !== undefined ? { costPerRun: cost } : {}),
     ...(() => { const nb = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).forExperiment(e.id); return nb && !nb.archivedAt ? { notebook: { id: nb.id, title: nb.title } } : {}; })(),
-    ...(agent ? { agent: { name: agent.name, ...(agent.version !== undefined ? { version: agent.version } : {}) } } : {}),
+    ...(agent ? { agent: { name: agent.name, ...('version' in agent && agent.version !== undefined ? { version: agent.version } : {}) } } : {}),
+    ...(e.task.notebookId ? { subject: { id: e.task.notebookId, title: subjectNb?.title ?? e.task.title ?? e.task.notebookId, ...(subjectNb ? {} : { gone: true }) } } : {}),
     ...(flashOf(req) ? { flash: flashOf(req)! } : {}),
   }));
 });

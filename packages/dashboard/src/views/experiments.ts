@@ -6,15 +6,15 @@
  * pages is written by a model.
  */
 import {
-  experimentConditions, experimentPageData, experimentRunCount, passProgress,
-  EXPERIMENT_MAX_REPEATS, EXPERIMENT_MAX_RUNS,
+  experimentConditions, experimentPageData, experimentRunCount, experimentSubject, passProgress,
+  EXPERIMENT_MAX_COPIES, EXPERIMENT_MAX_REPEATS, EXPERIMENT_MAX_RUNS,
   type Experiment, type ExperimentCell, type ExperimentLevel, type ExperimentPass, type ExperimentScore,
 } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { layout } from './layout.js';
 import { pageHeader } from './page-header.js';
 import { working } from './working.js';
-import type { TestableAgent } from '../lib/experiment-runner.js';
+import type { TestableAgent, TestableNotebook } from '../lib/experiment-runner.js';
 
 type Flash = { kind: 'error' | 'info' | 'ok'; message: string };
 const list = (xs: SafeHtml[]) => xs as unknown as SafeHtml[];
@@ -52,7 +52,7 @@ export function renderExperimentsList(args: { experiments: Array<{ e: Experiment
         ${standingBadge(standing)}
         <p class="exp-row__line">${found || e.question || 'No question written down.'}</p>
       </div>
-      <p class="exp-row__meta">${e.task.agentId} · ${plural(experimentConditions(e.factors).length, 'version')} · ${plural(e.repeats, 'run')} of each</p>
+      <p class="exp-row__meta">${e.task.notebookId ? `Notebook: ${experimentSubject(e)}` : e.task.agentId} · ${plural(experimentConditions(e.factors).length, 'version')} · ${plural(e.repeats, 'run')} of each</p>
     </li>`;
   });
   const body = html`
@@ -77,18 +77,21 @@ export interface ExperimentNewValues { name?: string; question?: string; agent?:
 
 /** What one thing you change can be: the box each of its versions shows. */
 export const EXPERIMENT_CHANGE_KINDS = [
-  { id: 'version', title: 'Which version of the agent runs', says: 'An earlier version against a later one: did the change to the agent change what it produces?', call: 'Agent version' },
-  { id: 'model', title: 'The model it runs on', says: 'The same agent on different models.', call: 'Model' },
-  { id: 'input', title: 'Something you ask it', says: 'A different value for one of its inputs: other preferences, another topic, a different limit.', call: '' },
+  { id: 'version', on: 'agent', title: 'Which version of the agent runs', says: 'An earlier version against a later one: did the change to the agent change what it produces?', call: 'Agent version' },
+  { id: 'input', on: 'agent', title: 'Something you ask it', says: 'A different value for one of its inputs: other preferences, another topic, a different limit.', call: '' },
+  { id: 'setup', on: 'notebook', title: 'Its limits and checks', says: 'The same notebook with other limits or checks: with and without "remote only", a stricter check.', call: 'Limits and checks' },
+  { id: 'given', on: 'notebook', title: 'Something you gave it', says: 'Other text for something it depends on from you: another profile, another résumé.', call: '' },
+  { id: 'step', on: 'notebook', title: 'Who does a step', says: 'Another agent for one of its steps, or an earlier version of the one it has.', call: '' },
+  { id: 'model', on: 'both', title: 'The model it runs on', says: 'The same thing on different models.', call: 'Model' },
 ] as const;
 export type ExperimentChangeKind = (typeof EXPERIMENT_CHANGE_KINDS)[number]['id'];
 
 /** The wizard's steps, in order. */
-export const EXPERIMENT_NEW_STEPS = ['The question', 'The agent', 'What you ask it', 'What changes', 'Which is better', 'Check it'] as const;
+export const EXPERIMENT_NEW_STEPS = ['The question', 'What to run', 'What you ask it', 'What changes', 'Which is better', 'Check it'] as const;
 
 /** The step a refusal belongs to, so the page comes back where the problem is. */
 export function experimentStepForError(message: string): number {
-  if (/Choose the agent|isn't installed|No such agent/.test(message)) return 2;
+  if (/Choose the agent|Choose what to run|isn't installed|No such agent|That notebook/.test(message)) return 2;
   if (/needs a value/.test(message)) return 3;
   return 6;
 }
@@ -104,6 +107,8 @@ export function experimentStepForError(message: string): number {
 export function renderExperimentNew(args: {
   /** The operator's agents, the most run first. */
   agents: readonly TestableAgent[];
+  /** The operator's notebooks that can be run again, the latest first. */
+  notebooks?: readonly TestableNotebook[];
   providers: readonly string[];
   values?: ExperimentNewValues;
   /** The step to open on (1 to 6). */
@@ -115,6 +120,8 @@ export function renderExperimentNew(args: {
   const fresh = !v.body || !Object.keys(v.body).length;
   const on = (yes: boolean, attr: string) => (yes ? unsafeHtml(` ${attr}`) : unsafeHtml(''));
   const chosen = args.agents.find((a) => a.id === v.agent);
+  const notebooks = args.notebooks ?? [];
+  const chosenNb = notebooks.find((n) => `notebook:${n.id}` === v.agent);
 
   const version = (c: number, n: number, shown: boolean) => {
     const k = `c${String(c)}_v${String(n)}`;
@@ -123,7 +130,12 @@ export function renderExperimentNew(args: {
       <span class="exp-ver__letter" aria-hidden="true">${letter}</span>
       <input class="form-field__input exp-ver__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="60" placeholder="Name of version ${letter}" aria-label="Name of version ${letter}">
       <div class="exp-ver__value">
-        <textarea class="form-field__textarea" name="${k}_text" rows="3" data-exp-for="input" aria-label="What version ${letter} asks" placeholder="The value this version gives it">${b(`${k}_text`)}</textarea>
+        <textarea class="form-field__textarea" name="${k}_text" rows="3" data-exp-for="input given" aria-label="What version ${letter} asks" placeholder="The value this version gives it">${b(`${k}_text`)}</textarea>
+        <span class="exp-ver__setup" data-exp-for="setup">
+          <label class="exp-field"><span class="exp-field__label">Limits, one a line</span><textarea class="form-field__textarea" name="${k}_params" rows="3" data-exp-params aria-label="Limits for version ${letter}">${b(`${k}_params`)}</textarea></label>
+          <label class="exp-field"><span class="exp-field__label">Checks, one a line</span><textarea class="form-field__textarea" name="${k}_checks" rows="3" data-exp-checks aria-label="Checks for version ${letter}">${b(`${k}_checks`)}</textarea></label>
+        </span>
+        <input class="form-field__input" name="${k}_agent" value="${b(`${k}_agent`)}" maxlength="120" data-exp-for="step" list="exp-agents" placeholder="the agent the step has now" aria-label="Agent for version ${letter}">
         <span class="exp-ver__model" data-exp-for="model">
           <select class="form-field__input" name="${k}_provider" aria-label="Provider for version ${letter}">
             <option value="">the agent's own provider</option>
@@ -131,18 +143,18 @@ export function renderExperimentNew(args: {
           </select>
           <input class="form-field__input" name="${k}_model" value="${b(`${k}_model`)}" maxlength="80" placeholder="model (the provider's default if empty)" aria-label="Model for version ${letter}">
         </span>
-        <input class="form-field__input exp-ver__num" name="${k}_version" type="number" min="1" value="${b(`${k}_version`)}" data-exp-for="version" list="exp-versions" placeholder="its current one" aria-label="Agent version for version ${letter}">
+        <input class="form-field__input exp-ver__num" name="${k}_version" type="number" min="1" value="${b(`${k}_version`)}" data-exp-for="version step" list="exp-versions" placeholder="its current version" aria-label="Agent version for version ${letter}">
       </div>
     </div>`;
   };
   const change = (c: number) => {
     const k = `c${String(c)}`;
-    const used = (n: number) => !!(b(`${k}_v${String(n)}_name`) || b(`${k}_v${String(n)}_text`) || b(`${k}_v${String(n)}_model`) || b(`${k}_v${String(n)}_provider`) || b(`${k}_v${String(n)}_version`));
+    const used = (n: number) => !!(b(`${k}_v${String(n)}_name`) || b(`${k}_v${String(n)}_text`) || b(`${k}_v${String(n)}_model`) || b(`${k}_v${String(n)}_provider`) || b(`${k}_v${String(n)}_version`) || b(`${k}_v${String(n)}_params`) || b(`${k}_v${String(n)}_checks`) || b(`${k}_v${String(n)}_agent`));
     const kind = EXPERIMENT_CHANGE_KINDS.find((x) => x.id === b(`${k}_kind`))?.id ?? '';
     return html`<div class="exp-change" data-exp-change data-kind="${kind}">
       <fieldset class="exp-choices" data-exp-kinds>
         <legend class="exp-step__ask">${c === 1 ? 'What do you want to change?' : 'What else do you want to change?'}</legend>
-        ${list(EXPERIMENT_CHANGE_KINDS.map((x) => html`<label class="exp-choice">
+        ${list(EXPERIMENT_CHANGE_KINDS.map((x) => html`<label class="exp-choice" data-exp-on="${x.on}">
           <input type="radio" name="${k}_kind" value="${x.id}" data-exp-kind data-call="${x.call}"${on(kind === x.id, 'checked')}>
           <span class="exp-choice__title">${x.title}</span>
           <span class="exp-choice__says">${x.says}</span>
@@ -153,6 +165,15 @@ export function renderExperimentNew(args: {
           <select class="form-field__input exp-change__input" name="${k}_input" data-exp-input data-was="${b(`${k}_input`)}">
             ${chosen ? list(chosen.inputs.map((i) => html`<option value="${i.name}"${on(b(`${k}_input`) === i.name, 'selected')}>${i.name}</option>`)) : html``}
           </select></label>
+        <label class="exp-field" data-exp-for="given"><span class="exp-field__label">Which of the things you gave it</span>
+          <select class="form-field__input exp-change__input" name="${k}_given" data-exp-given data-was="${b(`${k}_given`)}">
+            ${chosenNb ? list(chosenNb.given.map((g) => html`<option value="${g.key}"${on(b(`${k}_given`) === g.key, 'selected')}>${g.label}</option>`)) : html``}
+          </select></label>
+        <label class="exp-field" data-exp-for="step"><span class="exp-field__label">Which step</span>
+          <select class="form-field__input exp-change__input" name="${k}_step" data-exp-stepsel data-was="${b(`${k}_step`)}">
+            ${chosenNb ? list(chosenNb.steps.map((st) => html`<option value="${st.id}"${on(b(`${k}_step`) === st.id, 'selected')}>${st.title}</option>`)) : html``}
+          </select></label>
+        <p class="form-field__hint" data-exp-for="step" data-exp-step-hint></p>
         <label class="exp-field"><span class="exp-field__label">What to call this change</span>
           <input class="form-field__input exp-change__name" name="${k}_name" value="${b(`${k}_name`)}" maxlength="40" placeholder="Build"></label>
         <p class="exp-field__label">Its versions. A is what the others are compared with.</p>
@@ -186,6 +207,14 @@ export function renderExperimentNew(args: {
   const open = Math.min(6, Math.max(1, args.open ?? 1));
   // What the page's script needs of each agent: its inputs (with what it was last given) and its versions.
   const agentData = (a: TestableAgent) => JSON.stringify({ inputs: a.inputs, versions: a.versions });
+  const notebookData = (n: TestableNotebook) => JSON.stringify({ notebook: true, inputs: [], versions: [], setup: n });
+  const setupWords = (n: TestableNotebook): SafeHtml => html`<dl class="exp-setup">
+    <div><dt>What it is for</dt><dd>${clip(n.statement, 400)}</dd></div>
+    <div><dt>Limits</dt><dd>${n.params.length ? n.params.join('; ') : 'None.'}</dd></div>
+    <div><dt>Checks</dt><dd>${n.checks.length ? n.checks.join('; ') : 'None.'}</dd></div>
+    ${n.given.length ? html`<div><dt>You gave it</dt><dd>${n.given.map((g) => g.label).join('; ')}</dd></div>` : html``}
+    <div><dt>Its steps</dt><dd>${n.steps.map((st) => `${st.title}${st.agent ? ` (${st.agent})` : ''}`).join(' → ')}${n.stopsAt ? `, then it stops before ${n.stopsAt}, which is yours` : ''}</dd></div>
+  </dl>`;
 
   const body = html`
     ${pageHeader({
@@ -193,7 +222,7 @@ export function renderExperimentNew(args: {
       title: 'New experiment',
       description: 'Six short steps. Nothing is made until the last one, and nothing runs until you press Run after that.',
     })}
-    <form method="POST" action="/experiments" class="exp-new" data-exp-new data-exp-open="${String(open)}" data-max-runs="${String(EXPERIMENT_MAX_RUNS)}">
+    <form method="POST" action="/experiments" class="exp-new" data-exp-new data-exp-open="${String(open)}" data-max-runs="${String(EXPERIMENT_MAX_RUNS)}" data-max-copies="${String(EXPERIMENT_MAX_COPIES)}">
       <ol class="exp-steps" data-exp-progress aria-label="Steps">
         ${list(EXPERIMENT_NEW_STEPS.map((s, i) => html`<li><button type="button" class="exp-steps__step" data-exp-go="${String(i + 1)}"><span class="exp-steps__n">${String(i + 1)}</span> ${s}</button></li>`))}
       </ol>
@@ -207,10 +236,12 @@ export function renderExperimentNew(args: {
 
       <section class="exp-step" data-exp-step="2" aria-labelledby="exp-s2">
         <fieldset class="exp-choices">
-          <legend class="exp-step__ask" id="exp-s2">Which agent?</legend>
-          <p class="form-field__hint">The whole agent runs each time, as it would for anyone: it searches, reads and uses its tools. Your agents, the most run first.</p>
-          <input class="form-field__input exp-find" type="search" placeholder="Search your agents" aria-label="Search your agents" data-exp-find>
-          <div class="exp-findlist" data-exp-findlist data-first="6">
+          <legend class="exp-step__ask" id="exp-s2">What do you want to run?</legend>
+          <p class="form-field__hint">An agent, or a whole notebook. It runs in full each time, as it would for anyone: it searches, reads and uses its tools.</p>
+          <input class="form-field__input exp-find" type="search" placeholder="Search your agents and notebooks" aria-label="Search your agents and notebooks" data-exp-find>
+          <div data-exp-group>
+          <p class="exp-field__label">Your agents, the most run first</p>
+          <div class="exp-findlist" data-exp-findlist data-first="5">
             ${list(args.agents.map((a) => html`<label class="exp-choice" data-exp-findable data-text="${`${a.name} ${a.id} ${a.description ?? ''}`.toLowerCase()}">
               <input type="radio" name="agent" value="${a.id}" data-exp-agent data-title="${a.name}" data-agent="${agentData(a)}"${a.costPerRun !== undefined ? unsafeHtml(` data-cost="${String(a.costPerRun)}"`) : unsafeHtml('')}${on(v.agent === a.id, 'checked')}>
               <span class="exp-choice__title">${a.name}</span>
@@ -221,6 +252,21 @@ export function renderExperimentNew(args: {
           </div>
           <button type="button" class="btn btn--ghost btn--sm" data-exp-find-all hidden>Show all ${String(args.agents.length)}</button>
           <p class="form-field__hint" data-exp-find-none${on(args.agents.length > 0, 'hidden')}>${args.agents.length ? 'No agent matches that.' : 'You have no agents of your own yet. Build or install one first.'}</p>
+          </div>
+          <div data-exp-group>
+          <p class="exp-field__label">Your notebooks, the latest first</p>
+          <p class="form-field__hint">A fresh copy of the notebook is made for every run and taken through its steps with nobody pressing Continue. It stops before the step where you decide. Your notebook itself is not touched.</p>
+          <div class="exp-findlist" data-exp-findlist data-first="4">
+            ${list(notebooks.map((n) => html`<label class="exp-choice" data-exp-findable data-text="${`${n.title} ${n.id} ${n.statement}`.toLowerCase()}">
+              <input type="radio" name="agent" value="notebook:${n.id}" data-exp-agent data-title="${n.title}" data-agent="${notebookData(n)}"${on(v.agent === `notebook:${n.id}`, 'checked')}>
+              <span class="exp-choice__title">${n.title}</span>
+              <span class="exp-choice__says">${clip(n.statement, 160)}</span>
+              <span class="exp-choice__says exp-choice__for">${plural(n.steps.length, 'step')} sua runs: ${n.steps.map((st) => st.title).join(' → ')} · ${plural(n.options, 'option')} in it now</span>
+            </label>`))}
+          </div>
+          <button type="button" class="btn btn--ghost btn--sm" data-exp-find-all hidden>Show all ${String(notebooks.length)}</button>
+          <p class="form-field__hint" data-exp-find-none${on(notebooks.length > 0, 'hidden')}>${notebooks.length ? 'No notebook matches that.' : 'You have no notebooks with steps sua runs yet.'}</p>
+          </div>
         </fieldset>
         <p class="exp-step__err" data-exp-err role="alert" hidden></p>
       </section>
@@ -230,7 +276,7 @@ export function renderExperimentNew(args: {
         <p class="form-field__hint">This is the same for every run, so the only things that differ are the ones you change in the next step. It starts from what the agent was given on its last run.</p>
         <div class="exp-ask" data-exp-ask>
           ${chosen ? (chosen.inputs.length ? list(chosen.inputs.map((i) => html`<label class="exp-field"><span class="exp-field__label">${i.name}${i.required ? ' (needed)' : ''}${i.description ? ` — ${i.description}` : ''}</span>
-            <textarea class="form-field__textarea" name="in_${i.name}" rows="2">${fresh ? (i.last ?? i.fallback ?? '') : b(`in_${i.name}`)}</textarea></label>`)) : html`<p class="form-field__hint">${chosen.name} takes no inputs: every run asks it the same thing already.</p>`) : html`<p class="form-field__hint">Choose the agent first.</p>`}
+            <textarea class="form-field__textarea" name="in_${i.name}" rows="2">${fresh ? (i.last ?? i.fallback ?? '') : b(`in_${i.name}`)}</textarea></label>`)) : html`<p class="form-field__hint">${chosen.name} takes no inputs: every run asks it the same thing already.</p>`) : chosenNb ? html`<p class="form-field__hint">A notebook's ask is its own setup. Every copy gets this, but for what you change in the next step.</p>${setupWords(chosenNb)}` : html`<p class="form-field__hint">Choose what to run first.</p>`}
         </div>
         <p class="exp-step__err" data-exp-err role="alert" hidden></p>
       </section>
@@ -288,6 +334,7 @@ export function renderExperimentNew(args: {
       </section>
 
       <datalist id="exp-versions"></datalist>
+      <datalist id="exp-agents">${list(args.agents.map((a) => html`<option value="${a.id}" label="${a.name}"></option>`))}</datalist>
       <div class="exp-nav">
         <button type="button" class="btn" data-exp-back>Back</button>
         <a class="btn btn--ghost" href="/experiments">Cancel</a>
@@ -303,8 +350,12 @@ function levelSays(l: ExperimentLevel): string[] {
   const out: string[] = [];
   if (l.version !== undefined) out.push(`agent version ${String(l.version)}`);
   if (l.provider || l.model) out.push(`runs on ${[l.provider, l.model].filter(Boolean).join(' ')}`);
+  if (l.step) out.push(`step ${l.step.id} done by ${l.step.agentId || 'the agent it has'}`);
+  if (l.params) out.push(`limits: ${l.params.join('; ') || 'none'}`);
+  if (l.checks) out.push(`checks: ${l.checks.join('; ') || 'none'}`);
+  for (const [k, val] of Object.entries(l.given ?? {})) out.push(`given as ${k}: “${clip(val, 220)}”`);
   for (const [k, val] of Object.entries(l.inputs ?? {})) out.push(`${k}: “${clip(val, 220)}”`);
-  return out.length ? out : ['the agent as it is'];
+  return out.length ? out : ['as it is'];
 }
 
 const CELL_BADGE: Record<ExperimentCell['status'], string> = { todo: 'badge--muted', running: 'badge--info', done: 'badge--ok', invalid: 'badge--warn', failed: 'badge--err', stopped: 'badge--muted' };
@@ -324,8 +375,10 @@ export function renderExperimentPage(args: {
   standing: ExperimentStanding;
   /** What a run of its agent has cost lately, when known. */
   costPerRun?: number;
-  /** Its agent's name, and whether it is installed. */
+  /** Its agent's name, and whether it is installed (a notebook experiment: the notebook's title). */
   agent?: { name: string; version?: number };
+  /** The notebook it runs copies of, when that is what it runs. */
+  subject?: { id: string; title: string; gone?: boolean };
   /** The notebook that shows it, when it has one. */
   notebook?: { id: string; title: string };
   flash?: Flash;
@@ -402,7 +455,7 @@ export function renderExperimentPage(args: {
     })}
     <div data-exp-state="${experimentStateKey(standing)}" data-exp-id="${e.id}" data-exp-running="${standing.running ? '1' : ''}">
     ${standing.running ? html`<p class="exp-working">${working({ text: `Running ${String(Math.min(p.total, p.done + p.invalid + p.failed + 1))} of ${String(p.total)}. Each is the whole agent, so this can take a while. The page updates by itself; you can leave and come back.` })}</p>` : html``}
-    ${!args.agent ? html`<p class="flash flash--error">Its agent, ${e.task.agentId}, isn't installed, so it can't run.</p>` : html``}
+    ${e.task.notebookId ? (args.subject?.gone ? html`<p class="flash flash--error">The notebook it runs copies of is gone, so it can't run.</p>` : html``) : !args.agent ? html`<p class="flash flash--error">Its agent, ${e.task.agentId}, isn't installed, so it can't run.</p>` : html``}
     ${standing.pass && args.agent?.version !== undefined && standing.pass.taskVersion !== undefined && args.agent.version !== standing.pass.taskVersion && !standing.running
       ? html`<p class="exp-note">${args.agent.name} has changed since this ran (it was version ${String(standing.pass.taskVersion)}, it is now ${String(args.agent.version)}). Run it again to see what that changed.</p>` : html``}
     ${verdictBlock}
@@ -436,8 +489,8 @@ export function renderExperimentPage(args: {
     <section class="exp-section">
       <h2>How it is set up</h2>
       <dl class="exp-setup">
-        <div><dt>Runs</dt><dd>The whole of ${args.agent?.name ?? e.task.agentId}, ${plural(e.repeats, 'time')} for each version</dd></div>
-        <div><dt>Asks it</dt><dd>${Object.keys(e.inputs).length ? html`<ul class="exp-levels-said">${list(Object.entries(e.inputs).map(([k, val]) => html`<li><strong>${k}:</strong> ${clip(val, 300)}</li>`))}</ul>` : 'Nothing: it runs as it does with no inputs given.'} <span class="exp-items__facts">The same for every run.</span></dd></div>
+        <div><dt>Runs</dt><dd>${e.task.notebookId ? html`A fresh copy of the notebook <a href="/notebooks/${encodeURIComponent(e.task.notebookId)}">${experimentSubject(e)}</a>, through its steps, ${plural(e.repeats, 'time')} for each version. It stops before the step that is yours` : html`The whole of ${args.agent?.name ?? e.task.agentId}, ${plural(e.repeats, 'time')} for each version`}</dd></div>
+        <div><dt>Asks it</dt><dd>${e.task.notebookId ? 'Its own setup: what it is for, its limits, its checks and what you gave it.' : Object.keys(e.inputs).length ? html`<ul class="exp-levels-said">${list(Object.entries(e.inputs).map(([k, val]) => html`<li><strong>${k}:</strong> ${clip(val, 300)}</li>`))}</ul>` : 'Nothing: it runs as it does with no inputs given.'} <span class="exp-items__facts">The same for every run.</span></dd></div>
         ${list(e.factors.map((f) => html`<div><dt>Changes ${f.name.toLowerCase()}</dt><dd><ul class="exp-levels-said">${list(f.levels.map((l, i) => html`<li><strong>${l.name}${i === 0 ? ' (baseline)' : ''}:</strong> ${levelSays(l).join('; ')}</li>`))}</ul></dd></div>`))}
         ${list(e.scorers.map((sc) => html`<div><dt>Scores</dt><dd><strong>${sc.name}:</strong> ${sc.kind === 'found'
           ? `counted: the share of these its results ${sc.avoid ? 'leave out' : 'list'}: ${sc.items.join('; ')}`
@@ -453,7 +506,7 @@ export function renderExperimentPage(args: {
           <tbody>${list(standing.cells.map((c) => html`<tr>
             <th scope="row">${conditions.find((x) => x.id === c.conditionId)?.name ?? c.conditionId}</th>
             <td class="exp-n">${String(c.repeat)}</td>
-            <td><span class="badge ${CELL_BADGE[c.status]}">${CELL_WORD[c.status]}</span>${c.runId ? html` <a href="/runs/${encodeURIComponent(c.runId)}">the run</a>` : html``}${c.error ? html` <span class="exp-cell__why">${c.error}</span>` : html``}</td>
+            <td><span class="badge ${CELL_BADGE[c.status]}">${CELL_WORD[c.status]}</span>${c.runId ? html` <a href="/runs/${encodeURIComponent(c.runId)}">the run</a>` : html``}${c.notebookId ? html` <a href="/notebooks/${encodeURIComponent(c.notebookId)}">its copy</a>` : html``}${c.error ? html` <span class="exp-cell__why">${c.error}</span>` : html``}${c.note ? html` <span class="exp-cell__why">${c.note}</span>` : html``}</td>
             <td>${c.items ? html`${plural(c.items.length, 'item')}${c.items.length ? `: ${c.items.slice(0, 3).map((i) => clip(i.title, 50)).join(' · ')}${c.items.length > 3 ? '…' : ''}` : ''}` : ''}${list(standing.scores.filter((x) => x.cellId === c.id).map((x) => { const sc = e.scorers.find((y) => y.id === x.scorerId); return html`<p class="exp-cell__score"><strong>${sc?.name ?? x.scorerId}:</strong> ${x.value !== undefined ? html`${pct(x.value)}. ${x.reason ?? ''}` : html`<span class="exp-cell__why">no score: ${x.error ?? 'it gave none'}</span>`}${x.runId ? html` <a href="/runs/${encodeURIComponent(x.runId)}">the judge's run</a>` : html``}</p>`; }))}</td>
           </tr>`))}</tbody>
         </table></div>
@@ -491,6 +544,7 @@ export const EXPERIMENT_PAGE_JS = `
   var form = document.querySelector('[data-exp-new]');
   if (!form) return;
   var MAX = Number(form.getAttribute('data-max-runs')) || 36;
+  var MAXC = Number(form.getAttribute('data-max-copies')) || 12;
   var LAST = 6;
   var S_AGENT = 2, S_ASK = 3, S_CHANGES = 4, S_SCORE = 5;
   function all(sel, root) { return Array.prototype.slice.call((root || form).querySelectorAll(sel)); }
@@ -516,20 +570,41 @@ export const EXPERIMENT_PAGE_JS = `
   }
   /** Show the agents that match what's typed; with nothing typed, the first few and the one chosen. */
   function findAgents() {
-    var box = one('[data-exp-findlist]');
-    if (!box) return;
     var q = text(one('[data-exp-find]')).toLowerCase();
-    var first = box.getAttribute('data-all') ? 1e9 : Number(box.getAttribute('data-first')) || 6;
-    var rows = all('[data-exp-findable]', box);
-    var shown = 0;
-    rows.forEach(function (r, i) {
-      var chosen = !!one('input:checked', r);
-      var hit = q ? q.split(/\\s+/).every(function (w) { return (r.getAttribute('data-text') || '').indexOf(w) >= 0; }) : (i < first || chosen);
-      r.hidden = !hit;
-      if (hit) shown++;
+    all('[data-exp-group]').forEach(function (g) {
+      var box = one('[data-exp-findlist]', g);
+      if (!box) return;
+      var first = box.getAttribute('data-all') ? 1e9 : Number(box.getAttribute('data-first')) || 6;
+      var rows = all('[data-exp-findable]', box);
+      var shown = 0;
+      rows.forEach(function (r, i) {
+        var chosen = !!one('input:checked', r);
+        var hit = q ? q.split(/\\s+/).every(function (w) { return (r.getAttribute('data-text') || '').indexOf(w) >= 0; }) : (i < first || chosen);
+        r.hidden = !hit;
+        if (hit) shown++;
+      });
+      one('[data-exp-find-all]', g).hidden = !!q || shown >= rows.length;
+      if (rows.length) one('[data-exp-find-none]', g).hidden = shown > 0;
     });
-    one('[data-exp-find-all]').hidden = !!q || shown >= rows.length;
-    if (rows.length) one('[data-exp-find-none]').hidden = shown > 0;
+  }
+  function isNb() { return !!agentData().notebook; }
+  function nbSetup() { return agentData().setup || { params: [], checks: [], given: [], steps: [] }; }
+  /** The notebook's setup in words, as its ask. */
+  function drawSetup(ask, n) {
+    ask.appendChild(el('p', 'form-field__hint', 'A notebook\\'s ask is its own setup. Every copy gets this, but for what you change in the next step.'));
+    var dl = el('dl', 'exp-setup');
+    function line(k, v) { var d = el('div'); d.appendChild(el('dt', '', k)); d.appendChild(el('dd', '', v)); dl.appendChild(d); }
+    line('What it is for', n.statement || '');
+    line('Limits', (n.params || []).length ? n.params.join('; ') : 'None.');
+    line('Checks', (n.checks || []).length ? n.checks.join('; ') : 'None.');
+    if ((n.given || []).length) line('You gave it', n.given.map(function (g) { return g.label; }).join('; '));
+    line('Its steps', (n.steps || []).map(function (s) { return s.title + (s.agent ? ' (' + s.agent + ')' : ''); }).join(' → ') + (n.stopsAt ? ', then it stops before ' + n.stopsAt + ', which is yours' : ''));
+    ask.appendChild(dl);
+  }
+  function fill(sel, rows) {
+    var was = sel.value || sel.getAttribute('data-was') || '';
+    sel.textContent = '';
+    rows.forEach(function (r) { var o = document.createElement('option'); o.value = r[0]; o.textContent = r[1]; if (r[0] === was) o.selected = true; sel.appendChild(o); });
   }
   /** The chosen agent's inputs as the ask, and its versions and inputs wherever a change needs them. Once per agent. */
   function drawForAgent() {
@@ -544,9 +619,10 @@ export const EXPERIMENT_PAGE_JS = `
     var name = a ? a.getAttribute('data-title') : 'The agent';
     // The ask: as the page came for the agent it came with; rebuilt when another is chosen.
     var ask = one('[data-exp-ask]');
-    if (ask && !(wasNone && one('textarea', ask))) {
+    if (ask && !(wasNone && (one('textarea', ask) || one('dl', ask)))) {
       ask.textContent = '';
-      if (!a) ask.appendChild(el('p', 'form-field__hint', 'Choose the agent first.'));
+      if (!a) ask.appendChild(el('p', 'form-field__hint', 'Choose what to run first.'));
+      else if (d.notebook) drawSetup(ask, nbSetup());
       else if (!inputs.length) ask.appendChild(el('p', 'form-field__hint', name + ' takes no inputs: every run asks it the same thing already.'));
       inputs.forEach(function (i) {
         var lab = el('label', 'exp-field');
@@ -566,11 +642,27 @@ export const EXPERIMENT_PAGE_JS = `
       : vs.length === 1 ? name + ' has one version (' + vs[0].v + '), so there is no earlier one to compare it with.'
       : name + ' has versions ' + vs[vs.length - 1].v + ' to ' + vs[0].v + '. The newest are ' + vs.slice(0, 4).map(function (v) { return v.v + ' (' + v.at + ')'; }).join(', ') + '.';
     all('[data-exp-versions-hint]').forEach(function (p) { p.textContent = hint; });
-    all('[data-exp-input]').forEach(function (sel) {
-      var was = sel.value || sel.getAttribute('data-was') || '';
-      sel.textContent = '';
-      inputs.forEach(function (i) { var o = document.createElement('option'); o.value = i.name; o.textContent = i.name; if (i.name === was) o.selected = true; sel.appendChild(o); });
+    all('[data-exp-input]').forEach(function (sel) { fill(sel, inputs.map(function (i) { return [i.name, i.name]; })); });
+    var n = nbSetup();
+    all('[data-exp-given]').forEach(function (sel) { fill(sel, (n.given || []).map(function (g) { return [g.key, g.label]; })); });
+    all('[data-exp-stepsel]').forEach(function (sel) { fill(sel, (n.steps || []).map(function (s) { return [s.id, s.title]; })); });
+    // Only the kinds of change that fit what is run; a change of another kind is cleared.
+    var subject = d.notebook ? 'notebook' : 'agent';
+    all('[data-exp-on]').forEach(function (lab) {
+      var fits = lab.getAttribute('data-exp-on') === 'both' || lab.getAttribute('data-exp-on') === subject;
+      lab.hidden = !fits;
+      var r = one('input', lab);
+      if (!fits && r && r.checked) clearChange(lab.closest('[data-exp-change]'));
     });
+    all('[data-exp-change]').forEach(stepHint);
+  }
+  /** Under "which step": who does it now, so a version can name another agent or an earlier version of that one. */
+  function stepHint(c) {
+    var p = one('[data-exp-step-hint]', c);
+    if (!p) return;
+    var id = text(one('[data-exp-stepsel]', c));
+    var s = (nbSetup().steps || []).filter(function (x) { return x.id === id; })[0];
+    p.textContent = s ? s.title + ' is done by ' + (s.agent || 'no agent yet') + (s.agentVersion ? ', now on version ' + s.agentVersion : '') + '. For each version, name another agent, an earlier version of this one, or leave both empty for the step as it is.' : '';
   }
 
   // ----- what the form says -----
@@ -582,6 +674,8 @@ export const EXPERIMENT_PAGE_JS = `
       var name = text(one('.exp-ver__name', v));
       var says = kind === 'model' ? [text(one('select', v)), text(one('.exp-ver__model input', v))].filter(Boolean).join(' ')
         : kind === 'version' ? (text(one('.exp-ver__num', v)) ? 'version ' + text(one('.exp-ver__num', v)) : '')
+        : kind === 'step' ? [text(one('[name$="_agent"]', v)), text(one('.exp-ver__num', v)) ? 'version ' + text(one('.exp-ver__num', v)) : ''].filter(Boolean).join(' ') || (name ? 'the step as it is' : '')
+        : kind === 'setup' ? (function () { var ps = lines(text(one('[data-exp-params]', v))), cs = lines(text(one('[data-exp-checks]', v))); return ps.length || cs.length || name ? 'limits: ' + (ps.join('; ') || 'none') + ' · checks: ' + (cs.join('; ') || 'none') : ''; })()
         : text(one('textarea', v));
       if (name || says) out.push({ name: name || String.fromCharCode(65 + i), says: says });
     });
@@ -591,8 +685,9 @@ export const EXPERIMENT_PAGE_JS = `
     var vs = versionsOf(c);
     var r = one('[data-exp-kind]:checked', c);
     var kind = kindOf(c);
-    var input = kind === 'input' ? text(one('[data-exp-input]', c)) : '';
-    var what = kind === 'version' ? 'which version of the agent runs' : kind === 'model' ? 'the model it runs on' : input ? 'what it is given as ' + input : 'something you ask it';
+    function chosenText(sel) { var x = one(sel, c); return x && x.selectedIndex >= 0 && x.options[x.selectedIndex] ? x.options[x.selectedIndex].textContent : ''; }
+    var input = kind === 'input' ? text(one('[data-exp-input]', c)) : kind === 'given' ? chosenText('[data-exp-given]') : kind === 'step' ? chosenText('[data-exp-stepsel]') : '';
+    var what = kind === 'version' ? 'which version of the agent runs' : kind === 'model' ? 'the model it runs on' : kind === 'setup' ? 'the notebook\\'s limits and checks' : kind === 'given' ? 'what it is given as ' + (input || 'something of yours') : kind === 'step' ? 'who does the step ' + input : input ? 'what it is given as ' + input : 'something you ask it';
     return { kind: kind, name: text(one('.exp-change__name', c)) || (r && r.getAttribute('data-call')) || input || 'Change', what: what, versions: vs, made: vs.length >= 2, touched: vs.length > 0 };
   }
   function made() { return changes.map(info).filter(function (x) { return x.made; }); }
@@ -607,14 +702,17 @@ export const EXPERIMENT_PAGE_JS = `
     var runs = agentRuns * (1 + j);
     var a = agentRadio();
     var name = a ? a.getAttribute('data-title') : 'the agent';
-    var line = (sizes.length > 1 ? sizes.join(' × ') + ' = ' : '') + combos + (combos === 1 ? ' version' : ' versions') + ' × ' + r + (r === 1 ? ' run' : ' runs') + ' = ' + name + ' runs ' + agentRuns + (agentRuns === 1 ? ' time' : ' times')
+    var nb = isNb();
+    var line = (sizes.length > 1 ? sizes.join(' × ') + ' = ' : '') + combos + (combos === 1 ? ' version' : ' versions') + ' × ' + r + (r === 1 ? ' run' : ' runs') + ' = ' + (nb ? agentRuns + (agentRuns === 1 ? ' copy' : ' copies') + ' of ' + name + ', each run through its steps' : name + ' runs ' + agentRuns + (agentRuns === 1 ? ' time' : ' times'))
       + (j ? ', and a judge reads each (' + (runs - agentRuns) + ' more model runs)' : '');
     var cost = a ? Number(a.getAttribute('data-cost')) : 0;
     if (cost > 0) { var est = cost * agentRuns; line += ', about ' + (est < 0.01 ? 'under $0.01' : '$' + est.toFixed(2)); }
     var warn = '';
-    if (runs > MAX) warn = 'That is more than the ' + MAX + ' runs one pass may make (each is the whole agent). Use fewer versions, runs or judges.';
+    if (nb && agentRuns > MAXC) warn = 'That is more than the ' + MAXC + ' copies one pass may make (each is a whole notebook). Use fewer versions or runs.';
+    else if (runs > MAX) warn = 'That is more than the ' + MAX + ' runs one pass may make (each is the whole agent). Use fewer versions, runs or judges.';
     else if (r === 1) warn = 'With one run of each, nothing can be concluded. Use 2 or more.';
-    return { line: line + '.', warn: warn, over: runs > MAX, combos: combos };
+    else if (nb) warn = 'Each copy is a whole notebook: a search, a check and a write-up can take 10 minutes or more, and two run at a time.';
+    return { line: line + '.', warn: warn, over: runs > MAX || (nb && agentRuns > MAXC), combos: combos };
   }
 
   // ----- what changes: one change at a time -----
@@ -631,20 +729,30 @@ export const EXPERIMENT_PAGE_JS = `
     if (!r) return;
     var name = one('.exp-change__name', c);
     var calls = all('[data-exp-kind]', c).map(function (x) { return x.getAttribute('data-call'); }).filter(Boolean);
-    var inputNames = (agentData().inputs || []).map(function (i) { return i.name; });
-    var want = r.value === 'input' ? text(one('[data-exp-input]', c)) : r.getAttribute('data-call') || '';
+    var n = nbSetup();
+    var inputNames = (agentData().inputs || []).map(function (i) { return i.name; }).concat((n.given || []).map(function (g) { return g.label; }), (n.steps || []).map(function (s) { return s.title; }));
+    function pick(sel) { var x = one(sel, c); return x && x.selectedIndex >= 0 && x.options[x.selectedIndex] ? x.options[x.selectedIndex].textContent : ''; }
+    var want = r.value === 'input' ? text(one('[data-exp-input]', c)) : r.value === 'given' ? pick('[data-exp-given]') : r.value === 'step' ? pick('[data-exp-stepsel]') : r.getAttribute('data-call') || '';
     if (name && (!text(name) || calls.indexOf(text(name)) >= 0 || inputNames.indexOf(text(name)) >= 0)) name.value = want;
+    // Limits and checks start from the notebook's own, so a version is an edit of them.
+    if (r.value === 'setup') all('[data-exp-ver]', c).forEach(function (v) {
+      var ps = one('[data-exp-params]', v), cs = one('[data-exp-checks]', v);
+      if (ps && cs && !text(ps) && !text(cs)) { ps.value = (n.params || []).join('\\n'); cs.value = (n.checks || []).join('\\n'); }
+    });
+    stepHint(c);
   }
   function drawChanges() {
     var list = one('[data-exp-made]');
     list.textContent = '';
-    var noInputs = !((agentData().inputs || []).length);
+    var noInputs = !isNb() && !((agentData().inputs || []).length);
+    var noGiven = isNb() && !((nbSetup().given || []).length);
     changes.forEach(function (c, i) {
       c.hidden = i !== editing;
       var body = one('[data-exp-change-body]', c);
       if (body) body.hidden = !kindOf(c);
       // An agent with no inputs can't be asked anything different.
       all('[data-exp-kind][value="input"]', c).forEach(function (r) { r.disabled = noInputs; r.parentNode.classList.toggle('exp-choice--off', noInputs); });
+      all('[data-exp-kind][value="given"]', c).forEach(function (r) { r.disabled = noGiven; r.parentNode.classList.toggle('exp-choice--off', noGiven); });
       var add = one('[data-exp-add-version]', c);
       if (add) add.hidden = !nextHidden(all('[data-exp-ver]', c));
       var x = info(c);
@@ -698,13 +806,13 @@ export const EXPERIMENT_PAGE_JS = `
     var q = text(form.elements.question);
     row(dl, 'Finds out', q || 'No question written down.', 1);
     var a = agentRadio();
-    row(dl, 'Runs', a ? 'The whole of ' + a.getAttribute('data-title') + ', each time.' : 'No agent chosen yet.', S_AGENT);
+    row(dl, 'Runs', !a ? 'Nothing chosen yet.' : isNb() ? 'A fresh copy of the notebook ' + a.getAttribute('data-title') + ', through its steps, each time. It stops before the step that is yours, and your notebook is not touched.' : 'The whole of ' + a.getAttribute('data-title') + ', each time.', S_AGENT);
     var asks = all('[data-exp-ask] textarea').filter(function (t) { return text(t); });
     var ask = el('ul', 'exp-check__versions');
     asks.forEach(function (t) { var li = el('li'); li.appendChild(el('strong', '', t.name.replace(/^in_/, ''))); li.appendChild(document.createTextNode(': ' + (text(t).length > 160 ? text(t).slice(0, 159) + '…' : text(t)))); ask.appendChild(li); });
-    row(dl, 'Asks it', asks.length ? ask : 'Nothing: it runs as it does with no inputs given.', S_ASK);
+    row(dl, 'Asks it', isNb() ? 'Its own setup: what it is for, its limits, its checks and what you gave it.' : asks.length ? ask : 'Nothing: it runs as it does with no inputs given.', S_ASK);
     var ms = made();
-    if (!ms.length) row(dl, 'Changes', 'Nothing. It will show how steady the agent is from run to run.', S_CHANGES);
+    if (!ms.length) row(dl, 'Changes', 'Nothing. It will show how steady ' + (isNb() ? 'the notebook' : 'the agent') + ' is from run to run.', S_CHANGES);
     ms.forEach(function (x) {
       var ul = el('ul', 'exp-check__versions');
       x.versions.forEach(function (v, i) {
@@ -752,7 +860,7 @@ export const EXPERIMENT_PAGE_JS = `
     p.hidden = !msg;
   }
   function check(n) {
-    if (n === S_AGENT && !agentRadio()) return 'Choose the agent to run.';
+    if (n === S_AGENT && !agentRadio()) return 'Choose what to run.';
     if (n === S_CHANGES) return closeEditing();
     return '';
   }
@@ -794,7 +902,7 @@ export const EXPERIMENT_PAGE_JS = `
     if (!t.matches) return;
     if (t.matches('[data-exp-agent]')) { say(S_AGENT, ''); }
     if (t.matches('[data-exp-kind]')) { applyKind(t.closest('[data-exp-change]')); drawChanges(); var n = one('.exp-ver__name', t.closest('[data-exp-change]')); if (n) n.focus(); }
-    if (t.matches('[data-exp-input]')) { applyKind(t.closest('[data-exp-change]')); }
+    if (t.matches('[data-exp-input], [data-exp-given], [data-exp-stepsel]')) { applyKind(t.closest('[data-exp-change]')); }
     if (t.matches('[data-exp-reveal]')) {
       var box = one('[data-exp-revealed="' + t.getAttribute('data-exp-reveal') + '"]');
       box.hidden = !t.checked;

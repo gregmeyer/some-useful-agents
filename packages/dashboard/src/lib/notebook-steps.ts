@@ -9,6 +9,7 @@
  * its agent got no further. sua says so in the notebook's conversation, with the
  * button as a card. The agent is never edited for a step.
  */
+import { agentForCopy } from './experiment-copy-agent.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
@@ -445,7 +446,7 @@ async function checkNew(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const ask = entries.filter((e) => e.kind !== 'option' || ids.has(e.id));
   const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
   const running = ctx.notebookPipelines?.get(notebookId);
-  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: todo.length, have: 0, missing }), (runId) => { if (running) running.runId = runId; });
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: todo.length, have: 0, missing }), (runId) => { if (running) running.runId = runId; }, nb.id);
   store.addRunToPass(passId, run.id);
   if (run.status === 'cancelled' || running?.stopped) {
     store.finishPass(passId, `${agentId}: stopped`);
@@ -528,7 +529,7 @@ async function sourceNew(ctx: Ctx, store: NotebookStore, notebookId: string, ste
   const missing = jobs.map((j) => `${j.name} — ${j.missing.map((f) => f.label.toLowerCase()).join(', ')}`);
   const ask = entries.filter((e) => e.kind !== 'option' || ids.has(e.id));
   const running = ctx.notebookPipelines?.get(notebookId);
-  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: wanted, have: 0, missing }), (runId) => { if (running) running.runId = runId; });
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, ask, { step, want: wanted, have: 0, missing }), (runId) => { if (running) running.runId = runId; }, nb.id);
   store.addRunToPass(passId, run.id);
   if (run.status === 'cancelled' || running?.stopped) {
     store.finishPass(passId, `${agentId}: stopped`);
@@ -646,7 +647,7 @@ async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step
   const passId = store.startPass(nb.id, 'pipeline', undefined, { stepId: step.id });
   const running = ctx.notebookPipelines?.get(notebookId);
   const entries = store.entries(nb.id, 1000);
-  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: p.have + p.want, have: p.have, missing: [] }), (runId) => { if (running) running.runId = runId; });
+  const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: p.have + p.want, have: p.have, missing: [] }), (runId) => { if (running) running.runId = runId; }, nb.id);
   store.addRunToPass(passId, run.id);
   let words: string;
   if (run.status === 'cancelled' || running?.stopped) {
@@ -679,13 +680,14 @@ async function runAgain(ctx: Ctx, store: NotebookStore, notebookId: string, step
 }
 
 /** Run a step's agent to the end (a test's stand-in for the checker answers at once). */
-async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>, onRunId?: (runId: string) => void): Promise<{ id: string; status: string; result?: string; error?: string }> {
+async function runAgent(ctx: Ctx, agentId: string, inputs: (agent: Pick<Agent, 'inputs'>) => Record<string, string>, onRunId?: (runId: string) => void, notebookId?: string): Promise<{ id: string; status: string; result?: string; error?: string }> {
   const fake = agentId === NOTEBOOK_CHECKER_ID ? ctx.notebookCheckerRun : agentId === NOTEBOOK_FINDER_ID ? ctx.notebookFinderRun : undefined;
   if (fake) {
     const result = await fake(inputs({ inputs: agentId === NOTEBOOK_CHECKER_ID ? CHECKER_INPUTS : FINDER_INPUTS }));
     return { id: randomUUID(), status: result ? 'completed' : 'failed', ...(result ? { result } : { error: 'no answer' }) };
   }
-  const agent = ctx.agentStore.getAgent(agentId)!;
+  // A notebook an experiment is running may have its step's agent swapped: another version, or another model (ADR-0079).
+  const agent = agentForCopy(ctx, notebookId, ctx.agentStore.getAgent(agentId)!);
   const run = await runDispatchedAgentToTerminal(ctx, agent, inputs(agent), onRunId);
   return { id: run.id, status: run.status, ...(run.result ? { result: run.result } : {}), ...(run.error ? { error: run.error } : {}) };
 }
@@ -738,7 +740,7 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const entries = store.entries(nb.id, 1000);
     // Stop (the header's, while it runs) reaches this run through its id.
     const running = ctx.notebookPipelines?.get(notebookId);
-    const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }), (runId) => { if (running) running.runId = runId; });
+    const run = await runAgent(ctx, agentId, (a) => pipelineInputs(a, nb, entries, { step, want: before.want, have: before.have, missing: before.missing }), (runId) => { if (running) running.runId = runId; }, nb.id);
     store.addRunToPass(passId, run.id);
     // You stopped it: the step stops too, rather than starting another try.
     if (run.status === 'cancelled' || running?.stopped) {
@@ -835,7 +837,7 @@ async function readPages(ctx: Ctx, store: NotebookStore, notebookId: string, age
   const failed: string[] = [];
   for (const job of jobs) {
     if (running?.stopped) { stopped = true; break; }
-    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; });
+    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; }, notebookId);
     store.addRunToPass(passId, run.id);
     if (run.status === 'cancelled' || running?.stopped) { stopped = true; break; }
     if (run.status !== 'completed') { failed.push(job.name); continue; }
@@ -901,7 +903,7 @@ function finish(ctx: Ctx, store: NotebookStore, notebookId: string, step: Notebo
  */
 async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
   const nb = store.get(notebookId);
-  if (!nb || !pageIsItsOwn(nb)) return;
+  if (!nb || nb.experimentRun || !pageIsItsOwn(nb)) return;
   const was = JSON.stringify(nb.layout ?? null);
   const outcome = await decideNotebookPage(ctx, notebookId, { again: true }).catch(() => 'failed' as const);
   const now = store.get(notebookId);
@@ -921,7 +923,7 @@ async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: st
  */
 export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
   const nb = store.get(notebookId);
-  if (!nb || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
+  if (!nb || nb.experimentRun || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
   // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
   const writeup = writesUp(nb);
   if (writeup && !nb.layout) return;

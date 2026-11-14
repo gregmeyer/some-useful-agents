@@ -11,6 +11,7 @@
  * why, the findings it rests on (by id, the same way), and what's still
  * open (Notebook.answer); the Answer page and the brief show it.
  */
+import { agentForCopy } from './experiment-copy-agent.js';
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
 import { NotebookStore, givenForStep, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
@@ -105,10 +106,12 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
 const struckOf = (nb: Notebook, step: Pick<NotebookStep, 'shape'>): string[] =>
   (step.shape === 'answer' || step.shape === 'writeup' ? nb.answer?.struck : step.shape === 'plan' ? nb.plan?.struck : nb.briefing?.struck) ?? [];
 
-async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runId: string) => void): Promise<{ result?: string; error?: string }> {
+async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runId: string) => void, notebookId?: string): Promise<{ result?: string; error?: string }> {
   if (ctx.notebookWriterRun) return { result: await ctx.notebookWriterRun(inputs) };
-  const agent = ctx.agentStore.getAgent(NOTEBOOK_WRITER_ID);
-  if (!agent) return { error: `${NOTEBOOK_WRITER_ID} isn't installed` };
+  const installed = ctx.agentStore.getAgent(NOTEBOOK_WRITER_ID);
+  if (!installed) return { error: `${NOTEBOOK_WRITER_ID} isn't installed` };
+  // A notebook an experiment is running may have its writer on another model (ADR-0079).
+  const agent = agentForCopy(ctx, notebookId, installed);
   const run = await runDispatchedAgentToTerminal(ctx, agent, inputs);
   onRun?.(run.id);
   return run.status === 'completed' ? { result: run.result } : { error: run.error ?? run.status };
@@ -127,7 +130,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
   const ids = new Set(entries.filter((e) => (e.kind === 'option' && !e.ruledOut) || (!!step.shape && e.kind === 'evidence' && !!e.fingerprint)).map((e) => e.id));
   if (!ids.size) return [step.shape === 'answer' ? 'there is nothing to answer from yet: nothing found is in the running' : step.shape === 'plan' ? 'there is nothing to plan with yet: nothing found is in the running' : step.shape === 'writeup' ? 'there is nothing to write up yet: no options in the running' : 'there is nothing to write from yet: no themes in the running'];
   try {
-    const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step), onRun);
+    const { result, error } = await runWriter(ctx, writerInputs(nb, entries, step), onRun, nb.id);
     if (!result) return [`${NOTEBOOK_WRITER_ID}: ${error ?? 'no answer'}`];
     if (step.shape === 'plan') {
       const block = extractTaggedJson(result, 'plan');

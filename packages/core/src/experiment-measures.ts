@@ -8,9 +8,10 @@
  * how many there are between them; and, for the ones in both, how many
  * places apart they sit. Repeats of one condition give the run-to-run
  * variation (the floor); conditions that differ in one factor alone give
- * that factor's effect. An effect is "beyond" the variation only when two
- * versions share less than the least any two repeats of the same condition
- * shared.
+ * that factor's effect. An effect is "beyond" the variation only when
+ * every pair of runs from two versions shares less than the least any two
+ * repeats of the same condition shared: the versions' results never overlap
+ * as much as a version overlaps with itself.
  */
 
 /** How two outputs differ. */
@@ -54,12 +55,14 @@ export interface MeasuredSpread {
   shift: number;
   /** The least any pair shared. */
   shareMin: number;
+  /** The most any pair shared. */
+  shareMax: number;
 }
 
 export interface FactorEffect extends MeasuredSpread {
   factorId: string;
   name: string;
-  /** Two versions shared less than any two repeats of one condition did. Undefined when there were no repeats to compare. */
+  /** No two runs of different versions shared as much as the least two repeats of one condition did. Undefined when there were no repeats to compare. */
   beyondNoise?: boolean;
   /** Each pair of conditions it is the average of: the same change with everything else held at one setting. */
   parts: Array<{ from: string; to: string; shared: number; of: number; share: number }>;
@@ -92,7 +95,7 @@ export interface ExperimentVerdict {
 function spread(diffs: readonly OutputDifference[]): MeasuredSpread | undefined {
   if (!diffs.length) return undefined;
   const mean = (f: (d: OutputDifference) => number) => diffs.reduce((s, d) => s + f(d), 0) / diffs.length;
-  return { pairs: diffs.length, shared: mean((d) => d.shared), of: mean((d) => d.of), share: mean((d) => d.share), shift: mean((d) => d.shift), shareMin: Math.min(...diffs.map((d) => d.share)) };
+  return { pairs: diffs.length, shared: mean((d) => d.shared), of: mean((d) => d.of), share: mean((d) => d.share), shift: mean((d) => d.shift), shareMin: Math.min(...diffs.map((d) => d.share)), shareMax: Math.max(...diffs.map((d) => d.share)) };
 }
 function within(rs: ReadonlyArray<readonly string[]>): OutputDifference[] {
   const out: OutputDifference[] = [];
@@ -133,7 +136,7 @@ export function experimentVerdict(input: { factors: readonly MeasuredFactor[]; c
     }
     const s = spread(diffs);
     if (!s) continue;
-    effects.push({ factorId: f.id, name: f.name, ...s, parts, ...(noise ? { beyondNoise: s.share < noise.shareMin } : {}) });
+    effects.push({ factorId: f.id, name: f.name, ...s, parts, ...(noise ? { beyondNoise: s.shareMax < noise.shareMin } : {}) });
   }
   effects.sort((a, b) => a.share - b.share);
 

@@ -4,7 +4,7 @@
  * from the latest pass each time, and is where you talk to sua about it.
  * One notebook an experiment: asking again opens the one it has.
  */
-import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, experimentReadoutText, findExperiment, readExperiment, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
+import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, experimentReadoutText, experimentSubject, findExperiment, readExperiment, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runningPass } from './experiment-runner.js';
 
@@ -39,7 +39,7 @@ export function notebookForExperiment(ctx: Ctx, experimentId: string): { noteboo
     if (have.archivedAt) nbs.unarchive(have.id);
     return { notebook: nbs.get(have.id)!, made: false };
   }
-  const nb = nbs.create({ title: e.name, statement: e.question || `What changes what ${e.task.agentId} produces, measured from its runs.`, params: [], criteria: [] });
+  const nb = nbs.create({ title: e.name, statement: e.question || `What changes what ${experimentSubject(e)} produces, measured from its runs.`, params: [], criteria: [] });
   // Nothing to set up or search for: its content is the experiment's.
   nbs.markSetup(nb.id);
   nbs.setLayout(nb.id, experimentLayout(e), 'experiment');
@@ -61,7 +61,7 @@ export function experimentsForTriage(ctx: Ctx): string {
       const d = experimentDataFor(ctx, e.id);
       const nb = nbs.forExperiment(e.id);
       return {
-        id: e.id, name: e.name, ...(e.question ? { question: e.question } : {}), runs: e.task.agentId,
+        id: e.id, name: e.name, ...(e.question ? { question: e.question } : {}), runs: experimentSubject(e),
         changes: e.factors.map((f) => `${f.name}: ${f.levels.map((l) => l.name).join(' | ')}`),
         stands: d?.runs ?? 'not run yet',
         ...(d && d.label !== 'Not run yet' ? { found: d.headline.replace(/\*\*/g, ''), restsOn: d.rests } : {}),

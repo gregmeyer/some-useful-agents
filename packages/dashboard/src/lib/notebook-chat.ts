@@ -474,7 +474,8 @@ export function setThreadOptionFocus(ctx: Ctx, threadId: string, optionId: strin
 
 /** The notebook's conversation with sua: the one it has, else a new one linked to it. */
 export function notebookThread(ctx: Ctx, nb: Notebook): string | undefined {
-  if (!ctx.inboxStore) return undefined;
+  // A copy an experiment runs has no conversation: nothing of it reaches the inbox (ADR-0079).
+  if (!ctx.inboxStore || nb.experimentRun) return undefined;
   const existing = nb.conversationId && ctx.inboxStore.get(nb.conversationId) ? nb.conversationId : undefined;
   if (existing) return existing;
   const created = ctx.inboxStore.add({

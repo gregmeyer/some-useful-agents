@@ -114,7 +114,7 @@ describe('experiments', () => {
     const page = (await get(app, '/experiments/new')).text;
     expect(page).toContain('data-exp-open="1"');
     expect(page.match(/<section class="exp-step" data-exp-step="\d"/g)).toHaveLength(6);
-    for (const step of ['The question', 'The agent', 'What you ask it', 'What changes', 'Which is better', 'Check it']) expect(page).toContain(`</span> ${step}</button>`);
+    for (const step of ['The question', 'What to run', 'What you ask it', 'What changes', 'Which is better', 'Check it']) expect(page).toContain(`</span> ${step}</button>`);
     expect(page.indexOf('value="job-finder"')).toBeLessThan(page.indexOf('value="idle-agent"'));
     expect(page).toContain('Run 1 time · 2 versions, now on 2 · its last run listed 4 items');
     expect(page).not.toMatch(/name="agent"[^>]* checked/);
@@ -242,7 +242,7 @@ describe('experiments', () => {
     finder();
     const none = await post(app, '/experiments', { question: 'No agent?' });
     expect(none.status).toBe(400);
-    expect(none.text).toContain('Choose the agent to run.');
+    expect(none.text).toContain('Choose what to run.');
     expect(none.text).toContain('data-exp-open="2"');
     expect(none.text).toContain('>No agent?</textarea>');
     // An input the agent needs, given neither in the ask nor by a change.
@@ -313,5 +313,80 @@ describe('experiments', () => {
     expect(read).toContain('## What each version found');
     expect(read).toContain('- Role E: Old: not found; New: all 2, place 2');
     expect(experimentsLinked(ctx, ['[Set one up](/experiments/new?question=x)'], [])).toBe('');
+  });
+
+  it('runs a whole notebook as a fresh copy for each version, unattended, and compares what each copy is left with', async () => {
+    const app = await makeApp();
+    const nbs = NotebookStore.fromHandle(runStore.databaseHandle());
+    const src = nbs.create({ title: 'Find a PM job', statement: 'A senior PM job.', params: ['anywhere'], criteria: [] });
+    nbs.setFields(src.id, [{ key: 'company', label: 'Company', type: 'text' }, { key: 'posting_url', label: 'Posting', type: 'url', role: 'link' }]);
+    nbs.markSetup(src.id);
+    nbs.setSteps(src.id, [{ title: 'Find 2 roles', kind: 'find', target: 2 }, { title: 'Pick one', kind: 'decide', target: 1 }]);
+    const srcSteps = nbs.get(src.id)!.steps!;
+
+    // The setup page offers it, with the steps sua runs and where a copy stops.
+    const { testableNotebooks } = await import('../lib/experiment-runner.js');
+    expect(testableNotebooks(ctx)).toMatchObject([{ id: src.id, steps: [{ id: srcSteps[0].id, title: 'Find 2 roles' }], stopsAt: 'Pick one' }]);
+    const page = await request(app).get('/experiments/new').set('Cookie', COOKIE).set('Host', `127.0.0.1:${PORT}`);
+    expect(page.text).toContain(`value="notebook:${src.id}"`);
+    expect(page.text).toContain('Its limits and checks');
+
+    // The finder stand-in: what it finds depends on the copy's limits; "remote only" finds one short of the goal.
+    const job = (n: string) => ({ kind: 'option', title: `PM at ${n}`, data: { company: n, posting_url: `https://jobs.example.com/${n.toLowerCase()}` }, fingerprint: `https://jobs.example.com/${n.toLowerCase()}` });
+    const asked: string[] = [];
+    ctx.notebookFinderRun = async (inputs) => {
+      const all = JSON.stringify(inputs);
+      asked.push(all);
+      return `<notebook>${JSON.stringify({ entries: all.includes('remote only') ? [job('Remoteco')] : [job('Acme'), job('Globex')] })}</notebook>`;
+    };
+
+    const made = await post(app, '/experiments', {
+      question: 'Does remote only change what it finds?', agent: `notebook:${src.id}`, repeats: '2',
+      c1_kind: 'setup', c1_name: 'Limits', c1_v1_name: 'Anywhere', c1_v1_params: 'anywhere', c1_v2_name: 'Remote', c1_v2_params: 'remote only',
+    });
+    expect(made.status).toBe(303);
+    const id = idOf(made.headers.location);
+    const store = ExperimentStore.fromHandle(runStore.databaseHandle());
+    expect(store.get(id)).toMatchObject({ task: { agentId: '', notebookId: src.id, title: 'Find a PM job' }, factors: [{ levels: [{ params: ['anywhere'], checks: [] }, { params: ['remote only'], checks: [] }] }] });
+
+    expect((await post(app, `/experiments/${id}/run`)).status).toBe(303);
+    for (const st of ctx.experimentPasses?.values() ?? []) await st.done;
+    const pass = store.passes(id, 1)[0];
+    const cells = store.cells(pass.id);
+    expect(cells.map((c) => c.status)).toEqual(['done', 'done', 'done', 'done']);
+    const of = (cond: string) => cells.filter((c) => c.conditionId.startsWith(cond)).map((c) => c.items!.map((i) => i.title));
+    expect(of('anywhere')).toEqual([['PM at Acme', 'PM at Globex'], ['PM at Acme', 'PM at Globex']]);
+    expect(of('remote')).toEqual([['PM at Remoteco'], ['PM at Remoteco']]);
+    // A step that stopped short moved on with what it had, and the cell says so.
+    expect(cells.find((c) => c.conditionId.startsWith('remote'))!.note).toContain('moved on');
+    // Each copy is kept, archived and marked as the experiment's; none shows in a list, none has a conversation.
+    for (const c of cells) {
+      const copy = nbs.get(c.notebookId!)!;
+      expect(copy).toMatchObject({ experimentRun: { experimentId: id }, params: [c.conditionId.startsWith('remote') ? 'remote only' : 'anywhere'] });
+      expect(copy.archivedAt).toBeTruthy();
+      expect(copy.conversationId).toBeUndefined();
+      // It stopped before the step that is yours.
+      expect(copy.steps!.map((x) => x.status)).toEqual(['done', 'todo']);
+    }
+    expect(nbs.list({ archived: 'include' }).map((n) => n.id)).toEqual([src.id]);
+    expect(nbs.list({ archived: 'include', experimentRuns: true })).toHaveLength(5);
+    expect(ctx.inboxStore!.list({}).filter((t) => t.title.startsWith('Notebook:'))).toHaveLength(0);
+    // The notebook itself is untouched.
+    expect(nbs.entries(src.id, 100).filter((x) => x.kind === 'option')).toHaveLength(0);
+    expect(nbs.get(src.id)!.steps!.map((x) => x.status)).toEqual(srcSteps.map((x) => x.status));
+
+    const detail = await request(app).get(`/experiments/${id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${PORT}`);
+    expect(detail.text).toContain('Limits changed what it produced');
+    expect(detail.text).toContain('A fresh copy of the notebook');
+    expect(detail.text).toContain('its copy</a>');
+
+    // A version has to fit the notebook: a step it doesn't have is refused, back on the changes.
+    const bad = await post(app, '/experiments', { question: 'q', agent: `notebook:${src.id}`, c1_kind: 'step', c1_step: 'nope', c1_v1_name: 'As is', c1_v2_name: 'Other', c1_v2_agent: 'some-agent' });
+    expect(bad.status).toBe(400);
+    expect(bad.text).toContain('has no step');
+    // Too many copies for a pass.
+    const many = await post(app, '/experiments', { question: 'q', agent: `notebook:${src.id}`, repeats: '5', c1_kind: 'setup', c1_v1_name: 'A', c1_v1_params: 'a', c1_v2_name: 'B', c1_v2_params: 'b', c1_v3_name: 'C', c1_v3_params: 'c' });
+    expect(many.status).toBe(400);
+    expect(many.text).toContain('copies of the notebook');
   });
 });

@@ -10,7 +10,7 @@
  */
 import type { ViewComponent } from './a2ui/view.js';
 import { experimentVerdict, sharedWords, verdictWords } from './experiment-measures.js';
-import { experimentConditions, passProgress, scoreSummaries, type Experiment, type ExperimentCell, type ExperimentScore } from './experiments.js';
+import { experimentConditions, experimentSubject, passProgress, scoreSummaries, type Experiment, type ExperimentCell, type ExperimentScore } from './experiments.js';
 import type { NotebookLayout } from './notebook-layout.js';
 
 const num = (n: number) => (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, '');
@@ -56,7 +56,7 @@ export function experimentPageData(e: Experiment, cells: readonly ExperimentCell
     id: e.id, name: e.name, href: `/experiments/${encodeURIComponent(e.id)}`,
     label: !ran ? 'Not run yet' : opts.running ? 'So far' : 'What it found',
     headline: !ran
-      ? `**Nothing has run yet.** Open the experiment and press Run: a pass runs ${e.task.agentId} ${String(conditions.length * e.repeats)} times.`
+      ? `**Nothing has run yet.** Open the experiment and press Run: a pass runs ${e.task.notebookId ? `a copy of ${experimentSubject(e)}` : experimentSubject(e)} ${String(conditions.length * e.repeats)} times.`
       : [`**${w.headline}**`, ...w.lines].join(' '),
     rests: !ran ? 'Its numbers appear here as the runs come back.' : `${w.sample}${unusable ? ` ${String(unusable)} ${unusable === 1 ? 'run' : 'runs'} couldn't be used and ${unusable === 1 ? 'is' : 'are'} not counted.` : ''}`,
     runs: !ran ? 'not run yet' : opts.running ? `running ${String(p.done)} of ${String(p.total)}` : p.stopped ? `stopped at ${String(p.done)} of ${String(p.total)} runs` : `${String(p.done)} of ${String(p.total)} runs`,

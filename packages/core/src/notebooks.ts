@@ -713,6 +713,8 @@ export interface Notebook {
   asked?: string;
   /** The experiment whose results its page shows (ADR-0078): the notebook holds the conversation, the experiment the runs. */
   experimentId?: string;
+  /** It is a copy an experiment made to run (ADR-0079): which experiment, and which version and run of it. Kept out of lists. */
+  experimentRun?: { experimentId: string; label: string };
   /**
    * What it depends on that your request referred to but didn't contain (a
    * profile, a résumé, a spec): each still missing, given (its text), or
@@ -1443,7 +1445,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -2260,6 +2262,11 @@ export class NotebookStore {
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
 
+  /** Mark a notebook as a copy an experiment made to run: it stays out of lists, and says whose it is. */
+  setExperimentRun(id: string, run: { experimentId: string; label: string }): void {
+    this.db.prepare('UPDATE notebooks SET experiment_run_json = ? WHERE id = ?').run(JSON.stringify({ experimentId: run.experimentId, label: run.label.slice(0, 200) }), id);
+  }
+
   /** Make this the notebook that shows an experiment's results (null: it no longer does). */
   setExperiment(id: string, experimentId: string | null): void {
     this.db.prepare('UPDATE notebooks SET experiment_id = ?, updated_at = ? WHERE id = ?').run(experimentId, new Date().toISOString(), id);
@@ -2689,8 +2696,9 @@ export class NotebookStore {
    * Active first, then most recently changed. Archived notebooks are left
    * out unless `archived` is 'include' (everything) or 'only'.
    */
-  list(opts: { status?: NotebookStatus; archived?: 'include' | 'only' } = {}): Notebook[] {
+  list(opts: { status?: NotebookStatus; archived?: 'include' | 'only'; /** Copies an experiment made to run: left out unless asked for. */ experimentRuns?: boolean } = {}): Notebook[] {
     const where = [
+      ...(opts.experimentRuns ? [] : ['experiment_run_json IS NULL']),
       ...(opts.status ? ['status = ?'] : []),
       ...(opts.archived === 'only' ? ['archived_at IS NOT NULL'] : opts.archived === 'include' ? [] : ['archived_at IS NULL']),
     ];
@@ -2970,6 +2978,7 @@ export class NotebookStore {
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
       ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
       ...(typeof r.experiment_id === 'string' && r.experiment_id ? { experimentId: r.experiment_id } : {}),
+      ...(r.experiment_run_json ? (() => { const x = parse<{ experimentId?: string; label?: string } | undefined>(r.experiment_run_json, undefined); return x?.experimentId ? { experimentRun: { experimentId: String(x.experimentId), label: String(x.label ?? '') } } : {}; })() : {}),
       ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),
       ...(r.steps_json ? { steps: cleanSteps(parse<unknown[]>(r.steps_json, [])) } : {}),
