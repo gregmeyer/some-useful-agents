@@ -15,7 +15,7 @@
  * Everything here is a suggestion shown before anything is copied; the
  * person can untick any item.
  */
-import { notebookViewData, rankOptions, rankBy, type Notebook, type NotebookEntry, type NotebookViewOption } from '@some-useful-agents/core';
+import { extractTaggedJson, formatFieldValue, notebookViewData, rankOptions, rankBy, type Notebook, type NotebookEntry, type NotebookViewOption } from '@some-useful-agents/core';
 
 /** A set this size or smaller is used whole. */
 export const GOLDEN_WHOLE = 12;
@@ -126,6 +126,20 @@ export interface SetCandidate {
   /** The one to lead with. */
   suggested?: boolean;
   key?: AnswerKey;
+  /** What it is for, and the facts its options note (label, and for how many of them), for a reading of the question. */
+  about: string;
+  facts: Array<{ label: string; noted: number }>;
+  /** Two of its options with their facts, as examples. */
+  examples: Array<{ title: string; facts: Record<string, string> }>;
+  /**
+   * After sua read the question: the facts the experiment turns on, and for
+   * how many options each is noted here. `as` is this notebook's own name
+   * for the fact when it differs ("Remote status" for "Remote"); `noted` is
+   * absent when it has no fact of that name at all.
+   */
+  turnsOn?: Array<{ label: string; noted?: number; as?: string }>;
+  /** sua's sentence on why this one suits (only on the one it picked). */
+  reading?: string;
 }
 
 /**
@@ -162,7 +176,14 @@ export function setCandidate(nb: Notebook, entries: readonly NotebookEntry[], qu
 
   const fill = filled.length ? filled.reduce((s, f) => s + f.share, 0) / filled.length : 0;
   const score = matched.length * 3 + Math.min(running.length, 20) / 20 + fill + (key ? 1 : 0) + (running.length < 5 ? -4 : 0);
-  return { id: nb.id, title: nb.title, options: running.length, sample: names.slice(0, 3), matched, why, but, score, ...(key ? { key } : {}) };
+  const examples = [...running].sort((a, b) => a.name.localeCompare(b.name)).slice(0, 2).map((o) => ({
+    title: o.title.slice(0, 120),
+    facts: Object.fromEntries(facts.filter((f) => has(f, o)).slice(0, 8).map((f) => { let v = ''; try { v = formatFieldValue(f, o.fields[f.key]); } catch { v = String(o.fields[f.key]); } return [f.label, v.slice(0, 80)]; })),
+  }));
+  return {
+    id: nb.id, title: nb.title, options: running.length, sample: names.slice(0, 3), matched, why, but, score, ...(key ? { key } : {}),
+    about: nb.statement.slice(0, 200), facts: filled.map((f) => ({ label: f.label, noted: running.length - f.missing })), examples,
+  };
 }
 
 /**
@@ -176,5 +197,96 @@ export function rankSetCandidates(candidates: readonly SetCandidate[]): SetCandi
   const top = out[0];
   // Never one too small to tell anything from, however well it matches the question's words.
   if (top && top.options >= 5 && (top.matched.length || top.key) && (!out[1] || top.score > out[1].score)) out[0] = { ...top, suggested: true };
+  return out;
+}
+
+/** sua's reading of an experiment's question, after it has been checked against the sets. */
+export interface SetAdvice {
+  /** The facts the rankings will turn on, by a label a notebook notes, each with why. */
+  turnsOn: Array<{ fact: string; because?: string }>;
+  /** The notebook it picked, when it picked one of those listed. */
+  pick?: string;
+  why?: string;
+  /** What the question needs that no set notes, in sua's words. */
+  missing: string[];
+}
+
+/** The advisor's inputs: the question, what changes, and the sets as it may read them. Pure. */
+export function setAdviceInputs(question: string, changes: string, candidates: readonly SetCandidate[], errors = ''): Record<string, string> {
+  return {
+    QUESTION: question.slice(0, 1000),
+    CHANGES: changes.slice(0, 2000),
+    SETS: JSON.stringify(candidates.slice(0, 12).map((c) => ({
+      id: c.id, title: c.title, for: c.about, options: c.options,
+      facts: c.facts.map((f) => ({ label: f.label, notedFor: `${String(f.noted)} of ${String(c.options)}` })),
+      examples: c.examples,
+    }))),
+    ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that.` : '',
+  };
+}
+
+/**
+ * The advisor's answer as advice, or why it can't be used. A fact it names
+ * stays only when a set notes a fact of that label (so it can be counted);
+ * its pick stays only when it is one of the sets. With no fact left and no
+ * pick, the answer says nothing and is refused. Pure.
+ */
+export function parseSetAdvice(raw: string | undefined, candidates: readonly SetCandidate[]): { advice: SetAdvice } | { error: string } {
+  let v: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(extractTaggedJson(raw ?? '', 'advice') ?? 'null') as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'It has no <advice> JSON object.' };
+    v = parsed as Record<string, unknown>;
+  } catch { return { error: 'Its <advice> block is not valid JSON.' }; }
+  const line = (x: unknown, max: number) => (typeof x === 'string' ? x.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const labels = new Map(candidates.flatMap((c) => c.facts.map((f) => [f.label.toLowerCase(), f.label] as const)));
+  const turnsOn: SetAdvice['turnsOn'] = [];
+  for (const t of Array.isArray(v.turnsOn) ? v.turnsOn : []) {
+    const fact = labels.get(line((t as { fact?: unknown } | null)?.fact, 80).toLowerCase());
+    if (!fact || turnsOn.some((x) => x.fact === fact)) continue;
+    const because = line((t as { because?: unknown }).because, 120);
+    turnsOn.push({ fact, ...(because ? { because } : {}) });
+    if (turnsOn.length === 4) break;
+  }
+  const pick = candidates.find((c) => c.id === line(v.pick, 200))?.id;
+  if (!turnsOn.length && !pick) return { error: 'It names no fact that any set notes (copy a label exactly) and picks no listed set.' };
+  const why = line(v.why, 240);
+  const missing = (Array.isArray(v.missing) ? v.missing : []).map((m) => line(m, 60)).filter(Boolean).slice(0, 3);
+  return { advice: { turnsOn, ...(pick ? { pick } : {}), ...(pick && why ? { why } : {}), missing } };
+}
+
+/**
+ * The candidates with sua's reading laid over the counted ranking: each
+ * says for how many of its options the facts the experiment turns on are
+ * noted (counted here, not taken from the model); a set that notes them for
+ * fewer than half is marked against. The suggestion moves to sua's pick
+ * only when that set has five or more options and notes those facts for
+ * most; otherwise the counted suggestion stands. Pure.
+ */
+export function applySetAdvice(candidates: readonly SetCandidate[], advice: SetAdvice): SetCandidate[] {
+  const words = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  // A notebook may call the same fact something a little different: "Remote status" for "Remote", "Job title" for "Title".
+  const same = (a: string, b: string) => { const x = words(a); const y = words(b); return x.length > 0 && y.length > 0 && (x.every((w) => y.includes(w)) || y.every((w) => x.includes(w))); };
+  const out = candidates.map((c): SetCandidate => {
+    const turnsOn = advice.turnsOn.map((t) => {
+      const f = c.facts.find((x) => x.label === t.fact) ?? c.facts.find((x) => same(x.label, t.fact));
+      return { label: t.fact, ...(f ? { noted: f.noted, ...(f.label !== t.fact ? { as: f.label } : {}) } : {}) };
+    });
+    const thin = turnsOn.filter((t) => t.noted !== undefined && t.noted * 2 < c.options);
+    const absent = turnsOn.filter((t) => t.noted === undefined);
+    return {
+      ...c, turnsOn,
+      but: [
+        ...c.but.filter((b) => !(thin.length && / is missing for /.test(b))),
+        ...(thin.length ? [`${thin.map((t) => t.label.toLowerCase()).join(' and ')}, which your question turns on, ${thin.length === 1 ? 'is' : 'are'} noted for ${thin.map((t) => String(t.noted)).join(' and ')} of ${String(c.options)}`] : []),
+        ...(absent.length ? [`it notes nothing called ${absent.map((t) => t.label.toLowerCase()).join(' or ')}, which your question turns on`] : []),
+      ],
+    };
+  });
+  const pick = out.find((c) => c.id === advice.pick);
+  const covered = (c: SetCandidate) => (c.turnsOn ?? []).every((t) => (t.noted ?? 0) * 2 >= c.options);
+  if (pick && pick.options >= 5 && covered(pick)) {
+    return [{ ...pick, suggested: true, ...(advice.why ? { reading: advice.why } : {}) }, ...out.filter((c) => c !== pick).map((c) => ({ ...c, suggested: undefined }))].map((c) => { const { suggested, ...rest } = c; return suggested ? c : rest; });
+  }
   return out;
 }

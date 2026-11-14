@@ -13,7 +13,8 @@ import { getContext } from '../context.js';
 import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotFoundPage } from '../views/not-found.js';
 import { renderExperimentNew, renderExperimentPage, renderExperimentsList, renderSetChoices, renderSetPanel, experimentStateKey, experimentStepForError, type ExperimentStanding } from '../views/experiments.js';
-import { goldenSet, rankSetCandidates, setCandidate, type SetCandidate } from '../lib/experiment-set.js';
+import { applySetAdvice, goldenSet, rankSetCandidates, setCandidate, type SetCandidate } from '../lib/experiment-set.js';
+import { setAdviceKey, setAdviceState, startSetAdvice } from '../lib/experiment-set-advice.js';
 import { html, render } from '../views/html.js';
 import { notebookForExperiment } from '../lib/experiment-notebook.js';
 import { EXPERIMENT_RANKER_ID, caseFromPaste, costPerRun, freezeNotebook, runningPass, startExperimentPass, stopExperimentPass } from '../lib/experiment-runner.js';
@@ -194,7 +195,24 @@ experimentsRouter.get('/experiments/sets', (req: Request, res: Response) => {
   const from = str(req.query.from);
   res.set('Cache-Control', 'no-store').type('html');
   if (req.query.panel === '1') { res.send(render(setPanelFor(ctx, from) ?? html``)); return; }
-  res.send(render(renderSetChoices(setCandidatesFor(ctx, str(req.query.question).slice(0, 1000)), from, from === 'paste')));
+  const question = str(req.query.question).slice(0, 1000);
+  const counted = setCandidatesFor(ctx, question);
+  // sua's reading of the question, when one was asked for: laid over the counted ranking once it's in.
+  const reading = question.trim() ? setAdviceState(ctx, setAdviceKey(question, str(req.query.changes).slice(0, 2000), counted)) : undefined;
+  const candidates = reading?.status === 'ready' && reading.advice ? applySetAdvice(counted, reading.advice) : counted;
+  res.send(render(renderSetChoices(candidates, from, from === 'paste', reading ? { status: reading.status, ...(reading.advice ? { advice: reading.advice } : {}) } : undefined)));
+});
+
+/**
+ * Ask sua to read the question (and what changes) and say which facts the
+ * experiment turns on. Starts it in the background; the sets list shows it
+ * when it's in. A POST, since it runs a model.
+ */
+experimentsRouter.post('/experiments/sets/advice', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const question = str(req.body?.question).slice(0, 1000);
+  const state = startSetAdvice(ctx, question, str(req.body?.changes).slice(0, 2000), setCandidatesFor(ctx, question));
+  res.set('Cache-Control', 'no-store').json({ status: state?.status ?? 'none' });
 });
 
 experimentsRouter.post('/experiments', (req: Request, res: Response) => {
