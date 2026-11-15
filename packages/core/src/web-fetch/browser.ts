@@ -170,6 +170,45 @@ async function withHtmlPage<T>(
 
 const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => (c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;'));
 
+/** How many pixels a picture in a PDF keeps for each CSS pixel it's shown at (3: sharp when zoomed or printed). */
+export const PDF_PICTURE_SCALE = 3;
+
+/**
+ * Runs in the page before it becomes a PDF: every raster picture that is
+ * much larger than it's shown, or is a WebP (which a PDF stores as raw
+ * pixels), is redrawn on a canvas at its shown size times `scale` and
+ * swapped for a JPEG (on white: a PDF page is white). Small pictures, SVG
+ * drawings and anything that can't be redrawn are left as they are.
+ */
+export const SHRINK_PICTURES = `async (scale) => {
+  let changed = 0;
+  for (const img of Array.from(document.images)) {
+    const src = img.currentSrc || img.src;
+    if (!src || /^data:image\\/svg/i.test(src) || /\\.svg(\\?|$)/i.test(src) || !img.naturalWidth || !img.naturalHeight) continue;
+    const shown = img.getBoundingClientRect();
+    if (!shown.width || !shown.height) continue;
+    const webp = /^data:image\\/webp/i.test(src) || /\\.webp(\\?|$)/i.test(src);
+    // Fitted in its box or filling it: either way it needs no more than the box, scaled.
+    const ratio = Math.min(1, Math.max((shown.width * scale) / img.naturalWidth, (shown.height * scale) / img.naturalHeight));
+    if (!webp && ratio > 0.7) continue;
+    const w = Math.max(1, Math.round(img.naturalWidth * ratio));
+    const h = Math.max(1, Math.round(img.naturalHeight * ratio));
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const g = canvas.getContext('2d');
+      if (!g) continue;
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, w, h);
+      g.drawImage(img, 0, 0, w, h);
+      const next = canvas.toDataURL('image/jpeg', 0.85);
+      await new Promise((done) => { img.onload = () => done(); img.onerror = () => done(); img.src = next; });
+      changed++;
+    } catch (err) { /* a picture from another origin without leave to read it: left as it is */ }
+  }
+  return changed;
+}`;
+
 /**
  * A page of HTML as a PDF file, as it prints (its `@media print` rules, its
  * colours kept), with nothing a browser's print dialog adds: no address, no
@@ -182,11 +221,16 @@ export async function htmlToPdf(
   opts: { footer?: string; paper?: 'Letter' | 'A4'; timeoutSec?: number } = {},
 ): Promise<BrowserFile> {
   const foot = `<div style="box-sizing:border-box;width:100%;padding:0 14mm;display:flex;justify-content:space-between;gap:8mm;font:8px/1.2 -apple-system,'Helvetica Neue',Arial,sans-serif;color:#8a8580;"><span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${escHtml(opts.footer ?? '')}</span><span style="white-space:nowrap;"><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`;
-  const out = await withHtmlPage(html, { timeoutSec: opts.timeoutSec, missing: 'A PDF needs a browser' }, (page) => page.pdf({
-    format: opts.paper ?? 'Letter', printBackground: true, displayHeaderFooter: true,
-    headerTemplate: '<span></span>', footerTemplate: foot,
-    margin: { top: '15mm', bottom: '17mm', left: '14mm', right: '14mm' },
-  }));
+  const out = await withHtmlPage(html, { timeoutSec: opts.timeoutSec, missing: 'A PDF needs a browser' }, async (page) => {
+    // A PDF keeps each picture at its full size, and a WebP as raw pixels: six source photos made a 19 MB brief.
+    // Each is redrawn at the size it's shown (times PDF_PICTURE_SCALE, so it stays sharp) as a JPEG first.
+    await page.evaluate(`(${SHRINK_PICTURES})(${String(PDF_PICTURE_SCALE)})`).catch(() => undefined);
+    return page.pdf({
+      format: opts.paper ?? 'Letter', printBackground: true, displayHeaderFooter: true,
+      headerTemplate: '<span></span>', footerTemplate: foot,
+      margin: { top: '15mm', bottom: '17mm', left: '14mm', right: '14mm' },
+    });
+  });
   return out.available ? { available: true, data: Buffer.from(out.value) } : out;
 }
 
