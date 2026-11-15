@@ -719,7 +719,7 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
     }
     // Struck, a diagram is gone whole.
     if (x.kind === 'diagram') return { key, title: x.title, kind: x.kind, ...(answerSectionLines(x).some((t) => struck.has(t)) ? { items: [] } : { diagram: answerDiagramView(x.diagram) }), ...(x.caption ? { caption: x.caption } : {}) };
-    return { key, title: x.title, kind: x.kind, body: x.body };
+    return { key, title: x.title, kind: x.kind, body: x.body, ...(x.from?.length ? { refs: refs(x.from) } : {}) };
   }).filter((x) => (x.items ?? x.rows ?? [x.body ?? x.diagram]).length);
 }
 

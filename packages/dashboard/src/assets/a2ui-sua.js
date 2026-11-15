@@ -1557,7 +1557,8 @@ function drawPart(x, { rubric = false, host } = {}) {
     return html`<div class="wrap"><table><thead><tr>${cols.map((c) => html`<th scope="col">${c}</th>`)}</tr></thead><tbody>${(x.rows ?? []).map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldParts(r.cells?.[i] ?? '')}${i === cols.length - 1 ? refs(r) : nothing}</td>`)}</tr>`)}</tbody></table></div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${every}`;
   }
   if (x.kind === 'diagram') return html`${drawDiagram(x.diagram, host, x.key)}${x.caption ? html`<p class="cap">${x.caption}</p>` : nothing}`;
-  return html`<p class="body">${boldParts(x.body)}</p>`;
+  // A paragraph of a subject briefing says which sources it rests on.
+  return html`<p class="body">${boldParts(x.body)}</p>${Array.isArray(x.refs) && x.refs.length ? html`<div class="foot">${refs(x)}</div>` : nothing}`;
 }
 
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',

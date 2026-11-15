@@ -370,7 +370,7 @@ const SUBJECT: ViewComponent[] = [
   { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
   ...answerSectionsPart('sections_p').map((c) => (c.id === 'sections_p' ? { ...c, hero: true } : { ...c, rubric: 'auto' })),
   { ...panel('findings_p', 'What the briefing rests on', 'findings'), treatment: 'feature', when: 'answered' },
-  { id: 'findings', component: 'Agenda', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' }, questionsLabel: 'Not known', maxQuestions: 5, check: false, empty: 'Nothing written yet.' },
+  { id: 'findings', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' }, questionsLabel: 'Not known', maxQuestions: 5, check: false, empty: 'Nothing written yet.' },
   { ...panel('rivals_p', 'Competitors', 'rivals'), treatment: 'band', when: 'competitors' },
   COMPETITORS_TABLE,
   { ...panel('evidence_p', 'Sources', 'evidence', 'the pages this rests on'), treatment: 'feature', when: 'options' },

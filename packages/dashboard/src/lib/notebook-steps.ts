@@ -959,6 +959,8 @@ async function pageAfterFirstStep(ctx: Ctx, store: NotebookStore, notebookId: st
 export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookId: string): Promise<void> {
   const nb = store.get(notebookId);
   if (!nb || nb.experimentRun || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
+  // A briefing on a subject: its ready-made page already places every part in order; composing it again would pick one part as a hero and demote the rest.
+  if (nb.briefOn && nb.layout?.preset === 'subject') return;
   // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
   const writeup = writesUp(nb);
   if (writeup && !nb.layout) return;

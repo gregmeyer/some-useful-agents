@@ -124,7 +124,7 @@ export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtm
     const moves = list((x.diagram as { params?: unknown } | undefined)?.params).map((p) => text((p as { label?: unknown }).label).toLowerCase()).filter(Boolean);
     return html`${briefDiagram(x.diagram)}${text(x.caption) ? html`<p class="fine">${text(x.caption)}</p>` : html``}${moves.length ? html`<p class="fine">Change the ${moves.join(' or ')} on the notebook page.</p>` : html``}`;
   }
-  return html`<p>${boldOnly(text(x.body))}</p>`;
+  return html`<p>${boldOnly(text(x.body))}${from(x).length ? html` <span class="fine">(${from(x).join(', ')})</span>` : html``}</p>`;
 }
 
 function node(p: Printing, id: string | undefined): SafeHtml {
