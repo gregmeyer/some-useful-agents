@@ -1167,6 +1167,27 @@ function stepButton(nb: Notebook, b: { label: string; hint: string; moveOn?: boo
  * answer, a plan) has nothing to pick: the brief comes first, and its
  * findings as a spreadsheet last.
  */
+/**
+ * Download / share for a notebook that shows an experiment: its brief (the
+ * finding, the numbers behind it and how it was run), as a page, a PDF or a
+ * file. It has no options, so none of the shortlist's rows apply.
+ */
+function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
+  const id = encodeURIComponent(nb.id);
+  return html`<details class="nb-act nb-csv" data-nb-act>
+    <summary class="btn btn--sm btn--ghost">Download / share</summary>
+    <div class="nb-act__panel nb-csv__panel">
+      <span class="nb-progress__label">To share</span>
+      <div class="nb-share__row"><span class="nb-share__what">The brief</span><span class="nb-share__as">
+        <a href="/notebooks/${id}/brief.html" target="_blank" rel="noopener" title="The experiment's finding, the numbers behind it and how it was run, as a page to send or print" aria-label="Open the brief">Open ↗</a>
+        <a href="/notebooks/${id}/brief.pdf" download title="The brief as a PDF file named after the notebook" aria-label="Download the brief as PDF">PDF</a>
+        <a href="/notebooks/${id}/brief.html?download=1" download title="The brief as one HTML file" aria-label="Download the brief as HTML">HTML</a>
+      </span></div>
+      <span class="nb-csv__hint">The numbers are as the experiment stood when you open it. Its own page has every run.</span>
+    </div>
+  </details>`;
+}
+
 function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[]): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const href = `/notebooks/${id}/shortlist.csv`;
@@ -1260,7 +1281,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         </div>
       </details>
       <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
-      ${entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
+      ${nb.experimentId ? experimentShareMenu(nb) : entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
     </div>`;
 }
 

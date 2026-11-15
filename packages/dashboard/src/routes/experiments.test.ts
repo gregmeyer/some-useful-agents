@@ -184,6 +184,18 @@ describe('experiments', () => {
     expect(nbPage).toContain('Build changed what it produced, beyond run-to-run variation.');
     expect(nbPage).toContain('Open the experiment</a>');
     expect(nbPage).not.toContain('Decide…');
+    // It has a brief to download or print: the finding, the numbers, and how it was run, so the page stands by itself.
+    expect(nbPage).toContain('Download / share');
+    expect(nbPage).toContain(`href="/notebooks/${nb.id}/brief.pdf"`);
+    expect(nbPage).not.toContain('shortlist.csv');
+    const brief = (await get(app, `/notebooks/${nb.id}/brief.html`)).text;
+    expect(brief).toContain('Build changed what it produced, beyond run-to-run variation.');
+    expect(brief).toContain('<h2>How it was run</h2>');
+    expect(brief).toContain('<dt>What was run</dt><dd>The whole of job-finder, 2 times for each version.');
+    expect(brief).toContain('<dt>Changed: Build</dt>');
+    expect(brief).toContain('(baseline):');
+    expect(brief).toContain('From the experiment as it stood on');
+    expect(brief).not.toContain('facts as their pages gave them');
     // And the agent's own page says what was found, while its own history has none of these runs.
     const agentPage = (await get(app, '/agents/job-finder')).text;
     expect(agentPage).toContain('Experiments on this agent');
