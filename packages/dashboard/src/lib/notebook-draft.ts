@@ -8,7 +8,7 @@
  * after two weeks untouched.
  */
 import { randomUUID } from 'node:crypto';
-import {
+import { cleanSubject, type NotebookSubject,
   NotebookStore, SYSTEM_AGENT_IDS, cleanFields, cleanSteps, executeAgentDag, extractTaggedJson, validateScheduleInterval,
   type NotebookField, type NotebookStep, type NotebookMeeting, cleanMeeting,
   clipWords, CHECK_MAX, fillerLimit,
@@ -49,6 +49,8 @@ export interface NotebookDraft {
    * starts (core NotebookGiven, ADR-0077).
    */
   needs?: Array<{ key: string; label: string; link?: string; why?: string }>;
+  /** Who or what it is a briefing on, when the ask was to learn about one named thing (core NotebookSubject, ADR-0080). */
+  about?: NotebookSubject;
 }
 
 export type DraftState =
@@ -137,7 +139,22 @@ export function parseNotebookDraft(raw: string, agentIds: ReadonlySet<string>): 
     // A long one ends at a sentence (else a word) with "…", never mid-word.
     ...(typeof v.why === 'string' && v.why.trim() ? { why: clipSentence(v.why.replace(/\s+/g, ' ').trim(), 400) } : {}),
     ...draftNeeds(v.needs),
+    ...draftAbout(v),
   };
+}
+
+/**
+ * Who or what a draft is a briefing on: only when it names one and ends in a
+ * written answer (a shortlist or a plan isn't about one thing). A profile
+ * step means an organization or a person, whatever the draft called it.
+ */
+export function draftAbout(v: Record<string, unknown>): Pick<NotebookDraft, 'about'> {
+  const about = cleanSubject(v.about);
+  const steps = Array.isArray(v.steps) ? v.steps as Array<Record<string, unknown>> : [];
+  if (!about || !steps.some((s) => s?.kind === 'write' && s.shape === 'answer')) return {};
+  const looked = steps.some((s) => s?.kind === 'profile');
+  const kind = looked ? (about.kind === 'person' ? 'person' : 'organization') : about.kind;
+  return { about: { ...about, kind } };
 }
 
 /** A draft's `needs`, cleaned: what to ask for, never any text for it (that comes from you). */

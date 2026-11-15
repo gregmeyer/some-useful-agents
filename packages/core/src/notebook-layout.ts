@@ -341,6 +341,50 @@ const WATCH: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * A briefing on one named thing (ADR-0080): who or what it is (its profile
+ * and facts, when it is an organization or a person and was looked up),
+ * the briefing's short lead, its parts (what it is, what it offers, how it
+ * works, what others say), what that rests on, who it competes with, then
+ * its sources as cards with their own pictures, and the research folded.
+ */
+const SUBJECT: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'who_row', 'answer', 'sections_p', 'findings_p', 'rivals_p', 'evidence_p', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Briefing', steps: 'fold', cover: 'none' },
+  { id: 'who_row', component: 'Columns', children: ['who_col', 'facts_p'], widths: [2, 1], align: 'start', when: 'about' },
+  { id: 'who_col', component: 'Column', children: ['person_p', 'company_p'] },
+  { ...panel('person_p', 'Who they are', 'person'), treatment: 'lede', when: 'person' },
+  {
+    id: 'person', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/person/name' }, role: { path: '/notebook/person/role' }, org: { path: '/notebook/person/org' },
+    about: { path: '/notebook/person/about' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' },
+    imageFrom: { path: '/notebook/person/imageFrom' }, imageWhy: { path: '/notebook/person/imageWhy' }, rejectHref: { path: '/notebook/person/rejectHref' },
+  },
+  { ...panel('company_p', 'Who they are', 'company'), treatment: 'lede', when: 'company' },
+  {
+    id: 'company', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/company/name' }, role: { path: '/notebook/company/role' }, org: { path: '/notebook/company/org' },
+    about: { path: '/notebook/company/about' }, image: { path: '/notebook/company/image' }, links: { path: '/notebook/company/links' },
+    imageFrom: { path: '/notebook/company/imageFrom' }, imageWhy: { path: '/notebook/company/imageWhy' }, rejectHref: { path: '/notebook/company/rejectHref' },
+  },
+  { ...panel('facts_p', 'What we know', 'facts'), treatment: 'aside', when: 'about' },
+  { id: 'facts', component: 'FactSheet', facts: { path: '/notebook/facts' }, missing: { path: '/notebook/notFound' }, variant: 'ruled' },
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
+  ...answerSectionsPart('sections_p').map((c) => (c.id === 'sections_p' ? { ...c, hero: true } : { ...c, rubric: 'auto' })),
+  { ...panel('findings_p', 'What the briefing rests on', 'findings'), treatment: 'feature', when: 'answered' },
+  { id: 'findings', component: 'Agenda', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' }, questionsLabel: 'Not known', maxQuestions: 5, check: false, empty: 'Nothing written yet.' },
+  { ...panel('rivals_p', 'Competitors', 'rivals'), treatment: 'band', when: 'competitors' },
+  COMPETITORS_TABLE,
+  { ...panel('evidence_p', 'Sources', 'evidence', 'the pages this rests on'), treatment: 'feature', when: 'options' },
+  {
+    id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    sort: L('sort'), actions: true, csvHref: L('csvHref'),
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -359,6 +403,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Company briefing',
     when: 'Getting to know a company on its own (a prospect, a partner, a competitor, an employer), with no meeting to prepare: who it is and its facts, its competitors, what the research found and how sure, then the sources.',
     layout: { preset: 'company', components: COMPANY },
+  },
+  {
+    id: 'subject',
+    label: 'Subject briefing',
+    when: 'Learning about one named thing with nothing to choose between and no meeting to prepare ("tell me about Acme", "what is roadschooling"): who or what it is, the briefing in parts (what it is, what it offers, how it works, what others say), what it rests on, then its sources with their pictures.',
+    layout: { preset: 'subject', components: SUBJECT },
   },
   {
     id: 'answer',

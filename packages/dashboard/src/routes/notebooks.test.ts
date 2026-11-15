@@ -5555,6 +5555,48 @@ describe('a notebook that depends on something you have to give it', () => {
     return { store, nbId, flash: decodeURIComponent(res.headers.location) };
   }
 
+  it('"Tell me about X" is a briefing on that subject: the draft says who or what, the notebook keeps it with its site, searches stay on it, and it has its page', async () => {
+    const app = await makeApp();
+    const { parseNotebookDraft } = await import('../lib/notebook-draft.js');
+    const { notebookBrief, subjectBrief } = await import('../lib/notebook-pipeline.js');
+    const { rerunSetup } = await import('../lib/notebook-create.js');
+    const { NotebookStore, cleanSubject, subjectHost } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const steps = [{ title: 'Learn about Acme Trails', kind: 'profile', subject: 'Acme Trails' }, { title: 'Find 8 sources on Acme Trails', kind: 'find', target: 8 }, { title: 'Check the sources', kind: 'check' }, { title: 'Write the briefing on Acme Trails', kind: 'write', shape: 'answer' }];
+    const raw = (extra: Record<string, unknown>) => `<draft>${JSON.stringify({ title: 'Learn about Acme Trails', statement: 'A briefing on Acme Trails.', steps, ...extra })}</draft>`;
+    // The drafter names the subject; a profile step makes it an organization whatever it was called.
+    const d = parseNotebookDraft(raw({ about: { name: ' Acme  Trails ', kind: 'product' } }), new Set());
+    expect('error' in d ? d.error : d.about).toEqual({ name: 'Acme Trails', kind: 'organization' });
+    // No subject named, or nothing written at the end: it isn't one.
+    expect((parseNotebookDraft(raw({}), new Set()) as { about?: unknown }).about).toBeUndefined();
+    expect((parseNotebookDraft(`<draft>${JSON.stringify({ title: 'Pick a trail app', steps: [{ title: 'Find 5', kind: 'find' }, { title: 'Pick', kind: 'decide' }], about: { name: 'Trail apps', kind: 'topic' } })}</draft>`, new Set()) as { about?: unknown }).about).toBeUndefined();
+    expect(cleanSubject({ name: 'Roadschooling', kind: 'nonsense', site: 'not a link' })).toEqual({ name: 'Roadschooling', kind: 'topic' });
+    // Started from that draft: the notebook keeps who it's on, and the link in what you typed as its site.
+    const id = 'd-subject';
+    store.saveDraft(id, { status: 'ready', text: 'Tell me about acme trails https://www.acmetrails.example/', draft: d });
+    const res = await post(app, '/notebooks', { draft: id, title: 'Learn about Acme Trails', statement: 'A briefing on Acme Trails.', step_title: steps.map((x) => x.title), step_kind: steps.map((x) => x.kind), step_agent: steps.map(() => ''), step_target: ['', '8', '', ''], step_shape: ['', '', '', 'answer'], step_subject: ['Acme Trails', '', '', ''] } as unknown as Record<string, string>);
+    const nb = store.get(decodeURIComponent(res.headers.location).split('/notebooks/')[1].split('?')[0])!;
+    expect(nb.briefOn).toEqual({ name: 'Acme Trails', kind: 'organization', site: 'https://www.acmetrails.example/' });
+    expect(subjectHost(nb.briefOn)).toBe('acmetrails.example');
+    // It has its page at once, kept as its kind.
+    expect(nb.layout?.preset).toBe('subject');
+    expect(nb.layoutBy).toBe('picked');
+    // Its agents are told to stay on it and to look beyond its own site, and are not sent for general guidance.
+    const brief = notebookBrief(nb);
+    expect(brief).toContain('This is a briefing on ONE subject: Acme Trails (an organization). Its own site is https://www.acmetrails.example/.');
+    expect(brief).toContain('at least 3 sources that are NOT its own site');
+    expect(brief).toContain('A page that doesn\'t name Acme Trails is not a result.');
+    expect(brief).not.toContain('sources that explain how it works and what to weigh');
+    // A topic has no site of its own to cover; any other notebook is told none of this.
+    expect(subjectBrief({ briefOn: { name: 'Roadschooling', kind: 'topic' } }).join('\n')).toContain('no more than two from one site');
+    expect(subjectBrief({})).toEqual([]);
+    const plain = store.create({ title: 'What do teams pay for X' });
+    store.setSteps(plain.id, [{ title: 'Find', kind: 'find' }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    expect(notebookBrief(store.get(plain.id)!)).toContain('sources that explain how it works and what to weigh');
+    // Run again keeps who it's on.
+    expect(rerunSetup(nb).briefOn).toEqual(nb.briefOn);
+  });
+
   it('reads what a draft needs, never any text for it', async () => {
     await makeApp();
     const { parseNotebookDraft } = await import('../lib/notebook-draft.js');

@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { keeperParts } from './keeper-parts.js';
-import {
+import { subjectHost,
   NotebookStore, SYSTEM_AGENT_IDS, notebookViewData, rankOptions, checksLeft, splitFacts, groundFacts, executeAgentDag, extractTaggedJson, entryKey, cleanData, cleanSources, optionFingerprint, NOTEBOOK_ENTRY_KINDS, type NotebookSearchSource,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
@@ -99,6 +99,29 @@ export function stepLine(nb: Notebook, job: StepJob): string {
 /** A page's address without its scheme, www, fragment or trailing slash, to tell one page from another. */
 const pageKey = (u: string) => u.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('#')[0].replace(/\/+$/, '');
 
+/** How many of a subject briefing's sources should come from somewhere other than the subject's own site. */
+export const SUBJECT_OUTSIDE_SOURCES = 3;
+
+/**
+ * What a subject briefing's agents are told about staying on the subject
+ * (ADR-0080): who or what it is, its own site, and that the sources are
+ * pages ABOUT it, some of them not its own. None for any other notebook. Pure.
+ */
+export function subjectBrief(nb: Pick<Notebook, 'briefOn'>): string[] {
+  const s = nb.briefOn;
+  if (!s) return [];
+  const host = subjectHost(s);
+  const what = s.kind === 'topic' ? 'a topic' : s.kind === 'product' ? 'a product' : s.kind === 'person' ? 'a person' : 'an organization';
+  return [
+    `This is a briefing on ONE subject: ${s.name} (${what}).${host ? ` Its own site is ${s.site ?? host}.` : ''}`,
+    `Every search and every result is about ${s.name} itself: pages that describe it, what it offers, who it's for, how it works, what it costs, who is behind it, and what others say about it. A page that doesn't name ${s.name} is not a result.`,
+    s.kind === 'topic'
+      ? `Use several kinds of source (a reference or explainer, a reputable guide, an organization in the field, press), no more than two from one site.`
+      : `Cover its own site${host ? ` (${host}: its about, offerings and pricing pages)` : ''} AND at least ${String(SUBJECT_OUTSIDE_SOURCES)} sources that are NOT its own site: press, reviews, directories or listings, interviews, its social or podcast pages. Say so when fewer exist.`,
+    `Do NOT add general guidance, law or how-to pages on the wider topic${s.kind === 'topic' ? ' beyond what explains the subject itself' : ''}: no "learn" searches. Note each page's own picture address in the picture field when the page has one.`,
+  ];
+}
+
 export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): string {
   return [
     job ? stepLine(nb, job) : '',
@@ -109,8 +132,11 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
     nb.criteria.length ? `Done when: ${nb.criteria.map((c) => c.text).join('; ')}` : '',
     // What it depends on from you: its text, or that you went on without it (so no step fills it in).
     givenBrief(nb),
+    // A briefing on one named thing: every search stays on it, and looks beyond its own site.
+    ...subjectBrief(nb),
     // A notebook that ends in a written answer or plan needs pages that explain, not only options.
-    (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'))
+    nb.briefOn ? ''
+    : (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan'))
       ? `It ends with a written ${(nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'plan') ? 'plan' : 'answer'}: besides options, it needs sources that explain how it works and what to weigh.`
       : (nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'writeup')
         ? 'Its shortlist gets written up: besides options, a page or two that explain what to weigh help.'

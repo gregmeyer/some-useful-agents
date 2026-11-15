@@ -6,7 +6,7 @@
  * steps. Then it decides its page (unless it came with one, a template's),
  * and sua says hello in the notebook's conversation.
  */
-import { NotebookStore, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
+import { NotebookStore, layoutPreset, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
 import { fitStepAgents, startNotebookStep, stopNotebookStep } from './notebook-steps.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { startGivenRead } from './notebook-given-read.js';
@@ -45,6 +45,8 @@ export interface NewNotebookSetup {
   asked?: string;
   /** What it depends on from you: missing, given or skipped (core cleanGiven). */
   given?: unknown;
+  /** Who or what it is a briefing on (core NotebookSubject). */
+  briefOn?: unknown;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -58,6 +60,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     cadence: input.cadence ?? '',
     ...(input.asked ? { asked: input.asked } : {}),
     ...(input.given ? { given: input.given } : {}),
+    ...(input.briefOn ? { briefOn: input.briefOn } : {}),
   });
   // Its fields first: a source step's facts are kept only when they name the notebook's fields.
   if (input.fields?.length) {
@@ -85,6 +88,9 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
   // Set up with its steps: it decides its page from what it's for, then sua says hello.
   const pageThenGreet = () => {
     if (input.layout) { greet(); return; }
+    // A briefing on a subject has its page: no run is spent deciding one, and it keeps its kind when it's composed around what's written.
+    const now = store.get(nb.id);
+    if (now?.briefOn && !now.layout) { store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked'); greet(); return; }
     void decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet);
   };
   // No steps given: sua lays them out once it's set up first.
@@ -113,6 +119,7 @@ export function rerunSetup(nb: Notebook): NewNotebookSetup {
     // What you asked and what you gave it are its setup, not what it found.
     ...(nb.asked ? { asked: nb.asked } : {}),
     ...(nb.given?.length ? { given: nb.given } : {}),
+    ...(nb.briefOn ? { briefOn: nb.briefOn } : {}),
   };
 }
 

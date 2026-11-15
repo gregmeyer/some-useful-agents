@@ -73,6 +73,9 @@ function parseFlash(req: Request): { kind: 'ok' | 'error' | 'info'; message: str
   return parseQueryFlash(req) ?? (typeof req.query.flash === 'string' && req.query.flash ? { kind: 'info', message: req.query.flash } : undefined);
 }
 
+/** The first web address in what you typed. */
+const firstLink = (text: string | undefined): string | undefined => /https?:\/\/[^\s<>"')\]]+/i.exec(text ?? '')?.[0]?.replace(/[.,;:!?]+$/, '');
+
 const back = (id: string, flash: string, hash = '') => `/notebooks/${encodeURIComponent(id)}?flash=${encodeURIComponent(flash)}${hash}`;
 /** Back to the notebook (at the option's card), or to the option's own page when its form says `back=option`. */
 const backFrom = (req: Request, id: string, entryId: string, flash: string) => (req.body?.back === 'option'
@@ -272,6 +275,8 @@ notebooksRouter.post('/notebooks', (req: Request, res: Response) => {
       pipeline: many(req.body?.pipeline).filter((id) => known.has(id)),
       cadence,
       ...(from?.text ? { asked: from.text } : {}),
+      // A briefing on one named thing: who or what, and its own site when you gave a link in the ask.
+      ...(from?.status === 'ready' && from.draft.about ? { briefOn: { ...from.draft.about, ...(from.draft.about.kind !== 'topic' && !from.draft.about.site && firstLink(from.text) ? { site: firstLink(from.text) } : {}) } } : {}),
       ...(given.length ? { given } : {}),
       ...(steps ? { steps } : {}),
       ...(() => { const m = meetingFromForm(req.body ?? {}); return m ? { meeting: m } : {}; })(),

@@ -72,6 +72,11 @@ nodes:
         - getting ready for something (a meeting, a call, an interview):
           a briefing: who they are, what they said or care about (quotes),
           what to talk about and ask, then where it came from;
+        - learning about ONE named thing with nothing to choose between
+          and no meeting ("tell me about Acme", "what is roadschooling";
+          the notebook says who or what it is a briefing on): use the
+          ready-made "subject"; for a company you're getting to know as a
+          prospect, partner or competitor, the ready-made "company";
         - an answer to a question (find out, understand, compare, research):
           use the ready-made "answer": the answer first (until there is
           one, where it stands), then the findings with their evidence,
@@ -84,7 +89,8 @@ nodes:
           changed since the last search first, then everything it's
           watching.
       Use a ready-made page whenever it fits ({"preset": "dossier"} for
-      getting ready to meet someone, {"preset": "answer"} for a question,
+      getting ready to meet someone, {"preset": "subject"} for a briefing
+      on one named thing, {"preset": "answer"} for a question,
       {"preset": "plan"} for a plan, {"preset": "watch"} for keeping
       watch, above all when a write step writes
       the answer or the plan); start from its page and change it

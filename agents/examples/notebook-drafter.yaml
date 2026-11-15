@@ -144,7 +144,24 @@ nodes:
         ("what do teams pay for X", "is it worth upgrading to Y", "how do
         others handle Z", "find out whether…"), find gathers sources, and
         it ends with write, "shape": "answer" ("Write the answer"), not
-        decide. When the goal is to make a plan (a trip or itinerary, a
+        decide. When the goal is to learn about ONE named thing ("tell me
+        about Acme", "learn about Dana Reyes", "what is roadschooling",
+        "brief me on the Model 7", a name with its website and nothing
+        to choose between), it's a briefing on that subject: set "about"
+        (below); a profile step first when the subject is an organization
+        or a person ("subject": its name), none for a product or a topic;
+        then find ("Find 8 sources on <subject>", "target": 8), check, and
+        write, "shape": "answer" ("Write the briefing on <subject>"). Its
+        fields note each SOURCE (page title, the source link with "role":
+        "link", publisher with "role": "org", what it covers, key facts,
+        when it was published with "role": "when"), plus {"key": "image",
+        "label": "Picture", "type": "image", "role": "image"} for the
+        page's own picture. Its checks are at most TWO, each one the
+        source page itself can answer ("Says who publishes the page",
+        "Names the subject and is about it"): never one that needs a
+        date or a fact many pages don't state. Its done-whens name the briefing's parts: what it is and
+        who is behind it, what it offers and who it's for, how it works
+        and what it costs, what others say. When the goal is to make a plan (a trip or itinerary, a
         week of meals or workouts, a move, an event, a project), find
         gathers the places, things or options it could use, and it ends
         with write, "shape": "plan" ("Write the plan"), not decide. When
@@ -191,7 +208,14 @@ nodes:
         page of options to compare, or anything a search can find. Usually
         there are none: [].
 
+      - "about": only for a briefing on one named thing (see steps):
+        {"name": "<the subject as they wrote it>", "kind": "organization" |
+        "person" | "product" | "topic"}. Leave it out for anything else
+        (a shortlist, a meeting, a plan, a watch, a question that isn't
+        about one named thing).
+
       Reply with only this, as valid JSON:
       <draft>
       {"title": "", "statement": "", "params": [], "criteria": [], "fields": [], "checks": [], "stages": [], "pipeline": [], "steps": [], "cadence": "", "meeting": {"when": "", "goal": "", "notes": ""}, "why": "", "needs": []}
       </draft>
+      (add "about" only when it applies)
