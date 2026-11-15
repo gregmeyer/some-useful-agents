@@ -5,6 +5,45 @@
  */
 export const NOTEBOOK_PAGE_JS = `
   (function () {
+    // Printing or saving the page as a PDF: a finding's link to its own page here would point a reader of the PDF at
+    // this dashboard, which they can't open. While it prints, each such link goes to where the finding came from
+    // (the map the page carries); one with no source has no link. Put back as they were after.
+    (function () {
+      var swapped = [];
+      function links(root, out) {
+        var all = root.querySelectorAll('*');
+        for (var i = 0; i < all.length; i++) {
+          var el = all[i];
+          if (el.tagName === 'A' && el.hasAttribute('href')) out.push(el);
+          if (el.shadowRoot) links(el.shadowRoot, out);
+        }
+        return out;
+      }
+      function before() {
+        if (swapped.length) return;
+        var holder = document.querySelector('script[data-nb-print-links]');
+        if (!holder) return;
+        var map;
+        try { map = JSON.parse(holder.textContent || '{}'); } catch (err) { return; }
+        var found = links(document, []);
+        for (var i = 0; i < found.length; i++) {
+          var a = found[i];
+          var m = /^\\/notebooks\\/[^\\/]+\\/entries\\/([^\\/?#]+)\\/?$/.exec(a.pathname || '');
+          if (!m || a.host !== location.host) continue;
+          var was = a.getAttribute('href');
+          var to = map[decodeURIComponent(m[1])];
+          if (to) a.setAttribute('href', to); else a.removeAttribute('href');
+          swapped.push([a, was]);
+        }
+      }
+      function after() {
+        for (var i = 0; i < swapped.length; i++) swapped[i][0].setAttribute('href', swapped[i][1]);
+        swapped = [];
+      }
+      window.addEventListener('beforeprint', before);
+      window.addEventListener('afterprint', after);
+      window.suaPrintLinks = { before: before, after: after };
+    })();
     // The notebooks list: changing the sort applies it.
     document.addEventListener('change', function (e) {
       var el = e.target;
