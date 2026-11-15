@@ -49,7 +49,7 @@ On Home the same inbox fills the page instead (below), so it's one inbox at two 
 
 ## `/` — Home
 
-![Home: how things stand, your notebooks, and Today](images/home.png)
+![Home: what needs you, today's reads and your recent notebooks](images/home.png)
 
 Home is what needs you and what to do next, on one page, in two columns (one on a narrow screen). **Adjust Home** can move any of its parts within its column or hide it ("hide Next up", "put Ask sua first"); a hidden part is named at the foot with **Show**. See [Home's page parts](surfaces.md#homes-page-parts).
 
@@ -266,7 +266,9 @@ Resolved variables panel shows what values the run actually saw (inputs after de
 
 Pulse has two views, as tabs under its header. **Today's edition** (`/pulse`) is a generated front page of what your scheduled agents produced in the last day, each drawn as its own result; see [boards](boards.md#pulse). With nothing reported in the last day it isn't shown and Pulse opens on the board. **All agents** (`/pulse/agents`) is the board described below.
 
-![Pulse with six placed tiles](images/pulse.png)
+![Pulse: Today's edition](images/pulse.png)
+
+![Pulse → All agents: the board of tiles](images/pulse-agents.png)
 
 Pulse is a [board](boards.md), drawn as one A2UI canvas: arrange it with **✎ Arrange** (sections, grids, tabs, rows, cards) or **✨ Suggest a layout**, or build a new board from a description with **＋ New board**; agents you haven't placed are under **Everything else**, grouped as described next.
 

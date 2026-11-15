@@ -76,6 +76,8 @@ Some notebooks depend on something you referred to but didn't put in the request
 
 ### Adding a file or a paste it didn't ask for
 
+![Add a file or paste, open on a meeting briefing; above it, a profile as sua read it](images/notebook-add-file.png)
+
 Any notebook takes something of yours, asked for or not: the LinkedIn profile of the person you're meeting saved as a PDF, your résumé, a job description, your notes.
 
 - **Where:** **Add a file or paste**, a folded row under the notebook's header (inside the card at the top when the notebook already has something of yours), and under **Edit → What you gave it**.
@@ -94,6 +96,8 @@ Any notebook takes something of yours, asked for or not: the LinkedIn profile of
 - **When starting one.** The draft page has **Add a file or paste** above its Start button: what you add there is kept when the notebook starts and read before its first step.
 - **A template can ask for it.** A template saved from a notebook asks for what that notebook was given: the label, never the text. Something you added yourself becomes an ask "if you have it" (a box on the new notebook, nothing waits); something the notebook needed becomes "needed before it starts" (nothing runs until you add it or go on without it). `{subject}` in a label is filled in ("{subject}'s LinkedIn profile" asks for "Dana Reyes's LinkedIn profile"). Change the asks on **Make a template → Edit the words yourself → What it asks you for**, or tell sua ("ask for their LinkedIn profile each time"). A template asks for up to 4 things.
 - **Which kinds of file.** PDF, plain text (.txt), Markdown (.md) and Word (.docx), all on to start. **Settings → General → Files sua takes** turns any of them off; a kind that is off is refused by the pickers and by the server, with a line saying where to change it. With all of them off there is no file picker, only the paste box. A Word file's text is its paragraphs in order (headers, footers, comments and text inside pictures are not read); an older .doc has to be saved as .docx or PDF first. Pictures (.jpg, .png, .gif) and scanned PDFs can't be read yet.
+
+  ![Settings → General → Files sua takes](images/settings-files.png)
 - **Not for:** an archived notebook, or an experiment's copy of one (add to the notebook it was copied from).
 
 The notebook also keeps your request as you typed it, links included (the drafter's tidied sentence under "What it's for" may leave a link out). **Run it again** carries both the request and what you gave it to the new notebook.
@@ -172,7 +176,9 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
 ## A notebook's page
 
-![A notebook's page: where it stands, done-when, the price map and the funnel](images/notebook.png)
+![A notebook's page: where it stands and what is done](images/notebook.png)
+
+![A meeting briefing's page: who they are, what is known with its sources, and the talking points](images/meeting-briefing.png)
 
 ![The same notebook with its conversation open in the sua panel](images/drawer.png)
 

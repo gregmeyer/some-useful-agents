@@ -2,6 +2,8 @@
 
 An experiment answers a question about an agent, or about a whole notebook: **what changes what it produces, and by how much?** It gives one agent the same ask under different versions of it, runs the whole agent a few times under each, reads what each run produced, and counts how much the versions' results have in common. With a notebook, each run is a fresh copy of the notebook taken through its steps ([Running a whole notebook](#running-a-whole-notebook)). The numbers are counted from the runs; no model writes them. ([ADR-0078](adr/0078-experiments.md))
 
+![An experiment's page: the finding, then how much the versions' results had in common against two runs of the same version](images/experiment.png)
+
 "Does the new version of my job search agent find different jobs?" "Does the model change what the digest picks?" "Does the build matter more than the preferences I give it?" Each is an experiment.
 
 ## What is held the same, what changes, what is compared
@@ -30,6 +32,8 @@ Every combination of versions is run; the first version of each change is the **
    Then what to call it and its versions, A and B (up to four). **Change something else too** adds another, up to three. You can go on with none: the experiment then runs the agent as it is and shows how steady it is.
 5. **Which is better.** Optional. See [Scoring](#scoring).
 6. **Check it.** The whole setup written out, each part with an Edit back to its step, and what it comes to: "2 × 2 = 4 versions × 2 runs = Job finder runs 8 times". The name is here (sua uses your question if you leave it empty), with how many times each version runs, and a box to make a notebook that shows the results.
+
+![New experiment: one question a step](images/experiment-new.png)
 
 Next checks only the step you're on, and Back never loses what you typed. A setup that is refused (no agent, an input the agent needs left empty, too many runs) comes back on the step the problem belongs to. Without scripts the six steps show one after another on one page.
 
