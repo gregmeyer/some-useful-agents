@@ -70,6 +70,10 @@ Ask sua to learn about one named thing ("Tell me about Acme Trails https://acmet
   - *What others say* may rest only on sources that aren't the subject's own site. If the writer cites only the subject's own pages there, the part is dropped.
   - What the subject says about itself is written as its own claim ("its site says…").
   - Each part ticks the done-when that names it.
+- **Pictures come from the sources themselves.** Each source page's own lead picture (the one that page publishes for previews) is kept as that source's picture and credited to its site. No image search is run for a subject briefing; a source with no picture of its own gets a small drawing on the page.
+  - The sources are drawn as **cards with their pictures** when any has one (a table when none does). The same holds on the Answer and Company briefing pages.
+  - **The brief and its PDF carry them**: a card for each source with its picture and its site. A page part drawn as stories shows in the brief too.
+  - **Beside the lead**: a photo from one of its sources, the subject's own site first; when no source has a photo, the small drawing sua makes of what it's about.
 - **Its page** is the ready-made **Subject briefing**: who or what it is with what's known, the briefing's lead and parts, what it rests on, competitors when there are some, then the sources as cards. It has this page from the start and keeps its kind.
 
 ### When it needs something from you

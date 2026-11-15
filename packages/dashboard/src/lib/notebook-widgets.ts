@@ -18,7 +18,7 @@ import { missingExperimentData, rankBy, rankOptions, isRange,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
-  answerSectionLines, sectionKey, writesUp,
+  answerSectionLines, sectionKey, writesUp, subjectHost,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
@@ -745,6 +745,20 @@ function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries
 /** A source page's site, for its link ("consumerfinance.gov"). */
 const sourceLabel = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'source'; } };
 
+/**
+ * The picture beside a subject briefing's lead: one of its sources' own
+ * (a photo, not a logo or a drawing), from the subject's own site when one
+ * has it, else the first. None for any other notebook, or when no source
+ * has one (the lead then keeps sua's drawing). Pure.
+ */
+export function subjectLeadPicture(nb: Pick<Notebook, 'briefOn'>, options: ReadonlyArray<Pick<NotebookViewOption, 'image' | 'imageKind' | 'link' | 'ruledOut'>>): string | undefined {
+  if (!nb.briefOn) return undefined;
+  const photos = options.filter((o) => o.image && !o.ruledOut && (o.imageKind === 'listing' || o.imageKind === undefined));
+  const own = subjectHost(nb.briefOn);
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
+  return (own ? photos.find((o) => host(o.link) === own) : undefined)?.image ?? photos[0]?.image;
+}
+
 /** How sure an answer is, in plain words. */
 const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { high: 'sure', medium: 'fairly sure', low: 'not sure yet' };
 
@@ -764,7 +778,7 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   return {
     answer: writeup
       ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
-      : { question, label: `Answer · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: answerCover(nb).src },
+      : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
     openQuestions: a.open.map((text) => ({ text })),
     answerSections,
@@ -815,7 +829,14 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
 }
 
 /** The settings a layout reads from `/notebook/layout/<key>`, for this notebook (core NOTEBOOK_LAYOUT_VALUES). */
-export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<NotebookLayoutValueKey, unknown>> {
+/** How many of the page's options have a picture of their own (a photo or a logo, not a drawing), of how many. Pure. */
+export function picturedOptions(data: unknown): { pictured: number; of: number } {
+  const options = (data as { notebook?: { options?: Array<{ image?: string; imageKind?: string; ruledOut?: unknown }> } } | undefined)?.notebook?.options ?? [];
+  const active = options.filter((o) => !o.ruledOut);
+  return { pictured: active.filter((o) => o.image && o.imageKind !== 'illustration').length, of: active.length };
+}
+
+export function notebookLayoutValues(nb: LayoutNotebook, data?: unknown): Partial<Record<NotebookLayoutValueKey, unknown>> {
   const priceF = nb.fields.find((f) => f.role === 'price');
   const measureF = nb.fields.find((f) => f.role === 'measure');
   const scoreF = nb.fields.find((f) => f.role === 'score');
@@ -827,6 +848,8 @@ export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<Noteboo
     filters: defaultFilters(nb),
     ...(handStagesHidden(nb) ? { stageChips: false } : {}),
     ...(nb.id ? { csvHref: `/notebooks/${encodeURIComponent(nb.id)}/shortlist.csv` } : {}),
+    // Sources with pictures of their own are drawn as cards, so the pictures show; a table otherwise.
+    evidenceLayout: picturedOptions(data).pictured > 0 ? 'grid' : 'table',
     ...(nb.status === 'decided' ? { onlyChosen: true } : {}),
     ...(leadFieldOf(nb) ? { leadField: leadFieldOf(nb)!.key, leadLabel: leadFieldOf(nb)!.label } : {}),
   };
@@ -838,7 +861,7 @@ export function notebookLayoutValues(nb: LayoutNotebook): Partial<Record<Noteboo
  * settings worked out for this notebook (core resolveNotebookLayout).
  */
 export function notebookWidgetComponents(nb: LayoutNotebook, layout: NotebookLayout = notebookLayoutOf(nb), data?: NotebookWidgetData): ViewComponent[] {
-  return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb), emptyPartsGo(layout, data));
+  return resolveNotebookLayout(layout.components, notebookLayoutFlags(nb), notebookLayoutValues(nb, data), emptyPartsGo(layout, data));
 }
 
 /**
@@ -854,7 +877,7 @@ function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: un
   const layout = notebookLayoutOf(nb);
   // Nothing to quote ever (no quote field, and not about a person): its quotes panel isn't held open while a step runs.
   const cantFill = canQuote(nb) ? undefined : new Set(['QuoteList']);
-  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}), ...(cantFill ? { cantFill } : {}) }));
+  return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}), ...(cantFill ? { cantFill } : {}) }));
 }
 
 /** The notebook's widgets as A2UI messages, or undefined when it has nothing to show as widgets yet. */
