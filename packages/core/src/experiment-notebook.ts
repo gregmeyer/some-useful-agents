@@ -37,6 +37,8 @@ export interface ExperimentPageData {
   changes: Array<Record<string, string>>;
   /** One row per item any run listed: item, link, then where it turned up under each condition (c0, c1…). */
   items: Array<Record<string, string>>;
+  /** How it was set up (experimentSetup), for a printed brief that has to stand without the experiment's page. */
+  setup?: Array<{ label: string; lines: string[] }>;
 }
 
 /** The page data for an experiment's latest pass (its cells and scores; none when it hasn't run). Pure. */

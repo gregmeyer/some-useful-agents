@@ -337,6 +337,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const theme = args.theme ?? briefTheme();
   const now = args.now ?? new Date();
   const data = notebookWidgetData(nb, args.entries, args.history);
+  // A notebook that shows an experiment: its brief ends with how the experiment was run.
+  const experiment = (data.notebook as { experiment?: import('@some-useful-agents/core').ExperimentPageData }).experiment;
   const layout = notebookLayoutOf(nb);
   const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), emptyPartsGo(layout, data));
   const { header, side, rest } = splitNotebookHeader(resolved);
@@ -511,7 +513,11 @@ ${unsafeHtml(TLDR_CSS)}
   ${fresh && !fresh.empty ? html`<section class="whatsnew" aria-label="What's new"><div class="eyebrow">What's new since ${fmtDate(new Date(fresh.since))}</div><ul>${whatsNewLines(fresh).map((l) => html`<li>${l}</li>`) as unknown as SafeHtml[]}</ul></section>` : html``}
   ${node(p, 'root')}
   ${args.full ? behindThePage(nb, args.entries, data.notebook, args.history, pic) : html``}
-  <footer>From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.</footer>
+  ${experiment?.setup?.length ? html`<section class="part part--feature appendix"><div class="part__head"><h2>How it was run</h2>${experiment.runs ? html`<span class="part__note">${experiment.runs}</span>` : html``}</div>
+    <div class="facts"><dl>${experiment.setup.map((x) => html`<dt>${x.label}</dt><dd>${x.lines.map((l, i) => html`${i ? html`<br>` : html``}${l}`) as unknown as SafeHtml[]}</dd>`) as unknown as SafeHtml[]}</dl></div></section>` : html``}
+  <footer>${experiment
+    ? html`From the experiment as it stood on ${fmtDate(now)}: its numbers are counted from its runs, and hold for this ask, when it was run. Made with sua.`
+    : html`From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.`}</footer>
 </main>
 ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
   return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;

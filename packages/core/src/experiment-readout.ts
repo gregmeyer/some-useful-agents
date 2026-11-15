@@ -56,6 +56,26 @@ const levelSays = (l: Experiment['factors'][number]['levels'][number]) => [
   ...Object.entries(l.inputs ?? {}).map(([k, v]) => `${k} = "${clip(v, 300)}"`),
 ].filter(Boolean);
 
+/**
+ * How an experiment is set up, for a reader who has only the page (its
+ * printed brief): what was run and how many times, what was asked, each
+ * change with its versions, and how results were scored. Pure.
+ */
+export function experimentSetup(e: Experiment): Array<{ label: string; lines: string[] }> {
+  const times = `${String(e.repeats)} ${e.repeats === 1 ? 'time' : 'times'} for each version`;
+  const ask = Object.entries(e.inputs);
+  const out: Array<{ label: string; lines: string[] }> = [];
+  if (e.question) out.push({ label: 'Set out to find', lines: [e.question] });
+  out.push({ label: 'What was run', lines: [e.task.notebookId
+    ? `A fresh copy of the notebook "${experimentSubject(e)}", taken through its steps ${times}. The options each copy was left with are what is compared.`
+    : `The whole of ${experimentSubject(e)}, ${times}. What each run's output lists is what is compared.`] });
+  if (!e.task.notebookId) out.push({ label: 'The ask, the same for every run', lines: ask.length ? ask.map(([k, v]) => `${k} = "${clip(v, 300)}"`) : ['The agent as it runs with no inputs given.'] });
+  for (const f of e.factors) out.push({ label: `Changed: ${f.name}`, lines: f.levels.map((l, i) => { const says = levelSays(l); return `${l.name}${i === 0 ? ' (baseline)' : ''}: ${says.length ? says.join('; ') : e.task.notebookId ? 'the notebook as it is' : 'the agent as it is'}`; }) });
+  if (!e.factors.length) out.push({ label: 'Changed', lines: ['Nothing: it shows how steady the results are from run to run.'] });
+  for (const s of e.scorers) out.push({ label: `Scored: ${s.name}`, lines: [s.kind === 'found' ? `Counted: the share of these its results ${s.avoid ? 'leave out' : 'list'}: ${s.items.join('; ')}` : `Judged by a model against: ${clip(s.rubric, 300)}`] });
+  return out;
+}
+
 /** An experiment as JSON, whole or one part. Pure. */
 export function experimentReadoutJson(r: ExperimentRead, part: ExperimentReadPart = 'all'): Record<string, unknown> {
   const { experiment: e, cells, scores } = r;
