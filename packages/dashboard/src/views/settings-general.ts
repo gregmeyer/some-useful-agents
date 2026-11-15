@@ -10,6 +10,8 @@ export interface SettingsGeneralArgs {
   /** Full MCP token to reveal exactly once, right after rotation. */
   rotatedToken?: string;
   retentionDays: number;
+  /** The kinds of file sua can read, and which are allowed now. */
+  fileTypes: ReadonlyArray<{ ext: string; label: string; on: boolean }>;
 }
 
 /**
@@ -40,6 +42,21 @@ export function renderSettingsGeneral(args: SettingsGeneralArgs): SafeHtml {
       <form action="/settings/general/rotate-mcp-token" method="post" class="mt-3"
         data-confirm="Rotate the MCP bearer token? Existing Claude Desktop / MCP client configs will stop working until you update them.">
         <button type="submit" class="btn btn--warn">Rotate token</button>
+      </form>
+    </div>
+
+    <div class="card" id="files">
+      <p class="card__title">Files sua takes</p>
+      <p class="dim">
+        Where you'd otherwise paste (a notebook's Add a file or paste, the
+        paperclip on a message), sua takes these kinds of file. It reads the
+        text out of the file and keeps only that; the file itself is not kept.
+        Untick them all and only pasting is left.
+      </p>
+      <form action="/settings/general/file-types" method="post" class="mt-3">
+        ${args.fileTypes.map((t) => html`<label style="display: block; margin-bottom: var(--space-2);"><input type="checkbox" name="types" value="${t.ext}"${t.on ? unsafeHtml(' checked') : unsafeHtml('')}> ${t.label}</label>`) as unknown as SafeHtml[]}
+        <p class="dim">Pictures (.jpg, .png, .gif), scanned PDFs and older Word files (.doc) can't be read yet.</p>
+        <button type="submit" class="btn">Save</button>
       </form>
     </div>
 

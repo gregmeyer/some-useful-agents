@@ -1,3 +1,4 @@
+import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
   looksLikeSensitive,
@@ -1464,8 +1465,17 @@ settingsRouter.get('/settings/general', (req: Request, res: Response) => {
     dbPath: ctx.dbPath,
     retentionDays: ctx.retentionDays,
     rotatedToken,
+    fileTypes: ((on) => ATTACH_FILE_TYPES.map((t) => ({ ext: t.ext, label: t.label, on: on.includes(t.ext) })))(NotebookStore.fromHandle(ctx.runStore.databaseHandle()).attachFileTypes()),
   });
   res.type('html').send(renderSettingsShell({ active: 'general', body, flash }));
+});
+
+// Which kinds of file sua takes in place of a paste.
+settingsRouter.post('/settings/general/file-types', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const raw: unknown = (req.body as Record<string, unknown> | undefined)?.types;
+  const kept = NotebookStore.fromHandle(ctx.runStore.databaseHandle()).setAttachFileTypes(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : typeof raw === 'string' ? [raw] : []);
+  redirectWith(res, '/settings/general', 'flash', kept.length ? `Saved. sua takes ${attachFileWords(kept)} files.` : 'Saved. sua takes no files now; pasting still works.');
 });
 
 settingsRouter.post('/settings/general/rotate-mcp-token', (req: Request, res: Response) => {

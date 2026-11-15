@@ -16,6 +16,7 @@ export * from './usage.js';
 export * from './spend-limits.js';
 export * from './human-questions.js';
 export * from './notebooks.js';
+export * from './attach-file-types.js';
 export * from './experiments.js';
 export * from './experiment-measures.js';
 export * from './experiment-output.js';

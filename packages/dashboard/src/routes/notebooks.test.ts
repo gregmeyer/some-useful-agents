@@ -5710,7 +5710,8 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(store.get(nbId)!.given).toMatchObject([{ state: 'missing' }]);
     const page = (await get(app, `/notebooks/${nbId}`)).text;
     expect(page).toContain('data-given-file="nb-given-linkedin-profile"');
-    expect(page).toContain('Choose a PDF or text file');
+    expect(page).toContain('Choose a file');
+    expect(page).toContain('data-file-types="pdf,txt,md,docx"');
     expect((await request(app).get('/assets/dashboard.js').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text).toContain("fetch('/notebooks/given-file'");
   });
 
@@ -5839,6 +5840,44 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(fileThreadAttachments(ctx, thread.id, job.id)).toEqual(['Resume']);
     expect(store.get(job.id)!.given).toMatchObject([{ label: 'Resume', state: 'given' }]);
     expect(fileThreadAttachments(ctx, thread.id, job.id)).toEqual([]);
+  });
+
+  it('takes only the kinds of file allowed in Settings: a Word file is read, a kind turned off is refused, and the pickers follow', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { makeZip } = await import('../lib/docx-test-zip.js');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const send = (body: Buffer, type: string) => request(app).post('/notebooks/given-file').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).set('Content-Type', type).send(body);
+    const word = makeZip([{ name: 'word/document.xml', data: `<w:document><w:p><w:r><w:t>${PROFILE}</w:t></w:r></w:p></w:document>` }]);
+    // Every kind sua can read is allowed to start with.
+    expect(store.attachFileTypes()).toEqual(['pdf', 'txt', 'md', 'docx']);
+    const read = await send(word, DOCX);
+    expect(read.status).toBe(200);
+    expect(read.body).toMatchObject({ text: PROFILE, chars: PROFILE.length });
+    expect((await send(Buffer.from('not a zip, not a zip, not a zip, not a zip'), DOCX)).status).toBe(422);
+    // Settings → General lists them; saving keeps the ticked ones.
+    const settings = (await get(app, '/settings/general')).text;
+    expect(settings).toContain('Files sua takes');
+    expect(settings).toMatch(/name="types" value="docx" checked>\s*Word \(\.docx\)/);
+    const saved = await request(app).post('/settings/general/file-types').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send('types=pdf&types=txt&types=exe');
+    expect(decodeURIComponent(String(saved.headers.location).replace(/\+/g, ' '))).toContain('sua takes PDF or plain text (.txt) files.');
+    expect(store.attachFileTypes()).toEqual(['pdf', 'txt']);
+    // A kind turned off is refused, with where to change it; the pickers offer only what's left.
+    const refused = await send(word, DOCX);
+    expect(refused.status).toBe(415);
+    expect((refused.body as { error: string }).error).toContain('sua isn\'t set to take Word (.docx) files (it takes PDF or plain text (.txt)). Change it under Settings → General');
+    const nb = store.create({ title: 'Prepare for a meeting with Dana Reyes' });
+    const page = (await get(app, `/notebooks/${nb.id}`)).text;
+    expect(page).toContain('data-file-types="pdf,txt" data-file-words="PDF or plain text (.txt)"');
+    expect(page).toContain('accept=".pdf,application/pdf,.txt,text/plain"');
+    expect((await get(app, '/settings/general')).text).not.toMatch(/value="docx" checked/);
+    // None allowed: no picker at all; the paste box stays.
+    await request(app).post('/settings/general/file-types').set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send('');
+    const bare = (await get(app, `/notebooks/${nb.id}`)).text;
+    expect(bare).not.toContain('type="file"');
+    expect(bare).toContain('name="text"');
+    store.setAttachFileTypes(['pdf', 'txt', 'md', 'docx']);
   });
 
   it('going on without it is recorded, told to every step, and shown on the page', async () => {
