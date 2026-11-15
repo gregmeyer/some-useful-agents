@@ -396,6 +396,8 @@ Per-agent allowances that widen what the agent's output widget may do under the 
 
 ## `secrets` and `envAllowlist`
 
+An `llm-prompt` node's inputs reach its child process in the environment as well as in the prompt, with one exception: an input the prompt substitutes (`{{inputs.NAME}}`) that is larger than 8 KB is left out of the environment, because the prompt already carries it and the operating system limits how much a process can be started with. Smaller inputs are in both.
+
 Controls what environment the shell and llm-prompt subprocesses see. By default the executor filters to a safe allowlist. Per-agent (or per-node) additions merge in.
 
 ```yaml

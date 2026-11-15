@@ -5,7 +5,18 @@ on direction.
 
 ## Recently shipped
 
-### Unreleased (next: v0.32)
+### Unreleased (next: v0.33)
+Notebooks answer, plan, watch and take your files; Home and Pulse lead with what's new; experiments say what changes a result:
+
+- **More kinds of notebook** — a notebook that asks a question gets an **answer** with the parts it was asked for (a rubric, steps, diagrams drawn from its own numbers) and cites what it rests on; a **plan** comes day by day; a **watch** notebook says what changed since last time; a shortlist can be **written up**. Once something is written, the notebook composes its page around it.
+- **Give a notebook what it depends on** — a notebook asks for what it needs from you and waits ([ADR-0077](docs/adr/0077-a-notebook-waits-for-what-it-depends-on.md)); any notebook takes a file or a paste (PDF, text, Markdown, Word), on its page, on a draft, from a template that asks for it, or attached to a message; sua reads it into a short form you can check, and the profile step works from it.
+- **Keeping a notebook right** — correct a fact, the photo, a limit or a check in its conversation; **Update** a briefing or shortlist in one go and see what's new; **Clear and run again** as a new notebook; topic **tags**; "a notebook like this exists" when you ask for one you have.
+- **Sharing** — the brief as a real PDF in your theme, a **TL;DR picture** in several layouts that you can redraw or lead the page with, and how a notebook was made.
+- **Experiments** — run one agent, or a whole notebook as a fresh copy, under different versions and compare what the runs produced against run-to-run variation ([ADR-0078](docs/adr/0078-experiments.md), [ADR-0079](docs/adr/0079-experiments-compare-what-runs-produce.md)); `experiment-read` lets an agent or another app read one.
+- **Home and Pulse** — Home leads with **Next up** and **Today's brief**; Pulse opens on **Today's edition**, a generated front page you can change by asking. Boards have a **goal**, **Improve this board** reviews against it, and a board's page can be composed like a front page ([ADR-0070](docs/adr/0070-a-boards-page-is-a-layout-composed-from-its-agents-outputs.md)).
+- **Tools and models** — `web-screenshot` (the model sees the picture), `notebook-read`, a busy model falls back to another model and then the next provider, and a button press that fails says so.
+
+### v0.32
 A notebook's page fits what it's for, and you change a notebook by saying so:
 
 - **A notebook decides its own page** — a [notebook's page](docs/notebooks.md) is an A2UI document. A new notebook keeps the **Shortlist** for choosing among many, or draws a page that fits its job (a **Meeting briefing**, a report, a plan), and decides again once its first step is done ([ADR-0058](docs/adr/0058-notebook-decides-its-page.md), [ADR-0060](docs/adr/0060-page-decided-again-after-first-step.md)). Pages read like a magazine, not a grid: editorial treatments, a cover portrait, numbered talking points, quotes, ruled facts, and the header as part of the page ([ADR-0059](docs/adr/0059-notebook-header-in-layout.md)). The brief and extended brief print the page it decided on.
@@ -127,7 +138,7 @@ Toward a general-purpose agent platform, and agents that populate a canvas inste
 
 ## Then: more kinds of notebook
 
-Notebooks now decide a page for their job, but only the Shortlist and the Meeting briefing are ready-made. Next: a **report** page (the answer first, the findings with their evidence, what's still open) and a **write** step that writes the answer; a **plan** page (day by day); a **watch** notebook (what changed since last time); and a notebook's page placed on a **board** as a tile. Each is a new page document and, at most, a new widget: the example notebooks and the page checks ([`npm run notebook-pages:eval`](docs/notebooks.md)) say whether each kind still gets the right page.
+The Shortlist, the Meeting briefing, the Company briefing, an answer (report) page with a write step, a plan page and a watch notebook have all shipped. Still to do: a notebook's page placed on a **board** as a tile, and more ready-made pages as new jobs turn up. Each is a new page document and, at most, a new widget: the example notebooks and the page checks ([`npm run notebook-pages:eval`](docs/notebooks.md)) say whether each kind still gets the right page.
 
 ## Next (3–6 months)
 

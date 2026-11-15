@@ -47,6 +47,10 @@ The bearer token's only job is to gate *any process that can hit localhost* from
 
 Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents` and `run-agent` tools. Agents without the flag respond as "not found" — not "forbidden" — so a compromised MCP client cannot enumerate the user's full catalog. Use `sua agent list` from the CLI to see everything.
 
+### Screenshots of pages
+
+`web-screenshot` opens a page in a headless browser. Every request the page makes (not only the first address) is checked against private, loopback, link-local and cloud-metadata addresses, so a redirect or a script on the page can't reach your network. Its pictures are kept with the run under `<data dir>/run-files/<run id>/` and served only to a signed-in dashboard. See [tools/web-screenshot.md](tools/web-screenshot.md).
+
 ### Experiments over MCP
 
 `experiment-read` lets an MCP client read any experiment, archived ones included: its question, what its agent was asked, the values written into its versions, the items its runs listed, and what it found. It can't run or change one. Anyone holding the token can read them, so to keep one out, deny `experiment-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).

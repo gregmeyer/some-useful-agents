@@ -80,7 +80,7 @@ Home is what needs you and what to do next, on one page, in two columns (one on 
 - **Recent notebooks**, under it: a card for each of the four notebooks you changed most recently (**All notebooks** for the rest), with its picture, the best option so far and its price, its done-when criteria as dots, and how many options are in the running. One you decided or archived is marked **decided** or **archived**: the list is where you were last, to open and read, and Next up still never suggests taking one up again. **sua asked you** shows on an open one when sua is waiting on your reply there. Then **+ New notebook**.
 - **Ask sua** in the bar at the top, for anything else.
 
-With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--the-board), and run activity on [`/runs`](#runs--runs-list).
+With no agents installed, Home is the Build-from-goal empty state instead. The board of agent tiles lives on [Pulse](#pulse--todays-edition-and-the-board), and run activity on [`/runs`](#runs--runs-list).
 
 ## `/inbox` — the full inbox
 
