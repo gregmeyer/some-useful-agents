@@ -5880,6 +5880,26 @@ describe('a notebook that depends on something you have to give it', () => {
     store.setAttachFileTypes(['pdf', 'txt', 'md', 'docx']);
   });
 
+  it('the page carries where each entry came from, so a printed or saved copy links to sources, not to the dashboard', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Prepare for a meeting with Dana Reyes' });
+    store.setFields(nb.id, [{ key: 'link', label: 'Link', type: 'url', role: 'link' }]);
+    const sourced = store.upsertOption(nb.id, { title: 'Her talk on scaling', data: { link: 'https://talks.example/dana?x=<1>' }, by: 'you' }).entry;
+    const bare = store.addEntry(nb.id, { kind: 'option', title: 'Something said in passing', by: 'you' });
+    const page = (await get(app, `/notebooks/${nb.id}`)).text;
+    const m = /<script type="application\/json" data-nb-print-links>([^<]*)<\/script>/.exec(page);
+    expect(m).not.toBeNull();
+    const map = JSON.parse(m![1]) as Record<string, string>;
+    expect(map[sourced.id]).toBe('https://talks.example/dana?x=<1>');
+    expect(map[bare.id]).toBeUndefined();
+    // The swap runs when the page prints (and is put back after).
+    const js = (await request(app).get('/assets/dashboard.js').set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect(js).toContain("window.addEventListener('beforeprint', before)");
+    expect(js).toContain("window.addEventListener('afterprint', after)");
+  });
+
   it('going on without it is recorded, told to every step, and shown on the page', async () => {
     const app = await makeApp();
     const { getContext } = await import('../context.js');

@@ -1409,6 +1409,24 @@ export function givenRail(nb: Pick<Notebook, 'id' | 'given'> & { archivedAt?: st
         </section>`;
 }
 
+/**
+ * Where each entry came from, for a printed or saved copy of the page: on
+ * the page a finding links to its own page in the dashboard, which a PDF's
+ * reader can't open, so printing swaps those links for the source's
+ * (NOTEBOOK_PAGE_JS). Only web addresses; an entry with none has no link in
+ * the printed copy.
+ */
+export function printLinks(nb: Pick<Notebook, 'fields'>, entries: readonly NotebookEntry[]): SafeHtml {
+  const web = (u: unknown) => (typeof u === 'string' && /^https?:\/\/\S+$/i.test(u.trim()) ? u.trim() : undefined);
+  const map: Record<string, string> = {};
+  for (const e of entries) {
+    const u = (e.kind === 'option' ? optionLink(nb.fields, e.data) : undefined) ?? web(e.fingerprint);
+    if (u) map[e.id] = u;
+  }
+  // "<" escaped so a link can never close the script element.
+  return html`<script type="application/json" data-nb-print-links>${unsafeHtml(JSON.stringify(map).replace(/</g, '\\u003c'))}</script>`;
+}
+
 const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'the link'; } };
 
 export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunView[]; cover?: { src: string; kind: string; shape?: string }; entries: NotebookEntry[]; compiled: CompiledSurface; history?: NotebookViewHistory; settingUp?: boolean; stages: PipelineStage[]; running?: { step: number; of: number }; busy?: string[]; lastWord?: { text: string; at: number }; stepsKey?: string; live?: NotebookLive; liveKey?: string; madeBy?: NotebookMadeBy; whatsNew?: WhatsNew; reading?: Record<string, 'working' | 'failed'>; givenNotUsed?: GivenNotUsed; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
@@ -1420,6 +1438,7 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
     ${args.nb.given?.length ? html`` : html`<section class="nb-given nb-given--quiet" aria-label="Give this notebook something">${givenAdd(args.nb, 'nb-given-new')}</section>`}
     
+    ${printLinks(args.nb, args.entries)}
     <div class="nb-body">
       <div class="nb-body__main" data-nb-main="${args.nb.id}" data-nb-count="${String(args.entries.length)}" data-nb-changed="${args.nb.updatedAt}${args.settingUp ? "+setup" : ""}" data-nb-steps="${args.stepsKey ?? ''}" data-nb-live="${args.liveKey ?? ''}" data-nb-running="${args.running || args.busy?.length ? '1' : ''}" data-page-thread="${args.nb.conversationId ?? ''}">${surfaceColumn(args.nb, args.compiled, args.entries, args.history, args.settingUp, !!args.running)}</div>
       <aside class="nb-body__side">${sideForms(args.nb, args.entries, args.lastWord, args.unfiled, args.live?.talk)}</aside>
