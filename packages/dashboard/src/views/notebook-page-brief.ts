@@ -10,7 +10,7 @@
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
-import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent } from '@some-useful-agents/core';
+import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -80,6 +80,20 @@ interface Printing {
   about: (src: string) => string | undefined;
   /** The notebook's TL;DR picture as a card (a Picture part): drawn here, since a saved page can't load the image. */
   tldr: () => SafeHtml;
+  /** An option's picture as the file can carry it (embedded when saved); undefined when it has none. */
+  pic: (o: NotebookViewOption) => string | undefined;
+}
+
+/**
+ * The lead's small picture: the drawing sua made of what it's about, or (a
+ * briefing on a subject) a picture from one of its sources, as the file can
+ * carry it. Nothing for anything else.
+ */
+function calloutArt(p: Printing, image: string): SafeHtml {
+  if (/^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(image)) return html`<img class="art" src="${image}" alt="">`;
+  const o = image ? (p.data.notebook.options as unknown as NotebookViewOption[]).find((x) => x.image === image) : undefined;
+  const src = o ? p.pic(o) : undefined;
+  return src ? html`<img class="art is-photo" src="${src}" alt="">` : html``;
 }
 
 /** A prop's value: a literal, or bound to the notebook's data. */
@@ -145,7 +159,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${node(p, c.child as string)}</section>`;
     }
     case 'Disclosure': return html`<section class="part part--aside"><div class="part__head"><h2>${text(v('label'))}</h2></div>${node(p, c.child as string)}</section>`;
-    case 'Callout': return html`<div class="callout">${/^data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+$/.test(text(v('image'))) ? html`<img class="art" src="${text(v('image'))}" alt="">` : html``}${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
+    case 'Callout': return html`<div class="callout">${calloutArt(p, text(v('image')))}${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
     case 'Text': return html`<p>${text(v('text'))}</p>`;
     case 'Metric': return html`<p class="metric"><span class="eyebrow">${text(v('label'))}</span> <b>${text(v('value'))}${text(v('unit'))}</b></p>`;
     case 'Badge': return html`<span class="chip">${text(v('text'))}</span>`;
@@ -206,6 +220,17 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         return xs.length ? html`<div class="eyebrow">${label}</div><ul>${xs.map((x) => html`<li><b>${text(x.title)}</b>${text(x.detail) ? html` <span class="muted">${text(x.detail)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``;
       }) as unknown as SafeHtml[]}</div>`;
     }
+    case 'Stories': {
+      // What it found as stories: a picture when it has one, the title linked, a line of summary, where it's from.
+      const all = list(v('items')) as Array<{ title?: unknown; href?: unknown; summary?: unknown; source?: unknown; image?: unknown }>;
+      if (!all.length) return html``;
+      const max = typeof c.maxItems === 'number' ? c.maxItems : 8;
+      return html`<div class="stories">${all.slice(0, p.full ? 50 : max).map((x) => {
+        const o = (p.data.notebook.options as unknown as Array<{ image?: string }>).find((y) => y.image && y.image === x.image) as NotebookViewOption | undefined;
+        const src = o ? p.pic(o) : isUrl(x.image) ? x.image as string : undefined;
+        return html`<div class="story">${src ? html`<img class="story__pic" src="${src}" alt="">` : html``}<div><b>${isUrl(x.href) ? html`<a href="${x.href as string}">${text(x.title)}</a>` : text(x.title)}</b>${text(x.summary) ? html`<p class="muted">${text(x.summary)}</p>` : html``}${text(x.source) ? html`<span class="fine">${text(x.source)}</span>` : html``}</div></div>`;
+      }) as unknown as SafeHtml[]}</div>`;
+    }
     case 'Itinerary': {
       const days = list(v('days')).map((d) => ({ when: text((d as { when?: unknown }).when), items: items((d as { items?: unknown }).items) })).filter((d) => d.items.length);
       const before = items(v('before'));
@@ -236,6 +261,17 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         ? (Array.isArray(c.columns) ? c.columns as Array<{ key: string; label: string }> : [])
         : [{ key: 'name', label: 'Option' }, { key: 'stage', label: 'Stage' }, { key: 'link', label: 'Link' }];
       const shown = rows.filter((r) => !r.ruledOut).slice(0, p.full ? 200 : 15);
+      // Sources or options with pictures of their own, drawn as cards on the page: cards here too, each with its picture and where it's from.
+      const real = (r: Record<string, unknown>) => !!r.image && r.imageKind !== 'illustration';
+      if (c.component === 'OptionGrid' && c.layout !== 'table' && shown.some(real)) {
+        return html`<div class="cards">${shown.map((r) => {
+          const o = r as unknown as NotebookViewOption;
+          const src = real(r) ? p.pic(o) : undefined;
+          const from = isUrl(r.link) ? site(r.link) : '';
+          return html`<figure class="card">${src ? html`<img class="card__pic${r.imageKind === 'logo' ? ' is-logo' : ''}" src="${src}" alt="">` : html`<span class="card__pic is-empty" aria-hidden="true"></span>`}
+            <figcaption><b>${text(r.name)}</b>${from ? html` <a class="src" href="${r.link as string}">${from}</a>` : html``}${src && r.imageKind === 'representative' ? html` <span class="fine">example photo</span>` : html``}</figcaption></figure>`;
+        }) as unknown as SafeHtml[]}</div>`;
+      }
       // A link cell is an address, or {label, url} (a competitor and its site): a link either way, its label as the text.
       const cell = (x: unknown) => {
         if (isUrl(x)) return html`<a href="${x}">${site(x)}</a>`;
@@ -340,7 +376,7 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   // A notebook that shows an experiment: its brief ends with how the experiment was run.
   const experiment = (data.notebook as { experiment?: import('@some-useful-agents/core').ExperimentPageData }).experiment;
   const layout = notebookLayoutOf(nb);
-  const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb), emptyPartsGo(layout, data));
+  const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), emptyPartsGo(layout, data));
   const { header, side, rest } = splitNotebookHeader(resolved);
   // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
   const byId = new Map([...(side ?? []).slice(1), ...rest].map((c) => [c.id, c]));
@@ -350,7 +386,7 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
     const pictured = who ? aboutSrc(who.src) : undefined;
     return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
   };
-  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr };
+  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image) };
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
@@ -473,6 +509,17 @@ th { font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: up
 .pic.is-logo img { padding: 4px; }
 .pic.is-empty { background: transparent; }
 .pic--thumb { width: 3rem; height: 2.25rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.75rem; }
+.card { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); break-inside: avoid; }
+.card__pic { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: var(--raised); }
+.card__pic.is-logo { object-fit: contain; padding: 0.75rem; }
+.card figcaption { padding: 0.5rem 0.625rem 0.625rem; font-size: 0.8125rem; line-height: 1.35; }
+.card figcaption b { display: block; font-weight: 600; }
+.stories { display: grid; gap: 0.75rem; }
+.story { display: flex; gap: 0.75rem; align-items: flex-start; break-inside: avoid; }
+.story__pic { flex: none; width: 6rem; aspect-ratio: 4 / 3; object-fit: contain; border-radius: 8px; background: var(--raised); }
+.story p { margin: 0.125rem 0; }
+.callout .art.is-photo { width: 9rem; height: 6rem; object-fit: contain; background: var(--raised); }
 .pic--hero { width: 100%; max-width: 18rem; aspect-ratio: 4 / 3; border-radius: 10px; }
 .pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
 footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }

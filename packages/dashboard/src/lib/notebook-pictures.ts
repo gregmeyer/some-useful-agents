@@ -125,6 +125,14 @@ export function startNotebookPictures(ctx: Ctx, notebookId: string): boolean {
   if (wantsLogos(nb)) store.relabelLogos(notebookId);
   const candidates = store.pictureCandidates(notebookId, 8);
   if (candidates.length === 0) return false;
+  // A briefing on a subject uses only its sources' own pictures (ADR-0080): no image search. What has none gets a drawing.
+  if (nb.briefOn) {
+    for (const c of candidates) {
+      if (!store.photoKind(c.id)) store.savePhoto(notebookId, c.id, 'illustration', { contentType: 'image/svg+xml', bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { kind: 'illustration' });
+    }
+    store.markPictureTried(candidates.map((c) => c.id));
+    return false;
+  }
   ctx.notebookPictures ??= new Set();
   if (ctx.notebookPictures.has(notebookId)) return false;
   const fake = ctx.notebookPictureRun;

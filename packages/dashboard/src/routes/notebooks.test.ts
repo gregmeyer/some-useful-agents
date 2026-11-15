@@ -1561,6 +1561,59 @@ describe('the funnel on the page and in the conversation', () => {
 describe('notebook photos', () => {
   const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1]);
 
+  it('a briefing on a subject keeps each source page\'s own picture, searches for none, and shows them on the page, in the brief and beside the lead', async () => {
+    const app = await makeApp();
+    const { getContext } = await import('../context.js');
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const { keepPhotos } = await import('../lib/notebook-photos.js');
+    const { startNotebookPictures } = await import('../lib/notebook-pictures.js');
+    const { notebookLayoutValues, picturedOptions, subjectLeadPicture, notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Learn about Acme Trails', briefOn: { name: 'Acme Trails', kind: 'organization', site: 'https://acmetrails.example/' } });
+    store.setFields(nb.id, [{ key: 'source_url', label: 'Source', type: 'url', role: 'link' }, { key: 'image', label: 'Picture', type: 'image', role: 'image' }]);
+    store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked');
+    const add = (title: string, url: string) => store.upsertOption(nb.id, { title, by: 'agent:notebook-finder', data: { source_url: url } }).entry;
+    const press = add('Acme Trails in the Valley Gazette', 'https://gazette.example/news/acme-trails-opens');
+    const own = add('About Acme Trails', 'https://acmetrails.example/about');
+    const bare = add('Acme Trails in a directory', 'https://directory.example/listing?q=acme');
+    // None of these is "one listing" with a matching title; for a subject briefing the page's own picture is kept anyway.
+    const deps = {
+      fetchImage: async () => ({ bytes: JPEG, contentType: 'image/jpeg' }),
+      pagePreview: async (u: string) => (u.includes('directory') ? {} : { image: `${new URL(u).origin}/lead.jpg`, title: 'Something else entirely' }),
+    };
+    expect(await keepPhotos(store, nb.id, { deps })).toEqual({ kept: 2, tried: 3 });
+    expect(store.hasPhoto(press.id) && store.hasPhoto(own.id)).toBe(true);
+    expect(store.hasPhoto(bare.id)).toBe(false);
+    // No image search runs for it: what has no picture of its own gets a drawing.
+    let searched = 0;
+    ctx.notebookPictureRun = async () => { searched++; return undefined; };
+    expect(startNotebookPictures(ctx, nb.id)).toBe(false);
+    expect(searched).toBe(0);
+    expect(store.photoKind(bare.id)).toBe('illustration');
+    expect(store.photoKind(press.id)).toBe('listing');
+    // The page draws the sources as cards because some have pictures; with none, a table.
+    const now = store.get(nb.id)!;
+    const data = notebookWidgetData(now, store.entries(nb.id, 100), store);
+    expect(picturedOptions(data)).toEqual({ pictured: 2, of: 3 });
+    expect(notebookLayoutValues(now, data).evidenceLayout).toBe('grid');
+    expect(notebookLayoutValues(now, { notebook: { options: [{ image: '/x', imageKind: 'illustration' }] } }).evidenceLayout).toBe('table');
+    expect(notebookLayoutValues(now).evidenceLayout).toBe('table');
+    // Beside the lead: a photo from the subject's own site first; none for a notebook that isn't a subject briefing.
+    expect(subjectLeadPicture(now, data.notebook.options)).toBe(`/notebooks/${nb.id}/entries/${own.id}/photo`);
+    expect(subjectLeadPicture({}, data.notebook.options)).toBeUndefined();
+    // The brief has the pictures: a card each, the drawing-only one without a picture.
+    store.setAnswer(nb.id, { question: 'q', text: '**Acme Trails is a trail guide.**', confidence: 'medium', findings: [], open: [], at: '2026-11-14T00:00:00.000Z', by: 'notebook-writer' });
+    const brief = (await request(app).get(`/notebooks/${nb.id}/brief.html`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect((brief.match(/<img class="card__pic"/g) ?? []).length).toBe(2);
+    expect(brief).toContain('class="card__pic is-empty"');
+    expect(brief).toContain('<a class="src" href="https://gazette.example/news/acme-trails-opens">gazette.example</a>');
+    expect(brief).toContain(`<img class="art is-photo" src="/notebooks/${nb.id}/entries/${own.id}/photo"`);
+    // Saved as a file (and the PDF): the pictures are inside it.
+    const saved = (await request(app).get(`/notebooks/${nb.id}/brief.html?download=1`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    expect((saved.match(/<img class="card__pic" src="data:image\/jpeg;base64,/g) ?? []).length).toBe(2);
+  });
+
   it('keeps photos from the image field or a matching listing page, and remembers what failed', async () => {
     await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

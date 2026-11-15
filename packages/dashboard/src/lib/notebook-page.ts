@@ -21,7 +21,7 @@ type Ctx = ReturnType<typeof getContext>;
 export const NOTEBOOK_PAGE_ID = 'notebook-page';
 
 /** What the page agent reads about a notebook: its goal and shape, not its options. Pure. */
-export function notebookForPage(nb: Notebook): Record<string, unknown> {
+export function notebookForPage(nb: Notebook, pictured?: { pictured: number; of: number }): Record<string, unknown> {
   return {
     title: nb.title,
     for: nb.statement,
@@ -34,6 +34,8 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
     // A notebook that searches on a schedule is likely keeping watch.
     ...(nb.cadence ? { searchesOnASchedule: nb.cadence } : {}),
     ...(written(nb) ? { written: written(nb) } : {}),
+    // Whether what it found has pictures of its own: when it does, they are shown (cards or stories, not a table).
+    ...(pictured && pictured.of ? { pictures: `${String(pictured.pictured)} of ${String(pictured.of)} ${nb.briefOn ? 'sources' : 'options'} have a picture of their own` } : {}),
     // A briefing on one named thing takes the ready-made "subject" page.
     ...(nb.briefOn ? { briefingOn: { name: nb.briefOn.name, kind: nb.briefOn.kind } } : {}),
   };
@@ -111,9 +113,9 @@ export async function runNotebookPageAgent(ctx: Ctx, inputs: Record<string, stri
 export type PageOutcome = 'drawn' | 'kept' | 'skipped' | 'failed';
 
 /** What the page agent is given for a notebook: it, the ready-made pages, and how to draw one. Pure. */
-export function pageAgentInputs(nb: Notebook): Record<string, string> {
+export function pageAgentInputs(nb: Notebook, pictured?: { pictured: number; of: number }): Record<string, string> {
   return {
-    NOTEBOOK: JSON.stringify(notebookForPage(nb)),
+    NOTEBOOK: JSON.stringify(notebookForPage(nb, pictured)),
     // The shortlist by name; the others with their documents, to use as they are or start from.
     PRESETS: NOTEBOOK_LAYOUT_PRESETS.map((p) => `${p.id}: ${p.when}${p.id === 'shortlist' ? '' : `\n  its page: ${JSON.stringify(p.layout.components)}`}`).join('\n'),
     GUIDE: notebookLayoutGuide(suaComponentDocs()),
@@ -138,9 +140,9 @@ export interface DrawnPage {
  * reasons; if that try can't be drawn, the first stands. With a `request`
  * ("put who they are at the top"), it changes `current` to do it.
  */
-export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string, string>) => Promise<string | undefined>, opts: { request?: string; current?: NotebookLayout } = {}): Promise<DrawnPage> {
+export async function drawNotebookPage(nb: Notebook, ask: (inputs: Record<string, string>) => Promise<string | undefined>, opts: { request?: string; current?: NotebookLayout; pictured?: { pictured: number; of: number } } = {}): Promise<DrawnPage> {
   // Asked for a change (the Edit page): what they said, and the page it changes (none: the shortlist).
-  const base = { ...pageAgentInputs(nb), ...(opts.request ? { ASK: opts.request, CURRENT: opts.current ? JSON.stringify(opts.current.components) : '' } : {}) };
+  const base = { ...pageAgentInputs(nb, opts.pictured), ...(opts.request ? { ASK: opts.request, CURRENT: opts.current ? JSON.stringify(opts.current.components) : '' } : {}) };
   const first = parsePageAnswer(await ask(base));
   const rhythm = 'layout' in first && !first.layout.preset ? pageRhythm(first.layout.components) : [];
   if (!('error' in first) && !rhythm.length) return { answer: first, tries: 1 };
@@ -162,7 +164,10 @@ export async function decideNotebookPage(ctx: Ctx, notebookId: string, opts: { a
   if (ctx.notebookPages.has(notebookId)) return 'skipped';
   ctx.notebookPages.add(notebookId);
   try {
-    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs), opts.keep ? { request: writesUp(nb) && nb.answer?.text ? KEEP_AND_ADD_WRITEUP : KEEP_AND_COMPOSE, ...(nb.layout ? { current: nb.layout } : {}) } : {});
+    // How many of what it found have a picture of their own (a photo or a logo, not a drawing).
+    const found = store.entries(notebookId, 500).filter((e) => e.kind === 'option' && !e.ruledOut);
+    const pictured = { pictured: found.filter((e) => { const k = store.photoKind(e.id); return !!k && k !== 'illustration'; }).length, of: found.length };
+    const { answer } = await drawNotebookPage(nb, (inputs) => runNotebookPageAgent(ctx, inputs), opts.keep ? { pictured, request: writesUp(nb) && nb.answer?.text ? KEEP_AND_ADD_WRITEUP : KEEP_AND_COMPOSE, ...(nb.layout ? { current: nb.layout } : {}) } : { pictured });
     const now = store.get(notebookId);
     // Gone, or given a page meanwhile (a card, a template, by hand): that stands.
     if (!now || (!opts.again && now.layout) || (opts.again && JSON.stringify(now.layout) !== JSON.stringify(nb.layout))) return 'skipped';

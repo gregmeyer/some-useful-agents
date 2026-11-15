@@ -836,13 +836,15 @@ const Callout = define('Callout', 'sua-a2ui-callout',
     :host { display: block; }
     .box { padding: var(--space-4, 16px); background: var(--color-surface); border: 1px solid var(--color-border); border-left: 3px solid var(--color-primary); border-radius: var(--radius-md, 10px); }
     .art { float: right; width: 96px; height: 72px; margin: 0 0 8px 16px; border-radius: 8px; }
+    /* A source's own photo beside a briefing's lead: larger, shown whole. */
+    .art.photo { width: 168px; height: 112px; object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
     @media (max-width: 560px) { .art { display: none; } }
     .label { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--color-primary); }
     .text { margin: 8px 0 0; font-size: var(--font-size-lg, 17px); line-height: 1.45; color: var(--color-text); }
     .text strong { font-weight: 600; }
     .next { margin: 8px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
     .next b { color: var(--color-text); }`,
-  function () { const img = this.controller?.props?.image; return html`<div class="box">${typeof img === 'string' && /^data:image\/svg\+xml;base64,/.test(img) ? html`<img class="art" src=${img} alt="">` : nothing}${said(this.controller?.props?.label) ? html`<div class="label">${said(this.controller.props.label)}</div>` : nothing}<p class="text"></p>${said(this.controller?.props?.next) ? html`<p class="next"><b>${said(this.controller.props.nextLabel) || 'Next:'}</b> ${said(this.controller.props.next)}</p>` : nothing}</div>`; },
+  function () { const img = this.controller?.props?.image; const photo = typeof img === 'string' && /^\/notebooks\/[^/]+\/entries\/[^/]+\/photo$/.test(img); return html`<div class="box">${typeof img === 'string' && (photo || /^data:image\/svg\+xml;base64,/.test(img)) ? html`<img class="art${photo ? ' photo' : ''}" src=${img} alt="">` : nothing}${said(this.controller?.props?.label) ? html`<div class="label">${said(this.controller.props.label)}</div>` : nothing}<p class="text"></p>${said(this.controller?.props?.next) ? html`<p class="next"><b>${said(this.controller.props.nextLabel) || 'Next:'}</b> ${said(this.controller.props.next)}</p>` : nothing}</div>`; },
   { updated() { const el = this.renderRoot.querySelector('.text'); const v = said(this.controller?.props?.text); if (el && el.__v !== v) { el.innerHTML = boldOnly(v); el.__v = v; } } });
 
 const StatStrip = define('StatStrip', 'sua-a2ui-stat-strip',

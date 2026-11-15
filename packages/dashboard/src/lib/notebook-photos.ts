@@ -23,6 +23,9 @@ const defaultDeps: PhotoDeps = { fetchImage: (u) => coreFetchImage(u), pagePrevi
 export async function keepPhotos(store: NotebookStore, notebookId: string, opts: { limit?: number; deps?: PhotoDeps } = {}): Promise<{ kept: number; tried: number }> {
   const deps = opts.deps ?? defaultDeps;
   const queue = store.photoCandidates(notebookId, opts.limit ?? 8);
+  // A briefing on a subject keeps each source page's own picture: a source is any page about it, so the listing tests
+  // (an id in the address, a title naming the option) don't apply.
+  const anyPage = !!store.get(notebookId)?.briefOn;
   let kept = 0;
   const work = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
@@ -30,10 +33,10 @@ export async function keepPhotos(store: NotebookStore, notebookId: string, opts:
       try {
         if (!source && c.link) {
           source = c.link;
-          if (!looksLikeOneListing(c.link)) throw new Error('The link is a page of results, not one listing.');
+          if (!anyPage && !looksLikeOneListing(c.link)) throw new Error('The link is a page of results, not one listing.');
           const preview = await deps.pagePreview(c.link);
-          if (!preview.image) throw new Error('The listing page has no preview photo.');
-          if (!preview.title || !previewMatchesOption(preview.title, c.entry.title)) throw new Error("The listing page doesn't look like this option.");
+          if (!preview.image) throw new Error(anyPage ? 'The page has no picture of its own.' : 'The listing page has no preview photo.');
+          if (!anyPage && (!preview.title || !previewMatchesOption(preview.title, c.entry.title))) throw new Error("The listing page doesn't look like this option.");
           source = preview.image;
         }
         if (!source) continue;

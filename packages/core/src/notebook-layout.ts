@@ -49,6 +49,7 @@ export const NOTEBOOK_LAYOUT_VALUES = {
   sort: 'The shortlist\'s sort: the fit score, else price.',
   filters: 'What the shortlist can be filtered by.',
   csvHref: 'The shortlist CSV link.',
+  evidenceLayout: 'grid when any source has a picture of its own (so the pictures show as cards), else table.',
   stageChips: 'false when its steps say how far each got (no stage chips).',
   onlyChosen: 'true once decided: show the chosen ones first.',
   leadField: 'The deciding field\'s key (the score, else the price, else the first money or number field): what Bars and Compare go by.',
@@ -241,7 +242,7 @@ const COMPANY: ViewComponent[] = [
   { ...panel('evidence_p', 'Sources and evidence', 'evidence'), treatment: 'feature', when: 'options' },
   {
     id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
-    layout: 'table', sort: L('sort'), actions: true, csvHref: L('csvHref'),
+    layout: L('evidenceLayout'), sort: L('sort'), actions: true, csvHref: L('csvHref'),
   },
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
@@ -273,7 +274,7 @@ const ANSWER: ViewComponent[] = [
   { ...panel('evidence_p', 'The evidence', 'evidence', 'what sua found and checked'), treatment: 'feature', when: 'options' },
   {
     id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
-    layout: 'table', sort: L('sort'), actions: true, csvHref: L('csvHref'),
+    layout: L('evidenceLayout'), sort: L('sort'), actions: true, csvHref: L('csvHref'),
   },
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
@@ -376,7 +377,7 @@ const SUBJECT: ViewComponent[] = [
   { ...panel('evidence_p', 'Sources', 'evidence', 'the pages this rests on'), treatment: 'feature', when: 'options' },
   {
     id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
-    sort: L('sort'), actions: true, csvHref: L('csvHref'),
+    layout: L('evidenceLayout'), sort: L('sort'), actions: true, csvHref: L('csvHref'),
   },
   { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
   { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
@@ -731,7 +732,7 @@ const SAMPLE_FLAGS = Object.fromEntries(Object.keys(NOTEBOOK_LAYOUT_FLAGS).map((
 const SAMPLE_VALUES: Record<NotebookLayoutValueKey, unknown> = {
   mapNote: 'price by measure', xLabel: 'Measure', yLabel: 'Price', xFormat: 'number', yFormat: 'money',
   xBetter: 'higher', yBetter: 'lower', sort: 'price', filters: ['added'], csvHref: '/notebooks/x/shortlist.csv',
-  stageChips: false, onlyChosen: true, leadField: 'price', leadLabel: 'Price',
+  stageChips: false, onlyChosen: true, leadField: 'price', leadLabel: 'Price', evidenceLayout: 'grid',
 };
 
 /**

@@ -51,3 +51,11 @@ Code holds it to that (`cleanAnswer` with `BriefingRules`): a part that cites no
 
 The subject page is not composed again once the briefing is written. Composing picks one part as a hero and files the rest under "Also written", which is wrong for parts that are meant to be read in order.
 
+## Amendment (2026-11-14): pictures
+
+The first notebook kept seven pictures and showed none: its page drew sources as a table, the brief's `OptionGrid` was three text columns, a `Stories` part vanished from the brief, and the page chooser was never told the sources had pictures.
+
+- **A source page's own picture is the source's picture.** For a subject briefing `keepPhotos` keeps a page's `og:image` without the listing tests (an id in the address, a title naming the option), which only make sense for listings. No image search runs for these notebooks (`startNotebookPictures` only marks drawings): an "example photo" of a named subject may not be of it.
+- **Pictures decide the layout.** `evidenceLayout` resolves to `grid` when any source has a picture of its own, else `table`, on the subject, answer and company pages. The page chooser is told how many have one and to show them as cards or stories.
+- **The brief draws what the page draws.** An `OptionGrid` that isn't a table is cards with pictures; `Stories` has a case; the lead's picture may be a kept photo. Saved as a file or a PDF, the pictures are embedded.
+

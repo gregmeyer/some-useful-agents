@@ -88,6 +88,12 @@ nodes:
           openings, back in stock): use the ready-made "watch": what
           changed since the last search first, then everything it's
           watching.
+      PICTURES. When the notebook says "pictures" and some of what it
+      found has a picture of its own, the page shows them: draw those
+      options or sources as an OptionGrid with "layout": "grid" (cards
+      with the picture) or as Stories, never as a Table or an OptionGrid
+      with "layout": "table". When none has a picture, a table is fine.
+
       Use a ready-made page whenever it fits ({"preset": "dossier"} for
       getting ready to meet someone, {"preset": "subject"} for a briefing
       on one named thing, {"preset": "answer"} for a question,
