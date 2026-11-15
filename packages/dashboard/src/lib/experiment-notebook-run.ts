@@ -84,6 +84,7 @@ function makeCopy(ctx: Ctx, e: Experiment, source: Notebook, label: string, setu
     title: `${source.title} · ${label}`.slice(0, 200), statement: t.statement, params: setup.params, criteria: t.criteria, pipeline: t.pipeline ?? [], cadence: '',
     ...(source.asked ? { asked: source.asked } : {}),
     ...(setup.given.length ? { given: setup.given } : {}),
+    ...(source.briefOn ? { briefOn: source.briefOn } : {}),
   });
   store.setExperimentRun(nb.id, { experimentId: e.id, label });
   store.setFields(nb.id, t.fields);

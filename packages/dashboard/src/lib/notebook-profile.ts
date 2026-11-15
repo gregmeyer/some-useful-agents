@@ -178,6 +178,20 @@ export function withGivenLinkedIn<T extends { facts: Array<{ key: string; label:
   return { ...f, facts: [...f.facts.filter((x) => x.key !== 'linkedin'), { key: 'linkedin', label, value: given, source: given }], notFound: f.notFound.filter((x) => x !== label) };
 }
 
+/**
+ * The site you gave for the organization a briefing is on is its site: kept
+ * as its website over one the research found on another host (a namesake's,
+ * a directory's), and left alone when the research found the same host. Pure.
+ */
+export function withGivenSite<T extends { facts: Array<{ key: string; label: string; value: string; source?: string; quote?: string; from?: string }>; notFound: string[] }>(f: T, site: string | undefined): T {
+  if (!site) return f;
+  const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
+  const found = f.facts.find((x) => x.key === 'website');
+  if (found && hostOf(found.value) === hostOf(site)) return f;
+  const label = COMPANY_ASK.find((a) => a.key === 'website')!.label;
+  return { ...f, facts: [...f.facts.filter((x) => x.key !== 'website'), { key: 'website', label, value: site, source: site }], notFound: f.notFound.filter((x) => x !== label) };
+}
+
 const host = (u: string): string | undefined => {
   try { const h = new URL(u).hostname.replace(/^www\./, ''); return h.includes('.') ? h : undefined; } catch { return undefined; }
 };
@@ -388,13 +402,15 @@ export async function learnAbout(ctx: Ctx, store: NotebookStore, notebookId: str
     if (second.runId) onRun?.(second.runId);
     const c = readResearch(second.result);
     if (c) {
-      const { facts, notFound } = aboutFrom(c, COMPANY_ASK, from);
+      // A briefing on this organization, with the site you gave: that is its site.
+      const givenSite = isCompany && nb.briefOn?.kind === 'organization' ? nb.briefOn.site : undefined;
+      const { facts, notFound } = withGivenSite(aboutFrom(c, COMPANY_ASK, from), givenSite);
       // Its competitors: their own list, each from the page that names it (the answer's page for any that don't say).
       const rivals = cleanCompetitors(c.found.competitors?.value, company.name, typeof c.found.competitors?.source === 'string' ? c.found.competitors.source : undefined);
       store.setAbout(nb.id, 'company', { name: company.name, facts, notFound, ...(c.summary ? { summary: c.summary } : {}), ...(rivals.length ? { competitors: rivals } : {}) });
       if (rivals.length) notes.push(`named ${String(rivals.length)} competitor${rivals.length === 1 ? '' : 's'}`);
       notes.push(`learned ${String(facts.length)} about ${company.name}`);
-      const pic = await keepPicture(ctx, store, nb, 'company', { site: text(c, 'website') || company.site });
+      const pic = await keepPicture(ctx, store, nb, 'company', { site: givenSite || text(c, 'website') || company.site });
       if (pic) notes.push(`kept its ${pic}`);
     } else {
       notes.push(`${RESEARCH_ONE_ID} on ${company.name}: ${second.error ?? 'no answer'}`);

@@ -57,6 +57,16 @@ Nothing is created until you start it. **Skip the draft** starts the notebook fr
 - Drafts are stored with the dashboard, so a restart doesn't lose them. One that was mid-draft when the dashboard stopped reads as failed ("Draft it again"). If a change fails, the draft before it comes back. A draft untouched for two weeks is dropped.
 - The sentence you're still typing, before **Draft it**, is kept in your browser.
 
+### "Tell me about…": a briefing on a subject
+
+Ask sua to learn about one named thing ("Tell me about Acme Trails https://acmetrails.example", "what is roadschooling", "brief me on the Model 7") and the draft is a **briefing on that subject** ([ADR-0080](adr/0080-a-briefing-on-a-subject.md)), not a question to answer:
+
+- **Who or what it's on is kept with the notebook**: the name as you wrote it, what kind of thing it is (an organization, a person, a product, a topic), and its own site when you gave a link.
+- **Its steps**: for an organization or a person, **Learn about** them first (their facts with sources, logo or photo, competitors); then **Find** sources on the subject, **Check** them, and **Write** the briefing. A product or a topic skips the first step.
+- **The search stays on the subject.** Every search names it. For an organization, a person or a product it covers the subject's own site and at least three places that aren't its own site (press, reviews, listings, its social or podcast pages), and says so when fewer exist. No general guidance or law pages on the wider topic are added, and a page that doesn't name the subject isn't kept.
+- **The site you gave is its site.** For an organization, the link in your ask is kept as its website and used for its logo, even when research turns up a namesake's.
+- **Its page** is the ready-made **Subject briefing**: who or what it is with what's known, the briefing's lead and parts, what it rests on, competitors when there are some, then the sources as cards. It has this page from the start and keeps its kind.
+
 ### When it needs something from you
 
 Some notebooks depend on something you referred to but didn't put in the request: "a job search matched to my LinkedIn profile", "a shortlist based on my résumé", "check these against the attached spec". sua can't read LinkedIn, and a link is not the thing itself. So the notebook asks, and waits ([ADR-0077](adr/0077-a-notebook-waits-for-what-it-depends-on.md)):

@@ -719,6 +719,8 @@ export interface Notebook {
   experimentId?: string;
   /** It is a copy an experiment made to run (ADR-0079): which experiment, and which version and run of it. Kept out of lists. */
   experimentRun?: { experimentId: string; label: string };
+  /** Who or what it is a briefing on (a subject briefing, ADR-0080). Not `tags.subject` (a guess for matching) or a step's `subject`. */
+  briefOn?: NotebookSubject;
   /**
    * What it depends on that your request referred to but didn't contain (a
    * profile, a résumé, a spec): each still missing, given (its text), or
@@ -921,6 +923,40 @@ export interface NewOption {
   trustedFacts?: boolean;
 }
 
+/**
+ * Who or what a notebook is a briefing on, when the ask was to learn about
+ * one named thing ("Tell me about Acme", "what is roadschooling"): its
+ * name as you wrote it, what kind of thing it is, and its own site when you
+ * gave one. Its steps stay on it: searches are about it, its site is its
+ * site, and what's written is a briefing on it (ADR-0080).
+ */
+export interface NotebookSubject {
+  name: string;
+  /** A named organization or person is also looked up (a profile step); a product or a topic isn't. */
+  kind: 'organization' | 'person' | 'product' | 'topic';
+  /** Its own site (http/https), as you gave it. */
+  site?: string;
+}
+
+export const NOTEBOOK_SUBJECT_KINDS: ReadonlyArray<NotebookSubject['kind']> = ['organization', 'person', 'product', 'topic'];
+
+/** A stored or drafted subject, cleaned; undefined when it names nothing. Pure. */
+export function cleanSubject(raw: unknown): NotebookSubject | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const name = typeof r.name === 'string' ? r.name.replace(/\s+/g, ' ').trim().slice(0, 80) : '';
+  if (!name) return undefined;
+  const kind = NOTEBOOK_SUBJECT_KINDS.find((k) => k === r.kind) ?? 'topic';
+  const site = typeof r.site === 'string' && /^https?:\/\/[^\s/]+\.[^\s]+$/i.test(r.site.trim()) ? r.site.trim().slice(0, 300) : '';
+  return { name, kind, ...(site ? { site } : {}) };
+}
+
+/** The host of its own site, without www ("acme.example"); undefined when it has none. Pure. */
+export function subjectHost(subject: Pick<NotebookSubject, 'site'> | undefined): string | undefined {
+  if (!subject?.site) return undefined;
+  try { return new URL(subject.site).hostname.replace(/^www\./, '').toLowerCase(); } catch { return undefined; }
+}
+
 /** Something a notebook depends on that has to come from you. */
 export interface NotebookGiven {
   key: string;
@@ -1076,6 +1112,8 @@ export interface NewNotebook {
   asked?: string;
   /** What it depends on from you (cleanGiven). */
   given?: unknown;
+  /** Who or what it is a briefing on (cleanSubject). */
+  briefOn?: unknown;
 }
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
@@ -1533,7 +1571,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'given_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
@@ -2373,6 +2411,13 @@ export class NotebookStore {
   }
 
   /** Mark a notebook as a copy an experiment made to run: it stays out of lists, and says whose it is. */
+  /** Say who or what it is a briefing on (undefined: it isn't one). */
+  setBriefOn(id: string, subject: unknown): Notebook {
+    const clean = cleanSubject(subject);
+    this.db.prepare('UPDATE notebooks SET brief_on_json = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, new Date().toISOString(), id);
+    return this.mustGet(id);
+  }
+
   setExperimentRun(id: string, run: { experimentId: string; label: string }): void {
     this.db.prepare('UPDATE notebooks SET experiment_run_json = ? WHERE id = ?').run(JSON.stringify({ experimentId: run.experimentId, label: run.label.slice(0, 200) }), id);
   }
@@ -2681,6 +2726,8 @@ export class NotebookStore {
     const asked = (input.asked ?? '').trim().slice(0, 2000);
     const given = cleanGiven(input.given, now);
     if (asked || given.length) this.db.prepare('UPDATE notebooks SET asked = ?, given_json = ? WHERE id = ?').run(asked || null, given.length ? JSON.stringify(given) : null, id);
+    const briefOn = cleanSubject(input.briefOn);
+    if (briefOn) this.db.prepare('UPDATE notebooks SET brief_on_json = ? WHERE id = ?').run(JSON.stringify(briefOn), id);
     return this.get(id)!;
   }
 
@@ -3147,6 +3194,7 @@ export class NotebookStore {
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
       ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
       ...(typeof r.experiment_id === 'string' && r.experiment_id ? { experimentId: r.experiment_id } : {}),
+      ...(r.brief_on_json ? (() => { const x = cleanSubject(parse<unknown>(r.brief_on_json, undefined)); return x ? { briefOn: x } : {}; })() : {}),
       ...(r.experiment_run_json ? (() => { const x = parse<{ experimentId?: string; label?: string } | undefined>(r.experiment_run_json, undefined); return x?.experimentId ? { experimentRun: { experimentId: String(x.experimentId), label: String(x.label ?? '') } } : {}; })() : {}),
       ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),

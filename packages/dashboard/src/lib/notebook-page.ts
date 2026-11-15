@@ -34,6 +34,8 @@ export function notebookForPage(nb: Notebook): Record<string, unknown> {
     // A notebook that searches on a schedule is likely keeping watch.
     ...(nb.cadence ? { searchesOnASchedule: nb.cadence } : {}),
     ...(written(nb) ? { written: written(nb) } : {}),
+    // A briefing on one named thing takes the ready-made "subject" page.
+    ...(nb.briefOn ? { briefingOn: { name: nb.briefOn.name, kind: nb.briefOn.kind } } : {}),
   };
 }
 

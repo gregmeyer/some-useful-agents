@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, mainCompany, PERSON_ASK, COMPANY_ASK } from './notebook-profile.js';
+import { profileSubject, readResearch, aboutFrom, profileContext, withGivenLinkedIn, withGivenSite, mainCompany, PERSON_ASK, COMPANY_ASK } from './notebook-profile.js';
 
 describe('a profile step\'s research', () => {
   it('is about its subject, else the notebook\'s title without "Prepare for a meeting with"', () => {
@@ -56,5 +56,16 @@ describe('a profile step\'s research', () => {
     const before = { name: 'Dana', facts: [{ key: 'organization', label: 'Company', value: 'Acme', at: 'x' }], updatedAt: 'x' };
     expect(mainCompany(before, facts)).toMatchObject({ org: 'Blueprint Ventures', also: [{ name: 'Acme' }] });
     expect(mainCompany(undefined, facts)).toMatchObject({ org: 'Blueprint Ventures', also: [] });
+  });
+
+  it('the site you gave for the organization a briefing is on is its site, over a namesake found by research', () => {
+    const site = 'https://www.acmetrails.example/';
+    const namesake = { facts: [{ key: 'website', label: 'Website', value: 'https://acme-trails.other.example', source: 'https://dir.example/acme' }, { key: 'industry', label: 'Industry', value: 'Travel' }], notFound: [] };
+    expect(withGivenSite(namesake, site).facts).toEqual([{ key: 'industry', label: 'Industry', value: 'Travel' }, { key: 'website', label: 'Website', value: site, source: site }]);
+    // Not found by research: the given one fills it. The same host found: left as research gave it. None given: untouched.
+    expect(withGivenSite({ facts: [], notFound: ['Website', 'Size'] }, site)).toEqual({ facts: [{ key: 'website', label: 'Website', value: site, source: site }], notFound: ['Size'] });
+    const same = { facts: [{ key: 'website', label: 'Website', value: 'https://acmetrails.example/about', source: 'https://acmetrails.example/about' }], notFound: [] };
+    expect(withGivenSite(same, site)).toBe(same);
+    expect(withGivenSite(namesake, undefined)).toBe(namesake);
   });
 });
