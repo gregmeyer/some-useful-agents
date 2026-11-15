@@ -4,7 +4,7 @@
  * from the latest pass each time, and is where you talk to sua about it.
  * One notebook an experiment: asking again opens the one it has.
  */
-import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, experimentReadoutText, experimentSubject, findExperiment, readExperiment, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
+import { ExperimentStore, NotebookStore, experimentLayout, experimentPageData, experimentSetup, experimentReadoutText, experimentSubject, findExperiment, readExperiment, type ExperimentPageData, type Notebook } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runningPass } from './experiment-runner.js';
 
@@ -17,7 +17,7 @@ export function experimentDataFor(ctx: Ctx, experimentId: string): ExperimentPag
     const e = s.get(experimentId);
     if (!e) return undefined;
     const pass = s.passes(e.id, 1)[0];
-    return experimentPageData(e, pass ? s.cells(pass.id) : [], pass ? s.scores(pass.id) : [], { running: !!runningPass(ctx, e.id) });
+    return { ...experimentPageData(e, pass ? s.cells(pass.id) : [], pass ? s.scores(pass.id) : [], { running: !!runningPass(ctx, e.id) }), setup: experimentSetup(e) };
   } catch {
     return undefined;
   }

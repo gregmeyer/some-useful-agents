@@ -107,6 +107,8 @@ Scores show for each version as an average over its runs, with the lowest and hi
 
 **Show it in a notebook** (or the box on the last setup step) makes a notebook for the experiment: its page leads with what it found, then the figures, each version against the baseline, each change by itself, and what each version found. The notebook is where you talk to sua about the results.
 
+**A brief to print or send.** That notebook's **Download / share** has **The brief**: **Open ↗**, **PDF** and **HTML**. It carries the finding, the figures, each version against the baseline and what each version found, and ends with **How it was run** (what was run and how many times, what it was asked, each change with its versions, how results were scored), so it reads without the dashboard. The numbers are as the experiment stood when you open it.
+
 - **It reads the experiment every time.** Nothing is copied, so it never goes stale; an open page redraws as runs come back.
 - **One notebook an experiment.** Asking again opens the one it has; an archived one is restored.
 - **It has no steps and nothing to decide.** Its main button is **Open the experiment**, which is where it is run.
