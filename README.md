@@ -178,13 +178,17 @@ sua schedule list                       # show scheduled agents
 
 Start with `sua dashboard start`. Dark mode by default, JetBrains Mono, warm stone neutrals. (These screenshots come from made-up fixture data; see [scripts/screenshots](scripts/screenshots/README.md).)
 
-![A notebook: where it stands, done-when, and the price map](docs/images/notebook.png)
+![A notebook: where it stands and what is done](docs/images/notebook.png)
 
 ![Start a notebook: one sentence becomes a draft to check](docs/images/new-notebook-draft.png)
 
 ![A notebook with its conversation open in the sua panel](docs/images/drawer.png)
 
-![Pulse: your board of agent tiles](docs/images/pulse.png)
+![Pulse: Today's edition, a front page of what your scheduled agents produced](docs/images/pulse.png)
+
+![A meeting briefing: who they are, what is known with its sources, and the talking points](docs/images/meeting-briefing.png)
+
+![An experiment: the finding, and how much two versions' results had in common](docs/images/experiment.png)
 
 ![Agents list](docs/images/agents-list.png)
 
