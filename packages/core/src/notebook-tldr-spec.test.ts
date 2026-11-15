@@ -12,8 +12,8 @@ describe('a TL;DR picture\'s spec', () => {
       size: 'landscape', tone: 'editorial', layout: 'split', parts: ['bars', 'lead'], bars: TLDR_SIZES.landscape.bars,
       headline: 'Eight ways to power a cart', takeaway: `${'x'.repeat(179)}…`, about: 'Wide for LinkedIn', ask: 'for linkedin', at: '2026-11-10T00:00:00.000Z',
     });
-    expect(cleanTldrSpec({ size: 'billboard', tone: 'neon', layout: 'spiral', parts: [], bars: 1 })).toEqual({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead', 'stats', 'bars', 'points'], bars: 3 });
-    expect(cleanTldrSpec({})).toEqual({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead', 'stats', 'bars', 'points'] });
+    expect(cleanTldrSpec({ size: 'billboard', tone: 'neon', layout: 'spiral', parts: [], bars: 1 })).toEqual({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead', 'photos', 'stats', 'bars', 'points'], bars: 3 });
+    expect(cleanTldrSpec({})).toEqual({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead', 'photos', 'stats', 'bars', 'points'] });
     for (const bad of [undefined, null, 'landscape', 7, ['landscape']]) expect(cleanTldrSpec(bad)).toBeUndefined();
   });
 

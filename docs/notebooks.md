@@ -74,6 +74,10 @@ Ask sua to learn about one named thing ("Tell me about Acme Trails https://acmet
   - The sources are drawn as **cards with their pictures** when any has one (a table when none does). The same holds on the Answer and Company briefing pages.
   - **The brief and its PDF carry them**: a card for each source with its picture and its site. A page part drawn as stories shows in the brief too.
   - **Beside the lead**: a photo from one of its sources, the subject's own site first; when no source has a photo, the small drawing sua makes of what it's about.
+- **Its TL;DR picture uses those photos.** The standard picture shows up to four of the sources' own photos in a strip under the lead, each with the site it is from, the subject's own site first. Never a logo, a drawing or a photo from an image search.
+  - **Redraw…** has **Use its photos**: the **gallery** layout puts the photos first, side by side (it needs two; with one it is drawn as a cover).
+  - A cover or a spotlight shows one of the photos large, where it would otherwise blow up the subject's logo.
+  - "No photos" leaves them out.
 - **Its page** is the ready-made **Subject briefing**: who or what it is with what's known, the briefing's lead and parts, what it rests on, competitors when there are some, then the sources as cards. It has this page from the start and keeps its kind.
 
 ### When it needs something from you

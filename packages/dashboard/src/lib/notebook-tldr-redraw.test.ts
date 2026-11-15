@@ -53,6 +53,6 @@ describe('redrawing a TL;DR picture from an ask', () => {
     const out = parseTldrAnswer(answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Batteries from $140', takeaway: 'Eight options.' }), nb, card, 'bolder', at);
     expect(out).toMatchObject({ error: "The headline or takeaway has a number that CARD doesn't (140). Use only numbers that are in CARD, written as they are there, or none." });
     // What would be kept if a second try doesn't fix it: the drawing, without the words.
-    expect((out as { spec: unknown }).spec).toEqual({ size: 'square', tone: 'bold', layout: 'hero', parts: ['lead', 'stats', 'bars', 'points'], ask: 'bolder', at });
+    expect((out as { spec: unknown }).spec).toEqual({ size: 'square', tone: 'bold', layout: 'hero', parts: ['lead', 'photos', 'stats', 'bars', 'points'], ask: 'bolder', at });
   });
 });

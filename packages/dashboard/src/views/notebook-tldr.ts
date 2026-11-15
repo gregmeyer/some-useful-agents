@@ -12,7 +12,7 @@
  * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
-import { rankBy, rankOptions, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrSpec } from '@some-useful-agents/core';
+import { rankBy, rankOptions, subjectHost, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrSpec } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -56,6 +56,39 @@ export interface TldrData {
   /** Without bars: the first findings (or talking points), in words. */
   points: string[];
   pointsLabel?: string;
+  /**
+   * The notebook's own photos (a briefing on a subject: its sources' own
+   * pictures, the subject's site first), each with the site it's from.
+   * Never a logo, a drawing or a photo from an image search.
+   */
+  photos?: TldrPhoto[];
+}
+
+/** One of the notebook's own photos on the card. */
+export interface TldrPhoto { src: string; credit: string; name: string }
+/** Photos a card shows in a strip, at most. */
+export const TLDR_PHOTOS_MAX = 4;
+
+/**
+ * A subject briefing's photos for its picture: each source's own picture
+ * (kept from its page, never an example photo, a logo or a drawing), the
+ * subject's own site first, one a picture (two sources sharing one show it
+ * once). None for any other notebook. Pure.
+ */
+export function tldrPhotos(nb: Pick<Notebook, 'briefOn'>, options: readonly NotebookViewOption[], pictures: BriefPicture | undefined): TldrPhoto[] {
+  if (!nb.briefOn || !pictures) return [];
+  const own = subjectHost(nb.briefOn);
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
+  const real = options.filter((o) => !o.ruledOut && o.image && (o.imageKind === 'listing' || o.imageKind === undefined));
+  const ordered = [...real.filter((o) => own && host(o.link) === own), ...real.filter((o) => !(own && host(o.link) === own))];
+  const out: TldrPhoto[] = [];
+  for (const o of ordered) {
+    const src = pictures(o);
+    if (!src || out.some((x) => x.src === src)) continue;
+    out.push({ src, credit: host(o.link) || 'source', name: clip(o.name, 60) });
+    if (out.length >= TLDR_PHOTOS_MAX) break;
+  }
+  return out;
 }
 
 const pictureKind = (o: Pick<NotebookViewOption, 'imageKind'>): TldrPictureKind => (o.imageKind === 'logo' ? 'logo' : o.imageKind === 'illustration' ? 'drawing' : 'photo');
@@ -129,6 +162,8 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
   // About someone (a meeting, a company briefing): they lead, with their picture, what they do and where, and your
   // goal or who they are in a sentence; then the talking points once they're written, else the first findings.
   const talk = nb.briefing?.points ?? [];
+  // A briefing on a subject: its sources' own photos.
+  const photos = tldrPhotos(nb, active, pictures);
   const who = nb.about?.person?.name ? 'person' as const : nb.about?.company?.name ? 'company' as const : undefined;
   if (who) {
     const about = nb.about![who]!;
@@ -148,6 +183,7 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
       // No talking points yet: what's kept about them is findings, not options to choose between.
       ].slice(0, 3) : stats.slice(0, 3).map((x) => (/^options? in the running$/.test(x.label) ? { ...x, label: x.value === '1' ? 'finding kept' : 'findings kept' } : x)),
       ...(talk.length ? { points: talk.slice(0, 4).map((p) => clip(plain(p.text), 170)), pointsLabel: 'Talking points' } : { points: d.findings.slice(0, 3).map((f) => clip(plain(f.text), 170)) }),
+      ...(photos.length ? { photos } : {}),
     };
   }
   // A briefing about no one in particular: what it's for, then its talking points.
@@ -165,8 +201,10 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
   return {
     title: nb.title, leadLabel: written ? written.label : nb.status === 'decided' ? 'Decided' : 'Where it stands',
     lead: clip(plain(written ? written.text : nb.status === 'decided' && nb.decision ? nb.decision : d.summary), 320),
-    leadFacts: [], stats: stats.slice(0, 3),
+    // A briefing's options are its sources.
+    leadFacts: [], stats: stats.slice(0, 3).map((x) => (nb.briefOn && /^options? in the running$/.test(x.label) ? { ...x, label: x.value === '1' ? 'source' : 'sources' } : x)),
     points: d.findings.slice(0, 3).map((f) => clip(plain(f.text), 170)),
+    ...(photos.length ? { photos } : {}),
   };
 }
 
@@ -335,6 +373,15 @@ export const TLDR_CSS = `
 .tl--spotlight.tl--landscape .tl__bar { grid-template-columns: minmax(0, 170px) minmax(0, 1fr) auto; }
 /* Lineup: the top options as picture tiles side by side. */
 .tl__lineup { display: grid; gap: 14px; }
+/* The notebook's own photos: a strip of frames, each with the site it's from. */
+.tl__photos { margin: 0; }
+.tl__shots { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(var(--shots, 3), minmax(0, 1fr)); gap: 16px; }
+.tl__shot { display: grid; gap: 6px; min-width: 0; }
+.tl__shot .tl__frame { height: auto; aspect-ratio: 4 / 3; border-radius: 8px; border: 1px solid var(--line); }
+.tl__photos.is-lead .tl__shot .tl__frame { aspect-ratio: 1 / 1; }
+.tl__credit { font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl--landscape .tl__shots { gap: 12px; }
+.tl--landscape .tl__shot .tl__frame, .tl--landscape .tl__photos.is-lead .tl__shot .tl__frame { aspect-ratio: 16 / 10; }
 .tl__tiles { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(var(--tiles, 3), minmax(0, 1fr)); gap: 20px; }
 .tl__tile { display: grid; gap: 6px; align-content: start; min-width: 0; padding-top: 12px; border-top: 2px solid var(--line-strong); }
 .tl__tile.is-lead { border-top-color: var(--accent); }
@@ -412,12 +459,24 @@ const lineupTiles = (spec: TldrSpec | undefined): number => (spec?.size === 'squ
  */
 export function tldrLayoutFor(t: TldrData, spec: TldrSpec | undefined): TldrLayout {
   let layout: TldrLayout = spec?.layout ?? 'stack';
+  // A gallery needs two photos; with one it's a cover (that photo large), with none a stack.
+  if (layout === 'gallery' && (t.photos?.length ?? 0) < 2) layout = tldrBigPicture(t) ? 'cover' : 'stack';
   if (layout === 'lineup' && (t.who || (t.chart?.bars ?? []).slice(0, lineupTiles(spec)).filter((b) => b.picture).length < 3)) layout = t.leadPicture ? 'cover' : 'stack';
   if (layout === 'cover' && spec?.size === 'landscape') layout = 'spotlight';
   if (layout === 'spotlight' && (spec?.size === 'square' || spec?.size === 'portrait')) layout = 'cover';
-  if (layout === 'cover' && !t.leadPicture) layout = 'stack';
-  if (layout === 'spotlight' && !t.leadPicture) layout = 'split';
+  if (layout === 'cover' && !tldrBigPicture(t)) layout = 'stack';
+  if (layout === 'spotlight' && !tldrBigPicture(t)) layout = 'split';
   return layout;
+}
+
+/**
+ * The picture a cover or a spotlight shows large: one of the notebook's own
+ * photos when it has any (a briefing on an organization would otherwise
+ * blow up its logo), else the lead's picture. Pure.
+ */
+export function tldrBigPicture(t: Pick<TldrData, 'photos' | 'leadPicture' | 'leadPictureKind'>): { src: string; kind: TldrPictureKind } | undefined {
+  if (t.photos?.length) return { src: t.photos[0].src, kind: 'photo' };
+  return t.leadPicture ? { src: t.leadPicture, kind: t.leadPictureKind ?? 'photo' } : undefined;
 }
 
 /** A picture in a frame, by what it is: a photo whole over a blur of itself, a portrait filling it, a logo or drawing whole on white. */
@@ -438,7 +497,7 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const spec = o.spec;
   const size = TLDR_SIZES[spec?.size ?? 'standard'];
   const layout = tldrLayoutFor(t, spec);
-  const parts = spec?.parts ?? ['lead', 'stats', 'bars', 'points'];
+  const parts = spec?.parts ?? ['lead', 'photos', 'stats', 'bars', 'points'];
   // A fixed box holds less when more is stacked in it: the hero's big number, a cover's picture, and each line written for it, cost a bar or two.
   const words = (spec?.headline ? 1 : 0) + (spec?.takeaway ? 1 : 0);
   const room = !size.height ? size.bars : Math.max(3, size.bars - (layout === 'hero' ? 2 : 0) - (layout === 'cover' ? 4 + Math.min(words, 1) : 0) - (layout === 'spotlight' ? 1 : 0) - (layout !== 'split' && spec?.size === 'landscape' ? words : 0));
@@ -446,7 +505,8 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   // Bars are measured against the longest one shown (each still starts at zero and says its value), so a short list isn't dwarfed by ones left out.
   const kept = t.chart?.bars.slice(0, cap) ?? [];
   const chart = t.chart ? { ...t.chart, bars: kept, more: t.chart.more + Math.max(0, t.chart.bars.length - cap), max: Math.max(...kept.map((b) => b.value), 0) } : undefined;
-  const points = t.points.slice(0, layout === 'cover' && size.height ? Math.max(2, size.points - 2) : size.points);
+  // A gallery's photos take the room of a point or two in a fixed box.
+  const points = t.points.slice(0, layout === 'gallery' && size.height ? 2 : layout === 'cover' && size.height ? Math.max(2, size.points - 2) : size.points);
   const named = (!!t.chart && !t.sentence) || !!t.who;
   // The lead's picture large (a cover's band, a spotlight's side) leaves the small one beside the words out.
   const large = layout === 'cover' || layout === 'spotlight';
@@ -487,26 +547,34 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
     <ol class="tl__tiles" style="--tiles:${String(tiled.length)}">${tiled.map(({ b, rank }) => html`<li class="tl__tile${b.lead ? ' is-lead' : ''}">${frame(b.picture!, b.kind, b.name)}<span class="tl__rank">${b.lead ? t.leadLabel : `#${String(rank)}`}</span><span class="tl__tname">${b.name}</span><span class="tl__tval">${b.text}</span></li>`) as unknown as SafeHtml[]}</ol>
     ${t.chart.bars.length + t.chart.more - tiled.length > 0 ? html`<p class="tl__more">and ${String(t.chart.bars.length + t.chart.more - tiled.length)} more in the running</p>` : html``}
   </section>` : html``;
+  // The notebook's own photos in a strip, each with the site it's from. A cover or spotlight already shows the first one large.
+  const strip = (t.photos ?? []).slice(large ? 1 : 0, large ? TLDR_PHOTOS_MAX : size.height && layout !== 'gallery' ? 3 : TLDR_PHOTOS_MAX);
+  const photos = strip.length >= (layout === 'gallery' ? 2 : 1) ? html`<section class="tl__photos${layout === 'gallery' ? ' is-lead' : ''}">
+    <ol class="tl__shots" style="--shots:${String(strip.length)}">${strip.map((x) => html`<li class="tl__shot">${frame(x.src, 'photo', x.name)}<span class="tl__credit">${x.credit}</span></li>`) as unknown as SafeHtml[]}</ol>
+  </section>` : html``;
   const part: Record<TldrPart, SafeHtml> = layout === 'lineup'
-    ? { lead: html``, stats, bars: lineup, points: html`` }
-    : { lead: layout === 'hero' ? hero : lead, stats, bars, points: list };
+    ? { lead: html``, photos: html``, stats, bars: lineup, points: html`` }
+    : { lead: layout === 'hero' ? hero : lead, photos, stats, bars, points: list };
   const shown = (keys: readonly TldrPart[]) => parts.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
   const foot = html`<footer class="tl__foot"><span>From the notebook's own numbers, ${date}</span><span>Made with sua</span></footer>`;
   const cls = spec ? ` tl--${spec.size} tl--${spec.tone} tl--${layout}` : '';
   // A lineup always shows its tiles, whatever parts were asked for (they are the layout).
-  const all = layout === 'lineup' && !parts.includes('bars') ? [...parts, 'bars' as const] : parts;
+  // A gallery always shows its photos, first, whatever parts were asked for.
+  // On landscape there is room for the photos and one more thing: the findings, else the lead.
+  const galleryParts = spec?.size === 'landscape' ? [parts.includes('points') && points.length ? 'points' as const : 'lead' as const] : parts.filter((k) => k !== 'photos');
+  const all = layout === 'gallery' ? ['photos' as const, ...galleryParts] : layout === 'lineup' && !parts.includes('bars') ? [...parts, 'bars' as const] : parts;
   const every = (keys: readonly TldrPart[]) => all.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
   // Cover and spotlight: the lead's picture large (a band across the top, or one whole side), everything else in a column beside or under it.
   if (large) {
     return html`<article class="tl${cls}" aria-label="${t.title}, in short">
-  <div class="tl__art">${frame(t.leadPicture!, t.leadPictureKind, t.who ? t.lead : '')}</div>
-  <div class="tl__inner">${header}${every(['lead', 'stats', 'bars', 'points'])}${foot}</div>
+  <div class="tl__art">${frame(tldrBigPicture(t)!.src, tldrBigPicture(t)!.kind, t.who ? t.lead : '')}</div>
+  <div class="tl__inner">${header}${every(['lead', 'photos', 'stats', 'bars', 'points'])}${foot}</div>
 </article>`;
   }
   // Split: the words (title, lead, numbers) at the left, what's drawn or listed at the right.
   const body = layout === 'split'
-    ? html`<div class="tl__cols"><div class="tl__col">${header}${shown(['lead', 'stats'])}</div><div class="tl__col">${shown(['bars', 'points'])}</div></div>`
-    : html`${header}${every(['lead', 'stats', 'bars', 'points'])}`;
+    ? html`<div class="tl__cols"><div class="tl__col">${header}${shown(['lead', 'stats'])}</div><div class="tl__col">${shown(['photos', 'bars', 'points'])}</div></div>`
+    : html`${header}${every(['lead', 'photos', 'stats', 'bars', 'points'])}`;
   return html`<article class="tl${cls}" aria-label="${t.title}, in short">
   ${body}
   ${foot}
