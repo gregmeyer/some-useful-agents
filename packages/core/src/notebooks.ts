@@ -489,7 +489,7 @@ export interface NotebookAnswer {
 export type NotebookAnswerSection = { title: string; delivers?: string; /** A short name a page binds the part by (`/notebook/section/<key>`), from its title; stays across rewrites while the title does. */ key?: string } & (
   | { kind: 'steps'; items: Array<{ text: string; detail?: string; from: string[] }> }
   | { kind: 'table'; columns: string[]; rows: Array<{ cells: string[]; from: string[] }>; note?: string }
-  | { kind: 'text'; body: string }
+  | { kind: 'text'; body: string; /** The sources a part of a subject briefing rests on (option ids). */ from?: string[] }
   | { kind: 'diagram'; diagram: NotebookAnswerDiagram; caption?: string }
 );
 
@@ -4085,7 +4085,7 @@ export function cleanBriefing(raw: unknown, optionIds: ReadonlySet<string>, by: 
  * has; at most 6 findings and 5 open questions; confidence is high, medium
  * or low (else low). Pure.
  */
-export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[]; amounts?: readonly number[] } = {}): NotebookAnswer | undefined {
+export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, question: string, by: string, at = new Date().toISOString(), opts: { criteria?: readonly string[]; amounts?: readonly number[]; briefing?: BriefingRules } = {}): NotebookAnswer | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const v = raw as Record<string, unknown>;
   const line = (x: unknown, n: number) => {
@@ -4106,8 +4106,31 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     return { text: t, from: [...new Set(from)].slice(0, 4) };
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
-  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? []);
+  const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? [], opts.briefing);
   return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(sections.length ? { sections } : {}), at, by };
+}
+
+/** One part of a briefing on a subject (ADR-0080): its title on the page, and how a done-when names it. */
+export interface BriefingPart { id: 'is' | 'offers' | 'works' | 'others'; title: string; covers: string; says: RegExp }
+
+/** The parts a briefing on a subject is written in, in order. A part nothing supports is left out. */
+export const BRIEFING_PARTS: readonly BriefingPart[] = [
+  { id: 'is', title: 'What it is and who is behind it', covers: 'what it is in plain words, who runs or made it, where and since when', says: /what (it|they|he|she) (is|are)|who (is|are) behind|who (runs|made|founded)/i },
+  { id: 'offers', title: 'What it offers and who it is for', covers: 'its products, programs, services or content, and the people it serves', says: /what (it|they) offers?|who (it|they) (is|are) for|who it serves/i },
+  { id: 'works', title: 'How it works and what it costs', covers: 'how someone uses or takes part in it, prices or fees, or how it makes money, when a source says', says: /how (it|they) works?|what (it|they) costs?|pric/i },
+  { id: 'others', title: 'What others say', covers: 'what people other than the subject say about it: press, reviews, ratings, listings', says: /what others say|others say|reviews?|reception/i },
+];
+
+/**
+ * What holds for a briefing's parts beyond an answer's: `outside`, the ids
+ * of its sources that are not on the subject's own site (undefined when the
+ * subject has no site of its own, a topic).
+ */
+export interface BriefingRules { outside?: ReadonlySet<string> }
+
+/** The part a written section is, by the id the writer gave or its title. Pure. */
+export function briefingPartOf(id: unknown, title: string): BriefingPart | undefined {
+  return BRIEFING_PARTS.find((p) => p.id === id) ?? BRIEFING_PARTS.find((p) => p.title.toLowerCase() === title.trim().toLowerCase()) ?? BRIEFING_PARTS.find((p) => p.says.test(title));
 }
 
 /**
@@ -4116,7 +4139,7 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
  * could cite, a table's rows as wide as its columns, and `delivers` only a
  * done-when the notebook has (as the notebook words it). Unknown kinds go.
  */
-function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string, amounts: readonly number[] = []): NotebookAnswerSection[] {
+function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string, amounts: readonly number[] = [], briefing?: BriefingRules): NotebookAnswerSection[] {
   const cites = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, 4);
   const out: NotebookAnswerSection[] = [];
   for (const r of Array.isArray(raw) ? raw : []) {
@@ -4125,8 +4148,16 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
     const title = line(o.title, 90);
     if (!title) continue;
     const want = line(o.delivers, 240).toLowerCase();
-    const delivers = want ? criteria.find((c) => c.trim().toLowerCase() === want) : undefined;
-    const head = { title, ...(delivers ? { delivers } : {}) };
+    // A briefing's part delivers the done-when that names it, whether or not the writer said so.
+    const part = briefing ? briefingPartOf(o.part, title) : undefined;
+    const delivers = (want ? criteria.find((c) => c.trim().toLowerCase() === want) : undefined) ?? (part ? criteria.find((c) => part.says.test(c)) : undefined);
+    if (briefing && part) {
+      // Each part rests on sources; what others say rests on at least one that isn't the subject's own.
+      const cited = [...cites(o.from), ...(Array.isArray(o.rows) ? (o.rows as Array<{ from?: unknown }>).flatMap((r) => cites(r?.from)) : []), ...(Array.isArray(o.items) ? (o.items as Array<{ from?: unknown }>).flatMap((i) => cites(i?.from)) : [])];
+      if (!cited.length) continue;
+      if (part.id === 'others' && briefing.outside && !cited.some((id) => briefing.outside!.has(id))) continue;
+    }
+    const head = { title: part ? part.title : title, ...(delivers ? { delivers } : {}) };
     if (o.kind === 'steps') {
       const items = (Array.isArray(o.items) ? o.items : []).map((i) => {
         const x = (typeof i === 'string' ? { text: i } : i ?? {}) as Record<string, unknown>;
@@ -4149,11 +4180,12 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
       const diagram = cleanAnswerDiagram(o.diagram, line, amounts);
       const caption = line(o.caption, 200);
       if (diagram) out.push({ ...head, kind: 'diagram', diagram, ...(caption ? { caption } : {}) });
-    } else if (o.kind === 'text' && !out.some((x) => x.kind === 'text')) {
-      const body = line(o.body ?? o.text, 700);
-      if (body) out.push({ ...head, kind: 'text', body });
+    } else if (o.kind === 'text' && (briefing || !out.some((x) => x.kind === 'text'))) {
+      const body = line(o.body ?? o.text, briefing ? 900 : 700);
+      const from = cites(o.from);
+      if (body) out.push({ ...head, kind: 'text', body, ...(from.length ? { from } : {}) });
     }
-    if (out.length >= 5) break;
+    if (out.length >= (briefing ? 6 : 5)) break;
   }
   // Each part a key of its own, from its title; a second part with the same title gets "-2".
   const keys = new Set<string>();

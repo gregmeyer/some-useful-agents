@@ -5595,6 +5595,20 @@ describe('a notebook that depends on something you have to give it', () => {
     expect(notebookBrief(store.get(plain.id)!)).toContain('sources that explain how it works and what to weigh');
     // Run again keeps who it's on.
     expect(rerunSetup(nb).briefOn).toEqual(nb.briefOn);
+    // Its writer is given the parts and told whose page each source is; "what others say" may rest only on someone else's.
+    const { writerInputs, briefingRules } = await import('../lib/notebook-write.js');
+    store.setFields(nb.id, [{ key: 'source_url', label: 'Source', type: 'url', role: 'link' }]);
+    const own = store.upsertOption(nb.id, { title: 'About Acme Trails', data: { source_url: 'https://acmetrails.example/about' }, by: 'agent:notebook-finder' }).entry;
+    const out = store.upsertOption(nb.id, { title: 'Acme Trails on a podcast directory', data: { source_url: 'https://casts.example/acme-trails' }, by: 'agent:notebook-finder' }).entry;
+    const now = store.get(nb.id)!;
+    const inputs = writerInputs(now, store.entries(nb.id, 100), now.steps!.find((x) => x.kind === 'write')!);
+    const told = JSON.parse(inputs.NOTEBOOK) as { briefingOn: { name: string; ownSite: string; parts: Array<{ part: string; title: string }> } };
+    expect(told.briefingOn).toMatchObject({ name: 'Acme Trails', ownSite: 'acmetrails.example' });
+    expect(told.briefingOn.parts.map((x) => x.part)).toEqual(['is', 'offers', 'works', 'others']);
+    const themes = JSON.parse(inputs.THEMES) as Array<{ id: string; whose?: string }>;
+    expect(themes.find((t) => t.id === own.id)!.whose).toBe('its own site');
+    expect(themes.find((t) => t.id === out.id)!.whose).toBe('not its own');
+    expect([...briefingRules(now, store.entries(nb.id, 100)).outside!]).toEqual([out.id]);
   });
 
   it('reads what a draft needs, never any text for it', async () => {

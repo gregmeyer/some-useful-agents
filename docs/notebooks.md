@@ -65,6 +65,11 @@ Ask sua to learn about one named thing ("Tell me about Acme Trails https://acmet
 - **Its steps**: for an organization or a person, **Learn about** them first (their facts with sources, logo or photo, competitors); then **Find** sources on the subject, **Check** them, and **Write** the briefing. A product or a topic skips the first step.
 - **The search stays on the subject.** Every search names it. For an organization, a person or a product it covers the subject's own site and at least three places that aren't its own site (press, reviews, listings, its social or podcast pages), and says so when fewer exist. No general guidance or law pages on the wider topic are added, and a page that doesn't name the subject isn't kept.
 - **The site you gave is its site.** For an organization, the link in your ask is kept as its website and used for its logo, even when research turns up a namesake's.
+- **The briefing is written in parts**, each with the sources it rests on: *What it is and who is behind it*, *What it offers and who it is for* (a table when the sources list several offerings or prices), *How it works and what it costs*, and *What others say*. A two-sentence lead comes first, and what isn't known is listed at the end.
+  - A part the sources say nothing about is left out; the gap goes under what isn't known.
+  - *What others say* may rest only on sources that aren't the subject's own site. If the writer cites only the subject's own pages there, the part is dropped.
+  - What the subject says about itself is written as its own claim ("its site says…").
+  - Each part ticks the done-when that names it.
 - **Its page** is the ready-made **Subject briefing**: who or what it is with what's known, the briefing's lead and parts, what it rests on, competitors when there are some, then the sources as cards. It has this page from the start and keeps its kind.
 
 ### When it needs something from you

@@ -1702,3 +1702,43 @@ describe('what a notebook depends on from you (given)', () => {
     expect(givenBrief(plain)).toBe('');
   });
 });
+
+describe('the parts of a briefing on a subject', () => {
+  it('keeps each part that rests on sources, under its own title, ticks the done-when that names it, and holds "what others say" to outside sources', async () => {
+    const { cleanAnswer, BRIEFING_PARTS, briefingPartOf } = await import('./notebooks.js');
+    const ids = new Set(['own1', 'own2', 'out1']);
+    const criteria = ['What it is and who is behind it explained', 'What it offers and who it is for explained', 'How it works and what it costs explained', 'A briefing that includes what others say written'];
+    const raw = {
+      answer: '**Acme Trails is a family publication.** It matters to parents planning park trips.', confidence: 'medium', findings: [{ text: 'It publishes guides.', from: ['own1'] }], open: ['Prices are not stated.'],
+      sections: [
+        { part: 'is', title: 'who they are', kind: 'text', body: 'A family of four runs it. Its site says they began in 2024.', from: ['own1', 'nope'] },
+        { part: 'offers', title: 'What it offers and who it is for', kind: 'table', columns: ['Offering', 'Who it is for'], rows: [{ cells: ['Park guides', 'Families'], from: ['own2'] }] },
+        { part: 'works', title: 'How it works and what it costs', kind: 'text', body: 'Nothing was found on prices.' },
+        { part: 'others', title: 'What others say', kind: 'text', body: 'Its own site calls it loved by families.', from: ['own1'] },
+        { title: 'A second text part with no part id', kind: 'text', body: 'Extra.', from: ['own1'] },
+      ],
+    };
+    const outside = new Set(['out1']);
+    const a = cleanAnswer(raw, ids, 'Tell me about Acme Trails', 'notebook-writer', '2026-11-14T00:00:00.000Z', { criteria, briefing: { outside } })!;
+    // Two text parts are kept (an answer keeps one); a part citing nothing is dropped; "what others say" citing only its own site is dropped.
+    expect(a.sections!.map((x) => [x.title, x.kind, x.delivers])).toEqual([
+      ['What it is and who is behind it', 'text', criteria[0]],
+      ['What it offers and who it is for', 'table', criteria[1]],
+      ['A second text part with no part id', 'text', undefined],
+    ]);
+    expect(a.sections![0]).toMatchObject({ body: 'A family of four runs it. Its site says they began in 2024.', from: ['own1'] });
+    // With an outside source it stays, and delivers its done-when.
+    const withOthers = cleanAnswer({ ...raw, sections: [{ part: 'others', title: 'What others say', kind: 'text', body: 'A listener review calls it calm and clear.', from: ['own1', 'out1'] }] }, ids, 'q', 'w', undefined, { criteria, briefing: { outside } })!;
+    expect(withOthers.sections).toMatchObject([{ title: 'What others say', delivers: criteria[3], from: ['own1', 'out1'] }]);
+    // A topic has no site of its own: any source will do.
+    expect(cleanAnswer({ ...raw, sections: [raw.sections[3]] }, ids, 'q', 'w', undefined, { criteria, briefing: {} })!.sections).toHaveLength(1);
+    // Not a briefing: as before, one text part and no part rules.
+    const plain = cleanAnswer(raw, ids, 'q', 'w', undefined, { criteria })!;
+    expect(plain.sections!.filter((x) => x.kind === 'text')).toHaveLength(1);
+    expect(plain.sections![0].title).toBe('who they are');
+    expect(BRIEFING_PARTS.map((p) => p.id)).toEqual(['is', 'offers', 'works', 'others']);
+    expect(briefingPartOf(undefined, 'How it works and what it costs')?.id).toBe('works');
+    expect(briefingPartOf('others', 'anything')?.id).toBe('others');
+    expect(briefingPartOf(undefined, 'Park guides by region')).toBeUndefined();
+  });
+});

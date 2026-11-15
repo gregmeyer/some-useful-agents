@@ -42,3 +42,12 @@ Later changes under this ADR: the briefing's parts (what it is and who is behind
 - A briefing's search costs the same number of searches, spent differently (by kind of source).
 - Notebooks made before this have no `briefOn`; they keep behaving as answer notebooks. Clear and run again drafts nothing new, so an old one becomes a subject briefing only by starting a new notebook.
 - The drafter decides whether an ask is about one named thing. When it gets that wrong the notebook is an ordinary answer notebook, which is today's behavior.
+
+## Amendment (2026-11-14): the briefing's parts
+
+The writer is given `briefingOn` with four parts (`BRIEFING_PARTS`: what it is and who is behind it; what it offers and who it is for; how it works and what it costs; what others say) and each source marked as the subject's own page or not. It writes a two-sentence lead and one section a part, text or a table, each citing its sources.
+
+Code holds it to that (`cleanAnswer` with `BriefingRules`): a part that cites no source is dropped; "what others say" is dropped unless it cites a source that is not on the subject's own site; a part takes its standard title and ticks the done-when that names it, whether or not the writer said so. An ordinary answer keeps its limits (one text part, five sections).
+
+The subject page is not composed again once the briefing is written. Composing picks one part as a hero and files the rest under "Also written", which is wrong for parts that are meant to be read in order.
+

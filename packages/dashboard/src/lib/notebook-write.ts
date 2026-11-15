@@ -13,7 +13,7 @@
  */
 import { agentForCopy } from './experiment-copy-agent.js';
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
-import { NotebookStore, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, BRIEFING_PARTS, subjectHost, optionLink, type BriefingRules, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -52,6 +52,9 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(who === 'person' && notebookAffiliations(nb).length ? { otherCompanies: notebookAffiliations(nb).map((a) => `${a.name}${a.role ? ` (${a.role})` : ''}${a.what ? `: ${a.what}` : ''}`) } : {}),
     } : undefined;
   };
+  // A briefing on a subject (ADR-0080): its sources are its own pages or someone else's.
+  const ownHost = step.shape === 'answer' ? subjectHost(nb.briefOn) : undefined;
+  const hostOf = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } };
   const themes = options.map((o) => {
     const rest = Object.fromEntries(nb.fields.filter((f) => f !== quoteF && f !== askF && f.role !== 'link' && f.role !== 'image' && text(o.fields[f.key])).map((f) => [f.label, text(o.fields[f.key]).slice(0, 200)]));
     return {
@@ -59,6 +62,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(quoteF && text(o.fields[quoteF.key]) ? { said: text(o.fields[quoteF.key]).slice(0, 500) } : {}),
       ...(askF && text(o.fields[askF.key]) ? { question: text(o.fields[askF.key]).slice(0, 200) } : {}),
       ...(o.link ? { source: o.link } : {}), ...(o.when ? { when: o.when } : {}),
+      // A briefing on a subject: whether the page is the subject's own or someone else's.
+      ...(ownHost && o.link ? { whose: hostOf(o.link) === ownHost || hostOf(o.link).endsWith(`.${ownHost}`) ? 'its own site' : 'not its own' } : {}),
       ...(o.chosen ? { chosen: true } : {}), ...(o.checked.length ? { checked: o.checked } : {}),
       ...(Object.keys(rest).length ? { facts: rest } : {}),
       // A write-up also sees what failed, what ruled one out, and the short labels its facets give (ready-made groups).
@@ -89,6 +94,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
     NOTEBOOK: JSON.stringify({
       title: nb.title, for: nb.statement, limits: nb.params, doneWhen: nb.criteria.map((c) => c.text),
       ...(person ? { person } : {}), ...(company ? { company } : {}), ...(notes.length ? { notes } : {}),
+      // A briefing on one named thing is written in parts.
+      ...(nb.briefOn && step.shape === 'answer' ? { briefingOn: { name: nb.briefOn.name, kind: nb.briefOn.kind, ...(ownHost ? { ownSite: ownHost } : {}), parts: BRIEFING_PARTS.map((p) => ({ part: p.id, title: p.title, covers: p.covers })) } } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
       // What it depends on from you: sua's reading of it (or its text), or that it wasn't given (never written as if known).
       ...(givenForSteps(nb).length ? { given: givenForSteps(nb).map((g) => { const f = givenForStep(g); return !f.given ? { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' } : f.lines ? { what: g.label, asRead: f.lines } : { what: g.label, text: (g.text ?? '').slice(0, 8000) }; }) } : {}),
@@ -118,6 +125,22 @@ async function runWriter(ctx: Ctx, inputs: Record<string, string>, onRun?: (runI
 }
 
 /** Write what the notebook was for (a write step's run): its talking points, or its answer. Returns what happened, a line each; never throws. */
+/**
+ * What a subject briefing's parts must hold to (core BriefingRules): which of
+ * its sources are not on the subject's own site, when it has one. Pure.
+ */
+export function briefingRules(nb: Pick<Notebook, 'briefOn' | 'fields'>, entries: readonly NotebookEntry[]): BriefingRules {
+  const own = subjectHost(nb.briefOn);
+  if (!own) return {};
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
+  const outside = new Set<string>();
+  for (const e of entries) {
+    const h = host(e.kind === 'option' ? optionLink(nb.fields, e.data) : e.fingerprint);
+    if (h && h !== own && !h.endsWith(`.${own}`)) outside.add(e.id);
+  }
+  return { outside };
+}
+
 export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: string, step: NotebookStep, onRun?: (runId: string) => void): Promise<string[]> {
   if (!store.get(notebookId)) return [];
   // Talking points: first check who they are against what was found, so the points don't state a contested fact.
@@ -147,7 +170,7 @@ export async function writeBriefing(ctx: Ctx, store: NotebookStore, notebookId: 
       const block = extractTaggedJson(result, 'answer');
       let raw: unknown;
       try { raw = block ? JSON.parse(block) : undefined; } catch { raw = undefined; }
-      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text), amounts: notebookAmounts(nb) });
+      const answer = cleanAnswer(raw, ids, nb.statement || nb.title, NOTEBOOK_WRITER_ID, undefined, { criteria: nb.criteria.map((c) => c.text), amounts: notebookAmounts(nb), ...(nb.briefOn && step.shape === 'answer' ? { briefing: briefingRules(nb, entries) } : {}) });
       if (!answer) return [`${NOTEBOOK_WRITER_ID}: no ${step.shape === 'writeup' ? 'write-up' : 'answer'} came back`];
       store.setAnswer(nb.id, answer);
       const parts = (answer.sections ?? []).map((x) => x.title.toLowerCase());

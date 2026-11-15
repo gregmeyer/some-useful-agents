@@ -122,6 +122,31 @@ nodes:
           never a new one: for "$25,000 across 5 CDs" you may write
           "$5,000 each", not a rate the sources don't give.
 
+      When the notebook has "briefingOn", it is a briefing on that one
+      subject, and these rules replace the ones for "answer" and
+      "sections" above where they differ:
+        - "answer" is the lead: TWO sentences on what the subject is and
+          why it matters to someone asking, **bold** on the first.
+        - "sections" are its parts, in the order "briefingOn.parts" gives
+          them, each {"part": the part's id, "title": its title exactly,
+          "kind": "text", "body": 2 to 5 plain sentences on what that part
+          covers, "from": the ids it rests on}. Use {"kind": "table"} in
+          place of text when the sources list several offerings, plans or
+          prices (columns such as "Offering", "Who it's for", "Cost"; each
+          row with its "from"). More than one text part is right here.
+        - LEAVE OUT a part the sources say nothing about. Never write a
+          part to say that nothing was found: put that in "open".
+        - "What others say" rests ONLY on sources marked "whose": "not its
+          own": what reviewers, press, listings or listeners say, with who
+          said it. When there are none, leave the part out and say in
+          "open" that no outside view was found.
+        - Say what a source says, as that source's claim, when it is the
+          subject describing itself ("its site says…").
+        - "open": what isn't known (prices, who funds it, how big it is),
+          up to 5.
+        - No diagram, and no "steps", unless the ask asks how to do
+          something.
+
       When the notebook has "skip", those are findings, steps or rows the
       person said are wrong: don't write them, or one that says the same,
       again.
