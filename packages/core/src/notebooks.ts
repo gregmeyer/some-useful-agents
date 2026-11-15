@@ -8,6 +8,7 @@
  * Its page is drawn from its own surface (`notebook:<id>`, see surfaces/),
  * from items projected out of its entries.
  */
+import { DEFAULT_ATTACH_FILE_TYPES, cleanAttachFileTypes } from './attach-file-types.js';
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
@@ -1466,6 +1467,12 @@ export class NotebookStore {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      -- Small settings kept with notebooks (which kinds of file sua takes).
+      CREATE TABLE IF NOT EXISTS notebook_settings (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       -- A file attached to a message in a conversation (its text; the file isn't kept): held until the
       -- message is sent, then on its conversation, and filed on the notebook the conversation is about.
       CREATE TABLE IF NOT EXISTS notebook_attachments (
@@ -2731,6 +2738,20 @@ export class NotebookStore {
     }
     this.db.prepare('UPDATE notebooks SET given_json = ?, updated_at = ? WHERE id = ?').run(next.length ? JSON.stringify(next) : null, now, id);
     return this.mustGet(id);
+  }
+
+  /** The kinds of file sua takes in place of a paste (extensions); every kind it can read until you change it. */
+  attachFileTypes(): string[] {
+    const r = this.db.prepare("SELECT value_json FROM notebook_settings WHERE key = 'attach_file_types'").get() as { value_json: string } | undefined;
+    if (!r) return [...DEFAULT_ATTACH_FILE_TYPES];
+    try { return cleanAttachFileTypes(JSON.parse(r.value_json)); } catch { return [...DEFAULT_ATTACH_FILE_TYPES]; }
+  }
+
+  /** Set them (unknown kinds are dropped; none turns files off, leaving the paste box). Returns what was kept. */
+  setAttachFileTypes(exts: readonly string[], now = new Date().toISOString()): string[] {
+    const kept = cleanAttachFileTypes([...exts]);
+    this.db.prepare("INSERT INTO notebook_settings (key, value_json, updated_at) VALUES ('attach_file_types', ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at").run(JSON.stringify(kept), now);
+    return kept;
   }
 
   /**

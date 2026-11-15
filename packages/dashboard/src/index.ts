@@ -1,3 +1,5 @@
+import { NotebookStore } from '@some-useful-agents/core';
+import { setCurrentFileTypes } from './lib/file-types.js';
 import { recordBootReap, recordWatchdogReap } from './lib/reaper-stats.js';
 import express, { type Application } from 'express';
 import type { Server } from 'node:http';
@@ -243,6 +245,12 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
 
   // Everything below requires the session cookie.
   app.use(requireAuth);
+
+  // The kinds of file sua takes (Settings → General), for the pages' file pickers.
+  app.use((req, _res, next) => {
+    try { setCurrentFileTypes(NotebookStore.fromHandle(getContext(req.app.locals).runStore.databaseHandle()).attachFileTypes()); } catch { /* the default stands */ }
+    next();
+  });
 
   // Session liveness probe for the client guard. First router behind the
   // auth gate so the 401 it produces is the plain middleware response.

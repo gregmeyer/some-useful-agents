@@ -4,6 +4,8 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { ATTACH_FILE_TYPES, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
+import { docxText } from '../lib/docx-text.js';
 import { takeAttachments } from '../lib/conversation-attach.js';
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
 import { readEdit, proposedNotebook, describeSetupChange, setupOf, notebookToMarkdown, startEditTalk, startEditEnhance, startEditPick, proposeLook, proposeFromMarkdown, saveEdit, discardEdit } from '../lib/notebook-edit.js';
@@ -684,14 +686,24 @@ notebooksRouter.post('/notebooks/:id/rerun', (req: Request, res: Response) => {
 
 // A PDF chosen in place of a paste (what a notebook needs from you): its text, for the box on the page.
 // Nothing is kept here; the text is stored only when the box's own form is sent.
-notebooksRouter.post('/notebooks/given-file', express.raw({ type: 'application/pdf', limit: PDF_MAX_BYTES }), async (req: Request, res: Response) => {
+notebooksRouter.post('/notebooks/given-file', express.raw({ type: ATTACH_FILE_TYPES.filter((t) => t.read === 'server').flatMap((t) => t.mime), limit: PDF_MAX_BYTES }), async (req: Request, res: Response) => {
   const body: unknown = req.body;
-  if (!Buffer.isBuffer(body)) { res.status(415).json({ error: 'Send the PDF itself (application/pdf).' }); return; }
+  const kind = attachTypeOfMime(req.headers['content-type']);
+  if (!Buffer.isBuffer(body) || !kind) { res.status(415).json({ error: 'Send the file itself, as a PDF or a Word (.docx) file.' }); return; }
+  // Only the kinds allowed in Settings → General → Files sua takes.
+  const allowed = store(req).attachFileTypes();
+  if (!allowed.includes(kind.ext)) { res.status(415).json({ error: `sua isn't set to take ${kind.word} files${allowed.length ? ` (it takes ${attachFileWords(allowed)})` : ''}. Change it under Settings → General, or paste the text.` }); return; }
+  const over = (chars: number) => (chars > NOTEBOOK_GIVEN_MAX ? ` A notebook keeps the first ${NOTEBOOK_GIVEN_MAX.toLocaleString('en-US')}, so its end will be left out.` : '');
+  if (kind.ext === 'docx') {
+    const doc = docxText(body);
+    if ('error' in doc) { res.status(422).json(doc); return; }
+    res.json({ text: doc.text, chars: doc.text.length, said: `${doc.text.length.toLocaleString('en-US')} characters.${over(doc.text.length)}` });
+    return;
+  }
   const out = await pdfText(body);
   if ('error' in out) { res.status(422).json(out); return; }
   const chars = out.text.length;
-  const over = chars > NOTEBOOK_GIVEN_MAX;
-  res.json({ text: out.text, pages: out.pages, chars, said: `${String(out.pages)} ${out.pages === 1 ? 'page' : 'pages'}, ${chars.toLocaleString('en-US')} characters.${over ? ` A notebook keeps the first ${NOTEBOOK_GIVEN_MAX.toLocaleString('en-US')}, so its end will be left out.` : ''}` });
+  res.json({ text: out.text, pages: out.pages, chars, said: `${String(out.pages)} ${out.pages === 1 ? 'page' : 'pages'}, ${chars.toLocaleString('en-US')} characters.${over(chars)}` });
 });
 
 // A file's text kept until its message is sent (the conversation's attach control): returns the marker to put in the message.
