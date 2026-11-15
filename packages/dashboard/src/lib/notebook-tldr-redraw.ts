@@ -32,6 +32,8 @@ export function cardForAgent(t: TldrData): Record<string, unknown> {
     stats: t.stats,
     ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more, topOptionsWithPictures: t.chart.bars.slice(0, 4).filter((b) => b.picture).length } } : {}),
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
+    // The notebook's own photos (a briefing's sources): how many, and where each is from, so "gallery" and the "photos" part are chosen only when they can be drawn.
+    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit) } } : {}),
   };
 }
 

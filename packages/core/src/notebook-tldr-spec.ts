@@ -9,8 +9,8 @@
 
 export type TldrSize = 'standard' | 'landscape' | 'square' | 'portrait';
 export type TldrTone = 'plain' | 'editorial' | 'bold';
-export type TldrLayout = 'stack' | 'split' | 'hero' | 'cover' | 'lineup' | 'spotlight';
-export type TldrPart = 'lead' | 'stats' | 'bars' | 'points';
+export type TldrLayout = 'stack' | 'split' | 'hero' | 'cover' | 'lineup' | 'spotlight' | 'gallery';
+export type TldrPart = 'lead' | 'photos' | 'stats' | 'bars' | 'points';
 
 /** Each size: its box in CSS pixels (no height: as tall as it needs), how much it holds, and when it fits. */
 export const TLDR_SIZES: Record<TldrSize, { width: number; height?: number; bars: number; points: number; name: string; fits: string }> = {
@@ -32,11 +32,13 @@ export const TLDR_LAYOUTS: Record<TldrLayout, string> = {
   hero: 'One thing very large at the top (the lead\'s number, or the person), the rest small under it.',
   cover: 'The lead\'s picture (or the person\'s portrait) as a large band across the top, the words and numbers under it. Needs the lead to have a picture. On landscape it is drawn as spotlight.',
   lineup: 'The top three or four options side by side as picture tiles, each with its name and value, the best one marked; the pictures take the place of the bars. Needs pictures of at least three of the top options. Not for a notebook about a person.',
+  gallery: 'The notebook\'s own photos lead: up to four side by side under the headline, each with the site it is from, then the lead and the findings. Needs two or more photos (a briefing\'s sources have them); with one it is drawn as a cover, with none as a stack.',
   spotlight: 'The lead\'s picture takes one whole side, top to bottom, the words and bars or points on the other. Needs the lead to have a picture. Best on landscape, and for a person\'s portrait.',
 };
 
 export const TLDR_PARTS: Record<TldrPart, string> = {
   lead: 'The best lead (or what was chosen, the answer, who it\'s about), with its facts and picture.',
+  photos: 'Up to four of the notebook\'s own photos in a strip, each with the site it is from (only when it has photos; a gallery shows them whatever parts are asked for).',
   stats: 'Up to three numbers that sum it up.',
   bars: 'The options as ranked bars (only when the notebook has numbers to plot).',
   points: 'The first talking points or findings, numbered (only when there are no bars).',
@@ -86,7 +88,7 @@ export function cleanTldrSpec(raw: unknown): TldrSpec | undefined {
   const headline = text(o.headline, TLDR_HEADLINE_MAX), takeaway = text(o.takeaway, TLDR_TAKEAWAY_MAX), about = text(o.about, 200), ask = text(o.ask, 300), at = text(o.at, 40);
   return {
     size, tone: pick(o.tone, TLDR_TONES, 'plain'), layout: pick(o.layout, TLDR_LAYOUTS, 'stack'),
-    parts: parts.length ? parts : ['lead', 'stats', 'bars', 'points'],
+    parts: parts.length ? parts : ['lead', 'photos', 'stats', 'bars', 'points'],
     ...(bars !== undefined ? { bars } : {}), ...(headline ? { headline } : {}), ...(takeaway ? { takeaway } : {}), ...(about ? { about } : {}), ...(ask ? { ask } : {}), ...(at ? { at } : {}),
   };
 }

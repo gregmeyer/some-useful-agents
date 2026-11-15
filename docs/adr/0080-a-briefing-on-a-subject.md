@@ -59,3 +59,7 @@ The first notebook kept seven pictures and showed none: its page drew sources as
 - **Pictures decide the layout.** `evidenceLayout` resolves to `grid` when any source has a picture of its own, else `table`, on the subject, answer and company pages. The page chooser is told how many have one and to show them as cards or stories.
 - **The brief draws what the page draws.** An `OptionGrid` that isn't a table is cards with pictures; `Stories` has a case; the lead's picture may be a kept photo. Saved as a file or a PDF, the pictures are embedded.
 
+## Amendment (2026-11-14): the TL;DR picture uses the notebook's photos
+
+A briefing on a subject has no numbers to plot, so its TL;DR picture was a sentence and, for an organization, its logo. `tldrPhotos` now gives the card the sources' own photos (kind `listing`, the subject's site first, at most four, each with its site as the credit): a `photos` part (a strip, in the standard picture too), a `gallery` layout (photos first), and `tldrBigPicture`, so a cover or spotlight shows a photo large and not the logo. The redraw agent is told how many photos there are and where from. Only subject briefings get them: a shortlist's pictures already have the lineup, and an older notebook's "example photos" came from an image search.
+
