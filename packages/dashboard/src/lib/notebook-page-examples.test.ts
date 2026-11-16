@@ -14,7 +14,7 @@ import { RunStore, NotebookStore, layoutPreset, notebookGivenLinks, NOTEBOOK_LAY
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookWidgetMessages, notebookLayoutFlags } from './notebook-widgets.js';
-import { renderPageBrief, briefIsPage, briefQuotes, splitAsk } from '../views/notebook-page-brief.js';
+import { renderPageBrief, briefIsPage, briefQuotes, splitAsk, agendaLeads } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[]; written?: string[] }>;
 
@@ -155,7 +155,10 @@ describe.each(NOTEBOOK_PAGE_EXAMPLES.map((ex) => [ex.id, ex] as const))('a noteb
     expect(titles.length).toBeGreaterThan(0);
     const at = titles.map((t) => brief.indexOf(`>${t.replace(/&/g, '&amp;').replace(/'/g, '&#39;')}<`));
     expect(titles.filter((_, i) => at[i] < 0)).toEqual([]);
-    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    // In the page's order, but for a meeting's talking points, which the brief moves up (agendaLeads, below).
+    const moved = titles.indexOf('What to talk about');
+    const rest = at.filter((_, i) => i !== moved);
+    expect([...rest].sort((a, b) => a - b)).toEqual(rest);
   });
 });
 
@@ -471,5 +474,48 @@ describe("a drawn page's type on paper", () => {
     expect(print).toContain('.agenda ol li span.muted { color: var(--text); }');
     expect(print).toContain('.part--band:has(.tbl) { background: none; padding: 0; }');
     expect(brief).not.toMatch(/\.links \{[^}]*var\(--mono\)/);
+  });
+});
+
+describe("a meeting briefing's brief leads with what to say", () => {
+  const part = (id: string, component: string, more: Record<string, unknown> = {}): ViewComponent => ({ id, component, ...more }) as ViewComponent;
+  const page = (rows: ViewComponent[]) => new Map(rows.map((c) => [c.id, c]));
+
+  it('puts the talking points after who it is about, ahead of the facts and the company beside them', () => {
+    const order = agendaLeads(page([
+      part('root', 'Column', { children: ['cover_row', 'also_p', 'talk_row', 'said_p'] }),
+      part('cover_row', 'Columns', { children: ['who_p', 'facts_p'] }),
+      part('who_p', 'Panel', { child: 'who' }), part('who', 'ProfileCard'),
+      part('facts_p', 'Panel', { child: 'facts' }), part('facts', 'FactSheet'),
+      part('also_p', 'Panel', { child: 'also' }), part('also', 'Table'),
+      part('talk_row', 'Columns', { children: ['company_p', 'agenda_p'] }),
+      part('company_p', 'Panel', { child: 'company' }), part('company', 'ProfileCard'),
+      part('agenda_p', 'Panel', { child: 'agenda' }), part('agenda', 'Agenda'),
+      part('said_p', 'Panel', { child: 'quotes' }), part('quotes', 'QuoteList'),
+    ]));
+    expect(order).toEqual(['who_p', 'agenda_p', 'facts_p', 'also_p', 'company_p', 'said_p']);
+  });
+
+  it('with no one to open on, the talking points lead the row they were in', () => {
+    const order = agendaLeads(page([
+      part('root', 'Column', { children: ['intro', 'talk_row'] }),
+      part('intro', 'Panel', { child: 't' }), part('t', 'Text'),
+      part('talk_row', 'Columns', { children: ['company_p', 'agenda_p'] }),
+      part('company_p', 'Panel', { child: 'company' }), part('company', 'ProfileCard'),
+      part('agenda_p', 'Panel', { child: 'agenda' }), part('agenda', 'Agenda'),
+    ]));
+    expect(order).toEqual(['intro', 'agenda_p', 'company_p']);
+  });
+
+  it('leaves a page with no agenda in a row as it is', () => {
+    expect(agendaLeads(page([part('root', 'Column', { children: ['a'] }), part('a', 'Panel', { child: 'agenda' }), part('agenda', 'Agenda')]))).toBeUndefined();
+  });
+
+  it('the meeting example prints who, then what to talk about, then what we know', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    const at = ['>Who they are<', '>What to talk about<', '>What we know<'].map((t) => brief.indexOf(t));
+    expect(at.every((i) => i > 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 });

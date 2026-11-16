@@ -378,6 +378,34 @@ function node(p: Printing, id: string | undefined): SafeHtml {
   }
 }
 
+/**
+ * A briefing for a meeting is read for what to say: in the brief its talking
+ * points come straight after who it's about, ahead of the facts and the
+ * company that sat beside them on the page. The rows they shared are taken
+ * apart (who, what to talk about, the facts, then the rest in the page's
+ * order). A page with no agenda in a row keeps its order. Returns the new
+ * order of the page's top parts, or undefined.
+ */
+export function agendaLeads(byId: ReadonlyMap<string, ViewComponent>): string[] | undefined {
+  const root = byId.get('root');
+  if (!root || root.component !== 'Column') return undefined;
+  const top = kids(root);
+  const panelOf = (id: string, component: string) => { const c = byId.get(id); return c?.component === 'Panel' && byId.get(c.child as string)?.component === component; };
+  const isRow = (id: string) => byId.get(id)?.component === 'Columns';
+  const row = top.find((id) => isRow(id) && kids(byId.get(id)!).some((k) => panelOf(k, 'Agenda')));
+  if (!row) return undefined;
+  const agenda = kids(byId.get(row)!).find((k) => panelOf(k, 'Agenda'))!;
+  const order: string[] = [];
+  let placed = false;
+  for (const id of top) {
+    if (id === row) { order.push(...(placed ? [] : [agenda]), ...kids(byId.get(id)!).filter((k) => k !== agenda)); placed = true; continue; }
+    // The row that opens on who it's about: who, then the agenda, then what sat beside them.
+    if (!placed && isRow(id) && panelOf(kids(byId.get(id)!)[0] ?? '', 'ProfileCard')) { const [who, ...beside] = kids(byId.get(id)!); order.push(who, agenda, ...beside); placed = true; continue; }
+    order.push(id);
+  }
+  return order;
+}
+
 /** Everything behind the page (the extended brief): every quote, every fact with its page, each option in full. */
 function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data['notebook'], history: (NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>) | undefined, pic: BriefPicture | undefined): SafeHtml {
   const active = d.options.filter((o) => !o.ruledOut);
@@ -402,6 +430,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const { header, side, rest } = splitNotebookHeader(resolved);
   // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
   const byId = new Map([...(side ?? []).slice(1), ...rest].map((c) => [c.id, c]));
+  const lead = agendaLeads(byId);
+  if (lead) byId.set('root', { ...byId.get('root')!, children: lead });
   const aboutSrc = args.aboutPicture ?? ((src: string) => src);
   const tldr = () => {
     const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
@@ -481,6 +511,9 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 /* Where a fact comes from: its own small line under it, a site or what you gave. */
 .facts .src { display: block; margin: 0.1rem 0 0; color: var(--muted); } .facts a.src { color: var(--accent); }
 .checks { list-style: none; padding-left: 0; }
+/* Facts standing on their own (out of a row): no rail rule, three to a row. */
+.brief > .stack > .part--aside:has(.facts) { border-left: 0; padding-left: 0; }
+@media (min-width: 761px) { .brief > .stack > .part--aside .facts dl { display: flex; flex-wrap: wrap; gap: 0 1.5rem; } .brief > .stack > .part--aside .facts .fact { flex: 0 0 calc((100% - 3rem) / 3); min-width: 0; } }
 .agenda ol li .ask-line { margin-top: 0.3rem; padding-left: 0.6rem; border-left: 2px solid var(--accent); color: var(--text); }
 .ask-line b { margin-right: 0.25rem; font: 600 0.625rem var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .agenda ol { margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: pt; display: grid; gap: 0.75rem; }
