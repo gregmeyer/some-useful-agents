@@ -18,6 +18,7 @@ import { optionInFull, type BriefPicture } from './notebook-brief.js';
 import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
+import { saidLike } from '../lib/notebook-clean.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -269,7 +270,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'QuoteList': {
       const all = list(v('items')) as Array<{ quote?: unknown; title?: unknown; source?: unknown; at?: unknown; ask?: unknown; group?: unknown }>;
       // A few, not every one: 3 to 5 (as many as the page shows), one per theme before a second from any; the extended brief has every one (below).
-      const shown = briefQuotes(all, Math.min(5, Math.max(3, typeof c.maxItems === 'number' ? c.maxItems : 4)));
+      // Of the ones that read as something said (a profile's stats kept as a quote wait for the extended brief), unless there are no others.
+      const real = all.filter((q) => saidLike(text(q.quote)));
+      const shown = briefQuotes(real.length ? real : all, Math.min(5, Math.max(3, typeof c.maxItems === 'number' ? c.maxItems : 4)));
       return html`<div class="quotes">${shown.map((q, i) => html`<figure class="${c.lead && i === 0 ? 'lead' : ''}">
           <blockquote>${text(q.quote)}</blockquote>
           <figcaption>${text(q.group) ? html`<span class="tag">${text(q.group)}</span> ` : html``}${text(q.title)}${isUrl(q.source) ? html` · <a href="${q.source}">${site(q.source)}</a>` : html``}${text(q.at) ? html` · ${text(q.at)}` : html``}</figcaption>

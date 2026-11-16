@@ -584,6 +584,8 @@ And its type is set for paper: a talking point's reasoning prints in the text co
 
 A meeting briefing's brief leads with what to say: who it's about, then **What to talk about** with its questions and what to watch for, then what we know, their company and the rest in the page's order. The page itself keeps its layout.
 
+**What's shown is tidied, not what's stored.** On the page and in the brief: a round figure the research wrote as digits ("40000000") reads "40M", with a "$" when the passage it came from gives money; one line carried by two articles is one quote, and a quote's marks come in pairs; a profile's stats kept as a quote don't lead the page or take a place in the brief's few quotes (the extended brief has them); what you gave is named in their capitals ("Dana Reyes's LinkedIn profile"); and a company that a settled conflict set aside isn't listed twice under **Also runs**.
+
 The brief looks like the dashboard: its design tokens and your brand theme (**Settings → Appearance**: colours, fonts) are inside the file, in the mode you use the dashboard in (the **Download / share** links pass it as `?theme=light` or `?theme=dark`; without it, dark, the dashboard's default). Printed or saved as PDF, it's on paper: the theme's light colours. The file has no scripts.
 
 **Printing the page itself** (your browser's Print, or Save as PDF) keeps the page as you see it. On the page a finding links to its own page in the dashboard; in the printed copy each of those links goes to where the finding came from, since whoever reads the PDF can't open your dashboard. A finding with no source has no link there. The brief's PDF below is the one made for sending.

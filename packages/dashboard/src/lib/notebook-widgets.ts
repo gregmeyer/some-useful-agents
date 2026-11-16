@@ -22,6 +22,7 @@ import { missingExperimentData, rankBy, rankOptions, isRange,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
+import { cleanQuote, readableNumbers, roleAtCompany, saidLike, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
 
 /** What the widgets read from the store beyond the view data: the searches. */
 export interface NotebookWidgetHistory extends NotebookViewHistory {
@@ -430,6 +431,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
   const { quotes, talkingPoints, questions, watch } = whatTheySaid(nb, active);
+  const lead = quotes.findIndex((q) => saidLike(q.quote));
   const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined, fresh?.marks);
 
   return {
@@ -442,14 +444,15 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...(nb.briefing?.points.length ? { talkingPointsEdit: `/notebooks/${encodeURIComponent(nb.id)}/talking-points` } : {}),
       ...(nb.briefing?.points.length && nb.status === 'active' && nb.steps?.some((s) => s.kind === 'write' && !s.shape) ? { talkingPointsReplace: `/notebooks/${encodeURIComponent(nb.id)}/talking-points/replace` } : {}),
       ...about,
-      ...(quotes[0]?.quote ? { leadQuote: quotes[0].quote } : {}),
-      otherQuotes: quotes.slice(1),
+      // The page leads with something they said; a profile's stats kept as a quote don't lead (and stay in the list).
+      ...(lead >= 0 ? { leadQuote: quotes[lead].quote } : {}),
+      otherQuotes: quotes.filter((_, i) => i !== lead),
       personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
       companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
       affiliations: notebookAffiliations(nb).map((a) => ({
         company: { label: a.name, ...(a.website ? { url: a.website } : {}) },
         role: a.role ?? '',
-        what: [a.what, a.industry, a.stage].filter(Boolean).join(' · '),
+        what: [a.what, a.industry, a.stage].filter((x): x is string => !!x).map((x) => readableNumbers(trimDangling(x))).filter(Boolean).join(' · '),
         ...(a.source ? { source: { label: ((): string => { try { return new URL(a.source!).hostname.replace(/^www\./, ''); } catch { return a.source!; } })(), url: a.source } } : {}),
       })),
       competitors: (nb.about?.company?.competitors ?? []).map((c) => ({
@@ -536,16 +539,17 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who:
     name: c.name,
     ...(fact('company', 'what_they_do') ? { role: fact('company', 'what_they_do') } : {}),
     ...(fact('company', 'headquarters') ? { org: fact('company', 'headquarters') } : {}),
-    ...(c.summary ? { about: c.summary } : {}),
+    ...(c.summary ? { about: readableNumbers(c.summary) } : {}),
     ...(photos.has('company') ? { image: notebookAboutPhotoPath(nb.id, 'company') } : {}),
     links: link(siteName(fact('company', 'website')) || 'Website', fact('company', 'website')),
     asOf: asOf(c.updatedAt),
   } : undefined;
   // Links show on the card, so the sheet leaves them out.
   const linkKeys = new Set(['linkedin', 'website', 'company_website']);
+  const names = [p?.name, c?.name].filter((x): x is string => !!x);
   const rows = (one: typeof p, who: 'person' | 'company') => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => {
     const m = marks[`${who}:${f.key}`];
-    return { label: f.label, value: f.value, ...(f.source ? { url: f.source } : f.from ? { from: f.from } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
+    return { label: f.label, value: readableNumbers(f.value, f.quote), ...(f.source ? { url: f.source } : f.from ? { from: tidyGiven(f.from, names) } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
   }) : []);
   return {
     ...(person ? { person } : {}),
@@ -571,14 +575,14 @@ function whatTheySaid(nb: Notebook, active: readonly NotebookViewOption[]): Pick
   const ordered = [...active.filter((o) => o.chosen), ...active.filter((o) => !o.chosen)];
   const page = (o: NotebookViewOption) => notebookOptionPath(nb.id, o.id);
   const said = (o: NotebookViewOption) => (quoteF ? text(o, quoteF.key) : nb.about?.person ? bodyQuote(o.body) : '');
-  const quotes = ordered.filter((o) => said(o)).map((o) => {
+  const quotes = uniqueQuotes(ordered.filter((o) => said(o)).map((o) => {
     const group = groupKey ? (nb.facets?.[groupKey]?.labels[facetValueKey(o.fields[groupKey])] || text(o, groupKey)) : '';
     const ask = text(o, askF?.key);
     return {
-      title: o.name, quote: said(o), href: page(o),
+      title: o.name, quote: cleanQuote(said(o)), href: page(o),
       ...(o.link ? { source: o.link } : {}), ...(o.when ? { at: o.when } : {}), ...(ask ? { ask } : {}), ...(group ? { group } : {}), ...(o.chosen ? { chosen: true } : {}),
     };
-  });
+  }));
   // Written (a write step): its points, each linked to what they said that it rests on (ones since ruled out drop off).
   if (nb.briefing?.points.length) {
     const byId = new Map(active.map((o) => [o.id, o]));
@@ -796,12 +800,15 @@ export function notebookAffiliations(nb: Pick<Notebook, 'about'>): NotebookAffil
   if (!p) return [];
   const main = (p.facts.find((f) => f.key === 'organization')?.value ?? nb.about?.company?.name ?? '').trim().toLowerCase();
   const out = [...(p.affiliations ?? [])];
-  const has = (n: string) => n.trim().toLowerCase() === main || out.some((a) => a.name.trim().toLowerCase() === n.trim().toLowerCase());
+  const company = (nb.about?.company?.name ?? '').trim().toLowerCase();
+  const has = (n: string) => { const k = n.trim().toLowerCase(); return k === main || (!!company && k === company) || out.some((a) => a.name.trim().toLowerCase() === k); };
   for (const c of p.conflicts ?? []) {
     if (c.fact !== 'organization' || !c.settled) continue;
     for (const claim of c.claims) {
-      if (claim.value.trim().toLowerCase() === c.settled.value.trim().toLowerCase() || has(claim.value)) continue;
-      out.push({ name: claim.value, ...(claim.source ? { source: claim.source } : {}) });
+      // A claim reads "Partner, Expa" (their role, then the company): the company is what's theirs, and one they already have isn't listed twice.
+      const at = roleAtCompany(claim.value);
+      if (claim.value.trim().toLowerCase() === c.settled.value.trim().toLowerCase() || has(claim.value) || has(at.name)) continue;
+      out.push({ name: at.name, ...(at.role ? { role: at.role } : {}), ...(claim.source ? { source: claim.source } : {}) });
     }
   }
   return out;
