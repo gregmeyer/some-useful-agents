@@ -1289,7 +1289,8 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       // What the template asks you for: a box each on the new notebook (a needed one holds its first step).
       ...(t.setup.asks?.length ? { given: givenFromAsks(t.setup.asks, subject) } : {}),
       // A site given with it: a briefing on that organization, whose site that is (the profile keeps it, ADR-0080).
-      ...(said.site && subject ? { briefOn: { name: subject, kind: 'organization' as const, site: said.site } } : {}),
+      // Its page is still decided as any template's is (a company's gets Company briefing), not taken from that.
+      ...(said.site && subject ? { briefOn: { name: subject, kind: 'organization' as const, site: said.site }, decidePage: true } : {}),
       // Like a notebook: its page stays whose it was (as when it's run again). From a template: the template's.
       ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage), ...(t.like?.layoutBy ? { layoutBy: t.like.layoutBy } : {}) } : {}),
     },

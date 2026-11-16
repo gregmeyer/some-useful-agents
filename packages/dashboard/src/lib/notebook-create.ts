@@ -47,6 +47,8 @@ export interface NewNotebookSetup {
   given?: unknown;
   /** Who or what it is a briefing on (core NotebookSubject). */
   briefOn?: unknown;
+  /** sua decides its page even when it is a briefing on someone (a template's notebook: its own page, or the one its kind gets). */
+  decidePage?: boolean;
 }
 
 export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook {
@@ -90,7 +92,7 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     if (input.layout) { greet(); return; }
     // A briefing on a subject has its page: no run is spent deciding one, and it keeps its kind when it's composed around what's written.
     const now = store.get(nb.id);
-    if (now?.briefOn && !now.layout) { store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked'); greet(); return; }
+    if (now?.briefOn && !now.layout && !input.decidePage) { store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked'); greet(); return; }
     void decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet);
   };
   // No steps given: sua lays them out once it's set up first.
