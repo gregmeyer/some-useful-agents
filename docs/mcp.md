@@ -173,7 +173,7 @@ It serves these tools. Your [tool policy](tool-policies.md) applies to each one,
 | Area | Tools | What they do |
 |---|---|---|
 | Agents and runs | `list-agents`, `run-agent`, `get-status`, `get-logs`, `cancel-agent`, `list-runs` | Run agents marked `mcp: true` and follow their runs. `run-agent` also holds conversations (`message` + `sessionId`); see [conversations.md](conversations.md). |
-| Notebooks | `notebook-read`, `notebook-templates`, `notebook-create`, `notebook-create-status` | Read what a notebook knows; list your templates; start a new notebook from a template or a sentence, and follow it until it's made. See [notebooks.md](notebooks.md#notebooks-from-elsewhere) and [tools/notebook-create.md](tools/notebook-create.md). |
+| Notebooks | `notebook-read`, `notebook-templates`, `notebook-create`, `notebook-create-status`, `notebook-tldr` | Read what a notebook knows; list your templates; start a new notebook from a template or a sentence, and follow it until it's made; redraw a notebook's TL;DR picture. See [notebooks.md](notebooks.md#notebooks-from-elsewhere) and [tools/notebook-create.md](tools/notebook-create.md). |
 | Experiments | `experiment-read` | Read what an experiment found. See [experiments.md](experiments.md). |
 | Boards | `board-read`, `board-place`, `build-board`, `board-build-status` | Arrange a board, or build a whole one from a request. See [boards.md](boards.md). |
 | Home and attention | `surface-read`, `surface-apply`, `items-read` | Read and change how Home is arranged; list what needs the person's attention. See [surfaces.md](surfaces.md). |
