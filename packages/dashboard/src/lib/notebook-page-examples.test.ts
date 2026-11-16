@@ -14,7 +14,7 @@ import { RunStore, NotebookStore, layoutPreset, notebookGivenLinks, NOTEBOOK_LAY
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookWidgetMessages, notebookLayoutFlags } from './notebook-widgets.js';
-import { renderPageBrief, briefIsPage, briefQuotes } from '../views/notebook-page-brief.js';
+import { renderPageBrief, briefIsPage, briefQuotes, splitAsk } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[]; written?: string[] }>;
 
@@ -445,5 +445,31 @@ describe('a drawn page set for paper', () => {
     expect(print).toContain('.log--short > li:nth-child(n+4) { display: none; }');
     // The extended brief keeps every line of the log.
     if (brief.includes('class="plain log log--short"')) expect(renderPageBrief({ ...args, full: true })).not.toContain('log--short"');
+  });
+});
+
+describe("a drawn page's type on paper", () => {
+  it("splits the question off the end of a talking point's note", () => {
+    expect(splitAsk('He said this first. Ask: What matters more?')).toEqual(['He said this first.', 'What matters more?']);
+    expect(splitAsk('Ask: What matters more?')).toEqual(['', 'What matters more?']);
+    expect(splitAsk('He said this first.')).toEqual(['He said this first.', '']);
+    // A word that only ends in "ask" is not a question.
+    expect(splitAsk('The task: ship it.')).toEqual(['The task: ship it.', '']);
+  });
+
+  it('leaves out a goal that only repeats the title, and keeps one that says more', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const args = { entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') };
+    expect(renderPageBrief({ ...args, nb: { ...nb, statement: `${nb.title}.` } })).not.toContain('<p class="goal">');
+    expect(renderPageBrief({ ...args, nb: { ...nb, statement: `${nb.title}, before Friday.` } })).toContain(`<p class="goal">${nb.title}, before Friday.</p>`);
+  });
+
+  it("sets a talking point's reasoning in the text colour and a table without a tinted panel", async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    const print = brief.slice(brief.indexOf('@media print'));
+    expect(print).toContain('.agenda ol li span.muted { color: var(--text); }');
+    expect(print).toContain('.part--band:has(.tbl) { background: none; padding: 0; }');
+    expect(brief).not.toMatch(/\.links \{[^}]*var\(--mono\)/);
   });
 });

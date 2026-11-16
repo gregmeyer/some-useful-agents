@@ -228,7 +228,8 @@ export async function htmlToPdf(
     return page.pdf({
       format: opts.paper ?? 'Letter', printBackground: true, displayHeaderFooter: true,
       headerTemplate: '<span></span>', footerTemplate: foot,
-      margin: { top: '15mm', bottom: '17mm', left: '14mm', right: '14mm' },
+      // The brief's own @page margin is what Chrome uses; these match it (and hold for a page without one).
+      margin: { top: '16mm', bottom: '16mm', left: '14mm', right: '14mm' },
     });
   });
   return out.available ? { available: true, data: Buffer.from(out.value) } : out;
