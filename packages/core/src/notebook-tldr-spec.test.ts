@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cleanTldrSpec, tldrOptionsGuide, TLDR_SIZES } from './notebook-tldr-spec.js';
+import { cleanTldrSpec, tldrOptionsGuide, TLDR_SIZES, strayTldrNumbers } from './notebook-tldr-spec.js';
 import { NotebookStore } from './notebooks.js';
 import { RunStore } from './run-store.js';
 
@@ -69,5 +69,15 @@ describe('a notebook keeps how its TL;DR picture is drawn', () => {
     // Deleting the notebook takes its history with it.
     s.delete(nb.id);
     expect(Number((runs.databaseHandle().prepare('SELECT COUNT(*) AS n FROM notebook_tldr_history').get() as { n: number }).n)).toBe(0);
+  });
+});
+
+describe('numbers in words written for the picture', () => {
+  it('finds the ones the notebook does not have, as written', () => {
+    const known = 'Revenue was 309M in Q3 2026; $2,130.99 at the top';
+    expect(strayTldrNumbers(['Northwind at 309M a quarter', undefined], known)).toEqual([]);
+    expect(strayTldrNumbers(['Up 45% since Q3'], known)).toEqual(['45']);
+    expect(strayTldrNumbers(['Top price $2,130.99'], known)).toEqual([]);
+    expect(strayTldrNumbers(['Top price $2,131'], known)).toEqual(['2131']);
   });
 });

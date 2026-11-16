@@ -46,6 +46,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | [`experiment-read`](tools/experiment-read.md) | Read what an experiment found: its question, the finding and what it rests on, its setup, each version against the baseline, what each version found, its runs. Counted from its runs. Archived ones too. Also offered over MCP |
 | [`notebook-read`](tools/notebook-read.md) | Read what a notebook knows: who it's about (facts with sources), what it wrote, its options with facts and checks, its notes. Archived ones too. Also offered over MCP |
 | [`notebook-create`](tools/notebook-create.md) | MCP only: start a new notebook from a template (`notebook-templates` lists them) or from an ask sua drafts, optionally starting its first step; `notebook-create-status` follows it |
+| `notebook-tldr` | MCP only: redraw a notebook's TL;DR picture: show how it's drawn, set its size, tone, layout, parts, headline and takeaway, undo, or go back to the standard one. Numbers in its words must be ones the notebook has. See [notebooks.md § The TL;DR picture](notebooks.md#the-tldr-picture) |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools

@@ -202,6 +202,49 @@ export type NotebookAbout = Partial<Record<NotebookAboutWho, NotebookAboutOne>>;
 
 const ABOUT_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
+/** The longest a fact's value or a summary is kept. */
+export const ABOUT_TEXT_MAX = 300;
+
+/**
+ * Text cut to `max` without breaking a sentence: the whole sentences that fit
+ * when they say enough (at least 40% of `max`), else whole words and "…".
+ * Never cut mid-word ("…AI Video Call. Secu"). Pure.
+ */
+export function clipSentences(text: string, max: number): string {
+  const s = text.replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  const head = s.slice(0, max + 1);
+  let end = -1;
+  for (const m of head.matchAll(/[.!?](?=\s|$)/g)) if (m.index! < max) end = m.index! + 1;
+  if (end >= max * 0.4) return s.slice(0, end);
+  return `${clipWords(s, max - 1).replace(/[.!?]+$/, '')}…`;
+}
+
+/** Facts that are an amount of money: a bare large number in one reads as 1.04B. */
+const MONEY_FACT_RE = /^(revenue|arr|funding|total_funding|raised|total_raised|valuation|market_cap|latest_round)$/;
+
+/** 1040000000 → "1.04B", 309000000 → "309M". Pure. */
+function compactAmount(n: number): string {
+  const [div, unit] = n >= 1e12 ? [1e12, 'T'] : n >= 1e9 ? [1e9, 'B'] : [1e6, 'M'];
+  return `${(n / div).toFixed(2).replace(/\.?0+$/, '')}${unit}`;
+}
+
+/**
+ * A fact's value as a reader should see it: in a money fact, bare numbers of
+ * seven digits or more are written compactly ("1040000000 (FY2025)" →
+ * "1.04B (FY2025)"); a size that is only a number or a range says what it
+ * counts ("900" → "900 employees"). Anything else is left as it was. Pure.
+ */
+export function readableFactValue(key: string, value: string): string {
+  if (MONEY_FACT_RE.test(key)) {
+    return value.replace(/(?<![\d.,])\d{7,}(?![.,]?\d)/g, (d) => compactAmount(Number(d)));
+  }
+  if (key === 'size' && /^(about |around |roughly |~)?\d[\d,]*(\s*[–-]\s*\d[\d,]*)?\+?$/i.test(value.trim())) {
+    return `${value.trim()} employees`;
+  }
+  return value;
+}
+
 /**
  * Facts about someone, merged: a later sighting of a fact wins (its value
  * and source), facts not seen again stay, and what's found leaves "not
@@ -215,7 +258,7 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
   for (const raw of next.facts ?? []) {
     const f = (raw ?? {}) as Partial<Record<keyof NotebookAboutFact, unknown>>;
     const key = typeof f.key === 'string' ? f.key.trim().toLowerCase() : '';
-    const value = typeof f.value === 'string' || typeof f.value === 'number' ? String(f.value).replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+    const value = typeof f.value === 'string' || typeof f.value === 'number' ? clipSentences(readableFactValue(key, String(f.value).replace(/\s+/g, ' ').trim()), ABOUT_TEXT_MAX) : '';
     if (!ABOUT_KEY_RE.test(key) || !value) continue;
     const source = typeof f.source === 'string' && /^https?:\/\//i.test(f.source.trim()) ? f.source.trim().slice(0, 500) : undefined;
     const quote = typeof f.quote === 'string' && f.quote.trim() ? f.quote.replace(/\s+/g, ' ').trim().slice(0, 300) : undefined;
@@ -226,7 +269,8 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     const i = facts.findIndex((x) => x.key === key);
     const old = i >= 0 ? facts[i] : undefined;
     // Seen again: when it was first learned stays; a new value keeps the one it replaced.
-    const same = old && lowerTrim(old.value) === lowerTrim(value);
+    // A value kept before it was made readable ("1040000000") is the same fact, not a change.
+    const same = old && lowerTrim(clipSentences(readableFactValue(key, old.value), ABOUT_TEXT_MAX)) === lowerTrim(value);
     const before = !old ? { firstAt: now }
       : { ...(old.firstAt ? { firstAt: old.firstAt } : {}),
         ...(same ? { ...(old.changedAt ? { changedAt: old.changedAt } : {}), ...(old.was ? { was: old.was } : {}) }
@@ -240,7 +284,7 @@ export function mergeAbout(was: NotebookAboutOne | undefined, next: { name?: str
     .filter((x) => !have.has(x.toLowerCase()) && !have.has(x.toLowerCase().replace(/\s+/g, '_')))
     .slice(0, 12);
   const name = (typeof next.name === 'string' && next.name.trim() ? next.name.trim() : was?.name ?? '').slice(0, 80);
-  const summary = typeof next.summary === 'string' && next.summary.trim() ? next.summary.replace(/\s+/g, ' ').trim().slice(0, 300) : was?.summary;
+  const summary = typeof next.summary === 'string' && next.summary.trim() ? clipSentences(next.summary, ABOUT_TEXT_MAX) : was?.summary;
   // A fresh list replaces the old one (a later look is the newer word); none found keeps what was.
   const fresh = firstNamed(cleanCompetitors(next.competitors, name), was?.competitors, now);
   const competitors = fresh.length ? fresh : was?.competitors ?? [];

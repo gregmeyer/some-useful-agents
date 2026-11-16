@@ -93,6 +93,21 @@ export function cleanTldrSpec(raw: unknown): TldrSpec | undefined {
   };
 }
 
+/** The numbers in a text, as digits ("$2,130.99" → "2130.99", "8" → "8"). Pure. */
+export function tldrNumbers(text: string): string[] {
+  return (text.match(/\d[\d,.]*\d|\d/g) ?? []).map((n) => n.replace(/,/g, '').replace(/\.$/, ''));
+}
+
+/**
+ * Numbers in the words written for a picture (its headline, its takeaway)
+ * that `known` (what the notebook itself says) doesn't have: those would be
+ * the writer's own, and a picture's numbers only ever come from its data. Pure.
+ */
+export function strayTldrNumbers(words: readonly (string | undefined)[], known: string): string[] {
+  const have = new Set(tldrNumbers(known));
+  return [...new Set(words.flatMap((w) => tldrNumbers(w ?? '')).filter((n) => !have.has(n)))];
+}
+
 /** What a model is told it may choose from, as text. */
 export function tldrOptionsGuide(): string {
   const list = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `  - "${k}": ${v}`).join('\n');

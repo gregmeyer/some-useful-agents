@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, distinctNames, subjectOut, fillSubject, splitSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, distinctNames, subjectOut, fillSubject, splitSubject, templateSubjectGuess, clipWords, clipSentences, readableFactValue } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1755,5 +1755,50 @@ describe('splitSubject', () => {
     expect(splitSubject('  Dana   Reyes ')).toEqual({ name: 'Dana Reyes' });
     expect(splitSubject('a used set of Sonos speakers')).toEqual({ name: 'a used set of Sonos speakers' });
     expect(splitSubject('Vercel (Next.js)')).toEqual({ name: 'Vercel (Next.js)' });
+  });
+});
+
+describe('facts kept as a reader should see them', () => {
+  const news = '3 Nov 2026: Q3 2026 results. Revenue was 309.0M (up 13.7%) and daily active users were 64.9M (up 29%). Full-year 2026 revenue guidance was raised to 1.22B. Duolingo is stopping sales of new Max subscriptions and moving existing Max subscribers to Super, which is getting unlimited AI Video Call. Security researchers also noted a change.';
+
+  it('a long value keeps whole sentences instead of stopping mid-word', () => {
+    const out = clipSentences(news, 300);
+    expect(out.length).toBeLessThanOrEqual(300);
+    expect(out.endsWith('unlimited AI Video Call.')).toBe(true);
+  });
+
+  it('with no sentence end in reach it cuts at a word and says so', () => {
+    const out = clipSentences(`${'word '.repeat(80)}end`, 100);
+    expect(out.length).toBeLessThanOrEqual(100);
+    expect(out).toMatch(/word…$/);
+    expect(clipSentences('Short enough.', 300)).toBe('Short enough.');
+  });
+
+  it('writes big numbers in a money fact compactly, and says what a bare size counts', () => {
+    expect(readableFactValue('revenue', '1040000000 (FY2025, up 38.7%); 1180000000 in the 12 months to 30 Sep 2026; 2026 guidance raised to 1220000000'))
+      .toBe('1.04B (FY2025, up 38.7%); 1.18B in the 12 months to 30 Sep 2026; 2026 guidance raised to 1.22B');
+    expect(readableFactValue('revenue', '$309000000 in Q3 2026')).toBe('$309M in Q3 2026');
+    expect(readableFactValue('revenue', 'US$1.04B (FY2025)')).toBe('US$1.04B (FY2025)');
+    expect(readableFactValue('revenue', '1,040,000,000')).toBe('1,040,000,000');
+    expect(readableFactValue('founded', '2011')).toBe('2011');
+    expect(readableFactValue('headquarters', 'Suite 1234567, Pittsburgh')).toBe('Suite 1234567, Pittsburgh');
+    expect(readableFactValue('size', '900')).toBe('900 employees');
+    expect(readableFactValue('size', '50–200')).toBe('50–200 employees');
+    expect(readableFactValue('size', 'about 900 employees')).toBe('about 900 employees');
+  });
+
+  it('a briefing keeps them that way, and an old raw value seen again is not a change', () => {
+    const facts = [
+      { key: 'revenue', label: 'Revenue', value: '1040000000 (FY2025)' },
+      { key: 'size', label: 'Size', value: '900' },
+      { key: 'recent_news', label: 'Recent news', value: news },
+    ];
+    const one = mergeAbout(undefined, { name: 'Duolingo', facts, summary: `${news} ${news}` }, '2026-11-16T00:00:00Z');
+    expect(one.facts.map((f) => f.value.slice(0, 20))).toEqual(['1.04B (FY2025)', '900 employees', news.slice(0, 20)]);
+    expect(one.facts[2]!.value.endsWith('AI Video Call.')).toBe(true);
+    expect(one.summary!.endsWith('.')).toBe(true);
+    const raw = { ...one, facts: one.facts.map((f) => (f.key === 'revenue' ? { ...f, value: '1040000000 (FY2025)' } : f)) };
+    const again = mergeAbout(raw, { facts: [facts[0]] }, '2026-11-17T00:00:00Z');
+    expect(again.facts.find((f) => f.key === 'revenue')!.changedAt).toBeUndefined();
   });
 });
