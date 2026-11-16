@@ -689,6 +689,8 @@ What a notebook learned isn't stuck on its page. The built-in [`notebook-read`](
 
 `notebook-read` only reads. Your [tool policy](tool-policies.md) can keep a notebook private: deny `notebook-read` for its id.
 
+**From any conversation with sua.** Paste a notebook's link into any thread, not only the notebook's own conversation ("use /notebooks/brief-northwind-example to tell me what Acme Ventures as an investor would mean"). sua reads what the notebook knows and answers from it first, with its sources. Archived notebooks work too. Naming a notebook works too, archived or not: its title, or who or what it's about ("what did we learn about Dana Whitfield?", "what does my Northwind notebook say?"). Words every notebook of a kind shares, like "meeting" or "brief", don't count as naming one. The thread doesn't become that notebook's conversation, so sua won't add to it or change it from there unless you ask. When sua starts research to go further, it gives the research agent what the notebook already knows (starter-research's `KNOWN` input), so the research goes after what's new instead of finding the same facts again. sua reads at most two linked notebooks per turn.
+
 ### Starting one over MCP
 
 An MCP client can start a notebook the way New notebook would, so another app (or another agent) doesn't have to send you to the dashboard. See [`notebook-create`](tools/notebook-create.md).
@@ -700,12 +702,10 @@ An MCP client can start a notebook the way New notebook would, so another app (o
 
   Templates come first. When an ask looks like one of your templates (a meeting ask and your Meeting briefing, "tell me about…" and your Company briefing, "buy…" and your Buy something), nothing is started: the reply names the template and how to use it, and the client calls again with it, or with `fresh: true` to draft a new notebook anyway. The match is by the kind of notebook and the template's name, no model, so it's a suggestion for the client to weigh.
 
-  `title` names it. `start: true` also starts its first step; without it, the notebook waits for you to press **Next step**, as one started from a sua card does. A notebook that needs something from you first (a profile its template asks for) won't start until you give it.
+  `title` names it; without one, a template's notebook is named after the template and its subject ("Company briefing: Duolingo"). Its page is the template's own, or else the one sua picks for it, as for any new notebook; a drafted briefing on one named thing gets the Subject briefing page. `start: true` also starts its first step; without it, the notebook waits for you to press **Next step**, as one started from a sua card does. A notebook that needs something from you first (a profile its template asks for) won't start until you give it.
 - **`notebook-create-status`** says how it's going: queued, drafting, creating, then ready with the new notebook's id and link (read it with `notebook-read`), or failed with why.
 
 The MCP server only queues the request. The dashboard makes the notebook within a few seconds, because setup, drafting and steps run there (the same way [`build-board`](boards.md) works), so the dashboard has to be running. A request it was making when it restarted is marked failed; ask again. A notebook started this way puts a note in your inbox. To stop other apps starting notebooks, deny `notebook-create` in your [tool policy](tool-policies.md).
-
-**From any conversation with sua.** Paste a notebook's link into any thread, not only the notebook's own conversation ("use /notebooks/brief-northwind-example to tell me what Acme Ventures as an investor would mean"). sua reads what the notebook knows and answers from it first, with its sources. Archived notebooks work too. Naming a notebook works too, archived or not: its title, or who or what it's about ("what did we learn about Dana Whitfield?", "what does my Northwind notebook say?"). Words every notebook of a kind shares, like "meeting" or "brief", don't count as naming one. The thread doesn't become that notebook's conversation, so sua won't add to it or change it from there unless you ask. When sua starts research to go further, it gives the research agent what the notebook already knows (starter-research's `KNOWN` input), so the research goes after what's new instead of finding the same facts again. sua reads at most two linked notebooks per turn.
 
 ## Runs not in the notebook yet
 
@@ -819,7 +819,6 @@ While a notebook has steps left, the main button in its header is **Next step �
   - **A Continue that can't start the next step leaves the step met.** For example, the next step has no checks, or its agent can't do that kind of step. The reason shows on the page and on the card, and the same card isn't put back each time you open the notebook. Fix the step, then press Next step again.
 
 **When it's working.** While a step or a pass runs, or sua is doing something for the notebook in the background (finding photos, labelling facts for filters, getting listing photos, adding a run), the header says so with a pulsing dot ("Running step 2 of 4 · Finding photos…"), the running step's number turns, and the page refreshes until it's quiet. The header also catches up on its own when a step starts, pauses or gets a new card from the conversation, so its buttons always match the card waiting there. If sua restarts while a step runs, that step stops there ("stopped by a restart"), keeping what it found. sua says so in the conversation, and **Try again** and **Move on** wait.
-
 
 ### sua's checker
 
