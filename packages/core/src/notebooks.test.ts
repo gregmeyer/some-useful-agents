@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RunStore } from './run-store.js';
 import { InboxStore } from './inbox-store.js';
 import { AgentStore } from './agent-store.js';
-import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, distinctNames, subjectOut, fillSubject, templateSubjectGuess, clipWords } from './notebooks.js';
+import { cleanAnswer, cleanAffiliations, cleanCompetitors, mergeAbout, cleanPlan, cleanSteps, cleanMeeting, isMeetingNotebook, cleanConflicts, openConflicts, readOptionText, NotebookStore, vinKey, sameAddress, isListPage, stepProgress, optionLink, numbersInText, groundFacts, notebookEntryItems, notebookProgress, notebookSlug, notebookViewData, cleanFields, optionFingerprint, shortName, distinctNames, subjectOut, fillSubject, splitSubject, templateSubjectGuess, clipWords } from './notebooks.js';
 import { compileSurface } from './surfaces/compile.js';
 import { defaultSurface } from './surfaces/defaults.js';
 import { collectItems, itemSourcesFromHandle } from './items/collect.js';
@@ -1740,5 +1740,20 @@ describe('the parts of a briefing on a subject', () => {
     expect(briefingPartOf(undefined, 'How it works and what it costs')?.id).toBe('works');
     expect(briefingPartOf('others', 'anything')?.id).toBe('others');
     expect(briefingPartOf(undefined, 'Park guides by region')).toBeUndefined();
+  });
+});
+
+describe('splitSubject', () => {
+  it('takes a site off a subject, leaving the name', () => {
+    expect(splitSubject('Duolingo, duolingo.com')).toEqual({ name: 'Duolingo', site: 'https://duolingo.com' });
+    expect(splitSubject('Acme (https://acme.example/about)')).toEqual({ name: 'Acme', site: 'https://acme.example/about' });
+    expect(splitSubject('Northwind Traders – www.northwind.example.')).toEqual({ name: 'Northwind Traders', site: 'https://www.northwind.example' });
+    expect(splitSubject('Arrive, website: arrive.com')).toEqual({ name: 'Arrive', site: 'https://arrive.com' });
+    expect(splitSubject('stripe.com')).toEqual({ name: 'stripe.com', site: 'https://stripe.com' });
+  });
+  it('leaves a subject with no address as it is', () => {
+    expect(splitSubject('  Dana   Reyes ')).toEqual({ name: 'Dana Reyes' });
+    expect(splitSubject('a used set of Sonos speakers')).toEqual({ name: 'a used set of Sonos speakers' });
+    expect(splitSubject('Vercel (Next.js)')).toEqual({ name: 'Vercel (Next.js)' });
   });
 });

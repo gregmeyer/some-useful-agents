@@ -6626,6 +6626,16 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     expect(nb.statement).toBe('Learn about Acme');
     expect(nb.steps?.[0]).toMatchObject({ title: 'Find news on Acme', status: 'todo' });
     expect(s.getTemplate('company-briefing')!.uses).toBe(1);
+    expect(nb.title).toBe('Company briefing: Acme');
+    expect(nb.briefOn).toBeUndefined();
+    // Given with its website: the name alone in its texts, the site kept as the organization's own.
+    const w = requests.create({ template: 'company-briefing', subject: 'Duolingo, duolingo.com', origin: 'mcp' });
+    await Promise.all(startQueuedNotebookRequests(ctx));
+    const duo = s.get(requests.get(w.id)!.notebookId!)!;
+    expect(duo.title).toBe('Company briefing: Duolingo');
+    expect(duo.statement).toBe('Learn about Duolingo');
+    expect(duo.steps?.[0]?.title).toBe('Find news on Duolingo');
+    expect(duo.briefOn).toEqual({ name: 'Duolingo', kind: 'organization', site: 'https://duolingo.com' });
     // Claimed once: running the queue again makes nothing more.
     expect(startQueuedNotebookRequests(ctx)).toHaveLength(0);
     // The person hears about it.

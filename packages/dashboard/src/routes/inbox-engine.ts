@@ -60,7 +60,7 @@ import {
   partialInlineWidget,
   prepareViewForRender,
   viewToMessages,
-  fillSubject, givenFromAsks, subjectOut, layoutWords, templateWithEdits, templateSubjectGuess, similarNotebooks, notebookPurpose, notebookTags,
+  fillSubject, splitSubject, TEMPLATE_SUBJECT, givenFromAsks, subjectOut, layoutWords, templateWithEdits, templateSubjectGuess, similarNotebooks, notebookPurpose, notebookTags,
   type NotebookTemplateSetup, type Notebook,
   notebookLayoutGuide,
   suaComponentDocs,
@@ -1256,7 +1256,9 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
   const installed = (id: string) => { const a = ctx.agentStore.getAgent(id); return !!a && a.status !== 'archived'; };
   const target = Number(meta.inputs.TARGET);
   // What changes each time ("Who you're meeting"): filled into every text that says {subject}.
-  const subject = (meta.inputs.SUBJECT ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  // Given with its website ("Duolingo, duolingo.com"): the name goes into its texts, the site is where its profile looks.
+  const said = splitSubject((meta.inputs.SUBJECT ?? '').replace(/\s+/g, ' ').trim().slice(0, 300));
+  const subject = said.name.slice(0, 80);
   if (t.setup.subject && !subject) return { error: `The template "${t.name}" needs to know ${t.setup.subject.label.replace(/^./, (c) => c.toLowerCase())} (SUBJECT).` };
   const fill = (x: string) => fillSubject(x, subject);
   // Its page's words: {subject} filled in (a template saved before its page's words were swapped still names its example).
@@ -1273,7 +1275,8 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
   return {
     from: t,
     setup: {
-      title: fill((meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || t.name),
+      // No title given: the template's name, with who it's about when the name doesn't say ("Company briefing: Duolingo").
+      title: fill((meta.inputs.TITLE ?? '').replace(/\s+/g, ' ').trim().slice(0, 120) || (subject && !t.name.includes(TEMPLATE_SUBJECT) && !t.name.toLowerCase().includes(subject.toLowerCase()) ? `${t.name}: ${subject}` : t.name)),
       statement: fill((meta.inputs.STATEMENT ?? '').trim() || t.setup.statement),
       params: listInput(meta.inputs.PARAMS, t.setup.params).map(fill),
       criteria: listInput(meta.inputs.CRITERIA, t.setup.criteria).map(fill),
@@ -1285,6 +1288,8 @@ export function notebookFromTemplate(ctx: ReturnType<typeof getContext>, meta: I
       steps,
       // What the template asks you for: a box each on the new notebook (a needed one holds its first step).
       ...(t.setup.asks?.length ? { given: givenFromAsks(t.setup.asks, subject) } : {}),
+      // A site given with it: a briefing on that organization, whose site that is (the profile keeps it, ADR-0080).
+      ...(said.site && subject ? { briefOn: { name: subject, kind: 'organization' as const, site: said.site } } : {}),
       // Like a notebook: its page stays whose it was (as when it's run again). From a template: the template's.
       ...(t.setup.layout ? { layout: layoutWords(t.setup.layout, fillPage), ...(t.like?.layoutBy ? { layoutBy: t.like.layoutBy } : {}) } : {}),
     },
