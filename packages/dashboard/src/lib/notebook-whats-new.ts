@@ -6,7 +6,7 @@
  * the version it replaced. Only what the latest run did counts: a fact you
  * settled since, or points you edited, aren't "new". Pure.
  */
-import { shortName, type Notebook, type NotebookEntry, type NotebookPass, type NotebookStepKind, type NotebookWrittenBefore } from '@some-useful-agents/core';
+import { clipSentences, readableFactValue, shortName, type Notebook, type NotebookEntry, type NotebookPass, type NotebookStepKind, type NotebookWrittenBefore } from '@some-useful-agents/core';
 
 type Pass = Pick<NotebookPass, 'startedAt' | 'finishedAt' | 'stepId'>;
 
@@ -58,6 +58,14 @@ function writtenItems(nb: Notebook): { at: string; items: string[]; previous?: N
   return undefined;
 }
 
+/** The longest a fact's old value is shown beside it ("changed (was …)"). */
+const WAS_MAX = 160;
+
+/** A fact's old value for "(was …)": written as a fact is now, cut at a sentence or word, never mid-word. Pure. */
+export function wasText(key: string, value: string): string {
+  return clipSentences(readableFactValue(key, value.replace(/\s+/g, ' ').trim()), WAS_MAX);
+}
+
 export function whatsNew(nb: Notebook, entries: readonly NotebookEntry[], passes: readonly Pass[]): WhatsNew | undefined {
   const profile = rerun(nb, passes, ['profile']);
   const find = rerun(nb, passes, ['find']);
@@ -70,9 +78,12 @@ export function whatsNew(nb: Notebook, entries: readonly NotebookEntry[], passes
       const one = nb.about?.[who];
       if (!one) continue;
       for (const f of one.facts) {
-        if (inside(f.changedAt, profile) && f.was && norm(f.was.value) !== norm(f.value)) {
-          out.facts.changed.push({ label: f.label, was: f.was.value, now: f.value });
-          out.marks[`${who}:${f.key}`] = { mark: 'changed', was: f.was.value };
+        // What it was, as a reader should see it: a value kept before facts were written readably ("1040000000 (FY2025…",
+        // "…AI Video Call. Secu") reads like the new one, and short enough for a note beside it.
+        const was = f.was ? wasText(f.key, f.was.value) : '';
+        if (inside(f.changedAt, profile) && f.was && norm(readableFactValue(f.key, f.was.value)) !== norm(f.value)) {
+          out.facts.changed.push({ label: f.label, was, now: f.value });
+          out.marks[`${who}:${f.key}`] = { mark: 'changed', was };
         } else if (inside(f.firstAt, profile)) {
           out.facts.new.push(f.label);
           out.marks[`${who}:${f.key}`] = { mark: 'new' };
