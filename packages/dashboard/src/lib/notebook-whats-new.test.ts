@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { whatsNew, whatsNewLines, whatsNewSummary } from './notebook-whats-new.js';
+import { wasText, whatsNew, whatsNewLines, whatsNewSummary } from './notebook-whats-new.js';
 
 // Two profile runs (Oct 26, Oct 28), two finds, two writes: each part against its own run before.
 const D = (d: number, h = 10) => `2026-10-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:00:00.000Z`;
@@ -64,5 +64,25 @@ describe("what's new since the last run", () => {
     expect(whatsNew(nb(), [], [{ startedAt: D(24), finishedAt: D(24, 11) }, pass('s1', 28)])).toBeUndefined();
     // A run still going doesn't count.
     expect(whatsNew(nb(), [], [pass('s1', 26), { stepId: 's1', startedAt: D(28) }])).toBeUndefined();
+  });
+});
+
+describe('what a changed fact was', () => {
+  it('reads like the facts do now: money compact, a size that says what it counts, cut at a sentence, never mid-word', () => {
+    expect(wasText('revenue', '1040000000 (FY2025, up 38.7%); 1180000000 in the 12 months to 30 Sep 2026')).toBe('1.04B (FY2025, up 38.7%); 1.18B in the 12 months to 30 Sep 2026');
+    expect(wasText('size', '900')).toBe('900 employees');
+    const news = '3 Nov 2026: Q3 2026 results. Revenue was 309.0M (up 13.7%) and daily active users were 64.9M (up 29%). Full-year 2026 revenue guidance was raised to 1.22B. Duolingo is stopping sales of new Max subscriptions and moving existing Max subscribers to Super, which is getting unlimited AI Video Call. Secu';
+    expect(wasText('news', news)).toBe('3 Nov 2026: Q3 2026 results. Revenue was 309.0M (up 13.7%) and daily active users were 64.9M (up 29%). Full-year 2026 revenue guidance was raised to 1.22B.');
+    expect(wasText('role', 'VP Ops')).toBe('VP Ops');
+  });
+  it('shows a changed fact\'s old value that way, and a change only in how it is written is no change', () => {
+    const company = (facts: unknown[]) => nb({ about: { company: { name: 'Duolingo', updatedAt: D(28, 10), facts } } } as unknown as Partial<Notebook>);
+    const w = whatsNew(company([
+      fact('size', 'Size', '830 employees', { firstAt: D(26, 10), changedAt: D(28, 10), was: { value: '900', at: D(26, 10) } }),
+      fact('revenue', 'Revenue', '1.04B (FY2025)', { firstAt: D(26, 10), changedAt: D(28, 10), was: { value: '1040000000 (FY2025)', at: D(26, 10) } }),
+    ]), [], passes)!;
+    expect(w.facts.changed).toEqual([{ label: 'Size', was: '900 employees', now: '830 employees' }]);
+    expect(w.marks['company:size']).toEqual({ mark: 'changed', was: '900 employees' });
+    expect(w.marks['company:revenue']).toBeUndefined();
   });
 });
