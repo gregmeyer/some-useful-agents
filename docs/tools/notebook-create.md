@@ -15,9 +15,9 @@ There are two ways to start one:
 | Input | Type | Required | Description |
 |---|---|---|---|
 | `template` | string | one of `template` / `ask` | A template's id, or words from its name. `notebook-templates` lists them. |
-| `subject` | string | when the template has one | Who or what it's about, for example a company or a person. It's capped at 80 characters. |
+| `subject` | string | when the template has one | Who or what it's about, for example a company or a person. It's capped at 80 characters. A website given with it ("Duolingo, duolingo.com") is taken off: the name goes into the notebook, and the site becomes the organization's own site, which its profile step uses. |
 | `ask` | string | one of `template` / `ask` | What the notebook is for, in a sentence. |
-| `title` | string | no | Its title. Otherwise it comes from the template or the draft. |
+| `title` | string | no | Its title. Otherwise it comes from the draft, or from the template's name with the subject added ("Company briefing: Duolingo"). |
 | `start` | boolean | no | Start its first step once it's made. It's off by default, so the notebook waits for you to press **Next step**. |
 
 If neither `template` nor `ask` is given, or both are, the call fails straight away. It also fails at once for an unknown or archived template, or a missing subject.

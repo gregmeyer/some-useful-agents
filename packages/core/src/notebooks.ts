@@ -1284,6 +1284,28 @@ export function fillSubject(text: string, value: string): string {
 }
 
 /**
+ * What was given as a template's subject, as a name and its site: "Duolingo,
+ * duolingo.com" or "Acme (https://acme.example)" is Duolingo / Acme with that
+ * site, so the name alone goes into the notebook's texts. A subject that is
+ * only an address keeps it as its name too. Pure.
+ */
+export function splitSubject(raw: string): { name: string; site?: string } {
+  const said = raw.replace(/\s+/g, ' ').trim();
+  const m = /(?:https?:\/\/)?(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,24}(?:\/[^\s,;)]*)?/i.exec(said);
+  // Not an address: a dotted word in a name ("Node.js") has no top-level domain of letters after a word boundary, and isn't split off here.
+  const bare = !!m && !/^https?:\/\//i.test(m[0]);
+  // A bare address is written in lower case, set off from the name, and isn't a file or library name ("Next.js").
+  if (!m || (bare && (m[0] !== m[0].toLowerCase() || /\.(?:js|ts|py|rb|md|sh)$/i.test(m[0].split('/')[0]!) || !/(^|[\s,;:(\[|–—-])$/.test(said.slice(0, m.index))))) return { name: said };
+  const site = (/^https?:\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`).replace(/[.,;:!?]+$/, '');
+  const name = (said.slice(0, m.index) + said.slice(m.index + m[0].length))
+    .replace(/\(\s*\)|\[\s*\]/g, ' ')
+    .replace(/\b(?:website|site|web|at|url)\s*:?\s*$/i, '')
+    .replace(/^[\s,;:|–—.-]+|[\s,;:|–—(.-]+$/g, '')
+    .replace(/\s+/g, ' ').trim();
+  return { name: name || said, site };
+}
+
+/**
  * A guess at what a notebook is about that would change next time: the
  * longest of its limits that its title also says, as written ("Dana
  * Reyes" in "Prepare for meeting with Dana Reyes"). Short, generic ones
