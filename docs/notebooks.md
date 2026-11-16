@@ -678,14 +678,30 @@ An [experiment](experiments.md#running-a-whole-notebook) can run a whole noteboo
 
 An [experiment](experiments.md) measures what changes what an agent produces. **Show it in a notebook**, on the experiment's page, makes a notebook whose page is that experiment's results: the finding, the figures, each version, and what each version found, read from the experiment each time the page opens. It has no steps and nothing to decide; **Open the experiment** is where it is run. Talk to sua there about what the results mean. See [Experiments: showing it in a notebook](experiments.md#showing-it-in-a-notebook).
 
-## Reading a notebook from elsewhere
+## Notebooks from elsewhere
+
+### Reading one
 
 What a notebook learned isn't stuck on its page. The built-in [`notebook-read`](tools/notebook-read.md) tool reads it: what it's for, the facts about who it's about with their sources, what it wrote, its options with facts and check results, and its notes. Archived notebooks can be read too.
 
 - **An agent** adds `notebook-read` to a node's `tools:` and names the notebook by id, link or title words, so one notebook's research can feed another's work.
 - **An MCP client** (Claude Desktop, Codex…) connected to `sua mcp` gets the same tool, so another app can ask what a notebook knows.
 
-It only reads. Your [tool policy](tool-policies.md) can keep a notebook private: deny `notebook-read` for its id.
+`notebook-read` only reads. Your [tool policy](tool-policies.md) can keep a notebook private: deny `notebook-read` for its id.
+
+### Starting one over MCP
+
+An MCP client can start a notebook the way New notebook would, so another app (or another agent) doesn't have to send you to the dashboard. See [`notebook-create`](tools/notebook-create.md).
+
+- **`notebook-templates`** lists your templates: each one's id, name, what it sets up, and the subject it needs ("The company, e.g. Northwind").
+- **`notebook-create`** starts one of two ways:
+  - from a template, with `template` (its id or words from its name) and `subject` (`{"template": "company briefing", "subject": "Acme"}`);
+  - from an ask that sua drafts, as when you type a sentence on New notebook (`{"ask": "Tell me about Acme, https://acme.example"}`). An ask about one named thing becomes a briefing on it.
+
+  `title` names it. `start: true` also starts its first step; without it, the notebook waits for you to press **Next step**, as one started from a sua card does. A notebook that needs something from you first (a profile its template asks for) won't start until you give it.
+- **`notebook-create-status`** says how it's going: queued, drafting, creating, then ready with the new notebook's id and link (read it with `notebook-read`), or failed with why.
+
+The MCP server only queues the request. The dashboard makes the notebook within a few seconds, because setup, drafting and steps run there (the same way [`build-board`](boards.md) works), so the dashboard has to be running. A request it was making when it restarted is marked failed; ask again. A notebook started this way puts a note in your inbox. To stop other apps starting notebooks, deny `notebook-create` in your [tool policy](tool-policies.md).
 
 **From any conversation with sua.** Paste a notebook's link into any thread, not only the notebook's own conversation ("use /notebooks/brief-northwind-example to tell me what Acme Ventures as an investor would mean"). sua reads what the notebook knows and answers from it first, with its sources. Archived notebooks work too. Naming a notebook works too, archived or not: its title, or who or what it's about ("what did we learn about Dana Whitfield?", "what does my Northwind notebook say?"). Words every notebook of a kind shares, like "meeting" or "brief", don't count as naming one. The thread doesn't become that notebook's conversation, so sua won't add to it or change it from there unless you ask. When sua starts research to go further, it gives the research agent what the notebook already knows (starter-research's `KNOWN` input), so the research goes after what's new instead of finding the same facts again. sua reads at most two linked notebooks per turn.
 

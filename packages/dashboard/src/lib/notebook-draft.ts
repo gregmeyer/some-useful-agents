@@ -53,6 +53,17 @@ export interface NotebookDraft {
   about?: NotebookSubject;
 }
 
+/** The first web address in what was asked. */
+export const firstLink = (text: string | undefined): string | undefined => /https?:\/\/[^\s<>"')\]]+/i.exec(text ?? '')?.[0]?.replace(/[.,;:!?]+$/, '');
+
+/** Who or what a drafted notebook is a briefing on, with its own site when the ask gave a link (ADR-0080). */
+export function briefOnFromDraft(text: string | undefined, draft: NotebookDraft): NotebookSubject | undefined {
+  const about = draft.about;
+  if (!about) return undefined;
+  const site = about.kind !== 'topic' && !about.site ? firstLink(text) : undefined;
+  return { ...about, ...(site ? { site } : {}) };
+}
+
 export type DraftState =
   | { status: 'working'; text: string; at: number; draft?: NotebookDraft }
   /** `error`: a change sua couldn't make; the draft is the one before it. */

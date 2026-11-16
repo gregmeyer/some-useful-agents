@@ -45,6 +45,7 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 | `board-read`, `board-place` | Read and arrange a board (Pulse or a named dashboard): its sections, tabs, rows, grids and tiles, with the same operations as the Arrange editor, saved as an undoable version. Also offered over MCP; see [tools/board-place.md](tools/board-place.md) |
 | [`experiment-read`](tools/experiment-read.md) | Read what an experiment found: its question, the finding and what it rests on, its setup, each version against the baseline, what each version found, its runs. Counted from its runs. Archived ones too. Also offered over MCP |
 | [`notebook-read`](tools/notebook-read.md) | Read what a notebook knows: who it's about (facts with sources), what it wrote, its options with facts and checks, its notes. Archived ones too. Also offered over MCP |
+| [`notebook-create`](tools/notebook-create.md) | MCP only: start a new notebook from a template (`notebook-templates` lists them) or from an ask sua drafts, optionally starting its first step; `notebook-create-status` follows it |
 | `memory-save`, `memory-search`, `memory-forget` | An agent's own memory across runs. Offered automatically to agents with `memory:` on; see [memory.md](memory.md) |
 
 ## MCP tools

@@ -31,6 +31,8 @@ import {
   type BuiltinToolContext,
   BoardBuildStore,
   queueBoardBuild,
+  NotebookRequestStore,
+  checkNotebookRequest,
   type DashboardsStore,
   getBuiltinTool,
   evaluatePolicy,
@@ -607,6 +609,70 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         ...(b.missing.length ? [`Not covered by existing agents: ${b.missing.map((m) => m.purpose).join('; ')}`] : []),
         ...(b.drafts.filter((d) => d.ok).length ? [`Drafted (${b.approval ?? 'pending'}): ${b.drafts.filter((d) => d.ok).map((d) => d.id).join(', ')} — the person approves these in the sua inbox.`] : []),
         ...(b.error ? [`Error: ${b.error}`] : []),
+      ];
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // Start a notebook (docs/notebooks.md § Notebooks from elsewhere). Making one
+  // runs in the dashboard (setup, drafting an ask, its first step), so this
+  // queues it in the shared database, like build-board; the dashboard makes it
+  // within seconds and notebook-create-status says when it's there.
+  const notebookRequests = (() => {
+    try { return opts.runStore ? new NotebookRequestStore(opts.runStore.databaseHandle()) : undefined; } catch { return undefined; }
+  })();
+  server.registerTool(
+    'notebook-templates',
+    {
+      description: 'List the person\'s sua notebook templates (a company briefing, meeting prep…): each one\'s id, name, what it sets up, and what it needs to be told (its subject). Start a notebook from one with notebook-create.',
+      inputSchema: {},
+    },
+    async () => {
+      if (!notebookStore) return errorResult('Notebooks are not available on this server.');
+      const ts = notebookStore.listTemplates(50);
+      if (!ts.length) return { content: [{ type: 'text' as const, text: 'No templates yet. Start a notebook from an ask instead (notebook-create with ask), or the person can save one from a notebook\'s Edit panel.' }] };
+      const lines = ts.map((t) => `- ${t.id}: ${t.name} (${t.description})${t.setup.subject ? `. Needs subject: ${t.setup.subject.label}, e.g. "${t.setup.subject.example}"` : ''}`);
+      return { content: [{ type: 'text' as const, text: `Templates:\n${lines.join('\n')}` }] };
+    },
+  );
+  server.registerTool(
+    'notebook-create',
+    {
+      description: 'Start a new sua notebook, as New notebook in the dashboard would: from one of the person\'s templates (template + subject, e.g. a company briefing on "Acme"), or from an ask that sua drafts a notebook from (e.g. "Tell me about Acme, acme.com"). Returns a request id; the dashboard makes the notebook within seconds (an ask takes a minute to draft). Check with notebook-create-status, then read it with notebook-read. It waits for the person to press Next step unless start is true.',
+      inputSchema: {
+        template: z.string().optional().describe('A template id or words from its name (list them with notebook-templates). Give this or ask.'),
+        subject: z.string().optional().describe('Who or what it\'s about, for a template that needs one (e.g. a company or person name).'),
+        ask: z.string().optional().describe('What the notebook is for, in a sentence, when not starting from a template (e.g. "Tell me about Acme, acme.com").'),
+        title: z.string().optional().describe('Optional title.'),
+        start: z.boolean().optional().describe('Start its first step once it\'s made (default false: it waits for the person).'),
+      },
+    },
+    async ({ template, subject, ask, title, start }) => {
+      const denied = policyAllows('notebook-create');
+      if (denied) return errorResult(denied);
+      if (!notebookStore || !notebookRequests) return errorResult('Notebooks are not available on this server.');
+      const checked = checkNotebookRequest(notebookStore, { template, subject, ask, title, start, origin: 'mcp' });
+      if ('error' in checked) return errorResult(checked.error);
+      const r = notebookRequests.create(checked);
+      return { content: [{ type: 'text' as const, text: `Queued a new notebook ${checked.template ? `from the template "${checked.template}"${checked.subject ? ` about ${checked.subject}` : ''}` : 'from the ask'} (request ${r.id}). The sua dashboard makes it ${checked.ask ? 'in about a minute (sua drafts it first)' : 'within seconds'}; check with notebook-create-status.` }] };
+    },
+  );
+  server.registerTool(
+    'notebook-create-status',
+    {
+      description: 'How a notebook-create request is going: queued, drafting, creating, ready (with the new notebook\'s id and link) or failed (with why).',
+      inputSchema: { request: z.string().describe('The request id notebook-create returned.') },
+    },
+    async ({ request }) => {
+      if (!notebookRequests) return errorResult('Notebooks are not available on this server.');
+      const r = notebookRequests.get(request);
+      if (!r) return errorResult(`No notebook request "${request}".`);
+      const nb = r.notebookId ? notebookStore?.get(r.notebookId) : undefined;
+      const lines = [
+        `${r.phase}. ${r.detail}`,
+        ...(r.notebookId ? [`Notebook: ${r.notebookId}${nb ? ` ("${nb.title}")` : ''}, at /notebooks/${encodeURIComponent(r.notebookId)}. Read it with notebook-read.`] : []),
+        ...(nb?.steps?.length ? [`Steps: ${nb.steps.map((st) => `${st.title} (${st.status})`).join(' → ')}`] : []),
+        ...(r.error ? [`Error: ${r.error}`] : []),
       ];
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
     },

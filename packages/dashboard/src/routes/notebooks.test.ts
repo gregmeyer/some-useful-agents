@@ -6600,3 +6600,62 @@ describe("redrawing a notebook's TL;DR picture", () => {
   });
 });
 
+
+describe('notebooks asked for over MCP (notebook-create)', () => {
+  const waitFor = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 20)); };
+
+  it('makes a queued template request with its subject, and a queued ask as a briefing on who it names; start runs the first step', async () => {
+    const app = await makeApp();
+    const { NotebookStore, NotebookRequestStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { startQueuedNotebookRequests } = await import('../lib/notebook-request.js');
+    const ctx = getContext(app.locals);
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const seed = s.create({ title: 'Briefing on Northwind', statement: 'Learn about Northwind' });
+    s.setSteps(seed.id, [{ title: 'Find news on Northwind', kind: 'find', target: 3 }]);
+    s.saveTemplate('Company briefing', seed.id, undefined, { statement: 'Learn about {subject}', subject: { label: 'The company', example: 'Northwind' } });
+    const requests = new NotebookRequestStore(runStore.databaseHandle());
+
+    // From a template: made at once, its subject filled in, the template counted as used; left waiting.
+    const t = requests.create({ template: 'company-briefing', subject: 'Acme', origin: 'mcp' });
+    await Promise.all(startQueuedNotebookRequests(ctx));
+    const made = requests.get(t.id)!;
+    expect(made.phase).toBe('ready');
+    expect(made.detail).toContain('waits for the person to press Next step');
+    const nb = s.get(made.notebookId!)!;
+    expect(nb.statement).toBe('Learn about Acme');
+    expect(nb.steps?.[0]).toMatchObject({ title: 'Find news on Acme', status: 'todo' });
+    expect(s.getTemplate('company-briefing')!.uses).toBe(1);
+    // Claimed once: running the queue again makes nothing more.
+    expect(startQueuedNotebookRequests(ctx)).toHaveLength(0);
+    // The person hears about it.
+    expect(ctx.inboxStore!.list({}).some((m) => m.title === `A notebook was started for you: ${nb.title}`)).toBe(true);
+
+    // An ask: drafted, then a briefing on what it names (its link as the site), and its first step started.
+    const was = ctx.notebookDrafterRun;
+    ctx.notebookDrafterRun = async () => `<draft>${JSON.stringify({
+      title: 'Tell me about Acme', statement: 'A briefing on Acme.', params: [], criteria: ['A briefing written'],
+      fields: [], checks: [], stages: [], pipeline: [], cadence: '',
+      about: { name: 'Acme', kind: 'organization' },
+      steps: [{ title: 'Find news on Acme', kind: 'find', target: 3 }, { title: 'Write the briefing', kind: 'write', shape: 'answer' }],
+    })}</draft>`;
+    try {
+      const a = requests.create({ ask: 'Tell me about Acme, https://acme.example', start: true, origin: 'mcp' });
+      await Promise.all(startQueuedNotebookRequests(ctx));
+      await waitFor(() => requests.get(a.id)!.phase === 'ready');
+      const r = requests.get(a.id)!;
+      expect(r.phase).toBe('ready');
+      expect(r.detail).toMatch(/first step(, Find news on Acme,)? is running|first step didn’t start/);
+      const brief = s.get(r.notebookId!)!;
+      expect(brief.briefOn).toMatchObject({ name: 'Acme', kind: 'organization', site: 'https://acme.example' });
+      expect(brief.asked).toBe('Tell me about Acme, https://acme.example');
+    } finally {
+      ctx.notebookDrafterRun = was;
+    }
+
+    // A template gone since it was queued: failed, with why.
+    const gone = requests.create({ template: 'no-such-template', subject: 'Acme' });
+    await Promise.all(startQueuedNotebookRequests(ctx));
+    expect(requests.get(gone.id)).toMatchObject({ phase: 'failed', error: expect.stringContaining('no template') });
+  });
+});

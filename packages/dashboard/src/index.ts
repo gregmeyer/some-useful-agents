@@ -61,6 +61,7 @@ import { buildRouter } from './routes/run-now-build.js';
 import { attachChatSocket } from './lib/chat-socket.js';
 import { boardsRouter } from './routes/boards.js';
 import { reportInterruptedBoardBuilds, startQueuedBoardBuilds, watchQueuedBoardBuilds } from './lib/board-build.js';
+import { failInterruptedNotebookRequests, startQueuedNotebookRequests, watchQueuedNotebookRequests } from './lib/notebook-request.js';
 import { buildTryRouter } from './routes/build-try.js';
 import { metricsPlannerRouter } from './routes/metrics-planner.js';
 import { runMutationsRouter } from './routes/run-mutations.js';
@@ -302,6 +303,9 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   // Builds queued by the MCP server (or while the dashboard was down) start here.
   startQueuedBoardBuilds(ctx);
   if (!process.env.VITEST) watchQueuedBoardBuilds(ctx);
+  // Notebooks the MCP server's notebook-create queued: made here.
+  failInterruptedNotebookRequests(ctx);
+  if (!process.env.VITEST) { void startQueuedNotebookRequests(ctx); watchQueuedNotebookRequests(ctx); }
   app.use(buildTryRouter);
   app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);
