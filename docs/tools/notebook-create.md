@@ -32,14 +32,14 @@ Templates (most used first). Pick the one whose "For" matches what the person wa
   For: Prepare sourced talking points and questions for my meeting with <subject>, from their profile and relevant public sources.
   Steps: Learn about <subject> → Find 5 meeting topics → Check topics and sources → Write the talking points
   Page: Meeting briefing
-  Subject: Who you're meeting (a person or company), e.g. "Alan Berkson"
+  Subject: Who you're meeting (a person or company), e.g. "Dana Reyes"
   Asks the person for: <subject>'s LinkedIn profile
 
 - company-briefing: Company briefing
   For: Create a company briefing for <subject>.
   Steps: Learn about <subject> → Find 5 sources on <subject> → Verify briefing claims → Write the company briefing
   Page: chosen when it’s made, to fit what it’s for
-  Subject: The company (its name, and website if you have it), e.g. "Arrive"
+  Subject: The company (its name, and website if you have it), e.g. "Northwind"
 ```
 
 `<subject>` marks where the subject goes. "Page: chosen when it's made" means the template has no page of its own, so sua picks one when the notebook is made (a company briefing gets the Company briefing page).
