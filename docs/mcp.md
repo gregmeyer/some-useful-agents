@@ -2,7 +2,7 @@
 
 sua treats **MCP servers as first-class entities** — a server is a grouping of tools, imported once and then referenced by any number of agent nodes. Enable/disable the server and every tool from it is gated accordingly. Delete the server and its tools cascade out with it.
 
-This page covers the user surface: how to import a server, how imported tools behave, how to manage the fleet. For protocol internals see the [MCP specification](https://modelcontextprotocol.io).
+This page covers both directions. Most of it is about **importing** other servers so your agents can call their tools. [Using sua from another app](#using-sua-from-another-app) covers the other direction: `sua mcp` serving sua's own tools to Claude Desktop, Codex or another agent. For protocol internals see the [MCP specification](https://modelcontextprotocol.io).
 
 ## Mental model
 
@@ -153,8 +153,45 @@ On Pulse (`/pulse`) the run's output widget will render (assuming the agent has 
 - **Re-importing** a server (same id) is idempotent: the row is upserted, existing tool ids are skipped, new tools are created.
 - **No certificate pinning** for HTTP servers yet. Run loopback-only unless you trust the network path.
 
+## Using sua from another app
+
+`sua mcp start` runs sua's own MCP server on `http://127.0.0.1:3003/mcp`. Point any MCP client at it with the bearer token from `~/.sua/mcp-token`:
+
+```json
+{
+  "mcpServers": {
+    "some-useful-agents": {
+      "url": "http://127.0.0.1:3003/mcp",
+      "headers": { "Authorization": "Bearer <token from ~/.sua/mcp-token>" }
+    }
+  }
+}
+```
+
+It serves these tools. Your [tool policy](tool-policies.md) applies to each one, the same as for an agent. See [SECURITY.md](SECURITY.md#mcp-server-v040) for what the token lets a client do, and [Notebooks over MCP](SECURITY.md#notebooks-over-mcp) for the notebook tools.
+
+| Area | Tools | What they do |
+|---|---|---|
+| Agents and runs | `list-agents`, `run-agent`, `get-status`, `get-logs`, `cancel-agent`, `list-runs` | Run agents marked `mcp: true` and follow their runs. `run-agent` also holds conversations (`message` + `sessionId`); see [conversations.md](conversations.md). |
+| Notebooks | `notebook-read`, `notebook-templates`, `notebook-create`, `notebook-create-status` | Read what a notebook knows; list your templates; start a new notebook from a template or a sentence, and follow it until it's made. See [notebooks.md](notebooks.md#notebooks-from-elsewhere) and [tools/notebook-create.md](tools/notebook-create.md). |
+| Experiments | `experiment-read` | Read what an experiment found. See [experiments.md](experiments.md). |
+| Boards | `board-read`, `board-place`, `build-board`, `board-build-status` | Arrange a board, or build a whole one from a request. See [boards.md](boards.md). |
+| Home and attention | `surface-read`, `surface-apply`, `items-read` | Read and change how Home is arranged; list what needs the person's attention. See [surfaces.md](surfaces.md). |
+
+### Starting a notebook from another app
+
+The notebook tools are meant to be used in order. Say another agent is asked to "make a company briefing on Duolingo":
+
+1. **`notebook-templates`** lists your templates with what each is for, its steps, the page it opens on and the subject it needs. The agent sees that Company briefing fits (a company with no meeting in view), not Meeting briefing.
+2. **`notebook-create`** with `{"template": "company-briefing", "subject": "Duolingo, duolingo.com", "start": true}`. The website is split off the name and kept as the company's own site. The reply carries a request id.
+3. **`notebook-create-status`** with that id. A few seconds later the request is `ready`, with the notebook's id and link, `/notebooks/company-briefing-duolingo`.
+4. **`notebook-read`** reads what it found once its steps have run.
+
+If the agent sends a sentence (`ask`) instead and one of your templates fits it, nothing is started; the reply names the template to use. The dashboard makes the notebook, so it has to be running. You'll find a note in your inbox for each notebook another app starts.
+
 ## Related
 
 - [Tool reference](tools.md) — including [`docs/tools/mcp.md`](tools/mcp.md) for the generic MCP tool type schema
 - [Security model](SECURITY.md#mcp-server-trust) — trust boundaries around imported servers
+- [`notebook-create`](tools/notebook-create.md) — starting notebooks from another app
 - [ADR 0019: MCP servers as first-class](adr/0019-mcp-servers-first-class.md) — why a dedicated table rather than inline config on every tool
