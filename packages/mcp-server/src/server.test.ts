@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Provider, Run, RunRequest } from '@some-useful-agents/core';
-import { AgentStore, ExperimentStore, NotebookStore, SessionStore, parseAgent } from '@some-useful-agents/core';
+import { AgentStore, ExperimentStore, NotebookRequestStore, NotebookStore, SessionStore, parseAgent } from '@some-useful-agents/core';
 import { startMcpServer } from './index.js';
 
 /**
@@ -532,6 +532,50 @@ describe('MCP board tools', () => {
       const denied = await c.callTool({ name: 'notebook-read', arguments: { notebook: `/notebooks/${nb.id}` } });
       expect(denied.isError).toBe(true);
       expect(text(denied)).toBe('That one stays private.');
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('notebook-templates lists templates; notebook-create queues a notebook for the dashboard and checks what it was given', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const notebooks = new NotebookStore(dbPath);
+    const nb = notebooks.create({ title: 'Briefing on Northwind', statement: 'Learn about Northwind' });
+    notebooks.saveTemplate('Company briefing', nb.id, undefined, { statement: 'Learn about {subject}', subject: { label: 'Which company', example: 'Northwind' } });
+    notebooks.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      expect(text(await c.callTool({ name: 'notebook-templates', arguments: {} }))).toContain('- company-briefing: Company briefing (');
+      expect(text(await c.callTool({ name: 'notebook-templates', arguments: {} }))).toContain('Needs subject: Which company, e.g. "Northwind"');
+      // Neither, or both: refused.
+      expect((await c.callTool({ name: 'notebook-create', arguments: {} })).isError).toBe(true);
+      expect((await c.callTool({ name: 'notebook-create', arguments: { template: 'company-briefing', ask: 'x' } })).isError).toBe(true);
+      const noSubject = await c.callTool({ name: 'notebook-create', arguments: { template: 'company briefing' } });
+      expect(noSubject.isError).toBe(true);
+      expect(text(noSubject)).toContain('needs to know which company (subject)');
+      expect(text(await c.callTool({ name: 'notebook-create', arguments: { template: 'nope', subject: 'Acme' } }))).toContain('There\'s no template "nope"');
+      // By name words, with its subject: queued.
+      const queued = await c.callTool({ name: 'notebook-create', arguments: { template: 'company briefing', subject: 'Acme', start: true } });
+      expect(queued.isError).toBeFalsy();
+      expect(text(queued)).toContain('from the template "company-briefing" about Acme');
+      const id = /request ([0-9a-f-]{36})/.exec(text(queued))![1];
+      expect(text(await c.callTool({ name: 'notebook-create-status', arguments: { request: id } }))).toMatch(/^queued\./);
+      const row = new NotebookRequestStore(dbPath);
+      expect(row.get(id)!.input).toEqual({ template: 'company-briefing', subject: 'Acme', start: true, origin: 'mcp' });
+      // When the dashboard has made it, the status says where it is.
+      const made = new NotebookStore(dbPath).create({ title: 'Briefing on Acme', statement: 'Learn about Acme' });
+      row.update(id, { phase: 'ready', detail: 'Made "Briefing on Acme".', notebookId: made.id });
+      row.close();
+      expect(text(await c.callTool({ name: 'notebook-create-status', arguments: { request: id } }))).toContain(`Notebook: ${made.id} ("Briefing on Acme"), at /notebooks/${made.id}`);
+      // An ask is queued as it is.
+      expect(text(await c.callTool({ name: 'notebook-create', arguments: { ask: 'Tell me about Acme, acme.example' } }))).toContain('from the ask');
+
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-create', effect: 'deny', reason: 'No new notebooks from outside.' }] }));
+      const denied = await c.callTool({ name: 'notebook-create', arguments: { ask: 'Tell me about Acme' } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('No new notebooks from outside.');
     } finally {
       await c.close();
     }

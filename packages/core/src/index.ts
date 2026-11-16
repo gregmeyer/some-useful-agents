@@ -664,6 +664,7 @@ export {
   type BoardBuild,
   type BoardBuildPhase,
 } from './board-build.js';
+export * from './notebook-request.js';
 export * from './board-review.js';
 export * from './edition-prefs.js';
 

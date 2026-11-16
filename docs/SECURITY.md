@@ -59,6 +59,8 @@ Only agents with `mcp: true` in their YAML are exposed via the MCP `list-agents`
 
 `notebook-read` lets an MCP client read any notebook, archived ones included: its facts and their sources, what it wrote, its options and its notes. It can't change anything. Anyone holding the token can read your research, so to keep a notebook out, deny `notebook-read` for its id in `.sua/policies.json` ([tool-policies.md](tool-policies.md)).
 
+`notebook-create` lets an MCP client start a new notebook, from one of your templates or from an ask sua drafts, and, with `start: true`, run its first step (which runs agents and uses your model). It can't change or delete an existing notebook. Each one it starts puts a note in your inbox. To turn it off, deny `notebook-create` in `.sua/policies.json`. `notebook-templates` lists your template names.
+
 ### Shell agent gate (v0.6.0)
 
 Shell-type agents sourced from `community/` refuse to run unless the caller has explicitly opted in. The CLI surfaces this as `--allow-untrusted-shell <name>` on `sua agent run` and `sua schedule start` (repeatable, per-agent, not global). Library consumers pass `LocalProvider({ allowUntrustedShell: Set<string> })` or the equivalent on `TemporalProvider`. The executor throws `UntrustedCommunityShellError` before `spawn` is called, and the provider records a failed run in the store so the refusal shows up in history.
