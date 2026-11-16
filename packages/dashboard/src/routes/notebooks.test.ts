@@ -6629,6 +6629,7 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     expect(nb.title).toBe('Company briefing: Acme');
     expect(nb.briefOn).toBeUndefined();
     // Given with its website: the name alone in its texts, the site kept as the organization's own.
+    pageReply = () => `<page>${JSON.stringify({ preset: 'company', about: 'a company on its own' })}</page>`;
     const w = requests.create({ template: 'company-briefing', subject: 'Duolingo, duolingo.com', origin: 'mcp' });
     await Promise.all(startQueuedNotebookRequests(ctx));
     const duo = s.get(requests.get(w.id)!.notebookId!)!;
@@ -6636,6 +6637,10 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     expect(duo.statement).toBe('Learn about Duolingo');
     expect(duo.steps?.[0]?.title).toBe('Find news on Duolingo');
     expect(duo.briefOn).toEqual({ name: 'Duolingo', kind: 'organization', site: 'https://duolingo.com' });
+    // Its page is decided as a template's is (Company briefing here), not forced to the subject briefing.
+    await waitFor(() => s.get(duo.id)?.layout?.preset === 'company');
+    expect(s.get(duo.id)!.layout?.preset).toBe('company');
+    pageReply = undefined;
     // Claimed once: running the queue again makes nothing more.
     expect(startQueuedNotebookRequests(ctx)).toHaveLength(0);
     // The person hears about it.
