@@ -18,7 +18,10 @@ There are two ways to start one:
 | `subject` | string | when the template has one | Who or what it's about, for example a company or a person. It's capped at 80 characters. A website given with it ("Duolingo, duolingo.com") is taken off: the name goes into the notebook, and the site becomes the organization's own site, which its profile step uses. |
 | `ask` | string | one of `template` / `ask` | What the notebook is for, in a sentence. |
 | `title` | string | no | Its title. Otherwise it comes from the draft, or from the template's name with the subject added ("Company briefing: Duolingo"). |
+| `fresh` | boolean | no | With `ask`: draft a new notebook even when one of their templates looks like it fits. |
 | `start` | boolean | no | Start its first step once it's made. It's off by default, so the notebook waits for you to press **Next step**. |
+
+**Templates first.** The tool's description tells the client to list templates with `notebook-templates` and use one that fits. Each is listed with what it's for, its steps, the page it opens on and the subject it needs. When an `ask` looks like one of them anyway (the same kind of notebook: a meeting, a briefing, a plan, or a choice that shares a word of the template's name), nothing is started. The reply names the template or two that fit and says how to call again with one, or with `fresh: true` to draft the ask regardless.
 
 If neither `template` nor `ask` is given, or both are, the call fails straight away. It also fails at once for an unknown or archived template, or a missing subject.
 
