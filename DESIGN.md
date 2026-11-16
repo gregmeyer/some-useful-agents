@@ -103,6 +103,7 @@ A brief (the saved page or PDF of a notebook) is the page set for reading away f
 - **A question to ask** sits on its own line under its point: a 2px accent rule at the left and a small "ASK" label.
 - **Tables** are ruled, not boxed, with no tinted panel behind them. **Checks** use their mark (✓ ○) as the bullet.
 - **A goal that only repeats the title** is left out.
+- **A meeting briefing leads with what to say:** who it's about, then the talking points, questions and what to watch for, then the facts, the company and the rest in the page's order. The rows those parts shared on the page are taken apart; the page itself keeps its layout.
 
 ## Boards as front pages
 A board you read every morning can be composed like a front page instead of a grid of equal boxes, with the notebook page's parts (ADR-0070): the same treatments, row shapes and rhythm rules apply.

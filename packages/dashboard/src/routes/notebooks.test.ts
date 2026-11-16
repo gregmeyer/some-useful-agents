@@ -3503,9 +3503,10 @@ describe('a drawn page\'s brief', () => {
     // In the page's order: who they are, what we know, what to talk about, in their words.
     const at = (s: string) => brief.indexOf(s);
     expect(at('Who they are')).toBeGreaterThan(0);
-    expect(at('Who they are')).toBeLessThan(at('What we know'));
-    expect(at('What we know')).toBeLessThan(at('What to talk about'));
-    expect(at('What to talk about')).toBeLessThan(at('In their words'));
+    // A meeting's brief leads with what to say: who, the talking points, then the facts.
+    expect(at('Who they are')).toBeLessThan(at('What to talk about'));
+    expect(at('What to talk about')).toBeLessThan(at('What we know'));
+    expect(at('What we know')).toBeLessThan(at('In their words'));
     expect(brief).toContain('And 5 more in the extended brief.');
     expect(brief).not.toContain('The shortlist');
     const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
