@@ -23,6 +23,50 @@ There are two ways to start one:
 
 **Templates first.** The tool's description tells the client to list templates with `notebook-templates` and use one that fits. Each is listed with what it's for, its steps, the page it opens on and the subject it needs. When an `ask` looks like one of them anyway (the same kind of notebook: a meeting, a briefing, a plan, or a choice that shares a word of the template's name), nothing is started. The reply names the template or two that fit and says how to call again with one, or with `fresh: true` to draft the ask regardless.
 
+### What `notebook-templates` returns
+
+```
+Templates (most used first). Pick the one whose "For" matches what the person wants: a meeting briefing prepares for a meeting with someone, a company briefing is about a company with no meeting in view.
+
+- meeting-briefing: Meeting briefing
+  For: Prepare sourced talking points and questions for my meeting with <subject>, from their profile and relevant public sources.
+  Steps: Learn about <subject> → Find 5 meeting topics → Check topics and sources → Write the talking points
+  Page: Meeting briefing
+  Subject: Who you're meeting (a person or company), e.g. "Alan Berkson"
+  Asks the person for: <subject>'s LinkedIn profile
+
+- company-briefing: Company briefing
+  For: Create a company briefing for <subject>.
+  Steps: Learn about <subject> → Find 5 sources on <subject> → Verify briefing claims → Write the company briefing
+  Page: chosen when it’s made, to fit what it’s for
+  Subject: The company (its name, and website if you have it), e.g. "Arrive"
+```
+
+`<subject>` marks where the subject goes. "Page: chosen when it's made" means the template has no page of its own, so sua picks one when the notebook is made (a company briefing gets the Company briefing page).
+
+### When an ask fits a template
+
+`{"ask": "Prep me for my call with someone at Duolingo"}` starts nothing and replies:
+
+```
+Nothing started yet: one of the person's templates looks like it fits this ask.
+
+- meeting-briefing: Meeting briefing
+  For: Prepare sourced talking points and questions for my meeting with <subject>, …
+  …
+
+To use one, call notebook-create again with template: "meeting-briefing" and subject (who or what it's about). If none is right, call again with the same ask and fresh: true.
+```
+
+The match uses no model. It compares the kind of notebook the ask and each template are for: preparing for a meeting, a briefing or report, a plan, or a choice. A choice also has to share a word with the template's name ("buy", "job"). Archived templates are never suggested. An ask no template fits is queued straight away.
+
+### A typical call sequence
+
+1. `notebook-templates`: pick the template whose "For" fits.
+2. `notebook-create` with `template` and `subject` (and `start: true` to run its first step).
+3. `notebook-create-status` with the request id until it's `ready`.
+4. `notebook-read` with the notebook id, once its steps have run.
+
 If neither `template` nor `ask` is given, or both are, the call fails straight away. It also fails at once for an unknown or archived template, or a missing subject.
 
 **It's queued.** The MCP server records the request, and the dashboard claims it and makes the notebook within a few seconds; an ask takes about a minute while sua drafts it. The reply carries a request id. Pass that id to **`notebook-create-status`**, which reports one of these phases:
