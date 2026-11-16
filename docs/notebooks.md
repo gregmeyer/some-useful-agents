@@ -693,10 +693,12 @@ What a notebook learned isn't stuck on its page. The built-in [`notebook-read`](
 
 An MCP client can start a notebook the way New notebook would, so another app (or another agent) doesn't have to send you to the dashboard. See [`notebook-create`](tools/notebook-create.md).
 
-- **`notebook-templates`** lists your templates: each one's id, name, what it sets up, and the subject it needs ("The company, e.g. Northwind").
+- **`notebook-templates`** lists your templates so the client can pick the right one: each one's id and name, what it's for (its goal), its steps, the page it opens on, the subject it needs ("The company, e.g. Northwind"), and anything it asks you for.
 - **`notebook-create`** starts one of two ways:
   - from a template, with `template` (its id or words from its name) and `subject` (`{"template": "company briefing", "subject": "Acme"}`);
   - from an ask that sua drafts, as when you type a sentence on New notebook (`{"ask": "Tell me about Acme, https://acme.example"}`). An ask about one named thing becomes a briefing on it.
+
+  Templates come first. When an ask looks like one of your templates (a meeting ask and your Meeting briefing, "tell me about…" and your Company briefing, "buy…" and your Buy something), nothing is started: the reply names the template and how to use it, and the client calls again with it, or with `fresh: true` to draft a new notebook anyway. The match is by the kind of notebook and the template's name, no model, so it's a suggestion for the client to weigh.
 
   `title` names it. `start: true` also starts its first step; without it, the notebook waits for you to press **Next step**, as one started from a sua card does. A notebook that needs something from you first (a profile its template asks for) won't start until you give it.
 - **`notebook-create-status`** says how it's going: queued, drafting, creating, then ready with the new notebook's id and link (read it with `notebook-read`), or failed with why.

@@ -7,7 +7,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
-import { type NotebookStore, type NotebookTemplate } from './notebooks.js';
+import { TEMPLATE_SUBJECT, type NotebookStore, type NotebookTemplate } from './notebooks.js';
+import { layoutPreset } from './notebook-layout.js';
 
 export type NotebookRequestPhase = 'queued' | 'drafting' | 'creating' | 'ready' | 'failed';
 
@@ -146,4 +147,59 @@ export function checkNotebookRequest(store: NotebookStore, input: NotebookReques
   if (t.archivedAt) return { error: `The template "${t.name}" is archived. The person can restore it from New notebook → Archived templates.` };
   if (templateNeedsSubject(t) && !subject) return { error: `The template "${t.name}" needs to know ${t.setup.subject!.label.replace(/^./, (c) => c.toLowerCase())} (subject), e.g. "${t.setup.subject!.example}".` };
   return { template: t.id, ...(subject ? { subject } : {}), ...rest };
+}
+
+/** What a template is for, in a line each, for a caller choosing one: its goal, steps, page and subject. Pure. */
+export function describeNotebookTemplate(t: NotebookTemplate): string {
+  const said = (x: string) => x.split(TEMPLATE_SUBJECT).join('<subject>').replace(/\s+/g, ' ').trim();
+  const page = t.setup.layout?.preset ? layoutPreset(t.setup.layout.preset)?.label : undefined;
+  return [
+    `- ${t.id}: ${t.name}`,
+    ...(t.setup.statement ? [`  For: ${said(t.setup.statement)}`] : []),
+    ...(t.setup.steps.length ? [`  Steps: ${t.setup.steps.map((st) => said(st.title)).join(' → ')}`] : []),
+    `  Page: ${page ?? 'chosen when it’s made, to fit what it’s for'}`,
+    t.setup.subject ? `  Subject: ${t.setup.subject.label}, e.g. "${t.setup.subject.example}"` : '  Subject: none (every notebook from it is the same)',
+    ...(t.setup.asks?.length ? [`  Asks the person for: ${t.setup.asks.map((a) => a.label.split(TEMPLATE_SUBJECT).join('<subject>')).join('; ')}`] : []),
+  ].join('\n');
+}
+
+type TemplatePurpose = 'meeting' | 'report' | 'plan' | 'choose';
+const MEETING_WORDS = /\b(meeting|interview)\b|\b(meet|call|chat|lunch|coffee) with\b|\bbefore (my|our|the|a) (call|meeting|chat)\b/i;
+const PLAN_WORDS = /\b(plan|itinerary|trip|schedule for)\b/i;
+const REPORT_WORDS = /\b(report|research|answer|find out|understand|brief|briefing|profile|tell me about|learn about|who is|what is|what does|overview of)\b/i;
+const CHOOSE_WORDS = /\b(choose|pick|buy|shortlist|compare|decide|find|search|shop|looking for|options|job|role)\b/i;
+
+function purposeOf(text: string): TemplatePurpose | undefined {
+  if (MEETING_WORDS.test(text)) return 'meeting';
+  if (PLAN_WORDS.test(text)) return 'plan';
+  if (REPORT_WORDS.test(text)) return 'report';
+  if (CHOOSE_WORDS.test(text)) return 'choose';
+  return undefined;
+}
+
+const GRAMMAR = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'about', 'your', 'my', 'me', 'our', 'their', 'a', 'an', 'of', 'in', 'on', 'at', 'to', 'by', 'or', 'is', 'it', 'something', 'someone']);
+const nameWords = (text: string): string[] => (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+  .map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
+  .filter((w) => w.length >= 3 && !GRAMMAR.has(w));
+
+/**
+ * The person's templates an ask fits, closest first (at most two): the same
+ * kind of notebook (a meeting, a briefing, a plan, a choice), and for a
+ * choice also a word of the template's name ("buy", "job"). No model; a
+ * suggestion for the caller to weigh, not a decision. Pure.
+ */
+export function templatesForAsk(ask: string, templates: readonly NotebookTemplate[]): NotebookTemplate[] {
+  const want = purposeOf(ask);
+  if (!want) return [];
+  const said = new Set(nameWords(ask));
+  const scored: Array<{ t: NotebookTemplate; score: number }> = [];
+  for (const t of templates) {
+    if (t.archivedAt) continue;
+    const own = t.setup.layout?.preset === 'dossier' ? 'meeting' : purposeOf(`${t.name} ${t.setup.statement}`) ?? 'choose';
+    if (own !== want) continue;
+    const shared = nameWords(t.name).filter((w) => said.has(w)).length;
+    if (want === 'choose' && shared === 0) continue;
+    scored.push({ t, score: shared * 2 + (t.setup.subject ? 1 : 0) + Math.min(t.uses, 5) / 10 });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, 2).map((x) => x.t);
 }

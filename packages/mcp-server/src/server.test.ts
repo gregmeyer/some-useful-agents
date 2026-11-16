@@ -546,8 +546,9 @@ describe('MCP board tools', () => {
     serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
     const c = await client();
     try {
-      expect(text(await c.callTool({ name: 'notebook-templates', arguments: {} }))).toContain('- company-briefing: Company briefing (');
-      expect(text(await c.callTool({ name: 'notebook-templates', arguments: {} }))).toContain('Needs subject: Which company, e.g. "Northwind"');
+      const listed = text(await c.callTool({ name: 'notebook-templates', arguments: {} }));
+      expect(listed).toContain('- company-briefing: Company briefing\n  For: Learn about <subject>');
+      expect(listed).toContain('  Subject: Which company, e.g. "Northwind"');
       // Neither, or both: refused.
       expect((await c.callTool({ name: 'notebook-create', arguments: {} })).isError).toBe(true);
       expect((await c.callTool({ name: 'notebook-create', arguments: { template: 'company-briefing', ask: 'x' } })).isError).toBe(true);
@@ -568,8 +569,13 @@ describe('MCP board tools', () => {
       row.update(id, { phase: 'ready', detail: 'Made "Briefing on Acme".', notebookId: made.id });
       row.close();
       expect(text(await c.callTool({ name: 'notebook-create-status', arguments: { request: id } }))).toContain(`Notebook: ${made.id} ("Briefing on Acme"), at /notebooks/${made.id}`);
-      // An ask is queued as it is.
-      expect(text(await c.callTool({ name: 'notebook-create', arguments: { ask: 'Tell me about Acme, acme.example' } }))).toContain('from the ask');
+      // An ask a template fits: nothing started, the template named; fresh drafts it anyway.
+      const held = text(await c.callTool({ name: 'notebook-create', arguments: { ask: 'Tell me about Acme, acme.example' } }));
+      expect(held).toMatch(/^Nothing started yet: one of the person's templates looks like it fits/);
+      expect(held).toContain('call notebook-create again with template: "company-briefing" and subject');
+      expect(text(await c.callTool({ name: 'notebook-create', arguments: { ask: 'Tell me about Acme, acme.example', fresh: true } }))).toContain('from the ask');
+      // An ask no template fits is queued as it is.
+      expect(text(await c.callTool({ name: 'notebook-create', arguments: { ask: 'Plan a week in Lisbon in May' } }))).toContain('from the ask');
 
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-create', effect: 'deny', reason: 'No new notebooks from outside.' }] }));

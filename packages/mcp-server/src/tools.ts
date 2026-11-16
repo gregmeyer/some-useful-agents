@@ -33,6 +33,8 @@ import {
   queueBoardBuild,
   NotebookRequestStore,
   checkNotebookRequest,
+  describeNotebookTemplate,
+  templatesForAsk,
   type DashboardsStore,
   getBuiltinTool,
   evaluatePolicy,
@@ -624,35 +626,42 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
   server.registerTool(
     'notebook-templates',
     {
-      description: 'List the person\'s sua notebook templates (a company briefing, meeting prep…): each one\'s id, name, what it sets up, and what it needs to be told (its subject). Start a notebook from one with notebook-create.',
+      description: 'List the person\'s sua notebook templates, the notebooks they set up the way they like and start again for someone or something new (a company briefing, meeting prep, a job search…). For each: its id, what it is for, its steps, the page it opens on, and what it needs to be told (its subject). Call this before notebook-create and use the template that fits what the person asked for.',
       inputSchema: {},
     },
     async () => {
       if (!notebookStore) return errorResult('Notebooks are not available on this server.');
       const ts = notebookStore.listTemplates(50);
       if (!ts.length) return { content: [{ type: 'text' as const, text: 'No templates yet. Start a notebook from an ask instead (notebook-create with ask), or the person can save one from a notebook\'s Edit panel.' }] };
-      const lines = ts.map((t) => `- ${t.id}: ${t.name} (${t.description})${t.setup.subject ? `. Needs subject: ${t.setup.subject.label}, e.g. "${t.setup.subject.example}"` : ''}`);
-      return { content: [{ type: 'text' as const, text: `Templates:\n${lines.join('\n')}` }] };
+      return { content: [{ type: 'text' as const, text: `Templates (most used first). Pick the one whose "For" matches what the person wants: a meeting briefing prepares for a meeting with someone, a company briefing is about a company with no meeting in view.\n\n${ts.map(describeNotebookTemplate).join('\n\n')}` }] };
     },
   );
   server.registerTool(
     'notebook-create',
     {
-      description: 'Start a new sua notebook, as New notebook in the dashboard would: from one of the person\'s templates (template + subject, e.g. a company briefing on "Acme"), or from an ask that sua drafts a notebook from (e.g. "Tell me about Acme, acme.com"). Returns a request id; the dashboard makes the notebook within seconds (an ask takes a minute to draft). Check with notebook-create-status, then read it with notebook-read. It waits for the person to press Next step unless start is true.',
+      description: 'Start a new sua notebook, as New notebook in the dashboard would. Prefer one of the person\'s templates when one fits (list them with notebook-templates): pass template + subject, e.g. a company briefing on "Acme". Use ask (a sentence sua drafts a notebook from, e.g. "Tell me about roadschooling") only when no template fits; if one looks like it does, nothing is started and the reply names it, so call again with that template, or with fresh: true to draft a new one anyway. Returns a request id; the dashboard makes the notebook within seconds (an ask takes a minute to draft). Check with notebook-create-status, then read it with notebook-read. It waits for the person to press Next step unless start is true.',
       inputSchema: {
         template: z.string().optional().describe('A template id or words from its name (list them with notebook-templates). Give this or ask.'),
         subject: z.string().optional().describe('Who or what it\'s about, for a template that needs one (e.g. a company or person name).'),
         ask: z.string().optional().describe('What the notebook is for, in a sentence, when not starting from a template (e.g. "Tell me about Acme, acme.com").'),
         title: z.string().optional().describe('Optional title.'),
         start: z.boolean().optional().describe('Start its first step once it\'s made (default false: it waits for the person).'),
+        fresh: z.boolean().optional().describe('With ask: draft a new notebook even when one of their templates looks like it fits.'),
       },
     },
-    async ({ template, subject, ask, title, start }) => {
+    async ({ template, subject, ask, title, start, fresh }) => {
       const denied = policyAllows('notebook-create');
       if (denied) return errorResult(denied);
       if (!notebookStore || !notebookRequests) return errorResult('Notebooks are not available on this server.');
       const checked = checkNotebookRequest(notebookStore, { template, subject, ask, title, start, origin: 'mcp' });
       if ('error' in checked) return errorResult(checked.error);
+      // An ask one of their templates fits: say so before drafting a notebook they have a better start for.
+      if (checked.ask && !fresh) {
+        const fits = templatesForAsk(checked.ask, notebookStore.listTemplates(50));
+        if (fits.length) {
+          return { content: [{ type: 'text' as const, text: `Nothing started yet: ${fits.length === 1 ? 'one of the person\'s templates looks like it fits' : 'some of the person\'s templates look like they fit'} this ask.\n\n${fits.map(describeNotebookTemplate).join('\n\n')}\n\nTo use one, call notebook-create again with template: "${fits[0]!.id}"${fits[0]!.setup.subject ? ' and subject (who or what it\'s about)' : ''}. If none is right, call again with the same ask and fresh: true.` }] };
+        }
+      }
       const r = notebookRequests.create(checked);
       return { content: [{ type: 'text' as const, text: `Queued a new notebook ${checked.template ? `from the template "${checked.template}"${checked.subject ? ` about ${checked.subject}` : ''}` : 'from the ask'} (request ${r.id}). The sua dashboard makes it ${checked.ask ? 'in about a minute (sua drafts it first)' : 'within seconds'}; check with notebook-create-status.` }] };
     },
