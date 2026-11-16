@@ -573,6 +573,13 @@ Bars compare the numbers as the notebook has them. If some options are priced ea
 
 **A drawn page prints as itself.** When a notebook's page was drawn for it (a Meeting briefing, a report), its brief is that page, not the shortlist summary: the same parts in the same order and treatments, set for reading and print (the cover with their photo and where it came from, the facts in a ruled sidebar, the numbered agenda with every question, what they said with sources, the research at the end). Tables and timelines print longer than the page shows them (15 rows, 8 events); what they said shows 3 to 5 quotes, one per theme first, and the extended brief has every one. The extended brief then adds everything behind the page: **Everything they said** (every quote with its full source address), **Every fact, with its page**, and **Each one in full**. Charts don't print (the notebook has them). What's new (`?latest=1`) stays the shortlist brief.
 
+On paper (the PDF, or the page printed) a drawn page is set to fill its pages and break cleanly:
+- a sidebar of facts moves under the part it sat beside, three facts to a row, so no page is left half empty beside a long sidebar;
+- a part that can't print (a chart) prints no heading, and gives its room to what's beside it;
+- a label stays with its list, and a list doesn't leave one line alone on a page;
+- a table is ruled, not boxed, and repeats its headings when it runs onto the next page;
+- the research at the end is small: its latest three lines and where sua looked. The extended brief has every line.
+
 The brief looks like the dashboard: its design tokens and your brand theme (**Settings → Appearance**: colours, fonts) are inside the file, in the mode you use the dashboard in (the **Download / share** links pass it as `?theme=light` or `?theme=dark`; without it, dark, the dashboard's default). Printed or saved as PDF, it's on paper: the theme's light colours. The file has no scripts.
 
 **Printing the page itself** (your browser's Print, or Save as PDF) keeps the page as you see it. On the page a finding links to its own page in the dashboard; in the printed copy each of those links goes to where the finding came from, since whoever reads the PDF can't open your dashboard. A finding with no source has no link there. The brief's PDF below is the one made for sending.

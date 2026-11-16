@@ -413,3 +413,37 @@ describe('a person\'s other companies, on the page', () => {
     expect(brief2).toContain('Software for accounting firms · Accounting software');
   });
 });
+
+describe('a drawn page set for paper', () => {
+  it('prints no heading over a part that draws nothing (a chart), and no empty column', async () => {
+    for (const ex of NOTEBOOK_PAGE_EXAMPLES) {
+      const { s, nb } = await decided(ex, true);
+      if (!briefIsPage(nb)) continue;
+      const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+      expect(brief, ex.id).not.toMatch(/<div class="part__head">(?:(?!<\/div>).)*<\/div>\s*<\/section>/s);
+      expect(brief, ex.id).not.toMatch(/<div style="--w: [\d.]+">\s*<\/div>/);
+    }
+  });
+
+  it('stacks a rail of facts under its part, three facts to a row, each kept whole', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    expect(brief).toMatch(/<div class="fact"><dt>[^<]+<\/dt><dd>/);
+    const print = brief.slice(brief.indexOf('@media print'));
+    expect(print).toContain('.cols:has(.part--aside .facts) { display: block !important; }');
+    expect(print).toContain('.part--aside .facts dl { display: flex; flex-wrap: wrap;');
+    expect(print).toContain('.fact { break-inside: avoid; }');
+  });
+
+  it('keeps a label with its list, rules a table instead of boxing it, and prints the research log small', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const args = { nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') };
+    const brief = renderPageBrief(args);
+    const print = brief.slice(brief.indexOf('@media print'));
+    expect(print).toContain('.eyebrow { break-after: avoid; }');
+    expect(print).toContain('.tbl { overflow: visible; border: 0;');
+    expect(print).toContain('.log--short > li:nth-child(n+4) { display: none; }');
+    // The extended brief keeps every line of the log.
+    if (brief.includes('class="plain log log--short"')) expect(renderPageBrief({ ...args, full: true })).not.toContain('log--short"');
+  });
+});

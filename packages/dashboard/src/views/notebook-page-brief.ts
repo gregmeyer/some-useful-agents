@@ -141,6 +141,9 @@ export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtm
   return html`<p>${boldOnly(text(x.body))}${from(x).length ? html` <span class="fine">(${from(x).join(', ')})</span>` : html``}</p>`;
 }
 
+/** Whether a part drew anything (a stack of parts that each print nothing is nothing). */
+const printsSomething = (x: SafeHtml): boolean => render(x).replace(/<div class="(?:stack|row)">\s*<\/div>/g, '').trim() !== '';
+
 function node(p: Printing, id: string | undefined): SafeHtml {
   const c = id ? p.byId.get(id) : undefined;
   if (!c) return html``;
@@ -151,14 +154,23 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Columns': {
       const ks = kids(c);
       const w = ks.map((_, i) => Number((c.widths as number[] | undefined)?.[i] ?? 1));
-      return html`<div class="cols" style="grid-template-columns: ${w.map((n) => `minmax(0, ${String(n)}fr)`).join(' ')}">${ks.map((k, i) => html`<div style="--w: ${String(w[i])}">${node(p, k)}</div>`) as unknown as SafeHtml[]}</div>`;
+      // A column that prints nothing (a chart, say) gives its room to the others.
+      const cells = ks.map((k, i) => ({ w: w[i], inner: node(p, k) })).filter((x) => printsSomething(x.inner));
+      if (!cells.length) return html``;
+      return html`<div class="cols" style="grid-template-columns: ${cells.map((x) => `minmax(0, ${String(x.w)}fr)`).join(' ')}">${cells.map((x) => html`<div style="--w: ${String(x.w)}">${x.inner}</div>`) as unknown as SafeHtml[]}</div>`;
     }
     case 'Panel': {
       if (c.pending === true) return html``;
       const t = text(c.treatment) || 'plain';
-      return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${node(p, c.child as string)}</section>`;
+      // A part whose content doesn't print here (a chart) prints no heading either.
+      const inner = node(p, c.child as string);
+      if (!printsSomething(inner)) return html``;
+      return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${inner}</section>`;
     }
-    case 'Disclosure': return html`<section class="part part--aside"><div class="part__head"><h2>${text(v('label'))}</h2></div>${node(p, c.child as string)}</section>`;
+    case 'Disclosure': {
+      const inner = node(p, c.child as string);
+      return printsSomething(inner) ? html`<section class="part part--aside"><div class="part__head"><h2>${text(v('label'))}</h2></div>${inner}</section>` : html``;
+    }
     case 'Callout': return html`<div class="callout">${calloutArt(p, text(v('image')))}${text(v('label')) ? html`<div class="eyebrow">${text(v('label'))}</div>` : html``}<p>${boldOnly(text(v('text')))}</p>${text(v('next')) ? html`<p class="muted"><b>${text(v('nextLabel')) || 'Next:'}</b> ${text(v('next'))}</p>` : html``}</div>`;
     case 'Text': return html`<p>${text(v('text'))}</p>`;
     case 'Metric': return html`<p class="metric"><span class="eyebrow">${text(v('label'))}</span> <b>${text(v('value'))}${text(v('unit'))}</b></p>`;
@@ -194,7 +206,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">from ${text(f.from)}</span>` : html``}</dd>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">from ${text(f.from)}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {
@@ -343,9 +355,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       // A search that found nothing says nothing to the reader: the brief leaves it out.
       const ev = (list(v('events')) as Array<{ at?: unknown; title?: unknown; body?: unknown; empty?: unknown }>).filter((e) => !e.empty);
       if (!ev.length) return html``;
-      return html`<ul class="plain">${ev.slice(0, p.full ? 80 : 8).map((e) => html`<li><span class="fine">${text(e.at) ? new Date(text(e.at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span> ${text(e.title)}</li>`) as unknown as SafeHtml[]}</ul>`;
+      return html`<ul class="plain log${p.full ? '' : ' log--short'}">${ev.slice(0, p.full ? 80 : 8).map((e) => html`<li><span class="fine">${text(e.at) ? new Date(text(e.at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span> ${text(e.title)}</li>`) as unknown as SafeHtml[]}</ul>`;
     }
-    case 'Coverage': return html`<ul class="plain">${(list(v('sources')) as Array<{ name?: unknown; found?: unknown; status?: unknown }>).map((s) => html`<li>${text(s.name)} <span class="fine">· ${text(s.status) === 'found' ? `${text(s.found)} found` : text(s.status)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
+    case 'Coverage': return html`<ul class="plain log log--where">${(list(v('sources')) as Array<{ name?: unknown; found?: unknown; status?: unknown }>).map((s) => html`<li>${text(s.name)} <span class="fine">· ${text(s.status) === 'found' ? `${text(s.found)} found` : text(s.status)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Steps': return html`<ul class="plain">${(list(v('steps')) as Array<{ text?: unknown; met?: unknown }>).map((s) => html`<li>${s.met ? '✓' : '○'} ${text(s.text)}</li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
@@ -544,6 +556,27 @@ ${unsafeHtml(TLDR_CSS)}
   h2 { break-after: avoid; }
   .appendix:first-of-type, .fullset { break-before: page; }
   .profile__mono, .part--band, .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* A rail of facts beside a shorter part leaves half a page empty, then runs on alone: on paper the two stack, the facts three to a row (wrapped rows, which break cleanly between pages; CSS columns split a fact at the foot of a page). */
+  .cols:has(.part--aside .facts) { display: block !important; }
+  .cols:has(.part--aside .facts) > * + * { margin-top: 1.25rem; }
+  .part--aside:has(.facts) { border-left: 0; padding-left: 0; }
+  .part--aside .facts dl { display: flex; flex-wrap: wrap; gap: 0 1.5rem; }
+  .part--aside .facts .fact { flex: 0 0 calc((100% - 3rem) / 3); min-width: 0; }
+  .fact { break-inside: avoid; }
+  /* Lists as blocks (a grid's rows don't take break rules): a label stays with its list, and a list never leaves one line alone on a page. */
+  .agenda ol, .agenda ul, .plain, .quotes { display: block; }
+  .agenda ol > li + li { margin-top: 0.75rem; } .agenda ul > li + li, .plain > li + li { margin-top: 0.3rem; } .quotes > figure + figure, .quotes > p { margin-top: 1rem; }
+  .eyebrow { break-after: avoid; }
+  .agenda ul > li:first-child, .plain > li:first-child, .agenda ul > li:nth-last-child(2), .plain > li:nth-last-child(2) { break-after: avoid; }
+  p, li, dd, blockquote { orphans: 2; widows: 2; }
+  /* A table that runs onto the next page: ruled, not boxed (a box breaks open at the foot of the page), its headings again at the top. */
+  .tbl { overflow: visible; border: 0; border-top: 1px solid var(--line-strong); border-radius: 0; background: none; }
+  thead { display: table-header-group; }
+  /* How it was researched: small, its latest three lines (the extended brief has them all) and where it looked in two columns, kept with the page's last line. */
+  .log { font-size: 8.5pt; } .log--short > li:nth-child(n+4) { display: none; }
+  .log--where { columns: 2; column-gap: 1.5rem; } .log--where > li { break-inside: avoid; }
+  .cols:has(.log) { break-inside: avoid; }
+  footer { break-before: avoid; }
 }
 </style>
 <main class="brief">
