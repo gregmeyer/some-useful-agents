@@ -539,6 +539,8 @@ The picture is 2160 pixels wide (twice the card, so text stays sharp), in the li
 
 The brief and the PDF are not affected: they carry the plain bars.
 
+**From an MCP client.** `notebook-tldr` does what **Redraw…** does, with the client choosing instead of sua: give the notebook (its id, link or words from its title) and any of `size`, `tone`, `layout`, `parts` (in order; leave one out to drop it, e.g. no `stats`), `bars`, `headline` and `takeaway`. What isn't given stays as it's drawn now. `action: "show"` says how it's drawn and what can be chosen, `"undo"` puts back the one before, and `"standard"` returns to the standard picture. The rules are the same as a redraw by sua: the picture is still drawn from the notebook's own data, and a headline or takeaway with a number the notebook doesn't have is refused. A policy rule on `notebook-tldr` (with the notebook's id as its resource) can block it.
+
 **Leading a notebook's page with it.** The picture can open the notebook's own page. On **Edit → Talk**, press **Make the page lead with…** and then **the TL;DR picture** (or say it in your own words: "open with the image", "make it visual"). sua draws the page with the picture full width at the top, as you last redrew it, followed by the rest (where it stands, the list). A square or tall picture is capped at 520px (or 60% of the window) tall and keeps its shape; a wide one still fills the width. Clicking it opens the Redraw page. It updates when the notebook changes or you redraw it. In a saved brief or PDF of that page the picture is drawn in place as its card, since a file can't load the image.
 
 **The choices**, which also work by address to try one without keeping it:

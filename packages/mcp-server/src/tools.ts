@@ -35,6 +35,16 @@ import {
   checkNotebookRequest,
   describeNotebookTemplate,
   templatesForAsk,
+  findNotebook,
+  notebookReadoutJson,
+  cleanTldrSpec,
+  strayTldrNumbers,
+  tldrOptionsGuide,
+  TLDR_SIZES,
+  TLDR_TONES,
+  TLDR_LAYOUTS,
+  TLDR_PARTS,
+  type TldrSpec,
   type DashboardsStore,
   getBuiltinTool,
   evaluatePolicy,
@@ -684,6 +694,74 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         ...(r.error ? [`Error: ${r.error}`] : []),
       ];
       return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    },
+  );
+
+  // Redraw a notebook's TL;DR picture (docs/notebooks.md § The TL;DR picture), as Redraw… in the
+  // dashboard does: the caller chooses how it's drawn (a size, tone, layout, which parts, and at
+  // most a headline and a takeaway) and the notebook keeps that (Undo puts the one before back).
+  // The dashboard draws it from the notebook's own data, so a name, number or bar never comes
+  // from the caller; a number in the headline or takeaway must be one the notebook has.
+  const tldrLine = (s: TldrSpec | undefined): string => (s
+    ? `${TLDR_SIZES[s.size].name} ${String(TLDR_SIZES[s.size].width)}×${TLDR_SIZES[s.size].height ? String(TLDR_SIZES[s.size].height) : 'auto'}, ${s.tone}, ${s.layout}; parts: ${s.parts.join(', ')}${s.bars ? `; ${String(s.bars)} bars` : ''}${s.headline ? `; headline: "${s.headline}"` : ''}${s.takeaway ? `; takeaway: "${s.takeaway}"` : ''}`
+    : 'the standard picture (standard size, plain, stacked, every part)');
+  const keys = <T extends string>(o: Record<T, unknown>) => Object.keys(o) as [T, ...T[]];
+  server.registerTool(
+    'notebook-tldr',
+    {
+      description: `Redraw a sua notebook's TL;DR picture, the one-image summary it shares as a PNG (for a message, a LinkedIn or X post, a slide), as Redraw… in the dashboard does. You choose how it's drawn; sua draws it from the notebook's own data, so names, numbers and bars always come from the notebook. action "show" (the default with nothing else given) says how it's drawn now and what you can choose; "draw" sets the fields you give and keeps the rest as they are now; "undo" puts back the one before; "standard" goes back to the standard picture. A number in a headline or takeaway must already be in the notebook (read it with notebook-read), written as it is there. The picture is then at /notebooks/<id>/tldr.png on the dashboard.\n\nChoices:\n${tldrOptionsGuide()}`,
+      inputSchema: {
+        notebook: z.string().describe('The notebook: its id, a /notebooks/<id> link, or words from its title.'),
+        action: z.enum(['show', 'draw', 'undo', 'standard']).optional().describe('What to do (default: draw when any field is given, else show).'),
+        size: z.enum(keys(TLDR_SIZES)).optional(),
+        tone: z.enum(keys(TLDR_TONES)).optional(),
+        layout: z.enum(keys(TLDR_LAYOUTS)).optional(),
+        parts: z.array(z.enum(keys(TLDR_PARTS))).optional().describe('Which parts, in the order to show them. Leave one out to drop it (e.g. no "stats").'),
+        bars: z.number().int().optional().describe('How many bars, within the size\'s limit.'),
+        headline: z.string().optional().describe('A headline over the notebook\'s title; "" removes it.'),
+        takeaway: z.string().optional().describe('One line under the headline; "" removes it.'),
+        ask: z.string().optional().describe('What the person asked for, in their words (shown where it\'s redrawn).'),
+      },
+    },
+    async ({ notebook, action, size, tone, layout, parts, bars, headline, takeaway, ask }) => {
+      if (!notebookStore) return errorResult('Notebooks are not available on this server.');
+      const found = findNotebook(notebookStore, notebook);
+      if (!found) return errorResult(`No notebook matches "${notebook}". List them with notebook-read.`);
+      if ('matches' in found) return errorResult(`Several notebooks match "${notebook}": ${found.matches.slice(0, 8).map((n) => `${n.id} (${n.title})`).join(', ')}. Give its id.`);
+      const nb = found.notebook;
+      if (opts.dataRoot) {
+        const d = evaluatePolicy(resolvePolicyDocument(opts.dataRoot), { toolId: 'notebook-tldr', resource: nb.id, agentSource: 'local', agentId: 'mcp' });
+        if (d.effect === 'deny') return errorResult(d.reason ?? 'Policy denies "notebook-tldr".');
+      }
+      const where = `/notebooks/${encodeURIComponent(nb.id)}/tldr.png`;
+      const given = [size, tone, layout, parts, bars, headline, takeaway].some((v) => v !== undefined);
+      const act = action ?? (given ? 'draw' : 'show');
+      if (act === 'show') {
+        return { content: [{ type: 'text' as const, text: `"${nb.title}" is drawn as ${tldrLine(nb.tldr)}. ${String(notebookStore.tldrUndos(nb.id))} redraw(s) can be undone. Picture: ${where}\n\nYou can choose:\n${tldrOptionsGuide()}` }] };
+      }
+      if (act === 'undo') {
+        const done = notebookStore.undoTldr(nb.id);
+        const now = notebookStore.get(nb.id);
+        return done
+          ? { content: [{ type: 'text' as const, text: `Put back the picture from before: ${tldrLine(now?.tldr)}. Picture: ${where}` }] }
+          : errorResult('Nothing to undo.');
+      }
+      if (act === 'standard') {
+        notebookStore.setTldr(nb.id, null);
+        return { content: [{ type: 'text' as const, text: `Back to the standard picture. Undo brings the redrawn one back. Picture: ${where}` }] };
+      }
+      // draw: what's given over how it's drawn now.
+      const was: Partial<TldrSpec> = nb.tldr ?? {};
+      const merged: Record<string, unknown> = { ...was, ...(size ? { size } : {}), ...(tone ? { tone } : {}), ...(layout ? { layout } : {}), ...(parts ? { parts } : {}), ...(bars !== undefined ? { bars } : {}), ask: ask ?? 'Redrawn from an MCP client', at: new Date().toISOString() };
+      if (headline !== undefined) merged.headline = headline || undefined;
+      if (takeaway !== undefined) merged.takeaway = takeaway || undefined;
+      const spec = cleanTldrSpec(merged);
+      if (!spec) return errorResult('That isn\'t a way to draw the picture.');
+      const known = `${nb.title} ${nb.statement} ${JSON.stringify(notebookReadoutJson(nb, notebookStore.entries(nb.id, 1000)))}`;
+      const stray = strayTldrNumbers([spec.headline, spec.takeaway], known);
+      if (stray.length) return errorResult(`Not redrawn: the headline or takeaway has ${stray.length === 1 ? 'a number' : 'numbers'} the notebook doesn't (${stray.join(', ')}). Use only numbers the notebook has, written as they are there (read it with notebook-read), or none.`);
+      notebookStore.setTldr(nb.id, spec);
+      return { content: [{ type: 'text' as const, text: `Redrawn "${nb.title}": ${tldrLine(spec)}. Undo puts back the one before. Picture: ${where} (add ?theme=dark for the dark one).` }] };
     },
   );
 

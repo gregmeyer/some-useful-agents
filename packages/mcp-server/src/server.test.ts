@@ -537,6 +537,45 @@ describe('MCP board tools', () => {
     }
   });
 
+  it('notebook-tldr shows, redraws, undoes and resets a notebook\'s TL;DR picture; a number of its own is refused', async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const notebooks = new NotebookStore(dbPath);
+    const nb = notebooks.create({ title: 'Company briefing: Northwind', statement: 'Learn about Northwind' });
+    notebooks.addEntry(nb.id, { kind: 'note', title: 'Revenue was 309M in Q3 2026', by: 'you' });
+    notebooks.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const shown = text(await c.callTool({ name: 'notebook-tldr', arguments: { notebook: 'northwind' } }));
+      expect(shown).toContain('is drawn as the standard picture');
+      expect(shown).toContain(`/notebooks/${nb.id}/tldr.png`);
+      expect(shown).toContain('"landscape"');
+
+      const drawn = await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, size: 'landscape', tone: 'editorial', layout: 'split', parts: ['lead', 'points'], headline: 'Northwind at 309M a quarter' } });
+      expect(drawn.isError).toBeFalsy();
+      expect(text(drawn)).toContain('Landscape 1200×627, editorial, split; parts: lead, points; headline: "Northwind at 309M a quarter"');
+      // What isn't given stays as it is now.
+      expect(text(await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, tone: 'bold' } }))).toContain('Landscape 1200×627, bold, split; parts: lead, points');
+
+      const stray = await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, takeaway: 'Up 45% on last year' } });
+      expect(stray.isError).toBe(true);
+      expect(text(stray)).toContain("has a number the notebook doesn't (45)");
+
+      expect(text(await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, action: 'undo' } }))).toContain('editorial, split');
+      expect(text(await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, action: 'standard' } }))).toContain('Back to the standard picture');
+      const store = new NotebookStore(dbPath);
+      try { expect(store.get(nb.id)!.tldr).toBeUndefined(); expect(store.tldrUndos(nb.id)).toBe(2); } finally { store.close(); }
+
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-tldr', resources: [nb.id], effect: 'deny', reason: 'Leave that picture alone.' }] }));
+      const denied = await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, size: 'square' } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('Leave that picture alone.');
+    } finally {
+      await c.close();
+    }
+  });
+
   it('notebook-templates lists templates; notebook-create queues a notebook for the dashboard and checks what it was given', async () => {
     const dbPath = join(dataDir, 'runs.db');
     const notebooks = new NotebookStore(dbPath);
