@@ -31,6 +31,8 @@ const site = (u: string) => { try { return new URL(u).hostname.replace(/^www\./,
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 const boldOnly = (s: string): SafeHtml => html`${s.split(/\*\*([^*\n]+)\*\*/).map((part, i) => (i % 2 ? html`<strong>${part}</strong>` : html`${part}`)) as unknown as SafeHtml[]}`;
 const monogram = (name: string) => name.normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+/** The same words, whatever the case or the closing mark (a goal that only repeats the title). */
+const sameWords = (a: string, b: string) => { const n = (x: string) => x.trim().replace(/[.!?…]+$/, '').replace(/\s+/g, ' ').toLowerCase(); return n(a) === n(b); };
 const text = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const items = (v: unknown): Array<Record<string, unknown> & { text: string }> => list(v)
@@ -52,6 +54,12 @@ function briefDiagram(raw: unknown): SafeHtml {
   }
   if (d.type === 'flow') return html`<ol class="steps flow">${(list(d.nodes) as Array<{ label?: unknown; note?: unknown }>).map((x) => html`<li><b>${text(x.label)}</b>${text(x.note) ? html` <span class="muted">${text(x.note)}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
   return html``;
+}
+
+/** A note that ends with the question to ask, as [the note, the question]; no question, the note alone. Pure. */
+export function splitAsk(note: string): [string, string] {
+  const m = /^([\s\S]*?)\s*\bAsk:\s+(\S[\s\S]*)$/.exec(note);
+  return m ? [m[1].trim(), m[2].trim()] : [note.trim(), ''];
 }
 
 /** A link as words: the site and its path ("linkedin.com/in/steven-gelley"). */
@@ -206,7 +214,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">from ${text(f.from)}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">From ${text(f.from)}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {
@@ -217,7 +225,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         ${points.length ? html`<ol class="${c.variant === 'numerals' ? 'numerals' : ''}">${points.map((x) => {
           // What a point rests on, by name (an answer's findings name their sources).
           const from = list(x.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
-          return html`<li><b>${x.text}</b>${text(x.note) ? html`<span class="muted">${text(x.note)}</span>` : html``}${c.component === 'Agenda' && from.length && !text(x.note) ? html`<span class="muted">From ${from.join(', ')}</span>` : html``}</li>`;
+          // A point's note often ends with the question to put ("… Ask: What turns out to matter more?"): the question gets its own line.
+          const [why, ask] = splitAsk(text(x.note));
+          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${c.component === 'Agenda' && from.length && !text(x.note) ? html`<span class="muted">From ${from.join(', ')}</span>` : html``}</li>`;
         }) as unknown as SafeHtml[]}</ol>` : html``}
         ${qs.length ? html`<div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
         ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
@@ -358,9 +368,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<ul class="plain log${p.full ? '' : ' log--short'}">${ev.slice(0, p.full ? 80 : 8).map((e) => html`<li><span class="fine">${text(e.at) ? new Date(text(e.at)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span> ${text(e.title)}</li>`) as unknown as SafeHtml[]}</ul>`;
     }
     case 'Coverage': return html`<ul class="plain log log--where">${(list(v('sources')) as Array<{ name?: unknown; found?: unknown; status?: unknown }>).map((s) => html`<li>${text(s.name)} <span class="fine">· ${text(s.status) === 'found' ? `${text(s.found)} found` : text(s.status)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
-    case 'Steps': return html`<ul class="plain">${(list(v('steps')) as Array<{ text?: unknown; met?: unknown }>).map((s) => html`<li>${s.met ? '✓' : '○'} ${text(s.text)}</li>`) as unknown as SafeHtml[]}</ul>`;
+    case 'Steps': return html`<ul class="plain checks">${(list(v('steps')) as Array<{ text?: unknown; met?: unknown }>).map((s) => html`<li>${s.met ? '✓' : '○'} ${text(s.text)}</li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
-    case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
+    case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain checks">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
     // The TL;DR picture: its card, drawn in place.
     case 'Picture': return p.tldr();
     // Charts and agent HTML don't print here; the notebook has them.
@@ -444,11 +454,11 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .bars { display: grid; gap: 0.4rem; } .bar { display: grid; grid-template-columns: minmax(6rem, 30%) minmax(0, 1fr) auto; gap: 0.6rem; align-items: center; font-size: 0.875rem; }
 .bar__track { display: block; height: 1.25rem; border-radius: 4px; background: var(--raised); overflow: hidden; } .bar__fill { display: block; height: 100%; background: var(--muted); opacity: 0.55; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .bar--best .bar__fill { background: var(--accent); opacity: 1; } .bar--best .bar__lab { color: var(--accent); font-weight: 600; } .bar__val { font: 600 0.75rem var(--mono); }
-.cmp th { border-bottom: 2px solid var(--text); } .cmp td.k { font: 600 0.6875rem/1.4 var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.cmp th { border-bottom: 2px solid var(--text); } .cmp td.k { font: 600 0.6875rem/1.4 var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .callout p { margin: 0.25rem 0 0; font-size: 1.0625rem; }
 .whatsnew { margin: 1rem 0 0; padding: 0.75rem 1rem; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; background: var(--surface); }
 .whatsnew .eyebrow { margin-top: 0; color: var(--accent); } .whatsnew ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
-.mark { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font: 600 0.625rem/1rem var(--mono); text-transform: uppercase; letter-spacing: 0.06em; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.mark { display: inline-block; padding: 0 0.4rem; border-radius: 999px; font: 600 0.625rem/1rem var(--display); text-transform: uppercase; letter-spacing: 0.06em; background: var(--accent-soft); color: var(--accent); vertical-align: 1px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .muted { color: var(--muted); } .fine { font-size: 0.75rem; color: var(--muted); margin: 0.35rem 0 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0; }
 .chip { font: 0.75rem/1.7 var(--mono); padding: 0 0.5rem; border: 1px solid var(--line); border-radius: 6px; }
@@ -461,13 +471,18 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .profile__name { font: 700 1.25rem/1.2 var(--display); }
 .profile--cover .profile__name { font-size: 1.75rem; }
 .profile p { margin: 0.5rem 0 0; max-width: 65ch; }
-.links { display: flex; flex-wrap: wrap; gap: 0.75rem; font: 0.75rem var(--mono); }
+.links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8125rem; }
 .masthead .links { margin: 0.5rem 0 0; }
 .pull { grid-column: 1 / -1; margin: 0.25rem 0 0; padding-left: 1rem; border-left: 3px solid var(--accent); font-size: 1.1875rem; line-height: 1.45; }
 .facts dl { margin: 0; }
-.facts dt { padding-top: 0.5rem; border-top: 1px solid var(--line); font: 600 0.625rem/1.2 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.facts dt { padding-top: 0.5rem; border-top: 1px solid var(--line); font: 600 0.625rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .facts dd { margin: 0.2rem 0 0.5rem; overflow-wrap: anywhere; }
 .src { font-size: 0.75rem; margin-left: 0.25rem; }
+/* Where a fact comes from: its own small line under it, a site or what you gave. */
+.facts .src { display: block; margin: 0.1rem 0 0; color: var(--muted); } .facts a.src { color: var(--accent); }
+.checks { list-style: none; padding-left: 0; }
+.agenda ol li .ask-line { margin-top: 0.3rem; padding-left: 0.6rem; border-left: 2px solid var(--accent); color: var(--text); }
+.ask-line b { margin-right: 0.25rem; font: 600 0.625rem var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .agenda ol { margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: pt; display: grid; gap: 0.75rem; }
 .agenda ol li { counter-increment: pt; display: grid; grid-template-columns: 2rem minmax(0, 1fr); column-gap: 0.5rem; }
 .agenda ol li::before { content: counter(pt); grid-row: span 2; font: 700 0.875rem var(--mono); color: var(--accent); }
@@ -497,15 +512,15 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .quotes figure.lead { border-left: 3px solid var(--accent); } .quotes figure.lead blockquote { font-size: 1.1875rem; }
 .quotes blockquote { margin: 0; }
 .quotes figcaption { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; overflow-wrap: anywhere; }
-.tag { font: 600 0.625rem/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
-.ask { margin: 0.3rem 0 0; font-size: 0.875rem; } .ask b { font: 600 0.625rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.tag { font: 600 0.625rem/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.ask { margin: 0.3rem 0 0; font-size: 0.875rem; } .ask b { font: 600 0.625rem var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
 .plain { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.25rem; font-size: 0.875rem; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { font: 600 0.6875rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+th { font: 600 0.6875rem var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .fullset { display: grid; gap: 1.5rem; }
 .full { border-top: 2px solid var(--line-strong); padding-top: 1rem; display: grid; gap: 0.5rem; }
 .full__head { display: flex; gap: 0.75rem; align-items: baseline; } .full__name { margin: 0; font-size: 1rem; }
@@ -577,6 +592,10 @@ ${unsafeHtml(TLDR_CSS)}
   .log--where { columns: 2; column-gap: 1.5rem; } .log--where > li { break-inside: avoid; }
   .cols:has(.log) { break-inside: avoid; }
   footer { break-before: avoid; }
+  /* Paper has less contrast than a screen: a talking point's reasoning in the text colour, not the muted one. */
+  .agenda ol li span.muted { color: var(--text); }
+  /* A table needs no tinted panel behind it. */
+  .part--band:has(.tbl) { background: none; padding: 0; }
 }
 </style>
 <main class="brief">
@@ -584,7 +603,7 @@ ${unsafeHtml(TLDR_CSS)}
     <div>
       <div class="eyebrow">${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}</div>
       <h1>${nb.title}</h1>
-      ${nb.statement && !(header && header.statement === false) ? html`<p class="goal">${nb.statement}</p>` : html``}
+      ${nb.statement && !(header && header.statement === false) && !sameWords(nb.statement, nb.title) ? html`<p class="goal">${nb.statement}</p>` : html``}
       ${notebookGivenLinks(nb).length ? html`<p class="links">${notebookGivenLinks(nb).map((u) => html`<a href="${u}">${linkWords(u)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
       ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
     </div>

@@ -93,6 +93,17 @@ A notebook's page is drawn for its job (a briefing, a shortlist, a report), so i
 - **Rhythm:** one lede, at most 3 framed (`plain`) parts on a drawn page, long lists (quotes, tables, timelines) in a feature or a fold, never an aside.
 - **Type:** the 2xl (28px) display size is for a cover's name, pull quotes, a hero's title and a Lead's value on notebook pages; everything else keeps the scale above. No new colours: teal for ledes and numerals, rules in the border tokens.
 
+## Notebook briefs on paper
+A brief (the saved page or PDF of a notebook) is the page set for reading away from the app. It keeps the page's parts and order; these rules are for paper.
+- **Pages fill and break cleanly:** a sidebar of facts moves under the part it sat beside, three facts to a row. A label stays with its list; a list never leaves one line alone on a page. A part that can't print prints no heading.
+- **Labels:** one face for every small caps label (section labels, a fact's label, a table's headings, a quote's theme): the display face, 600, uppercase, 0.06–0.08em. Never two label faces on one page.
+- **Links:** body sans, underlined, in the accent colour. Mono is not used for links.
+- **Where a fact comes from:** its own `xs` line under the fact: the site as a link, or "From …" in the muted colour for something you gave.
+- **Contrast:** text a reader acts on (a talking point's reasoning) prints in the text colour; the muted colour is for sources, dates and counts.
+- **A question to ask** sits on its own line under its point: a 2px accent rule at the left and a small "ASK" label.
+- **Tables** are ruled, not boxed, with no tinted panel behind them. **Checks** use their mark (✓ ○) as the bullet.
+- **A goal that only repeats the title** is left out.
+
 ## Boards as front pages
 A board you read every morning can be composed like a front page instead of a grid of equal boxes, with the notebook page's parts (ADR-0070): the same treatments, row shapes and rhythm rules apply.
 - **Masthead:** the one hero, a `feature` Panel titled with the board's name (28px display) and the date as its note, a caption under it saying how fresh the newest result is. One per page, full width, first.

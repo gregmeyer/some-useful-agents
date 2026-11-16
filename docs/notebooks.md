@@ -580,6 +580,8 @@ On paper (the PDF, or the page printed) a drawn page is set to fill its pages an
 - a table is ruled, not boxed, and repeats its headings when it runs onto the next page;
 - the research at the end is small: its latest three lines and where sua looked. The extended brief has every line.
 
+And its type is set for paper: a talking point's reasoning prints in the text colour, and the question it ends with ("Ask: …") gets its own line with a rule beside it; each fact's source is a small line under it; labels share one face and links are plain underlined text; a table has no tinted panel behind it; a goal that only repeats the title is left out.
+
 The brief looks like the dashboard: its design tokens and your brand theme (**Settings → Appearance**: colours, fonts) are inside the file, in the mode you use the dashboard in (the **Download / share** links pass it as `?theme=light` or `?theme=dark`; without it, dark, the dashboard's default). Printed or saved as PDF, it's on paper: the theme's light colours. The file has no scripts.
 
 **Printing the page itself** (your browser's Print, or Save as PDF) keeps the page as you see it. On the page a finding links to its own page in the dashboard; in the printed copy each of those links goes to where the finding came from, since whoever reads the PDF can't open your dashboard. A finding with no source has no link there. The brief's PDF below is the one made for sending.
