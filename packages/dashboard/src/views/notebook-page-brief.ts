@@ -217,8 +217,18 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const mark = (f: (typeof facts)[number]) => (f.mark === 'new' ? html` <span class="mark">new</span>` : f.mark === 'changed' ? html` <span class="mark">changed</span>${text(f.was) ? html` <span class="muted">(was ${text(f.was)})</span>` : html``}` : html``);
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
+      // A group of four or more is two lists, about as long as each other, set side by side where there's room and read down.
+      const halves = (fs: typeof facts): Array<typeof facts> => {
+        if (fs.length < 4) return [fs];
+        const size = (f: (typeof facts)[number]) => 40 + text(f.value).length;
+        const half = fs.reduce((n, f) => n + size(f), 0) / 2;
+        let run = 0;
+        let cut = fs.findIndex((f) => { run += size(f); return run >= half; }) + 1;
+        if (cut <= 0 || cut >= fs.length) cut = Math.ceil(fs.length / 2);
+        return [fs.slice(0, cut), fs.slice(cut)];
+      };
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${noteMarks(p.notes, isUrl(f.url) ? [{ url: f.url }] : text(f.from) ? [{ label: text(f.from) }] : [])}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<div class="facts__cols">${halves(x.f).map((fs) => html`<dl>${fs.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${noteMarks(p.notes, isUrl(f.url) ? [{ url: f.url }] : text(f.from) ? [{ label: text(f.from) }] : [])}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}</div>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {
@@ -279,8 +289,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const real = all.filter((q) => saidLike(text(q.quote)));
       const shown = briefQuotes(real.length ? real : all, Math.min(5, Math.max(3, typeof c.maxItems === 'number' ? c.maxItems : 4)));
       return html`<div class="quotes">${shown.map((q, i) => html`<figure class="${c.lead && i === 0 ? 'lead' : ''}">
+          ${text(q.group) ? html`<div class="tag">${text(q.group)}</div>` : html``}
           <blockquote>${text(q.quote)}</blockquote>
-          <figcaption>${text(q.group) ? html`<span class="tag">${text(q.group)}</span> ` : html``}${text(q.title)}${text(q.at) ? html` · ${text(q.at)}` : html``}${isUrl(q.source) ? noteMarks(p.notes, [{ url: q.source, label: text(q.title) }]) : html``}</figcaption>
+          <figcaption>${text(q.title)}${text(q.at) ? html` · ${text(q.at)}` : html``}${isUrl(q.source) ? noteMarks(p.notes, [{ url: q.source, label: text(q.title) }]) : html``}</figcaption>
           ${text(q.ask) ? html`<p class="ask"><b>Ask</b> ${text(q.ask)}</p>` : html``}
         </figure>`) as unknown as SafeHtml[]}
         ${all.length > shown.length ? html`<p class="fine">And ${String(all.length - shown.length)} more${p.full ? ', below' : ' in the extended brief'}.</p>` : html``}</div>`;
@@ -545,7 +556,8 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .checks { list-style: none; padding-left: 0; }
 /* Facts standing on their own (out of a row): no rail rule, three to a row. */
 .brief > .stack > .part--aside:has(.facts) { border-left: 0; padding-left: 0; }
-@media (min-width: 761px) { .brief > .stack > .part--aside .facts dl { display: flex; flex-wrap: wrap; gap: 0 1.5rem; } .brief > .stack > .part--aside .facts .fact { flex: 0 0 calc((100% - 3rem) / 3); min-width: 0; } }
+/* ... as a spec sheet: each fact a row, its label in a column at the left and its value beside it, in two columns each read down (not rows across: a one-line fact beside a paragraph leaves a hole). */
+@media screen and (min-width: 761px) { .brief > .stack > .part--aside .facts__cols { display: flex; gap: 0 1.75rem; } .brief > .stack > .part--aside .facts__cols > dl { flex: 1 1 0; min-width: 0; } .brief > .stack > .part--aside .facts .fact { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); column-gap: 0.75rem; align-items: start; padding: 0.4rem 0; border-top: 1px solid var(--line); } .brief > .stack > .part--aside .facts .fact dt { padding-top: 0.15rem; border-top: 0; } .brief > .stack > .part--aside .facts .fact dd { margin: 0; } }
 .agenda ol li .ask-line { margin-top: 0.3rem; padding-left: 0.6rem; border-left: 2px solid var(--accent); color: var(--text); }
 .ask-line b { margin-right: 0.25rem; font: 600 0.625rem var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
 .agenda ol { margin: 0 0 1rem; padding: 0; list-style: none; counter-reset: pt; display: grid; gap: 0.75rem; }
@@ -574,6 +586,7 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .lad, .split, .flow { break-inside: avoid; }
 .quotes { display: grid; gap: 1rem; }
 .quotes figure { margin: 0; padding-left: 0.75rem; border-left: 2px solid var(--line); }
+.quotes figure > .tag { margin-bottom: 0.3rem; }
 .quotes figure.lead { border-left: 3px solid var(--accent); } .quotes figure.lead blockquote { font-size: 1.1875rem; }
 .quotes blockquote { margin: 0; }
 .quotes figcaption { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; overflow-wrap: anywhere; }
@@ -635,12 +648,13 @@ ${TLDR_CSS}
   h2 { break-after: avoid; }
   .appendix:first-of-type, .fullset { break-before: page; }
   .profile__mono, .part--band, .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  /* A rail of facts beside a shorter part leaves half a page empty, then runs on alone: on paper the two stack, the facts three to a row (wrapped rows, which break cleanly between pages; CSS columns split a fact at the foot of a page). */
+  /* A rail of facts beside a shorter part leaves half a page empty, then runs on alone: on paper the two stack, the facts as a spec sheet in two columns (two lists side by side, which break cleanly between pages; CSS columns split a fact at the foot of a page). */
   .cols:has(.part--aside .facts) { display: block !important; }
   .cols:has(.part--aside .facts) > * + * { margin-top: 1.25rem; }
   .part--aside:has(.facts) { border-left: 0; padding-left: 0; }
-  .part--aside .facts dl { display: flex; flex-wrap: wrap; gap: 0 1.5rem; }
-  .part--aside .facts .fact { flex: 0 0 calc((100% - 3rem) / 3); min-width: 0; }
+  .part--aside .facts__cols { display: flex; gap: 0 1.75rem; } .part--aside .facts__cols > dl { flex: 1 1 0; min-width: 0; }
+  .part--aside .facts .fact { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); column-gap: 0.75rem; align-items: start; padding: 0.4rem 0; border-top: 1px solid var(--line); }
+  .part--aside .facts .fact dt { padding-top: 0.15rem; border-top: 0; } .part--aside .facts .fact dd { margin: 0; }
   .fact { break-inside: avoid; }
   /* Lists as blocks (a grid's rows don't take break rules): a label stays with its list, and a list never leaves one line alone on a page. */
   .agenda ol, .agenda ul, .plain, .quotes { display: block; }

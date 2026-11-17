@@ -443,7 +443,7 @@ describe('a drawn page set for paper', () => {
     expect(brief).toMatch(/<div class="fact"><dt>[^<]+<\/dt><dd>/);
     const print = brief.slice(brief.indexOf('@media print'));
     expect(print).toContain('.cols:has(.part--aside .facts) { display: block !important; }');
-    expect(print).toContain('.part--aside .facts dl { display: flex; flex-wrap: wrap;');
+    expect(print).toContain('.part--aside .facts__cols { display: flex; gap: 0 1.75rem; }');
     expect(print).toContain('.fact { break-inside: avoid; }');
   });
 
@@ -637,5 +637,29 @@ describe("a brief's lead", () => {
     expect(brief).toContain('.brief > .stack > .part > .agenda > ol > li { flex: 0 0 calc((100% - 1.75rem) / 2);');
     expect(brief).toContain('@media print, screen and (min-width: 761px)');
     if (brief.includes('Questions to ask')) expect(brief).toMatch(/<div class="agenda__pair">\s*<div><div class="eyebrow">Questions to ask<\/div>/);
+  });
+});
+
+describe("a brief's reference parts", () => {
+  const now = new Date('2026-10-25T12:00:00Z');
+  it('sets facts as a spec sheet: label beside value, a group of four or more as two lists side by side, in the order given', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id), history: s, now });
+    expect(brief.slice(brief.indexOf('@media print {'))).toContain('.part--aside .facts .fact { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr);');
+    // Every group is one or two lists; one of four or more facts is two.
+    const groups = [...brief.matchAll(/<div class="facts__cols">((?:<dl>.*?<\/dl>)+)<\/div>/gs)].map((m) => ({ lists: m[1].match(/<dl>/g)!.length, facts: m[1].match(/<div class="fact">/g)?.length ?? 0 }));
+    expect(groups.length).toBeGreaterThan(0);
+    for (const g of groups) expect(g.lists).toBe(g.facts >= 4 ? 2 : 1);
+    // In the order the notebook has them.
+    const given = s.get(nb.id)!.about!.person!.facts.map((x) => x.label);
+    const shown = [...brief.matchAll(/<div class="fact"><dt>([^<]+)<\/dt>/g)].map((m) => m[1]).filter((l) => given.includes(l));
+    expect(shown.slice(0, given.filter((l) => shown.includes(l)).length)).toEqual(given.filter((l) => shown.includes(l)));
+  });
+
+  it('sets what they said two to a row with its theme above each quote', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now });
+    expect(brief).toContain('.brief > .stack > .part > .quotes > figure { flex: 0 0 calc((100% - 1.75rem) / 2);');
+    if (brief.includes('<div class="quotes">')) expect(brief).not.toMatch(/<figcaption><span class="tag">/);
   });
 });
