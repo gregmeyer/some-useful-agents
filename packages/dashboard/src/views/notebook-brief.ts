@@ -9,7 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
-import { briefColophon, briefHead, briefPage } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes } from './brief-document.js';
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, writesUp, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
@@ -296,6 +296,8 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
   // The TL;DR picture's card under the title, when there's something to plot (not on the brief of what's new: its numbers are the whole notebook's).
   const tldr = args.latest ? undefined : tldrData(nb, args.entries, args.history, pic);
+  // What the write-up and its findings rest on, numbered: a finding named by an option's title is that option's own page.
+  const cites = new SourceNotes((label) => d.options.find((o) => (o.name === label || o.title === label) && /^https?:\/\//i.test(o.link ?? ''))?.link);
   const css = `/* A brief: one column of reading. Findings first, the options as a table, then each in detail. */
 ${theme.css}
 * { box-sizing: border-box; }
@@ -483,7 +485,7 @@ ${TLDR_CSS}
   <section aria-labelledby="b-find">
     <h2 id="b-find">Key findings${args.latest ? html`<span class="count">the whole notebook</span>` : html``}</h2>
     ${writeup && d.findings.length
-      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${f.refs.length ? html` <span class="from">From ${f.refs.map((r) => r.label).join(', ')}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>`
+      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${noteMarks(cites, f.refs.map((r) => ({ label: r.label })))}</li>`) as unknown as SafeHtml[]}</ul>`
       : html`<ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>`}
     ${writeup && d.openQuestions.length ? html`<div class="open"><h3>Still open</h3><ul>${d.openQuestions.map((q) => html`<li>${q.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>
@@ -493,7 +495,7 @@ ${TLDR_CSS}
   </section>
   ${writeup && d.answerSections.length ? html`<section aria-labelledby="b-writeup">
     <h2 id="b-writeup">The write-up</h2>
-    ${(d.answerSections as unknown as BriefSection[]).filter((x) => typeof x.title === 'string' && x.title).map((x) => html`<section class="sec"><div class="eyebrow">${String(x.title)}</div>${briefPart(x, 'auto')}</section>`) as unknown as SafeHtml[]}
+    ${(d.answerSections as unknown as BriefSection[]).filter((x) => typeof x.title === 'string' && x.title).map((x) => html`<section class="sec"><div class="eyebrow">${String(x.title)}</div>${briefPart(x, 'auto', cites)}</section>`) as unknown as SafeHtml[]}
   </section>` : html``}
   ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
@@ -517,6 +519,7 @@ ${TLDR_CSS}
     ${nb.params.length ? html`<div><h2>Limits</h2><div class="limits">${nb.params.slice(0, 12).map((p) => html`<span class="chip">${p.length > 80 ? `${p.slice(0, 77)}…` : p}</span>`) as unknown as SafeHtml[]}</div></div>` : html``}
     ${nb.criteria.length ? html`<div><h2>Done when</h2><ul>${nb.criteria.map((c) => html`<li class="crit${c.met ? ' is-met' : ''}"><i>${c.met ? '✓' : '○'}</i><span>${c.text}</span></li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>` : html``}
+  ${briefSources(cites)}
   ${briefColophon({
     ...(args.latest ? {} : { places: d.coverage.sources.map((x) => ({ name: x.name, found: x.status === 'found' ? Number(x.found) || 0 : 0 })) }),
     note: "Facts are as each option's own page or search gave them, not checked unless its checks say so. Made with sua.",

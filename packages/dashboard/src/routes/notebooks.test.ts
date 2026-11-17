@@ -4777,7 +4777,9 @@ describe('a write step', () => {
     // The brief prints the answer, its findings by source, and what's open.
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
     expect(brief).toContain('<b>How sure:</b> A vendor page and one survey agree; no invoices.');
-    expect(brief).toContain('From Survey of 200 teams');
+    // What a finding rests on is a numbered note, its page listed once under Source notes.
+    expect(brief).toMatch(/<sup class="note"><a href="#note-\d+">\d+<\/a>/);
+    expect(brief).toMatch(/<li id="note-\d+"><span>Survey of 200 teams<\/span>/);
     expect(brief).toContain('Still open');
     // Done, it offers Answer again (not talking-point edits).
     s.updateStep(nb.id, after.steps![1].id, { status: 'done' });
@@ -4857,7 +4859,7 @@ describe('a write step', () => {
     expect(brief).toContain('<div class="eyebrow">Rubric for the $25,000</div>');
     expect(brief).toContain('<td><strong>No-penalty CD</strong></td>');
     expect(brief).toContain('<ol class="steps">');
-    expect(brief).toContain('(Example Bank 12-month CD)');
+    expect(brief).toMatch(/<li id="note-\d+"><span>Example Bank 12-month CD<\/span>/);
     // The ladder, drawn from its own numbers, and a drawing beside the answer (on a page saved before either).
     expect(page).toContain('"type":"ladder"');
     expect(page).toContain('"cover":"data:image/svg+xml;base64,');
@@ -4917,7 +4919,8 @@ describe('a write step', () => {
     expect(page).toContain('"title":"Also for the plan"');
     const brief = (await get(`/notebooks/${nb.id}/brief.html`)).text;
     expect(brief).toContain('<div class="eyebrow">Costs for two</div>');
-    expect(brief).toContain('Every row: Ribeira walk');
+    expect(brief).toMatch(/Every row<sup class="note">/);
+    expect(brief).toMatch(/<li id="note-\d+"><span>Ribeira walk<\/span>/);
     expect(brief).toContain('<div class="split-bar">');
     expect(brief).toContain('<b>Port cellar tour</b> <span class="muted">Book a 3pm slot.</span> <span class="muted">(Port cellar tour)</span>');
     expect(brief).toContain('Before you start');

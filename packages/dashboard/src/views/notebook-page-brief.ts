@@ -19,7 +19,7 @@ import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
-import { briefColophon, briefHead, briefPage, sameWords } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes } from './brief-document.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -90,6 +90,8 @@ interface Printing {
   tldr: () => SafeHtml;
   /** An option's picture as the file can carry it (embedded when saved); undefined when it has none. */
   pic: (o: NotebookViewOption) => string | undefined;
+  /** The brief's numbered sources: what a part cites is listed once at the end. */
+  notes: SourceNotes;
 }
 
 /**
@@ -125,28 +127,30 @@ function briefNumber(v: unknown): number | undefined {
 }
 
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. The shortlist brief prints a write-up's parts with it too. */
-export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto'): SafeHtml {
+export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes): SafeHtml {
   const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
   const from = (y: unknown) => list((y as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+  // Where a line comes from: numbered notes in a document, the names in brackets without one.
+  const cited = (names: string[]): SafeHtml => (!names.length ? html`` : notes ? noteMarks(notes, names.map((label) => ({ label }))) : html` <span class="fine">(${names.join(', ')})</span>`);
   if (x.kind === 'steps') {
-    return html`<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${from(it).length ? html` <span class="fine">(${from(it).join(', ')})</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
+    return html`<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${cited(from(it))}</li>`) as unknown as SafeHtml[]}</ol>`;
   }
   if (x.kind === 'table') {
     const cols = list(x.columns).map(text);
     const rows = list(x.rows) as Array<{ cells?: unknown }>;
-    const every = from(x).length ? html`<p class="fine">Every row: ${from(x).join(', ')}</p>` : html``;
+    const every = !from(x).length ? html`` : notes ? html`<p class="fine">Every row${noteMarks(notes, from(x).map((label) => ({ label })))}</p>` : html`<p class="fine">Every row: ${from(x).join(', ')}</p>`;
     if (rubric && cols.length >= 2) {
-      return html`<div class="rubric">${rows.map((r) => { const cells = list(r.cells).map(text); return html`<div class="rubric__row"><b>${boldOnly(cells[0] ?? '')}</b><div><span class="rubric__then">${boldOnly(cells[1] ?? '')}</span>${cells.slice(2).filter(Boolean).length ? html`<span class="muted"> · ${boldOnly(cells.slice(2).filter(Boolean).join(' · '))}</span>` : html``}${from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</div></div>`; }) as unknown as SafeHtml[]}</div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
+      return html`<div class="rubric">${rows.map((r) => { const cells = list(r.cells).map(text); return html`<div class="rubric__row"><b>${boldOnly(cells[0] ?? '')}</b><div><span class="rubric__then">${boldOnly(cells[1] ?? '')}</span>${cells.slice(2).filter(Boolean).length ? html`<span class="muted"> · ${boldOnly(cells.slice(2).filter(Boolean).join(' · '))}</span>` : html``}${cited(from(r))}</div></div>`; }) as unknown as SafeHtml[]}</div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
     }
     return html`<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k}</th>`) as unknown as SafeHtml[]}</tr></thead>
-      <tbody>${rows.map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 && from(r).length ? html` <span class="fine">(${from(r).join(', ')})</span>` : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
+      <tbody>${rows.map((r) => html`<tr>${cols.map((_, i) => html`<td>${boldOnly(text(list(r.cells)[i]))}${i === cols.length - 1 ? cited(from(r)) : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
   }
   if (x.kind === 'diagram') {
     // A diagram with what-ifs prints as written; the page is where it moves.
     const moves = list((x.diagram as { params?: unknown } | undefined)?.params).map((p) => text((p as { label?: unknown }).label).toLowerCase()).filter(Boolean);
     return html`${briefDiagram(x.diagram)}${text(x.caption) ? html`<p class="fine">${text(x.caption)}</p>` : html``}${moves.length ? html`<p class="fine">Change the ${moves.join(' or ')} on the notebook page.</p>` : html``}`;
   }
-  return html`<p>${boldOnly(text(x.body))}${from(x).length ? html` <span class="fine">(${from(x).join(', ')})</span>` : html``}</p>`;
+  return html`<p>${boldOnly(text(x.body))}${cited(from(x))}</p>`;
 }
 
 /** Whether a part drew anything (a stack of parts that each print nothing is nothing). */
@@ -214,7 +218,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const groups: Array<{ g: string; f: typeof facts }> = [];
       for (const f of facts) { const g = text(f.group); const at = groups.find((x) => x.g === g); if (at) at.f.push(f); else groups.push({ g, f: [f] }); }
       const missing = items(v('missing')).map((x) => x.text);
-      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${isUrl(f.url) ? html` <a class="src" href="${f.url}">${site(f.url)}</a>` : text(f.from) ? html` <span class="src">From ${text(f.from)}</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
+      return html`<div class="facts">${groups.map((x) => html`${x.g ? html`<div class="eyebrow">${x.g}</div>` : html``}<dl>${x.f.map((f) => html`<div class="fact"><dt>${text(f.label)}</dt><dd>${text(f.value)}${mark(f)}${noteMarks(p.notes, isUrl(f.url) ? [{ url: f.url }] : text(f.from) ? [{ label: text(f.from) }] : [])}</dd></div>`) as unknown as SafeHtml[]}</dl>`) as unknown as SafeHtml[]}
         ${missing.length ? html`<p class="fine"><b>Not found:</b> ${missing.join(', ')}</p>` : html``}</div>`;
     }
     case 'Agenda': {
@@ -227,7 +231,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           const from = list(x.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
           // A point's note often ends with the question to put ("… Ask: What turns out to matter more?"): the question gets its own line.
           const [why, ask] = splitAsk(text(x.note));
-          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${c.component === 'Agenda' && from.length && !text(x.note) ? html`<span class="muted">From ${from.join(', ')}</span>` : html``}</li>`;
+          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${from.length && !text(x.note) ? noteMarks(p.notes, from.map((label) => ({ label }))) : html``}</li>`;
         }) as unknown as SafeHtml[]}</ol>` : html``}
         ${qs.length ? html`<div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
         ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
@@ -274,7 +278,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const shown = briefQuotes(real.length ? real : all, Math.min(5, Math.max(3, typeof c.maxItems === 'number' ? c.maxItems : 4)));
       return html`<div class="quotes">${shown.map((q, i) => html`<figure class="${c.lead && i === 0 ? 'lead' : ''}">
           <blockquote>${text(q.quote)}</blockquote>
-          <figcaption>${text(q.group) ? html`<span class="tag">${text(q.group)}</span> ` : html``}${text(q.title)}${isUrl(q.source) ? html` · <a href="${q.source}">${site(q.source)}</a>` : html``}${text(q.at) ? html` · ${text(q.at)}` : html``}</figcaption>
+          <figcaption>${text(q.group) ? html`<span class="tag">${text(q.group)}</span> ` : html``}${text(q.title)}${text(q.at) ? html` · ${text(q.at)}` : html``}${isUrl(q.source) ? noteMarks(p.notes, [{ url: q.source, label: text(q.title) }]) : html``}</figcaption>
           ${text(q.ask) ? html`<p class="ask"><b>Ask</b> ${text(q.ask)}</p>` : html``}
         </figure>`) as unknown as SafeHtml[]}
         ${all.length > shown.length ? html`<p class="fine">And ${String(all.length - shown.length)} more${p.full ? ', below' : ' in the extended brief'}.</p>` : html``}</div>`;
@@ -305,8 +309,12 @@ function node(p: Printing, id: string | undefined): SafeHtml {
         }
         return html`${text(x)}`;
       };
-      return html`<div class="tbl"><table><thead><tr>${cols.map((k) => html`<th>${k.label}</th>`) as unknown as SafeHtml[]}</tr></thead>
-        <tbody>${shown.map((r) => html`<tr>${cols.map((k) => html`<td>${cell(r[k.key])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>`;
+      // A column that only says where a row comes from ("Said on") is the row's source note, set after its last cell.
+      const srcOf = (r: Record<string, unknown>) => { const x = r.source as { url?: unknown } | string | undefined; const u = typeof x === 'string' ? x : x?.url; return isUrl(u) ? u : undefined; };
+      const noted = cols.some((k) => k.key === 'source') && cols.length > 1;
+      const shownCols = noted ? cols.filter((k) => k.key !== 'source') : cols;
+      return html`<div class="tbl"><table><thead><tr>${shownCols.map((k) => html`<th>${k.label}</th>`) as unknown as SafeHtml[]}</tr></thead>
+        <tbody>${shown.map((r) => html`<tr>${shownCols.map((k, i) => html`<td>${cell(r[k.key])}${noted && i === shownCols.length - 1 && srcOf(r) ? noteMarks(p.notes, [{ url: srcOf(r)! }]) : html``}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div>`;
     }
     case 'AnswerSections': {
       // The parts the answer was asked for: steps numbered, a rubric as a table (or ruled rows), each with where it comes from.
@@ -316,13 +324,13 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       const skip = Array.isArray(c.skip) ? c.skip as unknown[] : [];
       const secs = only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key));
       const untitled = !!only && only.length === 1;
-      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true)}</section>`) as unknown as SafeHtml[]}`;
+      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}</section>`) as unknown as SafeHtml[]}`;
     }
     case 'Figure': {
       const x = v('section') as BriefSection | undefined;
       if (!x || typeof x !== 'object' || !text(x.kind)) return html``;
       const cap = text(v('caption'));
-      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
+      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
     }
     case 'Lead': {
       const st = (v('stat') ?? {}) as { value?: unknown; label?: unknown; note?: unknown; href?: unknown };
@@ -459,7 +467,10 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
     const pictured = who ? aboutSrc(who.src) : undefined;
     return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
   };
-  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image) };
+  // A finding cited by its title is the page it was read on.
+  const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
+  const notes = new SourceNotes((label) => pageOf.get(label));
+  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes };
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
@@ -656,6 +667,7 @@ ${TLDR_CSS}
   ${args.full ? behindThePage(nb, args.entries, data.notebook, args.history, pic) : html``}
   ${experiment?.setup?.length ? html`<section class="part part--feature appendix"><div class="part__head"><h2>How it was run</h2>${experiment.runs ? html`<span class="part__note">${experiment.runs}</span>` : html``}</div>
     <div class="facts"><dl>${experiment.setup.map((x) => html`<dt>${x.label}</dt><dd>${x.lines.map((l, i) => html`${i ? html`<br>` : html``}${l}`) as unknown as SafeHtml[]}</dd>`) as unknown as SafeHtml[]}</dl></div></section>` : html``}
+  ${briefSources(notes)}
   ${briefColophon({
     // The research log is a sentence here; the extended brief and the notebook have it line by line.
     ...(logged ? { places: data.notebook.coverage.sources.map((x) => ({ name: x.name, found: x.status === 'found' ? Number(x.found) || 0 : 0 })) } : {}),

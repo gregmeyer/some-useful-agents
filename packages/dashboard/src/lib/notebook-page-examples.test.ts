@@ -15,7 +15,7 @@ import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-pag
 import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookWidgetMessages, notebookLayoutFlags } from './notebook-widgets.js';
 import { renderNotebookBrief } from '../views/notebook-brief.js';
-import { briefColophon, briefHead } from '../views/brief-document.js';
+import { briefColophon, briefHead, briefSources, noteMarks, SourceNotes } from '../views/brief-document.js';
 import { render } from '../views/html.js';
 import { renderPageBrief, briefIsPage, briefQuotes, splitAsk, agendaLeads, isLog } from '../views/notebook-page-brief.js';
 
@@ -353,7 +353,7 @@ describe('a company\'s competitors, on the page', () => {
     expect(brief).toContain('>Their competitors<');
     // Each a link to its site, and the page that names it a link too; one without a site is just its name.
     expect(brief).toContain('<a href="https://locusrobotics.com">Locus Robotics</a>');
-    expect(brief).toContain('<a href="https://www.g2.com/acme-alternatives">g2.com</a>');
+    expect(brief).toMatch(/<li id="note-\d+">(?:<span>[^<]*<\/span>)?<a href="https:\/\/www\.g2\.com\/acme-alternatives">g2\.com\/acme-alternatives<\/a><\/li>/);
     expect(brief).toContain('Picking robots as a service');
     expect(brief).toContain('<td>Geek+</td>');
     // The writer reads them too.
@@ -406,7 +406,7 @@ describe('a person\'s other companies, on the page', () => {
     const brief = renderPageBrief({ nb: got, entries: [], history: s });
     expect(brief).toContain('>Also runs<');
     expect(brief).toContain('<a href="https://openaccess.example">Open Access Ventures</a>');
-    expect(brief).toContain('<a href="https://www.linkedin.com/posts/gelley">linkedin.com</a>');
+    expect(brief).toMatch(/<li id="note-\d+">(?:<span>[^<]*<\/span>)?<a href="https:\/\/www\.linkedin\.com\/posts\/gelley">linkedin\.com\/posts\/gelley<\/a><\/li>/);
     expect(writerInputs(got, [], {}).NOTEBOOK).toContain('"otherCompanies":["Open Access Ventures (CEO)","Arrive"]');
 
     // A quick look at each one it hasn't looked at (Arrive, from the conflict, too); one already looked at isn't looked again.
@@ -569,5 +569,40 @@ describe('every kind of brief is one prepared document', () => {
     expect(isLog(m, 'more')).toBe(true);
     expect(isLog(m, 'mixed')).toBe(false);
     expect(isLog(m, 'empty')).toBe(false);
+  });
+});
+
+describe("a brief's source notes", () => {
+  it('numbers a source once however often it is cited, by its page or by its name', () => {
+    const notes = new SourceNotes((label) => (label === 'Survey of teams' ? 'https://example.com/survey' : undefined));
+    expect(notes.cite({ url: 'https://example.com/a/' })).toBe(1);
+    expect(notes.cite({ label: 'Your résumé' })).toBe(2);
+    expect(notes.cite({ url: 'https://example.com/a#part' })).toBe(1);
+    expect(notes.cite({ label: 'Survey of teams' })).toBe(3);
+    expect(notes.cite({ url: 'https://example.com/survey' })).toBe(3);
+    expect(notes.cite({ label: 'your résumé' })).toBe(2);
+    expect(notes.cite({})).toBe(0);
+    expect(notes.all).toEqual([{ key: 'https://example.com/a', label: '', url: 'https://example.com/a/' }, { key: 'your résumé', label: 'Your résumé' }, { key: 'https://example.com/survey', label: 'Survey of teams', url: 'https://example.com/survey' }]);
+    expect(render(noteMarks(notes, [{ url: 'https://example.com/a' }, { label: 'Survey of teams' }, { url: 'https://example.com/a' }]))).toBe('<sup class="note"><a href="#note-1">1</a>,<a href="#note-3">3</a></sup>');
+    expect(render(briefSources(new SourceNotes()))).toBe('');
+  });
+
+  it('every number in every kind of brief has its line under Source notes, and every line is cited', async () => {
+    for (const ex of NOTEBOOK_PAGE_EXAMPLES) {
+      const { s, nb } = await decided(ex, true);
+      const args = { nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') };
+      const brief = briefIsPage(nb) ? renderPageBrief(args) : renderNotebookBrief(args);
+      const cited = new Set([...brief.matchAll(/href="#note-(\d+)"/g)].map((m) => m[1]));
+      const listed = new Set([...brief.matchAll(/<li id="note-(\d+)"/g)].map((m) => m[1]));
+      expect([...cited].sort(), ex.id).toEqual([...listed].sort());
+    }
+  });
+
+  it("a meeting briefing's facts and table rows carry notes in place of a site under each fact and a Said on column", async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
+    expect(brief).toMatch(/<dd>[^<]+<sup class="note">/);
+    expect(brief).not.toContain('class="src"');
+    expect(brief).toContain('<h2>Source notes</h2>');
   });
 });
