@@ -375,7 +375,7 @@ The step is met once there's a plan, and **Plan again →** writes it once more.
 
 **A drawn page has no empty boxes.** A part of a drawn page with nothing in it yet (notes before there are any, a decision before it's made) is left out until it has something, and its row closes up; the brief does the same. The shortlist keeps every part, as it always has.
 
-**What they said comes from each option's source.** With a quote field, that's the option's quote. A notebook about a person with no quote field (meeting topics: topic, why it matters, question, source) uses the words the finder kept from each option's source instead, so "In their words" and the cover's pull quote show what they wrote or said there.
+**What they said comes from each option's source.** With a quote field, that's the option's quote. A notebook about a person with no quote field (meeting topics: topic, why it matters, question, source) uses the words the finder kept from each option's source instead, so "In their words" and the cover's pull quote show what they wrote or said there. **You can change the pull quote.** Say "that line under his name is the podcast host, not him; use his line about hiring instead" and sua shows the change as a correction to apply. Applied, the line you chose leads the page, its brief and the PDF; the line you said isn't theirs leaves the page's quotes as well. Say only that it isn't theirs, and the next thing they said leads.
 
 **The brief keeps a few of what they said.** "In their words" in the brief shows 3 to 5 quotes, one per theme before a second from any, and says how many more there are; the extended brief has every one under "Everything they said".
 

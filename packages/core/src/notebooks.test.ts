@@ -1587,6 +1587,9 @@ describe('corrections you make', () => {
     s.correctAbout(nb.id, 'person', 'school', { value: '' });
     s.setAbout(nb.id, 'person', { facts: [{ key: 'school', label: 'School', value: 'UT Austin' }] });
     expect(s.get(nb.id)!.about!.person!.facts.map((f) => f.key)).toEqual(['role']);
+    // A fact that's new, replacing words no fact held (a pull quote): those words are remembered as wrong.
+    s.correctAbout(nb.id, 'person', 'pull_quote', { value: 'Ops is the product.', wrong: 'Then we go deep on the roadmap.' });
+    expect(s.get(nb.id)!.about!.person!.conflicts!.find((c) => c.fact === 'pull_quote')!.settled).toMatchObject({ value: 'Ops is the product.', wrong: ['Then we go deep on the roadmap.'] });
   });
 
   it('findings and plan items you strike carry over to a rewrite, like talking points', () => {

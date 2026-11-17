@@ -23,7 +23,7 @@ import { missingExperimentData, rankBy, rankOptions, isRange,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
-import { cleanQuote, readableNumbers, roleAtCompany, saidLike, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
+import { PULL_QUOTE_KEY, cleanQuote, pullQuoteOf, readableNumbers, roleAtCompany, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
 
 /** What the widgets read from the store beyond the view data: the searches. */
 export interface NotebookWidgetHistory extends NotebookViewHistory {
@@ -431,8 +431,9 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
   timeline.push({ at: nb.createdAt, kind: 'decision', title: 'Notebook started', ...(nb.statement ? { body: nb.statement } : {}) });
   timeline.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
-  const { quotes, talkingPoints, questions, watch } = whatTheySaid(nb, active);
-  const lead = quotes.findIndex((q) => saidLike(q.quote));
+  const { quotes: kept, talkingPoints, questions, watch } = whatTheySaid(nb, active);
+  // The pull quote you chose leads; a line you said isn't theirs is out of the page.
+  const { lead, quotes, others } = pullQuoteOf(nb.about?.person ?? nb.about?.company, kept);
   const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined, fresh?.marks);
 
   return {
@@ -446,8 +447,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...(nb.briefing?.points.length && nb.status === 'active' && nb.steps?.some((s) => s.kind === 'write' && !s.shape) ? { talkingPointsReplace: `/notebooks/${encodeURIComponent(nb.id)}/talking-points/replace` } : {}),
       ...about,
       // The page leads with something they said; a profile's stats kept as a quote don't lead (and stay in the list).
-      ...(lead >= 0 ? { leadQuote: quotes[lead].quote } : {}),
-      otherQuotes: quotes.filter((_, i) => i !== lead),
+      ...(lead ? { leadQuote: lead } : {}),
+      otherQuotes: others,
       personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
       companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
       affiliations: notebookAffiliations(nb).map((a) => ({
@@ -545,8 +546,8 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who:
     links: link(siteName(fact('company', 'website')) || 'Website', fact('company', 'website')),
     asOf: asOf(c.updatedAt),
   } : undefined;
-  // Links show on the card, so the sheet leaves them out.
-  const linkKeys = new Set(['linkedin', 'website', 'company_website']);
+  // Links show on the card, and a pull quote you chose leads the page, so the sheet leaves them out.
+  const linkKeys = new Set(['linkedin', 'website', 'company_website', PULL_QUOTE_KEY]);
   const names = [p?.name, c?.name].filter((x): x is string => !!x);
   const rows = (one: typeof p, who: 'person' | 'company') => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => {
     const m = marks[`${who}:${f.key}`];

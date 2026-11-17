@@ -1954,9 +1954,9 @@ export class NotebookStore {
    * You corrected a fact about them ("she's COO now, not VP Ops"): it takes
    * your value (none: it's wrong, and goes), kept as settled by you, so a
    * later look doesn't change it back. The value it had is remembered as
-   * wrong. Any open question about it is settled with it.
+   * wrong (`wrong`: what it said, when no fact held it). Any open question about it is settled with it.
    */
-  correctAbout(id: string, who: NotebookAboutWho, key: string, c: { value: string; label?: string; why?: string }, now = new Date().toISOString()): Notebook {
+  correctAbout(id: string, who: NotebookAboutWho, key: string, c: { value: string; label?: string; why?: string; wrong?: string }, now = new Date().toISOString()): Notebook {
     const nb = this.mustGet(id);
     const one = nb.about?.[who];
     if (!one) throw new Error(`The notebook doesn't know about the ${who} yet.`);
@@ -1964,12 +1964,14 @@ export class NotebookStore {
     if (!ABOUT_KEY_RE.test(k)) throw new Error(`"${key}" isn't a fact's key.`);
     const value = c.value.replace(/\s+/g, ' ').trim().slice(0, 300);
     const old = one.facts.find((f) => f.key === k);
-    if (!old && !value) throw new Error('There\'s no such fact to take out.');
+    // What it said that's wrong, when no fact held it (a page's pull quote, taken from a source).
+    const said = c.wrong?.replace(/\s+/g, ' ').trim().slice(0, 600);
+    if (!old && !value && !said) throw new Error('There\'s no such fact to take out.');
     const label = c.label?.trim().slice(0, 40) || old?.label || k.replace(/_/g, ' ').replace(/^./, (x) => x.toUpperCase());
     const before = one.conflicts?.find((x) => x.fact === k);
     const rest: NotebookAboutOne = { ...one, conflicts: (one.conflicts ?? []).filter((x) => x.fact !== k) };
     const merged = value ? mergeAbout(rest, { facts: [{ key: k, label, value }] }, now) : { ...rest, facts: rest.facts.filter((f) => f.key !== k), updatedAt: now };
-    const wrong = [...new Set([...(before?.settled?.wrong ?? []), ...(old && lowerTrim(old.value) !== lowerTrim(value) ? [old.value] : []), ...(before?.claims ?? []).map((x) => x.value).filter((v) => lowerTrim(v) !== lowerTrim(value))])].slice(0, 8);
+    const wrong = [...new Set([...(before?.settled?.wrong ?? []), ...(said && lowerTrim(said) !== lowerTrim(value) ? [said] : []), ...(old && lowerTrim(old.value) !== lowerTrim(value) ? [old.value] : []), ...(before?.claims ?? []).map((x) => x.value).filter((v) => lowerTrim(v) !== lowerTrim(value))])].slice(0, 8);
     const settled: NonNullable<NotebookAboutConflict['settled']> = { value, by: 'you', at: now, ...(c.why ? { why: c.why.replace(/\s+/g, ' ').trim().slice(0, 300) } : {}), ...(wrong.length ? { wrong } : {}) };
     const conflict: NotebookAboutConflict = { fact: k, label, claims: [], question: before?.question ?? `What is their ${label.toLowerCase()}?`, at: before?.at ?? now, settled };
     const about: NotebookAbout = { ...(nb.about ?? {}), [who]: { ...merged, conflicts: [...(merged.conflicts ?? []), conflict] } };
