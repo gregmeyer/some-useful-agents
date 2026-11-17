@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { cleanQuote, pullQuoteOf, readableNumbers, roleAtCompany, saidLike, sameQuote, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
 import { notebookAffiliations } from './notebook-widgets.js';
+import { readerPage } from '@some-useful-agents/core';
+import { SourceNotes } from '../views/brief-document.js';
 
 describe('what the page is given, tidied', () => {
   it('reads round figures written as digits, with a $ when the passage gives money', () => {
@@ -64,5 +66,23 @@ describe('what the page is given, tidied', () => {
     expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'We hire slowly on purpose' }] }, kept).others).toEqual([kept[0], kept[1]]);
     // Chosen in other words than the source's: the kept quote that holds them leads, word for word.
     expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'freelancers are founders' }] }, kept)).toMatchObject({ lead: 'I started this because freelancers are founders.', others: [kept[0], kept[2]] });
+  });
+});
+
+describe('a link opens the page a person reads', () => {
+  it('gives the page for a text copy of it, and leaves real pages and Markdown files alone', () => {
+    expect(readerPage('https://apply.workable.com/acme/jobs/view/56E06F6960.md')).toBe('https://apply.workable.com/acme/j/56E06F6960/');
+    expect(readerPage('https://apply.workable.com/acme/jobs/view/56E06F6960')).toBe('https://apply.workable.com/acme/j/56E06F6960/');
+    expect(readerPage('https://www.example.com/startups/acme.md')).toBe('https://www.example.com/startups/acme');
+    expect(readerPage('https://www.example.com/startups/acme.md?ref=x')).toBe('https://www.example.com/startups/acme?ref=x');
+    for (const u of ['https://github.com/acme/tool/blob/main/README.md', 'https://raw.githubusercontent.com/acme/tool/main/README.md', 'https://jobs.example.com/acme/123', 'https://example.com/.md', 'not an address', 'ftp://example.com/a.md']) expect(readerPage(u)).toBe(u);
+    expect(readerPage(undefined)).toBeUndefined();
+  });
+
+  it('a source note lists the page, and a text copy and its page are one source', () => {
+    const notes = new SourceNotes();
+    expect(notes.cite({ url: 'https://www.example.com/startups/acme.md' })).toBe(1);
+    expect(notes.cite({ url: 'https://www.example.com/startups/acme' })).toBe(1);
+    expect(notes.all[0].url).toBe('https://www.example.com/startups/acme');
   });
 });

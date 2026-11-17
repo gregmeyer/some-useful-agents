@@ -485,7 +485,7 @@ ${TLDR_CSS}
   <section aria-labelledby="b-find">
     <h2 id="b-find">Key findings${args.latest ? html`<span class="count">the whole notebook</span>` : html``}</h2>
     ${writeup && d.findings.length
-      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${noteMarks(cites, f.refs.map((r) => ({ label: r.label })))}</li>`) as unknown as SafeHtml[]}</ul>`
+      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${noteMarks(cites, f.refs.map((r) => ({ label: r.label, ...(/^https?:\/\//i.test(r.href) ? { url: r.href } : {}) })))}</li>`) as unknown as SafeHtml[]}</ul>`
       : html`<ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>`}
     ${writeup && d.openQuestions.length ? html`<div class="open"><h3>Still open</h3><ul>${d.openQuestions.map((q) => html`<li>${q.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>

@@ -3655,7 +3655,8 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
     const score = fieldNumber(pick(data, 'score'));
     const org = str(pick(data, 'org'));
     const place = str(pick(data, 'place'));
-    const link = optionLink(nb.fields, data);
+    // What a reader opens: the page itself, not the text copy of it the research read.
+    const link = readerPage(optionLink(nb.fields, data));
     // The kept copy when there is one; never the seller's address directly.
     const imageSource = str(pick(data, 'image'));
     const image = history?.hasPhoto?.(e.id) ? notebookPhotoPath(nb.id, e.id) : undefined;
@@ -3744,6 +3745,26 @@ export function notebookViewData(nb: Notebook, entries: readonly NotebookEntry[]
  * the first fact holding a web address ("Availability: https://…"), so a
  * notebook whose fields don't name a link still gets photos and a Listing button.
  */
+const CODE_HOSTS = /(^|\.)(github\.com|githubusercontent\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht)$/i;
+/**
+ * The address a person opens for a page the research read as text. Sites
+ * serve a text copy of a page for machines (the same address ending ".md",
+ * or a job board's "/jobs/view/<id>"); kept as an option's link or a fact's
+ * source, it opens as raw text. This gives the page's own address back. A
+ * file that really is Markdown (on a code host) is left alone. Pure.
+ */
+export function readerPage<T extends string | undefined>(url: T): T {
+  if (!url) return url;
+  let u: URL;
+  try { u = new URL(url); } catch { return url; }
+  if (!/^https?:$/.test(u.protocol) || CODE_HOSTS.test(u.hostname)) return url;
+  // Workable: apply.workable.com/<company>/jobs/view/<id>(.md) is the text copy of apply.workable.com/<company>/j/<id>/.
+  const w = u.hostname === 'apply.workable.com' ? /^\/([^/]+)\/jobs\/view\/([A-Za-z0-9]+)(?:\.md)?\/?$/.exec(u.pathname) : null;
+  if (w) { u.pathname = `/${w[1]}/j/${w[2]}/`; return u.toString() as T; }
+  if (/[^/]\.md$/i.test(u.pathname)) { u.pathname = u.pathname.replace(/\.md$/i, ''); return u.toString() as T; }
+  return url;
+}
+
 export function optionLink(fields: readonly NotebookField[], data: Record<string, NotebookFieldValue> | undefined): string | undefined {
   const url = (v: unknown) => (typeof v === 'string' && /^https?:\/\/\S+$/i.test(v.trim()) ? v.trim() : undefined);
   const byRole = fields.find((f) => f.role === 'link');
