@@ -663,3 +663,20 @@ describe("a brief's reference parts", () => {
     if (brief.includes('<div class="quotes">')) expect(brief).not.toMatch(/<figcaption><span class="tag">/);
   });
 });
+
+describe("a finding's outside source keeps its address", () => {
+  it('a shortlist write-up finding resting on a page outside lists that page with its link under Source notes', async () => {
+    for (const ex of NOTEBOOK_PAGE_EXAMPLES) {
+      const { s, nb } = await decided(ex, true);
+      const args = { nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') };
+      const brief = briefIsPage(nb) ? renderPageBrief(args) : renderNotebookBrief(args);
+      const evidence = s.entries(nb.id).filter((e) => e.kind === 'evidence' && /^https?:/.test(e.fingerprint ?? ''));
+      // Every source note that names a site the notebook kept as evidence carries a link.
+      for (const m of brief.matchAll(/<li id="note-\d+">(<span>([^<]*)<\/span>)?(<a href="[^"]+">)?/g)) {
+        const label = m[2] ?? '';
+        const site = evidence.find((e) => { try { return new URL(e.fingerprint!).hostname.replace(/^www\./, '') === label.replace(/ \(\d+\)$/, ''); } catch { return false; } });
+        if (site) expect(m[3], `${ex.id}: ${label}`).toBeTruthy();
+      }
+    }
+  });
+});
