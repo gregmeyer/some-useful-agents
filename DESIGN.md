@@ -102,7 +102,7 @@ A brief (the saved page or PDF of a notebook) is the page set for reading away f
 - **Pages fill and break cleanly:** a sidebar of facts moves under the part it sat beside, three facts to a row. A label stays with its list; a list never leaves one line alone on a page. A part that can't print prints no heading.
 - **Labels:** one face for every small caps label (section labels, a fact's label, a table's headings, a quote's theme): the display face, 600, uppercase, 0.06–0.08em. Never two label faces on one page.
 - **Links:** body sans, underlined, in the accent colour. Mono is not used for links.
-- **Where a fact comes from:** its own `xs` line under the fact: the site as a link, or "From …" in the muted colour for something you gave.
+- **Where something comes from:** a superscript number in the accent colour after what it supports, never a link or a "From …" line in the body. The sources are listed once at the end under "Source notes", two to a row in `xs`: the number, the source's name in the text colour, its address as a link under it. A table has no source column.
 - **Contrast:** text a reader acts on (a talking point's reasoning) prints in the text colour; the muted colour is for sources, dates and counts.
 - **A question to ask** sits on its own line under its point: a 2px accent rule at the left and a small "ASK" label.
 - **Tables** are ruled, not boxed, with no tinted panel behind them. **Checks** use their mark (✓ ○) as the bullet.

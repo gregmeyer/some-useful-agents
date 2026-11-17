@@ -53,6 +53,46 @@ export function briefColophon(c: { places?: ReadonlyArray<{ name: string; found:
     : html``}<p>${c.note}</p></footer>`;
 }
 
+/**
+ * The brief's sources, numbered in the order they're first cited. A fact, a
+ * row, a quote or a finding says where it comes from with a small number, and
+ * the page it names is listed once under "Source notes", however often it is
+ * cited. A source is a page (its address) or something by name (what you
+ * gave; a finding named by its title, which `resolve` turns into its page).
+ */
+export class SourceNotes {
+  private readonly list: Array<{ key: string; label: string; url?: string }> = [];
+  constructor(private readonly resolve: (label: string) => string | undefined = () => undefined) {}
+
+  /** The number for this source: the one it already has, or the next. */
+  cite(src: { url?: string; label?: string }): number {
+    const label = (src.label ?? '').replace(/\s+/g, ' ').trim();
+    const url = src.url ?? (label ? this.resolve(label) : undefined);
+    const key = url ? url.replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase() : label.toLowerCase();
+    if (!key) return 0;
+    const at = this.list.findIndex((x) => x.key === key);
+    if (at >= 0) { if (label && !this.list[at].label) this.list[at].label = label; return at + 1; }
+    this.list.push({ key, label, ...(url ? { url } : {}) });
+    return this.list.length;
+  }
+
+  get all(): ReadonlyArray<{ label: string; url?: string }> { return this.list; }
+}
+
+const pageWords = (u: string): string => { try { const x = new URL(u); return `${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`; } catch { return u; } };
+
+/** A source's number, set small after what it supports; several sources, several numbers. */
+export function noteMarks(notes: SourceNotes, srcs: ReadonlyArray<{ url?: string; label?: string }>): SafeHtml {
+  const ns = [...new Set(srcs.map((x) => notes.cite(x)).filter((n) => n > 0))];
+  return ns.length ? html`<sup class="note">${ns.map((n, i) => html`${i ? ',' : ''}<a href="#note-${String(n)}">${String(n)}</a>`) as unknown as SafeHtml[]}</sup>` : html``;
+}
+
+/** The sources, each once, by number: its name, and its page as a link. Nothing when none was cited. */
+export function briefSources(notes: SourceNotes): SafeHtml {
+  if (!notes.all.length) return html``;
+  return html`<section class="sources"><h2>Source notes</h2><ol>${notes.all.map((x, i) => html`<li id="note-${String(i + 1)}">${x.label ? html`<span>${x.label}</span>` : html``}${x.url ? html`<a href="${x.url}">${pageWords(x.url)}</a>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+}
+
 /** How a brief is set as a document, after a renderer's own styles (so these decide). */
 export const BRIEF_DOCUMENT_CSS = `
 /* The brief as a prepared document (brief-document.ts). */
@@ -68,6 +108,14 @@ export const BRIEF_DOCUMENT_CSS = `
 .brief h2::before { counter-increment: sec; content: counter(sec); margin-right: 0.6em; color: var(--accent); font-variant-numeric: tabular-nums; }
 /* Lines short enough to read: prose stops at about 75 characters, whatever the page's width. */
 .goal, .stands, .callout p, .sec > p, .plain li, .findings li, .quotes blockquote, .opt__body p { max-width: 75ch; }
+/* Where things come from: a small number after what it supports, the pages listed once at the end, two to a row. */
+.note { font-size: 0.65em; line-height: 0; margin-left: 0.15em; } .note a { color: var(--accent); text-decoration: none; }
+.sources { border-top: 2px solid var(--text); padding-top: 0.75rem; }
+.sources ol { margin: 0.5rem 0 0; padding: 0; list-style: none; counter-reset: note; display: flex; flex-wrap: wrap; gap: 0.2rem 1.5rem; font-size: 0.75rem; color: var(--muted); }
+.sources li { counter-increment: note; flex: 0 0 calc((100% - 1.5rem) / 2); min-width: 0; display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); overflow-wrap: anywhere; break-inside: avoid; }
+.sources li::before { content: counter(note); grid-row: span 2; color: var(--accent); font-variant-numeric: tabular-nums; }
+.sources li > * { grid-column: 2; } .sources li span { color: var(--text); }
+@media screen and (max-width: 760px) { .sources li { flex-basis: 100%; } }
 .colophon { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
 .colophon p { margin: 0; max-width: 95ch; } .colophon p + p { margin-top: 0.25rem; }
 .colophon__how { color: var(--muted); }
