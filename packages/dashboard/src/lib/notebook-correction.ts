@@ -10,7 +10,7 @@
  * The change shows as a card (`notebook-correct-apply`); nothing changes
  * until you apply it.
  */
-import { answerSectionLines, clipWords, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from '@some-useful-agents/core';
+import { answerSectionLines, clipWords, optionLink, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal, runProposedAction } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -22,6 +22,8 @@ import { NOTEBOOK_CHECKER_ID, NOTEBOOK_WRITER_ID } from './notebook-step-agents.
 import { formatFieldValue } from './field-format.js';
 import { YOUR_PICTURE, keepGivenPicture } from './notebook-profile.js';
 import { recheckOptions } from './notebook-steps.js';
+import { PULL_QUOTE_KEY, cleanQuote, pullQuoteOf } from './notebook-clean.js';
+import { bodyQuote } from './notebook-widgets.js';
 
 type Ctx = ReturnType<typeof getContext>;
 
@@ -108,6 +110,17 @@ export function correctionParts(nb: Notebook, entries: readonly NotebookEntry[],
   }
   const checkIndex = (check: string) => nb.checks.findIndex((c) => lower(c) === lower(check));
   const options = entries.filter((e) => e.kind === 'option');
+  // The pull quote the page leads with: a part of its own ("that line isn't his, use this one"). One you chose is a fact above.
+  const quoted: NotebookAboutWho | undefined = nb.about?.person ? 'person' : nb.about?.company ? 'company' : undefined;
+  if (quoted && !nb.about![quoted]!.facts.some((f) => f.key === PULL_QUOTE_KEY)) {
+    const quoteF = nb.fields.find((f) => f.role === 'quote');
+    const said = (e: NotebookEntry) => cleanQuote(quoteF ? line(e.data?.[quoteF.key], 600) : nb.about?.person ? bodyQuote(e.body) : '');
+    const live = options.filter((e) => !e.ruledOut);
+    const from = [...live.filter((e) => e.chosenAt), ...live.filter((e) => !e.chosenAt)].map((e) => ({ quote: said(e), source: optionLink(nb.fields, e.data ?? {}) })).filter((q) => q.quote);
+    const { lead } = pullQuoteOf(nb.about![quoted], from);
+    const source = from.find((q) => q.quote === lead)?.source;
+    if (lead) parts.push({ id: `about:${quoted}:${PULL_QUOTE_KEY}`, role: 'evidence', kind: 'pull quote (the line the page leads with under their name, taken from a source; change it to words of theirs, or to nothing to drop this line)', text: `${nb.about![quoted]!.name ? `${nb.about![quoted]!.name}, ` : ''}Pull quote: ${lead}`, ...(source ? { source } : {}) });
+  }
   // The ones in the running, then the newest of the rest (and the one they're looking at, always).
   const shown = [...options.filter((e) => !e.ruledOut || e.id === focus), ...options.filter((e) => e.ruledOut && e.id !== focus)].slice(0, 60);
   for (const o of shown) {
@@ -461,8 +474,11 @@ export function applyNotebookCorrection(ctx: Ctx, messageId: string, meta: Inbox
       if (links.length) said.push(`took out the picture's link from what it knows about them`);
     } else if (d.type === 'about-fact') {
       const [, who, key] = d.target_id.split(':') as [string, NotebookAboutWho, string];
-      store.correctAbout(nb.id, who, key, { value: d.new_value, ...(d.label ? { label: d.label } : {}), why: meta.inputs.INSTRUCTION });
-      said.push(d.new_value ? `${d.label ?? key.replace(/_/g, ' ')} is ${d.new_value} now, as you said` : `took out ${d.label ?? key.replace(/_/g, ' ')}`);
+      // The line it replaces isn't theirs: remembered, so it leaves the page's quotes too.
+      const quote = key === PULL_QUOTE_KEY;
+      store.correctAbout(nb.id, who, key, { value: d.new_value, ...(d.label ? { label: d.label } : {}), why: meta.inputs.INSTRUCTION, ...(quote && d.old_value ? { wrong: d.old_value } : {}) });
+      if (quote) said.push(d.new_value ? `the page leads with "${d.new_value}" now, as you said` : 'took out the pull quote');
+      else said.push(d.new_value ? `${d.label ?? key.replace(/_/g, ' ')} is ${d.new_value} now, as you said` : `took out ${d.label ?? key.replace(/_/g, ' ')}`);
     }
     if (d.type === 'option-fact') {
       // option:<entry id>:<field key>

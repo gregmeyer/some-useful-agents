@@ -51,6 +51,34 @@ export function uniqueQuotes<T extends { quote: string }>(all: readonly T[]): T[
   return out;
 }
 
+/** The fact that holds a pull quote you chose ("use this line of theirs instead"). */
+export const PULL_QUOTE_KEY = 'pull_quote';
+
+/** What's kept about one of them, as far as the pull quote goes. */
+interface PullQuoteAbout {
+  facts: readonly { key: string; value: string }[];
+  conflicts?: readonly { fact: string; settled?: { wrong?: readonly string[] } }[];
+}
+
+/**
+ * The page's pull quote and the quotes after it. The one you chose leads (it
+ * needn't be among the kept quotes; when a kept quote holds its words, that
+ * quote leads, word for word); else the first that reads as said. Lines you
+ * said aren't theirs are out of both. Pure.
+ */
+export function pullQuoteOf<T extends { quote: string }>(about: PullQuoteAbout | undefined, all: readonly T[]): { lead?: string; quotes: T[]; others: T[] } {
+  const yours = about?.facts.find((f) => f.key === PULL_QUOTE_KEY)?.value.trim();
+  const wrong = about?.conflicts?.find((c) => c.fact === PULL_QUOTE_KEY)?.settled?.wrong ?? [];
+  const quotes = all.filter((q) => !wrong.some((w) => sameQuote(w, q.quote)));
+  if (yours) {
+    const key = quoteKey(yours);
+    const kept = quotes.find((q) => sameQuote(q.quote, yours) || (key.length >= 20 && quoteKey(q.quote).includes(key)));
+    return { lead: kept?.quote ?? yours, quotes, others: quotes.filter((q) => q !== kept) };
+  }
+  const at = quotes.findIndex((q) => saidLike(q.quote));
+  return { ...(at >= 0 ? { lead: quotes[at].quote } : {}), quotes, others: quotes.filter((_, i) => i !== at) };
+}
+
 /**
  * Whether a kept "quote" reads as something a person said, fit to lead a page:
  * a sentence, not a profile's stats stitched together ("Investment Range $25K

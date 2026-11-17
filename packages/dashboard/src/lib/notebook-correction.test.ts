@@ -121,4 +121,18 @@ describe('notebook corrections', () => {
     // Already so: nothing to change.
     expect(checkCorrection(nb, entries, delta({ type: 'about-fact', target_id: 'about:company:hq', old_value: 'Chicago', new_value: 'benton harbor', label: 'Headquarters' }))).toEqual({ question: 'The notebook already says Headquarters is benton harbor. What should change?' });
   });
+  it('the pull quote the page leads with is a part, until you choose one (then it is a fact of theirs)', () => {
+    const meet = { ...nb, fields: [], about: { person: { name: 'Dana Reyes', facts: [{ key: 'role', label: 'Role', value: 'CEO', at: 'x' }], updatedAt: 'x' } } } as unknown as Notebook;
+    const said = [
+      option('p', 'A podcast', { body: 'Why it matters. "Then we go deep on the roadmap and the future of the one-person business." (found by x)', data: {} }),
+      option('q', 'An essay', { body: 'Her view. "Freelancers are founders, and we should treat them so." (found by x)', data: {} }),
+    ];
+    const part = correctionParts(meet, said).find((x) => x.id === 'about:person:pull_quote');
+    expect(part).toMatchObject({ role: 'evidence', text: 'Dana Reyes, Pull quote: Then we go deep on the roadmap and the future of the one-person business.' });
+    // Changing it is a change to a part the notebook has.
+    const checked = checkCorrection(meet, said, delta({ type: 'about-fact', target_id: 'about:person:pull_quote', old_value: 'Then we go deep on the roadmap and the future of the one-person business.', new_value: 'Freelancers are founders, and we should treat them so.', label: 'Pull quote' }));
+    expect('question' in checked).toBe(false);
+    const chosen = { ...meet, about: { person: { ...meet.about!.person!, facts: [...meet.about!.person!.facts, { key: 'pull_quote', label: 'Pull quote', value: 'Freelancers are founders.', at: 'x' }] } } } as unknown as Notebook;
+    expect(correctionParts(chosen, said).filter((x) => x.id === 'about:person:pull_quote')).toHaveLength(1);
+  });
 });

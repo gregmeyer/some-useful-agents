@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cleanQuote, readableNumbers, roleAtCompany, saidLike, sameQuote, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
+import { cleanQuote, pullQuoteOf, readableNumbers, roleAtCompany, saidLike, sameQuote, tidyGiven, trimDangling, uniqueQuotes } from './notebook-clean.js';
 import { notebookAffiliations } from './notebook-widgets.js';
 
 describe('what the page is given, tidied', () => {
@@ -47,5 +47,22 @@ describe('what the page is given, tidied', () => {
     } } }) as unknown as Parameters<typeof notebookAffiliations>[0];
     expect(notebookAffiliations(person([{ name: 'Expa' }])).map((a) => a.name)).toEqual(['Expa']);
     expect(notebookAffiliations(person([]))).toEqual([{ name: 'Expa', role: 'Partner', source: 'https://example.com/a' }]);
+  });
+  it('the pull quote you chose leads, and a line you said is not theirs leaves the quotes', () => {
+    const kept = [{ quote: 'Then we go deep on the roadmap and the future of the one-person business.' }, { quote: 'I started this because freelancers are founders.' }, { quote: 'We hire slowly on purpose.' }];
+    // Nothing chosen: the first that reads as said.
+    expect(pullQuoteOf({ facts: [] }, kept)).toMatchObject({ lead: kept[0].quote, others: [kept[1], kept[2]] });
+    const about = {
+      facts: [{ key: 'pull_quote', value: 'The model is the least important part of the service.' }],
+      conflicts: [{ fact: 'pull_quote', settled: { wrong: ['Then we go deep on the roadmap and the future of the one-person business'] } }],
+    };
+    const chosen = pullQuoteOf(about, kept);
+    expect(chosen.lead).toBe('The model is the least important part of the service.');
+    expect(chosen.quotes).toEqual([kept[1], kept[2]]);
+    expect(chosen.others).toEqual([kept[1], kept[2]]);
+    // One of the kept quotes, chosen: it leads and isn't said twice.
+    expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'We hire slowly on purpose' }] }, kept).others).toEqual([kept[0], kept[1]]);
+    // Chosen in other words than the source's: the kept quote that holds them leads, word for word.
+    expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'freelancers are founders' }] }, kept)).toMatchObject({ lead: 'I started this because freelancers are founders.', others: [kept[0], kept[2]] });
   });
 });
