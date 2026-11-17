@@ -213,7 +213,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           ${links.length ? html`<p class="links">${links.map((l) => html`<a href="${l.url as string}">${text(l.label) || site(l.url as string)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
           ${img && isUrl(from) ? html`<p class="fine">Photo: <a href="${from}">${site(from)}</a></p>` : html``}
         </div>
-        ${text(v('quote')) ? html`<blockquote class="pull">${text(v('quote'))}${isUrl(v('quoteFrom')) ? noteMarks(p.notes, [{ url: v('quoteFrom') as string, label: text(v('quoteBy')) }]) : html``}</blockquote>` : html``}
+        ${text(v('quote')) ? html`<blockquote class="pull">${text(v('quote'))}${isUrl(v('quoteFrom')) ? html`<cite>${text(v('quoteBy')) || site(v('quoteFrom') as string)}${noteMarks(p.notes, [{ url: v('quoteFrom') as string, label: text(v('quoteBy')) }])}</cite>` : html``}</blockquote>` : html``}
       </div>`;
     }
     case 'FactSheet': {
@@ -552,6 +552,8 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .profile p { margin: 0.5rem 0 0; max-width: 65ch; }
 .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8125rem; }
 .pull { grid-column: 1 / -1; margin: 0.25rem 0 0; padding-left: 1rem; border-left: 3px solid var(--accent); font-size: 1.1875rem; line-height: 1.45; }
+/* Where it was said: named under the quote, like a quote in the list. */
+.pull cite { display: block; margin-top: 0.2rem; font-size: 0.75rem; line-height: 1.4; font-style: normal; color: var(--muted); }
 .facts dl { margin: 0; }
 .facts dt { padding-top: 0.5rem; border-top: 1px solid var(--line); font: 600 0.625rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .facts dd { margin: 0.2rem 0 0.5rem; overflow-wrap: anywhere; }

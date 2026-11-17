@@ -304,6 +304,9 @@ describe('in their words, with no quote field', () => {
     // The pull quote says where it was said, when its option has a link.
     expect(d.notebook.leadQuoteFrom).toBe(d.notebook.quotes[0].source);
     expect(d.notebook.leadQuoteBy).toBe(d.notebook.quotes[0].title);
+    // In the brief the source is named under the quote, with its note, when the page has a cover.
+    const brief = String(renderPageBrief({ nb, entries: s.entries(nb.id), history: s }));
+    if (brief.includes('class="pull"')) expect(brief).toMatch(/<blockquote class="pull">[^<]+<cite>[^<]+<sup class="note">/);
   });
 
   it('nothing to quote: the panel goes while a step runs, instead of standing there empty', () => {
