@@ -19,6 +19,7 @@ import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
+import { briefColophon, briefHead, briefPage, sameWords } from './brief-document.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -32,8 +33,6 @@ const site = (u: string) => { try { return new URL(u).hostname.replace(/^www\./,
 const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 const boldOnly = (s: string): SafeHtml => html`${s.split(/\*\*([^*\n]+)\*\*/).map((part, i) => (i % 2 ? html`<strong>${part}</strong>` : html`${part}`)) as unknown as SafeHtml[]}`;
 const monogram = (name: string) => name.normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
-/** The same words, whatever the case or the closing mark (a goal that only repeats the title). */
-const sameWords = (a: string, b: string) => { const n = (x: string) => x.trim().replace(/[.!?…]+$/, '').replace(/\s+/g, ' ').toLowerCase(); return n(a) === n(b); };
 const text = (v: unknown): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const items = (v: unknown): Array<Record<string, unknown> & { text: string }> => list(v)
@@ -409,6 +408,20 @@ export function agendaLeads(byId: ReadonlyMap<string, ViewComponent>): string[] 
   return order;
 }
 
+const LOG_PARTS = new Set(['Columns', 'Column', 'Disclosure', 'Panel', 'Timeline', 'Coverage']);
+/** Whether a top part of the page is only its research log: the timeline and where it looked, however they're framed. */
+export function isLog(byId: ReadonlyMap<string, ViewComponent>, id: string): boolean {
+  let found = false;
+  const walk = (x: string): boolean => {
+    const c = byId.get(x);
+    if (!c) return true;
+    if (!LOG_PARTS.has(c.component)) return false;
+    if (c.component === 'Timeline' || c.component === 'Coverage') found = true;
+    return kids(c).every(walk);
+  };
+  return walk(id) && found;
+}
+
 /** Everything behind the page (the extended brief): every quote, every fact with its page, each option in full. */
 function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data['notebook'], history: (NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>) | undefined, pic: BriefPicture | undefined): SafeHtml {
   const active = d.options.filter((o) => !o.ruledOut);
@@ -435,6 +448,11 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const byId = new Map([...(side ?? []).slice(1), ...rest].map((c) => [c.id, c]));
   const lead = agendaLeads(byId);
   if (lead) byId.set('root', { ...byId.get('root')!, children: lead });
+  // The research log at the foot of a page (what was searched, and where) is one sentence in the brief's colophon; the extended brief keeps it line by line.
+  const top = byId.get('root') ? kids(byId.get('root')!) : [];
+  const logs = args.full ? [] : top.filter((id) => isLog(byId, id));
+  if (logs.length) byId.set('root', { ...byId.get('root')!, children: top.filter((id) => !logs.includes(id)) });
+  const logged = logs.length > 0;
   const aboutSrc = args.aboutPicture ?? ((src: string) => src);
   const tldr = () => {
     const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
@@ -447,27 +465,20 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const pic = args.pictures ?? ((o) => o.image);
   // What the latest run found that the one before didn't (a briefing).
   const fresh = args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
-  const body = html`<title>${nb.title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
-<style>
-/* A drawn page, printed: its parts in their treatments (DESIGN.md "Notebook pages"). */
-${unsafeHtml(theme.css)}
+  const css = `/* A drawn page, printed: its parts in their treatments (DESIGN.md "Notebook pages"). */
+${theme.css}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
 a { color: var(--accent); }
 .brief { max-width: 62rem; margin: 0 auto; padding-inline: 1rem; padding-block: 2.5rem 3rem; display: grid; gap: 1.75rem; }
 .brief > *, .stack > *, .cols > * { min-width: 0; }
 .eyebrow { font: 600 0.6875rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.75rem 0 0.35rem; }
-.masthead { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1.5rem; align-items: start; border-bottom: 2px solid var(--text); padding-bottom: 1rem; }
-.masthead .eyebrow { color: var(--accent); margin-top: 0; }
 h1 { margin: 0.25rem 0 0; font: 700 1.75rem/1.2 var(--display); text-wrap: balance; }
 .goal { margin: 0.5rem 0 0; color: var(--muted); max-width: 65ch; }
-.masthead aside { max-width: 20rem; font-size: 0.875rem; }
 .stack { display: grid; gap: 1.5rem; }
 .row { display: flex; flex-wrap: wrap; gap: 1rem; }
 .cols { display: grid; gap: 1.75rem; align-items: start; }
-@media (max-width: 760px) { .cols, .masthead { grid-template-columns: 1fr !important; } }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr !important; } }
 .part__head { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; }
 h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .part__note { margin-left: auto; font-size: 0.75rem; color: var(--muted); }
@@ -505,7 +516,6 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .profile--cover .profile__name { font-size: 1.75rem; }
 .profile p { margin: 0.5rem 0 0; max-width: 65ch; }
 .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8125rem; }
-.masthead .links { margin: 0.5rem 0 0; }
 .pull { grid-column: 1 / -1; margin: 0.25rem 0 0; padding-left: 1rem; border-left: 3px solid var(--accent); font-size: 1.1875rem; line-height: 1.45; }
 .facts dl { margin: 0; }
 .facts dt { padding-top: 0.5rem; border-top: 1px solid var(--line); font: 600 0.625rem/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -585,9 +595,8 @@ th { font: 600 0.6875rem var(--display); letter-spacing: 0.06em; text-transform:
 .callout .art.is-photo { width: 9rem; height: 6rem; object-fit: contain; background: var(--raised); }
 .pic--hero { width: 100%; max-width: 18rem; aspect-ratio: 4 / 3; border-radius: 10px; }
 .pic__kind { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(28, 25, 23, 0.7); color: #fff; font: 500 0.625rem/1.4 var(--mono); letter-spacing: 0.04em; }
-footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
 /* The TL;DR picture's card (a Picture part), drawn for a 1080px picture, scaled to the column. */
-${unsafeHtml(TLDR_CSS)}
+${TLDR_CSS}
 .brief .tl { zoom: 0.6; border-radius: 12px; }
 @media print {  @page { margin: 16mm 14mm; }
   .brief .tl { zoom: 0.52; break-inside: avoid; }
@@ -633,27 +642,26 @@ ${unsafeHtml(TLDR_CSS)}
   /* A table needs no tinted panel behind it. */
   .part--band:has(.tbl) { background: none; padding: 0; }
 }
-</style>
-<main class="brief">
-  <header class="masthead">
-    <div>
-      <div class="eyebrow">${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}</div>
-      <h1>${nb.title}</h1>
-      ${nb.statement && !(header && header.statement === false) && !sameWords(nb.statement, nb.title) ? html`<p class="goal">${nb.statement}</p>` : html``}
-      ${notebookGivenLinks(nb).length ? html`<p class="links">${notebookGivenLinks(nb).map((u) => html`<a href="${u}">${linkWords(u)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
-      ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
-    </div>
-    ${sideId ? html`<aside>${node(p, sideId)}</aside>` : html``}
-  </header>
+`;
+  const body = html`  ${briefHead({
+    line: `${subtitle ?? 'Notebook brief'}${args.full ? ' · extended' : ''} · ${fmtDate(now)}`,
+    title: nb.title,
+    ...(nb.statement && !(header && header.statement === false) ? { statement: nb.statement } : {}),
+    links: notebookGivenLinks(nb).map((u) => ({ url: u, label: linkWords(u) })),
+    ...(nb.meeting?.when || nb.meeting?.goal ? { meeting: { ...(nb.meeting.when ? { when: meetingWhenWords(nb.meeting.when) } : {}), ...(nb.meeting.goal ? { goal: nb.meeting.goal } : {}) } } : {}),
+    ...(sideId ? { side: node(p, sideId) } : {}),
+  })}
   ${fresh && !fresh.empty ? html`<section class="whatsnew" aria-label="What's new"><div class="eyebrow">What's new since ${fmtDate(new Date(fresh.since))}</div><ul>${whatsNewLines(fresh).map((l) => html`<li>${l}</li>`) as unknown as SafeHtml[]}</ul></section>` : html``}
   ${node(p, 'root')}
   ${args.full ? behindThePage(nb, args.entries, data.notebook, args.history, pic) : html``}
   ${experiment?.setup?.length ? html`<section class="part part--feature appendix"><div class="part__head"><h2>How it was run</h2>${experiment.runs ? html`<span class="part__note">${experiment.runs}</span>` : html``}</div>
     <div class="facts"><dl>${experiment.setup.map((x) => html`<dt>${x.label}</dt><dd>${x.lines.map((l, i) => html`${i ? html`<br>` : html``}${l}`) as unknown as SafeHtml[]}</dd>`) as unknown as SafeHtml[]}</dl></div></section>` : html``}
-  <footer>${experiment
-    ? html`From the experiment as it stood on ${fmtDate(now)}: its numbers are counted from its runs, and hold for this ask, when it was run. Made with sua.`
-    : html`From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.`}</footer>
-</main>
-${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
-  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
+  ${briefColophon({
+    // The research log is a sentence here; the extended brief and the notebook have it line by line.
+    ...(logged ? { places: data.notebook.coverage.sources.map((x) => ({ name: x.name, found: x.status === 'found' ? Number(x.found) || 0 : 0 })) } : {}),
+    note: experiment
+      ? `From the experiment as it stood on ${fmtDate(now)}: its numbers are counted from its runs, and hold for this ask, when it was run. Made with sua.`
+      : `From the notebook as it was on ${fmtDate(now)}: facts as their pages gave them, each with its source. Made with sua.`,
+  })}`;
+  return briefPage({ title: nb.title, theme, css, body, ...(args.print ? { print: true } : {}) });
 }
