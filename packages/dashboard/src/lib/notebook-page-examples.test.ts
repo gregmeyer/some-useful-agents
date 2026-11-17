@@ -157,10 +157,12 @@ describe.each(NOTEBOOK_PAGE_EXAMPLES.map((ex) => [ex.id, ex] as const))('a noteb
     const titles = panelTitles(notebookWidgetComponents(nb, undefined, notebookWidgetData(nb, s.entries(nb.id), s)));
     expect(titles.length).toBeGreaterThan(0);
     const at = titles.map((t) => brief.indexOf(`>${t.replace(/&/g, '&amp;').replace(/'/g, '&#39;')}<`));
-    expect(titles.filter((_, i) => at[i] < 0)).toEqual([]);
+    // Every part is there; the one that opens on who it's about is the document's head (its title isn't printed, its cover is).
+    const missing = titles.filter((_, i) => at[i] < 0);
+    expect(missing.length).toBeLessThanOrEqual(brief.includes('class="doc-cover"') ? 1 : 0);
     // In the page's order, but for a meeting's talking points, which the brief moves up (agendaLeads, below).
     const moved = titles.indexOf('What to talk about');
-    const rest = at.filter((_, i) => i !== moved);
+    const rest = at.filter((x, i) => i !== moved && x >= 0);
     expect([...rest].sort((a, b) => a - b)).toEqual(rest);
   });
 });
@@ -521,7 +523,7 @@ describe("a meeting briefing's brief leads with what to say", () => {
   it('the meeting example prints who, then what to talk about, then what we know', async () => {
     const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
     const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
-    const at = ['>Who they are<', '>What to talk about<', '>What we know<'].map((t) => brief.indexOf(t));
+    const at = ['class="doc-cover"', '>What to talk about<', '>What we know<'].map((t) => brief.indexOf(t));
     expect(at.every((i) => i > 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
@@ -535,8 +537,11 @@ describe('every kind of brief is one prepared document', () => {
       const args = { nb, entries: s.entries(nb.id), history: s, now };
       const brief = briefIsPage(nb) ? renderPageBrief(args) : renderNotebookBrief(args);
       expect(brief, ex.id).toMatch(/<header class="masthead">\s*<div>\s*<div class="doc-line"><span class="eyebrow">[^<]+ · October 25, 2026<\/span><span class="doc-by">Prepared by sua<\/span>/);
-      expect(brief.match(/<h1>/g), ex.id).toHaveLength(1);
-      expect(brief, ex.id).toContain('.brief h2::before { counter-increment: sec; content: counter(sec);');
+      expect(brief.match(/<h1[ >]/g), ex.id).toHaveLength(1);
+      // Numbered on the heading itself, 1 to n in the order they're read.
+      const ns = [...brief.matchAll(/<h2 data-n="(\d+)"/g)].map((m) => Number(m[1]));
+      expect(ns, ex.id).toEqual(ns.map((_, i) => i + 1));
+      expect(brief.match(/<h2[\s>]/g)?.length ?? 0, ex.id).toBe(ns.length);
       expect(brief, ex.id).toContain('max-width: 75ch; }');
       expect(brief, ex.id).toContain('<footer class="colophon">');
       expect(brief.match(/<main class="brief">/g), ex.id).toHaveLength(1);
@@ -603,6 +608,34 @@ describe("a brief's source notes", () => {
     const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now: new Date('2026-10-25T12:00:00Z') });
     expect(brief).toMatch(/<dd>[^<]+<sup class="note">/);
     expect(brief).not.toContain('class="src"');
-    expect(brief).toContain('<h2>Source notes</h2>');
+    expect(brief).toMatch(/<h2 data-n="\d+">Source notes<\/h2>/);
+  });
+});
+
+describe("a brief's lead", () => {
+  const now = new Date('2026-10-25T12:00:00Z');
+  it('a page that opens on who it is about has them as the head: the name once, the title a small line, no part repeating it', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now });
+    const head = brief.slice(brief.indexOf('<header class="masthead">'), brief.indexOf('</header>'));
+    expect(head).toContain(`<h1 class="doc-title">${nb.title}</h1>`);
+    expect(head).toMatch(/<div class="doc-cover"><div class="profile profile--cover">/);
+    expect(brief.match(/class="profile profile--cover"/g)).toHaveLength(1);
+    expect(brief).not.toContain('>Who they are<');
+  });
+
+  it('a page with no cover keeps its title as the head', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'question')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now });
+    expect(brief).toContain(`<h1>${nb.title}</h1>`);
+    expect(brief).not.toContain('class="doc-cover"');
+  });
+
+  it('sets the points two to a row and the questions beside what to watch for, when the part has the page to itself', async () => {
+    const { s, nb } = await decided(NOTEBOOK_PAGE_EXAMPLES.find((x) => x.id === 'meet-person')!, true);
+    const brief = renderPageBrief({ nb, entries: s.entries(nb.id), history: s, now });
+    expect(brief).toContain('.brief > .stack > .part > .agenda > ol > li { flex: 0 0 calc((100% - 1.75rem) / 2);');
+    expect(brief).toContain('@media print, screen and (min-width: 761px)');
+    if (brief.includes('Questions to ask')) expect(brief).toMatch(/<div class="agenda__pair">\s*<div><div class="eyebrow">Questions to ask<\/div>/);
   });
 });

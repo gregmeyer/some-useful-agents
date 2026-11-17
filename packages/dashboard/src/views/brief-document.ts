@@ -21,6 +21,12 @@ export interface BriefHead {
   meeting?: { when?: string; goal?: string };
   /** A small part set beside the head (a drawn page's side part). */
   side?: SafeHtml;
+  /**
+   * Who or what the brief is about, as its cover (a photo, the name, a line
+   * on them): then the cover is the head's big type and the title a small
+   * line over it, so the name is said once.
+   */
+  cover?: SafeHtml;
 }
 
 /** The same words, whatever the case or the closing mark (a goal that only repeats the title). */
@@ -31,7 +37,8 @@ export function briefHead(h: BriefHead): SafeHtml {
   return html`<header class="masthead">
     <div>
       <div class="doc-line"><span class="eyebrow">${h.line}</span><span class="doc-by">Prepared by sua</span></div>
-      <h1>${h.title}</h1>
+      <h1${h.cover ? html` class="doc-title"` : html``}>${h.title}</h1>
+      ${h.cover ? html`<div class="doc-cover">${h.cover}</div>` : html``}
       ${h.statement && !sameWords(h.statement, h.title) ? html`<p class="goal">${h.statement}</p>` : html``}
       ${h.links?.length ? html`<p class="links">${h.links.map((l) => html`<a href="${l.url}">${l.label}</a>`) as unknown as SafeHtml[]}</p>` : html``}
       ${h.meeting?.when || h.meeting?.goal ? html`<p class="goal">${h.meeting.when ? html`<b>Meeting ${h.meeting.when}</b>` : html``}${h.meeting.when && h.meeting.goal ? html` · ` : html``}${h.meeting.goal ? html`Your goal: ${h.meeting.goal}` : html``}</p>` : html``}
@@ -101,11 +108,18 @@ export const BRIEF_DOCUMENT_CSS = `
 .doc-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
 .masthead .eyebrow { color: var(--accent); margin: 0; }
 .doc-by { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+/* With a cover, the title is the small line and the cover's name the big one. */
+.masthead h1.doc-title { margin: 0.2rem 0 0; font: 400 0.8125rem/1.4 var(--sans); color: var(--muted); letter-spacing: 0; }
+.doc-cover { margin-top: 0.75rem; }
+.doc-cover .profile--cover { grid-template-columns: 7rem minmax(0, 1fr); }
+.doc-cover .pull { font-size: 0.9375rem; line-height: 1.4; }
+.doc-cover .profile p { margin-top: 0.35rem; }
+/* The part right under the head needs no rule of its own: the head's is there. */
+.masthead + .stack > .part--feature:first-child { border-top: 0; padding-top: 0; }
 .masthead .links { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.5rem 0 0; font-size: 0.8125rem; }
 @media (max-width: 760px) { .masthead { grid-template-columns: 1fr; } }
-/* Its sections are numbered, so one can be pointed to ("see 3"). */
-.brief { counter-reset: sec; }
-.brief h2::before { counter-increment: sec; content: counter(sec); margin-right: 0.6em; color: var(--accent); font-variant-numeric: tabular-nums; }
+/* Its sections are numbered, so one can be pointed to ("see 3"). The number is written on the heading (numberSections): a CSS counter stops counting inside a column that is a container. */
+.brief h2[data-n]::before { content: attr(data-n); margin-right: 0.6em; color: var(--accent); font-variant-numeric: tabular-nums; }
 /* Lines short enough to read: prose stops at about 75 characters, whatever the page's width. */
 .goal, .stands, .callout p, .sec > p, .plain li, .findings li, .quotes blockquote, .opt__body p { max-width: 75ch; }
 /* Where things come from: a small number after what it supports, the pages listed once at the end, two to a row. */
@@ -119,7 +133,23 @@ export const BRIEF_DOCUMENT_CSS = `
 .colophon { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
 .colophon p { margin: 0; max-width: 95ch; } .colophon p + p { margin-top: 0.25rem; }
 .colophon__how { color: var(--muted); }
+/* A page's lead, full width: its points two to a row (about 55 characters a line), then the questions beside what to watch for. In a narrow column or on a phone they stay one to a row. */
+@media print, screen and (min-width: 761px) {
+  .brief > .stack > .part > .agenda > ol { display: flex; flex-wrap: wrap; gap: 0.9rem 1.75rem; }
+  .brief > .stack > .part > .agenda > ol > li { flex: 0 0 calc((100% - 1.75rem) / 2); min-width: 0; align-content: start; }
+  .brief > .stack > .part > .agenda > ol > li + li { margin-top: 0; }
+  .brief > .stack > .part > .agenda > .agenda__pair { display: flex; gap: 0 1.75rem; border-top: 1px solid var(--line); padding-top: 0.25rem; }
+  .brief > .stack > .part > .agenda > .agenda__pair > div { flex: 1 1 0; min-width: 0; }
+}
 @media print {
+  /* The lead on paper: set close, so who it's about and every point share the first page when they can. */
+  .brief > .stack > .part > .agenda > ol > li { grid-template-columns: 1.5rem minmax(0, 1fr); line-height: 1.42; }
+  .brief > .stack > .part > .agenda > ol.numerals > li::before { font-size: 1.375rem; }
+  .brief > .stack > .part > .agenda > ol > li > b { font-size: 10pt; }
+  .brief > .stack > .part > .agenda > ol > li > span { font-size: 9.5pt; }
+  .brief > .stack > .part > .agenda .agenda__pair li { font-size: 9.5pt; line-height: 1.42; }
+  .doc-cover .profile--cover { grid-template-columns: 6rem minmax(0, 1fr); }
+  .doc-cover .profile p { font-size: 9.5pt; line-height: 1.45; }
   /* Two sizes on paper: what's read first at the body's size, what's looked up (facts, tables, asides) a size down. */
   .part--aside, .part--band, .part--plain, .facts, table, .quotes figcaption { font-size: 9pt; }
   .part--aside .facts dd, .part--band td, .part--plain td { font-size: 9pt; }
@@ -129,6 +159,12 @@ export const BRIEF_DOCUMENT_CSS = `
   thead { display: table-header-group; }
 }
 `;
+
+/** Each section heading given its number, in the order they're read. Pure. */
+export function numberSections(body: string): string {
+  let n = 0;
+  return body.replace(/<h2(?=[\s>])/g, () => `<h2 data-n="${String(++n)}"`);
+}
 
 /** The whole file: a renderer's styles, then the document's, around its head and body. */
 export function briefPage(args: { title: string; theme: BriefTheme; css: string; body: SafeHtml; print?: boolean; fragment?: boolean }): string {
@@ -140,7 +176,7 @@ ${unsafeHtml(args.css)}
 ${unsafeHtml(BRIEF_DOCUMENT_CSS)}
 </style>
 <main class="brief">
-${args.body}
+${unsafeHtml(numberSections(render(args.body)))}
 </main>
 ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
   if (args.fragment) return render(page);

@@ -190,7 +190,7 @@ describe('experiments', () => {
     expect(nbPage).not.toContain('shortlist.csv');
     const brief = (await get(app, `/notebooks/${nb.id}/brief.html`)).text;
     expect(brief).toContain('Build changed what it produced, beyond run-to-run variation.');
-    expect(brief).toContain('<h2>How it was run</h2>');
+    expect(brief).toMatch(/<h2 data-n="\d+">How it was run<\/h2>/);
     expect(brief).toContain('<dt>What was run</dt><dd>The whole of job-finder, 2 times for each version.');
     expect(brief).toContain('<dt>Changed: Build</dt>');
     expect(brief).toContain('(baseline):');

@@ -233,8 +233,10 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           const [why, ask] = splitAsk(text(x.note));
           return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${from.length && !text(x.note) ? noteMarks(p.notes, from.map((label) => ({ label }))) : html``}</li>`;
         }) as unknown as SafeHtml[]}</ol>` : html``}
-        ${qs.length ? html`<div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
-        ${watch.length ? html`<div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+        ${qs.length || watch.length ? html`<div class="agenda__pair">
+          ${qs.length ? html`<div><div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
+          ${watch.length ? html`<div><div class="eyebrow">${text(v('watchLabel')) || 'Watch out for'}</div><ul>${watch.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
+        </div>` : html``}
       </div>`;
     }
     case 'Changes': {
@@ -471,6 +473,12 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
   const notes = new SourceNotes((label) => pageOf.get(label));
   const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes };
+  // A page that opens on who or what it's about (a cover among its first two parts): the cover is the document's head, not a part under it.
+  const opening = (byId.get('root') ? kids(byId.get('root')!) : []).filter((id) => byId.has(id)).slice(0, 2);
+  const coverPanel = opening.find((id) => { const c = byId.get(id); const k = c?.component === 'Panel' ? byId.get(c.child as string) : undefined; return k?.component === 'ProfileCard' && k.variant === 'cover'; });
+  const cover = coverPanel ? node(p, byId.get(coverPanel)!.child as string) : undefined;
+  const covered = !!cover && printsSomething(cover);
+  if (covered) byId.set('root', { ...byId.get('root')!, children: kids(byId.get('root')!).filter((id) => id !== coverPanel) });
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
@@ -661,6 +669,7 @@ ${TLDR_CSS}
     links: notebookGivenLinks(nb).map((u) => ({ url: u, label: linkWords(u) })),
     ...(nb.meeting?.when || nb.meeting?.goal ? { meeting: { ...(nb.meeting.when ? { when: meetingWhenWords(nb.meeting.when) } : {}), ...(nb.meeting.goal ? { goal: nb.meeting.goal } : {}) } } : {}),
     ...(sideId ? { side: node(p, sideId) } : {}),
+    ...(covered ? { cover: cover! } : {}),
   })}
   ${fresh && !fresh.empty ? html`<section class="whatsnew" aria-label="What's new"><div class="eyebrow">What's new since ${fmtDate(new Date(fresh.since))}</div><ul>${whatsNewLines(fresh).map((l) => html`<li>${l}</li>`) as unknown as SafeHtml[]}</ul></section>` : html``}
   ${node(p, 'root')}
