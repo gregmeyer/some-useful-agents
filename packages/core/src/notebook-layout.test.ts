@@ -55,6 +55,10 @@ describe('notebook layouts (A2UI documents)', () => {
     expect(cleanLayout('nope')).toBeUndefined();
     expect(cleanLayout({ preset: 'shortlist', components: page })).toEqual({ preset: 'shortlist', components: page });
     expect(notebookLayoutOf({})).toBe(DEFAULT_NOTEBOOK_LAYOUT);
+    // A page kept before the pull quote carried its source gets it when read; nothing else changes.
+    const kept = { components: [{ id: 'who', component: 'ProfileCard', name: { path: '/notebook/person/name' }, quote: { path: '/notebook/leadQuote' } }, { id: 't', component: 'Text', text: 'x' }] } as never;
+    expect(notebookLayoutOf({ layout: kept }).components[0]).toMatchObject({ quoteFrom: { path: '/notebook/leadQuoteFrom' }, quoteBy: { path: '/notebook/leadQuoteBy' } });
+    expect(notebookLayoutOf({ layout: kept }).components[1]).toEqual({ id: 't', component: 'Text', text: 'x' });
     expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'company', 'subject', 'answer', 'plan', 'watch']);
     expect(layoutPreset('company')).toMatchObject({ label: 'Company briefing' });
     // Every ready-made page is a page that checks out.

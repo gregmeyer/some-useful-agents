@@ -248,6 +248,9 @@ const SUA_COMPONENTS = [
       variant: z.enum(['card', 'cover']).optional(),
       /** A pull quote under them (cover). */
       quote: Str.optional(),
+      /** Where the pull quote was said: the page's address, and its name. */
+      quoteFrom: Str.optional(),
+      quoteBy: Str.optional(),
     }).strict(),
   },
   {

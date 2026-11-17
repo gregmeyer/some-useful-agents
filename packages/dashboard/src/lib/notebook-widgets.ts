@@ -242,6 +242,9 @@ export interface NotebookWidgetData extends NotebookViewData {
     notFound: string[];
     /** The first thing they said (the top quote), for a cover's pull quote. */
     leadQuote?: string;
+    /** The page the pull quote was said on, and its name. */
+    leadQuoteFrom?: string;
+    leadQuoteBy?: string;
     /** The quotes after that one (so a page with the pull quote doesn't repeat it). */
     otherQuotes: NotebookWidgetData['notebook']['quotes'];
     /** What was learned about the person, and about their company, apart (FactSheet beside each). */
@@ -433,7 +436,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
 
   const { quotes: kept, talkingPoints, questions, watch } = whatTheySaid(nb, active);
   // The pull quote you chose leads; a line you said isn't theirs is out of the page.
-  const { lead, quotes, others } = pullQuoteOf(nb.about?.person ?? nb.about?.company, kept);
+  const { lead, from: leadFrom, quotes, others } = pullQuoteOf(nb.about?.person ?? nb.about?.company, kept);
   const about = aboutViews(nb, history?.aboutPhotos?.(nb.id) ?? new Set(), history?.aboutPhoto ? (who) => history.aboutPhoto!(nb.id, who) : undefined, fresh?.marks);
 
   return {
@@ -448,6 +451,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...about,
       // The page leads with something they said; a profile's stats kept as a quote don't lead (and stay in the list).
       ...(lead ? { leadQuote: lead } : {}),
+      // Where it was said, so the quote can be followed to its source.
+      ...(leadFrom?.source && /^https?:\/\//i.test(leadFrom.source) ? { leadQuoteFrom: readerPage(leadFrom.source), leadQuoteBy: leadFrom.title } : {}),
       otherQuotes: others,
       personFacts: about.facts.filter((f) => f.group === nb.about?.person?.name),
       companyFacts: about.facts.filter((f) => f.group === nb.about?.company?.name && f.group !== nb.about?.person?.name),
