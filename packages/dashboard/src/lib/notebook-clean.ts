@@ -66,17 +66,17 @@ interface PullQuoteAbout {
  * quote leads, word for word); else the first that reads as said. Lines you
  * said aren't theirs are out of both. Pure.
  */
-export function pullQuoteOf<T extends { quote: string }>(about: PullQuoteAbout | undefined, all: readonly T[]): { lead?: string; quotes: T[]; others: T[] } {
+export function pullQuoteOf<T extends { quote: string }>(about: PullQuoteAbout | undefined, all: readonly T[]): { lead?: string; from?: T; quotes: T[]; others: T[] } {
   const yours = about?.facts.find((f) => f.key === PULL_QUOTE_KEY)?.value.trim();
   const wrong = about?.conflicts?.find((c) => c.fact === PULL_QUOTE_KEY)?.settled?.wrong ?? [];
   const quotes = all.filter((q) => !wrong.some((w) => sameQuote(w, q.quote)));
   if (yours) {
     const key = quoteKey(yours);
     const kept = quotes.find((q) => sameQuote(q.quote, yours) || (key.length >= 20 && quoteKey(q.quote).includes(key)));
-    return { lead: kept?.quote ?? yours, quotes, others: quotes.filter((q) => q !== kept) };
+    return { lead: kept?.quote ?? yours, ...(kept ? { from: kept } : {}), quotes, others: quotes.filter((q) => q !== kept) };
   }
   const at = quotes.findIndex((q) => saidLike(q.quote));
-  return { ...(at >= 0 ? { lead: quotes[at].quote } : {}), quotes, others: quotes.filter((_, i) => i !== at) };
+  return { ...(at >= 0 ? { lead: quotes[at].quote, from: quotes[at] } : {}), quotes, others: quotes.filter((_, i) => i !== at) };
 }
 
 /**

@@ -301,6 +301,9 @@ describe('in their words, with no quote field', () => {
     expect([...said].sort()).toEqual(['Every deal has a story worth telling.', 'Pipeline is a habit, not a report.']);
     expect(d.notebook.leadQuote).toBe(said[0]);
     expect(d.notebook.otherQuotes.map((q) => q.quote)).toEqual([said[1]]);
+    // The pull quote says where it was said, when its option has a link.
+    expect(d.notebook.leadQuoteFrom).toBe(d.notebook.quotes[0].source);
+    expect(d.notebook.leadQuoteBy).toBe(d.notebook.quotes[0].title);
   });
 
   it('nothing to quote: the panel goes while a step runs, instead of standing there empty', () => {

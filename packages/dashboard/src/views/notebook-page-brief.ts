@@ -213,7 +213,7 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           ${links.length ? html`<p class="links">${links.map((l) => html`<a href="${l.url as string}">${text(l.label) || site(l.url as string)}</a>`) as unknown as SafeHtml[]}</p>` : html``}
           ${img && isUrl(from) ? html`<p class="fine">Photo: <a href="${from}">${site(from)}</a></p>` : html``}
         </div>
-        ${text(v('quote')) ? html`<blockquote class="pull">${text(v('quote'))}</blockquote>` : html``}
+        ${text(v('quote')) ? html`<blockquote class="pull">${text(v('quote'))}${isUrl(v('quoteFrom')) ? noteMarks(p.notes, [{ url: v('quoteFrom') as string, label: text(v('quoteBy')) }]) : html``}</blockquote>` : html``}
       </div>`;
     }
     case 'FactSheet': {

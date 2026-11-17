@@ -1021,7 +1021,7 @@ const sectionHead = css`
 const outLink = (u, text) => (safeUrl(u) ? html`<a href=${safeUrl(u)} target=${u.startsWith('/') ? nothing : '_blank'} rel="noopener noreferrer">${text}</a>` : text);
 
 const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
-  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), imageFrom: Str.optional(), imageWhy: Str.optional(), rejectHref: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional() }).strict(),
+  Common.extend({ name: Str, role: Str.optional(), org: Str.optional(), about: Str.optional(), image: Str.optional(), imageFrom: Str.optional(), imageWhy: Str.optional(), rejectHref: Str.optional(), links: CommonSchemas.DynamicValue.optional(), asOf: Str.optional(), variant: z.enum(['card', 'cover']).optional(), quote: Str.optional(), quoteFrom: Str.optional(), quoteBy: Str.optional() }).strict(),
   css`
     .card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 16px; align-items: start; }
     .pic { width: 72px; height: 72px; border-radius: var(--radius-md, 10px); object-fit: contain; background: var(--color-surface-raised); border: 1px solid var(--color-border); }
@@ -1042,6 +1042,8 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
     .cover .line { font-size: var(--font-size-md, 14px); }
     .cover .about { -webkit-line-clamp: 5; font-size: var(--font-size-md, 14px); }
     .pull { grid-column: 1 / -1; margin: 4px 0 0; padding: 0 0 0 20px; position: relative; font: 500 var(--font-size-lg, 17px)/1.45 var(--font-display, var(--font-sans)); color: var(--color-text); text-wrap: balance; }
+    .pull cite { display: block; margin-top: 6px; font: 400 var(--font-size-xs)/1.4 var(--font-sans); font-style: normal; color: var(--color-text-muted); }
+    .pull cite a { color: inherit; text-decoration: none; } .pull cite a:hover { color: var(--color-primary); }
     .pull::before { content: "“"; position: absolute; left: -4px; top: -10px; font: 700 44px/1 var(--font-display, var(--font-mono)); color: var(--color-primary); }
     @media (max-width: 560px) { .cover { grid-template-columns: 96px minmax(0, 1fr); } .cover .pic { width: 96px; height: 96px; } .cover .mono { font-size: 32px; } }
     @media (max-width: 420px) { .card { grid-template-columns: 1fr; } }
@@ -1067,7 +1069,7 @@ const ProfileCard = define('ProfileCard', 'sua-a2ui-profile-card',
         ${links.length ? html`<div class="links">${links.map((l) => html`<a href=${safeUrl(l.url)} target="_blank" rel="noopener noreferrer">${l.label || sourceName(l.url) || 'link'} ↗</a>`)}</div>` : nothing}
         ${p.asOf ? html`<p class="asof">As of ${p.asOf}</p>` : nothing}
       </div>
-      ${p.quote ? html`<blockquote class="pull">${p.quote}</blockquote>` : nothing}
+      ${p.quote ? html`<blockquote class="pull">${p.quote}${safeUrl(p.quoteFrom) ? html`<cite><a href=${safeUrl(p.quoteFrom)} target="_blank" rel="noopener noreferrer">${p.quoteBy || sourceName(p.quoteFrom)} ↗</a></cite>` : nothing}</blockquote>` : nothing}
     </div>`;
   });
 

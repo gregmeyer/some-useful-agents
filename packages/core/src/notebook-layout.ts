@@ -185,7 +185,7 @@ const DOSSIER: ViewComponent[] = [
   { ...panel('who_p', 'Who they are', 'who'), treatment: 'lede', when: 'person' },
   {
     id: 'who', component: 'ProfileCard', variant: 'cover', name: { path: '/notebook/person/name' }, role: { path: '/notebook/person/role' }, org: { path: '/notebook/person/org' },
-    about: { path: '/notebook/person/about' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' }, quote: { path: '/notebook/leadQuote' },
+    about: { path: '/notebook/person/about' }, image: { path: '/notebook/person/image' }, links: { path: '/notebook/person/links' }, quote: { path: '/notebook/leadQuote' }, quoteFrom: { path: '/notebook/leadQuoteFrom' }, quoteBy: { path: '/notebook/leadQuoteBy' },
     imageFrom: { path: '/notebook/person/imageFrom' }, imageWhy: { path: '/notebook/person/imageWhy' }, rejectHref: { path: '/notebook/person/rejectHref' },
   },
   { ...panel('facts_p', 'What we know', 'facts'), treatment: 'aside', when: 'person' },
@@ -458,7 +458,14 @@ export const DEFAULT_NOTEBOOK_LAYOUT = NOTEBOOK_LAYOUT_PRESETS[0].layout;
 
 /** The layout a notebook draws: its own, else the default (the shortlist). */
 export function notebookLayoutOf(nb: { layout?: NotebookLayout }): NotebookLayout {
-  return nb.layout ?? DEFAULT_NOTEBOOK_LAYOUT;
+  return nb.layout ? withQuoteSource(nb.layout) : DEFAULT_NOTEBOOK_LAYOUT;
+}
+
+/** A page kept before the pull quote carried its source: the quote says where it was said. */
+function withQuoteSource(layout: NotebookLayout): NotebookLayout {
+  const lead = (c: ViewComponent) => (c as { quote?: { path?: unknown } }).quote?.path === '/notebook/leadQuote' && !('quoteFrom' in c);
+  if (!layout.components.some(lead)) return layout;
+  return { ...layout, components: layout.components.map((c) => (lead(c) ? { ...c, quoteFrom: { path: '/notebook/leadQuoteFrom' }, quoteBy: { path: '/notebook/leadQuoteBy' } } : c)) };
 }
 
 const LAYOUT_PATH = layoutPathPattern('/notebook');
@@ -842,6 +849,8 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/facts': 'What was learned about them, each {label, value, url, group} (FactSheet facts).',
   '/notebook/notFound': 'What was looked for about them and not found (FactSheet missing).',
   '/notebook/leadQuote': 'The first thing they said (the top quote), as text: a cover\'s pull quote.',
+  '/notebook/leadQuoteFrom': 'The address of the page the pull quote was said on (ProfileCard quoteFrom), when it is known.',
+  '/notebook/leadQuoteBy': 'That page\'s name (ProfileCard quoteBy).',
   '/notebook/otherQuotes': 'The quotes after that one (QuoteList items, when the pull quote is shown).',
   '/notebook/personFacts': 'What was learned about the person only (FactSheet facts beside their cover).',
   '/notebook/companyFacts': 'What was learned about their company only (FactSheet facts beside its card).',

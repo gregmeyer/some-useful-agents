@@ -53,7 +53,10 @@ describe('what the page is given, tidied', () => {
   it('the pull quote you chose leads, and a line you said is not theirs leaves the quotes', () => {
     const kept = [{ quote: 'Then we go deep on the roadmap and the future of the one-person business.' }, { quote: 'I started this because freelancers are founders.' }, { quote: 'We hire slowly on purpose.' }];
     // Nothing chosen: the first that reads as said.
-    expect(pullQuoteOf({ facts: [] }, kept)).toMatchObject({ lead: kept[0].quote, others: [kept[1], kept[2]] });
+    expect(pullQuoteOf({ facts: [] }, kept)).toMatchObject({ lead: kept[0].quote, from: kept[0], others: [kept[1], kept[2]] });
+    // The kept quote that leads comes back, so the page can say where it was said; words of your own have no source.
+    expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'freelancers are founders' }] }, kept).from).toBe(kept[1]);
+    expect(pullQuoteOf({ facts: [{ key: 'pull_quote', value: 'Something she told me over coffee last week.' }] }, kept).from).toBeUndefined();
     const about = {
       facts: [{ key: 'pull_quote', value: 'The model is the least important part of the service.' }],
       conflicts: [{ fact: 'pull_quote', settled: { wrong: ['Then we go deep on the roadmap and the future of the one-person business'] } }],
