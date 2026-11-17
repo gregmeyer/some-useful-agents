@@ -99,7 +99,9 @@ A brief (the saved page or PDF of a notebook) is the page set for reading away f
 - **Line length:** prose stops at about 75 characters. A wide page gets a second column or white space, never a longer line.
 - **Two sizes on paper:** 10.5pt for what's read first; 9pt for what's looked up (facts, tables, asides, captions).
 - **The ending is a colophon,** not a log: where it looked and how much it found in one sentence, then what the brief is and its date, in `xs`.
-- **Pages fill and break cleanly:** a sidebar of facts moves under the part it sat beside, three facts to a row. A label stays with its list; a list never leaves one line alone on a page. A part that can't print prints no heading.
+- **Facts are a spec sheet:** a sidebar of facts moves under the part it sat beside and is set in two columns, each read down: every fact a row with its label in a 104px column at the left and the value beside it, a hairline above. Two lists side by side, not rows across (a one-line fact beside a paragraph leaves a hole).
+- **Quotes two to a row:** the theme label above the quote, the source's name under it, a 2px rule at the left.
+- **Pages fill and break cleanly:** A label stays with its list; a list never leaves one line alone on a page. A part that can't print prints no heading.
 - **Labels:** one face for every small caps label (section labels, a fact's label, a table's headings, a quote's theme): the display face, 600, uppercase, 0.06–0.08em. Never two label faces on one page.
 - **Links:** body sans, underlined, in the accent colour. Mono is not used for links.
 - **Where something comes from:** a superscript number in the accent colour after what it supports, never a link or a "From …" line in the body. The sources are listed once at the end under "Source notes", two to a row in `xs`: the number, the source's name in the text colour, its address as a link under it. A table has no source column.

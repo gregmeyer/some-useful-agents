@@ -141,6 +141,12 @@ export const BRIEF_DOCUMENT_CSS = `
   .brief > .stack > .part > .agenda > .agenda__pair { display: flex; gap: 0 1.75rem; border-top: 1px solid var(--line); padding-top: 0.25rem; }
   .brief > .stack > .part > .agenda > .agenda__pair > div { flex: 1 1 0; min-width: 0; }
 }
+/* What they said, two to a row when the part has the page's width: its theme over each, where it's from under. */
+@media print, screen and (min-width: 761px) {
+  .brief > .stack > .part > .quotes { display: flex; flex-wrap: wrap; gap: 1rem 1.75rem; }
+  .brief > .stack > .part > .quotes > figure { flex: 0 0 calc((100% - 1.75rem) / 2); min-width: 0; margin-top: 0; }
+  .brief > .stack > .part > .quotes > figure.lead, .brief > .stack > .part > .quotes > p { flex-basis: 100%; margin-top: 0; }
+}
 @media print {
   /* The lead on paper: set close, so who it's about and every point share the first page when they can. */
   .brief > .stack > .part > .agenda > ol > li { grid-template-columns: 1.5rem minmax(0, 1fr); line-height: 1.42; }
@@ -150,6 +156,7 @@ export const BRIEF_DOCUMENT_CSS = `
   .brief > .stack > .part > .agenda .agenda__pair li { font-size: 9.5pt; line-height: 1.42; }
   .doc-cover .profile--cover { grid-template-columns: 6rem minmax(0, 1fr); }
   .doc-cover .profile p { font-size: 9.5pt; line-height: 1.45; }
+  .brief > .stack > .part > .quotes blockquote { font-size: 10pt; line-height: 1.45; }
   /* Two sizes on paper: what's read first at the body's size, what's looked up (facts, tables, asides) a size down. */
   .part--aside, .part--band, .part--plain, .facts, table, .quotes figcaption { font-size: 9pt; }
   .part--aside .facts dd, .part--band td, .part--plain td { font-size: 9pt; }
