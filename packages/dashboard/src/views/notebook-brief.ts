@@ -9,6 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
+import { briefColophon, briefHead, briefPage } from './brief-document.js';
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, writesUp, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
@@ -295,12 +296,8 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
   // The TL;DR picture's card under the title, when there's something to plot (not on the brief of what's new: its numbers are the whole notebook's).
   const tldr = args.latest ? undefined : tldrData(nb, args.entries, args.history, pic);
-  const body = html`<title>${nb.title}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
-<style>
-/* A brief: one column of reading. Findings first, the options as a table, then each in detail. */
-${unsafeHtml(theme.css)}
+  const css = `/* A brief: one column of reading. Findings first, the options as a table, then each in detail. */
+${theme.css}
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); }
 .brief { max-width: 48rem; margin: 0 auto; padding-inline: 1rem; padding-block: 2.5rem 3rem; display: grid; gap: 2rem; }
@@ -410,7 +407,6 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 .crit { display: flex; gap: 0.5rem; font-size: 0.875rem; }
 .crit i { font-style: normal; font-family: var(--mono); color: var(--subtle); }
 .crit.is-met i { color: var(--ok); }
-footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 .fullset { display: grid; gap: 1.5rem; }
 .full { border-top: 2px solid var(--line-strong); padding-top: 1rem; display: grid; gap: 0.75rem; }
 .full__head { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 0.75rem; align-items: baseline; }
@@ -429,7 +425,7 @@ footer { color: var(--subtle); font-size: 0.75rem; border-top: 1px solid var(--l
 .full__checks ul, .full__history ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.3rem; font-size: 0.875rem; }
 .full__when { font: 500 0.75rem var(--mono); color: var(--subtle); min-width: 3.5rem; display: inline-block; }
 /* The TL;DR picture's bars, drawn for a 1080px picture, scaled to the column. With them, the paragraph above takes the column's width too. */
-${unsafeHtml(TLDR_CSS)}
+${TLDR_CSS}
 .brief .tl { zoom: 0.68; border-radius: 14px; }
 .stands:has(+ .tl) { max-width: none; }
 @media (max-width: 640px) { .brief .tl { zoom: 0.44; } }
@@ -462,14 +458,13 @@ ${unsafeHtml(TLDR_CSS)}
   .full + .full { break-before: page; }
   .full { border-top: 0; }
 }
-</style>
-<main class="brief">
-  <header>
-    <div class="eyebrow">${args.latest ? "What's new · " : ''}${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}</div>
-    <h1>${nb.title}</h1>
-    ${nb.statement ? html`<p class="goal">${nb.statement}</p>` : html``}
-    ${nb.meeting?.when || nb.meeting?.goal ? html`<p class="goal">${nb.meeting.when ? html`<b>Meeting ${meetingWhenWords(nb.meeting.when)}</b>` : html``}${nb.meeting.when && nb.meeting.goal ? html` · ` : html``}${nb.meeting.goal ? html`Your goal: ${nb.meeting.goal}` : html``}</p>` : html``}
-  </header>
+`;
+  const body = html`  ${briefHead({
+    line: `${args.latest ? "What's new · " : ''}${args.full ? 'Extended notebook brief' : 'Notebook brief'} · ${fmtDate(undefined, now)}`,
+    title: nb.title,
+    ...(nb.statement ? { statement: nb.statement } : {}),
+    ...(nb.meeting?.when || nb.meeting?.goal ? { meeting: { ...(nb.meeting.when ? { when: meetingWhenWords(nb.meeting.when) } : {}), ...(nb.meeting.goal ? { goal: nb.meeting.goal } : {}) } } : {}),
+  })}
   ${decided && nb.decision
     ? html`<section class="decision" aria-label="Decision">
         <p class="decision__head"><b>Decision</b>Decided ${fmtDate(nb.decidedAt ?? nb.updatedAt, now)}${picks ? ` · ${String(picks.picks.length)} chosen of ${String(active.length)} in the running` : ''}</p>
@@ -522,9 +517,9 @@ ${unsafeHtml(TLDR_CSS)}
     ${nb.params.length ? html`<div><h2>Limits</h2><div class="limits">${nb.params.slice(0, 12).map((p) => html`<span class="chip">${p.length > 80 ? `${p.slice(0, 77)}…` : p}</span>`) as unknown as SafeHtml[]}</div></div>` : html``}
     ${nb.criteria.length ? html`<div><h2>Done when</h2><ul>${nb.criteria.map((c) => html`<li class="crit${c.met ? ' is-met' : ''}"><i>${c.met ? '✓' : '○'}</i><span>${c.text}</span></li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>` : html``}
-  <footer>Facts are as each option's own page or search gave them, not checked unless its checks say so. Made with sua.</footer>
-</main>
-${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() => print(), 300));</script>') : html``}`;
-  if (args.fragment) return render(body);
-  return `<!doctype html>\n<html lang="en"${theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(body).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
+  ${briefColophon({
+    ...(args.latest ? {} : { places: d.coverage.sources.map((x) => ({ name: x.name, found: x.status === 'found' ? Number(x.found) || 0 : 0 })) }),
+    note: "Facts are as each option's own page or search gave them, not checked unless its checks say so. Made with sua.",
+  })}`;
+  return briefPage({ title: nb.title, theme, css, body, ...(args.print ? { print: true } : {}), ...(args.fragment ? { fragment: true } : {}) });
 }

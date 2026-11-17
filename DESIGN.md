@@ -95,6 +95,10 @@ A notebook's page is drawn for its job (a briefing, a shortlist, a report), so i
 
 ## Notebook briefs on paper
 A brief (the saved page or PDF of a notebook) is the page set for reading away from the app. It keeps the page's parts and order; these rules are for paper.
+- **One document, every kind:** every brief is set by one shell (`views/brief-document.ts`): the head (kind · date in the accent colour at left, "Prepared by sua" muted at right, the title, a 2px rule under it), sections numbered in the accent colour, a colophon. A renderer says what a brief contains; it never restyles the document.
+- **Line length:** prose stops at about 75 characters. A wide page gets a second column or white space, never a longer line.
+- **Two sizes on paper:** 10.5pt for what's read first; 9pt for what's looked up (facts, tables, asides, captions).
+- **The ending is a colophon,** not a log: where it looked and how much it found in one sentence, then what the brief is and its date, in `xs`.
 - **Pages fill and break cleanly:** a sidebar of facts moves under the part it sat beside, three facts to a row. A label stays with its list; a list never leaves one line alone on a page. A part that can't print prints no heading.
 - **Labels:** one face for every small caps label (section labels, a fact's label, a table's headings, a quote's theme): the display face, 600, uppercase, 0.06–0.08em. Never two label faces on one page.
 - **Links:** body sans, underlined, in the accent colour. Mono is not used for links.

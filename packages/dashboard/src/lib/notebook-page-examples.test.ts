@@ -14,7 +14,10 @@ import { RunStore, NotebookStore, layoutPreset, notebookGivenLinks, NOTEBOOK_LAY
 import { NOTEBOOK_PAGE_EXAMPLES, type NotebookPageExample } from './notebook-page-examples.js';
 import { drawNotebookPage, written, type DrawnPage } from './notebook-page.js';
 import { notebookWidgetComponents, notebookWidgetData, notebookWidgetMessages, notebookLayoutFlags } from './notebook-widgets.js';
-import { renderPageBrief, briefIsPage, briefQuotes, splitAsk, agendaLeads } from '../views/notebook-page-brief.js';
+import { renderNotebookBrief } from '../views/notebook-brief.js';
+import { briefColophon, briefHead } from '../views/brief-document.js';
+import { render } from '../views/html.js';
+import { renderPageBrief, briefIsPage, briefQuotes, splitAsk, agendaLeads, isLog } from '../views/notebook-page-brief.js';
 
 const ANSWERS = JSON.parse(readFileSync(new URL('./fixtures/notebook-pages/answers.json', import.meta.url), 'utf8')) as Record<string, { replies: string[]; written?: string[] }>;
 
@@ -316,8 +319,12 @@ describe('research activity and your links, in the brief', () => {
     for (let i = 0; i < 4; i++) s.recordSearch(nb.id, 'person-finder', `run-none-${String(i)}`, 0, `2026-10-24T11:0${String(i)}:00Z`);
     s.setMeeting(nb.id, { notes: 'LinkedIn profile provided: https://www.linkedin.com/in/dana-reyes/.' });
     const brief = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id), history: s });
-    expect(brief).toContain('Search returned 3 options');
-    expect(brief).not.toContain('Search returned no options');
+    // The log is the extended brief's; the brief says it in its colophon's sentence.
+    const full = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id), history: s, full: true });
+    expect(full).toContain('Search returned 3 options');
+    expect(full).not.toContain('Search returned no options');
+    expect(brief).not.toContain('Search returned 3 options');
+    expect(brief).toContain('<footer class="colophon">');
     expect(brief).toContain('<a href="https://www.linkedin.com/in/dana-reyes/">linkedin.com/in/dana-reyes</a>');
   });
 
@@ -517,5 +524,50 @@ describe("a meeting briefing's brief leads with what to say", () => {
     const at = ['>Who they are<', '>What to talk about<', '>What we know<'].map((t) => brief.indexOf(t));
     expect(at.every((i) => i > 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+});
+
+describe('every kind of brief is one prepared document', () => {
+  const now = new Date('2026-10-25T12:00:00Z');
+  it('each example, a drawn page or a shortlist, has the document head, numbered sections, the line-length cap and a colophon', async () => {
+    for (const ex of NOTEBOOK_PAGE_EXAMPLES) {
+      const { s, nb } = await decided(ex, true);
+      const args = { nb, entries: s.entries(nb.id), history: s, now };
+      const brief = briefIsPage(nb) ? renderPageBrief(args) : renderNotebookBrief(args);
+      expect(brief, ex.id).toMatch(/<header class="masthead">\s*<div>\s*<div class="doc-line"><span class="eyebrow">[^<]+ · October 25, 2026<\/span><span class="doc-by">Prepared by sua<\/span>/);
+      expect(brief.match(/<h1>/g), ex.id).toHaveLength(1);
+      expect(brief, ex.id).toContain('.brief h2::before { counter-increment: sec; content: counter(sec);');
+      expect(brief, ex.id).toContain('max-width: 75ch; }');
+      expect(brief, ex.id).toContain('<footer class="colophon">');
+      expect(brief.match(/<main class="brief">/g), ex.id).toHaveLength(1);
+      expect(brief.indexOf('</head>'), ex.id).toBeLessThan(brief.indexOf('<main class="brief">'));
+    }
+  });
+
+  it('the head leaves out a goal that repeats the title and says when the meeting is', () => {
+    const head = render(briefHead({ line: 'Meeting briefing · today', title: 'Meet Dana', statement: 'Meet Dana.', meeting: { when: 'Thursday at 2pm', goal: 'renew' }, links: [{ url: 'https://a.example/x', label: 'a.example/x' }] }));
+    expect(head).not.toContain('Meet Dana.</p>');
+    expect(head).toContain('<b>Meeting Thursday at 2pm</b> · Your goal: renew');
+    expect(head).toContain('<a href="https://a.example/x">a.example/x</a>');
+  });
+
+  it('the colophon says where it looked in a sentence, and only what the brief is when nothing was searched', () => {
+    expect(render(briefColophon({ places: [{ name: 'press', found: 5 }, { name: 'podcasts', found: 2 }, { name: 'directories', found: 0 }], note: 'Made with sua.' })))
+      .toContain('Looked in 3 places and found 7: press 5, podcasts 2, directories 0.');
+    expect(render(briefColophon({ note: 'Made with sua.' }))).toBe('<footer class="colophon"><p>Made with sua.</p></footer>');
+  });
+
+  it("a page's research log, however it is framed, is known for one; a part with anything else in it is not", () => {
+    const page = (rows: ViewComponent[]) => new Map(rows.map((c) => [c.id, c]));
+    const part = (id: string, component: string, more: Record<string, unknown> = {}) => ({ id, component, ...more }) as ViewComponent;
+    const m = page([
+      part('more', 'Columns', { children: ['time_d', 'cov_d'] }), part('time_d', 'Disclosure', { child: 'timeline' }), part('timeline', 'Timeline'),
+      part('cov_d', 'Disclosure', { child: 'coverage' }), part('coverage', 'Coverage'),
+      part('mixed', 'Columns', { children: ['cov_d', 'facts_p'] }), part('facts_p', 'Panel', { child: 'facts' }), part('facts', 'FactSheet'),
+      part('empty', 'Columns', { children: [] }),
+    ]);
+    expect(isLog(m, 'more')).toBe(true);
+    expect(isLog(m, 'mixed')).toBe(false);
+    expect(isLog(m, 'empty')).toBe(false);
   });
 });
