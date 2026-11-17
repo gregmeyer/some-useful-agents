@@ -50,3 +50,48 @@ describe("a page can lead with the notebook's TL;DR picture", () => {
     expect(kept).toContain('<h1 class="tl__title">From $139.99</h1>');
   });
 });
+
+describe('a page can lead with a photo of what it is about', () => {
+  const photoPage = [
+    { id: 'root', component: 'Column', children: ['ph_p', 'sum'] },
+    { id: 'ph_p', component: 'Panel', title: '', child: 'ph', hero: true, treatment: 'lede' },
+    { id: 'ph', component: 'Picture', picture: { path: '/notebook/photo' } },
+    { id: 'sum', component: 'Callout', text: { path: '/notebook/summary' } },
+  ];
+  // Kept photos come from the store (history), as the page gets them.
+  const kinds: Record<string, string> = { d: 'illustration', e: 'representative', r: 'listing' };
+  const history = { sightings: () => [], missedSearches: () => 0, hasPhoto: (id: string) => id in kinds, photoKind: (id: string) => kinds[id] } as never;
+  const withPhoto = (id: string, title: string, link: string): NotebookEntry => ({ ...option(id, title, 1), data: { link } } as NotebookEntry);
+  const src = (id: string) => `/notebooks/hot-dog/entries/${id}/photo`;
+  const hotdog = (over: Partial<Notebook> = {}) => nb({ id: 'hot-dog', title: 'Is a hot dog a sandwich', fields: [{ key: 'link', label: 'Link', type: 'url', role: 'link' }], layout: { components: photoPage }, ...over });
+
+  it('the guide sends "a picture of the thing" to /notebook/photo, not the TL;DR card, and a Panel needs a title', () => {
+    expect(checkNotebookLayout(photoPage)).toMatchObject({ ok: true });
+    const guide = notebookLayoutGuide(suaComponentDocs());
+    expect(guide).toContain('/notebook/photo');
+    expect(guide).toMatch(/picture of the thing itself[^\n]*\/notebook\/photo[^\n]*Never \/notebook\/picture/);
+    expect(guide).not.toContain('treatment lede, no title');
+  });
+
+  it("the photo is a source's own photo before an example one, credited and linked to the source; none without one", () => {
+    const es = [
+      withPhoto('d', 'A drawing', 'https://example.com/d'),
+      withPhoto('e', 'Babbel: is it a sandwich', 'https://www.babbel.com/a'),
+      withPhoto('r', "Reader's Digest: is a hot dog a sandwich", 'https://www.rd.com/p'),
+    ];
+    const photo = notebookWidgetData(hotdog(), es, history).notebook.photo;
+    expect(photo?.src).toBe(src('r'));
+    expect(photo).toMatchObject({ entry: 'r', href: '/notebooks/hot-dog/entries/r', caption: "Photo from rd.com: Reader's Digest: is a hot dog a sandwich" });
+    // Only an example photo: that, said so.
+    expect(notebookWidgetData(hotdog(), es.filter((e) => e.id !== 'r'), history).notebook.photo?.caption).toMatch(/^An example photo from babbel\.com/);
+    // A drawing is not a photo.
+    expect(notebookWidgetData(hotdog(), es.slice(0, 1), history).notebook.photo).toBeUndefined();
+  });
+
+  it('the brief prints the photo, not the TL;DR card', () => {
+    const page = renderPageBrief({ nb: hotdog(), entries: [withPhoto('r', "Reader's Digest", 'https://www.rd.com/p')], history });
+    expect(page).toContain(`<figure class="photo"><img src="${src('r')}"`);
+    expect(page).toContain('Photo from rd.com');
+    expect(page).not.toContain('<article class="tl"');
+  });
+});

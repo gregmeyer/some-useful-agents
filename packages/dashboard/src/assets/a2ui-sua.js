@@ -1666,7 +1666,8 @@ const Picture = define('Picture', 'sua-a2ui-picture',
     const hide = (e) => { const f = e.target.closest('figure'); if (f) f.hidden = true; };
     const img = html`<img src=${src} alt=${typeof pic.alt === 'string' ? pic.alt : ''} loading="lazy" @error=${hide}>`;
     const cap = p.caption ?? pic.caption;
-    return html`<figure>${href ? html`<a class="pic" href=${href} title="Redraw or download this picture">${img}</a>` : img}${cap ? html`<figcaption>${cap}</figcaption>` : nothing}</figure>`;
+    const title = typeof pic.title === 'string' && pic.title ? pic.title : 'Redraw or download this picture';
+    return html`<figure>${href ? html`<a class="pic" href=${href} title=${title}>${img}</a>` : img}${cap ? html`<figcaption>${cap}</figcaption>` : nothing}</figure>`;
   });
 
 /** A field's numeric value: a number, a numeric string ("4.4 %", "$5,000"), or a range's midpoint. */

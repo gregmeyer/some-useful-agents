@@ -543,6 +543,8 @@ The brief and the PDF are not affected: they carry the plain bars.
 
 **Leading a notebook's page with it.** The picture can open the notebook's own page. On **Edit → Talk**, press **Make the page lead with…** and then **the TL;DR picture** (or say it in your own words: "open with the image", "make it visual"). sua draws the page with the picture full width at the top, as you last redrew it, followed by the rest (where it stands, the list). A square or tall picture is capped at 520px (or 60% of the window) tall and keeps its shape; a wide one still fills the width. Clicking it opens the Redraw page. It updates when the notebook changes or you redraw it. In a saved brief or PDF of that page the picture is drawn in place as its card, since a file can't load the image.
 
+**Leading with a photo of what it's about.** The TL;DR picture is a summary of the page, not a photo of anything. Ask for a picture of the thing itself ("lead with a picture of a hot dog", "show me what it is") and sua leads the page with a real photo from one of the notebook's sources instead: a source's own photo first (on a briefing, the subject's own site first), else an example photo sua found for a source, never a logo or a drawing. It is credited to the site it came from ("Photo from rd.com: …"), and clicking it opens that source. When no source has a photo, the part isn't drawn. A saved brief or PDF prints the same photo.
+
 **The choices**, which also work by address to try one without keeping it:
 
 | | Choices |
