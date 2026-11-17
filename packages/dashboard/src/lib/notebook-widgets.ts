@@ -13,6 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
+import { readerPage } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -549,7 +550,7 @@ function aboutViews(nb: Notebook, photos: ReadonlySet<string>, photoFrom?: (who:
   const names = [p?.name, c?.name].filter((x): x is string => !!x);
   const rows = (one: typeof p, who: 'person' | 'company') => (one ? one.facts.filter((f) => !linkKeys.has(f.key)).map((f) => {
     const m = marks[`${who}:${f.key}`];
-    return { label: f.label, value: readableNumbers(f.value, f.quote), ...(f.source ? { url: f.source } : f.from ? { from: tidyGiven(f.from, names) } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
+    return { label: f.label, value: readableNumbers(f.value, f.quote), ...(f.source ? { url: readerPage(f.source) } : f.from ? { from: tidyGiven(f.from, names) } : {}), group: one.name, ...(m ? { mark: m.mark, ...(m.was ? { was: m.was } : {}) } : {}) };
   }) : []);
   return {
     ...(person ? { person } : {}),

@@ -126,19 +126,24 @@ function briefNumber(v: unknown): number | undefined {
   return undefined;
 }
 
+type Cited = { label: string; url?: string };
+/** A ref as a source to cite: its name, and its address when that is a page outside (not the notebook's own page for an option). */
+const citedRef = (r: unknown): Cited => { const x = (r ?? {}) as { label?: unknown; href?: unknown }; return { label: text(x.label), ...(isUrl(x.href) ? { url: x.href } : {}) }; };
+
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. The shortlist brief prints a write-up's parts with it too. */
 export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes): SafeHtml {
   const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
-  const from = (y: unknown) => list((y as { refs?: unknown })?.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+  // What a line rests on: each by name, and by its address when it's a page outside (an option is named; its page is found by its name).
+  const from = (y: unknown): Cited[] => list((y as { refs?: unknown })?.refs).map((r) => citedRef(r)).filter((r) => r.label);
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
-  const cited = (names: string[]): SafeHtml => (!names.length ? html`` : notes ? noteMarks(notes, names.map((label) => ({ label }))) : html` <span class="fine">(${names.join(', ')})</span>`);
+  const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
   if (x.kind === 'steps') {
     return html`<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${cited(from(it))}</li>`) as unknown as SafeHtml[]}</ol>`;
   }
   if (x.kind === 'table') {
     const cols = list(x.columns).map(text);
     const rows = list(x.rows) as Array<{ cells?: unknown }>;
-    const every = !from(x).length ? html`` : notes ? html`<p class="fine">Every row${noteMarks(notes, from(x).map((label) => ({ label })))}</p>` : html`<p class="fine">Every row: ${from(x).join(', ')}</p>`;
+    const every = !from(x).length ? html`` : notes ? html`<p class="fine">Every row${noteMarks(notes, from(x))}</p>` : html`<p class="fine">Every row: ${from(x).map((r) => r.label).join(', ')}</p>`;
     if (rubric && cols.length >= 2) {
       return html`<div class="rubric">${rows.map((r) => { const cells = list(r.cells).map(text); return html`<div class="rubric__row"><b>${boldOnly(cells[0] ?? '')}</b><div><span class="rubric__then">${boldOnly(cells[1] ?? '')}</span>${cells.slice(2).filter(Boolean).length ? html`<span class="muted"> · ${boldOnly(cells.slice(2).filter(Boolean).join(' · '))}</span>` : html``}${cited(from(r))}</div></div>`; }) as unknown as SafeHtml[]}</div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}${every}`;
     }
@@ -238,10 +243,10 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       return html`<div class="agenda">
         ${points.length ? html`<ol class="${c.variant === 'numerals' ? 'numerals' : ''}">${points.map((x) => {
           // What a point rests on, by name (an answer's findings name their sources).
-          const from = list(x.refs).map((r) => text((r as { label?: unknown }).label)).filter(Boolean);
+          const from = list(x.refs).map((r) => citedRef(r)).filter((r) => r.label);
           // A point's note often ends with the question to put ("… Ask: What turns out to matter more?"): the question gets its own line.
           const [why, ask] = splitAsk(text(x.note));
-          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${from.length && !text(x.note) ? noteMarks(p.notes, from.map((label) => ({ label }))) : html``}</li>`;
+          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${from.length && !text(x.note) ? noteMarks(p.notes, from) : html``}</li>`;
         }) as unknown as SafeHtml[]}</ol>` : html``}
         ${qs.length || watch.length ? html`<div class="agenda__pair">
           ${qs.length ? html`<div><div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}

@@ -9,6 +9,7 @@
  */
 import type { BriefTheme } from '../lib/brief-theme.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
+import { readerPage } from '@some-useful-agents/core';
 
 export interface BriefHead {
   /** What kind of brief it is, with its date ("Meeting briefing · November 16, 2026"). */
@@ -74,7 +75,8 @@ export class SourceNotes {
   /** The number for this source: the one it already has, or the next. */
   cite(src: { url?: string; label?: string }): number {
     const label = (src.label ?? '').replace(/\s+/g, ' ').trim();
-    const url = src.url ?? (label ? this.resolve(label) : undefined);
+    // The page a reader opens, not a text copy of it.
+    const url = readerPage(src.url ?? (label ? this.resolve(label) : undefined));
     const key = url ? url.replace(/[#?].*$/, '').replace(/\/+$/, '').toLowerCase() : label.toLowerCase();
     if (!key) return 0;
     const at = this.list.findIndex((x) => x.key === key);
