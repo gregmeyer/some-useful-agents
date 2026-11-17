@@ -222,6 +222,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     numbers: Record<string, { best: NotebookLeadStat; high: NotebookLeadStat; low: NotebookLeadStat; count: NotebookLeadStat }>;
     /** The notebook's TL;DR picture (Picture): its image, what it shows, and where it's redrawn. */
     picture: { src: string; alt: string; href: string; caption: string };
+    /** A photo of what it's about, kept from one of its sources (Picture): absent when no source has a real photo. */
+    photo?: NotebookSubjectPhoto;
     /** The plan a write step wrote, as a Callout; before then, where it stands (the Plan page). */
     planIntro: { label: string; text: string; next?: string; cover?: string };
     /** The plan by day or slot, each item linked to the options it uses (Itinerary days). */
@@ -481,6 +483,8 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       numbers,
       // Its TL;DR picture; the address changes when the notebook or the way it's drawn does, so a browser shows the new one.
       picture: { src: `/notebooks/${encodeURIComponent(nb.id)}/tldr.png?v=${encodeURIComponent(`${nb.updatedAt}.${nb.tldr?.at ?? 'standard'}`)}`, alt: `${nb.title}, in short`, href: `/notebooks/${encodeURIComponent(nb.id)}/tldr`, caption: 'The TL;DR picture. Open it to redraw or download it.' },
+      // A photo of the thing itself ("a picture of a hot dog"), from its sources: never the TL;DR card, a logo or a drawing.
+      ...((photo) => (photo ? { photo } : {}))(subjectPhoto(nb, active)),
       ...changesViews(nb, v.options, history, summary, next),
       // With a lead number on the page (numbers.lead), the strip doesn't say the best again.
       statItems: [
@@ -768,6 +772,38 @@ export function subjectLeadPicture(nb: Pick<Notebook, 'briefOn'>, options: Reado
   const own = subjectHost(nb.briefOn);
   const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
   return (own ? photos.find((o) => host(o.link) === own) : undefined)?.image ?? photos[0]?.image;
+}
+
+/** A photo of what a notebook is about (Picture bound to /notebook/photo), with where it's from. */
+export interface NotebookSubjectPhoto { src: string; alt: string; href: string; caption: string; title: string; entry: string }
+
+/**
+ * A photo of what the notebook is about, for a page that leads with the thing
+ * itself: a source's own photo (kept from its page), the best-ranked first;
+ * a briefing on a subject takes its own site's first and never an example
+ * photo; anything else falls back to an example photo sua found for a
+ * source. Never a logo, a drawing or the TL;DR card. Undefined when no source
+ * has one, so a part bound to it isn't drawn. Pure.
+ */
+export function subjectPhoto(nb: Pick<Notebook, 'id' | 'briefOn'>, options: ReadonlyArray<Pick<NotebookViewOption, 'id' | 'name' | 'image' | 'imageKind' | 'link' | 'ruledOut'>>): NotebookSubjectPhoto | undefined {
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
+  const live = options.filter((o) => o.image && !o.ruledOut);
+  const own = live.filter((o) => o.imageKind === 'listing' || o.imageKind === undefined);
+  const site = nb.briefOn ? subjectHost(nb.briefOn) : undefined;
+  const ordered = [
+    ...(site ? own.filter((o) => host(o.link) === site) : []),
+    ...own.filter((o) => !(site && host(o.link) === site)),
+    ...(nb.briefOn ? [] : live.filter((o) => o.imageKind === 'representative')),
+  ];
+  const o = ordered[0];
+  if (!o?.image) return undefined;
+  const from = host(o.link);
+  const example = o.imageKind === 'representative';
+  return {
+    src: o.image, alt: example ? `An example photo for ${o.name}` : `A photo from ${o.name}`,
+    href: notebookOptionPath(nb.id, o.id), title: 'The source this photo is from',
+    caption: `${example ? 'An example photo' : 'Photo'}${from ? ` from ${from}` : ''}: ${o.name}`, entry: o.id,
+  };
 }
 
 /** How sure an answer is, in plain words. */

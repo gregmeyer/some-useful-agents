@@ -349,7 +349,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'Picture',
-    summary: 'The notebook\'s TL;DR picture, as it was last drawn or redrawn: one image made from the notebook\'s own data (the best lead or who it\'s about, the numbers, the options as bars or picture tiles). `picture` {src, alt, href, caption} from /notebook/picture. The opener for a page meant to be looked at or shared; one per page, full width or the wide side of a row.',
+    summary: 'The notebook\'s TL;DR picture, as it was last drawn or redrawn: one image made from the notebook\'s own data (the best lead or who it\'s about, the numbers, the options as bars or picture tiles). `picture` {src, alt, href, caption} from /notebook/picture; or, bound to /notebook/photo, a real photo of what it\'s about from one of its sources, credited. The opener for a page meant to be looked at or shared; one per page, full width or the wide side of a row.',
     example: { id: 'pic', component: 'Picture', picture: { path: '/notebook/picture' } },
     schema: Common.extend({ picture: CS.DynamicValue, caption: Str.optional() }).strict(),
   },

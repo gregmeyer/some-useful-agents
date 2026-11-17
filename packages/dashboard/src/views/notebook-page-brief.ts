@@ -400,7 +400,17 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain checks">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
     // The TL;DR picture: its card, drawn in place.
-    case 'Picture': return p.tldr();
+    case 'Picture': {
+      // A photo of what it's about: the source's photo, as the file can carry it, credited.
+      if ((c.picture as { path?: unknown } | undefined)?.path === '/notebook/photo') {
+        const ph = p.data.notebook.photo;
+        const o = ph ? (p.data.notebook.options as unknown as NotebookViewOption[]).find((x) => x.id === ph.entry) : undefined;
+        const src = o ? p.pic(o) : undefined;
+        if (!ph || !src) return html``;
+        return html`<figure class="photo"><img src="${src}" alt="${ph.alt}"><figcaption class="fine">${ph.caption}</figcaption></figure>`;
+      }
+      return p.tldr();
+    }
     // Charts and agent HTML don't print here; the notebook has them.
     default: return html``;
   }
@@ -625,6 +635,9 @@ th { font: 600 0.6875rem var(--display); letter-spacing: 0.06em; text-transform:
 .card { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); break-inside: avoid; }
 .card__pic { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: var(--raised); }
 .card__pic.is-logo { object-fit: contain; padding: 0.75rem; }
+.photo { margin: 0; break-inside: avoid; }
+.photo img { display: block; max-width: 100%; max-height: 26rem; border-radius: 8px; background: var(--raised); }
+.photo figcaption { margin-top: 0.35rem; }
 .card figcaption { padding: 0.5rem 0.625rem 0.625rem; font-size: 0.8125rem; line-height: 1.35; }
 .card figcaption b { display: block; font-weight: 600; }
 .stories { display: grid; gap: 0.75rem; }
