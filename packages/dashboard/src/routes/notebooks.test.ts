@@ -2594,7 +2594,7 @@ describe('a brief to share', () => {
     expect(t).not.toContain('0/2 checks');
     expect(t).toContain('<span class="chip">under $6,000</span>');
     // Key findings, computed: the pool and the price span.
-    expect(t).toContain('<h2 id="b-find">Key findings</h2>');
+    expect(t).toMatch(/<h2 data-n="\d+" id="b-find">Key findings<\/h2>/);
     expect(t).toContain('<strong>2 options looked at</strong>: 2 in the running.');
     expect(t).toContain('Price in the running: <span class="num">$4,700–$4,999</span>.');
     // Side by side, then in detail; nothing folded away (a closed details is missing from a PDF).
@@ -2608,7 +2608,7 @@ describe('a brief to share', () => {
     expect(t).not.toContain('Each option in full');
     const full = (await get(`/notebooks/${nb.id}/brief.html?full=1`)).text;
     expect(full).toContain('Extended notebook brief');
-    expect(full).toContain('<h2 id="b-full">Each option in full<span class="count">2</span></h2>');
+    expect(full).toMatch(/<h2 data-n="\d+" id="b-full">Each option in full<span class="count">2<\/span><\/h2>/);
     expect(full).toMatch(/<dl class="full__facts"><div><dt>Price<\/dt><dd>\$4,999<\/dd><\/div>/);
     expect(full).toContain('<li class="crit is-met"><i>✓</i><span>Clean title</span></li>');
     expect(full).toContain('<li class="crit"><i>○</i><span>Accident history</span></li>');
@@ -3502,9 +3502,9 @@ describe('a drawn page\'s brief', () => {
     expect(brief).toContain('Photo: <a href="https://northwind.example/team">northwind.example</a>');
     // In the page's order: who they are, what we know, what to talk about, in their words.
     const at = (s: string) => brief.indexOf(s);
-    expect(at('Who they are')).toBeGreaterThan(0);
-    // A meeting's brief leads with what to say: who, the talking points, then the facts.
-    expect(at('Who they are')).toBeLessThan(at('What to talk about'));
+    // A meeting's brief leads with what to say: who (the document's head), the talking points, then the facts.
+    expect(at('class="doc-cover"')).toBeGreaterThan(0);
+    expect(at('class="doc-cover"')).toBeLessThan(at('What to talk about'));
     expect(at('What to talk about')).toBeLessThan(at('What we know'));
     expect(at('What we know')).toBeLessThan(at('In their words'));
     expect(brief).toContain('And 5 more in the extended brief.');
