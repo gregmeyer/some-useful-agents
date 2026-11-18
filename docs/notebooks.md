@@ -606,6 +606,10 @@ The brief looks like the dashboard: its design tokens and your brand theme (**Se
 
 A list is most useful when each option links to its own page: the listing, the job posting, the product page, not a search page that lists many. Agents are asked for that (a find step's job says so, and sua's keeper leaves out a results page rather than file it as the link). When a link is a search page anyway, because several options share it or it's shaped like one (`/search`, `?q=`, CarGurus `/Cars/l-…`, Edmunds `/used-2011-…-seattle-wa`, Craigslist `/search/`), its button reads **Search page ↗** instead of the listing, it never counts as two options being the same, and **Where it stands** says how many lack their own page once most do. To find them, add a source step that looks up the link field ("Find each car's own listing", with the link field's key as its fact); a search-page link counts as missing until it's replaced.
 
+A source step whose agent reads each option's own page reads up to **3 sites at once**, each site's pages one after another, so no site gets several requests at the same time. Pages were read one at a time before (about 12 seconds each). **Stop** cancels every page being read.
+
+Photos for what a step found are fetched after the step says how it went, not before: the step's card comes as soon as its results are filed, and the photos (then pictures for the rest) appear as they land, with "Finding photos…" in the header meanwhile.
+
 ### Merging duplicates
 
 When two options are the same one (a car listed twice, a company under two names), open either one's page and use **Merge with…**. Likely copies (the same address, the same name or company) are listed first with ★. The other one's facts fill in what this one is missing, its checks, picks and history come along, and it goes; this one keeps its own facts, stage, and whether it's ruled out. You can also tell sua ("those two RAV4s are the same car") and it merges them.

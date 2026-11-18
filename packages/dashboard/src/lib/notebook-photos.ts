@@ -57,11 +57,14 @@ export async function keepPhotos(store: NotebookStore, notebookId: string, opts:
  * In the background, once per notebook at a time: try listing photos for
  * options that don't have one (each address is tried once). Returns whether it started.
  */
-export function startListingPhotos(ctx: { notebookListingPhotos?: Set<string> }, store: NotebookStore, notebookId: string): boolean {
+export function startListingPhotos(ctx: { notebookListingPhotos?: Set<string> }, store: NotebookStore, notebookId: string, then?: () => void): boolean {
   if (store.photoCandidates(notebookId, 1).length === 0) return false;
   ctx.notebookListingPhotos ??= new Set();
   if (ctx.notebookListingPhotos.has(notebookId)) return false;
   ctx.notebookListingPhotos.add(notebookId);
-  void keepPhotos(store, notebookId).catch(() => { /* a nicety */ }).finally(() => ctx.notebookListingPhotos?.delete(notebookId));
+  void keepPhotos(store, notebookId).catch(() => { /* a nicety */ }).finally(() => {
+    ctx.notebookListingPhotos?.delete(notebookId);
+    try { then?.(); } catch { /* a nicety */ }
+  });
   return true;
 }

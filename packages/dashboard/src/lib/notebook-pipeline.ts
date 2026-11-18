@@ -19,7 +19,7 @@ import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
-import { keepPhotos } from './notebook-photos.js';
+import { startListingPhotos } from './notebook-photos.js';
 import { startNotebookPictures } from './notebook-pictures.js';
 
 type Ctx = ReturnType<typeof getContext>;
@@ -499,8 +499,7 @@ export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId
   const direct = agentId !== NOTEBOOK_SETUP ? directBlock(output) : undefined;
   if (direct) {
     const out = applyKeeperResult(store, store.get(nb.id) ?? nb, agentId, runId, direct, { maxEntries: MAX_DIRECT_ENTRIES, trusted: true });
-    try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
-    try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
+    keepPhotosLater(ctx, store, nb.id);
     return { ...out, direct: true };
   }
   const setup = agentId === NOTEBOOK_SETUP;
@@ -515,11 +514,22 @@ export async function keep(ctx: Ctx, store: NotebookStore, nb: Notebook, agentId
     if (one.error && parts.length === 1) return one;
   }
   if (!out) return { added: 0, skipped: 0, criteriaMet: 0, error: 'The keeper did not finish.' };
-  // Photos for what it found; a slow or failing site never fails the keep.
-  try { await keepPhotos(store, nb.id); } catch { /* photos are a nicety */ }
-  // Options still without one get a representative picture or a drawing, in the background.
-  try { startNotebookPictures(ctx, nb.id); } catch { /* pictures are a nicety */ }
+  keepPhotosLater(ctx, store, nb.id);
   return out;
+}
+
+/**
+ * Photos for what it found, then a representative picture or a drawing for
+ * the rest: in the background, so the step says how it went without waiting
+ * on other sites' pages (each preview is a page fetch). The page shows them
+ * as they land ("Finding photos…"). A slow or failing site never fails the keep.
+ */
+function keepPhotosLater(ctx: Ctx, store: NotebookStore, notebookId: string): void {
+  try {
+    // Pictures for those still without a photo once the photos are in (or at once, with none to look for).
+    const pictures = () => { startNotebookPictures(ctx, notebookId); };
+    if (!startListingPhotos(ctx, store, notebookId, pictures)) pictures();
+  } catch { /* photos are a nicety */ }
 }
 
 export function pipelineRunning(ctx: Ctx, notebookId: string) {
