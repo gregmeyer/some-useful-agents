@@ -41,3 +41,12 @@ net.Server.prototype.listen = function (this: net.Server, ...args: unknown[]) {
   }
   return (listen as (...a: unknown[]) => net.Server).apply(this, args);
 } as typeof net.Server.prototype.listen;
+
+/**
+ * Provider cooldowns are kept per process (provider-cooldown.ts): a test whose
+ * provider failed out of quota mustn't make the next test skip it.
+ */
+import { afterEach } from 'vitest';
+import { resetProviderCooldowns } from './packages/core/src/provider-cooldown.js';
+
+afterEach(() => { resetProviderCooldowns(); });

@@ -84,6 +84,20 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   keyed by provider id or a custom provider's name). Claude without one tries
   Sonnet; the others go straight on. If the fallback is busy too, the waterfall
   moves on to the next provider.
+- **A provider that's down stays skipped for a while.** Out of quota or credit,
+  not installed or not reachable, signed out, or rate limited: the next nodes
+  don't try it again until its cooldown ends. The cooldown runs until the reset
+  time the error states ("try again at Nov 18th, 2026 12:28 PM", "retry after
+  30 seconds"), else 30 minutes for quota or credit, 5 minutes for a missing CLI,
+  an unreachable endpoint or a sign-in, and 1 minute for a rate limit. A skipped
+  provider shows on the node's "ran on" trail ("Skipped: it failed
+  (quota_exceeded) 4 min ago; tried again after 12:28 PM.") and in the log as
+  `[llm-fallback] …: skipping codex (quota_exceeded) until …`. When it works
+  again it's back at once. When every provider is cooling down, the chain is
+  tried as configured. The cooldown is kept in memory by each process (the
+  worker, the dashboard), so a restart forgets it. Before this, an out-of-quota
+  provider and a local model that wasn't running cost every node about 16
+  seconds.
 - When every attempt fails, the node's error says what each one ran into, in
   words ("Every model it tried failed: Codex (OpenAI) on gpt-6-sol is busy: …;
   then Claude needs you to sign in again."), before the last provider's own
