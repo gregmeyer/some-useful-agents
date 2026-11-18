@@ -860,6 +860,20 @@ function maybeRefireTriage(
   // Checks the persisted `paused` column too, so a stop survives restarts.
   if (isTriagePaused(ctx, messageId)) return;
   if (!(allActionsResolved(ctx, messageId) && atLeastOneActionExecuted(ctx, messageId))) return;
+  // The action said what it did (its card carries the summary): another turn would only
+  // repeat it, 13-28s later. The thread waits on the person instead.
+  const said = actionsReportedThemselves(ctx, messageId);
+  if (said) {
+    // Their own words as sua's reply, so it reads (links and all) as an answer.
+    const reply = ctx.inboxStore.addResponse(messageId, 'triage', said.join('\n\n'));
+    publishInboxEvent(ctx, messageId, 'message:created', { responseId: reply.id, role: 'triage', body: reply.body, createdAt: reply.createdAt });
+    try {
+      ctx.inboxStore.updateStatus(messageId, 'awaiting_user');
+      publishInboxChanged(ctx, messageId, 'awaiting_user');
+    } catch { /* ignore */ }
+    publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
+    return;
+  }
   if (countConsecutiveTriageTurns(ctx, messageId) >= MAX_AUTO_TRIAGE_TURNS) {
     const note = `Auto-follow-up paused after ${MAX_AUTO_TRIAGE_TURNS} consecutive triage turns. Reply or dismiss to continue.`;
     const sysReply = ctx.inboxStore.addResponse(messageId, 'system', note);
@@ -2481,6 +2495,32 @@ export function verifyResolveEvidence(
  * long, actively-driven debugging thread isn't blocked, but triage still can't
  * silently fan out unbounded actions between replies.
  */
+/**
+ * Actions whose own summary is the whole answer: a change made in place, said
+ * in a line with a link ("Changed the notebook's page. Undo it from…", "Added 2
+ * to the notebook."). Nothing to interpret and nothing to chain, unlike an
+ * analysis, an agent fix (rerun to verify) or a new notebook (start it).
+ */
+export const REPORTS_ITSELF: ReadonlySet<string> = new Set(['notebook-layout', 'notebook-add', 'adjust-surface', 'arrange-board', 'board-page', 'agent-schedule', 'agent-settings', 'notebook-template', 'dashboard-editor']);
+
+/**
+ * Every action since their last message ran, finished with a summary, and is
+ * one that reports itself: their summaries (each once), for a reply without a
+ * follow-up turn. Undefined otherwise: a failed one still gets a turn, so sua
+ * can say what went wrong and what to try.
+ */
+export function actionsReportedThemselves(ctx: ReturnType<typeof getContext>, messageId: string): string[] | undefined {
+  if (!ctx.inboxStore) return undefined;
+  const responses = ctx.inboxStore.listResponses(messageId);
+  let lastUserIdx = -1;
+  for (let i = responses.length - 1; i >= 0; i--) {
+    if (responses[i].role === 'user') { lastUserIdx = i; break; }
+  }
+  const ran = responses.slice(lastUserIdx + 1).filter((r) => r.role === 'action').map(parseActionMeta).filter((m): m is InboxActionMeta => !!m && m.mode !== 'show-widget' && m.mode !== 'resolve');
+  if (ran.length === 0 || !ran.every((m) => REPORTS_ITSELF.has(m.agentId) && m.status === 'completed' && !!m.resultSummary?.trim())) return undefined;
+  return [...new Set(ran.map((m) => m.resultSummary!.trim()))];
+}
+
 export function countActionsSinceLastUser(
   ctx: ReturnType<typeof getContext>,
   messageId: string,
@@ -2912,26 +2952,6 @@ export async function runTriageAgent(
     // sua's widget (docs/a2ui-views.md, "In chat"): checked like any view (a part
     // that doesn't check out becomes a note, an unreadable one is dropped), then
     // kept inline in the reply, as an agent's reply keeps it (triageReplyBody).
-    const body = triageReplyBody(rec, parseTriageWidget(parsed.widget));
-    const triageReply = ctx.inboxStore.addResponse(
-      messageId,
-      'triage',
-      body,
-      Object.keys(triageMeta).length > 0 ? JSON.stringify(triageMeta) : undefined,
-    );
-    // The canonical "triage finished" signal. Clients use this to
-    // replace any in-progress typewriter bubble (PR 4) with the
-    // persisted entry.
-    publishInboxEvent(ctx, messageId, 'triage:complete', {
-      responseId: triageReply.id,
-      role: 'triage',
-      body: rec,
-      verifyHint,
-      commitmentSummary,
-      ...(open ? { open } : {}),
-      createdAt: triageReply.createdAt,
-    });
-
     // Parse + persist any proposed actions (only when allowlist is
     // non-empty). Refusals (out-of-allowlist or malformed) get a
     // single grouped `system` note so the operator can see what was
@@ -2967,6 +2987,10 @@ export async function runTriageAgent(
     const planHasSettings = rawActionList.some(
       (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
     );
+    // The proposed actions are checked BEFORE the reply is posted: when every one
+    // is refused and a recovery turn will run anyway, the reply (which described a
+    // refused action) isn't posted and the retry starts at once.
+    let vetted: { rejected: Array<{ agentId: string; reason: string }>; deferred: unknown[]; dedupedAccepted: InboxActionMeta[]; convergenceBlocked: Set<string> } | undefined;
     if (allowlist.length > 0 || planHasShowWidget || planHasDashboardEditor || planHasResolve || planHasSettings) {
       const { accepted, rejected, deferred } = parseProposedActions(parsed.actions, allowlist, candidates);
       const dedupedAccepted: InboxActionMeta[] = [];
@@ -3024,6 +3048,43 @@ export async function runTriageAgent(
         }
         dedupedAccepted.push(action);
       }
+      vetted = { rejected, deferred, dedupedAccepted, convergenceBlocked };
+    }
+    if (vetted
+      && vetted.convergenceBlocked.size === 0
+      && vetted.rejected.length > 0
+      && vetted.dedupedAccepted.length === 0
+      && vetted.deferred.length === 0
+      && !hasRecoveryRefireSinceLastUser(ctx, messageId)
+      && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
+      addSystemMessage(ctx, messageId, vetted.rejected.map((r) => `Refused action on \`${r.agentId}\`: ${r.reason}.`).join('\n'));
+      addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
+      void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+      return;
+    }
+
+    const body = triageReplyBody(rec, parseTriageWidget(parsed.widget));
+    const triageReply = ctx.inboxStore.addResponse(
+      messageId,
+      'triage',
+      body,
+      Object.keys(triageMeta).length > 0 ? JSON.stringify(triageMeta) : undefined,
+    );
+    // The canonical "triage finished" signal. Clients use this to
+    // replace any in-progress typewriter bubble (PR 4) with the
+    // persisted entry.
+    publishInboxEvent(ctx, messageId, 'triage:complete', {
+      responseId: triageReply.id,
+      role: 'triage',
+      body: rec,
+      verifyHint,
+      commitmentSummary,
+      ...(open ? { open } : {}),
+      createdAt: triageReply.createdAt,
+    });
+
+    if (vetted) {
+      const { rejected, deferred, dedupedAccepted, convergenceBlocked } = vetted;
       const existing = countActionsSinceLastUser(ctx, messageId);
       const budget = Math.max(0, MAX_ACTIONS_PER_MESSAGE - existing);
       const toInsert = dedupedAccepted.slice(0, budget);
