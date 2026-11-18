@@ -42,6 +42,15 @@ The autonomy loop (the "control plane" half) now runs by default:
   12 such turns and runs up to 24 actions, then pauses and asks you to
   reply. Your reply resets both. **Stop** halts it sooner, and repeated
   fixes to one agent without a good run end automatic fixing.
+  An action that says what it did in a line (changing a notebook's page,
+  adding to a notebook, adjusting Home or a board, a schedule, a setting, a
+  dashboard) doesn't get that extra turn: its own summary is sua's reply,
+  right when it finishes, instead of a second model turn 15 to 30 seconds
+  later. One that failed still gets a turn, so sua can say what went wrong.
+- **A refused action isn't announced first**: sua's proposed actions are
+  checked before its reply is posted. When every one is refused and sua will
+  try again anyway, the reply (which described the refused action, "Done: I
+  changed…") isn't posted. The refusal note is, and the retry starts at once.
 - **Bounded thread replay**: each triage turn (and the learning extractor)
   sees the thread as `[role] body` lines, most recent kept within 16 KB,
   with a note like "(49 earlier entries left out for length)" when a long
