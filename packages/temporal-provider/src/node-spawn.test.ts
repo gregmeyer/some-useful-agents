@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Client } from '@temporalio/client';
 import type { AgentNode, SpawnResult, SpawnProgress } from '@some-useful-agents/core';
-import { createTemporalSpawnNode, extractHeartbeatProgress, describeWorkflowError } from './node-spawn.js';
+import { createTemporalSpawnNode, extractHeartbeatProgress, describeWorkflowError, untilStopped, STOPPED, ABORT_GRACE_MS } from './node-spawn.js';
 
 const node = (overrides: Partial<AgentNode> = {}): AgentNode => ({
   id: 'fetch',
@@ -262,5 +262,78 @@ describe('describeWorkflowError', () => {
     a.cause = b;
     b.cause = a;
     expect(typeof describeWorkflowError(a)).toBe('string');
+  });
+});
+
+describe('a stopped node with Temporal not answering', () => {
+  const never = <T>() => new Promise<T>(() => { /* the server is down: no answer */ });
+
+  it('untilStopped: the value when it comes; "stopped" a grace after the abort; the rejection passed on', async () => {
+    expect(await untilStopped(Promise.resolve(1), new AbortController().signal, 10)).toBe(1);
+    const ac = new AbortController();
+    const p = untilStopped(never<number>(), ac.signal, 10);
+    ac.abort();
+    expect(await p).toBe(STOPPED);
+    await expect(untilStopped(Promise.reject(new Error('boom')), new AbortController().signal, 10)).rejects.toThrow('boom');
+  });
+
+  it('returns a stopped result soon after the abort when result() never settles (it waited minutes)', async () => {
+    let cancelled = false;
+    const client = {
+      workflow: {
+        async start(_t: string, o: { workflowId: string }) {
+          return { workflowId: o.workflowId, result: never, describe: never, async cancel() { cancelled = true; } };
+        },
+      },
+    } as unknown as Client;
+    const ac = new AbortController();
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc', progressPollMs: 0 });
+    const t0 = Date.now();
+    const pending = spawn(node(), { PATH: '/usr/bin' }, spawnOpts, undefined, ac.signal);
+    setTimeout(() => ac.abort(), 5);
+    const res = await pending;
+    expect(Date.now() - t0).toBeLessThan(ABORT_GRACE_MS + 2_000);
+    expect(cancelled).toBe(true);
+    expect(res).toMatchObject({ exitCode: 143, category: 'cancelled', usedWorkflowProvider: 'temporal' });
+    expect(res.error).toMatch(/Temporal didn't answer within 5s after it was stopped/);
+  }, 15_000);
+
+  it('the same when start() itself never answers', async () => {
+    const client = { workflow: { start: never } } as unknown as Client;
+    const ac = new AbortController();
+    ac.abort();
+    const res = await createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc' })(node(), { PATH: '/usr/bin' }, spawnOpts, undefined, ac.signal);
+    expect(res.error).toMatch(/to start it/);
+  }, 15_000);
+});
+
+describe('Temporal down: the node runs here instead', () => {
+  const never = <T>() => new Promise<T>(() => { /* no answer */ });
+  const local = async (): Promise<SpawnResult> => ({ result: 'ran here', exitCode: 0 });
+
+  it('when the server refuses the connection, and the next node skips asking it', async () => {
+    let starts = 0;
+    const client = { workflow: { async start() { starts++; throw Object.assign(new Error('14 UNAVAILABLE: Connection refused'), { code: 14 }); } } } as unknown as Client;
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/s.enc', local });
+    expect(await spawn(node(), {}, spawnOpts)).toMatchObject({ result: 'ran here', usedWorkflowProvider: 'local' });
+    expect(await spawn(node(), {}, spawnOpts)).toMatchObject({ result: 'ran here' });
+    expect(starts).toBe(1);
+  });
+
+  it("when it doesn't accept the node in time (and it's cancelled if it starts later)", async () => {
+    let release: ((h: unknown) => void) | undefined;
+    let cancelled = false;
+    const client = { workflow: { start: () => new Promise((r) => { release = r; }) } } as unknown as Client;
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/s.enc', local, startTimeoutMs: 20 });
+    expect(await spawn(node(), {}, spawnOpts)).toMatchObject({ result: 'ran here', usedWorkflowProvider: 'local' });
+    release!({ workflowId: 'w', result: never, describe: never, async cancel() { cancelled = true; } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(cancelled).toBe(true);
+  });
+
+  it('a bad request still fails as before (it is not the server being down)', async () => {
+    const client = { workflow: { async start() { throw new Error('Workflow type not registered'); } } } as unknown as Client;
+    const res = await createTemporalSpawnNode({ client, secretsPath: '/tmp/s.enc', local })(node(), {}, spawnOpts);
+    expect(res).toMatchObject({ exitCode: 1, category: 'spawn_failure' });
   });
 });
