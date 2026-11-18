@@ -32,6 +32,8 @@ export { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, suaStepA
 
 type Ctx = ReturnType<typeof getContext>;
 
+/** How many sites a source step reads pages from at once (each site's pages one at a time). */
+export const SOURCE_SITES_AT_ONCE = 3;
 /** Runs per press, toward one step's goal. */
 export const MAX_TRIES = 3;
 /** The checker's inputs, for a test's stand-in. */
@@ -870,28 +872,57 @@ async function readPages(ctx: Ctx, store: NotebookStore, notebookId: string, age
   const blocked = new Set<string>();
   const gone: string[] = [];
   const failed: string[] = [];
-  for (const job of jobs) {
-    if (running?.stopped) { stopped = true; break; }
-    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => { if (running) running.runId = runId; }, notebookId);
+  const readOne = async (job: (typeof jobs)[number]): Promise<void> => {
+    let id: string | undefined;
+    const run = await runAgent(ctx, agentId, () => ({ [io.page]: job.link!, ...(io.want ? { [io.want]: job.missing.map((f) => f.label).join(', ') } : {}) }), (runId) => {
+      id = runId;
+      if (running) { running.runId = runId; (running.runIds ??= new Set()).add(runId); }
+    }, notebookId);
+    if (id) running?.runIds?.delete(id);
     store.addRunToPass(passId, run.id);
-    if (run.status === 'cancelled' || running?.stopped) { stopped = true; break; }
-    if (run.status !== 'completed') { failed.push(job.name); continue; }
+    if (run.status === 'cancelled' || running?.stopped) { stopped = true; return; }
+    if (run.status !== 'completed') { failed.push(job.name); return; }
     const nb = store.get(notebookId)!;
     const answer = readItemAnswer(run.result ?? '', nb.fields);
-    if (answer.status === 'blocked') { blocked.add(hostOf(job.link!)); continue; }
+    if (answer.status === 'blocked') { blocked.add(hostOf(job.link!)); return; }
     read++;
     if (answer.status === 'gone') {
       store.ruleOut(nb.id, job.entryId, 'Its page says it is gone (sold, expired or removed).', `agent:${agentId}`, { gone: true });
       gone.push(job.name);
-      continue;
+      return;
     }
     const facts = Object.fromEntries(Object.entries(answer.facts).map(([k, v]) => [k, { value: v, source: job.link }]));
     if (Object.keys(facts).length) {
       store.setOptionFacts(nb.id, job.entryId, facts);
       factsSet += Object.keys(facts).length;
     }
-  }
+  };
+  // Pages on different sites side by side; one site's pages one after another (they were all one at a time, ~12s a page).
+  await bySiteAtOnce(jobs, (job) => hostOf(job.link!), SOURCE_SITES_AT_ONCE, readOne, () => {
+    if (stopped || running?.stopped) stopped = true;
+    return stopped;
+  });
   return { read, factsSet, blocked, gone, failed, stopped };
+}
+
+/**
+ * Do `work` for each job, up to `atOnce` sites at a time and each site's jobs
+ * one after another (in order), so no site gets several requests at once.
+ * Stops starting new jobs once `stop()` says so.
+ */
+export async function bySiteAtOnce<T>(jobs: readonly T[], siteOf: (job: T) => string, atOnce: number, work: (job: T) => Promise<void>, stop: () => boolean = () => false): Promise<void> {
+  const bySite = new Map<string, T[]>();
+  for (const job of jobs) bySite.set(siteOf(job), [...(bySite.get(siteOf(job)) ?? []), job]);
+  const queue = [...bySite.values()];
+  const worker = async (): Promise<void> => {
+    for (let site = queue.shift(); site; site = queue.shift()) {
+      for (const job of site) {
+        if (stop()) return;
+        await work(job);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(atOnce, queue.length)) }, worker));
 }
 
 /** A profile or write step's notes, as the sentence that says why it came out short. */
@@ -1052,10 +1083,11 @@ export function stopNotebookStep(ctx: Ctx, notebookId: string): { stopped: boole
   const nb = stores(ctx).get(notebookId);
   if (!running || !nb || !(running.again || nb.steps?.some((s) => s.status === 'running'))) return { stopped: false, reason: 'No step is running.' };
   running.stopped = true;
-  if (running.runId) {
-    ctx.activeRuns.get(running.runId)?.abort();
-    ctx.activeRuns.delete(running.runId);
-    void Promise.resolve(ctx.provider?.cancelRun?.(running.runId)).catch(() => { /* the abort is enough */ });
+  // Every run going (a source step reads several pages at once), not only the last one started.
+  for (const runId of new Set([...(running.runIds ?? []), ...(running.runId ? [running.runId] : [])])) {
+    ctx.activeRuns.get(runId)?.abort();
+    ctx.activeRuns.delete(runId);
+    void Promise.resolve(ctx.provider?.cancelRun?.(runId)).catch(() => { /* the abort is enough */ });
   }
   return { stopped: true };
 }

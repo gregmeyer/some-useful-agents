@@ -247,7 +247,7 @@ export interface DashboardContext {
    * Notebook pipelines running now (goal surfaces G2), by notebook id: which
    * agent is on, step N of M. One run per notebook at a time.
    */
-  notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; stopped?: boolean; again?: boolean }>;
+  notebookPipelines?: Map<string, { agentId: string; step: number; of: number; startedAt: number; runId?: string; /** Runs going at once (a source step reads pages side by side): Stop cancels each. */ runIds?: Set<string>; stopped?: boolean; again?: boolean }>;
   /** Notebooks being set up (fields, stages) right now. */
   notebookSetups?: Set<string>;
   /** Runs being added to a notebook from its page (Add to notebook) right now. */
