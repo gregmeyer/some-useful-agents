@@ -118,6 +118,7 @@ export const agentNodeSchema = z.object({
 
   command: z.string().optional(),
   prompt: z.string().optional(),
+  systemPrompt: z.string().optional(),
   model: z.string().optional(),
   maxTurns: z.number().int().positive().optional(),
   // Out of turns: answer from what it read (default) or fail.
@@ -835,6 +836,7 @@ export const agentV2Schema = z.object({
 
     if (node.type === 'claude-code' || node.type === 'llm-prompt') {
       checkText(node.prompt, ['prompt']);
+      checkText(node.systemPrompt, ['systemPrompt']);
     }
     if (node.type === 'goal') {
       checkText(node.goal, ['goal']);

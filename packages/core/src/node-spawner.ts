@@ -324,6 +324,8 @@ export interface SpawnProgress {
 
 export interface LlmSpawnOptions {
   prompt: string;
+  /** A file holding the node's fixed instructions, for a spawner with `systemPromptFile`. */
+  systemPromptFile?: string;
   model?: string;
   maxTurns?: number;
   allowedTools?: string[];
@@ -355,6 +357,12 @@ export interface LlmSpawnOptions {
  * the final result text.
  */
 export interface LlmSpawner {
+  /**
+   * Takes a node's fixed instructions as a system-prompt file
+   * (`LlmSpawnOptions.systemPromptFile`), which the CLI's prompt cache keeps
+   * between calls. Without it they go at the head of the prompt.
+   */
+  systemPromptFile?: boolean;
   /**
    * CLI binary name (e.g. 'claude', 'codex'). For providers whose
    * binary path is computed lazily at invocation time, `resolveBinary`
@@ -598,6 +606,7 @@ function claudeResultError(event: Record<string, unknown>): string | undefined {
  */
 export const claudeSpawner: LlmSpawner = {
   binary: 'claude',
+  systemPromptFile: true,
 
   buildArgs(opts: LlmSpawnOptions): string[] {
     // Prompt is sent via stdin (see spawnProcess.stdinInput) — keeping it
@@ -610,6 +619,9 @@ export const claudeSpawner: LlmSpawner = {
     if (opts.resume) args.push('--resume', opts.resume);
     if (opts.model) args.push('--model', opts.model);
     if (opts.maxTurns) args.push('--max-turns', String(opts.maxTurns));
+    // The node's fixed instructions, after claude's own system prompt: its prompt cache keeps
+    // them between calls (sent in the prompt, a fresh 25k tokens every call).
+    if (opts.systemPromptFile) args.push('--append-system-prompt-file', opts.systemPromptFile);
     // No tools: none built in, and no MCP servers at all (not even the operator's own).
     if (opts.noTools) return [...args, '--tools', '', '--strict-mcp-config'];
     const allowed = claudeAllowedTools(opts);
@@ -1183,12 +1195,12 @@ export async function spawnNodeReal(
       try { upstreamOutputs[o[1].toLowerCase().replace(/_/g, '-')] = JSON.parse(v) as Record<string, unknown>; } catch { /* not JSON */ }
     }
   }
-  resolvedPrompt = resolveUpstreamTemplate(resolvedPrompt, upstreamMap, upstreamOutputs);
-  resolvedPrompt = resolveVarsTemplate(resolvedPrompt, env);
   // {{state}} resolves to $STATE_DIR (set by node-env when dataRoot is
   // configured). Falls through to empty string when unset.
-  resolvedPrompt = resolveStateTemplate(resolvedPrompt, env.STATE_DIR);
-  resolvedPrompt = substituteInputs(resolvedPrompt, env);
+  const resolveTemplates = (text: string) => substituteInputs(resolveStateTemplate(resolveVarsTemplate(resolveUpstreamTemplate(text, upstreamMap, upstreamOutputs), env), env.STATE_DIR), env);
+  resolvedPrompt = resolveTemplates(resolvedPrompt);
+  // The fixed part, resolved the same way; each attempt gets it on its node (runLlmAttemptInner).
+  const resolvedSystem = node.systemPrompt?.trim() ? resolveTemplates(node.systemPrompt).trim() : undefined;
 
   // Behavior conditioning. PREPENDED HERE, DELIBERATELY, AND NOWHERE ELSE.
   //
@@ -1209,7 +1221,7 @@ export async function spawnNodeReal(
   // The child's env: the upstream copies and the big inputs the prompt
   // already carries are left out (llmChildEnv). Shell nodes still receive
   // every env var: they're the intended consumer.
-  const childEnv = llmChildEnv(env, node.prompt);
+  const childEnv = llmChildEnv(env, `${node.prompt ?? ''}\n${node.systemPrompt ?? ''}`);
 
   // A provider that just failed in a lasting way (out of quota until a stated time, not running, signed out)
   // is skipped until its cooldown ends, not tried and failed again on every node.
@@ -1263,7 +1275,7 @@ export async function spawnNodeReal(
     if (attemptedProviders.at(-1) !== provider) attemptedProviders.push(provider);
     // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
     const providerModel = busyRetry.get(provider) ?? (node.model ? undefined : _opts.llmSettings?.models?.[provider]);
-    const attemptNode = providerModel ? { ...node, model: providerModel } : node;
+    const attemptNode: AgentNode = { ...node, ...(providerModel ? { model: providerModel } : {}), systemPrompt: resolvedSystem };
     let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
@@ -1588,7 +1600,7 @@ async function runLlmAttemptInner(
       providerName: provider,
       maxCostUsd: toolCtx?.attemptBudgetUsd,
       costOf: toolCtx?.costOf,
-      prompt: resolvedPrompt,
+      prompt: node.systemPrompt ? `${node.systemPrompt}\n\n${resolvedPrompt}` : resolvedPrompt,
       timeoutSec: node.timeout ?? 300,
       signal,
       ...(onToolCall ? { tools, onToolCall, maxTurns: node.maxTurns ?? 5, onProgress } : {}),
@@ -1639,10 +1651,21 @@ async function runLlmAttemptInner(
     allowedTools = [...new Set([...(node.allowedTools ?? []), `mcp__${TOOL_ENDPOINT_SERVER_NAME}`])];
   }
 
+  // The fixed part: a system-prompt file where the CLI takes one (its prompt cache keeps it
+  // between calls), else at the head of the prompt, where it was before.
+  let systemDir: string | undefined;
+  let systemPromptFile: string | undefined;
+  if (node.systemPrompt && spawner.systemPromptFile) {
+    systemDir = mkdtempSync(join(tmpdir(), 'sua-system-'));
+    systemPromptFile = join(systemDir, 'system.md');
+    writeFileSync(systemPromptFile, node.systemPrompt, { mode: 0o600 });
+  }
+  const promptBody = node.systemPrompt && !systemPromptFile ? `${node.systemPrompt}\n\n${resolvedPrompt}` : resolvedPrompt;
+  try {
   // A tool-using node is told its turn budget, so it leaves itself one to answer in.
   const budgeted = node.maxTurns && spawner.outOfTurns && (declaredTools.length > 0 || nodeWantsWebSearch(node))
-    ? `${resolvedPrompt}\n\n${turnBudgetLine(node.maxTurns)}`
-    : resolvedPrompt;
+    ? `${promptBody}\n\n${turnBudgetLine(node.maxTurns)}`
+    : promptBody;
   const spawnOpts: LlmSpawnOptions = {
     prompt: budgeted,
     model: node.model,
@@ -1650,6 +1673,7 @@ async function runLlmAttemptInner(
     allowedTools,
     mcpConfigPath,
     mcpEndpoint,
+    ...(systemPromptFile ? { systemPromptFile } : {}),
     maxBudgetUsd: toolCtx?.attemptBudgetUsd,
     ...(spawner.nativeWebSearch && nodeWantsWebSearch(node) ? { webSearch: true } : {}),
     ...(spawner.outOfTurns ? { disallowedTools: wastedBuiltins(node, declaredTools) } : {}),
@@ -1832,6 +1856,9 @@ async function runLlmAttemptInner(
   }
 
   return result;
+  } finally {
+    if (systemDir) rmSync(systemDir, { recursive: true, force: true });
+  }
 }
 
 /**

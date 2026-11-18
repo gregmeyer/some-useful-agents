@@ -271,6 +271,13 @@ export interface AgentNode {
 
   // Claude-code (v0.15 compat — desugars to toolInputs.prompt)
   prompt?: string;
+  /**
+   * The fixed part of an llm-prompt node's instructions (rules, schema,
+   * playbooks), templated like `prompt`. Claude gets it as an appended system
+   * prompt, which its prompt cache keeps between calls; other providers get it
+   * at the head of the prompt. Keep what changes per call in `prompt`.
+   */
+  systemPrompt?: string;
   model?: string;
   maxTurns?: number;
   /**
