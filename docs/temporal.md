@@ -231,6 +231,13 @@ docker compose down      # remove containers, keep the postgres volume
 docker compose down -v   # remove containers AND wipe all workflow history
 ```
 
+## When the server is down
+
+The dashboard hands each node of a dashboard-run DAG (a sua reply, a notebook step) to Temporal. If the server isn't there, the node doesn't wait for it:
+
+- **It runs in the dashboard instead.** If the server refuses the connection, or doesn't accept the node within 10 seconds, the node runs in-process, the way the `local` provider runs it. The log says so: `[temporal] inbox-triage/triage: Temporal didn't accept the node within 10s; running it here instead`. For the next 60 seconds, nodes go straight to the dashboard without asking Temporal. A node that starts on the server later is cancelled, so it doesn't run twice.
+- **A stopped node stops.** When a run hits its wall-clock timeout or is cancelled, the dashboard waits 5 seconds for Temporal to confirm, then records the node as stopped ("Temporal didn't answer within 5s after it was stopped. Is the Temporal server running?"). Before this, a sua reply with a 60s timeout could wait 3 to 7 minutes for an unreachable server before saying it couldn't answer.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

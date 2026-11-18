@@ -6,6 +6,34 @@ import { DEFAULT_TASK_QUEUE } from './worker.js';
 import type { RunNodeActivityInput } from './activities.js';
 import { extractLiveProgress, heartbeatDetails, type DescribeLike } from './live-progress.js';
 
+/** After the run is stopped (its wall-clock timeout, a cancel), how long to wait for Temporal to say the node stopped. */
+export const ABORT_GRACE_MS = 5_000;
+
+/**
+ * Wait for `p`, but not forever once `signal` aborts: `graceMs` after the
+ * abort it resolves to `stopped` instead. With the Temporal server
+ * unreachable, start() and result() retry for minutes, so a run whose 60s
+ * timeout had tripped still waited 3-7 minutes for them. `p`'s own rejection
+ * is never left unhandled.
+ */
+export function untilStopped<T>(p: Promise<T>, signal: AbortSignal | undefined, graceMs = ABORT_GRACE_MS): Promise<T | typeof STOPPED> {
+  if (!signal) return p;
+  return new Promise<T | typeof STOPPED>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = (): void => { timer ??= setTimeout(() => resolve(STOPPED), graceMs); };
+    if (signal.aborted) arm(); else signal.addEventListener('abort', arm, { once: true });
+    p.then(resolve, reject).finally(() => { if (timer) clearTimeout(timer); signal.removeEventListener('abort', arm); });
+  });
+}
+export const STOPPED: unique symbol = Symbol('stopped');
+const SLOW: unique symbol = Symbol('slow');
+
+/** A start that failed because the server isn't there (not a bad request). */
+export function isUnreachable(err: unknown): boolean {
+  const text = err instanceof Error ? `${err.name} ${err.message} ${String((err as { code?: unknown }).code ?? '')}` : String(err);
+  return /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|UNAVAILABLE|\bUnavailable\b|DEADLINE_EXCEEDED|Connection refused|failed to connect|TransportError/i.test(text);
+}
+
 export interface CreateTemporalSpawnNodeOptions {
   /** A connected Temporal client (reuse the provider's). */
   client: Client;
@@ -28,6 +56,18 @@ export interface CreateTemporalSpawnNodeOptions {
   dbPath?: string;
   variablesPath?: string;
   llmSettingsPath?: string;
+  /**
+   * Where a node runs when the Temporal server doesn't take it: it refused the
+   * connection, or didn't accept the workflow within `startTimeoutMs`. The
+   * dashboard passes the in-process spawner (what the local provider runs),
+   * so a sua reply doesn't hang on a server that's down. Without one, the
+   * node fails as before.
+   */
+  local?: SpawnNodeFn;
+  /** How long to wait for Temporal to accept a node before running it locally. Default 10s. */
+  startTimeoutMs?: number;
+  /** After Temporal didn't take a node, how long the next ones go straight to `local`. Default 60s. */
+  downForMs?: number;
 }
 
 /**
@@ -80,8 +120,19 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
   const taskQueue = opts.taskQueue ?? DEFAULT_TASK_QUEUE;
 
   const pollMs = opts.progressPollMs ?? 1000;
+  const startTimeoutMs = opts.startTimeoutMs ?? 10_000;
+  const downForMs = opts.downForMs ?? 60_000;
+  // Until when Temporal counts as down (ms since epoch): nodes run locally without asking it.
+  let downUntil = 0;
 
-  return async (node, env, spawnOpts, onProgress, signal): Promise<SpawnResult> => {
+  return async (node, env, spawnOpts, onProgress, signal, onSpawn, onChildExit): Promise<SpawnResult> => {
+    const runLocally = async (why: string): Promise<SpawnResult> => {
+      process.stderr.write(`[temporal] ${spawnOpts.agentId}/${node.id}: ${why}; running it here instead\n`);
+      const r = await opts.local!(node, env, spawnOpts, onProgress, signal, onSpawn, onChildExit);
+      return { ...r, usedWorkflowProvider: 'local' };
+    };
+    if (opts.local && Date.now() < downUntil) return runLocally('Temporal was unreachable a moment ago');
+
     const { safe } = stripSensitiveEnv(env, node);
     const input: RunNodeActivityInput = {
       node,
@@ -107,14 +158,37 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
 
     const workflowId = `sua-node-${spawnOpts.agentId}-${node.id}-${randomUUID().slice(0, 8)}`;
 
+    const gaveUp = (where: string): SpawnResult => ({
+      result: '',
+      exitCode: 143,
+      error: `Node "${node.id}" stopped; Temporal didn't answer within ${String(ABORT_GRACE_MS / 1000)}s ${where}. Is the Temporal server running?`,
+      category: 'cancelled',
+      usedWorkflowProvider: 'temporal',
+    });
+
     let handle;
     try {
-      handle = await opts.client.workflow.start('runNodeWorkflow', {
+      const starting = opts.client.workflow.start('runNodeWorkflow', {
         taskQueue,
         workflowId,
         args: [input],
       });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const tooSlow = opts.local ? new Promise<typeof SLOW>((r) => { timer = setTimeout(() => r(SLOW), startTimeoutMs); }) : undefined;
+      const started = await untilStopped(tooSlow ? Promise.race([starting, tooSlow]) : starting, signal).finally(() => { if (timer) clearTimeout(timer); });
+      if (started === STOPPED) return gaveUp('to start it');
+      if (started === SLOW) {
+        downUntil = Date.now() + downForMs;
+        // It may still start once the server is back: cancel it then, so the node doesn't run twice.
+        void starting.then((h) => h.cancel()).catch(() => { /* never started */ });
+        return runLocally(`Temporal didn't accept the node within ${String(startTimeoutMs / 1000)}s`);
+      }
+      handle = started;
     } catch (err) {
+      if (opts.local && isUnreachable(err)) {
+        downUntil = Date.now() + downForMs;
+        return runLocally(`Temporal is unreachable (${err instanceof Error ? err.message : String(err)})`);
+      }
       return {
         result: '',
         exitCode: 1,
@@ -163,7 +237,8 @@ export function createTemporalSpawnNode(opts: CreateTemporalSpawnNodeOptions): S
     }
 
     try {
-      const result = await handle.result();
+      const result = await untilStopped(handle.result(), signal);
+      if (result === STOPPED) return gaveUp('after it was stopped');
       // The activity stamps this too, but guarantee it from the factory so the
       // backend identity never depends on the activity remembering.
       return { ...result, usedWorkflowProvider: 'temporal' };

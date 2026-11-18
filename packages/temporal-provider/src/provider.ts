@@ -3,7 +3,7 @@ import { extractLiveProgress, type DescribeLike } from './live-progress.js';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { Provider, RunRequest, Run, RunStatus, SpawnNodeFn, Agent, SubmitDagRunOptions, LiveRunProgress } from '@some-useful-agents/core';
-import { RunStore } from '@some-useful-agents/core';
+import { RunStore, spawnNodeReal } from '@some-useful-agents/core';
 import { DEFAULT_TASK_QUEUE } from './worker.js';
 import { createTemporalSpawnNode } from './node-spawn.js';
 import type { RunAgentWorkflowInput, RunAgentWorkflowResult } from './workflows.js';
@@ -81,6 +81,8 @@ export class TemporalProvider implements Provider {
       dbPath: this.options.dbPath,
       variablesPath: this.variablesPath,
       llmSettingsPath: this.llmSettingsPath,
+      // A server that's down doesn't hang a node (a sua reply waited 3-7 minutes): it runs here.
+      local: spawnNodeReal,
     });
   }
 
