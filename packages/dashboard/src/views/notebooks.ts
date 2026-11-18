@@ -309,6 +309,18 @@ export function whatsNewBand(w: WhatsNew | undefined): SafeHtml {
   </section>`;
 }
 
+/** How far a step got ("4 of 5 found", "write-up written", "pick 3") and where it stands ("moved on"), as the strip and the chips say it. */
+function stepWords(step: NotebookStep, p: ReturnType<typeof stepProgress>): { progress: string; state: string; stateKind: string } {
+  const progress = step.kind === 'decide' && step.status !== 'done' ? (p.have ? `${String(p.have)} of ${String(p.want)} picked` : `pick ${String(p.want)}`)
+    : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
+    : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
+      : step.kind === 'write' && step.shape === 'answer' ? (p.have ? 'answer written' : 'no answer yet')
+      : step.kind === 'write' && step.shape === 'plan' ? (p.have ? 'plan written' : 'no plan yet')
+      : step.kind === 'write' && step.shape === 'writeup' ? (p.have ? 'write-up written' : 'no write-up yet')
+      : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
+  return { progress, state: step.movedOn ? 'moved on' : STEP_STATUS[step.status], stateKind: step.movedOn ? 'moved' : step.status };
+}
+
 /**
  * The notebook's work in steps: each with its agent, how far it is toward
  * its goal ("8 of 10 found") and where it stands. The step being worked on
@@ -330,15 +342,7 @@ export function stepsStrip(nb: Notebook, steps: readonly NotebookStep[], entries
       const only = step.kind === 'source' && step.facts?.length ? stepFacts(nb, step).map((f) => f.label.toLowerCase()).join(', ') : '';
       const pct = p.want ? Math.min(100, Math.round((p.have / p.want) * 100)) : 0;
       const missing = p.missing.length ? `Still needed: ${p.missing.slice(0, 8).join('; ')}${p.missing.length > 8 ? `; and ${String(p.missing.length - 8)} more` : ''}` : '';
-      const progress = step.kind === 'decide' && step.status !== 'done' ? (p.have ? `${String(p.have)} of ${String(p.want)} picked` : `pick ${String(p.want)}`)
-        : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
-        : step.kind === 'find' && p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}`
-          : step.kind === 'write' && step.shape === 'answer' ? (p.have ? 'answer written' : 'no answer yet')
-          : step.kind === 'write' && step.shape === 'plan' ? (p.have ? 'plan written' : 'no plan yet')
-          : step.kind === 'write' && step.shape === 'writeup' ? (p.have ? 'write-up written' : 'no write-up yet')
-          : `${String(p.have)} of ${String(p.want)} ${STEP_UNIT[step.kind]}`;
-      const state = step.movedOn ? 'moved on' : STEP_STATUS[step.status];
-      const stateKind = step.movedOn ? 'moved' : step.status;
+      const { progress, state, stateKind } = stepWords(step, p);
       const tip = [missing || step.note || '', lastRun && nb.lastRunNote!.startsWith(step.title) ? lastRun : ''].filter(Boolean).join('\n');
       // is-live: the step is really running now (a 'running' status left by a restart doesn't spin).
       return html`<li class="nb-step nb-step--${step.status}${step === current ? ' nb-step--current' : ''}${running && step.status === 'running' ? ' is-live' : ''}" title="${tip}">
@@ -511,18 +515,6 @@ export function liveBar(live: NotebookLive | undefined, nb?: Notebook): SafeHtml
     </div>`;
 }
 
-/**
- * Steps folded away (a drawn page's header says so, once the work is mostly
- * done): one line saying how far it got and what's now, opening to the strip.
- */
-/**
- * A reading page's steps, folded to one line (its NotebookHeader says
- * steps: 'fold'): how far they got, then what they offer in the steps'
- * order (Look again, Search again, Check the top 5, Write again), so folding
- * never hides a control; first, Update all when two or more can run again
- * (all of them in order, then what's new). Open when a step is stuck or
- * waiting on you; the full strip is a click away.
- */
 /** Update all: each done profile, find and write step again, in order (two or more of them); nothing while it's working. */
 function updateAllButton(nb: Notebook, running: boolean): SafeHtml {
   const again = updateSteps(nb);
@@ -531,20 +523,45 @@ function updateAllButton(nb: Notebook, running: boolean): SafeHtml {
     : html``;
 }
 
-function foldedSteps(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], strip: SafeHtml, running = false): SafeHtml {
-  const done = steps.filter((x) => x.status === 'done' || x.status === 'met').length;
-  const now = steps.find((x) => x.status !== 'done' && x.status !== 'met');
+/**
+ * The steps while nothing runs and none is stuck: one chip each, in order
+ * ("✓ Find 4/5", "✓ Source 18/20 · short", "○ Pick 3 · yours"), each opening
+ * a small card with what the step did and what it offers (stepActions), then
+ * Update all, then All steps for the full strip. They took ~270px of the page
+ * as cards; folded, a line. Running or stuck, the page shows the strip.
+ */
+function stepChips(nb: Notebook, steps: readonly NotebookStep[], entries: readonly NotebookEntry[], strip: SafeHtml, madeBy?: NotebookMadeBy): SafeHtml {
+  const current = steps.find((x) => x.status !== 'done' && x.status !== 'met');
   const inRunning = entries.filter((e) => e.kind === 'option' && !e.ruledOut).length;
   const focus = topFor(nb, inRunning);
-  const acts = steps.map((step) => stepActions(nb, step, stepProgress(nb, entries, step), { running, current: now, inRunning, focus }));
-  const all = updateAllButton(nb, running);
-  const open = !running && (steps.some((x) => x.status === 'stuck') || (!!now && (now.kind === 'decide' || now.kind === 'narrow')));
-  return html`<div class="nb-hero__stepsrow">
-    <details class="nb-hero__steps"${open ? unsafeHtml(' open') : unsafeHtml('')}>
-      <summary>Steps: ${String(done)} of ${String(steps.length)} done${now ? html` · now: <b>${now.title}</b>` : html``}</summary>
-      ${strip}
-    </details>
-    <span class="nb-hero__stepacts">${all}${acts as unknown as SafeHtml[]}</span>
+  return html`<div class="nb-chips" role="list" aria-label="Steps">
+    ${steps.map((step) => {
+      const p = stepProgress(nb, entries, step);
+      const { progress, state, stateKind } = stepWords(step, p);
+      const finished = step.status === 'done' || step.status === 'met';
+      const short = !!step.movedOn && !p.met;
+      const yours = step === current && (step.kind === 'decide' || step.kind === 'narrow');
+      const mark = finished ? '✓' : step.status === 'stuck' ? '!' : '○';
+      const word = step.title.split(/\s+/)[0] ?? step.title;
+      const count = step.kind === 'decide' ? (p.have ? `${String(p.have)}/${String(p.want)}` : String(p.want))
+        : step.kind === 'narrow' ? (step.target ? String(step.target) : '')
+        : step.kind === 'write' || step.kind === 'profile' ? ''
+        : p.want ? `${String(p.have)}/${String(p.want)}` : '';
+      const by = step.agentId ?? suaStepAgentName(step.kind) ?? (isYourStep(step) ? 'you' : '');
+      const kind = short ? 'short' : yours ? 'yours' : finished ? 'done' : step.status;
+      return html`<details class="nb-chip-step nb-chip-step--${kind}" role="listitem" data-nb-act>
+        <summary class="nb-chip-step__chip" title="${step.title}: ${progress}${short ? ', moved on short of its goal' : ''}"><span aria-hidden="true">${mark}</span> ${word}${count ? html` <span class="nb-chip-step__count">${count}</span>` : html``}${short ? html` <span class="nb-chip-step__tag">· short</span>` : yours ? html` <span class="nb-chip-step__tag">· yours</span>` : html``}</summary>
+        <div class="nb-chip-step__card">
+          <b class="nb-chip-step__title">${step.title}</b>
+          ${by ? html`<span class="nb-chip-step__by">with ${by}</span>` : html``}
+          <span class="nb-chip-step__meta">${progress}${step.top ? ` · top ${String(step.top)}` : ''} · <span class="nb-step__state nb-step__state--${stateKind}">${state}</span></span>
+          ${step.why && step.movedOn ? html`<span class="nb-chip-step__why">${step.why}</span>` : step.note && !finished ? html`<span class="nb-chip-step__why">${step.note}</span>` : html``}
+          <span class="nb-chip-step__acts">${stepActions(nb, step, p, { running: false, current, inRunning, focus, how: !!madeBy?.stepPass[step.id] })}</span>
+        </div>
+      </details>`;
+    }) as unknown as SafeHtml[]}
+    <span class="nb-chips__end">${updateAllButton(nb, false)}</span>
+    <details class="nb-chips__all"><summary>All steps</summary>${strip}</details>
   </div>`;
 }
 
@@ -582,7 +599,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${madeBy?.runs ? html`` : html` · <a href="/notebooks/${id}/workflow">How it was made →</a>`}${running ? html`` : newLink(leads)}</span>
         </div>
         ${nb.steps?.length
-          ? (head?.steps === 'fold' && !running ? foldedSteps(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, !!running, madeBy), !!running) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
+          ? (!running && !nb.steps.some((x) => x.status === 'stuck' || x.status === 'running') ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
           : pipelineDiagram(stages)}
         ${madeByStrip(nb, madeBy)}
         ${running ? html`` : whatsNewBand(fresh)}

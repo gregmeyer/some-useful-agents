@@ -28,9 +28,6 @@
 .nb-hero__names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nb-hero__subtitle { margin: 0; font-family: var(--font-mono); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
 .nb-hero__side--drawn { min-width: 0; }
-.nb-hero__steps > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); }
-.nb-hero__steps > summary b { color: var(--color-text); font-weight: 600; }
-.nb-hero__steps[open] > summary { margin-bottom: var(--space-3); }
 .nb-hero__acts { margin-left: auto; }
 .nb-hero__acts .nb-acts { align-items: center; }
 .nb-hero__icon {
@@ -1202,17 +1199,41 @@ body.has-sua-panel .nb-toast { display: none; }
 .nb-conflict__acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .nb-conflict__acts form { margin: 0; }
 
-/* A reading page's folded steps: one line, then what the steps offer (views/notebooks.ts foldedSteps). */
-.nb-hero__stepsrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); }
-.nb-hero__steps[open] { flex-basis: 100%; }
-/* Open, the strip has them under each step. */
-.nb-hero__steps[open] + .nb-hero__stepacts { display: none; }
-.nb-hero__stepacts { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); }
-.nb-hero__stepacts:empty { display: none; }
-/* The full strip: Update all under it. */
+/* The steps while nothing runs: one chip each, opening a small card (views/notebooks.ts stepChips). */
+.nb-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0; }
+.nb-chip-step { position: relative; }
+.nb-chip-step > summary { list-style: none; display: inline-flex; align-items: center; gap: 4px; height: var(--control-h-sm, 28px); padding: 0 var(--space-3); border: 1px solid var(--color-border-strong); border-radius: 999px; background: var(--color-surface); font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text); cursor: pointer; white-space: nowrap; }
+.nb-chip-step > summary::-webkit-details-marker { display: none; }
+.nb-chip-step > summary::before, .nb-chips__all > summary::before { content: none; }
+.nb-chip-step > summary::after { content: '▾'; color: var(--color-text-subtle); }
+.nb-chip-step[open] > summary::after { content: '▴'; }
+.nb-chip-step > summary:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.nb-chip-step--done > summary { color: var(--color-ok); }
+.nb-chip-step--short > summary { color: var(--color-warn); background: var(--color-warn-soft); border-color: var(--color-warn-border, var(--color-warn)); }
+.nb-chip-step--yours > summary { color: var(--color-primary); background: var(--color-primary-soft); border-color: var(--color-primary); font-weight: 600; }
+.nb-chip-step--stuck > summary { color: var(--color-error, var(--color-warn)); }
+.nb-chip-step__count { color: inherit; }
+.nb-chip-step__tag { opacity: 0.85; }
+/* Its card: what the step did and what it offers, under the chip. */
+.nb-chip-step__card { position: absolute; z-index: 20; top: calc(100% + var(--space-1)); left: 0; width: min(360px, 80vw); display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-sm); font-size: var(--font-size-sm); }
+.nb-chip-step__title { font-weight: 600; }
+.nb-chip-step__by, .nb-chip-step__why { color: var(--color-text-muted); font-size: var(--font-size-xs); }
+.nb-chip-step__meta { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+.nb-chip-step__acts { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+.nb-chip-step__acts:empty { display: none; }
+.nb-chip-step__acts .nb-step__focus { display: inline; margin: 0; }
+.nb-chips__end:empty { display: none; }
+.nb-chips__end .nb-step__focus { display: inline; margin: 0; }
+.nb-chips__all { margin-left: auto; }
+.nb-chips__all > summary { cursor: pointer; font-size: var(--font-size-sm); color: var(--color-text-muted); list-style: none; }
+.nb-chips__all > summary::after { content: ' ▾'; }
+.nb-chips__all[open] > summary::after { content: ' ▴'; }
+/* All steps open: the full strip on its own line under the chips. */
+.nb-chips__all[open] { flex-basis: 100%; margin-left: 0; }
+.nb-chips__all[open] > summary { margin-bottom: var(--space-3); }
+/* The full strip (running or stuck): Update all under it. */
 .nb-hero__update { margin: var(--space-1) 0 0; }
 .nb-hero__update:empty { display: none; }
-.nb-hero__stepacts .nb-step__focus { display: inline; margin: 0; }
 
 /* What a notebook is waiting on from you (ADR-0077): a paste box, or go on without it. */
 .nb-given { display: grid; gap: var(--space-3); margin: 0 0 var(--space-4); }

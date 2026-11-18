@@ -3303,12 +3303,12 @@ describe('a profile step', () => {
     const { greetNotebook } = await import('../lib/notebook-chat.js');
     greetNotebook(ctx, nb.id);
     const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
-    // The folded line: Update all first, then each step's own, in the steps' order.
+    // Nothing running: the steps as chips, each with its own action in the steps' order, then Update all.
     const page = (await get(`/notebooks/${nb.id}`)).text;
-    const acts = page.slice(page.indexOf('nb-hero__stepacts'));
-    expect(acts.indexOf('Update all →')).toBeGreaterThan(-1);
-    expect(acts.indexOf('Update all →')).toBeLessThan(acts.indexOf('Look again →'));
+    const acts = page.slice(page.indexOf('<div class="nb-chips"'), page.indexOf('class="nb-chips__all"'));
+    expect(acts.indexOf('Look again →')).toBeGreaterThan(-1);
     expect(acts.indexOf('Look again →')).toBeLessThan(acts.indexOf('Write again →'));
+    expect(acts.indexOf('Write again →')).toBeLessThan(acts.indexOf('Update all →'));
     // A moment on, so the update's runs come after the ones before.
     await new Promise((r) => setTimeout(r, 5));
     const res = await request(app).post(`/notebooks/${nb.id}/update`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
@@ -3521,7 +3521,7 @@ describe('a drawn page\'s brief', () => {
 });
 
 describe('a drawn page\'s header', () => {
-  it('follows the layout\'s NotebookHeader: subtitle, no statement, folded steps, a drawn side part; without one, the usual header', async () => {
+  it('follows the layout\'s NotebookHeader: subtitle, no statement, step chips, a drawn side part; without one, the usual header', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
     const store = NotebookStore.fromHandle(runStore.databaseHandle());
@@ -3541,16 +3541,21 @@ describe('a drawn page\'s header', () => {
     html = (await get()).text;
     expect(html).toContain('<p class="nb-hero__subtitle">Meeting briefing</p>');
     expect(html).not.toContain('<p class="nb-hero__statement">What matters to Dana before we talk</p>');
-    expect(html).toContain('<details class="nb-hero__steps">');
-    expect(html).toMatch(/Steps: 0 of 2 done · now: <b>Find 5 themes<\/b>/);
-    // Folded, the steps still offer what they can do, on the same line (in the steps' order).
+    // Nothing running: one chip per step.
+    expect(html).toContain('<div class="nb-chips" role="list" aria-label="Steps">');
+    expect(html).toMatch(/<summary class="nb-chip-step__chip" title="Find 5 themes: 0 of 5 found"><span aria-hidden="true">○<\/span> Find <span class="nb-chip-step__count">0\/5<\/span>/);
+    // Done, its chip offers what it can do (in its card).
     const s1 = store.get(nb.id)!.steps![0].id;
     store.updateStep(nb.id, s1, { status: 'done' });
     html = (await get()).text;
-    expect(html).toMatch(/<\/details>\s*<span class="nb-hero__stepacts">[\s\S]*?Search again →/);
-    // A step stuck: the strip opens.
+    expect(html.slice(html.indexOf('nb-chip-step--done'), html.indexOf('class="nb-chips__all"'))).toContain('Search again →');
+    // The decide step is next and yours: its chip says so; the chips stay folded.
+    expect(html).toMatch(/nb-chip-step--yours[\s\S]*?○<\/span> Choose <span class="nb-chip-step__count">3<\/span> <span class="nb-chip-step__tag">· yours<\/span>/);
+    // A step stuck: the full strip, no chips.
     store.updateStep(nb.id, s1, { status: 'stuck' });
-    expect((await get()).text).toContain('<details class="nb-hero__steps" open>');
+    const stuck = (await get()).text;
+    expect(stuck).not.toContain('<div class="nb-chips"');
+    expect(stuck).toContain('nb-step nb-step--stuck');
     store.updateStep(nb.id, s1, { status: 'todo' });
     expect(html).toContain('data-a2ui-surface');
     expect(html).toContain(`notebook-${nb.id}-header`);
@@ -6676,5 +6681,27 @@ describe('notebooks asked for over MCP (notebook-create)', () => {
     const gone = requests.create({ template: 'no-such-template', subject: 'Acme' });
     await Promise.all(startQueuedNotebookRequests(ctx));
     expect(requests.get(gone.id)).toMatchObject({ phase: 'failed', error: expect.stringContaining('no template') });
+  });
+});
+
+describe('a notebook\'s steps fold to chips while nothing runs', () => {
+  it('a shortlist with no fold in its layout: done steps, one moved on short, a decide step next; all of it in chips, the strip one click away', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Find jobs', statement: 'Jobs that match' });
+    store.setSteps(nb.id, [{ title: 'Find five matching jobs', kind: 'find', target: 5 }, { title: 'Check each job\'s fit', kind: 'check' }, { title: 'Pick jobs to pursue', kind: 'decide', target: 3 }]);
+    const [a, b] = store.get(nb.id)!.steps!.map((x) => x.id);
+    for (const t of ['Acme', 'Globex', 'Initech', 'Umbrella']) store.upsertOption(nb.id, { title: t, body: '', by: 'you' });
+    store.updateStep(nb.id, a, { status: 'done' });
+    store.updateStep(nb.id, b, { status: 'done', movedOn: true, why: 'It was still getting closer after 3 tries.' } as never);
+    const html = (await request(app).get(`/notebooks/${nb.id}`).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE)).text;
+    const chips = html.slice(html.indexOf('<div class="nb-chips"'), html.indexOf('class="nb-chips__all"'));
+    expect(chips).toContain('✓</span> Find <span class="nb-chip-step__count">4/5</span>');
+    expect(chips).toMatch(/nb-chip-step--short[\s\S]*?Check[\s\S]*?· short/);
+    expect(chips).toContain('It was still getting closer after 3 tries.');
+    expect(chips).toMatch(/nb-chip-step--yours[\s\S]*?Pick <span class="nb-chip-step__count">3<\/span>[\s\S]*?Pick 3… →/);
+    // The full strip is still there, folded under All steps.
+    expect(html).toMatch(/<details class="nb-chips__all"><summary>All steps<\/summary><ol class="nb-steps/);
   });
 });
