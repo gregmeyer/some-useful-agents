@@ -5,6 +5,21 @@
  */
 export const NOTEBOOK_PAGE_JS = `
   (function () {
+    // The page again, without a one-time notice in its address (?flash=): reloading kept "Working
+    // on Write up the field now; I'll say here when it's done" on the page after it was done.
+    function reloadFresh() {
+      try {
+        var u = new URL(window.location.href);
+        if (u.searchParams.has('flash')) { u.searchParams.delete('flash'); window.location.replace(u.toString()); return; }
+      } catch (_) { /* reload as it is */ }
+      window.location.reload();
+    }
+    // Someone is typing: a box with focus that has something in it. An empty box with focus (the
+    // conversation's, which keeps focus after you send) is not a reason to hold the page back.
+    function typing() {
+      var ae = document.activeElement;
+      return !!ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT') && String(ae.value || '').trim() !== '';
+    }
     // Printing or saving the page as a PDF: a finding's link to its own page here would point a reader of the PDF at
     // this dashboard, which they can't open. While it prints, each such link goes to where the finding came from
     // (the map the page carries); one with no source has no link. Put back as they were after.
@@ -177,7 +192,7 @@ export const NOTEBOOK_PAGE_JS = `
         body.set('done', d.context.done ? '1' : '0');
         var url = '/notebooks/' + encodeURIComponent(optionPage.getAttribute('data-nb-option-notebook')) + '/entries/' + encodeURIComponent(optionPage.getAttribute('data-nb-option')) + '/check';
         fetch(url, { method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' }, body: body.toString() })
-          .then(function () { location.reload(); }, function () { location.reload(); });
+          .then(function () { reloadFresh(); }, function () { reloadFresh(); });
       });
       return;
     }
@@ -232,7 +247,7 @@ export const NOTEBOOK_PAGE_JS = `
         .then(function (res) {
           // The steps moved (started, paused or waiting on a new card, from here or the
           // conversation): reload, so the header's buttons match the conversation's card.
-          if (res.st !== null && res.st !== (main.getAttribute('data-nb-steps') || '') && !document.querySelector('textarea:focus, input:focus')) { window.location.reload(); return; }
+          if (res.st !== null && res.st !== (main.getAttribute('data-nb-steps') || '') && !typing()) { reloadFresh(); return; }
           // The conversation started or stopped waiting on you, or replying: redraw the
           // live bar and the Talk card, and say so when it's now waiting.
           if (res.lv !== null) {
@@ -258,7 +273,7 @@ export const NOTEBOOK_PAGE_JS = `
           changed = res.ch;
           main.setAttribute('data-nb-count', String(count));
           // The first entries also bring the conversation box to the side: reload once.
-          if (wasEmpty) { window.location.reload(); return; }
+          if (wasEmpty) { reloadFresh(); return; }
           fillMain(res.t);
         })
         .catch(function () { /* keep what's shown */ });
