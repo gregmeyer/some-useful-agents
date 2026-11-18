@@ -104,9 +104,14 @@ describe('the prepend stays after template substitution', () => {
       'utf-8',
     );
 
-    const substIdx = src.indexOf('resolvedPrompt = substituteInputs(');
+    // The prompt's templates are resolved by one helper (the same one the node's systemPrompt
+    // uses); it must still end in substituteInputs, and the prepend must come after its use.
+    const helper = /const resolveTemplates = \(text: string\) => (.+);\n/.exec(src);
+    expect(helper, 'resolveTemplates helper not found — did the spawner change?').not.toBeNull();
+    expect(helper![1].startsWith('substituteInputs('), 'resolveTemplates must apply substituteInputs last').toBe(true);
+    const substIdx = src.indexOf('resolvedPrompt = resolveTemplates(resolvedPrompt)');
     const injectIdx = src.indexOf('_opts.behaviorPreamble');
-    expect(substIdx, 'substituteInputs call not found — did the spawner change?').toBeGreaterThan(-1);
+    expect(substIdx, 'the prompt is not resolved by resolveTemplates — did the spawner change?').toBeGreaterThan(-1);
     expect(injectIdx, 'behaviorPreamble injection not found').toBeGreaterThan(-1);
     expect(
       injectIdx,
