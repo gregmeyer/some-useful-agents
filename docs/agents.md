@@ -203,7 +203,7 @@ Every agent has at least one node. Each node declares:
 | Type | Purpose | Key fields |
 |---|---|---|
 | `shell` | Run a shell command | `command`, `tool`, `toolInputs` |
-| `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `model`, `maxTurns`, `onMaxTurns`, `allowedTools`, `provider` |
+| `llm-prompt` | Run a Claude / Codex prompt | `prompt`, `systemPrompt`, `model`, `maxTurns`, `onMaxTurns`, `allowedTools`, `provider` |
 | `goal` | Let the model work toward a goal with tools, looping until it can answer ([goal-agents.md](goal-agents.md)) | `goal`, `tools`, `budget` |
 | `ask` | Stop and ask a person; the run waits for their answer in the inbox ([ask-a-person.md](ask-a-person.md)) | `question`, `choices`, `timeoutHours` |
 | `conditional` | Branch based on a predicate | `conditionalConfig` |
@@ -213,6 +213,13 @@ Every agent has at least one node. Each node declares:
 | `branch` / `end` / `break` | Flow control primitives | (see [flows.md](flows.md)) |
 
 Full flow control reference: [flows.md](flows.md).
+
+### The fixed part of a prompt: `systemPrompt`
+
+An `llm-prompt` node can split its instructions in two. `systemPrompt` holds what's the same on every call (who it is, the rules, an output schema, a long playbook), and `prompt` holds what changes (the request, the thread, today's data). Both are templated the same way (`{{inputs.X}}`, `{{upstream.…}}`, `{{vars.…}}`), and inputs either one names must be declared.
+
+- **Claude** gets `systemPrompt` as an appended system prompt, from a temporary file (`--append-system-prompt-file`), and only `prompt` on stdin. Its prompt cache keeps a system prompt between calls, so a long fixed part is read from the cache instead of being processed again each time. sua's inbox triage sends its 94 KB kernel this way.
+- **Every other provider** (codex, OpenAI-compatible endpoints, Apple) gets `systemPrompt` at the head of the prompt, followed by a blank line and `prompt`. That's the same text in the same order as a single prompt, so their own prefix caching still applies.
 
 ### When an `llm-prompt` node runs out of turns
 
