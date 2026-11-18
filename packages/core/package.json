@@ -14,7 +14,7 @@
     "@modelcontextprotocol/node": "2.1.2",
     "@modelcontextprotocol/server": "2.4.0",
     "@mozilla/readability": "0.6.0",
-    "cron-parser": "5.10.4",
+    "cron-parser": "5.10.6",
     "linkedom": "0.18.15",
     "node-cron": "4.6.0",
     "pg": "8.23.1",
@@ -24,7 +24,7 @@
     "zod": "4.6.7"
   },
   "optionalDependencies": {
-    "playwright": "1.65.0"
+    "playwright": "1.65.1"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
