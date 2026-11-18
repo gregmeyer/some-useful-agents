@@ -91,3 +91,17 @@ describe('money reads at a glance', () => {
     expect(formatFieldValue({ key: 'revenue', label: 'Revenue', type: 'money' }, { min: 18e6, max: 22e6 })).toBe('$18M–$22M');
   });
 });
+
+describe('the page catches up when a step finishes', () => {
+  it("reloads unless you're typing (an empty focused box, like the conversation's after you send, doesn't hold it), and drops a one-time notice", async () => {
+    const { NOTEBOOK_PAGE_JS } = await import('./notebook-page.js.js');
+    // It used to wait while any box had focus, so the write-up finished and the page never showed it.
+    expect(NOTEBOOK_PAGE_JS).not.toContain("!document.querySelector('textarea:focus, input:focus')");
+    expect(NOTEBOOK_PAGE_JS).toContain("res.st !== (main.getAttribute('data-nb-steps') || '') && !typing()) { reloadFresh(); return; }");
+    expect(NOTEBOOK_PAGE_JS).toContain("String(ae.value || '').trim() !== ''");
+    // "Working on Write up the field now" isn't shown again once it's done.
+    expect(NOTEBOOK_PAGE_JS).toContain("u.searchParams.delete('flash'); window.location.replace(u.toString())");
+    // Every reload goes through it: the only plain reload left is its own fallback.
+    expect(NOTEBOOK_PAGE_JS.match(/location\.reload\(\)/g)).toHaveLength(1);
+  });
+});
