@@ -36,6 +36,7 @@ import type { IntegrationsStore } from './integrations-store.js';
 import type { VariablesStore } from './variables-store.js';
 import type { PolicyDocument } from './policy-store.js';
 import type { SecretsStore } from './secrets-store.js';
+import { noteProviderFailure, clearProviderCooldown, withoutCoolingProviders } from './provider-cooldown.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -1210,13 +1211,21 @@ export async function spawnNodeReal(
   // every env var: they're the intended consumer.
   const childEnv = llmChildEnv(env, node.prompt);
 
-  const chain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);
+  // A provider that just failed in a lasting way (out of quota until a stated time, not running, signed out)
+  // is skipped until its cooldown ends, not tried and failed again on every node.
+  const { chain, skipped } = withoutCoolingProviders(buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders));
 
   const attemptedProviders: string[] = [];
   // Per-attempt failure trail: why each non-winning provider was skipped.
   // Surfaced on the node card and logged below so a successful fallback run
   // still records WHY the earlier providers failed.
-  const providerFailures: ProviderFailure[] = [];
+  const providerFailures: ProviderFailure[] = skipped.map((c) => ({
+    provider: c.provider, category: c.category,
+    error: `Skipped: it failed (${c.category}) ${Math.max(1, Math.round((Date.now() - c.at) / 60_000))} min ago; tried again after ${new Date(c.until).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
+  }));
+  for (const c of skipped) {
+    process.stderr.write(`[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: skipping ${c.provider} (${c.category}) until ${new Date(c.until).toISOString()}\n`);
+  }
   let lastResult: SpawnResult | undefined;
   let lastCategory: LlmFailureCategory = 'other';
   // Across every attempt: a provider that called tools and then failed still
@@ -1290,6 +1299,7 @@ export async function spawnNodeReal(
     if (result.exitCode === 0) {
       const check = validateOutputContract(node.outputContract, result.result);
       if (check.ok) {
+        clearProviderCooldown(provider);
         // Success — annotate with the trail so the dashboard can show
         // "ran on codex after claude failed" without parsing the error
         // breadcrumb.
@@ -1327,6 +1337,7 @@ export async function spawnNodeReal(
     const errSnippet = (result.error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const ranModel = attemptNode.model ?? (provider === 'codex' ? codexConfigModel() : provider === 'claude' ? claudeConfigModel() : _opts.llmSettings?.customProviders?.find((c) => c.name === provider)?.model);
     providerFailures.push({ provider, category: lastCategory, error: errSnippet || undefined, ...(ranModel ? { model: ranModel } : {}) });
+    noteProviderFailure(provider, lastCategory, `${result.error ?? ''} ${result.result ?? ''}`);
     if (lastCategory === 'model_unavailable') {
       try {
         _opts.llmSettings?.onModelUnavailable?.({

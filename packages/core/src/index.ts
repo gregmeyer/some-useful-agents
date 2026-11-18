@@ -677,3 +677,4 @@ export { sanitizeSvg, MAX_SVG_BYTES } from './svg-sanitizer.js';
 export { createLiveProgress, newLiveCursor, takeNewProgress, type LiveCursor } from './live-progress.js';
 export * from './agent-catalog-store.js';
 export * from './person-photo.js';
+export { noteProviderFailure, clearProviderCooldown, providerCooldown, providerCooldowns, withoutCoolingProviders, retryAtFrom, resetProviderCooldowns, COOLDOWN_MS, type ProviderCooldown } from './provider-cooldown.js';
