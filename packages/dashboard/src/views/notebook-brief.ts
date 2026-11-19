@@ -452,8 +452,7 @@ ${TLDR_CSS}
   h2, h3 { break-after: avoid; }
   .pic--hero { max-width: 16rem; }
   .opt, tr, .decision, .stands, .findings li, .plain li, .cols > div { break-inside: avoid; }
-  /* The link works in a PDF, so on paper it says where it goes (the site), not its whole address. */
-  .opt__link::after { content: " " attr(data-site); font: 400 0.6875rem var(--mono); color: var(--subtle); }
+  /* No site printed after "Own page": a PDF viewer (macOS Preview) makes text that looks like an address its own link, so "jobs.ashbyhq.com" beside the link opened the bare site, not the job. The link itself goes to the page. */
   footer { break-before: avoid; }
   .brief .tl { zoom: 0.62; break-inside: avoid; }
   .fullset > h2 { break-before: page; }
