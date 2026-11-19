@@ -103,8 +103,17 @@ nodes:
       the notebook needs to know (how it works, the steps, what to weigh,
       the rules), from regulators, official bodies and reputable guides
       first. Open each one. Reply with only this JSON, on one line:
-      {"where":"{{inputs.WHERE}}","learned":[{"title":"the page's title","url":"the page","quote":"a sentence copied from the page","takeaway":"what it says that the notebook can use, in one plain sentence"}],"note":"what you searched and opened"}
-      Each takeaway says only what its page says.
+      {"where":"{{inputs.WHERE}}","learned":[{"title":"the page's title","url":"the page","quote":"a sentence copied from the page","takeaway":"what it says that the notebook can use, in one plain sentence","publisher":"who publishes the page (an organization or a person, not the site's address)","kind":"primary | vendor | independent | community","whose":"the thing the notebook asks about that made or runs this page, or none"}],"note":"what you searched and opened"}
+      Each takeaway says only what its page says. "kind": primary is the
+      thing itself speaking (its spec, official docs or repo, a standards
+      body, a regulator); vendor is a company selling something about it;
+      independent is third-party analysis, press or research by someone
+      with no stake in it; community is a forum, a personal post or a Q&A.
+      "whose" names one of the things the notebook asks about when its
+      maker publishes the page (a project's site, a company's blog about
+      its own work, including one co-written with partners); otherwise
+      "none". Include at least one page from someone with no stake in what
+      it explains when there is one.
 
       Otherwise, reply with only this JSON, on one line, and nothing else:
       {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"near":[{"title":"…","url":"its own page","facts":{},"misses":"which limit and by how much"}],"note":"what you searched and opened, and what you couldn't cover"}

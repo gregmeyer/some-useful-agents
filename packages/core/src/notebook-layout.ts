@@ -258,7 +258,7 @@ const COMPANY: ViewComponent[] = [
  * found as a table, and the research folded at the end.
  */
 const ANSWER: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'top', 'sections_p', 'findings_p', 'evidence_p', 'more'] },
+  { id: 'root', component: 'Column', children: ['header', 'top', 'sections_p', 'findings_p', 'sources_p', 'evidence_p', 'more'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Answer', steps: 'fold', cover: 'none' },
   { id: 'top', component: 'Columns', children: ['answer', 'steps_panel'], widths: [2, 1], align: 'start' },
   { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
@@ -268,6 +268,12 @@ const ANSWER: ViewComponent[] = [
   {
     id: 'findings', component: 'Agenda', title: 'Key findings', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
     questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
+  },
+  // Who its pages are from (ADR-0081): each publisher, whose own or from outside, linked to its pages.
+  { ...panel('sources_p', 'Where its sources are from', 'sources', 'who publishes each page it learned from'), when: 'answered' },
+  {
+    id: 'sources', component: 'Agenda', points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
+    questionsLabel: 'To weigh', maxQuestions: 3, check: false, empty: 'No pages yet.',
   },
   panel('steps_panel', 'Done when', 'steps'),
   { id: 'steps', component: 'Steps', steps: { path: '/notebook/steps' }, label: 'Progress' },
@@ -833,6 +839,8 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/section': 'One written part by its key, /notebook/section/<key> (an answer\'s or a plan\'s), the same shape as an answerSections item; a page composed around what was written binds parts this way, and a key that\'s gone leaves its part out. A diagram with what-ifs (the written part says "whatIf") draws its own sliders; nothing to add.',
   '/notebook/experiment': 'For a notebook that shows an experiment (ADR-0078): {label, headline, rests, figures: [{label, value, sub, tone?}] (StatStrip), conditions, changes and items (Table rows), href, runs}. Counted from the experiment\'s runs; empty rows before it has run.',
   '/notebook/openQuestions': 'What the answer leaves open: questions it couldn\'t settle or what to do next (Agenda questions).',
+  '/notebook/sources': 'Who publishes the pages an answer learned from (ADR-0081): one point per publisher, saying whose own pages they are or that they\'re from outside the subjects, what kind of source and how many pages, each linked to its pages (Agenda points).',
+  '/notebook/sourceCautions': 'What to weigh about where an answer\'s sources come from: when every page it rests on is the subjects\' own, or only one publisher is from outside them (Agenda questions).',
   '/notebook/planIntro/label': '"The plan" once a write step wrote one; before, "Where it stands" (Callout label).',
   '/notebook/planIntro/text': 'The plan in a sentence or two; before then, where the notebook stands (Callout text).',
   '/notebook/planIntro/next': 'Before a plan, what\'s next (Callout next).',

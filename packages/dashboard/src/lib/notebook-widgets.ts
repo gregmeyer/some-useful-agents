@@ -13,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { readerPage } from '@some-useful-agents/core';
+import { readerPage, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -212,6 +212,10 @@ export interface NotebookWidgetData extends NotebookViewData {
     findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
+    /** Who publishes the pages it learned from, one point per publisher, linked to its pages (Agenda points; ADR-0081). */
+    sources: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
+    /** What to weigh about where its sources come from (Agenda questions). */
+    sourceCautions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
     answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
     /** A plan's parts besides its days (AnswerSections), the same shapes as an answer's. */
@@ -745,16 +749,73 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
 function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[]): (from: readonly string[]) => Array<{ label: string; href: string }> {
   const byId = new Map(active.map((o) => [o.id, o]));
   const sources = new Map(entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => [e.id, e]));
+  const subjects = answerSubjects(nb);
   return (from) => {
     const out = from.flatMap((id) => {
       const o = byId.get(id);
       if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
       const e = sources.get(id);
-      return e ? [{ label: sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
+      // Named for who publishes it (ADR-0081), else its site.
+      return e ? [{ label: evidenceOrigin(e, subjects)?.publisher ?? sourceLabel(e.fingerprint!), href: e.fingerprint! }] : [];
     });
-    // Two pages of one site: "finra.org", "finra.org (2)".
+    // Two pages of one publisher: "CopilotKit", "CopilotKit (2)".
     return out.map((r, i) => { const n = out.slice(0, i).filter((x) => x.label === r.label).length; return n ? { ...r, label: `${r.label} (${String(n + 1)})` } : r; });
   };
+}
+
+/** Every entry id an answer cites (its findings, its sections' rows and steps), once each. */
+function citedIds(a: NonNullable<Notebook['answer']>): string[] {
+  const out = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (!v || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v)) {
+      if (k === 'from' && Array.isArray(x)) x.forEach((id) => { if (typeof id === 'string') out.add(id); });
+      else if (k !== 'previous') walk(x);
+    }
+  };
+  walk(a.findings);
+  walk(a.sections);
+  return [...out];
+}
+
+/**
+ * What to weigh about where an answer's cited sources come from (SIFT:
+ * investigate the source), or undefined when 2+ publishers outside its
+ * subjects back it. Options it cites aren't pages it learned from, so they
+ * don't count either way. Pure.
+ */
+export function answerSourceCaution(nb: Notebook, entries: readonly NotebookEntry[]): string | undefined {
+  if (!nb.answer?.text) return undefined;
+  const subjects = answerSubjects(nb);
+  const cited = new Set(citedIds(nb.answer));
+  const origins = entries.filter((e) => e.kind === 'evidence' && cited.has(e.id)).map((e) => evidenceOrigin(e, subjects)).filter((o): o is NonNullable<typeof o> => !!o);
+  return sourceSpreadCaution(sourceSpread(origins));
+}
+
+const KIND_WORDS: Record<SourceKind, string> = { primary: 'primary source', vendor: 'vendor', independent: 'independent', community: 'community' };
+
+/**
+ * Who publishes the pages a notebook learned from (its evidence with a
+ * page), one point per publisher, most pages first: "CopilotKit · its own
+ * pages · primary source · 6 pages", linked to each page. Pure.
+ */
+export function sourcePoints(nb: Notebook, entries: readonly NotebookEntry[]): NotebookWidgetData['notebook']['sources'] {
+  const subjects = answerSubjects(nb);
+  const pages = entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => ({ e, o: evidenceOrigin(e, subjects)! })).filter((x) => x.o);
+  const spread = sourceSpread(pages.map((x) => x.o));
+  const kinds = (xs: typeof pages) => SOURCE_KINDS.filter((k) => xs.some((x) => x.o.kind === k)).map((k) => KIND_WORDS[k]).join(' and ');
+  return spread.byPublisher.map((p) => {
+    const mine = pages.filter((x) => x.o.publisher.toLowerCase().replace(/[^a-z0-9]/g, '') === p.publisher.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    // By address, so pages filed in one run keep one order.
+    const refs = mine.map((x) => ({ label: sourceLabel(x.e.fingerprint!), href: x.e.fingerprint! })).sort((a, b) => a.href.localeCompare(b.href));
+    const whose = p.whose ? (p.whose.toLowerCase() === p.publisher.toLowerCase() ? 'its own pages' : `${p.whose}'s own pages`) : 'from outside the subjects';
+    return {
+      // Its pages' kinds, in a fixed order ("primary source and vendor" when they differ).
+      text: [p.publisher, whose, ...(kinds(mine) ? [kinds(mine)] : []), `${String(p.pages)} page${p.pages === 1 ? '' : 's'}`].join(' · '),
+      refs: refs.map((r, i) => { const n = refs.slice(0, i).filter((x) => x.label === r.label).length; return n ? { ...r, label: `${r.label} (${String(n + 1)})` } : r; }),
+    };
+  });
 }
 
 /** A source page's site, for its link ("consumerfinance.gov"). */
@@ -815,10 +876,11 @@ const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { hi
  * gets written up, the same payload is the write-up: the lay of the land,
  * how well checked, no cover art (the page's bars and head-to-head draw it).
  */
-function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections'> {
+function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections' | 'sources' | 'sourceCautions'> {
   const a = nb.answer;
   const question = nb.statement || nb.title;
-  if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [] };
+  if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [], sources: sourcePoints(nb, entries), sourceCautions: [] };
+  const caution = answerSourceCaution(nb, entries);
   const refs = answerRefs(nb, active, entries);
   const answerSections = sectionViews(a.sections, a.struck, refs);
   const writeup = writesUp(nb);
@@ -827,8 +889,11 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
       ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
       : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
     findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
-    openQuestions: a.open.map((text) => ({ text })),
+    // Where its sources come from comes first when that's what to weigh.
+    openQuestions: [...(caution ? [caution] : []), ...a.open].map((text) => ({ text })),
     answerSections,
+    sources: sourcePoints(nb, entries),
+    sourceCautions: caution ? [{ text: caution }] : [],
   };
 }
 

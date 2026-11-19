@@ -13,7 +13,7 @@
  */
 import { agentForCopy } from './experiment-copy-agent.js';
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
-import { NotebookStore, BRIEFING_PARTS, subjectHost, optionLink, type BriefingRules, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, BRIEFING_PARTS, answerSubjects, evidenceOrigin, subjectHost, optionLink, type BriefingRules, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -72,11 +72,17 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(step.shape === 'writeup' && Object.keys(optionFacets(nb, o) ?? {}).length ? { groups: optionFacets(nb, o) } : {}),
     };
   });
+  const subjects = answerSubjects(nb);
   // An answer or plan (or a write-up) also rests on the pages its research found that explain (evidence with its page), cited by id like an option.
   const explains = step.shape === 'answer' || step.shape === 'plan' || step.shape === 'writeup'
-    ? entries.filter((e) => e.kind === 'evidence' && e.fingerprint).slice(0, 12).map((e) => ({
-      id: e.id, title: e.title, ...(e.body ? { said: e.body.replace(/\s+/g, ' ').slice(0, 500) } : {}), source: e.fingerprint!, explains: true,
-    }))
+    ? entries.filter((e) => e.kind === 'evidence' && e.fingerprint).slice(0, 12).map((e) => {
+      // Who publishes it, and whether it's one of the subjects' own page or from outside them (ADR-0081).
+      const o = evidenceOrigin(e, subjects);
+      return {
+        id: e.id, title: e.title, ...(e.body ? { said: e.body.replace(/\s+/g, ' ').slice(0, 500) } : {}), source: e.fingerprint!, explains: true,
+        ...(o ? { publisher: o.publisher, ...(o.kind ? { kind: o.kind } : {}), whose: o.whose ? `${o.whose}'s own` : 'from outside the subjects' } : {}),
+      };
+    })
     : [];
   const person = about('person');
   const company = about('company');

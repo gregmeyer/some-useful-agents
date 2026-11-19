@@ -12,6 +12,7 @@ import { DEFAULT_ATTACH_FILE_TYPES, cleanAttachFileTypes } from './attach-file-t
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
+import { parseSourceOrigin, sourceOrigin, type NotebookSourceOrigin } from './notebook-source-origin.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
@@ -937,6 +938,8 @@ export interface NotebookEntry {
   factMeta?: Record<string, NotebookFactMeta>;
   /** What makes an option the same one next time (a listing address, a VIN). */
   fingerprint?: string;
+  /** Evidence from a page: who publishes it, what kind of source it is, and whether it's a subject's own (ADR-0081). */
+  origin?: NotebookSourceOrigin;
   /** The last run that found it again (first seen is `createdAt`). */
   lastSeenAt?: string;
   /** An option's stage (one of the notebook's stages) and when it got there. */
@@ -1638,7 +1641,7 @@ export class NotebookStore {
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'given_json TEXT'],
-      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'],
+      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
@@ -3161,19 +3164,21 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
-  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string; runId?: string; source?: string }): NotebookEntry {
+  addEntry(notebookId: string, input: { kind: NotebookEntryKind; title: string; body?: string; by: string; runId?: string; source?: string; origin?: { publisher?: unknown; kind?: unknown; whose?: unknown }; subjects?: readonly string[] }): NotebookEntry {
     this.mustGet(notebookId);
     if (!(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(input.kind)) throw new Error(`Not an entry kind: ${input.kind}.`);
     const title = input.title.replace(/\s+/g, ' ').trim().slice(0, 160);
     if (!title) throw new Error('An entry needs a line of text.');
     // Evidence from a page keeps the page, as its fingerprint (an option's is how it's matched; evidence's is where it's from).
     const source = input.kind !== 'option' && input.source && /^https?:\/\//i.test(input.source.trim()) ? input.source.trim().slice(0, 1000) : undefined;
+    // Evidence from a page says where it's from: what its finder said, checked against the address and the notebook's subjects.
+    const origin = input.kind === 'evidence' && source && (input.origin || input.subjects) ? sourceOrigin(source, input.subjects ?? [], input.origin) : undefined;
     const entry: NotebookEntry = {
       id: randomUUID(), notebookId, kind: input.kind, title, body: (input.body ?? '').trim().slice(0, 8000), by: input.by,
-      ...(input.runId ? { runId: input.runId } : {}), ...(source ? { fingerprint: source } : {}), createdAt: new Date().toISOString(),
+      ...(input.runId ? { runId: input.runId } : {}), ...(source ? { fingerprint: source } : {}), ...(origin ? { origin } : {}), createdAt: new Date().toISOString(),
     };
-    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, run_id, fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.runId ?? null, source ?? null, entry.createdAt);
+    this.db.prepare('INSERT INTO notebook_entries (id, notebook_id, kind, title, body, by, run_id, fingerprint, origin_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(entry.id, notebookId, entry.kind, entry.title, entry.body, entry.by, entry.runId ?? null, source ?? null, origin ? JSON.stringify(origin) : null, entry.createdAt);
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(entry.createdAt, notebookId);
     return entry;
   }
@@ -3288,6 +3293,7 @@ export class NotebookStore {
       ...(r.data_json ? { data: (() => { try { return JSON.parse(String(r.data_json)) as Record<string, NotebookFieldValue>; } catch { return {}; } })() } : {}),
       ...(r.fact_meta_json ? { factMeta: (() => { try { return JSON.parse(String(r.fact_meta_json)) as Record<string, NotebookFactMeta>; } catch { return {}; } })() } : {}),
       ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
+      ...(r.origin_json ? (() => { try { const o = parseSourceOrigin(JSON.parse(String(r.origin_json))); return o ? { origin: o } : {}; } catch { return {}; } })() : {}),
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
       ...(r.stage ? { stage: String(r.stage) } : {}),
       ...(r.checked_json ? { checked: (() => { try { return JSON.parse(String(r.checked_json)) as string[]; } catch { return []; } })() } : {}),

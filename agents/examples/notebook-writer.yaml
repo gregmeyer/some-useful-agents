@@ -68,10 +68,16 @@ nodes:
         - "answer": the answer itself, 1 to 4 sentences in plain words,
           leading with the direct answer; **bold** the key part. If what's
           above can't settle it, say what it does show and what's missing.
-        - "confidence": "high" (several good sources agree), "medium"
-          (some support, or sources differ) or "low" (thin, old or
-          one-sided);
-        - "basis": one sentence on why that confidence;
+        - "confidence": "high" (good sources from different publishers
+          agree, at least one of them from outside the things it's about),
+          "medium" (some support, sources differ, or every source is the
+          subjects' own pages) or "low" (thin, old or one-sided). Each
+          source above says its "publisher" and "whose": pages that are
+          the subjects' own speak for themselves; several of them agreeing
+          is one interested voice, not corroboration. Judge by how good
+          and how independent the sources are, never by how many repeat it;
+        - "basis": one sentence on why that confidence, naming who the
+          sources are from;
         - "findings": 3 to 6, each {"text": one sentence, a fact or a
           point the answer rests on, "from": the ids it comes from (one or
           more, only ids given above)}; most important first;

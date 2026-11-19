@@ -4843,11 +4843,59 @@ describe('a write step', () => {
     for (let i = 0; i < 50 && s.get(nb.id)!.steps![1].status === 'running'; i++) await new Promise((r) => setTimeout(r, 20));
     // With no options at all, it still answers: from what explains.
     const themes = JSON.parse(writerAsked.at(-1)!.THEMES) as Array<Record<string, unknown>>;
-    expect(themes).toEqual([{ id: evidence[0].id, title: 'A ladder staggers maturities so part comes due each year.', said: '"Staggered maturity dates." (found by the Ladder guidance search)', source: 'https://regulator.example/cd-ladders', explains: true }]);
+    expect(themes).toEqual([{ id: evidence[0].id, title: 'A ladder staggers maturities so part comes due each year.', said: '"Staggered maturity dates." (found by the Ladder guidance search)', source: 'https://regulator.example/cd-ladders', explains: true, publisher: 'regulator.example', whose: 'from outside the subjects' }]);
     const after = s.get(nb.id)!;
     expect(after.answer!.findings[0].from).toEqual([evidence[0].id]);
     expect(notebookWidgetData(after, s.entries(nb.id)).notebook.findings[0].refs).toEqual([{ label: 'regulator.example', href: 'https://regulator.example/cd-ladders' }]);
     writerReply = undefined;
+  });
+
+  it("an answer's sources say who publishes them: the finder's word checked against the address, a caution when they're all the subjects' own (ADR-0081)", async () => {
+    await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const { writerInputs } = await import('../lib/notebook-write.js');
+    const { applyKeeperResult } = await import('../lib/notebook-pipeline.js');
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = s.create({ title: 'Understand A2UI vs AG-UI vs CopilotKit', statement: 'Help me understand the difference.' });
+    s.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', target: 3 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    const page = (title: string, url: string, origin?: Record<string, string>) => ({ kind: 'evidence', title, body: '"A quote."', fingerprint: url, ...(origin ? { origin } : {}) });
+    applyKeeperResult(s, s.get(nb.id)!, 'notebook-finder', 'run-1', `<notebook>${JSON.stringify({ entries: [
+      page('A2UI describes it, AG-UI carries it', 'https://www.copilotkit.ai/ag-ui-and-a2ui', { publisher: 'CopilotKit', kind: 'vendor', whose: 'none' }),
+      page('CopilotKit is a three-layer stack', 'https://docs.copilotkit.ai/concepts/architecture'),
+      page('A2UI works with AG-UI agents', 'https://developers.googleblog.com/a2ui', { publisher: 'Google', kind: 'vendor', whose: 'A2UI' }),
+      page('AG-UI is an event protocol', 'https://docs.ag-ui.com/introduction'),
+    ] })}</notebook>`);
+    const ev = s.entries(nb.id).filter((e) => e.kind === 'evidence');
+    const by = (url: string) => ev.find((e) => e.fingerprint === url)!;
+    // Its site is CopilotKit's, whatever the finder said; Google's post is A2UI's own because the finder said so.
+    expect(by('https://www.copilotkit.ai/ag-ui-and-a2ui').origin).toEqual({ publisher: 'CopilotKit', kind: 'vendor', whose: 'CopilotKit' });
+    expect(by('https://developers.googleblog.com/a2ui').origin).toEqual({ publisher: 'Google', kind: 'vendor', whose: 'A2UI' });
+    expect(by('https://docs.ag-ui.com/introduction').origin).toEqual({ publisher: 'AG-UI', kind: 'primary', whose: 'AG-UI' });
+    // The writer reads who each one is from.
+    const themes = JSON.parse(writerInputs(s.get(nb.id)!, s.entries(nb.id), { shape: 'answer' }).THEMES) as Array<Record<string, unknown>>;
+    expect(themes.find((t) => t.source === 'https://developers.googleblog.com/a2ui')).toMatchObject({ publisher: 'Google', kind: 'vendor', whose: "A2UI's own" });
+
+    s.setAnswer(nb.id, { question: 'q', text: 'A2UI describes, AG-UI carries, CopilotKit renders.', confidence: 'high', findings: [
+      { text: 'They are layers.', from: [by('https://www.copilotkit.ai/ag-ui-and-a2ui').id, by('https://docs.copilotkit.ai/concepts/architecture').id] },
+      { text: 'AG-UI is a protocol.', from: [by('https://docs.ag-ui.com/introduction').id] },
+    ], open: ['Who governs AG-UI.'], at: new Date().toISOString(), by: 'agent:notebook-writer' });
+    const view = notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook;
+    // Refs are named for their publisher, a second page of one numbered.
+    expect(view.findings[0].refs.map((r) => r.label)).toEqual(['CopilotKit', 'CopilotKit (2)']);
+    // Every cited page is the subjects' own: said first under Still open, and under the sources.
+    const caution = "All 3 sources it rests on are the subjects' own pages (CopilotKit 2, AG-UI 1); none from outside them confirms what they say.";
+    expect(view.openQuestions.map((q) => q.text)).toEqual([caution, 'Who governs AG-UI.']);
+    expect(view.sourceCautions).toEqual([{ text: caution }]);
+    // Each publisher once, most pages first, linked to its pages.
+    expect(view.sources.map((p) => p.text)).toEqual(['CopilotKit · its own pages · primary source and vendor · 2 pages', 'AG-UI · its own pages · primary source · 1 page', "Google · A2UI's own pages · vendor · 1 page"]);
+    expect(view.sources[0].refs).toEqual([{ label: 'docs.copilotkit.ai', href: 'https://docs.copilotkit.ai/concepts/architecture' }, { label: 'copilotkit.ai', href: 'https://www.copilotkit.ai/ag-ui-and-a2ui' }]);
+
+    // Two outside publishers cited: nothing to weigh.
+    applyKeeperResult(s, s.get(nb.id)!, 'notebook-finder', 'run-2', `<notebook>${JSON.stringify({ entries: [page('An outside explainer', 'https://thenewstack.io/a2ui'), page('Another outside view', 'https://infoq.com/ag-ui')] })}</notebook>`);
+    const out = s.entries(nb.id).filter((e) => e.kind === 'evidence' && /thenewstack|infoq/.test(e.fingerprint!)).map((e) => e.id);
+    s.setAnswer(nb.id, { ...s.get(nb.id)!.answer!, findings: [{ text: 'Outside views agree.', from: out }] });
+    expect(notebookWidgetData(s.get(nb.id)!, s.entries(nb.id)).notebook.sourceCautions).toEqual([]);
   });
 
   it('an answer gives the parts it was asked for: a rubric and steps, on the page and in the brief, and its done-when ticks', async () => {
