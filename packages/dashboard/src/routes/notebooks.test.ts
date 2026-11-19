@@ -2658,8 +2658,8 @@ describe('a brief to share', () => {
     expect(made[0].html).not.toMatch(/<script/);
     expect(made[0].opts.paper).toBe('Letter');
     expect(made[0].opts.footer).toMatch(new RegExp(`^${nb.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · \\w+ \\d+, \\d{4}$`));
-    // On paper a link says its site, not its whole address; the paper is white.
-    expect(made[0].html).toContain('.opt__link::after { content: " " attr(data-site);');
+    // On paper "Own page" prints no site after it (a PDF viewer would link that text to the bare site); the paper is white.
+    expect(made[0].html).not.toContain('attr(data-site)');
     expect(made[0].html).toContain('html, body { background: #fff !important; }');
     // The extended one and A4, by address.
     const ext = await get(`/notebooks/${nb.id}/brief.pdf?full=1&paper=a4`);
