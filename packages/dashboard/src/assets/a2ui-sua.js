@@ -1183,6 +1183,7 @@ const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.compone
 const TRACED = {
   verified: ['Verified', 'Its quote is on a primary page: the thing itself (its spec, docs or repo)'],
   supported: ['Supported', 'Its quote is on the page it cites, but not a primary one'],
+  interpretation: ['Interpretation', 'What the answer draws from its sources, not something a source says'],
   unverified: ['Unverified', 'The quotes it cites weren\u2019t found on their pages, or the pages couldn\u2019t be read'],
 };
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
@@ -1220,6 +1221,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     .tr--verified { color: var(--color-ok); background: var(--color-ok-soft); }
     .tr--supported { color: var(--color-info); background: var(--color-info-soft); }
     .tr--unverified { color: var(--color-warn); background: var(--color-warn-soft); }
+    .tr--interpretation { color: var(--color-text-muted); background: transparent; box-shadow: inset 0 0 0 1px var(--color-border); }
     ul { margin: 0 0 16px; padding-left: 18px; display: grid; gap: 6px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
     ul:last-child, ol:last-child { margin-bottom: 0; }
     .watch li::marker { color: var(--color-warn); }

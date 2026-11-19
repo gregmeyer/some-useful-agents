@@ -12,7 +12,7 @@ import {
   notebookLayoutOf, isMeetingNotebook, cleanMeeting, openConflicts, notebookReadoutText, type NotebookMeeting,
   answerSectionLines,
 } from '@some-useful-agents/core';
-import { givenMissing } from '@some-useful-agents/core';
+import { answerConfidence, givenMissing } from '@some-useful-agents/core';
 import { experimentDataFor } from './experiment-notebook.js';
 import type { getContext } from '../context.js';
 import { draftSteps } from './notebook-draft.js';
@@ -403,7 +403,9 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       ...(nb.plan.sections?.length ? { sections: nb.plan.sections.map((x) => ({ title: x.title, kind: x.kind, lines: answerSectionLines(x).map((t) => t.slice(0, 200)) })).filter((_, i, all) => JSON.stringify(all.slice(0, i + 1)).length < 1500) } : {}),
     } } : {}),
     ...(nb.answer?.text ? { answer: {
-      text: nb.answer.text, confidence: nb.answer.confidence, findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open,
+      // How sure as the page says it: capped by its evidence, with why (ADR-0083).
+      text: nb.answer.text, ...((): { confidence: string; notHigher?: string[] } => { const c = answerConfidence(nb, all); return c ? { confidence: c.shown, ...(c.why.length ? { notHigher: c.why } : {}) } : { confidence: nb.answer!.confidence }; })(),
+      findings: nb.answer.findings.map((f) => f.text), open: nb.answer.open, ...(nb.answer.contradictions?.length ? { sourcesDisagree: nb.answer.contradictions.map((c) => c.text) } : {}),
       // Its steps and rubric rows too, so sua knows the answer has them (and can name one to change).
       ...(nb.answer.sections?.length ? { sections: nb.answer.sections.map((x) => ({ title: x.title, kind: x.kind, lines: answerSectionLines(x).map((t) => t.slice(0, 200)) })).filter((_, i, all) => JSON.stringify(all.slice(0, i + 1)).length < 1500) } : {}),
     } } : {}),

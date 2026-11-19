@@ -195,9 +195,9 @@ ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() 
   return `<!doctype html>\n<html lang="en"${args.theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(page).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
 }
 
-/** How a finding's sources traced (ADR-0082), as a small word after it: Verified, Supported, Unverified. Nothing before the check step has looked. */
+/** How a finding stands (ADR-0082, ADR-0083), as a small word after it: Verified, Supported, Unverified, or Interpretation. Nothing before the check step has looked. */
 export function traceTag(trace: unknown): SafeHtml {
-  const word = trace === 'verified' ? 'Verified' : trace === 'supported' ? 'Supported' : trace === 'unverified' ? 'Unverified' : '';
+  const word = trace === 'verified' ? 'Verified' : trace === 'supported' ? 'Supported' : trace === 'unverified' ? 'Unverified' : trace === 'interpretation' ? 'Interpretation' : '';
   return word ? html` <span class="trace trace--${String(trace)}">${word}</span>` : html``;
 }
 

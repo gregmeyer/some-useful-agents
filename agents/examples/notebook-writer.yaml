@@ -79,14 +79,25 @@ nodes:
           read" wasn't confirmed: lean on it less, and don't make a finding
           rest on it alone when another source says the same. Judge by how
           good and how independent the sources are, never by how many
-          repeat it;
+          repeat it. sua caps what you say from the same evidence and says
+          why, so say what the sources support, not what you hope;
         - "basis": one sentence on why that confidence, naming who the
           sources are from;
         - "findings": 3 to 6, each {"text": one sentence, a fact or a
           point the answer rests on, "from": the ids it comes from (one or
-          more, only ids given above)}; most important first;
+          more, only ids given above), "kind": "fact" when a source says
+          it (sua checks that against the source's quote) or
+          "interpretation" when it's what you draw from them (a comparison,
+          a judgement, a "so")}; most important first. Keep a fact to
+          what its sources say; put the "so what" in its own finding;
         - "open": up to 5 questions it couldn't settle, or what to check or
           do next, one sentence each.
+        - "contradictions": where sources above disagree on something the
+          answer touches (none when they don't), up to 3, each {"text":
+          what they say differently, in one sentence, "from": the ids on
+          each side, two at least}. Disagreement isn't a gap to smooth
+          over: name it here, and let the answer say which side it takes
+          and why.
         - "sections": the parts the ask and its done-whens ask for, beyond
           the short answer (none when it only asks a question). Up to 5,
           each with a "title" and one "kind":
@@ -164,7 +175,7 @@ nodes:
       Use only what's above: don't invent facts, numbers, dates or sources.
       Reply with only this, as valid JSON:
       <answer>
-      {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"]}], "open": ["…"], "sections": [{"kind": "table", "title": "…", "delivers": "…", "columns": ["…", "…"], "rows": [{"cells": ["…", "…"], "from": ["id"]}]}, {"kind": "steps", "title": "…", "items": [{"text": "…", "detail": "…", "from": ["id"]}]}]}
+      {"answer": "…", "confidence": "medium", "basis": "…", "findings": [{"text": "…", "from": ["id"], "kind": "fact"}], "open": ["…"], "contradictions": [{"text": "…", "from": ["id", "id"]}], "sections": [{"kind": "table", "title": "…", "delivers": "…", "columns": ["…", "…"], "rows": [{"cells": ["…", "…"], "from": ["id"]}]}, {"kind": "steps", "title": "…", "items": [{"text": "…", "detail": "…", "from": ["id"]}]}]}
       </answer>
 
       If what to write is "write-up": write up the field for a shortlist,
