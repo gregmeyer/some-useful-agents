@@ -138,7 +138,7 @@ export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: 
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
   const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
   if (x.kind === 'steps') {
-    return html`<ol class="steps">${items(x.items).map((it) => html`<li><b>${boldOnly(it.text)}</b>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${cited(from(it))}</li>`) as unknown as SafeHtml[]}</ol>`;
+    return html`<ol class="steps">${items(x.items).map((it) => html`<li><span><b>${boldOnly(it.text)}</b>${cited(from(it))}</span>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
   }
   if (x.kind === 'table') {
     const cols = list(x.columns).map(text);

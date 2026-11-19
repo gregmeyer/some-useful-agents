@@ -357,7 +357,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       : nextCriterion ? `${nextCriterion}.` : 'decide.';
 
   const { chips, disagree } = limitChips(nb);
-  const written = { ...answerViews(nb, active, summary, next, entries), ...planViews(nb, active, summary, next, entries) };
+  const written = { ...answerViews(nb, active, summary, next, entries, v.options), ...planViews(nb, active, summary, next, entries) };
   const latestWithSources = searches.find((s) => s.sources.length);
   const outOptions = v.options.filter((o) => o.ruledOut);
 
@@ -722,13 +722,13 @@ type Ref = { label: string; href: string };
  * (and isn't written again); a diagram laid out to draw as HTML. A table
  * whose every row cites the same sources says them once, under the table.
  */
-function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sections']> | undefined, struckList: readonly string[] | undefined, refs: (from: readonly string[]) => Ref[]): SectionView[] {
+function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sections']> | undefined, struckList: readonly string[] | undefined, refs: (from: readonly string[], text?: string) => Ref[]): SectionView[] {
   const struck = new Set(struckList ?? []);
   return (sections ?? []).map((x): SectionView => {
     const key = sectionKey(x);
-    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from) })) };
+    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
     if (x.kind === 'table') {
-      const rows = x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from) }));
+      const rows = x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from, r.cells.join(' · ')) }));
       const every = rows.length > 1 ? rows[0].refs.filter((f) => rows.every((r) => r.refs.some((g) => g.href === f.href))) : [];
       const shared = new Set(every.map((f) => f.href));
       return {
@@ -743,15 +743,39 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
 }
 
 /**
+ * The options in the running a line names by their company ("Hims & Hers,
+ * Webflow, JLL"), in the order it names them: a row about a group cites each
+ * of them even when the writer cited only a few. Only a company that is one
+ * option's alone (in the running or ruled out), so "Jobgether" naming two
+ * jobs, one ruled out, cites neither.
+ */
+function namedOptions(nb: Notebook, active: readonly NotebookViewOption[], all: readonly NotebookViewOption[]): (text: string) => string[] {
+  const org = nb.fields.find((f) => f.role === 'org');
+  if (!org) return () => [];
+  const nameOf = (o: NotebookViewOption) => { const v = o.fields[org.key]; return typeof v === 'string' ? v.replace(/\s*\(.*$/, '').trim() : ''; };
+  const count = new Map<string, number>();
+  for (const o of all) { const n = nameOf(o).toLowerCase(); if (n) count.set(n, (count.get(n) ?? 0) + 1); }
+  const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const tests = active.flatMap((o) => {
+    const n = nameOf(o);
+    if (n.length < 2 || count.get(n.toLowerCase()) !== 1) return [];
+    return [{ id: o.id, re: new RegExp(`(?<![\\p{L}\\p{N}])${escape(n)}(?![\\p{L}\\p{N}])`, 'iu') }];
+  });
+  return (text) => tests.map((t) => ({ id: t.id, at: text.search(t.re) })).filter((x) => x.at >= 0).sort((a, b) => a.at - b.at).map((x) => x.id);
+}
+
+/**
  * What an answer's part rests on, as links: an option to its page, evidence
  * from a page (a source that explains) to that page.
  */
-function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[]): (from: readonly string[]) => Array<{ label: string; href: string }> {
+function answerRefs(nb: Notebook, active: readonly NotebookViewOption[], entries: readonly NotebookEntry[], all: readonly NotebookViewOption[] = active): (from: readonly string[], text?: string) => Array<{ label: string; href: string }> {
   const byId = new Map(active.map((o) => [o.id, o]));
   const sources = new Map(entries.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => [e.id, e]));
   const subjects = answerSubjects(nb);
-  return (from) => {
-    const out = from.flatMap((id) => {
+  const named = namedOptions(nb, active, all);
+  return (from, text) => {
+    const ids = [...new Set([...from, ...(text ? named(text) : [])])].slice(0, 12);
+    const out = ids.flatMap((id) => {
       const o = byId.get(id);
       if (o) return [{ label: o.name, href: notebookOptionPath(nb.id, o.id) }];
       const e = sources.get(id);
@@ -876,19 +900,19 @@ const SURE: Record<NonNullable<Notebook['answer']>['confidence'], string> = { hi
  * gets written up, the same payload is the write-up: the lay of the land,
  * how well checked, no cover art (the page's bars and head-to-head draw it).
  */
-function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = []): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections' | 'sources' | 'sourceCautions'> {
+function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summary: string, next: string | undefined, entries: readonly NotebookEntry[] = [], all: readonly NotebookViewOption[] = active): Pick<NotebookWidgetData['notebook'], 'answer' | 'findings' | 'openQuestions' | 'answerSections' | 'sources' | 'sourceCautions'> {
   const a = nb.answer;
   const question = nb.statement || nb.title;
   if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [], sources: sourcePoints(nb, entries), sourceCautions: [] };
   const caution = answerSourceCaution(nb, entries);
-  const refs = answerRefs(nb, active, entries);
+  const refs = answerRefs(nb, active, entries, all);
   const answerSections = sectionViews(a.sections, a.struck, refs);
   const writeup = writesUp(nb);
   return {
     answer: writeup
       ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
       : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
-    findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from) })),
+    findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from, f.text) })),
     // Where its sources come from comes first when that's what to weigh.
     openQuestions: [...(caution ? [caution] : []), ...a.open].map((text) => ({ text })),
     answerSections,

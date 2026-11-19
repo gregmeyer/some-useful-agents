@@ -4201,7 +4201,8 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     const t = line(o.text ?? o.finding, 320);
     if (!t) return undefined;
     const from = (Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id));
-    return { text: t, from: [...new Set(from)].slice(0, 4) };
+    // A finding about a group cites each of them (a row naming 12 jobs, 12 sources), not the first few.
+    return { text: t, from: [...new Set(from)].slice(0, ANSWER_CITES) };
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
   const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? [], opts.briefing);
@@ -4231,6 +4232,9 @@ export function briefingPartOf(id: unknown, title: string): BriefingPart | undef
   return BRIEFING_PARTS.find((p) => p.id === id) ?? BRIEFING_PARTS.find((p) => p.title.toLowerCase() === title.trim().toLowerCase()) ?? BRIEFING_PARTS.find((p) => p.says.test(title));
 }
 
+/** How many sources one finding, row or step of an answer cites at most: enough for a group the writer names whole. */
+export const ANSWER_CITES = 12;
+
 /**
  * An answer's sections as a writer gave them, kept only as far as they
  * hold: at most 5 (one of them text), each cut to size, every cite one it
@@ -4238,7 +4242,7 @@ export function briefingPartOf(id: unknown, title: string): BriefingPart | undef
  * done-when the notebook has (as the notebook words it). Unknown kinds go.
  */
 function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: readonly string[], line: (x: unknown, n: number) => string, amounts: readonly number[] = [], briefing?: BriefingRules): NotebookAnswerSection[] {
-  const cites = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, 4);
+  const cites = (x: unknown) => [...new Set((Array.isArray(x) ? x : []).filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, ANSWER_CITES);
   const out: NotebookAnswerSection[] = [];
   for (const r of Array.isArray(raw) ? raw : []) {
     if (!r || typeof r !== 'object') continue;

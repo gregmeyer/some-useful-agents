@@ -500,7 +500,7 @@ ${TLDR_CSS}
   ${args.full ? html`` : html`<section aria-labelledby="b-opts">
     <h2 id="b-opts">In detail</h2>
     <ol class="opts">${detailed.map((o, i) => optionRow(nb, o, i + 1)) as unknown as SafeHtml[]}</ol>
-    ${brief.length ? html`<p class="more">${args.latest ? "Also new:" : "Also in the running:"}</p><ul class="plain">${brief.map((o) => html`<li>${o.title}${keyF && o.fields[keyF.key] !== undefined ? html` <span class="why">· ${formatFieldValue(keyF, o.fields[keyF.key])}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
+    ${brief.length ? html`<p class="more">${args.latest ? "Also new:" : "Also in the running:"}</p><ul class="plain">${brief.map((o) => html`<li>${ownPage(o) ? html`<a class="tbl__link" href="${ownPage(o)!}" target="_blank" rel="noopener noreferrer">${o.title}</a>` : o.title}${keyF && o.fields[keyF.key] !== undefined ? html` <span class="why">· ${formatFieldValue(keyF, o.fields[keyF.key])}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ul>` : html``}
   </section>`}` : args.latest ? html`` : html`<p class="more">Nothing in the running yet.</p>`}
   ${args.full && active.length ? html`<section class="fullset" aria-labelledby="b-full">
     <h2 id="b-full">Each option in full<span class="count">${String(active.length)}</span></h2>
@@ -508,7 +508,7 @@ ${TLDR_CSS}
   </section>` : html``}
   ${ruled.length ? html`<section aria-labelledby="b-out">
     <h2 id="b-out">Ruled out<span class="count">${String(ruled.length)}</span></h2>
-    <ul class="plain">${ruled.slice(0, RULED_SHOWN).map((o) => html`<li><strong>${clip(o.title, 90)}</strong> <span class="why">· ${clip(o.ruledOut!.reason.replace(/\s*\(https?:\/\/[^)]*\)?/g, ''), 140)}</span></li>`) as unknown as SafeHtml[]}</ul>
+    <ul class="plain">${ruled.slice(0, RULED_SHOWN).map((o) => html`<li><strong>${ownPage(o) ? html`<a class="tbl__link" href="${ownPage(o)!}" target="_blank" rel="noopener noreferrer">${clip(o.title, 90)}</a>` : clip(o.title, 90)}</strong> <span class="why">· ${clip(o.ruledOut!.reason.replace(/\s*\(https?:\/\/[^)]*\)?/g, ''), 140)}</span></li>`) as unknown as SafeHtml[]}</ul>
     ${ruled.length > RULED_SHOWN ? html`<p class="more">And ${String(ruled.length - RULED_SHOWN)} more (the notebook has them all, with their sources).</p>` : html``}
   </section>` : html``}
   ${noted.length ? html`<section aria-labelledby="b-notes">
