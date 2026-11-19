@@ -234,6 +234,24 @@ describe('notebooks pages', () => {
     expect(shop).toContain('In the running');
     expect(shop).toContain('<span class="nb-share__what">Each option in full</span>');
     expect(shop).not.toContain("What's new");
+
+    // An answer explained from sources alone (evidence, no options) still shares its brief and picture.
+    const ask = store.create({ title: 'Understand A vs B', statement: 'Help me understand the difference.' });
+    store.setSteps(ask.id, [{ title: 'Find 8 sources', kind: 'find', target: 8 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    store.addEntry(ask.id, { kind: 'evidence', title: 'A describes it, B carries it', body: 'From the spec.', by: 'agent:x', source: 'https://a.example/spec' });
+    const said = (await get(app, `/notebooks/${ask.id}`)).text.split('nb-csv__panel')[1].split('</details>')[0];
+    expect(said).toContain('<span class="nb-share__what">The brief</span>');
+    expect(said).toContain('aria-label="Download the TL;DR picture as PNG">PNG</a>');
+    // No options: no spreadsheet and no "in full" (they'd be empty).
+    expect(said).not.toContain('shortlist.csv');
+    expect(said).not.toContain('Every finding in full');
+    const brief = await get(app, `/notebooks/${ask.id}/brief.html`);
+    expect(brief.status).toBe(200);
+    expect(brief.text).toContain('A describes it, B carries it');
+
+    // A shortlist with nothing in it yet has nothing to share.
+    const empty = store.create({ title: 'Buy a desk', statement: 'A standing desk' });
+    expect((await get(app, `/notebooks/${empty.id}`)).text).not.toContain('nb-csv__panel');
   });
 
   it("a briefing run again says what's new since the run before, marks its facts, and so does its brief", async () => {

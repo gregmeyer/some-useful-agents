@@ -567,7 +567,7 @@ With 4 sizes, 3 tones and 6 layouts, "be more creative" still has a ceiling: aft
 
 Bars compare the numbers as the notebook has them. If some options are priced each and others as a set, the bars say so no better than the notebook does.
 
-**For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick.
+**For a briefing** (a notebook that ends in sua writing: a meeting or company briefing, an answer, a plan), **Download / share** starts with the brief and ends with **The findings as a spreadsheet**: **What it found (CSV)**, and **With what it set aside** when some were. It doesn't ask which options, since there's nothing to pick. An answer sua explained from sources alone (the sources filed as evidence, no options) still has **Download / share**: the brief and the TL;DR picture, without the spreadsheet or the extended brief, which would be empty.
 
 **What's new** (under **Download / share**, once the last run that found options added some): **New in the last run** downloads a CSV of only those (`shortlist.csv?rows=new`). The **What's new** row (**Open ↗**, **PDF**) gives the brief of only those (`brief.html?latest=1`). It has their table and details, the ones from that run that were ruled out, and the notes since then. Key findings stay the whole notebook's.
 
