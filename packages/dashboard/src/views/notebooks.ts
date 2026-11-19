@@ -1205,6 +1205,17 @@ function experimentShareMenu(nb: Pick<Notebook, 'id'>): SafeHtml {
   </details>`;
 }
 
+/**
+ * Whether Download / share has anything to offer: options, or (for one that
+ * ends in sua writing, like an answer) what it wrote or the sources it filed
+ * as evidence. An answer can explain from sources alone, with no options.
+ */
+function hasSomethingToShare(nb: Notebook, entries: readonly NotebookEntry[]): boolean {
+  if (entries.some((e) => e.kind === 'option')) return true;
+  if (offersDecide(nb)) return false;
+  return Boolean(nb.answer || nb.briefing || nb.plan) || entries.some((e) => e.kind === 'evidence');
+}
+
 function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[]): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const href = `/notebooks/${id}/shortlist.csv`;
@@ -1216,7 +1227,10 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   const written = !offersDecide(nb);
   const item = (rows: string, label: string, n: number, hint: string) =>
     html`<a class="nb-csv__item" href="${href}?rows=${rows}" download title="${hint}">${label} <span class="nb-csv__n">${String(n)}</span></a>`;
-  const csv = written
+  // A written one whose findings are all evidence has no rows for the spreadsheet.
+  const csv = written && all === 0
+    ? html``
+    : written
     ? html`<span class="nb-progress__label nb-csv__brief-label">The findings as a spreadsheet</span>
       ${item('running', 'What it found (CSV)', running.length, 'Every finding still in, with its facts and sources')}
       ${all > running.length ? item('all', 'With what it set aside', all, 'Set-aside findings last, with why') : html``}`
@@ -1234,7 +1248,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
       ${row('The brief', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
       ${row('TL;DR picture', undefined, html`${open('the TL;DR picture', 'tldr.png', written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars')}${save('the TL;DR picture', 'PNG', 'tldr.png?download=1', 'The TL;DR as a PNG file, to drop into a message')}<a href="/notebooks/${id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`)}
       ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
-      ${row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
+      ${running.length === 0 ? html`` : row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
   return html`<details class="nb-act nb-csv" data-nb-act>
     <summary class="btn btn--sm btn--ghost">Download / share</summary>
     <div class="nb-act__panel nb-csv__panel">
@@ -1298,7 +1312,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         </div>
       </details>
       <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
-      ${nb.experimentId ? experimentShareMenu(nb) : entries.some((e) => e.kind === 'option') ? csvMenu(nb, entries, leads) : html``}
+      ${nb.experimentId ? experimentShareMenu(nb) : hasSomethingToShare(nb, entries) ? csvMenu(nb, entries, leads) : html``}
     </div>`;
 }
 
