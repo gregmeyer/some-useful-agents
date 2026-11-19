@@ -24,6 +24,7 @@ import { keep, passNote, perItemInputs, pipelineInputs, readItemAnswer } from '.
 import { notebookThread } from './notebook-chat.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { learnAbout } from './notebook-profile.js';
+import { traceAnswerSources, traceWords } from './notebook-trace-step.js';
 import { whatsNew, whatsNewSummary } from './notebook-whats-new.js';
 import { decideNotebookPage, pageIsItsOwn, pageIsPicked } from './notebook-page.js';
 import { NOTEBOOK_CHECKER_ID, NOTEBOOK_FIND_ONE_ID, NOTEBOOK_FINDER_ID, NOTEBOOK_RESEARCHER_ID, NOTEBOOK_WRITER_ID, stepAgentHelpers, suaStepAgent, suaStepAgentName } from './notebook-step-agents.js';
@@ -76,7 +77,7 @@ export function progressWords(step: Pick<NotebookStep, 'kind'> & { shape?: Noteb
   if (step.kind === 'write' && step.shape === 'plan') return p.have ? 'plan written' : 'no plan yet';
   if (step.kind === 'write' && step.shape === 'writeup') return p.have ? 'write-up written' : 'no write-up yet';
   if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} ${p.unit ?? 'found'}, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} ${p.unit ?? 'found'}`;
-  const unit = step.kind === 'profile' ? 'facts learned' : step.kind === 'write' ? 'points written' : step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
+  const unit = p.unit ?? (step.kind === 'profile' ? 'facts learned' : step.kind === 'write' ? 'points written' : step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen');
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
 }
 
@@ -747,6 +748,15 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     const now = stepProgress(nb, store.entries(nb.id, 1000), step);
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
     return finish(ctx, store, notebookId, { ...step, tries }, now, wrote, !now.met, sentenceOf(wrote));
+  }
+  // An answer's check step: no options to check, so it traces the answer's sources, each quote looked for on its page, in code (ADR-0082).
+  if (step.kind === 'check' && agentId === NOTEBOOK_CHECKER_ID && before.unit === 'sources traced') {
+    const tries = step.tries + 1;
+    const traced = await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+    nb = store.get(notebookId)!;
+    const now = stepProgress(nb, store.entries(nb.id, 1000), step);
+    store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
+    return finish(ctx, store, notebookId, { ...step, tries }, now, [traceWords(traced)], now.have <= before.have, traceWords(traced));
   }
   // A profile step: sua's researcher learns about who the notebook is about (lib/notebook-profile.ts).
   if (step.kind === 'profile') {

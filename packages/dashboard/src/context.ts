@@ -336,6 +336,8 @@ export interface DashboardContext {
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
   notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Test seam: how an answer's check step reads a page for a quote (ADR-0082); real reads otherwise. */
+  notebookTrace?: (url: string, quote: string) => Promise<'found' | 'missing' | 'unread' | 'no-quote'>;
   /** Tests only: check a page for a person's photo without the network (core findPersonPhoto). */
   notebookPersonPhotoCheck?: (page: string, name: string, want?: string) => Promise<import('@some-useful-agents/core').PersonPhotoFound | { why: string }>;
   /** Tests only: answer for research-one in a profile step (lib/notebook-profile.ts) instead of running it. */

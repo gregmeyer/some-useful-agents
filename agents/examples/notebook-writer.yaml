@@ -74,8 +74,12 @@ nodes:
           subjects' own pages) or "low" (thin, old or one-sided). Each
           source above says its "publisher" and "whose": pages that are
           the subjects' own speak for themselves; several of them agreeing
-          is one interested voice, not corroboration. Judge by how good
-          and how independent the sources are, never by how many repeat it;
+          is one interested voice, not corroboration. A source whose
+          "quote" is "not found on its page" or whose page "couldn't be
+          read" wasn't confirmed: lean on it less, and don't make a finding
+          rest on it alone when another source says the same. Judge by how
+          good and how independent the sources are, never by how many
+          repeat it;
         - "basis": one sentence on why that confidence, naming who the
           sources are from;
         - "findings": 3 to 6, each {"text": one sentence, a fact or a

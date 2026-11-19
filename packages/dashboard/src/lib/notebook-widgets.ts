@@ -13,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { readerPage, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
+import { readerPage, findingTrace, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -209,7 +209,8 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** The answer a write step wrote, as a Callout; before then, where it stands (the Answer page). */
     answer: { question: string; label: string; text: string; next?: string; nextLabel: string; cover?: string };
     /** The findings the answer rests on, each linked to its sources (Agenda points). */
-    findings: Array<{ text: string; refs: Array<{ label: string; href: string }> }>;
+    /** `trace`: how the sources it cites traced (ADR-0082), once the check step has looked. */
+    findings: Array<{ text: string; refs: Array<{ label: string; href: string }>; trace?: FindingTrace }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
     /** Who publishes the pages it learned from, one point per publisher, linked to its pages (Agenda points; ADR-0081). */
@@ -906,13 +907,15 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   if (!a?.text) return { answer: { question, label: 'Where it stands', text: summary, ...(next ? { next } : {}), nextLabel: 'Next:' }, findings: [], openQuestions: [], answerSections: [], sources: sourcePoints(nb, entries), sourceCautions: [] };
   const caution = answerSourceCaution(nb, entries);
   const refs = answerRefs(nb, active, entries, all);
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const subjects = answerSubjects(nb);
   const answerSections = sectionViews(a.sections, a.struck, refs);
   const writeup = writesUp(nb);
   return {
     answer: writeup
       ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
       : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
-    findings: a.findings.map((f) => ({ text: f.text, refs: refs(f.from, f.text) })),
+    findings: a.findings.map((f) => { const t = findingTrace(f.from.map((id) => byId.get(id)).filter((e): e is NotebookEntry => !!e && e.kind === 'evidence').map((e) => ({ ...(e.trace ? { trace: e.trace } : {}), ...(evidenceOrigin(e, subjects) ? { origin: evidenceOrigin(e, subjects) } : {}) }))); return { text: f.text, refs: refs(f.from, f.text), ...(t ? { trace: t } : {}) }; }),
     // Where its sources come from comes first when that's what to weigh.
     openQuestions: [...(caution ? [caution] : []), ...a.open].map((text) => ({ text })),
     answerSections,

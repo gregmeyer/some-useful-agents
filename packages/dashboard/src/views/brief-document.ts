@@ -126,6 +126,9 @@ export const BRIEF_DOCUMENT_CSS = `
 .goal, .stands, .callout p, .sec > p, .plain li, .findings li, .quotes blockquote, .opt__body p { max-width: 75ch; }
 /* Where things come from: a small number after what it supports, the pages listed once at the end, two to a row. */
 .note { font-size: 0.65em; line-height: 0; margin-left: 0.15em; } .note a { color: var(--accent); text-decoration: none; }
+.trace { font: 600 0.625rem/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.35rem; border-radius: 4px; margin-left: 0.4rem; vertical-align: 1px; color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.trace--verified { color: var(--ok, #15803d); border-color: currentColor; }
+.trace--unverified { color: var(--warn, #b45309); border-color: currentColor; }
 .sources { border-top: 2px solid var(--text); padding-top: 0.75rem; }
 .sources ol { margin: 0.5rem 0 0; padding: 0; list-style: none; counter-reset: note; display: flex; flex-wrap: wrap; gap: 0.2rem 1.5rem; font-size: 0.75rem; color: var(--muted); }
 .sources li { counter-increment: note; flex: 0 0 calc((100% - 1.5rem) / 2); min-width: 0; display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); overflow-wrap: anywhere; break-inside: avoid; }
@@ -191,3 +194,10 @@ ${args.print ? unsafeHtml('<script>addEventListener("load", () => setTimeout(() 
   if (args.fragment) return render(page);
   return `<!doctype html>\n<html lang="en"${args.theme.mode === 'light' ? ' data-theme="light"' : ''}>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${render(page).replace('<main class="brief">', '</head>\n<body>\n<main class="brief">')}\n</body>\n</html>\n`;
 }
+
+/** How a finding's sources traced (ADR-0082), as a small word after it: Verified, Supported, Unverified. Nothing before the check step has looked. */
+export function traceTag(trace: unknown): SafeHtml {
+  const word = trace === 'verified' ? 'Verified' : trace === 'supported' ? 'Supported' : trace === 'unverified' ? 'Unverified' : '';
+  return word ? html` <span class="trace trace--${String(trace)}">${word}</span>` : html``;
+}
+

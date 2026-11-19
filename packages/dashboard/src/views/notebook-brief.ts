@@ -9,7 +9,7 @@
  * laid out for print (Save as PDF). `fragment` leaves out the document
  * wrapper, for a host that adds its own (a Claude artifact).
  */
-import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag } from './brief-document.js';
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { isListPage, isRange, rankOptions, readOptionText, writesUp, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookViewOption } from '@some-useful-agents/core';
@@ -484,7 +484,7 @@ ${TLDR_CSS}
   <section aria-labelledby="b-find">
     <h2 id="b-find">Key findings${args.latest ? html`<span class="count">the whole notebook</span>` : html``}</h2>
     ${writeup && d.findings.length
-      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${noteMarks(cites, f.refs.map((r) => ({ label: r.label, ...(/^https?:\/\//i.test(r.href) ? { url: r.href } : {}) })))}</li>`) as unknown as SafeHtml[]}</ul>`
+      ? html`<ul class="findings">${d.findings.map((f) => html`<li>${inline(f.text)}${noteMarks(cites, f.refs.map((r) => ({ label: r.label, ...(/^https?:\/\//i.test(r.href) ? { url: r.href } : {}) })))}${traceTag(f.trace)}</li>`) as unknown as SafeHtml[]}</ul>`
       : html`<ul class="findings">${findings(nb, d.options, inRunning, searches, d.coverage.sources).map((f) => html`<li>${f}</li>`) as unknown as SafeHtml[]}</ul>`}
     ${writeup && d.openQuestions.length ? html`<div class="open"><h3>Still open</h3><ul>${d.openQuestions.map((q) => html`<li>${q.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}
   </section>

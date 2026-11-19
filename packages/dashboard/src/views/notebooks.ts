@@ -314,7 +314,7 @@ function stepWords(step: NotebookStep, p: ReturnType<typeof stepProgress>): { pr
   const progress = step.kind === 'decide' && step.status !== 'done' ? (p.have ? `${String(p.have)} of ${String(p.want)} picked` : `pick ${String(p.want)}`)
     : step.kind === 'narrow' && step.status !== 'done' ? (step.target ? `keep ${String(step.target)}` : 'keep the best')
     : step.kind === 'find' && p.have > p.want ? `${String(p.have)} ${p.unit ?? 'found'}, goal ${String(p.want)}`
-      : step.kind === 'find' && p.unit ? `${String(p.have)} of ${String(p.want)} ${p.unit}`
+      : p.unit ? `${String(p.have)} of ${String(p.want)} ${p.unit}`
       : step.kind === 'write' && step.shape === 'answer' ? (p.have ? 'answer written' : 'no answer yet')
       : step.kind === 'write' && step.shape === 'plan' ? (p.have ? 'plan written' : 'no plan yet')
       : step.kind === 'write' && step.shape === 'writeup' ? (p.have ? 'write-up written' : 'no write-up yet')

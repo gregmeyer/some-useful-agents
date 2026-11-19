@@ -23,6 +23,9 @@ type Ctx = ReturnType<typeof getContext>;
 
 const text = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : typeof v === 'number' ? String(v) : '');
 
+/** A source's trace, as the writer reads it (ADR-0082). */
+const TRACE_WORDS = { found: 'found on its page', missing: 'not found on its page', unread: "its page couldn't be read", 'no-quote': 'no quote to check' } as const;
+
 /** Whole days from today to a meeting's date, both as local dates (not UTC: an evening isn't tomorrow). */
 export function daysUntil(when: string, now = new Date()): number {
   const [y, m, d] = when.split('T')[0].split('-').map(Number);
@@ -81,6 +84,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       return {
         id: e.id, title: e.title, ...(e.body ? { said: e.body.replace(/\s+/g, ' ').slice(0, 500) } : {}), source: e.fingerprint!, explains: true,
         ...(o ? { publisher: o.publisher, ...(o.kind ? { kind: o.kind } : {}), whose: o.whose ? `${o.whose}'s own` : 'from outside the subjects' } : {}),
+        // Whether its quote is on its page, as the check step found (ADR-0082).
+        ...(e.trace ? { quote: TRACE_WORDS[e.trace.status] } : {}),
       };
     })
     : [];
