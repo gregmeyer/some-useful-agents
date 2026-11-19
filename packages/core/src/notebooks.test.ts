@@ -1120,6 +1120,26 @@ describe("an option's own page, not a search page", () => {
     const step = { kind: 'source' as const, facts: ['url'], status: 'todo' as const };
     expect(stepProgress(s.get(nb.id)!, s.entries(nb.id), step)).toMatchObject({ met: false, have: 1, want: 4 });
   });
+
+  it("an answer's find step counts the sources it filed as evidence, once per page; a shortlist's doesn't", () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-ans-'));
+    runs = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runs.databaseHandle());
+    const ask = s.create({ title: 'Understand A vs B' });
+    const [find] = s.setSteps(ask.id, [{ title: 'Find 3 sources', kind: 'find', target: 3 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]).steps!;
+    s.addEntry(ask.id, { kind: 'evidence', title: 'A describes it', by: 'x', source: 'https://a.example/spec' });
+    s.addEntry(ask.id, { kind: 'evidence', title: 'A streams JSON', by: 'x', source: 'https://a.example/spec' });
+    s.addEntry(ask.id, { kind: 'evidence', title: 'B carries it', by: 'x', source: 'https://b.example/docs' });
+    s.addEntry(ask.id, { kind: 'note', title: 'Searched 3 places at once', by: 'x' });
+    expect(stepProgress(s.get(ask.id)!, s.entries(ask.id), find)).toMatchObject({ met: false, have: 2, want: 3, missing: ['1 more'] });
+    s.addEntry(ask.id, { kind: 'evidence', title: 'C renders it', by: 'x', source: 'https://c.example/arch' });
+    expect(stepProgress(s.get(ask.id)!, s.entries(ask.id), find)).toMatchObject({ met: true, have: 3 });
+
+    const shop = s.create({ title: 'Buy a bike' });
+    const [look] = s.setSteps(shop.id, [{ title: 'Find 3 bikes', kind: 'find', target: 3 }, { title: 'Pick one', kind: 'decide' }]).steps!;
+    s.addEntry(shop.id, { kind: 'evidence', title: 'A review', by: 'x', source: 'https://r.example/1' });
+    expect(stepProgress(s.get(shop.id)!, s.entries(shop.id), look)).toMatchObject({ have: 0 });
+  });
 });
 
 describe('one form for a VIN', () => {
