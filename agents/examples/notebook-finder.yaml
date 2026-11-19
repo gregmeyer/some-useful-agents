@@ -129,9 +129,16 @@ nodes:
       rules), from regulators, official bodies and reputable guides, not
       options. The rest look for options as usual.
 
+      When the notebook says "It needs independent sources", one of the
+      learn searches is that one: "kind": "learn", "independent": true,
+      looking for pages by someone OTHER than what it's about (third-party
+      comparisons, analyses, engineering write-ups, standards bodies,
+      press), leaving out their own sites as it says (-site:…). Say in
+      "why" that it wants independent pages.
+
       Reply with one short line saying how you split it. Then, on the LAST
       line, ONLY this JSON on one line:
-      {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers","kind":"learn, only for a learn search"}]}
+      {"searches":[{"where":"short name of where it looks","query":"the search","why":"what this one covers","kind":"learn, only for a learn search","independent":"true, only for the independent learn search"}]}
 
   # 3. Vet the plan with code. It needs something the notebook doesn't
   #    have, or a query carries a blank ("[profile location]", "<role>",
@@ -167,6 +174,24 @@ nodes:
           needs = "what " + ", ".join(seen) + (" stands" if len(seen) == 1 else " stand") + " for"
       if needs:
           searches = []
+
+      # An answer short of sources from outside what it's about (SIFT,
+      # ADR-0081): the notebook asks for an independent search. When the
+      # plan didn't make one, add it (in place of the last when 5 are planned).
+      import os
+      nb_text = os.environ.get("NOTEBOOK") or ""
+      if not needs and "It needs independent sources" in nb_text and not any(s.get("independent") in (True, "true") for s in searches):
+          m = re.search(r"What it's about: (.+?)\. A page", nb_text)
+          subj = [x.strip() for x in (m.group(1).split(",") if m else []) if x.strip()]
+          sites = list(dict.fromkeys(re.findall(r"-site:([\w.-]*\w)", nb_text.split("It needs independent sources", 1)[1])))
+          if subj:
+              q = " ".join(f'"{x}"' for x in subj[:2]) + " comparison OR analysis OR review" + "".join(f" -site:{h}" for h in sites[:6])
+              extra = {"where": "independent sources", "query": q, "why": "independent pages: third parties that compare or analyse them, not their own sites", "kind": "learn", "independent": True}
+              searches = (searches[:4] if len(searches) >= 5 else searches) + [extra]
+      for s in searches:
+          # The searcher reads "why": an independent search says so there too.
+          if s.get("independent") in (True, "true") and "independent" not in str(s.get("why", "")).lower():
+              s["why"] = (str(s.get("why") or "") + " (independent pages: not published by what it's about)").strip()
       print(json.dumps({"searches": searches, **({"needs": needs} if needs else {})}))
       PYEOF
 

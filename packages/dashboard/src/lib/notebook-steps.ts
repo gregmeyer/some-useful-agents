@@ -71,11 +71,11 @@ function yoursReason(step: Pick<NotebookStep, 'kind'>): string {
 }
 
 /** "8 of 10 found" — a step's progress in a few words. */
-export function progressWords(step: Pick<NotebookStep, 'kind'> & { shape?: NotebookStep['shape'] }, p: Pick<NotebookStepProgress, 'have' | 'want'>): string {
+export function progressWords(step: Pick<NotebookStep, 'kind'> & { shape?: NotebookStep['shape'] }, p: Pick<NotebookStepProgress, 'have' | 'want' | 'unit'>): string {
   if (step.kind === 'write' && step.shape === 'answer') return p.have ? 'answer written' : 'no answer yet';
   if (step.kind === 'write' && step.shape === 'plan') return p.have ? 'plan written' : 'no plan yet';
   if (step.kind === 'write' && step.shape === 'writeup') return p.have ? 'write-up written' : 'no write-up yet';
-  if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} found, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} found`;
+  if (step.kind === 'find') return p.have > p.want ? `${String(p.have)} ${p.unit ?? 'found'}, goal ${String(p.want)}` : `${String(p.have)} of ${String(p.want)} ${p.unit ?? 'found'}`;
   const unit = step.kind === 'profile' ? 'facts learned' : step.kind === 'write' ? 'points written' : step.kind === 'source' ? 'facts sourced' : step.kind === 'check' ? 'checked' : step.kind === 'narrow' ? 'kept' : 'chosen';
   return `${String(p.have)} of ${String(p.want)} ${unit}`;
 }

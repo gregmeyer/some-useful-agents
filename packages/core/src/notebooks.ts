@@ -12,7 +12,7 @@ import { DEFAULT_ATTACH_FILE_TYPES, cleanAttachFileTypes } from './attach-file-t
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
-import { parseSourceOrigin, sourceOrigin, type NotebookSourceOrigin } from './notebook-source-origin.js';
+import { answerSubjects, evidenceOrigin, parseSourceOrigin, sourceOrigin, sourceSpread, type NotebookSourceOrigin } from './notebook-source-origin.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { openStoreDb } from './sqlite-open.js';
@@ -4072,7 +4072,11 @@ export function stepFacts(nb: Pick<Notebook, 'fields'>, step: Pick<NotebookStep,
 }
 
 /** How far a step is toward its goal: `have` of `want`, and what's still missing (one line each). */
-export interface NotebookStepProgress { met: boolean; have: number; want: number; missing: string[] }
+export interface NotebookStepProgress {
+  met: boolean; have: number; want: number; missing: string[];
+  /** What it counts, when not options ("publishers": an answer's find step, ADR-0081). */
+  unit?: string;
+}
 
 /**
  * Whether a step has met its goal, from the notebook alone (no model):
@@ -4082,6 +4086,9 @@ export interface NotebookStepProgress { met: boolean; have: number; want: number
  */
 /** A profile step is met with this many facts learned about who the notebook is about. */
 export const PROFILE_FACTS_WANTED = 4;
+/** How many publishers outside an answer's subjects its find step wants (agreement among the subjects' own pages isn't corroboration). */
+export const ANSWER_OUTSIDE_PUBLISHERS = 2;
+
 /** A write step with no target is met with this many talking points. */
 export const BRIEFING_POINTS_WANTED = 3;
 
@@ -4115,11 +4122,26 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
   }
   if (step.kind === 'find') {
     const want = step.target ?? 5;
-    // An answer is explained from sources: each one it filed as evidence counts (once per source), as options do.
+    // An answer is explained from sources, and counts who publishes them: several pages from one publisher are one voice (SIFT, ADR-0081).
     const answers = nb.steps?.some((s) => s.kind === 'write' && s.shape === 'answer');
-    const sources = answers ? new Set(entries.filter((e) => e.kind === 'evidence').map((e) => e.fingerprint || e.title)).size : 0;
-    const have = options.length + sources;
-    return { met: have >= want, have, want, missing: have >= want ? [] : [`${String(want - have)} more`] };
+    // A briefing on one subject counts its pages (it has its own rule for outside sources, ADR-0080); a shortlist, its options.
+    if (!answers || nb.briefOn) {
+      const n = options.length + (answers ? new Set(entries.filter((e) => e.kind === 'evidence').map((e) => e.fingerprint || e.title)).size : 0);
+      return { met: n >= want, have: n, want, missing: n >= want ? [] : [`${String(want - n)} more`] };
+    }
+    const subjects = answerSubjects(nb);
+    const pages = new Map<string, NotebookSourceOrigin>();
+    for (const e of entries) {
+      if (e.kind !== 'evidence') continue;
+      const o = evidenceOrigin(e, subjects) ?? { publisher: e.title };
+      pages.set((e.fingerprint || e.title).toLowerCase(), o);
+    }
+    const spread = sourceSpread([...pages.values()]);
+    const have = options.length + spread.publishers;
+    // Agreement among the subjects' own pages isn't corroboration: it needs two from outside them.
+    const outsideShort = subjects.length && spread.outside < ANSWER_OUTSIDE_PUBLISHERS ? ANSWER_OUTSIDE_PUBLISHERS - spread.outside : 0;
+    const missing = [...(have < want ? [`${String(want - have)} more publisher${want - have === 1 ? '' : 's'}`] : []), ...(outsideShort ? [`${String(outsideShort)} from outside ${subjects.join(', ')}`] : [])];
+    return { met: !missing.length, have, want, missing, unit: 'publishers' };
   }
   if (step.kind === 'source') {
     const tracked = stepFacts(nb, step);
