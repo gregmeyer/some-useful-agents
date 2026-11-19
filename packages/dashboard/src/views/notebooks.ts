@@ -8,7 +8,7 @@
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
-import { notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
+import { answerNewSources, answerSubjects, notebookTags, openConflicts, isMeetingNotebook, layoutPreset, NOTEBOOK_LAYOUT_PRESETS, nextFireTime, optionLink, optionPassesStep, optionSteps, criterionLink, type NotebookCriterion, notebookProgress, stepProgress, stepFacts, type NotebookStep, notebookViewData, isRange, rankOptions, type NotebookViewHistory, type NotebookViewOption, type CompiledSurface, type Notebook, type NotebookEntry, type NotebookField, type NotebookFieldValue, type NotebookGiven, type NotebookLayout } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookSetupEditor, renderDraftsStrip } from './notebook-new.js';
 import { attachPick, givenFilePick } from './given-file.js';
@@ -299,6 +299,22 @@ export function madeByStrip(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefi
  * What's new since the last run (a briefing rerun): what it learned, changed
  * or found that the run before didn't, or that a recheck found nothing new.
  */
+/**
+ * Sources found after an answer was written (ADR-0083): how many, how many
+ * primary or from outside what it's about, and Answer again to write it from
+ * them. Nothing while it's closed, has no answer, or nothing came since.
+ */
+export function answerBehindBand(nb: Notebook, entries: readonly NotebookEntry[]): SafeHtml {
+  const step = nb.steps?.find((s) => s.kind === 'write' && s.shape === 'answer');
+  const n = step && nb.status === 'active' && (step.status === 'done' || step.status === 'met') ? answerNewSources(nb, entries) : undefined;
+  if (!step || !n) return html``;
+  const kinds = [n.primary ? `${String(n.primary)} primary` : '', n.outside ? `${String(n.outside)} from outside ${answerSubjects(nb).join(', ')}` : ''].filter(Boolean).join(', ');
+  return html`<form class="nb-new nb-behind" method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/steps/${step.id}/again" role="status">
+    <span><b>${String(n.pages)} source${n.pages === 1 ? '' : 's'} found after the answer was written</b>${kinds ? `: ${kinds}` : ''}. The answer doesn't use ${n.pages === 1 ? 'it' : 'them'} yet.</span>
+    <button type="submit" class="btn btn--sm" title="Write the answer once more, from what the notebook has now; this one is replaced">Answer again →</button>
+  </form>`;
+}
+
 export function whatsNewBand(w: WhatsNew | undefined): SafeHtml {
   if (!w) return html``;
   const day = shortDay;
@@ -604,6 +620,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           : pipelineDiagram(stages)}
         ${madeByStrip(nb, madeBy)}
         ${running ? html`` : whatsNewBand(fresh)}
+        ${running ? html`` : answerBehindBand(nb, entries)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
         ${(nb.pipeline.length || nb.steps?.length) && !running && !busy.length && (nb.status === 'active' || (nb.lastRunAt && !nb.steps?.length)) ? html`
           <div class="nb-run">

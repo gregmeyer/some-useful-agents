@@ -813,6 +813,8 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nb-new__h { display: inline; margin: 0; font-size: var(--font-size-sm); font-weight: 600; }
 .nb-new__at { margin-left: var(--space-2); font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nb-new__list { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--font-size-sm); line-height: 1.5; }
+.nb-behind { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--font-size-sm); line-height: 1.5; }
+.nb-behind span { flex: 1 1 20rem; min-width: 0; }
 .nb-new--none { border-left-color: var(--color-border-strong); background: var(--color-surface); color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 /* Draft review: the steps sua will take */

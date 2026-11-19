@@ -23,6 +23,32 @@ type Ctx = ReturnType<typeof getContext>;
 
 const text = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : typeof v === 'number' ? String(v) : '');
 
+/**
+ * The pages a writer reads first, best first (ADR-0083): those from outside
+ * what it's about (the few independent voices), then primary sources, before
+ * the subjects' secondary pages,
+ * a quote found on its page before one that wasn't, then the newest; no
+ * more than 3 from one publisher until the others have had their turn.
+ */
+export function bestSources(entries: readonly NotebookEntry[], subjects: readonly string[], n: number): NotebookEntry[] {
+  const pages = entries.filter((e) => e.kind === 'evidence' && e.fingerprint);
+  const score = (e: NotebookEntry) => {
+    const o = evidenceOrigin(e, subjects);
+    return (o?.kind === 'primary' ? 4 : 0) + (o && !o.whose ? 5 : 0) + (o?.kind === 'independent' ? 1 : 0)
+      + (e.trace?.status === 'found' ? 2 : e.trace?.status === 'missing' ? -3 : 0);
+  };
+  // Newest first within a score (entries come newest first).
+  const ranked = pages.map((e, i) => ({ e, s: score(e), i })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.e);
+  const per = new Map<string, number>();
+  const first: NotebookEntry[] = []; const later: NotebookEntry[] = [];
+  for (const e of ranked) {
+    const p = (evidenceOrigin(e, subjects)?.publisher ?? '').toLowerCase();
+    const k = (per.get(p) ?? 0) + 1; per.set(p, k);
+    (k <= 3 ? first : later).push(e);
+  }
+  return [...first, ...later].slice(0, n);
+}
+
 /** A source's trace, as the writer reads it (ADR-0082). */
 const TRACE_WORDS = { found: 'found on its page', missing: 'not found on its page', unread: "its page couldn't be read", 'no-quote': 'no quote to check' } as const;
 
@@ -78,7 +104,7 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
   const subjects = answerSubjects(nb);
   // An answer or plan (or a write-up) also rests on the pages its research found that explain (evidence with its page), cited by id like an option.
   const explains = step.shape === 'answer' || step.shape === 'plan' || step.shape === 'writeup'
-    ? entries.filter((e) => e.kind === 'evidence' && e.fingerprint).slice(0, 12).map((e) => {
+    ? bestSources(entries, subjects, 12).map((e) => {
       // Who publishes it, and whether it's one of the subjects' own page or from outside them (ADR-0081).
       const o = evidenceOrigin(e, subjects);
       return {

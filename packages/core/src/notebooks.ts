@@ -4713,7 +4713,7 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
 }
 
 /** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
-const WRITTEN_DELIVERABLE = /\b(rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
+const WRITTEN_DELIVERABLE = /\b(answer|briefing|rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
 /** "A final list of 10 recorded", "Recommendations written": in a notebook that writes up its shortlist, the write-up's own table gives these. */
 const WRITEUP_DELIVERABLE = /\b(list|shortlist|write-?up|recommendations?|ranking)\b.*\b(written|recorded|included|drafted|given|laid out|in place|shown)\b/;
 
