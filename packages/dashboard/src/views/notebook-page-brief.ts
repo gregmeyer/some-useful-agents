@@ -19,7 +19,7 @@ import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
-import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes } from './brief-document.js';
+import { briefColophon, briefHead, briefPage, briefSources, noteMarks, SourceNotes, traceTag } from './brief-document.js';
 
 /** Whether a notebook's brief is its drawn page (not the shortlist). */
 export function briefIsPage(nb: Pick<Notebook, 'layout'>): boolean {
@@ -246,7 +246,8 @@ function node(p: Printing, id: string | undefined): SafeHtml {
           const from = list(x.refs).map((r) => citedRef(r)).filter((r) => r.label);
           // A point's note often ends with the question to put ("… Ask: What turns out to matter more?"): the question gets its own line.
           const [why, ask] = splitAsk(text(x.note));
-          return html`<li><b>${x.text}</b>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}${from.length && !text(x.note) ? noteMarks(p.notes, from) : html``}</li>`;
+          // Its words, source numbers and trace kept on one line (a grid item each would drop them below).
+          return html`<li><span><b>${x.text}</b>${from.length && !text(x.note) ? noteMarks(p.notes, from) : html``}${traceTag(x.trace)}</span>${why ? html`<span class="muted">${why}</span>` : html``}${ask ? html`<span class="ask-line"><b>Ask</b> ${ask}</span>` : html``}</li>`;
         }) as unknown as SafeHtml[]}</ol>` : html``}
         ${qs.length || watch.length ? html`<div class="agenda__pair">
           ${qs.length ? html`<div><div class="eyebrow">${text(v('questionsLabel')) || 'Questions to ask'}</div><ul>${qs.map((x) => html`<li>${x.text}</li>`) as unknown as SafeHtml[]}</ul></div>` : html``}

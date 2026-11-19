@@ -1179,6 +1179,12 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 
 // Ticks are this browser's own (per page and agenda): a list to work through in the meeting.
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
+// How a point's sources traced (an answer's findings, ADR-0082): its tag and what it means.
+const TRACED = {
+  verified: ['Verified', 'Its quote is on a primary page: the thing itself (its spec, docs or repo)'],
+  supported: ['Supported', 'Its quote is on the page it cites, but not a primary one'],
+  unverified: ['Unverified', 'The quotes it cites weren\u2019t found on their pages, or the pages couldn\u2019t be read'],
+};
 const Agenda = define('Agenda', 'sua-a2ui-agenda',
   Common.extend({ points: CommonSchemas.DynamicValue, questions: CommonSchemas.DynamicValue.optional(), maxQuestions: z.number().int().min(1).max(20).optional(), watch: CommonSchemas.DynamicValue.optional(), title: Str.optional(), check: z.boolean().optional(), copy: z.boolean().optional(), editHref: Str.optional(), replaceHref: Str.optional(), variant: z.enum(['list', 'numerals']).optional(), questionsLabel: Str.optional(), watchLabel: Str.optional(), empty: Str.optional() }).strict(),
   css`${sectionHead}
@@ -1210,6 +1216,10 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
     .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
     .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
     .refs a { text-decoration: none; }
+    .tr { font: 600 10px/1 var(--font-mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 6px; border-radius: var(--radius-sm, 6px); align-self: center; }
+    .tr--verified { color: var(--color-ok); background: var(--color-ok-soft); }
+    .tr--supported { color: var(--color-info); background: var(--color-info-soft); }
+    .tr--unverified { color: var(--color-warn); background: var(--color-warn-soft); }
     ul { margin: 0 0 16px; padding-left: 18px; display: grid; gap: 6px; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
     ul:last-child, ol:last-child { margin-bottom: 0; }
     .watch li::marker { color: var(--color-warn); }
@@ -1251,7 +1261,7 @@ const Agenda = define('Agenda', 'sua-a2ui-agenda',
           : html`<div class="pt"><span class="num">${i + 1}</span><span class="t">${pt.text}</span></div>`}
         ${replace ? html`<form class="swap" method="POST" action=${replace}><input type="hidden" name="at" value=${String(i)}><input type="hidden" name="text" value=${pt.text}><button type="submit" class="copy" title="Strike this point; sua writes a new one in its place">Replace</button></form>` : nothing}
         ${pt.note ? html`<div class="note">${pt.note}</div>` : nothing}
-        ${refs(pt).length ? html`<div class="refs">${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
+        ${refs(pt).length || TRACED[pt.trace] ? html`<div class="refs">${TRACED[pt.trace] ? html`<span class="tr tr--${pt.trace}" title=${TRACED[pt.trace][1]}>${TRACED[pt.trace][0]}</span>` : nothing}${refs(pt).map((r) => outLink(r.href, r.label))}</div>` : nothing}
       </li>`)}</ol>` : nothing}
       ${questions.length ? html`<h4 class="h">${p.questionsLabel ?? 'Questions to ask'}</h4><ul>${questions.slice(0, this._allQ ? questions.length : maxQ).map((q) => html`<li>${q.text}${q.href && safeUrl(q.href) && q.label ? html` <span class="refs">${outLink(q.href, q.label)}</span>` : nothing}</li>`)}</ul>
         ${!this._allQ && questions.length > maxQ ? html`<button type="button" class="more" @click=${() => { this._allQ = true; this.requestUpdate(); }}>Show ${questions.length - maxQ} more</button>` : nothing}` : nothing}

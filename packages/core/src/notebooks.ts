@@ -12,6 +12,7 @@ import { DEFAULT_ATTACH_FILE_TYPES, cleanAttachFileTypes } from './attach-file-t
 import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
+import { parseSourceTrace, type NotebookSourceTrace, type SourceTraceStatus } from './notebook-trace.js';
 import { answerSubjects, evidenceOrigin, parseSourceOrigin, sourceOrigin, sourceSpread, type NotebookSourceOrigin } from './notebook-source-origin.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -940,6 +941,8 @@ export interface NotebookEntry {
   fingerprint?: string;
   /** Evidence from a page: who publishes it, what kind of source it is, and whether it's a subject's own (ADR-0081). */
   origin?: NotebookSourceOrigin;
+  /** Evidence whose quote the check step looked for on its page: found, missing, unread or no-quote, and when (ADR-0082). */
+  trace?: NotebookSourceTrace;
   /** The last run that found it again (first seen is `createdAt`). */
   lastSeenAt?: string;
   /** An option's stage (one of the notebook's stages) and when it got there. */
@@ -1641,7 +1644,7 @@ export class NotebookStore {
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'given_json TEXT'],
-      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'],
+      ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'], ['notebook_entries', 'trace_json TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
@@ -2250,6 +2253,15 @@ export class NotebookStore {
     const from = this.get(fromId);
     if (!from?.tags || !this.get(toId)) return;
     this.db.prepare('UPDATE notebooks SET tags_json = ? WHERE id = ?').run(JSON.stringify(from.tags), toId);
+  }
+
+  /** What the check step found when it looked for a source's quote on its page (ADR-0082). */
+  setEntryTrace(notebookId: string, entryId: string, status: SourceTraceStatus): NotebookEntry | undefined {
+    const now = new Date().toISOString();
+    const r = this.db.prepare("UPDATE notebook_entries SET trace_json = ? WHERE id = ? AND notebook_id = ? AND kind = 'evidence'").run(JSON.stringify({ status, at: now }), entryId, notebookId);
+    if (!r.changes) return undefined;
+    this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(now, notebookId);
+    return this.entries(notebookId, 1000).find((e) => e.id === entryId);
   }
 
   /** Tick (or untick) one of the notebook's checks for an option. */
@@ -3294,6 +3306,7 @@ export class NotebookStore {
       ...(r.fact_meta_json ? { factMeta: (() => { try { return JSON.parse(String(r.fact_meta_json)) as Record<string, NotebookFactMeta>; } catch { return {}; } })() } : {}),
       ...(r.fingerprint ? { fingerprint: String(r.fingerprint) } : {}),
       ...(r.origin_json ? (() => { try { const o = parseSourceOrigin(JSON.parse(String(r.origin_json))); return o ? { origin: o } : {}; } catch { return {}; } })() : {}),
+      ...(r.trace_json ? (() => { try { const t = parseSourceTrace(JSON.parse(String(r.trace_json))); return t ? { trace: t } : {}; } catch { return {}; } })() : {}),
       ...(r.last_seen_at ? { lastSeenAt: String(r.last_seen_at) } : {}),
       ...(r.stage ? { stage: String(r.stage) } : {}),
       ...(r.checked_json ? { checked: (() => { try { return JSON.parse(String(r.checked_json)) as string[]; } catch { return []; } })() } : {}),
@@ -4086,6 +4099,13 @@ export interface NotebookStepProgress {
  */
 /** A profile step is met with this many facts learned about who the notebook is about. */
 export const PROFILE_FACTS_WANTED = 4;
+/** The pages an answer's check step traces: its evidence with a page, one per page (the first filed), newest first. */
+export function answerTracePages(entries: readonly NotebookEntry[]): NotebookEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => e.kind === 'evidence' && e.fingerprint && /^https?:\/\//i.test(e.fingerprint))
+    .filter((e) => { const k = e.fingerprint!.toLowerCase().replace(/[#?].*$/, '').replace(/\/+$/, ''); if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
 /** How many publishers outside an answer's subjects its find step wants (agreement among the subjects' own pages isn't corroboration). */
 export const ANSWER_OUTSIDE_PUBLISHERS = 2;
 
@@ -4151,6 +4171,12 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const want = options.length * tracked.length;
     const have = want - gaps.reduce((n, x) => n + x.gaps.length, 0);
     return { met: options.length > 0 && tracked.length > 0 && !missing.length, have, want, missing };
+  }
+  if (step.kind === 'check' && !options.length && nb.steps?.some((s) => s.kind === 'write' && s.shape === 'answer')) {
+    // An answer has no options to check: it traces its sources, each quote looked for on its page (ADR-0082).
+    const pages = answerTracePages(entries);
+    const left = pages.filter((e) => !e.trace);
+    return { met: pages.length > 0 && !left.length, have: pages.length - left.length, want: pages.length, missing: left.map((e) => e.title), unit: 'sources traced' };
   }
   if (step.kind === 'check') {
     const missing = nb.checks.length ? options.map((o) => ({ o, left: checksLeft(nb, o) }))
