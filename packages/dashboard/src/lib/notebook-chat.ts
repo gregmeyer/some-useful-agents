@@ -402,6 +402,8 @@ export function describeNotebookForTriage(ctx: Ctx, nb: Notebook, focusOptionId?
       summary: nb.plan.summary, items: nb.plan.items.map((i) => `${i.when}: ${i.title}`), before: nb.plan.before, open: nb.plan.open,
       ...(nb.plan.sections?.length ? { sections: nb.plan.sections.map((x) => ({ title: x.title, kind: x.kind, lines: answerSectionLines(x).map((t) => t.slice(0, 200)) })).filter((_, i, all) => JSON.stringify(all.slice(0, i + 1)).length < 1500) } : {}),
     } } : {}),
+    // The picture chosen for its page (notebook-photo), when one was.
+    ...(nb.photo ? { photo: { chosen: nb.photo.credit ?? nb.photo.image, ...(nb.photo.page ? { page: nb.photo.page } : {}) } } : {}),
     ...(nb.answer?.text ? { answer: {
       // How sure as the page says it: capped by its evidence, with why (ADR-0083).
       text: nb.answer.text, ...((): { confidence: string; notHigher?: string[] } => { const c = answerConfidence(nb, all); return c ? { confidence: c.shown, ...(c.why.length ? { notHigher: c.why } : {}) } : { confidence: nb.answer!.confidence }; })(),

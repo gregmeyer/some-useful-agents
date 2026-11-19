@@ -48,6 +48,12 @@ export type NotebookFieldRole = typeof NOTEBOOK_FIELD_ROLES[number];
 /** A listing's own photo, an example photo of what it is, a company's logo, or a drawing. */
 export type NotebookPhotoKind = 'listing' | 'representative' | 'logo' | 'illustration';
 
+/** A picture chosen for a notebook: where it's from (its page), its credit, what it shows, and when. */
+export interface NotebookChosenPhoto { image: string; page?: string; credit?: string; alt?: string; at: string }
+
+/** Where a notebook's chosen picture is kept among the photos (it isn't an option's). */
+export const chosenPhotoId = (notebookId: string): string => `notebook:${notebookId}`;
+
 /** One site or source a search reached, and what it got there. */
 /** How a pass started: the notebook's pipeline, a run filed from its conversation, or Add to notebook. */
 export type NotebookPassKind = 'pipeline' | 'conversation' | 'added';
@@ -774,6 +780,8 @@ export interface Notebook {
   experimentRun?: { experimentId: string; label: string };
   /** Who or what it is a briefing on (a subject briefing, ADR-0080). Not `tags.subject` (a guess for matching) or a step's `subject`. */
   briefOn?: NotebookSubject;
+  /** A picture you chose for the notebook itself (in its conversation): it leads the page's photo, ahead of its sources' own. The image is kept here (`chosenPhotoId`). */
+  photo?: NotebookChosenPhoto;
   /**
    * What it depends on that your request referred to but didn't contain (a
    * profile, a résumé, a spec): each still missing, given (its text), or
@@ -1650,7 +1658,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'given_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'photo_json TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'], ['notebook_entries', 'trace_json TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
@@ -2500,6 +2508,25 @@ export class NotebookStore {
     this.db.prepare('UPDATE notebooks SET updated_at = ? WHERE id = ?').run(new Date().toISOString(), id);
   }
 
+  /**
+   * Choose the notebook's own picture (its bytes, kept here, and where it's
+   * from), or clear it (undefined) so its sources' photos lead again.
+   */
+  setChosenPhoto(id: string, chosen: { bytes: Uint8Array; contentType: string; image: string; page?: string; credit?: string; alt?: string } | undefined): Notebook {
+    this.mustGet(id);
+    const now = new Date().toISOString();
+    if (!chosen) {
+      this.db.prepare('DELETE FROM notebook_photos WHERE entry_id = ?').run(chosenPhotoId(id));
+      this.db.prepare('UPDATE notebooks SET photo_json = NULL, updated_at = ? WHERE id = ?').run(now, id);
+      return this.mustGet(id);
+    }
+    this.savePhoto(id, chosenPhotoId(id), chosen.image, { contentType: chosen.contentType, bytes: chosen.bytes }, { kind: 'listing', ...(chosen.alt ? { what: chosen.alt } : {}) });
+    const keep = (x: string | undefined, n: number) => (x ? x.replace(/\s+/g, ' ').trim().slice(0, n) : undefined);
+    const photo: NotebookChosenPhoto = { image: chosen.image, ...(keep(chosen.page, 500) ? { page: keep(chosen.page, 500) } : {}), ...(keep(chosen.credit, 200) ? { credit: keep(chosen.credit, 200) } : {}), ...(keep(chosen.alt, 200) ? { alt: keep(chosen.alt, 200) } : {}), at: now };
+    this.db.prepare('UPDATE notebooks SET photo_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(photo), now, id);
+    return this.mustGet(id);
+  }
+
   /** Mark a notebook as a copy an experiment made to run: it stays out of lists, and says whose it is. */
   /** Say who or what it is a briefing on (undefined: it isn't one). */
   setBriefOn(id: string, subject: unknown): Notebook {
@@ -3287,6 +3314,7 @@ export class NotebookStore {
       ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
       ...(typeof r.experiment_id === 'string' && r.experiment_id ? { experimentId: r.experiment_id } : {}),
       ...(r.brief_on_json ? (() => { const x = cleanSubject(parse<unknown>(r.brief_on_json, undefined)); return x ? { briefOn: x } : {}; })() : {}),
+      ...(r.photo_json ? (() => { const x = parse<Partial<NotebookChosenPhoto> | undefined>(r.photo_json, undefined); return x && typeof x.image === 'string' && typeof x.at === 'string' ? { photo: x as NotebookChosenPhoto } : {}; })() : {}),
       ...(r.experiment_run_json ? (() => { const x = parse<{ experimentId?: string; label?: string } | undefined>(r.experiment_run_json, undefined); return x?.experimentId ? { experimentRun: { experimentId: String(x.experimentId), label: String(x.label ?? '') } } : {}; })() : {}),
       ...(r.given_json ? (() => { const g = cleanGiven(parse<unknown>(r.given_json, undefined)); return g.length ? { given: g } : {}; })() : {}),
       ...(r.conversation_id ? { conversationId: String(r.conversation_id) } : {}),

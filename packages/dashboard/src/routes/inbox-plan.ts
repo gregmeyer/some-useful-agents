@@ -619,6 +619,21 @@ export function parseProposedActions(
       accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: inputs.UNDO === '1' ? 'Undo' : 'Change the page' });
       continue;
     }
+    // `notebook-photo` chooses the picture that leads a notebook's page:
+    // inputs.NOTEBOOK plus IMAGE (the image, or a page whose picture it is),
+    // with PAGE, CREDIT and ALT; or CLEAR "1". A card to approve.
+    if (type === 'notebook-photo') {
+      const inputs: Record<string, string> = {};
+      if (e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs)) {
+        for (const [k, v] of Object.entries(e.inputs as Record<string, unknown>)) if (typeof v === 'string' && ['NOTEBOOK', 'IMAGE', 'PAGE', 'CREDIT', 'ALT', 'CLEAR'].includes(k)) inputs[k] = v.trim();
+      }
+      if (!inputs.NOTEBOOK || !(inputs.CLEAR === '1' || /^https?:\/\//i.test(inputs.IMAGE ?? ''))) {
+        rejected.push({ agentId: type, reason: 'notebook-photo needs inputs.NOTEBOOK and IMAGE (an http(s) address of the picture), or CLEAR "1"' });
+        continue;
+      }
+      accepted.push({ kind: 'action', status: 'proposed', agentId: type, inputs, rationale: rationaleRaw || undefined, effect: 'write', ctaLabel: inputs.CLEAR === '1' ? 'Use its sources\' photos' : 'Use this picture' });
+      continue;
+    }
     // `notebook-template` saves a notebook's setup as a template, its words made
     // to fit any time (what changes each time as SUBJECT_*). A card to approve.
     if (type === 'notebook-template') {

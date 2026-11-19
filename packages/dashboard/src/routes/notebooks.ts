@@ -4,7 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
-import { ATTACH_FILE_TYPES, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
+import { ATTACH_FILE_TYPES, chosenPhotoId, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
 import { docxText } from '../lib/docx-text.js';
 import { takeAttachments } from '../lib/conversation-attach.js';
 import { renderTalkingPointsEdit } from '../views/notebook-talking-points.js';
@@ -443,6 +443,17 @@ notebooksRouter.get('/notebooks/:id/about/:who/photo', (req: Request, res: Respo
   res.setHeader('Content-Type', photo.contentType);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-cache');
+  res.end(Buffer.from(photo.bytes));
+});
+
+/** The picture chosen for the notebook itself, as kept (never loaded from its site). */
+notebooksRouter.get('/notebooks/:id/photo', (req: Request, res: Response) => {
+  const photo = store(req).photo(chosenPhotoId(String(req.params.id)));
+  if (!photo) { res.status(404).end(); return; }
+  res.setHeader('Content-Type', photo.contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Cache-Control', 'private, max-age=86400');
   res.end(Buffer.from(photo.bytes));
 });
 

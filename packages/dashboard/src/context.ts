@@ -336,6 +336,8 @@ export interface DashboardContext {
   notebookFacetsRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
   /** Tests only: answer for the notebook-checker agent (a check step) instead of running it. */
   notebookCheckerRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Test seam: how the notebook-photo card fetches a picture; core's guarded fetch otherwise. */
+  notebookPhotoDeps?: import('./lib/notebook-photo-action.js').PhotoDeps;
   /** Test seam: how an answer's check step reads a page for a quote (ADR-0082); real reads otherwise. */
   notebookTrace?: (url: string, quote: string) => Promise<'found' | 'missing' | 'unread' | 'no-quote'>;
   /** Tests only: check a page for a person's photo without the network (core findPersonPhoto). */
