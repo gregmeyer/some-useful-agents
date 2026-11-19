@@ -89,3 +89,20 @@ export function answerConfidence(nb: Pick<Notebook, 'title' | 'statement' | 'bri
   const shown = binding.reduce<AnswerConfidence>((m, c) => (RANK[c.to] < RANK[m] ? c.to : m), a.confidence);
   return { said: a.confidence, shown, why: binding.map((c) => c.why) };
 }
+
+/** Pages an answer's notebook found after the answer was written: how many, how many primary, how many from outside its subjects (ADR-0083). Undefined when there are none, or no answer. */
+export function answerNewSources(nb: Pick<Notebook, 'title' | 'statement' | 'briefOn' | 'answer'>, entries: readonly NotebookEntry[]): { pages: number; primary: number; outside: number } | undefined {
+  const a = nb.answer;
+  if (!a?.text || !a.at) return undefined;
+  const subjects = answerSubjects(nb);
+  const pages = new Map<string, NonNullable<ReturnType<typeof evidenceOrigin>>>();
+  for (const e of entries) {
+    if (e.kind !== 'evidence' || !e.fingerprint || e.createdAt <= a.at) continue;
+    const o = evidenceOrigin(e, subjects);
+    if (o) pages.set(e.fingerprint.toLowerCase().replace(/[#?].*$/, '').replace(/\/+$/, ''), o);
+  }
+  if (!pages.size) return undefined;
+  const os = [...pages.values()];
+  return { pages: os.length, primary: os.filter((o) => o.kind === 'primary').length, outside: subjects.length ? os.filter((o) => !o.whose).length : 0 };
+}
+

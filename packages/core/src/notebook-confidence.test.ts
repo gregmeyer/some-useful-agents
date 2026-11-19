@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { answerCitedIds, answerConfidence, findingStatus } from './notebook-confidence.js';
-import { cleanAnswer, type Notebook, type NotebookAnswer, type NotebookEntry } from './notebooks.js';
+import { answerCitedIds, answerConfidence, answerNewSources, findingStatus } from './notebook-confidence.js';
+import { cleanAnswer, criterionMet, type Notebook, type NotebookAnswer, type NotebookEntry } from './notebooks.js';
 
 const at = '2026-11-19T00:00:00.000Z';
 let n = 0;
@@ -60,5 +60,15 @@ describe("how sure an answer is, from its evidence (ADR-0083)", () => {
     const a = cleanAnswer({ answer: 'Yes.', confidence: 'high', findings: [{ text: 'A says', from: ['a'], kind: 'fact' }, { text: 'So', from: ['b'], kind: 'opinion' }], contradictions: [{ text: 'They differ', from: ['a', 'b'] }, { text: 'One side only', from: ['a'] }, { text: 'Unknown ids', from: ['x', 'y'] }] }, ids, 'q', 'x', at)!;
     expect(a.findings).toEqual([{ text: 'A says', from: ['a'], kind: 'fact' }, { text: 'So', from: ['b'] }]);
     expect(a.contradictions).toEqual([{ text: 'They differ', from: ['a', 'b'] }]);
+  });
+
+  it('counts the pages found after the answer was written, and an answer counts as written work for a done-when', () => {
+    const later = (url: string) => ({ ...page(url), createdAt: '2026-11-20T00:00:00.000Z' });
+    const es = [own, later('https://a2ui.org/v1'), later('https://a2ui.org/v1#x'), later('https://thenewstack.io/new')];
+    expect(answerNewSources(nb({}), es)).toEqual({ pages: 2, primary: 1, outside: 1 });
+    expect(answerNewSources(nb({}), [own])).toBeUndefined();
+    expect(answerNewSources(nb({ text: '' }), es)).toBeUndefined();
+    expect(criterionMet(nb({}), [], 'The answer on how they differ written')).toBe(true);
+    expect(criterionMet(nb({ text: '' }), [], 'The answer on how they differ written')).toBe(false);
   });
 });
