@@ -4109,7 +4109,10 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
   }
   if (step.kind === 'find') {
     const want = step.target ?? 5;
-    const have = options.length;
+    // An answer is explained from sources: each one it filed as evidence counts (once per source), as options do.
+    const answers = nb.steps?.some((s) => s.kind === 'write' && s.shape === 'answer');
+    const sources = answers ? new Set(entries.filter((e) => e.kind === 'evidence').map((e) => e.fingerprint || e.title)).size : 0;
+    const have = options.length + sources;
     return { met: have >= want, have, want, missing: have >= want ? [] : [`${String(want - have)} more`] };
   }
   if (step.kind === 'source') {
