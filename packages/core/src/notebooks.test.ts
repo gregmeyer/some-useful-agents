@@ -1121,7 +1121,7 @@ describe("an option's own page, not a search page", () => {
     expect(stepProgress(s.get(nb.id)!, s.entries(nb.id), step)).toMatchObject({ met: false, have: 1, want: 4 });
   });
 
-  it("an answer's find step counts the sources it filed as evidence, once per page; a shortlist's doesn't", () => {
+  it("an answer's find step counts who publishes its sources, once each, and wants two from outside what it asks about; a shortlist's doesn't", () => {
     dir = mkdtempSync(join(tmpdir(), 'sua-ans-'));
     runs = new RunStore(join(dir, 'runs.db'));
     const s = NotebookStore.fromHandle(runs.databaseHandle());
@@ -1131,9 +1131,20 @@ describe("an option's own page, not a search page", () => {
     s.addEntry(ask.id, { kind: 'evidence', title: 'A streams JSON', by: 'x', source: 'https://a.example/spec' });
     s.addEntry(ask.id, { kind: 'evidence', title: 'B carries it', by: 'x', source: 'https://b.example/docs' });
     s.addEntry(ask.id, { kind: 'note', title: 'Searched 3 places at once', by: 'x' });
-    expect(stepProgress(s.get(ask.id)!, s.entries(ask.id), find)).toMatchObject({ met: false, have: 2, want: 3, missing: ['1 more'] });
+    expect(stepProgress(s.get(ask.id)!, s.entries(ask.id), find)).toMatchObject({ met: false, have: 2, want: 3, missing: ['1 more publisher'] });
     s.addEntry(ask.id, { kind: 'evidence', title: 'C renders it', by: 'x', source: 'https://c.example/arch' });
     expect(stepProgress(s.get(ask.id)!, s.entries(ask.id), find)).toMatchObject({ met: true, have: 3 });
+
+    // What it asks about by name: its own pages are one voice each, and it wants two publishers from outside them (SIFT, ADR-0081).
+    const vs = s.create({ title: 'Understand A2UI vs CopilotKit' });
+    const [look2] = s.setSteps(vs.id, [{ title: 'Find 3 sources', kind: 'find', target: 3 }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]).steps!;
+    for (const u of ['https://a2ui.org/spec', 'https://a2ui.org/quickstart', 'https://docs.copilotkit.ai/a', 'https://www.copilotkit.ai/b']) s.addEntry(vs.id, { kind: 'evidence', title: u, by: 'x', source: u });
+    expect(stepProgress(s.get(vs.id)!, s.entries(vs.id), look2)).toEqual({ met: false, have: 2, want: 3, missing: ['1 more publisher', '2 from outside A2UI, CopilotKit'], unit: 'publishers' });
+    s.addEntry(vs.id, { kind: 'evidence', title: 'n', by: 'x', source: 'https://thenewstack.io/x' });
+    s.addEntry(vs.id, { kind: 'evidence', title: 'n2', by: 'x', source: 'https://thenewstack.io/y' });
+    expect(stepProgress(s.get(vs.id)!, s.entries(vs.id), look2)).toMatchObject({ met: false, have: 3, missing: ['1 from outside A2UI, CopilotKit'] });
+    s.addEntry(vs.id, { kind: 'evidence', title: 'i', by: 'x', source: 'https://infoq.com/z' });
+    expect(stepProgress(s.get(vs.id)!, s.entries(vs.id), look2)).toMatchObject({ met: true, have: 4, missing: [] });
 
     const shop = s.create({ title: 'Buy a bike' });
     const [look] = s.setSteps(shop.id, [{ title: 'Find 3 bikes', kind: 'find', target: 3 }, { title: 'Pick one', kind: 'decide' }]).steps!;

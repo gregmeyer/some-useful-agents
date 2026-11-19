@@ -30,9 +30,11 @@ Judged by the SIFT method (stop, investigate the source, find other coverage, tr
   - the Answer preset gains an Agenda part listing each publisher with its pages (`/notebook/sources`, `/notebook/sourceCautions`).
   - Pages saved before keep their parts, and their Still open and links change.
 - **Old entries are not backfilled.** `evidenceOrigin` reads an origin from the address when none was stored.
+- **Find looks for outside voices (added later).** An answer's find step counts publishers, not pages, and is met only with at least two publishers from outside its subjects (`ANSWER_OUTSIDE_PUBLISHERS`). The finder is told the sources so far and, short of two outside, plans one independent learn search off the subjects' own sites; its `vet` code adds that search when the plan didn't. Counting publishers rather than requiring more pages keeps the finder from padding a goal with one vendor's docs.
 
 ## Consequences
 
 - An answer built only from the subjects' own pages says so where its open questions are. The writer is steered away from calling it high.
-- The confidence is still the writer's word. Capping it in code, from traced claims and independent publishers, is the next step, and so is having the check step trace an answer's findings to their pages. Both build on this origin.
+- The confidence is still the writer's word. Capping it in code, from traced claims and independent publishers, is still to do, and so is having the check step trace an answer's findings to their pages. Both build on this origin.
+- An answer's find step can now wait on outside sources that don't exist (a project nobody has written about yet). The independent search says so, and Move on goes past it.
 - Telling subjects apart by name in the title can miss a subject named in plain words ("the sandwich"), and could match a short name inside an unrelated site. Names under three letters are skipped, and the finder's `whose` covers what the address can't.

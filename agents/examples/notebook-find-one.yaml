@@ -114,6 +114,10 @@ nodes:
       its own work, including one co-written with partners); otherwise
       "none". Include at least one page from someone with no stake in what
       it explains when there is one.
+      When its "why" ({{inputs.WHY}}) asks for independent pages, every
+      page is from someone with no stake in what it explains: never a
+      page its maker publishes, however good. Fewer pages, or none, is
+      the right answer when that's all there is; say so in "note".
 
       Otherwise, reply with only this JSON, on one line, and nothing else:
       {"where":"{{inputs.WHERE}}","candidates":[{"title":"one line, under 90 characters: what, where, pay or price","url":"its own page","facts":{"<field key>":"<value>"},"quote":"a short sentence from its page that shows it fits","why":"how it fits, in a few words"}],"near":[{"title":"…","url":"its own page","facts":{},"misses":"which limit and by how much"}],"note":"what you searched and opened, and what you couldn't cover"}

@@ -12,7 +12,7 @@ import { subjectHost,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
-import { answerSubjects, givenBrief, givenWaitingReason, notebookClosedReason } from '@some-useful-agents/core';
+import { ANSWER_OUTSIDE_PUBLISHERS, answerSubjects, evidenceOrigin, sourceSpread, givenBrief, givenWaitingReason, notebookClosedReason } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import { parseJsonFromOutput } from '../views/output-widgets.js';
 import type { getContext } from '../context.js';
@@ -122,6 +122,33 @@ export function subjectBrief(nb: Pick<Notebook, 'briefOn'>): string[] {
   ];
 }
 
+/**
+ * What an answer notebook's finder is told about who its sources come from
+ * so far (SIFT, ADR-0081): its subjects, how many publishers it has and how
+ * many are from outside them, and, short of two outside ones, to make one
+ * learn search an independent one that stays off the subjects' own sites
+ * (only for a find; `find` false leaves that out).
+ * None for a briefing on one subject (it has its own rule) or a notebook
+ * that names no subjects. Pure.
+ */
+export function answerSourcesBrief(nb: Notebook, entries: readonly NotebookEntry[], find = true): string[] {
+  if (nb.briefOn || !(nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'answer')) return [];
+  const subjects = answerSubjects(nb);
+  if (!subjects.length) return [];
+  const pages = new Map<string, NonNullable<ReturnType<typeof evidenceOrigin>>>();
+  for (const e of entries) { if (e.kind !== 'evidence') continue; const o = evidenceOrigin(e, subjects); if (o && e.fingerprint) pages.set(pageKey(e.fingerprint), o); }
+  const spread = sourceSpread([...pages.values()]);
+  const outside = spread.byPublisher.filter((p) => !p.whose).map((p) => p.publisher);
+  // Their own sites, by address, so a search can leave them out (-site:copilotkit.ai).
+  const ownSites = [...new Set([...pages.entries()].filter(([, o]) => o.whose).map(([k]) => k.split('/')[0]).filter((h) => h && !/^(github|gitlab)\.com$/.test(h)))].slice(0, 6);
+  const lines = [`What it's about: ${subjects.join(', ')}. A page one of them publishes about itself (its site, docs, repo, blog) is its own, not a confirmation of what it says.`];
+  if (spread.pages) lines.push(`Its sources so far: ${String(spread.pages)} page${spread.pages === 1 ? '' : 's'} from ${String(spread.publishers)} publisher${spread.publishers === 1 ? '' : 's'}; ${outside.length ? `${String(outside.length)} from outside them (${outside.slice(0, 5).join(', ')})` : 'none from outside them'}.`);
+  if (find && outside.length < ANSWER_OUTSIDE_PUBLISHERS) {
+    lines.push(`It needs independent sources: make ONE of the learn searches an independent one ("kind": "learn", "independent": true) for third-party comparisons, analyses, engineering write-ups, standards bodies or press that name ${subjects.join(' or ')} but aren't published by ${subjects.length === 1 ? 'it' : 'any of them'}${ownSites.length ? `, leaving out their own sites (${ownSites.map((h) => `-site:${h}`).join(' ')})` : ''}.`);
+  }
+  return lines;
+}
+
 export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], job?: StepJob): string {
   return [
     job ? stepLine(nb, job) : '',
@@ -141,6 +168,8 @@ export function notebookBrief(nb: Notebook, entries?: readonly NotebookEntry[], 
       : (nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'writeup')
         ? 'Its shortlist gets written up: besides options, a page or two that explain what to weigh help.'
         : '',
+    // An answer's sources: who they're from so far, and an independent search when too few are from outside its subjects.
+    ...(entries ? answerSourcesBrief(nb, entries, !job || job.step.kind === 'find') : []),
     entries ? notebookGaps(nb, entries) : '',
   ].filter(Boolean).join('\n');
 }

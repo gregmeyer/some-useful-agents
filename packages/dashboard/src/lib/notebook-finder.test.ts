@@ -132,9 +132,9 @@ describe('notebook-finder', () => {
 // up. Code now vets the plan before any search runs.
 describe('notebook-finder vets its plan', () => {
   const finder = agent('notebook-finder');
-  function vet(plan: string): { searches: unknown[]; needs?: string } {
+  function vet(plan: string, notebook = ''): { searches: unknown[]; needs?: string } {
     const cmd = finder.nodes.find((n) => n.id === 'vet')!.command!;
-    const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', UPSTREAM_PLAN_RESULT: plan }), encoding: 'utf8' });
+    const out = execFileSync('sh', ['-c', cmd], { env: withShellHelpers({ PATH: process.env.PATH ?? '', UPSTREAM_PLAN_RESULT: plan, NOTEBOOK: notebook }), encoding: 'utf8' });
     return JSON.parse(out.trim());
   }
   const plan = (o: unknown) => `How I split it.\n${JSON.stringify(o)}`;
@@ -170,6 +170,18 @@ describe('notebook-finder vets its plan', () => {
     expect(vet(plan({ needs: 'the LinkedIn profile it should match', searches: [] }))).toEqual({ searches: [], needs: 'the LinkedIn profile it should match' });
     // Even beside searches it wrote anyway.
     expect(vet(plan({ needs: 'your résumé', searches: [{ where: 'Web', query: 'jobs' }] }))).toEqual({ searches: [], needs: 'your résumé' });
+  });
+
+  it("an answer short of outside sources gets an independent learn search, off its subjects' own sites, when the plan has none (ADR-0081)", () => {
+    const nb = "Understand A2UI vs AG-UI\nWhat it's about: A2UI, AG-UI, CopilotKit. A page one of them publishes about itself is its own.\nIt needs independent sources: make ONE of the learn searches an independent one, leaving out their own sites (-site:copilotkit.ai -site:a2ui.org).";
+    const five = [1, 2, 3, 4, 5].map((i) => ({ where: `W${String(i)}`, query: `q${String(i)}` }));
+    const got = vet(plan({ searches: five }), nb).searches as Array<Record<string, unknown>>;
+    expect(got).toHaveLength(5);
+    expect(got[4]).toEqual({ where: 'independent sources', query: '"A2UI" "AG-UI" comparison OR analysis OR review -site:copilotkit.ai -site:a2ui.org', why: 'independent pages: third parties that compare or analyse them, not their own sites', kind: 'learn', independent: true });
+    // One the plan made is kept, and says in its "why" (which the searcher reads) that it wants independent pages.
+    expect(vet(plan({ searches: [{ where: 'Web', query: 'q', why: 'comparisons', kind: 'learn', independent: true }] }), nb).searches).toEqual([{ where: 'Web', query: 'q', why: "comparisons (independent pages: not published by what it's about)", kind: 'learn', independent: true }]);
+    // Not asked for: the plan as it was.
+    expect(vet(plan({ searches: five }), 'Buy a bike').searches).toEqual(five);
   });
 
   it('merge then files nothing and says what the search needs', () => {
