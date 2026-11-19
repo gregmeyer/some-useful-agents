@@ -871,7 +871,17 @@ export interface NotebookSubjectPhoto { src: string; alt: string; href: string; 
  * source. Never a logo, a drawing or the TL;DR card. Undefined when no source
  * has one, so a part bound to it isn't drawn. Pure.
  */
-export function subjectPhoto(nb: Pick<Notebook, 'id' | 'briefOn'>, options: ReadonlyArray<Pick<NotebookViewOption, 'id' | 'name' | 'image' | 'imageKind' | 'link' | 'ruledOut'>>): NotebookSubjectPhoto | undefined {
+export function subjectPhoto(nb: Pick<Notebook, 'id' | 'briefOn' | 'photo'>, options: ReadonlyArray<Pick<NotebookViewOption, 'id' | 'name' | 'image' | 'imageKind' | 'link' | 'ruledOut'>>): NotebookSubjectPhoto | undefined {
+  // One you chose for the notebook (in its conversation) leads, with its credit.
+  if (nb.photo) {
+    const c = nb.photo;
+    const from = (() => { try { return new URL(c.page ?? c.image).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+    return {
+      src: `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(c.at)}`, alt: c.alt ?? 'The picture chosen for this notebook',
+      href: c.page ?? c.image, title: 'Where this picture is from',
+      caption: c.credit ?? (from ? `Photo from ${from}` : 'The picture chosen for this notebook'), entry: '',
+    };
+  }
   const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '').toLowerCase() : ''; } catch { return ''; } };
   const live = options.filter((o) => o.image && !o.ruledOut);
   const own = live.filter((o) => o.imageKind === 'listing' || o.imageKind === undefined);

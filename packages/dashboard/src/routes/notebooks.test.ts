@@ -3683,6 +3683,56 @@ describe('a new notebook decides its page', () => {
   });
 });
 
+describe("choosing a notebook's picture in its conversation", () => {
+  it("sua's card fetches the picture, keeps it, and it leads the page credited; a page address gives its preview picture; CLEAR goes back", async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const { executeNotebookPhoto } = await import('../lib/notebook-photo-action.js');
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { notebookWidgetData } = await import('../lib/notebook-widgets.js');
+    const ctx = getContext(app.locals);
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const get = (path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
+    const nb = store.create({ title: 'Settle whether a hot dog is a sandwich' });
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const fetched: string[] = [];
+    const deps = {
+      fetchImage: async (u: string) => { fetched.push(u); if (!u.endsWith('.jpg')) throw new Error('Unsupported content type "text/html".'); return { bytes: png, contentType: 'image/png' }; },
+      pagePreview: async () => ({ image: 'https://upload.wikimedia.org/x/Hotdog.jpg' }),
+    };
+
+    const { accepted, rejected } = parseProposedActions([
+      { type: 'notebook-photo', rationale: 'A hot dog in a split bun', inputs: { NOTEBOOK: nb.id, IMAGE: 'https://upload.wikimedia.org/x/Hotdog.jpg', PAGE: 'https://commons.wikimedia.org/wiki/File:Hotdog.jpg', CREDIT: '“Hotdog” by Evan Swigart, CC BY 2.0', ALT: 'A hot dog in a split bun' } },
+      { type: 'notebook-photo', inputs: { NOTEBOOK: nb.id, IMAGE: 'not a link' } },
+    ], [], []);
+    expect(rejected[0].reason).toMatch(/^notebook-photo needs inputs.NOTEBOOK and IMAGE/);
+    expect(accepted[0]).toMatchObject({ agentId: 'notebook-photo', ctaLabel: 'Use this picture', effect: 'write' });
+
+    expect(await executeNotebookPhoto(ctx, accepted[0], deps)).toMatchObject({ status: 'completed' });
+    const chosen = store.get(nb.id)!.photo!;
+    expect(chosen).toMatchObject({ image: 'https://upload.wikimedia.org/x/Hotdog.jpg', page: 'https://commons.wikimedia.org/wiki/File:Hotdog.jpg', credit: '“Hotdog” by Evan Swigart, CC BY 2.0' });
+    const photo = notebookWidgetData(store.get(nb.id)!, store.entries(nb.id, 1000)).notebook.photo!;
+    expect(photo).toMatchObject({ src: `/notebooks/${nb.id}/photo?v=${encodeURIComponent(chosen.at)}`, href: 'https://commons.wikimedia.org/wiki/File:Hotdog.jpg', caption: '“Hotdog” by Evan Swigart, CC BY 2.0', alt: 'A hot dog in a split bun' });
+    const served = await get(`/notebooks/${nb.id}/photo`);
+    expect(served.status).toBe(200);
+    expect(served.headers['content-type']).toBe('image/png');
+
+    // The file's page, not the image: its preview picture is fetched.
+    fetched.length = 0;
+    expect(await executeNotebookPhoto(ctx, { ...accepted[0], inputs: { NOTEBOOK: nb.id, IMAGE: 'https://en.wikipedia.org/wiki/Hot_dog' } }, deps)).toMatchObject({ status: 'completed' });
+    expect(fetched).toEqual(['https://en.wikipedia.org/wiki/Hot_dog', 'https://upload.wikimedia.org/x/Hotdog.jpg']);
+    expect(store.get(nb.id)!.photo!.image).toBe('https://upload.wikimedia.org/x/Hotdog.jpg');
+
+    const failing = { fetchImage: async () => { throw new Error('HTTP 404'); }, pagePreview: async () => ({}) };
+    expect(await executeNotebookPhoto(ctx, accepted[0], failing)).toMatchObject({ status: 'failed', refusalReason: "That picture couldn't be fetched (HTTP 404). Find another, or send its address." });
+
+    expect(await executeNotebookPhoto(ctx, { ...accepted[0], inputs: { NOTEBOOK: nb.id, CLEAR: '1' } }, deps)).toMatchObject({ status: 'completed' });
+    expect(store.get(nb.id)!.photo).toBeUndefined();
+    expect((await get(`/notebooks/${nb.id}/photo`)).status).toBe(404);
+  });
+});
+
 describe('making a template with sua', () => {
   it('the page previews sua\'s first guess; sua\'s card saves the template; the preview follows it', async () => {
     const app = await makeApp();

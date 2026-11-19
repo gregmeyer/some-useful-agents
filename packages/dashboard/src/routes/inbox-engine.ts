@@ -17,6 +17,7 @@ import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skil
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { experimentsForTriage, experimentsLinked } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
+import { executeNotebookPhoto } from '../lib/notebook-photo-action.js';
 import { previewBoardPage, executeBoardPage } from '../lib/board-page-action.js';
 import { applyNotebookCorrection, startNotebookCorrection } from '../lib/notebook-correction.js';
 import { previewNotebookTemplate, executeNotebookTemplate, templateOfNotebook } from '../lib/notebook-template-action.js';
@@ -214,7 +215,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -940,6 +941,9 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'notebook-layout') {
     return executeNotebookLayout(ctx, meta);
+  }
+  if (meta.agentId === 'notebook-photo') {
+    return executeNotebookPhoto(ctx, meta);
   }
   if (meta.agentId === 'notebook-template') {
     return executeNotebookTemplate(ctx, meta);
@@ -2501,7 +2505,7 @@ export function verifyResolveEvidence(
  * to the notebook."). Nothing to interpret and nothing to chain, unlike an
  * analysis, an agent fix (rerun to verify) or a new notebook (start it).
  */
-export const REPORTS_ITSELF: ReadonlySet<string> = new Set(['notebook-layout', 'notebook-add', 'adjust-surface', 'arrange-board', 'board-page', 'agent-schedule', 'agent-settings', 'notebook-template', 'dashboard-editor']);
+export const REPORTS_ITSELF: ReadonlySet<string> = new Set(['notebook-layout', 'notebook-photo', 'notebook-add', 'adjust-surface', 'arrange-board', 'board-page', 'agent-schedule', 'agent-settings', 'notebook-template', 'dashboard-editor']);
 
 /**
  * Every action since their last message ran, finished with a summary, and is
@@ -2985,7 +2989,7 @@ export async function runTriageAgent(
     );
     // agent-settings is route-handled too: a settings request needs no runnable agents.
     const planHasSettings = rawActionList.some(
-      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
+      (a) => a && typeof a === 'object' && ['agent-settings', 'adjust-surface', 'arrange-board', 'notebook-add', 'notebook-pipeline', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct'].includes(String((a as { type?: unknown }).type)),
     );
     // The proposed actions are checked BEFORE the reply is posted: when every one
     // is refused and a recovery turn will run anyway, the reply (which described a
