@@ -418,11 +418,13 @@ function embeddedPictures(s: NotebookStore, nb: Notebook, entries: readonly Note
   };
 }
 
-/** A saved brief carries its person's photo and company logo inside it (dashboard addresses wouldn't open elsewhere). */
+/** A saved brief carries its person's photo, company logo and the notebook's chosen picture inside it (dashboard addresses wouldn't open elsewhere). */
 function embeddedAboutPicture(s: NotebookStore, nb: Notebook): (src: string) => string | undefined {
   return (src) => {
     const who = /\/about\/(person|company)\/photo$/.exec(src)?.[1] as 'person' | 'company' | undefined;
-    const photo = who ? s.aboutPhoto(nb.id, who) : undefined;
+    // The picture chosen for the notebook itself (/notebooks/:id/photo?v=…).
+    const chosen = !who && /\/notebooks\/[^/]+\/photo(\?.*)?$/.test(src);
+    const photo = who ? s.aboutPhoto(nb.id, who) : chosen ? s.photo(chosenPhotoId(nb.id)) : undefined;
     return photo && photo.bytes.length <= BRIEF_PICTURE_MAX ? `data:${photo.contentType};base64,${Buffer.from(photo.bytes).toString('base64')}` : undefined;
   };
 }
