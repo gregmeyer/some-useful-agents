@@ -6,6 +6,7 @@
  */
 import { answerSectionLines, fieldNumber, openConflicts, rankBy, writesUp, type Notebook, type NotebookAboutOne, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from './notebooks.js';
 import { formatFieldValue } from './notebook-field-format.js';
+import { answerConfidence } from './notebook-confidence.js';
 
 export const NOTEBOOK_READ_PARTS = ['all', 'about', 'written', 'options', 'notes'] as const;
 export type NotebookReadPart = (typeof NOTEBOOK_READ_PARTS)[number];
@@ -122,7 +123,8 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
       })).filter((x) => x.lines.length);
       // A shortlist written up is kept as the answer (ADR-0069); it reads as the write-up.
       const writeup = writesUp(nb);
-      out.answer = { question: a.question, text: a.text, confidence: a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}), ...(writeup ? { writeup: true } : {}) };
+      // How sure as the page says it: capped by its evidence (ADR-0083).
+      out.answer = { question: a.question, text: a.text, confidence: answerConfidence(nb, entries)?.shown ?? a.confidence, findings: a.findings.map((f) => f.text).filter((t) => !struck.has(t)), open: a.open, ...(sections.length ? { sections } : {}), ...(writeup ? { writeup: true } : {}) };
     }
     const b = nb.briefing;
     if (b && (b.points.length || b.questions.length || b.watch.length)) {

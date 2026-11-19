@@ -13,7 +13,7 @@
  *   Where sua looked (coverage)    | Limits (disagreements flagged)
  */
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
-import { readerPage, findingTrace, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
+import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
   notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
@@ -210,7 +210,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     answer: { question: string; label: string; text: string; next?: string; nextLabel: string; cover?: string };
     /** The findings the answer rests on, each linked to its sources (Agenda points). */
     /** `trace`: how the sources it cites traced (ADR-0082), once the check step has looked. */
-    findings: Array<{ text: string; refs: Array<{ label: string; href: string }>; trace?: FindingTrace }>;
+    findings: Array<{ text: string; refs: Array<{ label: string; href: string }>; trace?: FindingTrace | 'interpretation' }>;
     /** What the answer leaves open (Agenda questions). */
     openQuestions: Array<{ text: string }>;
     /** Who publishes the pages it learned from, one point per publisher, linked to its pages (Agenda points; ADR-0081). */
@@ -908,16 +908,18 @@ function answerViews(nb: Notebook, active: readonly NotebookViewOption[], summar
   const caution = answerSourceCaution(nb, entries);
   const refs = answerRefs(nb, active, entries, all);
   const byId = new Map(entries.map((e) => [e.id, e]));
-  const subjects = answerSubjects(nb);
   const answerSections = sectionViews(a.sections, a.struck, refs);
   const writeup = writesUp(nb);
+  // How sure, capped by its evidence (ADR-0083), and why it isn't higher than the writer said.
+  const sure = answerConfidence(nb, entries) ?? { said: a.confidence, shown: a.confidence, why: [] };
+  const how = [a.basis ?? '', sure.why.length ? `Why not higher: ${sure.why.join('; ')}.` : ''].filter(Boolean).join(' ');
   return {
     answer: writeup
-      ? { question, label: `The lay of the land · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How well checked:' }
-      : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[a.confidence]}`, text: a.text, ...(a.basis ? { next: a.basis } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
-    findings: a.findings.map((f) => { const t = findingTrace(f.from.map((id) => byId.get(id)).filter((e): e is NotebookEntry => !!e && e.kind === 'evidence').map((e) => ({ ...(e.trace ? { trace: e.trace } : {}), ...(evidenceOrigin(e, subjects) ? { origin: evidenceOrigin(e, subjects) } : {}) }))); return { text: f.text, refs: refs(f.from, f.text), ...(t ? { trace: t } : {}) }; }),
-    // Where its sources come from comes first when that's what to weigh.
-    openQuestions: [...(caution ? [caution] : []), ...a.open].map((text) => ({ text })),
+      ? { question, label: `The lay of the land · ${SURE[sure.shown]}`, text: a.text, ...(how ? { next: how } : {}), nextLabel: 'How well checked:' }
+      : { question, label: `${nb.briefOn ? 'Briefing' : 'Answer'} · ${SURE[sure.shown]}`, text: a.text, ...(how ? { next: how } : {}), nextLabel: 'How sure:', cover: subjectLeadPicture(nb, active) ?? answerCover(nb).src },
+    findings: a.findings.map((f) => { const t = findingStatus(nb, f, byId); return { text: f.text, refs: refs(f.from, f.text), ...(t ? { trace: t } : {}) }; }),
+    // Where its sources come from comes first when that's what to weigh, then where they disagree.
+    openQuestions: [...(caution ? [caution] : []), ...(a.contradictions ?? []).map((c) => `Sources disagree: ${c.text}`), ...a.open].map((text) => ({ text })),
     answerSections,
     sources: sourcePoints(nb, entries),
     sourceCautions: caution ? [{ text: caution }] : [],

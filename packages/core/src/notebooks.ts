@@ -502,7 +502,12 @@ export interface NotebookBriefing {
 export interface NotebookAnswerFinding {
   text: string;
   from: string[];
+  /** fact: what a source says; interpretation: what the writer draws from them (ADR-0083). Unsaid on answers written before. */
+  kind?: 'fact' | 'interpretation';
 }
+
+/** Where an answer's sources disagree: what they say differently, and the sources on each side (ADR-0083). */
+export interface NotebookAnswerContradiction { text: string; from: string[] }
 
 /** What a write step wrote when the notebook answers a question: the answer, how sure, what it rests on, what's still open. */
 export interface NotebookAnswer {
@@ -516,6 +521,8 @@ export interface NotebookAnswer {
   findings: NotebookAnswerFinding[];
   /** What's still open: questions it couldn't settle, or what to do next. */
   open: string[];
+  /** Where its sources disagree (ADR-0083). */
+  contradictions?: NotebookAnswerContradiction[];
   /** What the answer was asked to give, as its own parts: the steps to take, a rubric or comparison, a few paragraphs. */
   sections?: NotebookAnswerSection[];
   at: string;
@@ -4249,12 +4256,20 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     const t = line(o.text ?? o.finding, 320);
     if (!t) return undefined;
     const from = (Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id));
+    const kind = o.kind === 'fact' || o.kind === 'interpretation' ? o.kind : undefined;
     // A finding about a group cites each of them (a row naming 12 jobs, 12 sources), not the first few.
-    return { text: t, from: [...new Set(from)].slice(0, ANSWER_CITES) };
+    return { text: t, from: [...new Set(from)].slice(0, ANSWER_CITES), ...(kind ? { kind } : {}) };
   }).filter((f): f is NotebookAnswerFinding => !!f).slice(0, 6);
   const open = (Array.isArray(v.open) ? v.open : []).map((q) => line(q, 240)).filter(Boolean).slice(0, 5);
+  // Where its sources disagree: each names the sources on both sides (two at least), else it isn't one.
+  const contradictions = (Array.isArray(v.contradictions) ? v.contradictions : []).map((c): NotebookAnswerContradiction | undefined => {
+    const o = (c ?? {}) as Record<string, unknown>;
+    const t = line(o.text, 300);
+    const from = [...new Set((Array.isArray(o.from) ? o.from : []).filter((id): id is string => typeof id === 'string' && optionIds.has(id)))];
+    return t && from.length >= 2 ? { text: t, from: from.slice(0, ANSWER_CITES) } : undefined;
+  }).filter((c): c is NotebookAnswerContradiction => !!c).slice(0, 3);
   const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? [], opts.briefing);
-  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(sections.length ? { sections } : {}), at, by };
+  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(contradictions.length ? { contradictions } : {}), ...(sections.length ? { sections } : {}), at, by };
 }
 
 /** One part of a briefing on a subject (ADR-0080): its title on the page, and how a done-when names it. */

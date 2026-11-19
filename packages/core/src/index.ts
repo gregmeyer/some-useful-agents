@@ -30,6 +30,7 @@ export * from './notebook-readout.js';
 export * from './notebook-layout.js';
 export * from './notebook-source-origin.js';
 export * from './notebook-trace.js';
+export * from './notebook-confidence.js';
 export { resolveLayout, checkLayout, whenHolds, type ResolveLayoutOptions, type ListCap } from './layout-resolve.js';
 export * from './board-layout.js';
 export * from './notebook-changes.js';
