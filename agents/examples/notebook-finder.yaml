@@ -266,7 +266,9 @@ nodes:
                   quote = c["quote"].strip() if isinstance(c.get("quote"), str) else ""
                   title = takeaway if len(takeaway) <= 150 else takeaway[:148].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…"
                   body = " ".join(x for x in [f"\"{quote}\"" if quote else "", f"{(c.get('title') or '').strip()} (found by the {where} search)"] if x)
-                  learned.append({"kind": "evidence", "title": title, "body": body[:1500], "fingerprint": url})
+                  # Who publishes it and whether it's one of the subjects' own (the dashboard checks it against the address).
+                  origin = {k: c[k].strip()[:60] for k in ("publisher", "kind", "whose") if isinstance(c.get(k), str) and c[k].strip()}
+                  learned.append({"kind": "evidence", "title": title, "body": body[:1500], "fingerprint": url, **({"origin": origin} if origin else {})})
                   found += 1
               note = (got.get("note") or "").strip()
               sources.append({"name": where, "found": found, "status": "found" if found else "none", **({"note": note[:300]} if note else {})})

@@ -12,7 +12,7 @@ import { subjectHost,
   type Agent, type Notebook, type NotebookEntry, type NotebookField, type NotebookStep, type NotebookEntryKind, type NotebookPassKind,
   trackedFacts, stepFacts,
 } from '@some-useful-agents/core';
-import { givenBrief, givenWaitingReason, notebookClosedReason } from '@some-useful-agents/core';
+import { answerSubjects, givenBrief, givenWaitingReason, notebookClosedReason } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import { parseJsonFromOutput } from '../views/output-widgets.js';
 import type { getContext } from '../context.js';
@@ -321,6 +321,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   }
   const had = store.entries(nb.id, 1000);
   const seen = new Set(had.map((e) => entryKey(e.title)));
+  const subjects = answerSubjects(nb);
   const evidencePages = new Set(had.filter((e) => e.kind === 'evidence' && e.fingerprint).map((e) => pageKey(e.fingerprint!)));
   let added = 0;
   let refreshed = 0;
@@ -329,7 +330,7 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
   let options = 0;
   let ruledOutNew = 0;
   for (const e of (Array.isArray(parsed.entries) ? parsed.entries : []).slice(0, opts.maxEntries ?? MAX_ENTRIES_PER_RUN)) {
-    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown; ruleOut?: unknown };
+    const x = e as { kind?: unknown; title?: unknown; body?: unknown; data?: unknown; fingerprint?: unknown; ruleOut?: unknown; origin?: unknown };
     if (typeof x.title !== 'string' || !(NOTEBOOK_ENTRY_KINDS as readonly string[]).includes(String(x.kind))) { skipped++; continue; }
     const body = typeof x.body === 'string' ? x.body : '';
     const key = entryKey(x.title);
@@ -361,7 +362,9 @@ export function applyKeeperResult(store: NotebookStore, nb: Notebook, agentId: s
     // ruling that didn't happen only contradicts the page. Left out.
     if (!opts.trusted && x.kind === 'decision' && rulesOutExisting(store, nb, x.title)) { skipped++; continue; }
     seen.add(key);
-    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId, ...(source ? { source } : {}) });
+    // A page it learned from says who publishes it and whether it's one of the subjects' own (ADR-0081).
+    const origin = source && x.kind === 'evidence' ? { origin: (x.origin && typeof x.origin === 'object' ? x.origin : {}) as { publisher?: unknown; kind?: unknown; whose?: unknown }, subjects } : {};
+    store.addEntry(nb.id, { kind: x.kind as NotebookEntryKind, title: x.title, body, by: `agent:${agentId}`, runId, ...(source ? { source } : {}), ...origin });
     if (source) evidencePages.add(pageKey(source));
     added++;
   }
