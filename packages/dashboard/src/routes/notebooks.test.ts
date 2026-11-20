@@ -285,7 +285,9 @@ describe('notebooks pages', () => {
     expect(facts.find((f) => f.label === 'Location')!.mark).toBeUndefined();
     // The timeline says it looked again, with what's new.
     expect(data.timeline.find((t) => t.title === 'Looked again: Learn about Dana Reyes')).toMatchObject({ body: '1 new fact: Revenue · Changed: Role, VP Ops → COO' });
-    const brief = (await get(app, `/notebooks/${nb.id}/brief.html`)).text;
+    // The brief leaves what's new out unless asked for (?new=1).
+    expect((await get(app, `/notebooks/${nb.id}/brief.html`)).text).not.toContain('class="whatsnew"');
+    const brief = (await get(app, `/notebooks/${nb.id}/brief.html?new=1`)).text;
     expect(brief).toContain("What's new since");
     expect(brief).toContain('<span class="mark">changed</span> <span class="muted">(was VP Ops)</span>');
     // Again with nothing new: it says so.

@@ -606,7 +606,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             ${head?.subtitle ? html`<p class="nb-hero__subtitle">${head.subtitle}</p>` : html``}
           </div>
           ${statusChip(nb)}
-          ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running)}</div>` : html``}
+          ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
         </div>
         ${head?.statement === false ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         ${meetingLine(nb)}
@@ -644,7 +644,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
               </form>`) as unknown as SafeHtml[]}
           </div>
         </div>
-        ${heroActions(nb, entries, leads, running)}
+        ${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}
       </aside>`}
     </section>`;
 }
@@ -1234,7 +1234,7 @@ function hasSomethingToShare(nb: Notebook, entries: readonly NotebookEntry[]): b
   return Boolean(nb.answer || nb.briefing || nb.plan) || entries.some((e) => e.kind === 'evidence');
 }
 
-function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[]): SafeHtml {
+function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[], whatsNewToo = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const href = `/notebooks/${id}/shortlist.csv`;
   const chosen = running.filter((o) => o.chosen).length;
@@ -1265,6 +1265,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   const share = html`<span class="nb-progress__label">To share</span>
       ${row('The brief', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
       ${row('TL;DR picture', undefined, html`${open('the TL;DR picture', 'tldr.png', written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars')}${save('the TL;DR picture', 'PNG', 'tldr.png?download=1', 'The TL;DR as a PNG file, to drop into a message')}<a href="/notebooks/${id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`)}
+      ${whatsNewToo ? row("The brief with what's new", undefined, html`${open("the brief with what's new", 'brief.html?new=1', "The brief, with what's new since the last run at the top (the plain brief leaves it out)")}${save("the brief with what's new", 'PDF', 'brief.pdf?new=1', "The brief as a PDF, with what's new since the last run")}`) : html``}
       ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
       ${running.length === 0 ? html`` : row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;
   return html`<details class="nb-act nb-csv" data-nb-act>
@@ -1291,7 +1292,7 @@ export function offersDecide(nb: Pick<Notebook, 'steps' | 'experimentId'>): bool
  * The header's actions: Decide… (or Reopen), + Add entry and Edit, each a
  * button that opens its form below it; one open at a time (notebook-page.js.ts).
  */
-function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[], running?: { step: number; of: number }): SafeHtml {
+function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: readonly NotebookViewOption[], running?: { step: number; of: number }, whatsNewToo = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
   // While it has steps left, the next one is the header's main button (Decide steps aside).
   const next = nb.status === 'active' ? nextStepAction(nb) : undefined;
@@ -1330,7 +1331,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
         </div>
       </details>
       <a class="btn btn--sm btn--ghost nb-edit" href="/notebooks/${id}/edit">Edit</a>
-      ${nb.experimentId ? experimentShareMenu(nb) : hasSomethingToShare(nb, entries) ? csvMenu(nb, entries, leads) : html``}
+      ${nb.experimentId ? experimentShareMenu(nb) : hasSomethingToShare(nb, entries) ? csvMenu(nb, entries, leads, whatsNewToo) : html``}
     </div>`;
 }
 
