@@ -14,7 +14,7 @@ import {
 } from '/assets/vendor/a2ui-v1_0.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { surfaceIdOf, componentsOf, dataOf, surfaceDelta } from '/assets/surface-diff.js';
-import { suaFunctions } from '/assets/sua-functions.js';
+import { suaFunctions, suaAgentFunctions } from '/assets/sua-functions.js';
 import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
@@ -2033,7 +2033,21 @@ export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, 
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
   // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).
-  [...basicCatalog.functions.values(), ...suaFunctions(z, CommonSchemas)]);
+  [...basicCatalog.functions.values(), ...suaFunctions(z, CommonSchemas), ...suaAgentFunctions(z, CommonSchemas)]);
+
+/**
+ * A call the renderer can't make itself (an agent function, ADR-0088), sent
+ * to the dashboard; its answer goes back into the same processor, which draws
+ * it. A call it can't answer comes back as an error and draws as nothing.
+ */
+function askAgent(processor, message) {
+  if (!message || !message.callAgentFunction) return;
+  const id = message.callAgentFunction.functionCallId;
+  fetch('/a2ui/agent-functions', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' }, body: JSON.stringify(message) })
+    .then((r) => r.json())
+    .catch(() => ({ version: '1.0', agentFunctionResponse: { functionCallId: id, error: { code: 'UNAVAILABLE', message: 'The dashboard could not be reached.' } } }))
+    .then((answer) => { try { processor.processMessages([answer]); } catch { /* drawn as nothing */ } });
+}
 
 /** Draw one surface host: <div data-a2ui-surface><script type="application/json">[messages]</script></div>. */
 export function mountSurface(host) {
@@ -2045,7 +2059,7 @@ export function mountSurface(host) {
   catch (e) { host.insertAdjacentHTML('beforeend', `<p class="flash flash--error">This widget's data is unreadable.</p>`); return; }
   const processor = new MessageProcessor([suaCatalog], (action) => {
     host.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, detail: action }));
-  });
+  }, { outboundListener: (message) => askAgent(processor, message) });
   const el = document.createElement('a2ui-surface');
   processor.onSurfaceCreated((s) => { el.surface = s; });
   // Its components and data as sent (before the processor works on them), so the surface can take a new copy in place (updateSurface).

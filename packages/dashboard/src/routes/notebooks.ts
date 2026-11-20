@@ -4,6 +4,7 @@
  * tick a criterion, edit, decide, stop / reopen. Every form redirects back
  * with a flash.
  */
+import { answerAgentFunction } from '../lib/a2ui-agent-functions.js';
 import { ATTACH_FILE_TYPES, chosenPhotoId, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
 import { docxText } from '../lib/docx-text.js';
 import { takeAttachments } from '../lib/conversation-attach.js';
@@ -446,6 +447,17 @@ notebooksRouter.get('/notebooks/:id/about/:who/photo', (req: Request, res: Respo
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-cache');
   res.end(Buffer.from(photo.bytes));
+});
+
+/**
+ * A notebook page's A2UI agent function call (callAgentFunction), answered
+ * (agentFunctionResponse; ADR-0088): only for that notebook's own page, about
+ * that notebook, and only reading it.
+ */
+notebooksRouter.post('/a2ui/agent-functions', (req: Request, res: Response) => {
+  const answer = answerAgentFunction(store(req), req.body);
+  if (!answer) { res.status(400).json({ error: 'Not a callAgentFunction message.' }); return; }
+  res.json(answer);
 });
 
 /** The picture chosen for the notebook itself, as kept (never loaded from its site). */
