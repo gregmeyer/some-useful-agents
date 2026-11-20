@@ -396,6 +396,19 @@ const SUBJECT: ViewComponent[] = [
   { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
 ];
 
+/**
+ * A runbook (a primer, a how-to, a lesson): what you'll have at the end
+ * beside done-when, then its parts full width in the order written (what to
+ * have ready, the steps with how, what you'll see and if not, what to copy,
+ * what goes wrong), then what it rests on and its sources.
+ */
+const RUNBOOK: ViewComponent[] = ANSWER.map((c) => {
+  if (c.id === 'header') return { ...c, subtitle: 'Runbook' };
+  if (c.id === 'sections_p') return { ...c, title: 'The runbook' };
+  if (c.id === 'findings_p') return { ...c, title: 'What it rests on' };
+  return c;
+});
+
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
     id: 'shortlist',
@@ -426,6 +439,12 @@ export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
     label: 'Answer',
     when: 'Answering a question or finding something out (what\'s true, what\'s best practice, what it costs, how something works): the answer and how sure, the findings it rests on with their sources, what\'s still open, then the evidence.',
     layout: { preset: 'answer', components: ANSWER },
+  },
+  {
+    id: 'runbook',
+    label: 'Runbook',
+    when: 'Teaching or doing something step by step (a primer, a how-to, a lesson, "how do I…", "teach someone to…"): what you\'ll have at the end, what to have ready, each step with how to do it, what you\'ll see and what to do if not, what to copy, what goes wrong, then the guides it rests on.',
+    layout: { preset: 'runbook', components: RUNBOOK },
   },
   {
     id: 'plan',

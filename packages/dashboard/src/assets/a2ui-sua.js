@@ -1435,7 +1435,20 @@ const sectionStyles = css`${sectionHead}
     .sec + .sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-border); }
     ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
     ol.steps > li { counter-increment: step; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 2px 10px; }
-    ol.steps > li::before { content: counter(step); grid-row: span 3; font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); }
+    ol.steps > li::before { content: counter(step); grid-row: span 8; font: 700 var(--font-size-sm)/1.45 var(--font-mono); color: var(--color-primary); }
+    /* A runbook's step: how long it takes, whether it's advice, then how, what you'll see and if not. */
+    .t .time, .t .advice { margin-left: 8px; font: 600 var(--font-size-xs)/1.4 var(--font-mono); letter-spacing: 0.04em; color: var(--color-text-muted); white-space: nowrap; }
+    .t .advice { padding: 1px 6px; border: 1px solid var(--color-border); border-radius: var(--radius-sm, 4px); text-transform: uppercase; }
+    dl.run { margin: 4px 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 10px; font-size: var(--font-size-sm); line-height: 1.5; }
+    dl.run dt { font: 600 var(--font-size-xs)/1.7 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+    dl.run dd { margin: 0; color: var(--color-text); }
+    dl.run dd.ifnot { color: var(--color-text-muted); }
+    /* Something to copy: its label and a Copy button over the text as written. */
+    figure.copy { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); overflow: hidden; }
+    figure.copy figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--color-surface-raised, var(--color-surface)); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted); }
+    figure.copy button { font: 600 var(--font-size-xs)/1.4 var(--font-sans, inherit); padding: 3px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm, 4px); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+    figure.copy button:hover, figure.copy button:focus-visible { border-color: var(--color-primary); color: var(--color-primary); }
+    figure.copy pre { margin: 0; padding: 10px 12px; max-height: 360px; overflow: auto; font: var(--font-size-xs)/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text); }
     .t { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
     .note { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }
     .refs { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: var(--font-size-xs); }
@@ -1561,10 +1574,24 @@ const sectionRefs = (it) => {
 };
 /** A table that reads as a rubric: 2–3 columns, the first a condition (core looksLikeRubric). */
 const looksLikeRubric = (cols) => cols.length >= 2 && cols.length <= 3 && typeof cols[0] === 'string' && /^(if|when|need|you|your)\b/i.test(cols[0].trim());
+/** Something to copy (a runbook's prompt, a starter file): its label, a Copy button, and the text as written. */
+function copyBlock(x) {
+  const copy = async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(x.body ?? ''); b.textContent = 'Copied'; } catch { b.textContent = 'Couldn\u2019t copy here'; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 1800);
+  };
+  return html`<figure class="copy"><figcaption><span>${x.label ?? (x.lang === 'prompt' ? 'A prompt to paste' : '')}</span><button type="button" @click=${copy} aria-label=${`Copy ${x.label ?? x.title ?? 'this'}`}>Copy</button></figcaption><pre><code>${x.body ?? ''}</code></pre></figure>`;
+}
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. */
 function drawPart(x, { rubric = false, host } = {}) {
   const refs = sectionRefs;
-  if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => html`<li><div class="t">${boldParts(it.text)}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${refs(it)}</li>`)}</ol>`;
+  if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => {
+    // A runbook's step says how, what you'll see and what to do if not; advice is the writer's own, marked.
+    const run = [['How', it.how, ''], ['You\u2019ll see', it.see, ''], ['If not', it.ifNot, 'ifnot']].filter(([, v]) => typeof v === 'string' && v);
+    return html`<li><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}</div>${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}${run.length ? html`<dl class="run">${run.map(([k, v, c]) => html`<dt>${k}</dt><dd class=${c}>${boldParts(v)}</dd>`)}</dl>` : nothing}${refs(it)}</li>`;
+  })}</ol>`;
+  if (x.kind === 'copy') return copyBlock(x);
   if (x.kind === 'table') {
     const cols = Array.isArray(x.columns) ? x.columns : [];
     const every = Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing;
