@@ -8,6 +8,7 @@
  * page agent to change the page. One proposal per notebook, kept with the
  * drafts (id `edit:<notebook>`) until saved, discarded or two weeks old.
  */
+import { keepAskedTldrCard } from './tldr-card.js';
 import {
   NotebookStore, NOTEBOOK_FIELD_ROLES, NOTEBOOK_FIELD_TYPES, NOTEBOOK_LAYOUT_PRESETS, NOTEBOOK_STEP_KINDS, cleanFields, cleanSteps, layoutPreset, validateScheduleInterval, cleanMeeting, isMeetingNotebook,
   type Notebook, type NotebookField, type NotebookLayout, type NotebookStep,
@@ -606,7 +607,10 @@ export function saveEdit(ctx: Ctx, notebookId: string): { changes: string[]; not
     confirmDoneStepsAndSay(ctx, notebookId);
     notes = fit.notes;
   }
-  if (edit.layout !== undefined && JSON.stringify(edit.layout ?? null) !== JSON.stringify(nb.layout ?? null)) s.setLayout(notebookId, edit.layout, layoutOwner(edit));
+  if (edit.layout !== undefined && JSON.stringify(edit.layout ?? null) !== JSON.stringify(nb.layout ?? null)) {
+    s.setLayout(notebookId, edit.layout, layoutOwner(edit));
+    keepAskedTldrCard(s, notebookId, nb.layout, edit.layout ?? undefined);
+  }
   discardEdit(ctx, notebookId);
   return { changes, notes };
 }

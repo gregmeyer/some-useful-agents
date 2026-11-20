@@ -5,6 +5,7 @@
  * and decisions, evidence), and the forms to add to it, edit it, and close it
  * with a decision.
  */
+import { showsTldrCard } from './notebook-tldr.js';
 import type { NotebookMadeBy } from '../lib/notebook-made-by.js';
 import { countParts } from '../lib/notebook-card.js';
 import { shortDay, whatsNewLines, type WhatsNew } from '../lib/notebook-whats-new.js';
@@ -796,7 +797,7 @@ function surfaceColumnBody(nb: Notebook, compiled: CompiledSurface, entries: Not
   // With fields, options are drawn as widgets (summary, stats, funnel, map,
   // shortlist); the cards stay for notes, evidence and notebooks without fields.
   // While a step runs, a part with nothing yet keeps its place as a skeleton.
-  const widgets = notebookWidgetMessages(nb, entries, history, { pending: running });
+  const widgets = notebookWidgetMessages(nb, entries, history, { pending: running, tldrCard: showsTldrCard(nb, entries, history) });
   if (widgets) {
     // The widgets tell the whole story (the timeline has the notes and decisions): no second list.
     const rest: typeof regions = [];
@@ -1234,6 +1235,13 @@ function hasSomethingToShare(nb: Notebook, entries: readonly NotebookEntry[]): b
   return Boolean(nb.answer || nb.briefing || nb.plan) || entries.some((e) => e.kind === 'evidence');
 }
 
+/** Whether the page, brief and PDF show the TL;DR card: Auto (when it adds a chart or a photo), Always, Never. */
+function tldrCardSwitch(nb: Notebook): SafeHtml {
+  const now = nb.tldrCard ?? 'auto';
+  const opt = (mode: 'auto' | 'always' | 'never', label: string, hint: string) => html`<button type="submit" name="mode" value="${mode}" class="nb-share__mode${now === mode ? ' is-on' : ''}" title="${hint}"${now === mode ? unsafeHtml(' aria-pressed="true"') : unsafeHtml(' aria-pressed="false"')}>${label}</button>`;
+  return html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/tldr-card" class="nb-share__row"><span class="nb-share__what">TL;DR card on the page</span><span class="nb-share__as">${opt('auto', 'Auto', 'When it adds something the page doesn\u2019t say: a chart of the options, or a photo')}${opt('always', 'Always', 'On the page, the brief and the PDF')}${opt('never', 'Never', 'Not on the page, the brief or the PDF; the TL;DR picture is still here')}</span></form>`;
+}
+
 function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: readonly NotebookViewOption[], whatsNewToo = false): SafeHtml {
   const id = encodeURIComponent(nb.id);
   const href = `/notebooks/${id}/shortlist.csv`;
@@ -1265,6 +1273,7 @@ function csvMenu(nb: Notebook, entries: readonly NotebookEntry[], running: reado
   const share = html`<span class="nb-progress__label">To share</span>
       ${row('The brief', undefined, html`${open('the brief', 'brief.html', written ? 'A polished page of what sua wrote and what it found, to send or hand to Claude' : 'A polished page of where it stands and the options, to send or hand to Claude')}${save('the brief', 'PDF', 'brief.pdf', 'The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog')}${save('the brief', 'HTML', 'brief.html?download=1', 'The brief as one HTML file')}`)}
       ${row('TL;DR picture', undefined, html`${open('the TL;DR picture', 'tldr.png', written ? 'One picture of what it found: the answer in a sentence and its first findings' : 'One picture that sums it up: the best lead, the numbers, and the options as ranked bars')}${save('the TL;DR picture', 'PNG', 'tldr.png?download=1', 'The TL;DR as a PNG file, to drop into a message')}<a href="/notebooks/${id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`)}
+      ${tldrCardSwitch(nb)}
       ${whatsNewToo ? row("The brief with what's new", undefined, html`${open("the brief with what's new", 'brief.html?new=1', "The brief, with what's new since the last run at the top (the plain brief leaves it out)")}${save("the brief with what's new", 'PDF', 'brief.pdf?new=1', "The brief as a PDF, with what's new since the last run")}`) : html``}
       ${latest && !written ? row("What's new", fresh, html`${open("the brief of what's new", 'brief.html?latest=1', 'The brief of only the options the last run found for the first time')}${save("the brief of what's new", 'PDF', 'brief.pdf?latest=1', "The brief of what's new as a PDF file")}`) : html``}
       ${running.length === 0 ? html`` : row(written ? 'Every finding in full' : 'Each option in full', undefined, html`${open('the extended brief', 'brief.html?full=1', written ? 'The brief, then each finding as its own page shows it: every fact with its source, its notes and checks' : 'The brief, then each option in the running as its own page shows it: every fact with its source, its notes, checks and history')}${save('the extended brief', 'PDF', 'brief.pdf?full=1', `The extended brief as a PDF file; ${written ? 'each finding' : 'each option'} starts a new page`)}`)}`;

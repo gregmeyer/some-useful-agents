@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Notebook, NotebookEntry } from '@some-useful-agents/core';
-import { tldrData, tldrCard, tldrChart, tldrLayoutFor, renderNotebookTldr, TLDR_WIDTH } from './notebook-tldr.js';
+import { tldrData, tldrCard, tldrChart, tldrLayoutFor, renderNotebookTldr, showsTldrCard, tldrCardAdds, TLDR_WIDTH } from './notebook-tldr.js';
 import { render } from './html.js';
 
 const at = '2026-11-10T00:00:00.000Z';
@@ -91,6 +91,25 @@ describe("a notebook's TL;DR picture", () => {
     expect(briefed).toMatchObject({ leadLabel: "What it's for", lead: 'Prepare for my meeting with Dana Reyes', points: ['Ask about routing', 'Raise the pilot'], pointsLabel: 'Talking points' });
     expect(briefed.stats).toEqual([{ value: '2', label: 'talking points' }, { value: '1', label: 'question to ask' }]);
     expect(render(tldrCard(briefed))).toContain('<div class="tl__label">Talking points</div>');
+  });
+
+  it('the card shows on the page only when it adds something (ADR-0093), unless you say Always or Never', () => {
+    const answer = { question: 'Which?', text: 'A2UI describes the interface.', confidence: 'medium', findings: [{ text: 'A2UI is a spec.', from: [] }], open: [], at, by: 'agent:notebook-writer' };
+    // An answer alone: the card would say the answer and its findings again, over a drawing.
+    const answered = nb({ fields: [], answer } as Partial<Notebook>);
+    expect(tldrCardAdds(tldrData(answered, []))).toBe(false);
+    expect(showsTldrCard(answered, [])).toBe(false);
+    // Options to compare: its bars do.
+    expect(tldrCardAdds(tldrData(nb(), entries))).toBe(true);
+    expect(showsTldrCard(nb(), entries)).toBe(true);
+    // Someone with their photo does; without one it's their name again.
+    expect(tldrCardAdds({ who: 'person', leadPicture: 'data:image/png;base64,AA' })).toBe(true);
+    expect(tldrCardAdds({ who: 'person' })).toBe(false);
+    expect(tldrCardAdds({ photos: [{ src: 'https://x.example/p.jpg', credit: 'x.example', name: 'x' }] })).toBe(true);
+    // What you said wins. Redrawing the picture is how it looks when shared, not asking for it on the page.
+    expect(showsTldrCard({ ...answered, tldrCard: 'always' }, [])).toBe(true);
+    expect(showsTldrCard({ ...nb(), tldrCard: 'never' }, entries)).toBe(false);
+    expect(showsTldrCard({ ...answered, tldr: { at, layout: 'stack' } } as unknown as Notebook, [])).toBe(false);
   });
 
   it('about someone: their name, role and company with their photo, your goal, then the talking points; a company gets its logo', () => {

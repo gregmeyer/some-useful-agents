@@ -513,6 +513,7 @@ A notebook you run again and again (a job search, a car search, a comp set) can 
 |---|---|
 | **The brief** | **Open ↗**, **PDF**, **HTML** |
 | **TL;DR picture** | **Open ↗**, **PNG**, **Redraw…** |
+| **TL;DR card on the page** | **Auto** (when it adds a chart or a photo), **Always**, **Never** |
 | **The brief with what's new** (a briefing, once a rerun found something) | **Open ↗**, **PDF** |
 | **What's new** (with how many; only once a later run added some) | **Open ↗**, **PDF** |
 | **Each option in full** (the extended brief; **Every finding in full** for a briefing) | **Open ↗**, **PDF** |
@@ -543,6 +544,8 @@ Nothing is folded away, so a PDF has it all. It's self-contained (no scripts, no
 #### The TL;DR picture
 
 **Download / share → TL;DR picture → Open ↗** (or **PNG** to download it) gives you the notebook as one picture, a PNG to drop into a message. Everything on it comes from the notebook's own data; nothing is written for it by a model.
+
+**On the page, the brief and the PDF: only when it adds something.** A page drawn with the TL;DR picture shows it as a card. By default (**Auto**) that card shows only when it says something the page doesn't: bars comparing the options, its sources' own photos, or who it's about with their photo or logo. An answer or write-up's card, which would only say the answer and its first findings again over a drawing, is left out. Redrawing the picture doesn't change that: it's how the picture looks when you share it. **Download / share → TL;DR card on the page** sets it to **Always** or **Never** instead (`POST /notebooks/<id>/tldr-card`, `mode=auto|always|never`). A page you have sua redraw to show the TL;DR picture (**Make the page lead with… the TL;DR picture**) is set to Always, unless you've chosen. **Never** also leaves the bars out of a shortlist's brief. The picture itself (**Open ↗**, **PNG**, **Redraw…**) is there either way ([ADR-0093](adr/0093-tldr-card-when-it-adds.md)).
 
 - **The title**, with the date.
 - **The best lead**: its name, the fact that ranks it first, up to three more of its facts, and its picture. Once you've decided, it's **Chosen**. A notebook that wrote an answer leads with the answer instead.
