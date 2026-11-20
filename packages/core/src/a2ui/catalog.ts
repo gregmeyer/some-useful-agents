@@ -115,6 +115,12 @@ const SUA_COMPONENTS = [
     schema: Common.extend({ text: Str, language: z.string().max(32).optional() }).strict(),
   },
   {
+    name: 'VegaChart',
+    summary: 'Any chart from a Vega-Lite spec; its data in the spec or bound to a path (nothing is fetched).',
+    example: { id: 'chart', component: 'VegaChart', height: 240, spec: { data: { values: { path: '/outputs/rows' } }, mark: 'bar', encoding: { x: { field: 'name', type: 'nominal' }, y: { field: 'count', type: 'quantitative' } } } },
+    schema: Common.extend({ spec: CS.DynamicValue, height: CS.DynamicNumber.optional() }).strict(),
+  },
+  {
     name: 'Sparkline',
     summary: 'A small line chart of a series of numbers, with an optional label and current value.',
     example: { id: 'trend', component: 'Sparkline', values: { path: '/series/stars' }, label: 'Stars, run by run', current: { path: '/outputs/stars' } },
