@@ -96,6 +96,8 @@ interface Printing {
   notes: SourceNotes;
   /** An agent function's answer, from this notebook (findOptions, optionFacts; ADR-0088). */
   agent?: (name: string, args: Record<string, unknown>) => unknown;
+  /** Its charts drawn as pictures (an SVG image's data: URI), by component id (lib/brief-charts.ts). */
+  charts?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -408,7 +410,10 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain checks">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
     // The TL;DR picture: its card, drawn in place.
     case 'VegaChart': {
-      // A chart on paper: its data as a table under its title (Vega doesn't run here; ADR-0091). Bindings inside its spec are read first.
+      // A chart on paper: its picture, drawn on the server before the brief (lib/brief-charts.ts; ADR-0091).
+      const drawn = p.charts?.get(c.id);
+      if (drawn) return html`<figure class="chart-pic"><img src="${drawn}" alt="${text((v('spec') as { title?: unknown } | undefined)?.title) || 'Chart'}"></figure>`;
+      // Not drawn (it couldn't be): its data as a table under its title. Bindings inside its spec are read first.
       const deep = (x: unknown): unknown => (Array.isArray(x) ? x.map(deep) : x && typeof x === 'object' ? (Object.keys(x).length === 1 && (typeof (x as Record<string, unknown>)['@path'] === 'string' || typeof (x as Record<string, unknown>).path === 'string') ? val(p, x) : Object.fromEntries(Object.entries(x).map(([k, y]) => [k, deep(y)]))) : x);
       const spec = deep(v('spec')) as { title?: unknown; data?: { values?: unknown }; encoding?: Record<string, { field?: unknown; title?: unknown }> } | undefined;
       const rows = Array.isArray(spec?.data?.values) ? (spec!.data!.values as Array<Record<string, unknown>>) : [];
@@ -489,7 +494,7 @@ function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data[
     ${active.length ? html`<section class="fullset appendix"><h2>Each one in full<span class="part__note">${String(active.length)}</span></h2>${active.map((o, i) => optionInFull(nb, o, i + 1, entries, history, pic)) as unknown as SafeHtml[]}</section>` : html``}`;
 }
 
-export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
+export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
   const { nb } = args;
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
@@ -519,7 +524,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
   const notes = new SourceNotes((label) => pageOf.get(label));
   const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes,
-    agent: (name, fnArgs) => { const r = agentFunctionValue(nb, args.entries, name, fnArgs); return 'value' in r ? r.value : undefined; } };
+    agent: (name, fnArgs) => { const r = agentFunctionValue(nb, args.entries, name, fnArgs); return 'value' in r ? r.value : undefined; },
+    ...(args.charts ? { charts: args.charts } : {}) };
   // A page that opens on who or what it's about (a cover among its first two parts): the cover is the document's head, not a part under it.
   const opening = (byId.get('root') ? kids(byId.get('root')!) : []).filter((id) => byId.has(id)).slice(0, 2);
   const coverPanel = opening.find((id) => { const c = byId.get(id); const k = c?.component === 'Panel' ? byId.get(c.child as string) : undefined; return k?.component === 'ProfileCard' && k.variant === 'cover'; });
@@ -634,6 +640,7 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.chart-pic { margin: 0; } .chart-pic img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font: 600 0.6875rem var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }

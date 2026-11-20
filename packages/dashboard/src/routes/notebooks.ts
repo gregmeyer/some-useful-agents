@@ -5,6 +5,7 @@
  * with a flash.
  */
 import { answerAgentFunction } from '../lib/a2ui-agent-functions.js';
+import { briefChartPictures } from '../lib/brief-charts.js';
 import { ATTACH_FILE_TYPES, chosenPhotoId, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
 import { docxText } from '../lib/docx-text.js';
 import { takeAttachments } from '../lib/conversation-attach.js';
@@ -1339,7 +1340,7 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
  * pictures inside it (a saved file or a PDF can't load them from the
  * dashboard). `print`: it opens the browser's print dialog.
  */
-function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark' }): { page: string; full: boolean; latest: boolean } {
+function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark'; charts?: ReadonlyMap<string, string> }): { page: string; full: boolean; latest: boolean } {
   const ctx = getContext(req.app.locals);
   // ?full=1: the extended brief, each option in full after the summary.
   const full = req.query.full === '1';
@@ -1352,7 +1353,7 @@ function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boo
   const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
     : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
   return { page, full, latest };
 }
@@ -1375,7 +1376,7 @@ To get a PDF now, <button type="button" onclick="print()" style="font:inherit;pa
 </div>`;
 
 /** A notebook as a brief to share: one self-contained page (?download=1 saves it). */
-notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) => {
+notebooksRouter.get('/notebooks/:id/brief.html', async (req: Request, res: Response) => {
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
@@ -1383,7 +1384,9 @@ notebooksRouter.get('/notebooks/:id/brief.html', (req: Request, res: Response) =
   const download = req.query.download === '1';
   // Sent here because the PDF couldn't be made: it says so (on screen only) in place of opening the print dialog unasked.
   const noPdf = req.query.nopdf === '1' && !download;
-  const made = briefPage(req, s, nb, { embed: download || noPdf, print: req.query.print === '1' && !download && !noPdf });
+  // Its charts drawn as pictures first, so the page, the saved file and the PDF show them (ADR-0091).
+  const charts = briefIsPage(nb) ? await briefChartPictures(nb, s.entries(nb.id, 1000), widgetHistory(getContext(req.app.locals), s)).catch(() => new Map<string, string>()) : undefined;
+  const made = briefPage(req, s, nb, { embed: download || noPdf, print: req.query.print === '1' && !download && !noPdf, ...(charts ? { charts } : {}) });
   const { full, latest } = made;
   const page = noPdf ? made.page.replace(/<body[^>]*>/, (m) => `${m}${NO_PDF_NOTE}`) : made.page;
   const name = `${nb.id.replace(/[^a-z0-9-]/gi, '').slice(0, 80) || 'notebook'}-brief${latest ? '-new' : ''}${full ? '-extended' : ''}.html`;
@@ -1404,7 +1407,8 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   const s = store(req);
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
-  const { page, full, latest } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light' });
+  const charts = briefIsPage(nb) ? await briefChartPictures(nb, s.entries(nb.id, 1000), widgetHistory(getContext(req.app.locals), s)).catch(() => new Map<string, string>()) : undefined;
+  const { page, full, latest } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light', ...(charts ? { charts } : {}) });
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const opts = { footer: `${nb.title} · ${date}`, paper: req.query.paper === 'a4' ? 'A4' as const : 'Letter' as const };
   const out = await (ctx.notebookPdf ?? htmlToPdf)(page, opts);
