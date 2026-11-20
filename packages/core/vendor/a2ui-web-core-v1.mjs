@@ -27416,7 +27416,8 @@ export {
   MessageProcessor,
   STRICT_VALIDATION,
   basicCatalog,
-  external_exports as z
+  external_exports as z,
+  zodToJsonSchema
 };
 /*
  * @license

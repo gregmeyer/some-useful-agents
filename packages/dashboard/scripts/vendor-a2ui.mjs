@@ -58,6 +58,7 @@ try {
     `export { CommonSchemas } from '${wc}/v1_0/index.js';`,
     `export { basicCatalog, BASIC_FUNCTIONS } from '${wc}/catalogs/basic/v1/index.js';`,
     "export { z } from 'zod';",
+    "export { zodToJsonSchema } from 'zod-to-json-schema';",
     `export const A2UI_VENDORED = ${JSON.stringify({ version: A2UI_VERSION, commit: A2UI_COMMIT })};`, ''].join('\n'));
   const nodePaths = join(repo, 'node_modules');
   run(esbuild, ['entry-browser.js', '--bundle', '--format=esm', '--minify', '--target=es2022', '--legal-comments=eof', `--banner:js=${head}`, `--outfile=${browserOut}`], repo, { NODE_PATH: nodePaths });

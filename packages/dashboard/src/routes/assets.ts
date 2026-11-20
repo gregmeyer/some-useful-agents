@@ -3,7 +3,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_BRAND_THEME, brandThemeCss, loadBrandTheme } from '@some-useful-agents/core';
+import { DEFAULT_BRAND_THEME, brandThemeCss, loadBrandTheme, suaCatalogDocument } from '@some-useful-agents/core';
 import { CLIENT_BUNDLE_JS } from '../views/client-bundle.js';
 import { GRAPH_EDIT_JS } from '../views/graph-edit.js.js';
 
@@ -735,6 +735,11 @@ assetsRouter.get('/assets/vendor/a2ui-v1_0.js', (_req: Request, res: Response) =
   // Content changes only with a version bump (new file contents); revalidate cheaply via ETag.
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(A2UI_VENDOR_JS);
+});
+// The sua catalog as an A2UI v1.0 catalog document (ADR-0085): what its catalogId names, for a tool or agent that reads catalogs.
+assetsRouter.get('/a2ui/catalogs/sua/v1.json', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/json').send(JSON.stringify(suaCatalogDocument(), null, 2));
 });
 assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
