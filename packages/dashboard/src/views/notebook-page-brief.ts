@@ -494,7 +494,7 @@ function behindThePage(nb: Notebook, entries: readonly NotebookEntry[], d: Data[
     ${active.length ? html`<section class="fullset appendix"><h2>Each one in full<span class="part__note">${String(active.length)}</span></h2>${active.map((o, i) => optionInFull(nb, o, i + 1, entries, history, pic)) as unknown as SafeHtml[]}</section>` : html``}`;
 }
 
-export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
+export function renderPageBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; charts?: ReadonlyMap<string, string>; whatsNew?: boolean; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; aboutPicture?: (src: string) => string | undefined; theme?: BriefTheme }): string {
   const { nb } = args;
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
@@ -535,8 +535,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const subtitle = header && typeof header.subtitle === 'string' ? header.subtitle : nb.layout?.about?.split(':')[0];
   const sideId = side?.[0]?.children ? (side[0].children as string[])[0] : undefined;
   const pic = args.pictures ?? ((o) => o.image);
-  // What the latest run found that the one before didn't (a briefing).
-  const fresh = args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
+  // What the latest run found that the one before didn't (a briefing): only when asked for (?new=1); a brief is the notebook as it stands.
+  const fresh = args.whatsNew && args.history?.passes ? whatsNew(nb, args.entries, args.history.passes(nb.id, 60).filter((x): x is typeof x & { startedAt: string } => typeof x.startedAt === 'string')) : undefined;
   const css = `/* A drawn page, printed: its parts in their treatments (DESIGN.md "Notebook pages"). */
 ${theme.css}
 * { box-sizing: border-box; }

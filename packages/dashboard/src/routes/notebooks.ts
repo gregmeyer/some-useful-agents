@@ -1340,22 +1340,24 @@ notebooksRouter.get('/notebooks/:id/data.json', (req: Request, res: Response) =>
  * pictures inside it (a saved file or a PDF can't load them from the
  * dashboard). `print`: it opens the browser's print dialog.
  */
-function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark'; charts?: ReadonlyMap<string, string> }): { page: string; full: boolean; latest: boolean } {
+function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boolean; print: boolean; mode?: 'light' | 'dark'; charts?: ReadonlyMap<string, string> }): { page: string; full: boolean; latest: boolean; withNew: boolean } {
   const ctx = getContext(req.app.locals);
   // ?full=1: the extended brief, each option in full after the summary.
   const full = req.query.full === '1';
   const entries = s.entries(nb.id, 1000);
   // ?latest=1: only the options the last run found for the first time.
   const latest = req.query.latest === '1';
+  // ?new=1: what's new since the last run, at the top. Left out unless asked: the brief is where the notebook stands.
+  const withNew = req.query.new === '1';
   // The dashboard's look: its brand theme, in your mode (?theme=light|dark; the share links pass yours).
   const dataDir = (req.app.locals as { dataDir?: string }).dataDir;
   const mode = o.mode ?? (req.query.theme === 'light' || req.query.theme === 'dark' ? req.query.theme : undefined);
   const theme = briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode);
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
-    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
+    ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
     : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
-  return { page, full, latest };
+  return { page, full, latest, withNew };
 }
 
 /** A file name from a notebook's title, as you'd name it yourself ("Choose batteries for a 2000 EZGO TXT"), safe on any disk. */
@@ -1408,13 +1410,13 @@ notebooksRouter.get('/notebooks/:id/brief.pdf', async (req: Request, res: Respon
   const nb = s.get(String(req.params.id));
   if (!nb) { res.status(404).type('text/plain').send('No such notebook.'); return; }
   const charts = briefIsPage(nb) ? await briefChartPictures(nb, s.entries(nb.id, 1000), widgetHistory(getContext(req.app.locals), s)).catch(() => new Map<string, string>()) : undefined;
-  const { page, full, latest } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light', ...(charts ? { charts } : {}) });
+  const { page, full, latest, withNew } = briefPage(req, s, nb, { embed: true, print: false, mode: 'light', ...(charts ? { charts } : {}) });
   const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const opts = { footer: `${nb.title} · ${date}`, paper: req.query.paper === 'a4' ? 'A4' as const : 'Letter' as const };
   const out = await (ctx.notebookPdf ?? htmlToPdf)(page, opts);
   if (!out.available) {
     console.warn(`[notebooks] brief PDF not made for ${nb.id}: ${out.reason}`);
-    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', 'nopdf=1', 'theme=light'].filter(Boolean).join('&');
+    const qs = [full ? 'full=1' : '', latest ? 'latest=1' : '', withNew ? 'new=1' : '', 'nopdf=1', 'theme=light'].filter(Boolean).join('&');
     res.redirect(303, `/notebooks/${encodeURIComponent(nb.id)}/brief.html?${qs}`);
     return;
   }
