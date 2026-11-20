@@ -524,6 +524,15 @@ describe('MCP board tools', () => {
       expect(read.isError).toBeFalsy();
       expect(text(read)).toContain('# Brief: northwind.example');
       expect(text(read)).toContain('They raised a Series B');
+      // A host that draws A2UI (ADR-0090): the notebook's data for the a2ui://notebook layout, named in _meta.ui.
+      const res = (read.content as Array<{ type: string; resource?: { uri: string; mimeType: string; text: string } }>).find((x) => x.type === 'resource')!.resource!;
+      expect(res).toMatchObject({ uri: `a2ui://notebook/data/${nb.id}`, mimeType: 'application/a2ui+json' });
+      const [data] = JSON.parse(res.text) as Array<{ version: string; updateDataModel: { surfaceId: string; value: { title: string } } }>;
+      expect(data).toMatchObject({ version: '1.0', updateDataModel: { surfaceId: 'sua_notebook', value: { title: '## Brief: northwind.example' } } });
+      expect((read as { _meta?: unknown })._meta).toEqual({ ui: { resourceUri: 'a2ui://notebook', mimeType: 'application/a2ui+json' } });
+      const layout = await c.readResource({ uri: 'a2ui://notebook' });
+      const msgs = JSON.parse((layout.contents[0] as { text: string }).text) as Array<Record<string, unknown>>;
+      expect(msgs.map((m) => Object.keys(m).find((k) => k !== 'version'))).toEqual(['createSurface', 'updateComponents']);
       const json = JSON.parse(text(await c.callTool({ name: 'notebook-read', arguments: { notebook: nb.id, format: 'json', part: 'notes' } }))) as { archived: boolean; notes: { items: unknown[] } };
       expect(json).toMatchObject({ archived: true, notes: { items: [expect.objectContaining({ title: 'They raised a Series B' })] } });
 

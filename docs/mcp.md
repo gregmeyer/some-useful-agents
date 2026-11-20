@@ -178,6 +178,8 @@ It serves these tools. Your [tool policy](tool-policies.md) applies to each one,
 | Boards | `board-read`, `board-place`, `build-board`, `board-build-status` | Arrange a board, or build a whole one from a request. See [boards.md](boards.md). |
 | Home and attention | `surface-read`, `surface-apply`, `items-read` | Read and change how Home is arranged; list what needs the person's attention. See [surfaces.md](surfaces.md). |
 
+**As an A2UI page.** For one notebook read whole, `notebook-read` also returns the notebook as A2UI 1.0 data (an embedded `application/a2ui+json` `updateDataModel`) for the `a2ui://notebook` layout resource, named in `_meta.ui.resourceUri`. A host that draws A2UI shows a compact page: where it stands, what it rests on, the options, what's open, the done-whens. It uses only A2UI's basic components. Other hosts get the text as before ([ADR-0090](adr/0090-a2ui-over-mcp.md)).
+
 ### Starting a notebook from another app
 
 The notebook tools are meant to be used in order. Say another agent is asked to "make a company briefing on Duolingo":

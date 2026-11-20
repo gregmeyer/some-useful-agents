@@ -37,6 +37,10 @@ import {
   templatesForAsk,
   findNotebook,
   notebookReadoutJson,
+  NOTEBOOK_SURFACE_URI,
+  A2UI_MIME,
+  notebookSurfaceTemplate,
+  notebookSurfaceData,
   cleanTldrSpec,
   strayTldrNumbers,
   tldrOptionsGuide,
@@ -443,10 +447,26 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         format: z.enum(['text', 'json']).optional().describe('text (default) or json.'),
       },
     },
-    async ({ notebook, part, format }) => notebookStore
-      ? runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore })
-      : errorResult('Notebooks are not available on this server.'),
+    async ({ notebook, part, format }) => {
+      if (!notebookStore) return errorResult('Notebooks are not available on this server.');
+      const out = await runBuiltinTool('notebook-read', { notebook: notebook ?? '', ...(part ? { part } : {}), ...(format ? { format } : {}) }, { notebooks: notebookStore });
+      if ('isError' in out && out.isError) return out;
+      // One notebook, read whole: its data as an A2UI 1.0 updateDataModel for the a2ui://notebook layout (ADR-0090),
+      // so a host that draws A2UI shows it as a page; the text stays for every other host.
+      const found = notebook && (!part || part === 'all') ? findNotebook(notebookStore, notebook) : undefined;
+      if (!found || !('notebook' in found)) return out;
+      const data = notebookSurfaceData(notebookReadoutJson(found.notebook, notebookStore.entries(found.notebook.id, 1000)));
+      return {
+        ...out,
+        content: [...out.content, { type: 'resource' as const, resource: { uri: `${NOTEBOOK_SURFACE_URI}/data/${encodeURIComponent(found.notebook.id)}`, mimeType: A2UI_MIME, text: JSON.stringify([data]) } }],
+        _meta: { ui: { resourceUri: NOTEBOOK_SURFACE_URI, mimeType: A2UI_MIME } },
+      };
+    },
   );
+
+  // A notebook's page layout for an MCP host that draws A2UI (ADR-0090): basic components only, every value bound to the data notebook-read returns.
+  server.registerResource('notebook-surface', NOTEBOOK_SURFACE_URI, { title: 'A notebook, as an A2UI page', description: 'The A2UI 1.0 layout notebook-read\'s data fills (basic catalog only).', mimeType: A2UI_MIME },
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: A2UI_MIME, text: JSON.stringify(notebookSurfaceTemplate()) }] }));
 
   // Experiments: what one found (experiment-read). Read only; they are kept beside notebooks.
   server.registerTool(
@@ -757,7 +777,8 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
       if (takeaway !== undefined) merged.takeaway = takeaway || undefined;
       const spec = cleanTldrSpec(merged);
       if (!spec) return errorResult('That isn\'t a way to draw the picture.');
-      const known = `${nb.title} ${nb.statement} ${JSON.stringify(notebookReadoutJson(nb, notebookStore.entries(nb.id, 1000)))}`;
+      // What the notebook says, without its timestamps: a note filed at 19:45 doesn't make "45%" one of its numbers.
+      const known = `${nb.title} ${nb.statement} ${JSON.stringify(notebookReadoutJson(nb, notebookStore.entries(nb.id, 1000))).replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?/g, '')}`;
       const stray = strayTldrNumbers([spec.headline, spec.takeaway], known);
       if (stray.length) return errorResult(`Not redrawn: the headline or takeaway has ${stray.length === 1 ? 'a number' : 'numbers'} the notebook doesn't (${stray.join(', ')}). Use only numbers the notebook has, written as they are there (read it with notebook-read), or none.`);
       notebookStore.setTldr(nb.id, spec);

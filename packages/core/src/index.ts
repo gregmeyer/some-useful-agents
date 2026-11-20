@@ -596,6 +596,7 @@ export {
   type ViewValidation,
   type ResolvedView,
 } from './a2ui/view.js';
+export { NOTEBOOK_SURFACE_URI, NOTEBOOK_SURFACE_ID, A2UI_MIME, notebookSurfaceTemplate, notebookSurfaceData } from './a2ui/notebook-surface.js';
 export { a2uiId, componentForRender, componentsForRender, normalizeComponent, normalizeComponents } from './a2ui/normalize.js';
 export { starterView, humanizeName, type StarterViewArgs } from './a2ui/starter.js';
 export { viewAuthoringGuide, viewOutputNames } from './a2ui/guide.js';
