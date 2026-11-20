@@ -182,7 +182,9 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       // A part whose content doesn't print here (a chart) prints no heading either.
       const inner = node(p, c.child as string);
       if (!printsSomething(inner)) return html``;
-      return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}"><div class="part__head"><h2>${text(v('title'))}</h2>${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>${inner}</section>`;
+      // An untitled part (a photo leading the page) prints no heading, so no empty numbered one either.
+      const head = text(v('title')) || text(v('note')) ? html`<div class="part__head">${text(v('title')) ? html`<h2>${text(v('title'))}</h2>` : html``}${text(v('note')) ? html`<span class="part__note">${text(v('note'))}</span>` : html``}</div>` : html``;
+      return html`<section class="part part--${t}${c.hero === true ? ' part--hero' : ''}">${head}${inner}</section>`;
     }
     case 'Disclosure': {
       const inner = node(p, c.child as string);
@@ -406,7 +408,8 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       if ((c.picture as { path?: unknown } | undefined)?.path === '/notebook/photo') {
         const ph = p.data.notebook.photo;
         const o = ph ? (p.data.notebook.options as unknown as NotebookViewOption[]).find((x) => x.id === ph.entry) : undefined;
-        const src = o ? p.pic(o) : undefined;
+        // One chosen for the notebook (no source's own; notebook-photo): its kept copy, carried in the file as a person's photo is.
+        const src = o ? p.pic(o) : ph && !ph.entry ? p.about(ph.src) : undefined;
         if (!ph || !src) return html``;
         return html`<figure class="photo"><img src="${src}" alt="${ph.alt}"><figcaption class="fine">${ph.caption}</figcaption></figure>`;
       }

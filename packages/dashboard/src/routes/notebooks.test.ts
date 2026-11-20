@@ -3718,6 +3718,14 @@ describe("choosing a notebook's picture in its conversation", () => {
     expect(served.status).toBe(200);
     expect(served.headers['content-type']).toBe('image/png');
 
+    // The brief leads with it too: on screen from the dashboard, and saved, inside the file (a PDF can't load the dashboard's address).
+    store.setLayout(nb.id, { components: [{ id: 'root', component: 'Column', children: ['pic_p'] }, { id: 'pic_p', component: 'Panel', title: '', child: 'pic', treatment: 'lede', hero: true }, { id: 'pic', component: 'Picture', picture: { path: '/notebook/photo' } }] });
+    const screen = (await get(`/notebooks/${nb.id}/brief.html`)).text;
+    expect(screen).toContain(`<section class="part part--lede part--hero"><figure class="photo"><img src="/notebooks/${nb.id}/photo?v=`);
+    expect(screen).toContain('“Hotdog” by Evan Swigart, CC BY 2.0');
+    const saved = (await get(`/notebooks/${nb.id}/brief.html?download=1`)).text;
+    expect(saved).toContain('<figure class="photo"><img src="data:image/png;base64,');
+
     // The file's page, not the image: its preview picture is fetched.
     fetched.length = 0;
     expect(await executeNotebookPhoto(ctx, { ...accepted[0], inputs: { NOTEBOOK: nb.id, IMAGE: 'https://en.wikipedia.org/wiki/Hot_dog' } }, deps)).toMatchObject({ status: 'completed' });
