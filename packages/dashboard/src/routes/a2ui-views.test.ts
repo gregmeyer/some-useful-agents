@@ -114,6 +114,17 @@ describe('A2UI views across the dashboard', () => {
   });
 });
 
+describe('the sua catalog document (ADR-0085)', () => {
+  it('is served where its catalogId points, as A2UI v1.0 catalog JSON', async () => {
+    const { app } = await setup();
+    const res = await get(app, '/a2ui/catalogs/sua/v1.json');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body).toMatchObject({ catalogId: 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json', protocolVersion: '1.0', title: 'sua' });
+    expect(Object.keys(res.body.components)).toContain('Callout');
+  });
+});
+
 describe('A2UI is the default widget renderer', () => {
   it('draws existing widgets with A2UI, and the old renderer switch is gone', async () => {
     const { app } = await setup();

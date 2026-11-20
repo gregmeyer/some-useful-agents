@@ -565,6 +565,8 @@ export {
   SUA_CATALOG_ID,
   A2UI_PROTOCOL_VERSION,
   suaCatalog,
+  suaCatalogDocument,
+  SUA_CATALOG_INSTRUCTIONS,
   suaCatalogComponentNames,
   suaComponentDocs,
   boardComponentDocs,

@@ -5,6 +5,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export declare class Catalog<T = any> {
   constructor(id: string, version: string, components: readonly any[], functions?: readonly any[], options?: any);
+  /** A catalog read from its document (the catalog JSON). */
+  static fromJson(json: unknown, protocolVersion: string, catalogId?: string): Catalog;
+  /** The catalog's document (the catalog JSON). */
+  toJson(): Record<string, unknown>;
   readonly id: string;
   readonly components: Map<string, T>;
   readonly functions: Map<string, any>;
@@ -19,4 +23,5 @@ export declare const CommonSchemas: any;
 export declare const basicCatalog: Catalog;
 export declare const BASIC_FUNCTIONS: readonly any[];
 export declare const z: any;
+export declare function zodToJsonSchema(schema: unknown, options?: Record<string, unknown>): Record<string, unknown>;
 export declare const A2UI_VENDORED: { version: string; commit: string };

@@ -10,7 +10,7 @@
  * schemas. See docs/adr/0047-a2ui-views.md.
  */
 // A2UI protocol v1.0 (ADR-0084): web_core vendored from the A2UI repo, the same code the browser draws with.
-import { BASIC_FUNCTIONS, Catalog, CommonSchemas, basicCatalog, z } from '../../vendor/a2ui-web-core-v1.mjs';
+import { BASIC_FUNCTIONS, Catalog, CommonSchemas, basicCatalog, z, zodToJsonSchema } from '../../vendor/a2ui-web-core-v1.mjs';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
 export const A2UI_PROTOCOL_VERSION = '1.0';
@@ -500,3 +500,64 @@ export function suaComponentDocs(): SuaComponentDoc[] {
 export function boardComponentDocs(): SuaComponentDoc[] {
   return BOARD_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
 }
+
+/** What the sua catalog is for, for an agent drawing with it (the catalog document's `instructions`). */
+export const SUA_CATALOG_INSTRUCTIONS = [
+  'sua draws agent results, notebooks and boards with this catalog: the A2UI v1.0 basic components plus sua\'s own.',
+  'Bind a value to the surface\'s data with {"@path": "/a/b"}; inside a List template, a path without a leading slash is relative to the item. Write a literal when it never changes.',
+  'One component has id "root". Ids are identifiers (letters, digits and _). A container lists its children by id, or repeats a template over a list: {"path": "/items", "componentId": "row"}.',
+  'Prefer sua\'s components for what they are for (Metric for a number, Table for rows, Bars for a ranking, Callout for the answer) over composing them from Text, Row and Column.',
+  'Board pages only: Grid, Cell, Section, AgentTile and SystemTile.',
+].join(' ');
+
+/** A zod-derived JSON schema with A2UI's REF markers made $refs to common types, and its generic "Represents a …" notes dropped. */
+function catalogJson(n: unknown): unknown {
+  if (Array.isArray(n)) return n.map(catalogJson);
+  if (!n || typeof n !== 'object') return n;
+  const o = n as Record<string, unknown>;
+  const m = typeof o.description === 'string' ? /^REF:([^|]+)(?:\|([\s\S]*))?$/.exec(o.description) : null;
+  if (m) {
+    const ref = m[1].trim();
+    const note = m[2]?.trim();
+    return { $ref: ref.startsWith('#/$defs/') ? `common_types.json${ref}` : ref, ...(note && !/^Represents an? /.test(note) ? { description: note } : {}) };
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'description' && typeof v === 'string' && /^Represents an? /.test(v)) continue;
+    if (k === '$schema') continue;
+    out[k] = catalogJson(v);
+  }
+  return out;
+}
+
+let catalogDocument: Record<string, unknown> | undefined;
+
+/**
+ * The sua catalog as an A2UI v1.0 catalog document (ADR-0085), what its
+ * `catalogId` names: the basic components and functions as A2UI publishes
+ * them, and sua's own, each with its props (from its schema), a one-line
+ * description and an example. A2UI's own loader (`Catalog.fromJson`) reads
+ * it back; the dashboard serves it at /a2ui/catalogs/sua/v1.json. Built once.
+ */
+export function suaCatalogDocument(): Record<string, unknown> {
+  if (catalogDocument) return structuredClone(catalogDocument);
+  const doc = suaCatalog().toJson();
+  const components = (doc.components ?? {}) as Record<string, unknown>;
+  const docs = new Map<string, { summary: string; example: Record<string, unknown>; board: boolean }>([...SUA_COMPONENTS.map((c) => ({ ...c, board: false })), ...BOARD_COMPONENTS.map((c) => ({ ...c, board: true }))].map((c) => [c.name as string, c]));
+  for (const api of suaCatalog().components.values() as Iterable<{ name: string; schema: unknown }>) {
+    const d = docs.get(api.name);
+    if (!d) continue;
+    const j = zodToJsonSchema(api.schema, { target: 'jsonSchema2019-09', $refStrategy: 'none' });
+    const all = (catalogJson(j.properties ?? {}) ?? {}) as Record<string, unknown>;
+    const props = Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'id' && k !== 'component' && !k.startsWith('@')));
+    const required = (Array.isArray(j.required) ? j.required as string[] : []).filter((r) => r !== 'id' && r !== 'component');
+    components[api.name] = { type: 'object', description: `${d.summary}${d.board ? ' Board pages only.' : ''}`, properties: { component: { const: api.name }, ...props }, required: ['component', ...required], examples: [d.example] };
+  }
+  catalogDocument = {
+    $id: SUA_CATALOG_ID, ...doc, components,
+    title: 'sua', description: 'The components sua draws agent results, notebooks and boards with: A2UI v1.0\'s basic catalog plus sua\'s own.',
+    instructions: SUA_CATALOG_INSTRUCTIONS,
+  };
+  return structuredClone(catalogDocument);
+}
+
