@@ -10,6 +10,8 @@
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
+import { printValue } from '../lib/a2ui-print-values.js';
+import { agentFunctionValue } from '../lib/a2ui-agent-functions.js';
 import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
@@ -92,6 +94,8 @@ interface Printing {
   pic: (o: NotebookViewOption) => string | undefined;
   /** The brief's numbered sources: what a part cites is listed once at the end. */
   notes: SourceNotes;
+  /** An agent function's answer, from this notebook (findOptions, optionFacts; ADR-0088). */
+  agent?: (name: string, args: Record<string, unknown>) => unknown;
 }
 
 /**
@@ -108,8 +112,8 @@ function calloutArt(p: Printing, image: string): SafeHtml {
 
 /** A prop's value: a literal, or bound to the notebook's data. */
 function val(p: Printing, v: unknown): unknown {
-  if (v && typeof v === 'object' && !Array.isArray(v) && typeof (v as { path?: unknown }).path === 'string') return resolvePointer(p.data, (v as { path: string }).path);
-  return v;
+  // A binding ({ path } or { "@path" }) or a function call (formatString, join, count, findOptions…), worked out as the page does (ADR-0091).
+  return printValue(v, { data: p.data, ...(p.agent ? { agent: p.agent } : {}) });
 }
 
 function kids(c: ViewComponent): string[] {
@@ -403,6 +407,18 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Funnel': return html`<ul class="plain">${(list(v('stages')) as Array<{ label?: unknown; stage?: unknown; value?: unknown; reached?: unknown }>).map((s) => html`<li>${text(s.label ?? s.stage)} <span class="fine">· ${text(s.value ?? s.reached)}</span></li>`) as unknown as SafeHtml[]}</ul>`;
     case 'Checklist': return html`<div>${(list(v('groups')) as Array<{ title?: unknown; items?: unknown }>).map((g) => html`<div class="eyebrow">${text(g.title)}</div><ul class="plain checks">${(list(g.items) as Array<{ text?: unknown; done?: unknown }>).map((x) => html`<li>${x.done ? '✓' : '○'} ${text(x.text)}</li>`) as unknown as SafeHtml[]}</ul>`) as unknown as SafeHtml[]}</div>`;
     // The TL;DR picture: its card, drawn in place.
+    case 'VegaChart': {
+      // A chart on paper: its data as a table under its title (Vega doesn't run here; ADR-0091). Bindings inside its spec are read first.
+      const deep = (x: unknown): unknown => (Array.isArray(x) ? x.map(deep) : x && typeof x === 'object' ? (Object.keys(x).length === 1 && (typeof (x as Record<string, unknown>)['@path'] === 'string' || typeof (x as Record<string, unknown>).path === 'string') ? val(p, x) : Object.fromEntries(Object.entries(x).map(([k, y]) => [k, deep(y)]))) : x);
+      const spec = deep(v('spec')) as { title?: unknown; data?: { values?: unknown }; encoding?: Record<string, { field?: unknown; title?: unknown }> } | undefined;
+      const rows = Array.isArray(spec?.data?.values) ? (spec!.data!.values as Array<Record<string, unknown>>) : [];
+      if (!rows.length) return html``;
+      const enc = Object.values(spec?.encoding ?? {}).filter((e) => e && typeof e.field === 'string');
+      const keys = enc.length ? [...new Set(enc.map((e) => String(e.field)))] : Object.keys(rows[0]).slice(0, 4);
+      const label = (k: string) => text(enc.find((e) => e.field === k)?.title) || k;
+      const title = typeof spec?.title === 'string' ? spec.title : (spec?.title as { text?: unknown } | undefined)?.text;
+      return html`<figure class="chart-data">${text(title) ? html`<figcaption class="eyebrow">${text(title)}</figcaption>` : html``}<div class="tbl"><table><thead><tr>${keys.map((k) => html`<th>${label(k)}</th>`) as unknown as SafeHtml[]}</tr></thead><tbody>${rows.slice(0, p.full ? 200 : 20).map((r) => html`<tr>${keys.map((k) => html`<td>${text(r[k])}</td>`) as unknown as SafeHtml[]}</tr>`) as unknown as SafeHtml[]}</tbody></table></div></figure>`;
+    }
     case 'Picture': {
       // A photo of what it's about: the source's photo, as the file can carry it, credited.
       if ((c.picture as { path?: unknown } | undefined)?.path === '/notebook/photo') {
@@ -502,7 +518,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   // A finding cited by its title is the page it was read on.
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
   const notes = new SourceNotes((label) => pageOf.get(label));
-  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes };
+  const p: Printing = { byId, data, full: !!args.full, about: aboutSrc, tldr, pic: args.pictures ?? ((o) => o.image), notes,
+    agent: (name, fnArgs) => { const r = agentFunctionValue(nb, args.entries, name, fnArgs); return 'value' in r ? r.value : undefined; } };
   // A page that opens on who or what it's about (a cover among its first two parts): the cover is the document's head, not a part under it.
   const opening = (byId.get('root') ? kids(byId.get('root')!) : []).filter((id) => byId.has(id)).slice(0, 2);
   const coverPanel = opening.find((id) => { const c = byId.get(id); const k = c?.component === 'Panel' ? byId.get(c.child as string) : undefined; return k?.component === 'ProfileCard' && k.variant === 'cover'; });

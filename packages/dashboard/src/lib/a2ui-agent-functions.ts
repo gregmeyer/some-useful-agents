@@ -8,7 +8,7 @@
  * `notebook-<id>-header`), and every answer comes from that notebook alone.
  * Nothing is changed: these only read. Pure but for the store it reads.
  */
-import { NotebookStore, SUA_AGENT_FUNCTION_NAMES, notebookViewData, rankOptions, type Notebook, type NotebookViewOption } from '@some-useful-agents/core';
+import { NotebookStore, SUA_AGENT_FUNCTION_NAMES, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 
 export interface AgentFunctionResponse {
@@ -34,25 +34,33 @@ function row(nb: Notebook, o: NotebookViewOption): Record<string, unknown> {
 
 const words = (s: string) => s.toLowerCase().split(/\s+/).filter(Boolean);
 
-export function answerAgentFunction(store: NotebookStore, message: unknown): AgentFunctionResponse | undefined {
-  const call = (message as { callAgentFunction?: { functionCallId?: unknown; surfaceId?: unknown; callFunction?: Record<string, unknown> } } | undefined)?.callAgentFunction;
-  if (!call || typeof call.functionCallId !== 'string' || !call.functionCallId) return undefined;
-  const fail = (code: string, msg: string): AgentFunctionResponse => ({ version: '1.0', agentFunctionResponse: { functionCallId: call.functionCallId as string, error: { code, message: msg } } });
-  const ok = (value: unknown): AgentFunctionResponse => ({ version: '1.0', agentFunctionResponse: { functionCallId: call.functionCallId as string, value } });
-  const name = call.callFunction?.['@call'] ?? call.callFunction?.call;
-  const args = (call.callFunction?.args && typeof call.callFunction.args === 'object' ? call.callFunction.args : {}) as Record<string, unknown>;
-  if (typeof name !== 'string' || !SUA_AGENT_FUNCTION_NAMES.includes(name)) return fail('NOT_FOUND', `No agent function '${String(name)}'.`);
-  const nb = surfaceNotebook(store, call.surfaceId);
-  if (!nb) return fail('NOT_FOUND', 'That page is not a notebook’s.');
-  const options = rankOptions(nb, notebookViewData(nb, store.entries(nb.id, 1000)).notebook.options.filter((o) => !o.ruledOut));
+/** What an agent function answers for a notebook (its entries as read): a value, or an error. Pure. */
+export function agentFunctionValue(nb: Notebook, entries: readonly NotebookEntry[], name: string, args: Record<string, unknown>): { value: unknown } | { error: { code: string; message: string } } {
+  if (!SUA_AGENT_FUNCTION_NAMES.includes(name)) return { error: { code: 'NOT_FOUND', message: `No agent function '${name}'.` } };
+  const all = notebookViewData(nb, entries).notebook.options;
+  const options = rankOptions(nb, all.filter((o) => !o.ruledOut));
   if (name === 'findOptions') {
     const want = words(typeof args.q === 'string' ? args.q : '');
     const n = Math.min(FIND_MAX, Math.max(1, Math.round(Number(args.limit) || FIND_LIMIT)));
     const hay = (o: NotebookViewOption) => `${o.title} ${o.name} ${Object.values(o.fields).map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(' ')}`.toLowerCase();
-    return ok(options.filter((o) => want.every((w) => hay(o).includes(w))).slice(0, n).map((o) => row(nb, o)));
+    return { value: options.filter((o) => want.every((w) => hay(o).includes(w))).slice(0, n).map((o) => row(nb, o)) };
   }
   // optionFacts
-  const o = options.find((x) => x.id === args.id) ?? notebookViewData(nb, store.entries(nb.id, 1000)).notebook.options.find((x) => x.id === args.id);
-  if (!o) return fail('NOT_FOUND', 'No such option in this notebook.');
-  return ok(nb.fields.filter((f) => o.fields[f.key] !== undefined && o.fields[f.key] !== '' && f.role !== 'image').map((f) => ({ label: f.label, value: formatFieldValue(f, o.fields[f.key]!) })));
+  const o = all.find((x) => x.id === args.id);
+  if (!o) return { error: { code: 'NOT_FOUND', message: 'No such option in this notebook.' } };
+  return { value: nb.fields.filter((f) => o.fields[f.key] !== undefined && o.fields[f.key] !== '' && f.role !== 'image').map((f) => ({ label: f.label, value: formatFieldValue(f, o.fields[f.key]!) })) };
+}
+
+export function answerAgentFunction(store: NotebookStore, message: unknown): AgentFunctionResponse | undefined {
+  const call = (message as { callAgentFunction?: { functionCallId?: unknown; surfaceId?: unknown; callFunction?: Record<string, unknown> } } | undefined)?.callAgentFunction;
+  if (!call || typeof call.functionCallId !== 'string' || !call.functionCallId) return undefined;
+  const id = call.functionCallId;
+  const name = call.callFunction?.['@call'] ?? call.callFunction?.call;
+  const args = (call.callFunction?.args && typeof call.callFunction.args === 'object' ? call.callFunction.args : {}) as Record<string, unknown>;
+  const nb = typeof name === 'string' && SUA_AGENT_FUNCTION_NAMES.includes(name) ? surfaceNotebook(store, call.surfaceId) : undefined;
+  const out = typeof name !== 'string' || !SUA_AGENT_FUNCTION_NAMES.includes(name)
+    ? { error: { code: 'NOT_FOUND', message: `No agent function '${String(name)}'.` } }
+    : !nb ? { error: { code: 'NOT_FOUND', message: 'That page is not a notebook\u2019s.' } }
+    : agentFunctionValue(nb, store.entries(nb.id, 1000), name, args);
+  return { version: '1.0', agentFunctionResponse: { functionCallId: id, ...out } };
 }
