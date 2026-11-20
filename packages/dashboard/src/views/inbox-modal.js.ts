@@ -310,10 +310,12 @@ export const INBOX_MODAL_JS = `
     var form = box && box.form;
     if (!box || !form || box.disabled || form.getAttribute('data-inflight') === '1') return;
     var c = d.context || {};
-    var text = typeof c.message === 'string' && c.message.trim() ? c.message.trim()
+    // A choice in a form's message comes as ["rental"]: said as words.
+    var text = typeof d.userMessage === 'string' && d.userMessage.trim() ? d.userMessage.trim().replace(/\\[\\s*((?:"[^"\\\\]*"\\s*,?\\s*)*)\\]/g, function (_m, inner) { return (inner.match(/"([^"\\\\]*)"/g) || []).map(function (x) { return x.slice(1, -1); }).join(', '); })
+      : typeof c.message === 'string' && c.message.trim() ? c.message.trim()
       : '▸ ' + d.name + (function () {
-        var parts = Object.keys(c).filter(function (k) { return c[k] !== undefined && c[k] !== null && c[k] !== ''; })
-          .map(function (k) { return k + ': ' + (typeof c[k] === 'object' ? JSON.stringify(c[k]) : String(c[k])); });
+        var parts = Object.keys(c).filter(function (k) { return c[k] !== undefined && c[k] !== null && c[k] !== '' && !(Array.isArray(c[k]) && !c[k].length); })
+          .map(function (k) { var v = c[k]; return k + ': ' + (Array.isArray(v) && v.every(function (x) { return typeof x !== 'object'; }) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)); });
         return parts.length ? ' (' + parts.join(', ') + ')' : '';
       })();
     e.stopPropagation();
