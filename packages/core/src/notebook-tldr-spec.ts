@@ -11,6 +11,8 @@ export type TldrSize = 'standard' | 'landscape' | 'square' | 'portrait';
 export type TldrTone = 'plain' | 'editorial' | 'bold';
 export type TldrLayout = 'stack' | 'split' | 'hero' | 'cover' | 'lineup' | 'spotlight' | 'gallery';
 export type TldrPart = 'lead' | 'photos' | 'stats' | 'bars' | 'points';
+/** What picture leads it: its photos (else its drawing), the notebook's drawing, or none. */
+export type TldrPicture = 'photos' | 'drawing' | 'none';
 
 /** Each size: its box in CSS pixels (no height: as tall as it needs), how much it holds, and when it fits. */
 export const TLDR_SIZES: Record<TldrSize, { width: number; height?: number; bars: number; points: number; name: string; fits: string }> = {
@@ -30,10 +32,16 @@ export const TLDR_LAYOUTS: Record<TldrLayout, string> = {
   stack: 'One column, top to bottom.',
   split: 'Two columns: the words at the left, the bars or points at the right. Suits landscape.',
   hero: 'One thing very large at the top (the lead\'s number, or the person), the rest small under it.',
-  cover: 'The lead\'s picture (or the person\'s portrait) as a large band across the top, the words and numbers under it. Needs the lead to have a picture. On landscape it is drawn as spotlight.',
+  cover: 'The lead\'s picture (or the person\'s portrait) as a large band across the top, the words and numbers under it; with no photo, the notebook\'s drawing. On landscape it is drawn as spotlight.',
   lineup: 'The top three or four options side by side as picture tiles, each with its name and value, the best one marked; the pictures take the place of the bars. Needs pictures of at least three of the top options. Not for a notebook about a person.',
   gallery: 'The notebook\'s own photos lead: up to four side by side under the headline, each with the site it is from, then the lead and the findings. Needs two or more photos (a briefing\'s sources have them); with one it is drawn as a cover, with none as a stack.',
-  spotlight: 'The lead\'s picture takes one whole side, top to bottom, the words and bars or points on the other. Needs the lead to have a picture. Best on landscape, and for a person\'s portrait.',
+  spotlight: 'The lead\'s picture takes one whole side, top to bottom, the words and bars or points on the other; with no photo, the notebook\'s drawing. Best on landscape, and for a person\'s portrait.',
+};
+
+export const TLDR_PICTURES: Record<TldrPicture, string> = {
+  photos: 'Its own photos (the default): the picture chosen for the notebook, its sources\' photos, who it\'s about; with none, its drawing.',
+  drawing: 'The notebook\'s drawing: its own colour and an icon for what it\'s about, the same art as its card on the Notebooks page. For a notebook whose photos say little, or a look that matches its card.',
+  none: 'No picture: the words and numbers only.',
 };
 
 export const TLDR_PARTS: Record<TldrPart, string> = {
@@ -52,6 +60,8 @@ export interface TldrSpec {
   parts: TldrPart[];
   /** How many bars, within the size's limit. */
   bars?: number;
+  /** What picture leads it (unset: its photos, else its drawing). */
+  picture?: TldrPicture;
   /** Written for it: a headline in place of the notebook's title (the title becomes a line above it). */
   headline?: string;
   /** Written for it: one line under the headline. */
@@ -85,11 +95,12 @@ export function cleanTldrSpec(raw: unknown): TldrSpec | undefined {
   const size = pick(o.size, TLDR_SIZES, 'standard');
   const parts = [...new Set((Array.isArray(o.parts) ? o.parts : []).filter((p): p is TldrPart => typeof p === 'string' && p in TLDR_PARTS))];
   const bars = typeof o.bars === 'number' && Number.isFinite(o.bars) ? Math.min(TLDR_SIZES[size].bars, Math.max(3, Math.round(o.bars))) : undefined;
+  const picture = typeof o.picture === 'string' && o.picture in TLDR_PICTURES && o.picture !== 'photos' ? o.picture as TldrPicture : undefined;
   const headline = text(o.headline, TLDR_HEADLINE_MAX), takeaway = text(o.takeaway, TLDR_TAKEAWAY_MAX), about = text(o.about, 200), ask = text(o.ask, 300), at = text(o.at, 40);
   return {
     size, tone: pick(o.tone, TLDR_TONES, 'plain'), layout: pick(o.layout, TLDR_LAYOUTS, 'stack'),
     parts: parts.length ? parts : ['lead', 'photos', 'stats', 'bars', 'points'],
-    ...(bars !== undefined ? { bars } : {}), ...(headline ? { headline } : {}), ...(takeaway ? { takeaway } : {}), ...(about ? { about } : {}), ...(ask ? { ask } : {}), ...(at ? { at } : {}),
+    ...(bars !== undefined ? { bars } : {}), ...(picture ? { picture } : {}), ...(headline ? { headline } : {}), ...(takeaway ? { takeaway } : {}), ...(about ? { about } : {}), ...(ask ? { ask } : {}), ...(at ? { at } : {}),
   };
 }
 
@@ -116,6 +127,7 @@ export function tldrOptionsGuide(): string {
     'tone (one):', list(TLDR_TONES),
     'layout (one):', list(TLDR_LAYOUTS),
     'parts (any, in the order to show them):', list(TLDR_PARTS),
+    'picture (one, optional):', list(TLDR_PICTURES),
     `headline (optional): at most ${String(TLDR_HEADLINE_MAX)} characters.`,
     `takeaway (optional): one sentence, at most ${String(TLDR_TAKEAWAY_MAX)} characters.`,
   ].join('\n');

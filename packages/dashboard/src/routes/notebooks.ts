@@ -1422,11 +1422,15 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   const src = path ? (embed ? embeddedAboutPicture(s, nb)(path) : path) : undefined;
   const aboutPicture = who && src ? { src, ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined;
   // How it's drawn: as asked by address (?size=&tone=&layout=, to try one without keeping it), else the notebook's redraw, else the standard picture (?standard=1 forces that).
-  const tried = ['size', 'tone', 'layout', 'parts', 'bars', 'headline', 'takeaway'].some((k) => req.query[k] !== undefined);
+  const tried = ['size', 'tone', 'layout', 'parts', 'bars', 'headline', 'takeaway', 'picture'].some((k) => req.query[k] !== undefined);
   const spec = req.query.standard === '1' ? undefined : tried
-    ? cleanTldrSpec({ ...(nb.tldr ?? {}), ...Object.fromEntries(['size', 'tone', 'layout', 'headline', 'takeaway'].filter((k) => typeof req.query[k] === 'string').map((k) => [k, req.query[k]])), ...(typeof req.query.parts === 'string' ? { parts: req.query.parts.split(',') } : {}), ...(typeof req.query.bars === 'string' ? { bars: Number(req.query.bars) } : {}) })
+    ? cleanTldrSpec({ ...(nb.tldr ?? {}), ...Object.fromEntries(['size', 'tone', 'layout', 'picture', 'headline', 'takeaway'].filter((k) => typeof req.query[k] === 'string').map((k) => [k, req.query[k]])), ...(typeof req.query.parts === 'string' ? { parts: req.query.parts.split(',') } : {}), ...(typeof req.query.bars === 'string' ? { bars: Number(req.query.bars) } : {}) })
     : nb.tldr;
-  const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(spec ? { spec } : {}) });
+  // The picture chosen for the notebook leads its photos (inside the picture when it's made into a file).
+  const chosenPath = nb.photo ? `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(nb.photo.at)}` : undefined;
+  const chosenSrc = chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined;
+  const chosen = nb.photo && chosenSrc ? { src: chosenSrc, credit: (() => { try { return new URL(nb.photo!.page ?? nb.photo!.image).hostname.replace(/^www\./, ''); } catch { return 'chosen'; } })(), name: nb.photo.alt ?? nb.title } : undefined;
+  const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(chosen ? { chosen } : {}), ...(spec ? { spec } : {}) });
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }
 
@@ -1462,7 +1466,7 @@ notebooksRouter.post('/notebooks/:id/tldr/redraw', (req: Request, res: Response)
   // (their addresses stand in for them: a layout that leads with a picture is chosen only when there is one).
   const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
   const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
-  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined);
+  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
   const started = startTldrRedraw(ctx, nb.id, card, ask);
   res.redirect(303, started ? to() : to('sua is already redrawing it. Ask again when it\'s done.'));
 });

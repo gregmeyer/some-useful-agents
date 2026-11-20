@@ -192,9 +192,15 @@ describe("a notebook's TL;DR picture", () => {
     expect(tldrLayoutFor(t, spec('spotlight', 'landscape'))).toBe('spotlight');
     const none = tldrData(nb(), entries); // no pictures at all
     expect(tldrLayoutFor(none, spec('lineup'))).toBe('stack');
-    expect(tldrLayoutFor(none, spec('cover'))).toBe('stack');
-    expect(tldrLayoutFor(none, spec('spotlight', 'landscape'))).toBe('split');
-    expect(render(tldrCard(none, { spec: spec('cover') }))).toContain('tl--stack');
+    // No photo: a cover or spotlight shows the notebook's drawing (its card's colour and icon), filling the frame.
+    expect(tldrLayoutFor(none, spec('cover'))).toBe('cover');
+    expect(tldrLayoutFor(none, spec('spotlight', 'landscape'))).toBe('spotlight');
+    expect(render(tldrCard(none, { spec: spec('cover') }))).toMatch(/<div class="tl__art"><span class="tl__frame is-art"><img src="data:image\/svg\+xml;base64,/);
+    // No picture asked for: they fall back to words.
+    const bare = (layout: 'cover' | 'spotlight', size: 'standard' | 'landscape' = 'standard') => ({ ...spec(layout, size), picture: 'none' as const });
+    expect(tldrLayoutFor(none, bare('cover'))).toBe('stack');
+    expect(tldrLayoutFor(none, bare('spotlight', 'landscape'))).toBe('split');
+    expect(render(tldrCard(none, { spec: bare('cover') }))).toContain('tl--stack');
     // Two pictured options aren't a lineup: the lead's picture as a cover instead.
     const two = { ...t, chart: { ...t.chart!, bars: t.chart!.bars.map((b, i) => (i < 2 ? b : { ...b, picture: undefined })) } };
     expect(tldrLayoutFor(two, spec('lineup'))).toBe('cover');
@@ -217,5 +223,27 @@ describe("a notebook's TL;DR picture", () => {
     expect(page).toContain('<article class="tl"');
     expect(page).not.toMatch(/<script/);
     expect(page).not.toContain('href="/');
+  });
+
+  it("a chosen photo leads its photos; \"picture\": \"drawing\" puts the notebook's drawing first even with photos; the spec keeps the choice", async () => {
+    const { cleanTldrSpec, tldrOptionsGuide } = await import('@some-useful-agents/core');
+    const chosen = { src: '/notebooks/nb/photo?v=1', credit: 'commons.wikimedia.org', name: 'A hot dog' };
+    const t = tldrData(nb(), entries, undefined, undefined, undefined, chosen);
+    expect(t.photos).toEqual([chosen]);
+    expect(t.drawing).toMatch(/^data:image\/svg\+xml;base64,/);
+    // The standard picture shows the chosen photo in its strip; a cover leads with it.
+    expect(render(tldrCard(t))).toContain('<img src="/notebooks/nb/photo?v=1" alt="A hot dog">');
+    const cover = { size: 'standard' as const, tone: 'plain' as const, layout: 'cover' as const, parts: ['lead' as const, 'photos' as const] };
+    expect(render(tldrCard(t, { spec: cover }))).toMatch(/<div class="tl__art"><span class="tl__frame is-photo" style="--pic:url\('\/notebooks\/nb\/photo\?v=1'\)">/);
+    // The drawing asked for: it leads, and the photo moves to the strip.
+    const drawn = render(tldrCard(t, { spec: { ...cover, picture: 'drawing' } }));
+    expect(drawn).toMatch(/<div class="tl__art"><span class="tl__frame is-art"><img src="data:image\/svg\+xml/);
+    expect(drawn).toContain('<img src="/notebooks/nb/photo?v=1" alt="A hot dog">');
+    // None: no picture anywhere.
+    expect(render(tldrCard(t, { spec: { ...cover, layout: 'stack', picture: 'none' } }))).not.toContain('<img');
+    expect(cleanTldrSpec({ layout: 'cover', picture: 'drawing' })!.picture).toBe('drawing');
+    expect(cleanTldrSpec({ layout: 'cover', picture: 'photos' })!.picture).toBeUndefined();
+    expect(cleanTldrSpec({ layout: 'cover', picture: 'clipart' })!.picture).toBeUndefined();
+    expect(tldrOptionsGuide()).toContain('picture (one, optional):');
   });
 });
