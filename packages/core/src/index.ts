@@ -567,6 +567,7 @@ export {
   suaCatalog,
   suaCatalogDocument,
   SUA_FUNCTION_NAMES,
+  SUA_AGENT_FUNCTION_NAMES,
   SUA_CATALOG_INSTRUCTIONS,
   suaCatalogComponentNames,
   suaComponentDocs,

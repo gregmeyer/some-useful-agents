@@ -58,3 +58,18 @@ export function suaFunctions(z, CommonSchemas) {
       (a) => (Array.isArray(a.value) ? a.value.length : 0)),
   ];
 }
+
+/**
+ * sua's agent functions (ADR-0088), declared with no implementation: the
+ * A2UI 1.0 renderer sends each call to the dashboard (callAgentFunction,
+ * through the page's outbound listener) and draws the answer when it comes.
+ */
+export function suaAgentFunctions(z, CommonSchemas) {
+  const CS = CommonSchemas;
+  const fn = (name, returnType, description, args) => ({ name, returnType, description, allowedCallers: 'rendererOnly', schema: z.object(args).strict() });
+  return [
+    fn('findOptions', 'array', "The notebook's options in the running whose name or facts have every word of q, best first, as rows for a Table.", { q: CS.DynamicString, limit: CS.DynamicValue.optional() }),
+    fn('optionFacts', 'array', "One option's facts as {label, value} rows for a KeyValue.", { id: CS.DynamicString }),
+  ];
+}
+

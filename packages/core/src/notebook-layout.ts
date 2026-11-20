@@ -889,6 +889,7 @@ export function notebookLayoutGuide(components: ReadonlyArray<{ name: string; su
   return `## A notebook's page (its layout): an A2UI document
 A flat list of components; \`root\` is the top; children/child name other ids. Each prop is a literal or { "path": "/notebook/..." }.
 Functions, in any value as { call: NAME, args: { … } } (an arg may be a path): formatString (value: "\${count(value:\${/notebook/options})} in the running · \${count(value:\${/notebook/findings})} findings"), formatNumber, formatCurrency, formatDate, pluralize, join (a list as words), relativeTime ("3 days ago"), formatRange (min, max, currency: "$120K–$140K"), count (a list's length).
+Agent functions, answered by sua from this notebook (the page asks as you use it): findOptions (args q, limit: the options whose name or facts have every word of q, best first, as Table rows with id, name, page, link and each field key) and optionFacts (args id: {label, value} rows for a KeyValue). A search box: { "id": "q", "component": "TextField", "label": "Search", "value": { "path": "/form/q" } } and a Table with rows { "call": "findOptions", "args": { "q": { "path": "/form/q" } } }.
 
 Data (bind with { "path": ... }):
 ${Object.entries(NOTEBOOK_LAYOUT_DATA).map(([k, v]) => line(k, v)).join('\n')}

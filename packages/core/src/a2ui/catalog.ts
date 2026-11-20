@@ -491,13 +491,27 @@ export const SUA_FUNCTIONS = [
 ];
 export const SUA_FUNCTION_NAMES: readonly string[] = SUA_FUNCTIONS.map((f) => f.name);
 
+/**
+ * sua's agent functions (ADR-0088): declared here and in the browser with no
+ * implementation, so the A2UI 1.0 renderer sends each call to the dashboard
+ * (callAgentFunction) and draws the answer. They answer only on a notebook's
+ * own page, about that notebook (dashboard lib/a2ui-agent-functions.ts).
+ */
+const agentFn = (name: string, returnType: string, description: string, args: Record<string, unknown>) =>
+  ({ name, returnType, description, allowedCallers: 'rendererOnly', schema: z.object(args).strict() });
+export const SUA_AGENT_FUNCTIONS = [
+  agentFn('findOptions', 'array', "The notebook's options in the running whose name or facts have every word of q, best first, as rows for a Table: {id, name, page, link, and a value per field key}. Empty q: the best. limit: at most this many (10 unless given, 50 at most).", { q: CS.DynamicString, limit: CS.DynamicValue.optional() }),
+  agentFn('optionFacts', 'array', "One option's facts as {label, value} rows for a KeyValue: id is the option's id (a findOptions row's id).", { id: CS.DynamicString }),
+];
+export const SUA_AGENT_FUNCTION_NAMES: readonly string[] = SUA_AGENT_FUNCTIONS.map((f) => f.name);
+
 let catalog: Catalog<never> | undefined;
 
 /** The sua catalog, built once. */
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
     const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
-    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], [...BASIC_FUNCTIONS, ...SUA_FUNCTIONS] as never[]) as Catalog<never>;
+    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], [...BASIC_FUNCTIONS, ...SUA_FUNCTIONS, ...SUA_AGENT_FUNCTIONS] as never[]) as Catalog<never>;
   }
   return catalog;
 }
