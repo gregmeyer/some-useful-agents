@@ -14,6 +14,7 @@ import {
 } from '/assets/vendor/a2ui-v1_0.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { surfaceIdOf, componentsOf, dataOf, surfaceDelta } from '/assets/surface-diff.js';
+import { suaFunctions } from '/assets/sua-functions.js';
 import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
@@ -2031,7 +2032,8 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
 export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
-  [...basicCatalog.functions.values()]);
+  // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).
+  [...basicCatalog.functions.values(), ...suaFunctions(z, CommonSchemas)]);
 
 /** Draw one surface host: <div data-a2ui-surface><script type="application/json">[messages]</script></div>. */
 export function mountSurface(host) {

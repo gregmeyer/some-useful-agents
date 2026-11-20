@@ -157,7 +157,7 @@ ${examples}
 - A Button's click is sent as the person's next message (its context.message). Buttons are good answers to a question you ask: a few likely answers (which weekend, which of these), each a Button whose message is that answer. Once the person replies, the buttons are spent.
 - A form, when the answer is typed or picked (an amount, a date, which of several): inputs bound under /data/form (TextField, ChoicePicker, CheckBox, DateTimeInput), starting values in "data" (a ChoicePicker's is a list), and ONE Button whose checks (required, email, numeric) keep it off until they pass; its userMessage is sent as the reply:
   {"id":"kind","component":"ChoicePicker","label":"Kind","options":[{"label":"Hotel","value":"hotel"},{"label":"Rental","value":"rental"}],"value":{"path":"/data/form/kind"}}
-  {"id":"send","component":"Button","child":"send_l","checks":[{"condition":{"call":"required","args":{"value":{"path":"/data/form/budget"}}},"message":"Add a budget"}],"action":{"event":{"name":"answer","userMessage":{"call":"formatString","args":{"value":"Budget \${/data/form/budget}, \${/data/form/kind}"}}}}}
+  {"id":"send","component":"Button","child":"send_l","checks":[{"condition":{"call":"required","args":{"value":{"path":"/data/form/budget"}}},"message":"Add a budget"}],"action":{"event":{"name":"answer","userMessage":{"call":"formatString","args":{"value":"Budget \${/data/form/budget}, \${join(value:\${/data/form/kind})}"}}}}}
   A yes/no or a pick from three is buttons, not a form.`;
 }
 

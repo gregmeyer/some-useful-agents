@@ -746,6 +746,13 @@ assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
 });
 
+// sua's A2UI functions (join, relativeTime, formatRange, count; ADR-0087), imported by a2ui-sua.js.
+const SUA_FUNCTIONS_JS = readAsset('sua-functions.js');
+assetsRouter.get('/assets/sua-functions.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(SUA_FUNCTIONS_JS);
+});
+
 // What a drawn surface needs to become a new copy of itself (ADR-0086), imported by a2ui-sua.js.
 const SURFACE_DIFF_JS = readAsset('surface-diff.js');
 assetsRouter.get('/assets/surface-diff.js', (_req: Request, res: Response) => {
