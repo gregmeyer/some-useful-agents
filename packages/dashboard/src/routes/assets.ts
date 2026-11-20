@@ -746,6 +746,13 @@ assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));
 });
 
+// What a drawn surface needs to become a new copy of itself (ADR-0086), imported by a2ui-sua.js.
+const SURFACE_DIFF_JS = readAsset('surface-diff.js');
+assetsRouter.get('/assets/surface-diff.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(SURFACE_DIFF_JS);
+});
+
 // Chart arithmetic (ticks, nearest point, a point's note), imported by a2ui-sua.js.
 const CHART_MATH_JS = readAsset('chart-math.js');
 assetsRouter.get('/assets/chart-math.js', (_req: Request, res: Response) => {

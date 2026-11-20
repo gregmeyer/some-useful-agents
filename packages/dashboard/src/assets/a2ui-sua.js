@@ -13,6 +13,7 @@ import {
   setMarkdownRenderer, html, css, nothing, z,
 } from '/assets/vendor/a2ui-v1_0.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
+import { surfaceIdOf, componentsOf, dataOf, surfaceDelta } from '/assets/surface-diff.js';
 import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
 import { collapseRepeats, matchEvent, whenRange } from '/assets/timeline-events.js';
@@ -2045,32 +2046,40 @@ export function mountSurface(host) {
   });
   const el = document.createElement('a2ui-surface');
   processor.onSurfaceCreated((s) => { el.surface = s; });
-  // Its components as sent (before the processor works on them), so the same surface can take new data in place (updateSurface).
-  const components = componentsKey(messages);
+  // Its components and data as sent (before the processor works on them), so the surface can take a new copy in place (updateSurface).
+  const drawn = drawnState(messages);
   try { processor.processMessages(messages); }
   catch (e) {
     host.insertAdjacentHTML('beforeend', `<p class="flash flash--error">This widget couldn't be drawn: ${esc(e.message)}</p>`);
     return;
   }
   host.appendChild(el);
-  host._a2ui = { processor, components };
+  host._a2ui = { processor, ...drawn };
 }
 
-const componentsKey = (messages) => JSON.stringify((Array.isArray(messages) ? messages : []).filter((m) => m && m.updateComponents).map((m) => m.updateComponents.components));
+/** What a drawn surface was drawn from: its id, its components by id (as JSON), its data. */
+const drawnState = (messages) => ({ surfaceId: surfaceIdOf(messages), byId: new Map(componentsOf(messages).map((c) => [c.id, JSON.stringify(c)])), data: dataOf(messages) });
 
 /**
- * New messages for a mounted surface whose components haven't changed: only
- * its data model is sent again, so every element stays where it is (a figure
- * you moved keeps its what-if, nothing jumps). False when the components
- * differ or the host isn't mounted; the caller redraws the whole thing then.
+ * A new copy of a mounted surface, taken in place (A2UI 1.0, ADR-0086): only
+ * the components that changed or appeared are sent (updateComponents upserts
+ * them by id; one that went is no longer anyone's child), and only the data
+ * paths that changed (updateDataModel). Nothing else is redrawn, so a figure
+ * keeps its what-if and an open panel stays open. False when it can't be (not
+ * mounted, another surface, no root); the caller redraws the whole thing then.
  */
 export function updateSurface(host, messages) {
   const kept = host?._a2ui;
-  if (!kept || !Array.isArray(messages) || componentsKey(messages) !== kept.components) return false;
-  const data = messages.filter((m) => m && m.updateDataModel);
-  if (!data.length) return false;
-  try { kept.processor.processMessages(data); return true; }
-  catch { return false; }
+  if (!kept || !Array.isArray(messages)) return false;
+  const delta = surfaceDelta(kept, messages);
+  if (!delta) return false;
+  if (delta.messages.length) {
+    try { kept.processor.processMessages(delta.messages); } catch { return false; }
+  }
+  Object.assign(kept, delta.next);
+  // How the last update landed (components and data paths sent): for tests and a look in the inspector.
+  host.setAttribute('data-a2ui-delta', `${String(delta.changed)}c ${String(delta.paths)}d`);
+  return true;
 }
 
 export function mountSurfaces(root = document) {
@@ -2096,6 +2105,9 @@ new MutationObserver(() => mountSurfaces()).observe(document.body, { childList: 
       const res = await fetch(`/boards/${encodeURIComponent(boardId())}/data.json`);
       if (!res.ok) return;
       const j = await res.json();
+      // New tiles join the registry first, so a tile the update adds in place finds what it shows.
+      boardTile('');
+      Object.assign(boardTiles, j.tiles || {});
       if (!updateSurface(host, j.messages)) remountBoard(host, j.messages, j.tiles);
     } catch { /* next time */ } finally { busy = false; }
   }
