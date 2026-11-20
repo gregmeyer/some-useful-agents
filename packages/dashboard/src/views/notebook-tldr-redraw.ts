@@ -17,6 +17,7 @@ export const TLDR_STARTERS = [
   { label: 'More editorial', ask: 'Make it more editorial' },
   { label: 'Lead with the photo', ask: 'Lead with the photo: make the picture the main thing' },
   { label: 'Use its photos', ask: 'Use the photos from the notebook: show them side by side' },
+  { label: 'Use its drawing', ask: 'Use the notebook\'s drawing as the picture (picture: drawing): its colour and icon across the top' },
   { label: 'Be more creative', ask: 'Be more creative' },
   { label: 'Just the numbers', ask: 'Simpler: just the numbers and the bars' },
 ] as const;
@@ -26,7 +27,7 @@ export function tldrSpecWords(spec: TldrSpec | undefined): string {
   if (!spec) return 'The standard picture: as tall as it needs, plain, everything in one column.';
   const size = TLDR_SIZES[spec.size];
   const lay = { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large', cover: 'the picture across the top', lineup: 'the top options as pictures side by side', spotlight: 'the picture down one side', gallery: 'its own photos side by side' }[spec.layout];
-  return `${size.name}${size.height ? ` ${String(size.width)}×${String(size.height)}` : ''} · ${spec.tone} · ${lay}${spec.headline ? ' · with a headline' : ''}`;
+  return `${size.name}${size.height ? ` ${String(size.width)}×${String(size.height)}` : ''} · ${spec.tone} · ${lay}${spec.picture === 'drawing' ? ' · its drawing' : spec.picture === 'none' ? ' · no picture' : ''}${spec.headline ? ' · with a headline' : ''}`;
 }
 
 export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; undos: number; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {

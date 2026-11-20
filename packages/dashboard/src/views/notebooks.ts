@@ -1731,6 +1731,30 @@ export function coverArt(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stag
   </svg>`);
 }
 
+/**
+ * The notebook's drawing for its TL;DR picture: the same colour, waves and
+ * icon as its card's cover (coverArt), set for a frame of any shape. The icon
+ * sits in the middle, so a tall frame (a spotlight's side) or a wide one (a
+ * cover's band) crops only the edges; the stage bars are left out (at that
+ * size they read as a chart). A data: address of SVG text: no script,
+ * nothing loaded from elsewhere, so it travels in a PNG or a saved file.
+ */
+export function drawnCoverSrc(nb: Pick<Notebook, 'id' | 'title' | 'statement' | 'stages'>): string {
+  let h = 0;
+  for (const ch of nb.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const hue = (h + 170) % 360;
+  const kind = notebookKind(nb);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${kind === 'notebook' ? 'Notebook' : kind}">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${String(hue)} 55% 46%)"/><stop offset="1" stop-color="hsl(${String((hue + 40) % 360)} 60% 32%)"/></linearGradient></defs>
+<rect width="600" height="600" fill="url(#g)"/>
+<circle cx="480" cy="110" r="190" fill="#fff" fill-opacity="0.08"/><circle cx="110" cy="520" r="150" fill="#fff" fill-opacity="0.06"/>
+<path d="M0 420 C 120 370, 220 470, 330 410 S 520 340, 600 380" fill="none" stroke="#fff" stroke-opacity="0.18" stroke-width="4"/>
+<path d="M0 470 C 140 430, 240 510, 360 460 S 540 400, 600 430" fill="none" stroke="#fff" stroke-opacity="0.1" stroke-width="3"/>
+<g transform="translate(220 210) scale(2.5)" fill="none" stroke="#fff" stroke-opacity="0.92" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${KIND_ICON[kind]}</g>
+</svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg.replace(/\s+/g, ' ')).toString('base64')}`;
+}
+
 /** The notebooks control in Home's header: a button to the list with a joined "+" for a new one, sized like the controls beside it. */
 export function renderHomeNotebooksButtons(active: number, total: number): SafeHtml {
   return html`<span class="home-nbgroup" title="Notebooks: goals you keep over time"><a class="btn btn--sm" href="/notebooks">${NOTEBOOK_ICON}${total === 0 ? 'Notebooks' : `${String(active)} notebook${active === 1 ? '' : 's'}`}</a><a class="btn btn--sm home-nbgroup__new" href="/notebooks/new" aria-label="New notebook" title="New notebook">+</a></span>`;

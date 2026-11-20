@@ -116,10 +116,15 @@ nodes:
               "without the pictures" means leave it out and don't use
               gallery, cover or spotlight.
           A "logo" or "drawing" is weaker than a "photo" or "portrait":
-          prefer lineup or the hero layout over a cover of a logo. With
-          lead.picture "none" and fewer than 3 pictured options, say in
-          "about" that the notebook has no pictures to lead with, and
-          use hero.
+          prefer lineup or the hero layout over a cover of a logo.
+        - Every notebook has its own drawing: its colour and an icon for
+          what it's about, the same art as its card. A cover or spotlight
+          with no photo shows it. "picture": "drawing" makes it the
+          picture even when there are photos: for "use its drawing", "use
+          the illustration", "like its card", or a "more visual" ask on a
+          notebook with lead.picture "none" and no "photos". "picture":
+          "none" draws no picture at all (for "no photos", "no picture",
+          "just the words"). Leave "picture" out otherwise.
         - A headline, when you write one, says what the picture shows in
           plain words, as a person would title a post: no hype, no
           exclamation marks, no hashtags, no emoji. It says the finding,
