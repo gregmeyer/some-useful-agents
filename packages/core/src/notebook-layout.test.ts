@@ -59,7 +59,7 @@ describe('notebook layouts (A2UI documents)', () => {
     const kept = { components: [{ id: 'who', component: 'ProfileCard', name: { path: '/notebook/person/name' }, quote: { path: '/notebook/leadQuote' } }, { id: 't', component: 'Text', text: 'x' }] } as never;
     expect(notebookLayoutOf({ layout: kept }).components[0]).toMatchObject({ quoteFrom: { path: '/notebook/leadQuoteFrom' }, quoteBy: { path: '/notebook/leadQuoteBy' } });
     expect(notebookLayoutOf({ layout: kept }).components[1]).toEqual({ id: 't', component: 'Text', text: 'x' });
-    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'company', 'subject', 'answer', 'plan', 'watch']);
+    expect(NOTEBOOK_LAYOUT_PRESETS.map((p) => p.id)).toEqual(['shortlist', 'dossier', 'company', 'subject', 'answer', 'runbook', 'plan', 'watch']);
     expect(layoutPreset('company')).toMatchObject({ label: 'Company briefing' });
     // Every ready-made page is a page that checks out.
     for (const p of NOTEBOOK_LAYOUT_PRESETS) expect(checkNotebookLayout(p.layout.components), p.id).toMatchObject({ ok: true });

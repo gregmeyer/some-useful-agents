@@ -218,7 +218,7 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What to weigh about where its sources come from (Agenda questions). */
     sourceCautions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
-    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram'; items?: Array<{ text: string; detail?: string; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
+    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram' | 'copy'; label?: string; lang?: string; items?: Array<{ text: string; detail?: string; how?: string; see?: string; ifNot?: string; time?: string; advice?: boolean; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
     /** A plan's parts besides its days (AnswerSections), the same shapes as an answer's. */
     planSections: NotebookWidgetData['notebook']['answerSections'];
     /** Each written part by its key (`/notebook/section/<key>`), an answer's and a plan's, for a page composed around them. */
@@ -727,7 +727,9 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
   const struck = new Set(struckList ?? []);
   return (sections ?? []).map((x): SectionView => {
     const key = sectionKey(x);
-    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
+    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), ...(i.how ? { how: i.how } : {}), ...(i.see ? { see: i.see } : {}), ...(i.ifNot ? { ifNot: i.ifNot } : {}), ...(i.time ? { time: i.time } : {}), ...(i.advice ? { advice: true } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
+    // Something to copy, as written; struck, it's gone.
+    if (x.kind === 'copy') return struck.has(answerSectionLines(x)[0]) ? { key, title: x.title, kind: 'text', body: '' } : { key, title: x.title, kind: 'copy', body: x.body, ...(x.label ? { label: x.label } : {}), ...(x.lang ? { lang: x.lang } : {}) };
     if (x.kind === 'table') {
       const rows = x.rows.filter((r) => !struck.has(r.cells.join(' · '))).map((r) => ({ cells: r.cells, refs: refs(r.from, r.cells.join(' · ')) }));
       const every = rows.length > 1 ? rows[0].refs.filter((f) => rows.every((r) => r.refs.some((g) => g.href === f.href))) : [];

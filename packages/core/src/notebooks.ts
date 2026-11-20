@@ -540,13 +540,32 @@ export interface NotebookAnswer {
 }
 
 /**
+ * One step of an answer's steps. A runbook's step says how to do it, what
+ * you should see when it worked, and what to do if not (each a short line),
+ * and how long it takes. `advice`: the writer's own advice (how to teach it,
+ * what order works), not something a source says; it cites nothing and says so.
+ */
+export interface NotebookAnswerStep {
+  text: string;
+  detail?: string;
+  how?: string;
+  see?: string;
+  ifNot?: string;
+  time?: string;
+  advice?: true;
+  from: string[];
+}
+
+/**
  * One part of an answer: the steps to take (an SOP), a table (a rubric, a
  * comparison), or a few short paragraphs. `delivers` is the done-when it
  * gives, word for word ("A simple rubric written"), which then ticks itself.
  * Every step and row cites what it rests on, by entry id, like a finding.
  */
 export type NotebookAnswerSection = { title: string; delivers?: string; /** A short name a page binds the part by (`/notebook/section/<key>`), from its title; stays across rewrites while the title does. */ key?: string } & (
-  | { kind: 'steps'; items: Array<{ text: string; detail?: string; from: string[] }> }
+  | { kind: 'steps'; items: NotebookAnswerStep[] }
+  /** Something to copy as it is (a runbook's prompt for Claude, a starter file, a command): shown with a copy button, printed in monospace. */
+  | { kind: 'copy'; body: string; label?: string; lang?: 'prompt' | 'html' | 'css' | 'js' | 'shell' | 'text' }
   | { kind: 'table'; columns: string[]; rows: Array<{ cells: string[]; from: string[] }>; note?: string }
   | { kind: 'text'; body: string; /** The sources a part of a subject briefing rests on (option ids). */ from?: string[] }
   | { kind: 'diagram'; diagram: NotebookAnswerDiagram; caption?: string }
@@ -688,6 +707,7 @@ export function answerSectionLines(s: NotebookAnswerSection): string[] {
   if (s.kind === 'steps') return s.items.map((i) => i.text);
   if (s.kind === 'table') return s.rows.map((r) => r.cells.join(' · '));
   if (s.kind === 'diagram') return answerDiagramLines(s.diagram);
+  if (s.kind === 'copy') return [s.label ?? s.body.split('\n')[0].slice(0, 120)];
   return [s.body];
 }
 
@@ -4373,7 +4393,11 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
         const x = (typeof i === 'string' ? { text: i } : i ?? {}) as Record<string, unknown>;
         const text = line(x.text, 240);
         const detail = line(x.detail, 400);
-        return text ? { text, ...(detail ? { detail } : {}), from: cites(x.from) } : undefined;
+        const how = line(x.how, 300), see = line(x.see, 240), ifNot = line(x.ifNot ?? x.if_not, 300), time = line(x.time, 24);
+        const from = cites(x.from);
+        // Advice is the writer's own: it cites nothing (a step a source supports is that source's).
+        const advice = x.advice === true && !from.length;
+        return text ? { text, ...(detail ? { detail } : {}), ...(how ? { how } : {}), ...(see ? { see } : {}), ...(ifNot ? { ifNot } : {}), ...(time ? { time } : {}), ...(advice ? { advice: true as const } : {}), from } : undefined;
       }).filter((i): i is NonNullable<typeof i> => !!i).slice(0, 10);
       if (items.length >= 2) out.push({ ...head, kind: 'steps', items });
     } else if (o.kind === 'table') {
@@ -4390,12 +4414,19 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
       const diagram = cleanAnswerDiagram(o.diagram, line, amounts);
       const caption = line(o.caption, 200);
       if (diagram) out.push({ ...head, kind: 'diagram', diagram, ...(caption ? { caption } : {}) });
+    } else if (o.kind === 'copy' && !briefing && out.filter((x) => x.kind === 'copy').length < 3) {
+      // Kept as written (line breaks and all): it's to be copied.
+      const body = typeof o.body === 'string' ? o.body.replace(/\r\n?/g, '\n').replace(/^\n+|\s+$/g, '').slice(0, 4000) : '';
+      const label = line(o.label, 120);
+      const lang = typeof o.lang === 'string' && ['prompt', 'html', 'css', 'js', 'shell', 'text'].includes(o.lang) ? o.lang as 'prompt' : undefined;
+      if (body) out.push({ ...head, kind: 'copy', body, ...(label ? { label } : {}), ...(lang ? { lang } : {}) });
     } else if (o.kind === 'text' && (briefing || !out.some((x) => x.kind === 'text'))) {
       const body = line(o.body ?? o.text, briefing ? 900 : 700);
       const from = cites(o.from);
       if (body) out.push({ ...head, kind: 'text', body, ...(from.length ? { from } : {}) });
     }
-    if (out.length >= (briefing ? 6 : 5)) break;
+    // A runbook has more parts (its steps, what to copy, what goes wrong, its guides): seven when it has something to copy.
+    if (out.length >= (briefing ? 6 : out.some((x) => x.kind === 'copy') ? 7 : 5)) break;
   }
   // Each part a key of its own, from its title; a second part with the same title gets "-2".
   const keys = new Set<string>();

@@ -8,6 +8,51 @@ const ids = new Set(['a', 'b']);
 const criteria = ['A sourced explanation of how a CD ladder works', 'A simple decision rubric written for the $25,000'];
 
 describe('answer sections', () => {
+  it("a runbook's steps keep how, what you'll see, if not and time; advice cites nothing; something to copy is kept as written", () => {
+    const starter = '<!doctype html>\n<title>Me</title>\n<h1>Hello</h1>';
+    const a = cleanAnswer({
+      answer: 'You will have a live page in about 45 minutes.', confidence: 'medium', findings: [],
+      sections: [
+        { kind: 'text', title: 'What to have ready', body: 'A GitHub account and Claude.' },
+        { kind: 'steps', title: 'The steps', items: [
+          { text: 'Make a repository', how: 'On GitHub, press **New**.', see: 'An empty repository page.', ifNot: 'Sign in first.', time: '5 min', from: ['a'] },
+          { text: 'Show them the page before Git', advice: true },
+          // Advice that cites a source is that source's, not advice.
+          { text: 'Enable Pages', advice: true, if_not: 'Wait a minute and refresh.', from: ['b'] },
+        ] },
+        { kind: 'copy', title: 'A starter page', label: 'index.html', lang: 'html', body: `\n${starter}\n\n` },
+        { kind: 'copy', title: 'The prompt', lang: 'prompt', body: 'Make me a one-page index.html about my dog.' },
+        { kind: 'copy', title: 'Odd lang', lang: 'cobol', body: 'x' },
+        { kind: 'copy', title: 'Empty', body: '   ' },
+        { kind: 'copy', title: 'A fourth', body: 'dropped' },
+        { kind: 'table', title: 'What goes wrong', columns: ['Symptom', 'Likely cause', 'Fix'], rows: [{ cells: ['404', 'Wrong file name', 'Rename it index.html'], from: ['a'] }] },
+        { kind: 'table', title: 'Guides', columns: ['Guide', 'What to borrow', 'Watch out'], rows: [{ cells: ['MDN', 'The upload path', 'Older screenshots'], from: ['b'] }] },
+      ],
+    }, ids, 'q', 'notebook-writer', 'x', { criteria: [] })!;
+    const steps = a.sections!.find((x) => x.kind === 'steps');
+    expect(steps).toMatchObject({ items: [
+      { text: 'Make a repository', how: 'On GitHub, press **New**.', see: 'An empty repository page.', ifNot: 'Sign in first.', time: '5 min', from: ['a'] },
+      { text: 'Show them the page before Git', advice: true, from: [] },
+      { text: 'Enable Pages', ifNot: 'Wait a minute and refresh.', from: ['b'] },
+    ] });
+    expect((steps as { items: Array<{ advice?: true }> }).items[2].advice).toBeUndefined();
+    const copies = a.sections!.filter((x) => x.kind === 'copy');
+    expect(copies).toEqual([
+      { key: 'a-starter-page', kind: 'copy', title: 'A starter page', label: 'index.html', lang: 'html', body: starter },
+      { key: 'the-prompt', kind: 'copy', title: 'The prompt', lang: 'prompt', body: 'Make me a one-page index.html about my dog.' },
+      { key: 'odd-lang', kind: 'copy', title: 'Odd lang', body: 'x' },
+    ]);
+    // With something to copy, a runbook keeps seven parts.
+    expect(a.sections!.map((x) => x.title)).toEqual(['What to have ready', 'The steps', 'A starter page', 'The prompt', 'Odd lang', 'What goes wrong', 'Guides']);
+    expect(answerSectionLines(copies[0])).toEqual(['index.html']);
+    // A reader (notebook-read) gets every part of a step, and the file to copy as a block.
+    const nb = { id: 'nb', title: 'Teach it', statement: '', params: [], criteria: [], pipeline: [], stages: [], checks: [], fields: [], cadence: '', status: 'active', createdAt: 'x', updatedAt: 'x', answer: a } as unknown as Notebook;
+    const text = notebookReadoutText(nb, [], 'written');
+    expect(text).toContain("1. Make a repository (5 min) — How: On GitHub, press **New**. — You'll see: An empty repository page. — If not: Sign in first.");
+    expect(text).toContain('2. Show them the page before Git [advice]');
+    expect(text).toContain(`index.html:\n\`\`\`html\n${starter}\n\`\`\``);
+  });
+
   it('keeps the steps, tables and text that hold, cut to size, citing only what it can', () => {
     const a = cleanAnswer({
       answer: 'Split it into **five CDs**.', confidence: 'medium', findings: [],

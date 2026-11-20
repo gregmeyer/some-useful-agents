@@ -122,7 +122,7 @@ function kids(c: ViewComponent): string[] {
   return [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])];
 }
 
-export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
+export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; label?: unknown; lang?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
 
 /** A field's number: a number, a numeric string, or a range's midpoint. */
 function briefNumber(v: unknown): number | undefined {
@@ -144,7 +144,16 @@ export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: 
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
   const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
   if (x.kind === 'steps') {
-    return html`<ol class="steps">${items(x.items).map((it) => html`<li><span><b>${boldOnly(it.text)}</b>${cited(from(it))}</span>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol>`;
+    // A runbook's step prints in full: how long, advice marked, then how, what you'll see and if not.
+    return html`<ol class="steps">${items(x.items).map((it) => {
+      const y = it as Record<string, unknown>;
+      const run = ([['How', y.how], ['You\u2019ll see', y.see], ['If not', y.ifNot]] as Array<[string, unknown]>).filter(([, v]) => text(v));
+      return html`<li><span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</span>${text(it.detail) ? html` <span class="muted">${boldOnly(text(it.detail))}</span>` : html``}${run.length ? html`<dl class="run">${run.map(([k, v]) => html`<dt>${k}</dt><dd>${boldOnly(text(v))}</dd>`) as unknown as SafeHtml[]}</dl>` : html``}</li>`;
+    }) as unknown as SafeHtml[]}</ol>`;
+  }
+  if (x.kind === 'copy') {
+    // Something to copy, printed as written in monospace (a PDF can't copy for you; the text is selectable).
+    return html`<figure class="copy">${text(x.label) ? html`<figcaption class="fine">${text(x.label)}</figcaption>` : html``}<pre>${text(x.body)}</pre></figure>`;
   }
   if (x.kind === 'table') {
     const cols = list(x.columns).map(text);
@@ -643,6 +652,12 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
 .kv dt { color: var(--muted); } .kv dd { margin: 0; }
 .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+dl.run { margin: 0.3rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.6rem; font-size: 0.92em; }
+dl.run dt { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-top: 0.15em; }
+dl.run dd { margin: 0; }
+figure.copy { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; break-inside: avoid; }
+figure.copy figcaption { padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--line); }
+figure.copy pre { margin: 0; padding: 0.6rem 0.75rem; font: 0.8em/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
 .chart-pic { margin: 0; } .chart-pic img { display: block; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
 table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 th, td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }

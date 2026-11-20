@@ -119,7 +119,7 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
       const struck = new Set(a.struck ?? []);
       const sections = (a.sections ?? []).map((x) => ({
         title: x.title, kind: x.kind, ...(x.kind === 'table' ? { columns: x.columns } : {}),
-        lines: answerSectionLines(x).filter((t) => !struck.has(t)),
+        lines: readoutLines(x, struck),
       })).filter((x) => x.lines.length);
       // A shortlist written up is kept as the answer (ADR-0069); it reads as the write-up.
       const writeup = writesUp(nb);
@@ -165,6 +165,18 @@ export function notebookReadoutJson(nb: Notebook, entries: readonly NotebookEntr
   return out;
 }
 
+/** A part's lines for a reader: a runbook's step with how, what you'll see and if not; something to copy as a fenced block. */
+function readoutLines(x: NonNullable<NonNullable<Notebook['answer']>['sections']>[number], struck: ReadonlySet<string>): string[] {
+  if (x.kind === 'steps') {
+    return x.items.filter((i) => !struck.has(i.text)).map((i) => [
+      `${i.text}${i.time ? ` (${i.time})` : ''}${i.advice ? ' [advice]' : ''}`,
+      i.detail, i.how ? `How: ${i.how}` : '', i.see ? `You'll see: ${i.see}` : '', i.ifNot ? `If not: ${i.ifNot}` : '',
+    ].filter(Boolean).join(' — '));
+  }
+  if (x.kind === 'copy') return struck.has(answerSectionLines(x)[0]) ? [] : [`${x.label ? `${x.label}:\n` : ''}\`\`\`${x.lang && x.lang !== 'prompt' && x.lang !== 'text' ? x.lang : ''}\n${x.body}\n\`\`\``];
+  return answerSectionLines(x).filter((t) => !struck.has(t));
+}
+
 /** An answer's or plan's part, as text (notebook-read). */
 type ReadoutSection = { title: string; kind: string; columns?: string[]; lines: string[] };
 
@@ -172,7 +184,7 @@ function sectionLines(lines: string[], sections: readonly ReadoutSection[] | und
   for (const x of sections ?? []) {
     lines.push('', `### ${x.title}`);
     if (x.columns) lines.push(`(${x.columns.join(' · ')})`);
-    x.lines.forEach((l, i) => lines.push(x.kind === 'steps' ? `${String(i + 1)}. ${l}` : x.kind === 'text' ? l : `- ${l}`));
+    x.lines.forEach((l, i) => lines.push(x.kind === 'steps' ? `${String(i + 1)}. ${l}` : x.kind === 'text' || x.kind === 'copy' ? l : `- ${l}`));
   }
 }
 
