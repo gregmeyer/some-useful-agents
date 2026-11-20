@@ -65,6 +65,11 @@ export function normalizeComponent<T>(c: T): T {
     const text = typeof rest.text === 'string' && !/^#{1,6}\s/.test(rest.text) ? `${HEADING[variant as string]}${rest.text}` : rest.text;
     return { ...rest, text } as T;
   }
+  // A VegaChart written for A2UI's own vegachart catalog: sua's catalog has the same component (ADR-0089).
+  if (o.component === 'VegaChart' && typeof o['@catalogId'] === 'string' && /vegachart/i.test(o['@catalogId'])) {
+    const { '@catalogId': _cat, ...rest } = o;
+    return rest as T;
+  }
   if (o.component === 'TextField' && typeof o.validationRegexp === 'string') {
     const { validationRegexp, ...rest } = o;
     const checks = Array.isArray(rest['@checks']) ? rest['@checks'] : Array.isArray(rest.checks) ? rest.checks : [];

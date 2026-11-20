@@ -741,6 +741,13 @@ assetsRouter.get('/a2ui/catalogs/sua/v1.json', (_req: Request, res: Response) =>
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/json').send(JSON.stringify(suaCatalogDocument(), null, 2));
 });
+// Vega and Vega-Lite (ADR-0089), loaded by a2ui-sua.js only when a page draws a VegaChart.
+const A2UI_VEGA_JS = readAsset('vendor/a2ui-vega.js');
+assetsRouter.get('/assets/vendor/a2ui-vega.js', (_req: Request, res: Response) => {
+  if (!A2UI_VEGA_JS) { res.status(500).type('text/plain').send('vega renderer missing; run npm run build'); return; }
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').send(A2UI_VEGA_JS);
+});
 assetsRouter.get('/assets/a2ui-sua.js', (_req: Request, res: Response) => {
   res.setHeader('Cache-Control', 'no-cache');
   res.type('application/javascript').send(readAsset('a2ui-sua.js'));

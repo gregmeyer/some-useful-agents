@@ -2029,7 +2029,59 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
     </div>`;
   });
 
-export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
+// Any chart, from a Vega-Lite spec (ADR-0089): the same component as A2UI's
+// vegachart catalog. Vega loads only when a page draws one, and draws CSP-safe
+// with nothing fetched (assets/vendor/a2ui-vega.js); colours from the page's tokens.
+let vegaModule;
+const VegaChart = define('VegaChart', 'sua-a2ui-vega-chart',
+  Common.extend({ spec: CommonSchemas.DynamicValue, height: CommonSchemas.DynamicNumber.optional() }).strict(),
+  css`
+    .chart { width: 100%; min-height: 40px; }
+    .chart svg { max-width: 100%; height: auto; }
+    .note { font-size: var(--font-size-xs); color: var(--color-text-muted); }`,
+  function (p) {
+    // A binding inside the spec (data.values: { "@path": "/notebook/options" }) is read from the surface's data here,
+    // through its signal, so the chart draws again when that data changes.
+    const dc = this.context?.dataContext;
+    const resolve = (v) => {
+      if (Array.isArray(v)) return v.map(resolve);
+      if (!v || typeof v !== 'object') return v;
+      const keys = Object.keys(v);
+      if (keys.length === 1 && typeof v['@path'] === 'string' && dc) { try { return dc.resolveSignal({ '@path': v['@path'] }).value; } catch { return undefined; } }
+      return Object.fromEntries(keys.map((k) => [k, resolve(v[k])]));
+    };
+    this._spec = p.spec && typeof p.spec === 'object' ? resolve(p.spec) : null;
+    return html`<div class="chart" role="img" aria-label="Chart"></div>${this._err ? html`<p class="note">${this._err}</p>` : nothing}`;
+  },
+  {
+    updated() {
+      const p = this.controller?.props;
+      const el = this.renderRoot.querySelector('.chart');
+      if (!p || !el) return;
+      const key = JSON.stringify([this._spec, p.height]);
+      if (key === this._drawn) return;
+      this._drawn = key;
+      const spec = this._spec ? JSON.parse(JSON.stringify(this._spec)) : null;
+      if (!spec) { this._err = 'No chart to draw.'; this.requestUpdate(); return; }
+      const cs = getComputedStyle(this);
+      const tok = (n, d) => cs.getPropertyValue(n).trim() || d;
+      const ink = tok('--color-text-muted', '#666'), line = tok('--color-border', '#ddd');
+      const config = { background: 'transparent', font: tok('--font-sans', 'sans-serif'),
+        axis: { domainColor: line, gridColor: line, tickColor: line, labelColor: ink, titleColor: tok('--color-text', '#222') },
+        legend: { labelColor: ink, titleColor: tok('--color-text', '#222') }, title: { color: tok('--color-text', '#222') },
+        view: { stroke: 'transparent' }, range: { category: [tok('--color-primary', '#0f766e'), '#64748b', '#b45309', '#2563eb', '#be123c', '#4d7c0f'] },
+        mark: { color: tok('--color-primary', '#0f766e') } };
+      const height = typeof p.height === 'number' ? p.height : 240;
+      vegaModule ??= import('/assets/vendor/a2ui-vega.js');
+      vegaModule
+        .then((m) => { this._view?.finalize?.(); return m.drawVega(el, { width: 'container', height, ...spec, config: { ...config, ...(spec.config ?? {}) } }); })
+        .then((res) => { this._view = res?.view; if (this._err) { this._err = ''; this.requestUpdate(); } })
+        .catch((e) => { this._err = `This chart couldn't be drawn: ${String(e?.message ?? e).slice(0, 160)}`; this.requestUpdate(); });
+    },
+    disconnectedCallback() { A2uiLitElement.prototype.disconnectedCallback?.call(this); this._view?.finalize?.(); },
+  });
+
+export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
   // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).
