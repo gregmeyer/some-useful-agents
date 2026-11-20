@@ -1183,8 +1183,8 @@ const QuoteList = define('QuoteList', 'sua-a2ui-quote-list',
 const agendaKey = (el) => `sua-agenda:${location.pathname}:${el.context?.componentModel?.id ?? ''}`;
 // How a point's sources traced (an answer's findings, ADR-0082): its tag and what it means.
 const TRACED = {
-  verified: ['Verified', 'Its quote is on a primary page: the thing itself (its spec, docs or repo)'],
-  supported: ['Supported', 'Its quote is on the page it cites, but not a primary one'],
+  verified: ['Verified', 'Confirmed where it comes from: its quote is on a primary page (the thing itself), or every option it cites passed every check, quoted from its own page'],
+  supported: ['Supported', 'Partly confirmed: its quote is on a page that isn\u2019t primary, or the options it cites passed some checks'],
   interpretation: ['Interpretation', 'What the answer draws from its sources, not something a source says'],
   unverified: ['Unverified', 'The quotes it cites weren\u2019t found on their pages, or the pages couldn\u2019t be read'],
 };

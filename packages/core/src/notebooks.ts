@@ -4217,8 +4217,11 @@ export function stepProgress(nb: Notebook, entries: readonly NotebookEntry[], st
     const missing = nb.checks.length ? options.map((o) => ({ o, left: checksLeft(nb, o) }))
       .filter((x) => x.left.length).map((x) => `${x.o.name} — ${x.left.join(', ')}`) : [];
     const want = options.length;
+    // A notebook that writes an answer or a write-up also traces the pages it learned from (ADR-0082): not done while one isn't.
+    const writes = nb.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'writeup'));
+    const untraced = writes ? answerTracePages(entries).filter((e) => !e.trace).map((e) => `source not traced yet — ${e.title}`) : [];
     // No checks yet: nothing is checked (the step waits for some).
-    return { met: want > 0 && nb.checks.length > 0 && !missing.length, have: nb.checks.length ? want - missing.length : 0, want, missing };
+    return { met: want > 0 && nb.checks.length > 0 && !missing.length && !untraced.length, have: nb.checks.length ? want - missing.length : 0, want, missing: [...missing, ...untraced] };
   }
   if (step.kind === 'narrow') {
     // Yours: done when you keep some. Before then, how many are in the running against how many to keep.
@@ -4741,7 +4744,7 @@ export function notebookCsv(nb: Pick<Notebook, 'fields' | 'checks' | 'steps'>, o
 }
 
 /** "A rubric written", "Steps to open them included": a part of an answer someone asked for, written. */
-const WRITTEN_DELIVERABLE = /\b(answer|briefing|rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
+const WRITTEN_DELIVERABLE = /\b(answer|briefing|talking points|points|rubric|scorecard|framework|comparison|table|matrix|steps?|how-to|how to|guide|sop|playbook|checklist|procedure|instructions|explanation|summary|overview|report|diagram|chart|timeline|schedule|ladder|split|allocation|flowchart|plan|itinerary|agenda)\b.*\b(written|recorded|included|drafted|given|laid out|in place|drawn|shown|mapped)\b/;
 /** "A final list of 10 recorded", "Recommendations written": in a notebook that writes up its shortlist, the write-up's own table gives these. */
 const WRITEUP_DELIVERABLE = /\b(list|shortlist|write-?up|recommendations?|ranking)\b.*\b(written|recorded|included|drafted|given|laid out|in place|shown)\b/;
 
@@ -4760,7 +4763,8 @@ export function criterionLink(nb: Pick<Notebook, 'checks'> & Partial<Pick<Notebo
   const check = nb.checks.find((c) => { const a = loose(c); const b = loose(text); return !!a && !!b && (a === b || a.includes(b) || b.includes(a)); });
   if (check) return { kind: 'check', check };
   // In a notebook that ends in a written answer or plan (or writes up its shortlist), "A decision rubric written" is something written, not a decision.
-  const writes = (nb.steps ?? []).some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'plan' || s.shape === 'writeup'));
+  // Any write step (an answer, a plan, a write-up, or a meeting's talking points) writes what a done-when may name.
+  const writes = (nb.steps ?? []).some((s) => s.kind === 'write');
   const writesUp = (nb.steps ?? []).some((s) => s.kind === 'write' && s.shape === 'writeup');
   if (writesUp && WRITEUP_DELIVERABLE.test(t) && !WRITTEN_DELIVERABLE.test(t)) return { kind: 'written', what: /\b(list|shortlist|ranking)\b/.test(t) ? 'table' : 'any' };
   if (writes && WRITTEN_DELIVERABLE.test(t)) {
@@ -4788,7 +4792,7 @@ export function criterionMet(nb: Notebook, entries: readonly NotebookEntry[], te
   if (link.kind === 'written') {
     const sections = parts;
     // One of the kind it names; "the plan written" by a plan.
-    if (link.what === 'any') return !!nb.answer?.text || !!nb.plan?.items.length;
+    if (link.what === 'any') return !!nb.answer?.text || !!nb.plan?.items.length || !!nb.briefing?.points.length;
     return sections.some((x) => x.kind === link.what) || (link.what === 'steps' && !!nb.plan?.items.length) || (link.what === 'text' && !!nb.answer?.text);
   }
   const options = notebookViewData(nb, entries).notebook.options.filter((o) => !o.ruledOut);
