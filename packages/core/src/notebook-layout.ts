@@ -20,6 +20,10 @@
 import { resolvePointer, type ViewComponent } from './a2ui/view.js';
 import { resolveLayout, checkLayout, hasSomething, layoutPathPattern, type ListCap } from './layout-resolve.js';
 
+/** The title of the list of who publishes an answer's sources (the Agenda's own default, "Talking points", is wrong there). */
+const SOURCES_TITLE = 'By publisher';
+
+
 /** What `when` can test. */
 export const NOTEBOOK_LAYOUT_FLAGS = {
   map: 'It has a price and a measure, so its options can be mapped.',
@@ -272,7 +276,7 @@ const ANSWER: ViewComponent[] = [
   // Who its pages are from (ADR-0081): each publisher, whose own or from outside, linked to its pages.
   { ...panel('sources_p', 'Where its sources are from', 'sources', 'who publishes each page it learned from'), when: 'answered' },
   {
-    id: 'sources', component: 'Agenda', points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
+    id: 'sources', component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
     questionsLabel: 'To weigh', maxQuestions: 3, check: false, empty: 'No pages yet.',
   },
   panel('steps_panel', 'Done when', 'steps'),
@@ -608,7 +612,8 @@ export function resolveNotebookLayout(
     cantFill?: ReadonlySet<string>;
   } = {},
 ): ViewComponent[] {
-  const all = withAnswerSections(components);
+  // A sources list saved before it had a title of its own (it read "Talking points", the Agenda's default) gets one.
+  const all = withAnswerSections(components).map((c) => (c.component === 'Agenda' && c.title === undefined && (c.points as { path?: unknown } | undefined)?.path === '/notebook/sources' ? { ...c, title: SOURCES_TITLE } : c));
   const byId = new Map(all.map((c) => [c.id, c]));
   const placed = placedSectionKeys(all);
   return resolveLayout(all, {

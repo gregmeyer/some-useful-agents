@@ -399,3 +399,19 @@ describe('the ready-made pages and the representation parts', () => {
     expect(resolveNotebookLayout(layoutPreset('watch')!.layout.components, { options: true }, {}).find((c) => c.id === 'intro_row')!.children).toEqual(['intro']);
   });
 });
+
+describe("the list of who publishes an answer's sources", () => {
+  it('has its own title, in the preset and on a page saved before it had one (not the Agenda\'s "Talking points")', async () => {
+    const { resolveNotebookLayout, layoutPreset } = await import('./notebook-layout.js');
+    const preset = layoutPreset('answer')!.layout.components.find((c) => c.id === 'sources');
+    expect(preset).toMatchObject({ component: 'Agenda', title: 'By publisher' });
+    const saved = [
+      { id: 'root', component: 'Column', children: ['sources'] },
+      { id: 'sources', component: 'Agenda', points: { path: '/notebook/sources' } },
+      { id: 'talk', component: 'Agenda', points: { path: '/notebook/talk' } },
+    ];
+    const out = resolveNotebookLayout(saved, {}, {});
+    expect(out.find((c) => c.id === 'sources')).toMatchObject({ title: 'By publisher' });
+    expect(out.find((c) => c.id === 'talk')?.title).toBeUndefined();
+  });
+});
