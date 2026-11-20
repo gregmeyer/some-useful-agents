@@ -475,13 +475,29 @@ function basicComponentApis(): Array<{ name: string; schema: unknown }> {
   return [...basicCatalog.components.values()].map((v) => { const c = v as { name: string; schema: unknown }; return { name: c.name, schema: c.schema }; });
 }
 
+/**
+ * sua's own A2UI functions (ADR-0087), as the server validates them: name,
+ * return type, args. What each does runs in the browser
+ * (dashboard assets/sua-functions.js, the same names and args; a test keeps
+ * them in step); here it never runs.
+ */
+const suaFn = (name: string, returnType: string, description: string, args: Record<string, unknown>) =>
+  ({ name, returnType, description, allowedCallers: 'rendererOnly', schema: z.object(args).strict(), execute: () => undefined });
+export const SUA_FUNCTIONS = [
+  suaFn('join', 'string', 'A list as words: "hotel, rental" (separator ", " unless given; last, e.g. " and ", before the last item).', { value: CS.DynamicValue, separator: z.string().optional(), last: z.string().optional() }),
+  suaFn('relativeTime', 'string', 'A date or time as how long ago or until: "3 days ago", "in 2 hours".', { value: CS.DynamicString }),
+  suaFn('formatRange', 'string', 'Two numbers as a range: "$120K–$140K" with a currency code, "120–140" without; one end when they match or one is missing.', { min: CS.DynamicValue, max: CS.DynamicValue, currency: z.string().optional() }),
+  suaFn('count', 'number', 'How many items a list has (0 when it has none or isn\'t a list).', { value: CS.DynamicValue }),
+];
+export const SUA_FUNCTION_NAMES: readonly string[] = SUA_FUNCTIONS.map((f) => f.name);
+
 let catalog: Catalog<never> | undefined;
 
 /** The sua catalog, built once. */
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
     const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
-    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], BASIC_FUNCTIONS as never[]) as Catalog<never>;
+    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], [...BASIC_FUNCTIONS, ...SUA_FUNCTIONS] as never[]) as Catalog<never>;
   }
   return catalog;
 }

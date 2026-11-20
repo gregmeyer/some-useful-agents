@@ -888,6 +888,7 @@ export function notebookLayoutGuide(components: ReadonlyArray<{ name: string; su
   };
   return `## A notebook's page (its layout): an A2UI document
 A flat list of components; \`root\` is the top; children/child name other ids. Each prop is a literal or { "path": "/notebook/..." }.
+Functions, in any value as { call: NAME, args: { … } } (an arg may be a path): formatString (value: "\${count(value:\${/notebook/options})} in the running · \${count(value:\${/notebook/findings})} findings"), formatNumber, formatCurrency, formatDate, pluralize, join (a list as words), relativeTime ("3 days ago"), formatRange (min, max, currency: "$120K–$140K"), count (a list's length).
 
 Data (bind with { "path": ... }):
 ${Object.entries(NOTEBOOK_LAYOUT_DATA).map(([k, v]) => line(k, v)).join('\n')}

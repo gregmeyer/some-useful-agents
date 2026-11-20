@@ -17,7 +17,8 @@ describe('the view authoring guide', () => {
     for (const name of ['Metric', 'Table', 'Sparkline', 'KeyValue', 'StatStrip', 'ChipList']) expect(guide).toContain(`- ${name}: `);
     expect(guide).not.toContain('- OptionGrid: ');
     expect(suaComponentDocs().length).toBeGreaterThan(10);
-    expect(guide.length).toBeLessThan(4800);
+    // +150 for the line naming the A2UI functions (join, relativeTime, formatRange, count; ADR-0087).
+    expect(guide.length).toBeLessThan(4950);
   });
 
   it('finds the top-level outputs a view binds', () => {
