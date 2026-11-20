@@ -3424,6 +3424,45 @@ describe('a profile step', () => {
     checkerReply = undefined;
   });
 
+  it('an update of a notebook that writes an answer traces the sources it found, and any not traced yet', async () => {
+    const app = await makeApp();
+    const { NotebookStore, InboxStore } = await import('@some-useful-agents/core');
+    const { getContext } = await import('../context.js');
+    const ctx = getContext(app.locals);
+    const read: string[] = [];
+    ctx.notebookTrace = async (url: string) => { read.push(url); return url.includes('missing') ? 'missing' : 'found'; };
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Settle whether a hot dog is a sandwich' });
+    // A page from before this update, never traced (its options were checked, not its pages).
+    store.addEntry(nb.id, { kind: 'evidence', title: 'Dictionary', body: '"a sandwich is two slices of bread with a filling" Dictionary (found by the Web search)', by: 'x', source: 'https://dictionary.example/sandwich' });
+    store.setSteps(nb.id, [{ title: 'Find sources', kind: 'find', target: 1 }, { title: 'Check the sources', kind: 'check' }, { title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    const [s1, s2] = store.get(nb.id)!.steps!.map((x) => x.id);
+    store.updateStep(nb.id, s1, { status: 'done' });
+    store.updateStep(nb.id, s2, { status: 'done', note: '1 of 1 sources traced' });
+    const { greetNotebook } = await import('../lib/notebook-chat.js');
+    greetNotebook(ctx, nb.id);
+    finderReply = () => `<notebook>${JSON.stringify({ entries: [
+      { kind: 'evidence', title: 'A food writer', body: '"a hot dog is its own thing" Food writer (found by the Web search)', source: 'https://food.example/hot-dog', fingerprint: 'https://food.example/hot-dog' },
+      { kind: 'evidence', title: 'A council', body: '"we do not call it a sandwich" Council (found by the Web search)', source: 'https://council.example/missing', fingerprint: 'https://council.example/missing' },
+    ] })}</notebook>`;
+    let checkerAsked = 0;
+    checkerReply = () => { checkerAsked++; return '<notebook>{}</notebook>'; };
+    const res = await request(app).post(`/notebooks/${nb.id}/update`).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send({});
+    expect(decodeURIComponent(res.headers.location)).toContain('Updating it: Find sources, then Check the sources.');
+    for (let i = 0; i < 200 && ctx.notebookPipelines?.has(nb.id); i++) await new Promise((r) => setTimeout(r, 25));
+    // Every page traced once: the two it found and the one from before.
+    expect(read.sort()).toEqual(['https://council.example/missing', 'https://dictionary.example/sandwich', 'https://food.example/hot-dog']);
+    expect(store.entries(nb.id, 1000).filter((e) => e.kind === 'evidence').every((e) => e.trace)).toBe(true);
+    // No checks of its own: the checker isn't run; the step says where it stands now.
+    expect(checkerAsked).toBe(0);
+    expect(store.get(nb.id)!.steps![1].note).toBe('3 of 3 sources traced');
+    const said = InboxStore.fromHandle(runStore.databaseHandle()).listResponses(store.get(nb.id)!.conversationId!).map((r) => r.body);
+    expect(said.find((x) => x.startsWith('Updated **Settle whether'))).toContain('- Traced the new sources (**Check the sources**): 2 quotes found on their pages · 1 not found word for word.');
+    finderReply = undefined;
+    checkerReply = undefined;
+    ctx.notebookTrace = undefined;
+  });
+
   it('looks up a company alone as a company, and is stuck without an answer', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

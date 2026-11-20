@@ -13,7 +13,7 @@ import { agentForCopy } from './experiment-copy-agent.js';
 import { stepWhy, perItemWhy, type StepTry } from './notebook-step-why.js';
 import { reconcileAbout } from './notebook-reconcile.js';
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
+import { NotebookStore, answerTracePages, checksLeft, givenNewSince, givenWaitingReason, notebookClosedReason, notebookViewData, rankOptions, sourceJobs, stepProgress, writesUp, type Agent, type InboxActionMeta, type Notebook, type NotebookEntry, type NotebookGiven, type NotebookStep, type NotebookStepProgress } from '@some-useful-agents/core';
 import { givenReadingReason } from './notebook-given-read.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
@@ -426,6 +426,20 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
         said.push(await lookAgain(ctx, store, notebookId, step, true));
         continue;
       }
+      // A check before an answer or write-up: the sources this update found (and any not traced yet) are traced, as its Check does (no agent needed).
+      const traces = step.kind === 'check' && writesAnswer(store.get(notebookId));
+      if (traces) {
+        const pending = answerTracePages(store.entries(notebookId, 1000)).filter((e) => !e.trace).length;
+        if (pending) {
+          const t = await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+          const left = answerTracePages(store.entries(notebookId, 1000));
+          store.updateStep(notebookId, step.id, { note: `${String(left.filter((e) => e.trace).length)} of ${String(left.length)} sources traced` });
+          store.noteRun(notebookId, `${step.title}: ${traceWords(t)}`);
+          said.push(`Traced the new sources (**${step.title}**): ${traceWords(t)}.`);
+        }
+        // One with no checks of its own (the answer's check is the trace): nothing more to do.
+        if (!store.get(notebookId)?.checks.length) continue;
+      }
       const agent = stepAgent(ctx, step, notebookId);
       if (!agent.agentId) { said.push(`Skipped **${step.title}**: ${agent.reason ?? 'it has no agent'}.`); continue; }
       running.agentId = agent.agentId;
@@ -454,6 +468,9 @@ export function updateBriefing(ctx: Ctx, notebookId: string, opts: { only?: read
   });
   return { started: true, steps };
 }
+
+/** Whether a notebook writes an answer or a write-up (its sources are traced before it does). */
+const writesAnswer = (nb: Notebook | undefined): boolean => !!nb?.steps?.some((s) => s.kind === 'write' && (s.shape === 'answer' || s.shape === 'writeup'));
 
 /**
  * A done check step, for the options an update found (not in `had`): one
