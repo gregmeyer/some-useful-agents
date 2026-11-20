@@ -9,12 +9,11 @@
  * live in the dashboard (`assets/a2ui-sua.js`); their props must match these
  * schemas. See docs/adr/0047-a2ui-views.md.
  */
-import { z } from 'zod/v3';
-import { Catalog, CommonSchemas } from '@a2ui/web_core/v0_9';
-import * as basic from '@a2ui/web_core/v0_9/basic_catalog';
+// A2UI protocol v1.0 (ADR-0084): web_core vendored from the A2UI repo, the same code the browser draws with.
+import { BASIC_FUNCTIONS, Catalog, CommonSchemas, basicCatalog, z } from '../../vendor/a2ui-web-core-v1.mjs';
 
 export const SUA_CATALOG_ID = 'https://some-useful-agents.dev/a2ui/catalogs/sua/v1.json';
-export const A2UI_PROTOCOL_VERSION = 'v0.9';
+export const A2UI_PROTOCOL_VERSION = '1.0';
 
 // Untyped on purpose: zod v3's types for A2UI's recursive dynamic values
 // overflow TypeScript ("excessively deep"). The schemas are checked at
@@ -473,10 +472,7 @@ export const BOARD_COMPONENT_NAMES: readonly string[] = BOARD_COMPONENTS.map((c)
 
 /** Basic catalog component APIs (Text, Image, Row, Column, List, Card, Button, …). */
 function basicComponentApis(): Array<{ name: string; schema: unknown }> {
-  return Object.entries(basic)
-    .filter(([key, v]) => key.endsWith('Api') && v && typeof v === 'object'
-      && 'schema' in v && 'name' in v && !('returnType' in v))
-    .map(([, v]) => v as { name: string; schema: unknown });
+  return [...basicCatalog.components.values()].map((v) => { const c = v as { name: string; schema: unknown }; return { name: c.name, schema: c.schema }; });
 }
 
 let catalog: Catalog<never> | undefined;
@@ -485,7 +481,7 @@ let catalog: Catalog<never> | undefined;
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
     const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
-    catalog = new Catalog(SUA_CATALOG_ID, '0.9', components as never[], basic.BASIC_FUNCTIONS as never[]) as Catalog<never>;
+    catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], BASIC_FUNCTIONS as never[]) as Catalog<never>;
   }
   return catalog;
 }

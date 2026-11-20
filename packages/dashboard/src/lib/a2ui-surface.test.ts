@@ -117,7 +117,8 @@ describe('browser components match the core catalog', () => {
       const components = suaCatalog().components as unknown as Map<string, { schema?: { shape?: Record<string, unknown> } }>;
       const schema = components.get(d.name)?.schema;
       for (const key of Object.keys(schema?.shape ?? {})) {
-        if (['id', 'component', 'weight', 'accessibility'].includes(key)) continue;
+        // The envelope and A2UI 1.0's reserved `@` keys (@catalogId, @accessibility…) come from ComponentCommon on both sides.
+        if (['id', 'component', 'weight', 'accessibility'].includes(key) || key.startsWith('@')) continue;
         if (!new RegExp(`\\b${key}\\s*:`).test(block)) missing.push(`${d.name}.${key}`);
       }
     }
