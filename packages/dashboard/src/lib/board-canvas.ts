@@ -10,7 +10,7 @@
  *     a nested surface (assets/a2ui-sua.js).
  */
 import {
-  A2UI_PROTOCOL_VERSION,
+  A2UI_PROTOCOL_VERSION, a2uiId, componentsForRender,
   SUA_CATALOG_ID,
   boardDocAgentIds,
   boardDocSystemTileIds,
@@ -127,12 +127,12 @@ export function assembleCanvas(input: CanvasInput): { messages: unknown[]; tiles
       const systemIds = (input.systemTileIds ?? []).filter((id) => rest.some((t) => t.agent.id === id));
       const groups = computeTileGroups(rest.filter((t) => !systemIds.includes(t.agent.id)), systemIds);
       const tabs = groups.map((g) => {
-        const gridId = `rest_grid_${g.id}`;
+        const gridId = a2uiId(`rest_grid_${g.id}`);
         components.push({
           id: gridId,
           component: 'Grid',
           children: g.tiles.map((tileId) => {
-            const leaf = `rest_tile_${tileId}`;
+            const leaf = a2uiId(`rest_tile_${tileId}`);
             components.push(tileId.startsWith('_')
               ? { id: leaf, component: 'SystemTile', tileId }
               : { id: leaf, component: 'AgentTile', agentId: tileId });
@@ -140,8 +140,8 @@ export function assembleCanvas(input: CanvasInput): { messages: unknown[]; tiles
             const t = input.tiles.get(tileId);
             const size = t ? (t.layoutHint?.size ?? t.signal.size ?? TEMPLATE_REGISTRY[normalizeSignal(t.signal).template]?.defaultSize) : undefined;
             if (!size?.startsWith('2')) return leaf;
-            components.push({ id: `rest_cell_${tileId}`, component: 'Cell', child: leaf, span: 2 });
-            return `rest_cell_${tileId}`;
+            components.push({ id: a2uiId(`rest_cell_${tileId}`), component: 'Cell', child: leaf, span: 2 });
+            return a2uiId(`rest_cell_${tileId}`);
           }),
         });
         return { title: `${g.label} (${g.tiles.length})`, child: gridId };
@@ -171,7 +171,7 @@ export function assembleCanvas(input: CanvasInput): { messages: unknown[]; tiles
   return {
     messages: [
       { version: A2UI_PROTOCOL_VERSION, createSurface: { surfaceId, catalogId: SUA_CATALOG_ID } },
-      { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components: final } },
+      { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components: componentsForRender(final) } },
       ...(input.data ? [{ version: A2UI_PROTOCOL_VERSION, updateDataModel: { surfaceId, value: { board: input.data } } }] : []),
     ],
     tiles,

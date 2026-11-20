@@ -1,7 +1,7 @@
 // sua's A2UI client: the sua catalog's components (Metric, Badge, KeyValue,
 // Table, Link, Code, SanitizedHtml) on top of the vendored A2UI renderer, and
 // a mounter that draws every <div data-a2ui-surface> on the page from the
-// A2UI v0.9 messages embedded inside it as JSON.
+// A2UI v1.0 messages embedded inside it as JSON (ADR-0084).
 //
 // Component props MUST match the schemas in packages/core/src/a2ui/catalog.ts
 // (the server validates views against those; a test compares the names).
@@ -11,7 +11,7 @@
 import {
   MessageProcessor, Catalog, CommonSchemas, A2uiLitElement, basicCatalog,
   setMarkdownRenderer, html, css, nothing, z,
-} from '/assets/vendor/a2ui-v0_9.js';
+} from '/assets/vendor/a2ui-v1_0.js';
 import { niceTicks, nearestPoint, pointNote, pointHref } from '/assets/chart-math.js';
 import { recomputeDiagram, layoutDiagram, diagramParamWords } from '/assets/diagram-math.js';
 import { filterChoices, applyFilters, liveSelection, ADDED_CHOICES } from '/assets/option-filters.js';
@@ -2028,7 +2028,7 @@ const SystemTile = define('SystemTile', 'sua-a2ui-system-tile',
   });
 
 export const suaComponents = [Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
-export const suaCatalog = new Catalog(SUA_CATALOG_ID, '0.9',
+export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
   [...basicCatalog.functions.values()]);
 

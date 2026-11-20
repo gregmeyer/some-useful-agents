@@ -8,10 +8,11 @@
  * processor itself, in strict mode, against the sua catalog (the same code the
  * browser renderer runs), plus sua's own limits.
  */
-import { MessageProcessor, STRICT_VALIDATION } from '@a2ui/web_core/v0_9';
+import { MessageProcessor, STRICT_VALIDATION } from '../../vendor/a2ui-web-core-v1.mjs';
 import type { Run } from '../types.js';
 import type { NodeExecutionRecord } from '../agent-v2-types.js';
 import { A2UI_PROTOCOL_VERSION, BOARD_COMPONENT_NAMES, SUA_CATALOG_ID, suaCatalog } from './catalog.js';
+import { componentsForRender, normalizeComponents } from './normalize.js';
 import { sanitizeHtml } from '../html-sanitizer.js';
 
 export const MAX_VIEW_COMPONENTS = 200;
@@ -88,12 +89,14 @@ export function validateViewComponents(input: unknown, opts: ViewValidationOptio
     else if (typeof (c as { component?: unknown }).component !== 'string') errors.push(`${(c as { id: string }).id}: needs a component type.`);
   });
   if (errors.length) return { ok: false, errors };
-  const components = input as ViewComponent[];
+  // Written for v0.9 (a saved layout, a model's habit): checked as 1.0 draws it (ADR-0084).
+  const components = normalizeComponents(input as ViewComponent[]);
+  const drawn = componentsForRender(components);
   const processor = new MessageProcessor([suaCatalog()], undefined, { validationConfig: STRICT_VALIDATION });
   try {
     processor.processMessages([
       { version: A2UI_PROTOCOL_VERSION, createSurface: { surfaceId: 'validate', catalogId: SUA_CATALOG_ID } },
-      { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId: 'validate', components } },
+      { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId: 'validate', components: drawn } },
     ] as never);
   } catch (err) {
     return { ok: false, errors: [String((err as Error).message ?? err).split('\n')[0].slice(0, 400)] };
@@ -268,11 +271,11 @@ export function resolveAgentView(
   return { ok: true, source: 'generated', components: v.components, dataModel: { ...dataModel, ...(extracted.data !== undefined ? { data: extracted.data } : {}) } };
 }
 
-/** The A2UI v0.9 messages that draw a view on a surface. */
+/** The A2UI v1.0 messages that draw a view on a surface (its components made valid 1.0). */
 export function viewToMessages(surfaceId: string, components: ViewComponent[], dataModel: unknown): Array<Record<string, unknown>> {
   return [
     { version: A2UI_PROTOCOL_VERSION, createSurface: { surfaceId, catalogId: SUA_CATALOG_ID } },
-    { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components } },
+    { version: A2UI_PROTOCOL_VERSION, updateComponents: { surfaceId, components: componentsForRender(components) } },
     { version: A2UI_PROTOCOL_VERSION, updateDataModel: { surfaceId, value: dataModel } },
   ];
 }

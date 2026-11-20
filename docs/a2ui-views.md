@@ -68,11 +68,11 @@ view:
 
 **Row actions.** A `Table` with `rowAction: { name: run-agent, agent?: <agent id>, inputs: { LEAGUE: league, GAME_URL: link } }` makes each row clickable: the click runs the agent with each input read from that row's field (a `{label, url}` cell sends its url). The values are row field names, not bindings. `agent` follows the rule above: another tile on the same board, else the view's own agent. A link inside the row is still the link.
 
-A prop is either a literal (`text: "Weather"`) or bound (`value: { path: /outputs/temp }`). Lists repeat a template over an array: `children: { path: /outputs/items, componentId: row }`, where paths inside `row` without a leading `/` are relative to the item. See the [A2UI v0.9 spec](https://a2ui.org/specification/v0.9.1-a2ui/) for functions like `formatNumber` and `formatDate`.
+A prop is either a literal (`text: "Weather"`) or bound (`value: { path: /outputs/temp }`). Lists repeat a template over an array: `children: { path: /outputs/items, componentId: row }`, where paths inside `row` without a leading `/` are relative to the item. See the [A2UI v1.0 spec](https://a2ui.org/specification/v1.0-a2ui/) for functions like `formatNumber`, `formatDate` and `formatString`. Views are drawn with A2UI **v1.0** ([ADR-0084](adr/0084-a2ui-1-0.md)); a view written in v0.9's form (`{ path }`, `{ call }`, `checks`, a Text `variant` of h1–h5, a TextField's `validationRegexp`, an id with a hyphen) still validates and draws, made into 1.0 on its way to the page (`@path`, `@call`, `@checks`, a markdown heading, a `regex` check, an id with `_`).
 
 ## The sua catalog
 
-The [A2UI basic catalog](https://a2ui.org/specification/v0.9.1-a2ui/) (Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput), plus:
+The [A2UI basic catalog](https://a2ui.org/specification/v1.0-a2ui/) (Text, Image, Icon, Video, AudioPlayer, Row, Column, List, Card, Tabs, Modal, Divider, Button, TextField, CheckBox, ChoicePicker, Slider, DateTimeInput), plus:
 
 | Component | Props | For |
 | --- | --- | --- |

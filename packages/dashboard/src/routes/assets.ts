@@ -729,8 +729,8 @@ function readAsset(name: string): string {
   }
   return '';
 }
-const A2UI_VENDOR_JS = readAsset('vendor/a2ui-v0_9.js');
-assetsRouter.get('/assets/vendor/a2ui-v0_9.js', (_req: Request, res: Response) => {
+const A2UI_VENDOR_JS = readAsset('vendor/a2ui-v1_0.js');
+assetsRouter.get('/assets/vendor/a2ui-v1_0.js', (_req: Request, res: Response) => {
   if (!A2UI_VENDOR_JS) { res.status(500).type('text/plain').send('a2ui renderer missing; run npm run build'); return; }
   // Content changes only with a version bump (new file contents); revalidate cheaply via ETag.
   res.setHeader('Cache-Control', 'no-cache');
