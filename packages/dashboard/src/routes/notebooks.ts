@@ -50,7 +50,7 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { renderNotebookTldr, tldrData } from '../views/notebook-tldr.js';
+import { renderNotebookTldr, showsTldrCard, tldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
 import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
@@ -647,7 +647,7 @@ notebooksRouter.get('/notebooks/:id/template', (req: Request, res: Response) => 
   const ctx = getContext(req.app.locals);
   const s = store(req);
   const entries = s.entries(nb.id, 1000);
-  const widgets = notebookWidgetMessages(nb, entries, widgetHistory(ctx, s));
+  const widgets = notebookWidgetMessages(nb, entries, widgetHistory(ctx, s), { tldrCard: showsTldrCard(nb, entries, widgetHistory(ctx, s)) });
   const msg = nb.conversationId ? ctx.inboxStore?.get(nb.conversationId) : undefined;
   res.type('html').send(renderTemplateSave({
     nb, preview: templatePreviewFor(ctx, nb), flash: parseFlash(req),
@@ -1175,6 +1175,19 @@ notebooksRouter.post('/notebooks/:id/narrow', (req: Request, res: Response) => {
     reconcileStepCards(getContext(req.app.locals), id);
     const next = nb.steps?.find((x) => x.status !== 'done');
     res.redirect(303, back(id, `Kept ${String(keep.length)}, ruled out ${String(before - keep.length)}.${next ? ` Next: ${next.title}.` : ''}`));
+  } catch (err) {
+    res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
+  }
+});
+
+// Whether the page, brief and PDF show the TL;DR card: Auto (when it adds something), Always or Never.
+notebooksRouter.post('/notebooks/:id/tldr-card', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const mode = str(req.body?.mode);
+  if (mode !== 'auto' && mode !== 'always' && mode !== 'never') { res.redirect(303, back(id, 'Choose Auto, Always or Never.')); return; }
+  try {
+    store(req).setTldrCard(id, mode);
+    res.redirect(303, back(id, mode === 'auto' ? 'The TL;DR card shows when it adds something: a chart or a photo.' : mode === 'always' ? 'The TL;DR card always shows.' : 'The TL;DR card is hidden. The TL;DR picture is still under Download / share.'));
   } catch (err) {
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }

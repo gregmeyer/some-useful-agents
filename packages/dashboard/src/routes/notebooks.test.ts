@@ -168,6 +168,31 @@ describe('notebooks pages', () => {
     .set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).type('form').send(body);
   const get = (app: Awaited<ReturnType<typeof makeApp>>, path: string) => request(app).get(path).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 
+  it("an answer's TL;DR card: not on its brief by default (it says the answer again); Always puts it back, Auto takes it away", async () => {
+    const app = await makeApp();
+    const { NotebookStore, layoutPreset } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const nb = store.create({ title: 'Understand A2UI vs AG-UI' });
+    store.setSteps(nb.id, [{ title: 'Write the answer', kind: 'write', shape: 'answer' }]);
+    store.setAnswer(nb.id, { question: 'How do they differ?', by: 'agent:notebook-writer', text: 'A2UI describes the interface; AG-UI carries events.', confidence: 'medium', basis: '', findings: [{ text: 'A2UI is a spec.', from: [] }], open: [], at: new Date().toISOString() });
+    // A page composed with the TL;DR picture under its title, as the writer often draws one.
+    const layout = layoutPreset('answer')!.layout;
+    const components = layout.components.map((c) => (c.id === 'root' ? { ...c, children: ['tldr_pic', ...(c.children as string[])] } : c));
+    store.setLayout(nb.id, { ...layout, components: [...components, { id: 'tldr_pic', component: 'Picture', picture: { path: '/notebook/picture' } }] }, 'agent:notebook-writer');
+    const card = /<article class="tl[ "]/;
+    expect((await get(app, `/notebooks/${nb.id}/brief.html`)).text).not.toMatch(card);
+    // Nor on its page: the Picture part has no picture to draw.
+    expect((await get(app, `/notebooks/${nb.id}`)).text).not.toContain('tldr.png?v=');
+    expect((await post(app, `/notebooks/${nb.id}/tldr-card`, { mode: 'always' })).status).toBe(303);
+    expect((await get(app, `/notebooks/${nb.id}`)).text).toContain('tldr.png?v=');
+    expect(store.get(nb.id)!.tldrCard).toBe('always');
+    expect((await get(app, `/notebooks/${nb.id}/brief.html`)).text).toMatch(card);
+    await post(app, `/notebooks/${nb.id}/tldr-card`, { mode: 'auto' });
+    expect(store.get(nb.id)!.tldrCard).toBeUndefined();
+    expect((await get(app, `/notebooks/${nb.id}/brief.html`)).text).not.toMatch(card);
+    expect((await post(app, `/notebooks/${nb.id}/tldr-card`, { mode: 'sometimes' })).headers.location).toContain(encodeURIComponent('Choose Auto, Always or Never.'));
+  });
+
   it('with no notebooks, says what one is and offers ways to start, then your templates', async () => {
     const app = await makeApp();
     const page = (await get(app, '/notebooks')).text;
@@ -222,7 +247,10 @@ describe('notebooks pages', () => {
     expect(menu).toContain('<span class="nb-share__what">Every finding in full</span>');
     expect(menu).toContain(`href="/notebooks/${meet.id}/brief.pdf" download title="The brief as a PDF file named after the notebook, ready to send: its pictures inside it, page numbers, no print dialog" aria-label="Download the brief as PDF">PDF</a>`);
     expect(menu).toContain(`aria-label="Download the TL;DR picture as PNG">PNG</a>`);
-    expect(menu.match(/class="nb-share__row"/g)).toHaveLength(3);
+    // …and the TL;DR card's switch: Auto unless you chose.
+    expect(menu.match(/class="nb-share__row"/g)).toHaveLength(4);
+    expect(menu).toContain(`action="/notebooks/${meet.id}/tldr-card"`);
+    expect(menu).toMatch(/class="nb-share__mode is-on"[^>]*aria-pressed="true">Auto</);
     expect(menu.indexOf('To share')).toBeLessThan(menu.indexOf('The findings as a spreadsheet'));
     expect(menu).toContain('href="/notebooks/prepare-for-a-meeting-with-dana-reyes/shortlist.csv?rows=running" download title="Every finding still in, with its facts and sources">What it found (CSV) <span class="nb-csv__n">1</span>');
 

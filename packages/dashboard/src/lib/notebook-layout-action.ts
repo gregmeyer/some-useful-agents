@@ -5,6 +5,7 @@
  * previews what it adds, removes and changes; applying it refuses when the
  * page changed since it was proposed.
  */
+import { keepAskedTldrCard } from './tldr-card.js';
 import {
   checkNotebookLayout, describeLayoutChange, layoutPreset, notebookLayoutOf,
   type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookLayout,
@@ -63,6 +64,7 @@ export function executeNotebookLayout(ctx: Ctx, meta: InboxActionMeta): { status
         : { status: 'failed', refusalReason: 'There\'s no change to the page to undo.' };
     }
     store.setLayout(nb.id, want.layout, 'sua');
+    keepAskedTldrCard(store, nb.id, nb.layout, want.layout);
     return { status: 'completed', summary: `Changed ${link}'s page. Undo it from the notebook's Edit page, or ask me.` };
   } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };

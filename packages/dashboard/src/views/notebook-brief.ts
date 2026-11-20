@@ -295,7 +295,7 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   // Pictures as the option's page shows them (its photo, an example photo, a logo or a drawing).
   const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
   // The TL;DR picture's card under the title, when there's something to plot (not on the brief of what's new: its numbers are the whole notebook's).
-  const tldr = args.latest ? undefined : tldrData(nb, args.entries, args.history, pic);
+  const tldr = args.latest || nb.tldrCard === 'never' ? undefined : tldrData(nb, args.entries, args.history, pic);
   // What the write-up and its findings rest on, numbered: a finding named by an option's title is that option's own page.
   const cites = new SourceNotes((label) => d.options.find((o) => (o.name === label || o.title === label) && /^https?:\/\//i.test(o.link ?? ''))?.link);
   const css = `/* A brief: one column of reading. Findings first, the options as a table, then each in detail. */

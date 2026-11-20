@@ -107,6 +107,30 @@ export function tldrData(nb: Notebook, entries: readonly NotebookEntry[], histor
   return { ...t, ...(photos?.length ? { photos } : {}), drawing: drawnCoverSrc(nb) };
 }
 
+/**
+ * Whether the TL;DR card adds something the page doesn't say (ADR-0093): a
+ * chart of how the options compare, its sources' own photos, or who it's
+ * about with their picture. A card that's only the answer and its first
+ * findings again, over a drawing, doesn't. Pure.
+ */
+export function tldrCardAdds(t: Pick<TldrData, 'chart' | 'photos' | 'who' | 'leadPicture'>): boolean {
+  return !!t.chart || !!t.photos?.length || (!!t.who && !!t.leadPicture);
+}
+
+/**
+ * Whether a notebook's page, brief and PDF show its TL;DR card: as you set it
+ * (Always, Never), else when it adds something (tldrCardAdds). Redrawing the
+ * picture isn't asking for it on the page: that's how it looks when shared.
+ * The TL;DR picture itself (tldr.png) is there either way.
+ */
+export function showsTldrCard(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory): boolean {
+  if (nb.tldrCard === 'never') return false;
+  if (nb.tldrCard === 'always') return true;
+  const d = notebookWidgetData(nb, entries, history).notebook;
+  const about = d.person?.image ?? d.company?.image;
+  return tldrCardAdds(tldrData(nb, entries, history, (o) => o.image, about ? { src: about } : undefined));
+}
+
 function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: NotebookWidgetHistory, pictures?: BriefPicture, aboutPicture?: { src: string; logo?: boolean }): TldrData {
   const d = notebookWidgetData(nb, entries, history).notebook;
   const ranked = rankOptions(nb, d.options);

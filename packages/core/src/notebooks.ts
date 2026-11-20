@@ -772,6 +772,8 @@ export interface Notebook {
   tags?: NotebookTags;
   /** How its TL;DR picture is drawn, once redrawn (none: the standard picture). */
   tldr?: TldrSpec;
+  /** Whether its page, brief and PDF show the TL;DR card: always, never, or (none) only when it adds something the page doesn't say. */
+  tldrCard?: 'always' | 'never';
   /** What you asked for, in your own words, as you typed it (links and all); `statement` is the tidied sentence. */
   asked?: string;
   /** The experiment whose results its page shows (ADR-0078): the notebook holds the conversation, the experiment the runs. */
@@ -1658,7 +1660,7 @@ export class NotebookStore {
       ['notebooks', 'setup_at TEXT'], ['notebooks', "checks_json TEXT NOT NULL DEFAULT '[]'"], ['notebook_entries', 'checked_json TEXT'], ['notebook_entries', 'failed_checks_json TEXT'],
       ['notebook_searches', 'sources_json TEXT'], ['notebook_entries', 'ruled_out_gone INTEGER'], ['notebook_entries', 'fact_meta_json TEXT'],
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
-      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'photo_json TEXT'], ['notebooks', 'given_json TEXT'],
+      ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'tldr_card TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'photo_json TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'], ['notebook_entries', 'trace_json TEXT'],
       ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
     ] as const) {
@@ -2096,6 +2098,17 @@ export class NotebookStore {
    * picture again). The one it replaces is kept to undo to (the last 10).
    * `updated_at` is left alone: the picture isn't the notebook.
    */
+  /**
+   * Whether the notebook shows its TL;DR card on its page, brief and PDF:
+   * 'always', 'never', or 'auto' (only when it adds something: a chart, a
+   * photo). `updated_at` is left alone.
+   */
+  setTldrCard(id: string, mode: 'auto' | 'always' | 'never'): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET tldr_card = ? WHERE id = ?').run(mode === 'auto' ? null : mode, id);
+    return this.mustGet(id);
+  }
+
   setTldr(id: string, spec: unknown, now = new Date().toISOString()): Notebook {
     const was = this.mustGet(id);
     const clean = spec == null ? undefined : cleanTldrSpec(spec);
@@ -3311,6 +3324,7 @@ export class NotebookStore {
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),
+      ...(r.tldr_card === 'always' || r.tldr_card === 'never' ? { tldrCard: r.tldr_card as 'always' | 'never' } : {}),
       ...(typeof r.asked === 'string' && r.asked ? { asked: r.asked } : {}),
       ...(typeof r.experiment_id === 'string' && r.experiment_id ? { experimentId: r.experiment_id } : {}),
       ...(r.brief_on_json ? (() => { const x = cleanSubject(parse<unknown>(r.brief_on_json, undefined)); return x ? { briefOn: x } : {}; })() : {}),

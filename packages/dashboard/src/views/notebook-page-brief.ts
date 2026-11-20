@@ -17,7 +17,7 @@ import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
-import { tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
+import { showsTldrCard, tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
@@ -515,7 +515,10 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   if (logs.length) byId.set('root', { ...byId.get('root')!, children: top.filter((id) => !logs.includes(id)) });
   const logged = logs.length > 0;
   const aboutSrc = args.aboutPicture ?? ((src: string) => src);
+  // The TL;DR card only when it adds something, or you said so (showsTldrCard).
+  const cardShows = showsTldrCard(nb, args.entries, args.history);
   const tldr = () => {
+    if (!cardShows) return html``;
     const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
     const pictured = who ? aboutSrc(who.src) : undefined;
     return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
