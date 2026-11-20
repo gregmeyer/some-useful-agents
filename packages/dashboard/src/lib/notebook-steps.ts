@@ -749,6 +749,14 @@ async function runStep(ctx: Ctx, store: NotebookStore, notebookId: string, step:
     store.updateStep(nb.id, step.id, { tries, note: progressWords(step, now) });
     return finish(ctx, store, notebookId, { ...step, tries }, now, wrote, !now.met, sentenceOf(wrote));
   }
+  // A notebook with options that also writes an answer or a write-up: its source pages are traced first, in code,
+  // then its options are checked as before (ADR-0082). Traced and checked already: done.
+  if (step.kind === 'check' && agentId === NOTEBOOK_CHECKER_ID && before.unit !== 'sources traced' && before.missing.some((m) => m.startsWith('source not traced yet'))) {
+    await traceAnswerSources(store, notebookId, ctx.notebookTrace);
+    nb = store.get(notebookId)!;
+    before = stepProgress(nb, store.entries(nb.id, 1000), step);
+    if (before.met) return finish(ctx, store, notebookId, step, before, ['its sources traced; its options were already checked']);
+  }
   // An answer's check step: no options to check, so it traces the answer's sources, each quote looked for on its page, in code (ADR-0082).
   if (step.kind === 'check' && agentId === NOTEBOOK_CHECKER_ID && before.unit === 'sources traced') {
     const tries = step.tries + 1;
