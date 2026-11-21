@@ -122,7 +122,7 @@ function kids(c: ViewComponent): string[] {
   return [...(Array.isArray(c.children) ? c.children as string[] : []), ...(typeof c.child === 'string' ? [c.child] : [])];
 }
 
-export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; label?: unknown; lang?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
+export type BriefSection = { key?: unknown; title?: unknown; kind?: unknown; role?: unknown; inStep?: unknown; items?: unknown; columns?: unknown; rows?: unknown; note?: unknown; body?: unknown; label?: unknown; lang?: unknown; diagram?: unknown; caption?: unknown; refs?: unknown };
 
 /** A field's number: a number, a numeric string, or a range's midpoint. */
 function briefNumber(v: unknown): number | undefined {
@@ -137,12 +137,27 @@ type Cited = { label: string; url?: string };
 const citedRef = (r: unknown): Cited => { const x = (r ?? {}) as { label?: unknown; href?: unknown }; return { label: text(x.label), ...(isUrl(x.href) ? { url: x.href } : {}) }; };
 
 /** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`), a diagram, a paragraph; each with where it comes from. The shortlist brief prints a write-up's parts with it too. */
-export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes): SafeHtml {
+export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: SourceNotes, style?: unknown): SafeHtml {
   const rubric = rubricOpt === true || (rubricOpt === 'auto' && looksLikeRubric(list(x.columns).map(text)));
   // What a line rests on: each by name, and by its address when it's a page outside (an option is named; its page is found by its name).
   const from = (y: unknown): Cited[] => list((y as { refs?: unknown })?.refs).map((r) => citedRef(r)).filter((r) => r.label);
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
   const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
+  if (style === 'runbook' && x.kind === 'steps') {
+    // A runbook's steps as cards on paper: the number large, a box to tick, how, the part to copy where it's used, ✓ what you'll see, if not; a card never splits across pages.
+    return html`<ol class="rb">${items(x.items).map((it, i) => {
+      const y = it as Record<string, unknown>;
+      const copy = y.copyPart && typeof y.copyPart === 'object' ? briefPart(y.copyPart as BriefSection, false, notes) : html``;
+      return html`<li><span class="rb__n">${String(i + 1)}</span><div><p class="rb__t"><span class="rb__box" aria-hidden="true"></span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</p>${text(it.detail) ? html`<p class="muted">${boldOnly(text(it.detail))}</p>` : html``}${text(y.how) ? html`<p>${boldOnly(text(y.how))}</p>` : html``}${copy}${text(y.see) ? html`<p class="rb__see"><b>\u2713</b> ${boldOnly(text(y.see))}</p>` : html``}${text(y.ifNot) ? html`<p class="rb__ifnot"><b>If not</b> ${boldOnly(text(y.ifNot))}</p>` : html``}</div></li>`;
+    }) as unknown as SafeHtml[]}</ol>`;
+  }
+  if (style === 'runbook' && x.kind === 'table' && x.role === 'trouble' && list(x.columns).length >= 2) {
+    // What goes wrong: what you see, then the fix, the likely cause beneath.
+    const cols = list(x.columns).map(text);
+    const fi = ((i) => (i > 0 ? i : cols.length - 1))(cols.findIndex((k) => /\b(fix|fixes|what to do|do this|solution|try|remedy)\b/i.test(k)));
+    const other = cols.findIndex((_, i) => i !== 0 && i !== fi);
+    return html`<div class="rubric">${(list(x.rows) as Array<{ cells?: unknown }>).map((r) => { const cells = list(r.cells).map(text); const cause = cells.filter((c, i) => i !== 0 && i !== fi && c); return html`<div class="rubric__row"><b>${boldOnly(cells[0] ?? '')}</b><div><span class="rubric__then">\u2192 ${boldOnly(cells[fi] ?? '')}</span>${cause.length ? html`<span class="muted"> · ${other >= 0 ? `${cols[other]}: ` : ''}${boldOnly(cause.join(' · '))}</span>` : html``}${cited(from(r))}</div></div>`; }) as unknown as SafeHtml[]}</div>${text(x.note) ? html`<p class="fine">${text(x.note)}</p>` : html``}`;
+  }
   if (x.kind === 'steps') {
     // A runbook's step prints in full: how long, advice marked, then how, what you'll see and if not.
     return html`<ol class="steps">${items(x.items).map((it) => {
@@ -358,15 +373,19 @@ function node(p: Printing, id: string | undefined): SafeHtml {
       // Placed by key ("only", in that order), or the parts no other part of the page placed ("skip"); one part on its own takes its panel's title.
       const only = Array.isArray(c.only) ? (c.only as unknown[]).filter((k): k is string => typeof k === 'string') : undefined;
       const skip = Array.isArray(c.skip) ? c.skip as unknown[] : [];
-      const secs = only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key));
-      const untitled = !!only && only.length === 1;
-      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}</section>`) as unknown as SafeHtml[]}`;
+      // …or by what each is for in a runbook (`roles`); a part to copy printed inside its step isn't printed again.
+      const roles = Array.isArray(c.roles) ? c.roles as unknown[] : undefined;
+      const skipRoles = Array.isArray(c.skipRoles) ? c.skipRoles as unknown[] : [];
+      const secs = (only ? only.map((k) => given.find((x) => x.key === k)).filter((x): x is NonNullable<typeof x> => !!x) : given.filter((x) => !skip.includes(x.key)))
+        .filter((x) => (!roles || roles.includes(x.role)) && !skipRoles.includes(x.role) && !(c.style === 'runbook' && x.inStep === true));
+      const untitled = (!!only && only.length === 1) || (!!roles && secs.length === 1);
+      return html`${secs.filter((x) => text(x.title)).map((x) => html`<section class="sec">${untitled ? html`` : html`<div class="eyebrow">${text(x.title)}</div>`}${briefPart(x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes, c.style)}</section>`) as unknown as SafeHtml[]}`;
     }
     case 'Figure': {
       const x = v('section') as BriefSection | undefined;
       if (!x || typeof x !== 'object' || !text(x.kind)) return html``;
       const cap = text(v('caption'));
-      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
+      return html`<figure class="fig${c.size === 'hero' ? ' fig--hero' : ''}">${briefPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, c.rubric === 'auto' ? 'auto' : c.rubric === true, p.notes, c.style)}${cap ? html`<figcaption class="fine">${cap}</figcaption>` : html``}</figure>`;
     }
     case 'Lead': {
       const st = (v('stat') ?? {}) as { value?: unknown; label?: unknown; note?: unknown; href?: unknown };
@@ -655,6 +674,16 @@ h2 { margin: 0; font: 700 1rem/1.3 var(--display); }
 dl.run { margin: 0.3rem 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.6rem; font-size: 0.92em; }
 dl.run dt { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-top: 0.15em; }
 dl.run dd { margin: 0; }
+ol.rb { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+ol.rb > li { display: grid; grid-template-columns: 2.1rem 1fr; gap: 0 0.7rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 8px; break-inside: avoid; }
+ol.rb .rb__n { font: 700 1.6em/1 var(--mono, ui-monospace, monospace); color: var(--accent, #0f766e); }
+ol.rb p { margin: 0.25rem 0 0; }
+ol.rb .rb__t { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.35rem; }
+ol.rb .rb__box { display: inline-block; width: 0.8em; height: 0.8em; border: 1.5px solid var(--muted); border-radius: 2px; margin-right: 0.2rem; transform: translateY(0.08em); }
+ol.rb .rb__see b { color: var(--accent, #0f766e); }
+ol.rb .rb__ifnot { padding: 0.25rem 0.5rem; border-left: 3px solid #b45309; background: rgba(180, 83, 9, 0.08); }
+ol.rb .rb__ifnot b { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #b45309; margin-right: 0.3rem; }
+ol.rb figure.copy { margin-top: 0.45rem; }
 figure.copy { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; break-inside: avoid; }
 figure.copy figcaption { padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--line); }
 figure.copy pre { margin: 0; padding: 0.6rem 0.75rem; font: 0.8em/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }

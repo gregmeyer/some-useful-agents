@@ -20,6 +20,14 @@
 import { resolvePointer, type ViewComponent } from './a2ui/view.js';
 import { resolveLayout, checkLayout, hasSomething, layoutPathPattern, type ListCap } from './layout-resolve.js';
 
+/**
+ * What a part of a runbook is for, so a page lays it out like a recipe
+ * (AnswerSections `roles`): what to have ready first, the method, what goes
+ * wrong, then the rest (the guides it rests on, background).
+ */
+export type NotebookRunbookRole = 'ready' | 'method' | 'trouble' | 'background';
+export const RUNBOOK_ROLES: readonly NotebookRunbookRole[] = ['ready', 'method', 'trouble', 'background'];
+
 /** The title of the list of who publishes an answer's sources (the Agenda's own default, "Talking points", is wrong there). */
 const SOURCES_TITLE = 'By publisher';
 
@@ -402,12 +410,53 @@ const SUBJECT: ViewComponent[] = [
  * have ready, the steps with how, what you'll see and if not, what to copy,
  * what goes wrong), then what it rests on and its sources.
  */
-const RUNBOOK: ViewComponent[] = ANSWER.map((c) => {
-  if (c.id === 'header') return { ...c, subtitle: 'Runbook' };
-  if (c.id === 'sections_p') return { ...c, title: 'The runbook' };
-  if (c.id === 'findings_p') return { ...c, title: 'What it rests on' };
-  return c;
-});
+/**
+ * A runbook, laid out like a recipe: what you'll have at the end beside the
+ * runbook at a glance (how long, how many steps, for whom); what to have
+ * ready; then the steps, each a card (how, what you'll see, what to do if
+ * not, and the thing to copy inside the step that uses it); what goes wrong,
+ * symptom to fix; why it's done this way (the findings and the guides it
+ * rests on); and how sua researched it, folded. The parts are placed by what
+ * each is for (`roles`, core runbookRole), so a rewrite that renames them
+ * keeps its place.
+ */
+const RUNBOOK_SECTIONS = { path: '/notebook/answerSections' };
+const RUNBOOK: ViewComponent[] = [
+  { id: 'root', component: 'Column', children: ['header', 'top', 'ready_p', 'method_p', 'trouble_p', 'why_p', 'sources_p', 'evidence_d', 'more'] },
+  { id: 'header', component: 'NotebookHeader', subtitle: 'Runbook', steps: 'fold', cover: 'none' },
+  { id: 'top', component: 'Columns', children: ['answer', 'glance_p'], widths: [2, 1], align: 'start' },
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
+  { ...panel('glance_p', 'At a glance', 'glance'), when: 'answered' },
+  { id: 'glance', component: 'KeyValue', items: { path: '/notebook/runbook/glance' } },
+  { ...panel('ready_p', 'Before you start', 'ready'), treatment: 'aside', when: 'answered' },
+  { id: 'ready', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['ready'] },
+  { ...panel('method_p', 'The steps', 'method'), treatment: 'feature', hero: true, when: 'answered' },
+  { id: 'method', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['method'], style: 'runbook' },
+  { ...panel('trouble_p', 'If something goes wrong', 'trouble'), treatment: 'feature', when: 'answered' },
+  { id: 'trouble', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['trouble'], style: 'runbook' },
+  { ...panel('why_p', 'Why it’s done this way', 'why'), treatment: 'feature', when: 'answered' },
+  { id: 'why', component: 'Column', children: ['background', 'findings'] },
+  { id: 'background', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['background'] },
+  {
+    id: 'findings', component: 'Agenda', title: 'What it rests on', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
+    questionsLabel: 'Still open', maxQuestions: 5, check: false, empty: 'No findings yet.',
+  },
+  { ...panel('sources_p', 'Where its sources are from', 'sources', 'who publishes each page it learned from'), when: 'answered' },
+  {
+    id: 'sources', component: 'Agenda', title: SOURCES_TITLE, points: { path: '/notebook/sources' }, questions: { path: '/notebook/sourceCautions' },
+    questionsLabel: 'To weigh', maxQuestions: 3, check: false, empty: 'No pages yet.',
+  },
+  { id: 'more', component: 'Columns', children: ['time_d', 'cov_d'], widths: [1, 1], align: 'start' },
+  { id: 'evidence_d', component: 'Disclosure', label: 'The evidence sua checked', child: 'evidence' },
+  {
+    id: 'evidence', component: 'OptionGrid', options: { path: '/notebook/options' }, fields: { path: '/notebook/fields' }, stages: { path: '/notebook/stages' },
+    layout: L('evidenceLayout'), sort: L('sort'), actions: true, csvHref: L('csvHref'),
+  },
+  { id: 'time_d', component: 'Disclosure', label: 'Research activity', child: 'timeline' },
+  { id: 'timeline', component: 'Timeline', events: { path: '/notebook/timeline' }, filters: true },
+  { id: 'cov_d', component: 'Disclosure', label: 'Where sua looked', child: 'coverage' },
+  { id: 'coverage', component: 'Coverage', sources: { path: '/notebook/coverage/sources' }, note: { path: '/notebook/coverage/when' } },
+];
 
 export const NOTEBOOK_LAYOUT_PRESETS: readonly NotebookLayoutPreset[] = [
   {
@@ -522,13 +571,20 @@ function placedSectionKeys(components: readonly ViewComponent[]): Set<string> {
  * `only` keys are all missing, or whose `skip` leaves nothing, or any other
  * part bound to `/notebook/section/<key>` paths that are all empty. Pure.
  */
-function sectionPartEmpty(c: ViewComponent, data: unknown, placed: ReadonlySet<string>): boolean {
+function sectionPartEmpty(c: ViewComponent, data: unknown, placed: ReadonlySet<string>, placedRoles: ReadonlySet<string> = new Set()): boolean {
   if (c.component === 'AnswerSections') {
     const all = resolvePointer(data, (c.sections as { path?: string } | undefined)?.path ?? '');
-    const keys = new Set((Array.isArray(all) ? all : []).map((s) => (s as { key?: unknown }).key).filter((k): k is string => typeof k === 'string'));
+    const roles = Array.isArray(c.roles) ? c.roles as unknown[] : undefined;
+    // By role: the parts with those roles (a part to copy drawn inside a runbook's step isn't one on its own).
+    const ofRole = (s: unknown) => !roles || (roles.includes((s as { role?: unknown }).role) && !(c.style === 'runbook' && (s as { inStep?: unknown }).inStep === true));
+    const keys = new Set((Array.isArray(all) ? all : []).filter(ofRole).map((s) => (s as { key?: unknown }).key).filter((k): k is string => typeof k === 'string'));
+    if (roles && !Array.isArray(c.skip) && c.rest !== true) return keys.size === 0;
     if (Array.isArray(c.only)) return !(c.only as unknown[]).some((k) => typeof k === 'string' && keys.has(k));
     const skip = Array.isArray(c.skip) ? c.skip as unknown[] : c.rest === true ? [...placed] : undefined;
-    if (skip) return ![...keys].some((k) => !skip.includes(k));
+    if (skip) {
+      const byRole = new Set((Array.isArray(all) ? all : []).filter((s) => placedRoles.has((s as { role?: string }).role ?? '')).map((s) => (s as { key?: unknown }).key));
+      return ![...keys].some((k) => !skip.includes(k) && !byRole.has(k));
+    }
     return false;
   }
   const paths: string[] = [];
@@ -635,6 +691,7 @@ export function resolveNotebookLayout(
   const all = withAnswerSections(components).map((c) => (c.component === 'Agenda' && c.title === undefined && (c.points as { path?: unknown } | undefined)?.path === '/notebook/sources' ? { ...c, title: SOURCES_TITLE } : c));
   const byId = new Map(all.map((c) => [c.id, c]));
   const placed = placedSectionKeys(all);
+  const placedRoles = new Set(all.flatMap((x) => (x.component === 'AnswerSections' && Array.isArray(x.roles) ? x.roles as string[] : [])));
   return resolveLayout(all, {
     prefix: '/notebook',
     flags,
@@ -648,11 +705,16 @@ export function resolveNotebookLayout(
       if (kid && opts.cantFill?.has(kid.component)) return false;
       return !(kid?.component === 'AnswerSections' && (kid.rest === true || Array.isArray(kid.skip)));
     },
-    emptyPart: (c, data) => sectionPartEmpty(c, data, placed),
+    emptyPart: (c, data) => sectionPartEmpty(c, data, placed, placedRoles),
     part: (c) => {
       const { rest: wantsRest, ...rest } = c;
       // "The parts I didn't place": the written parts no other part of the page binds.
-      if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) rest.skip = [...placed];
+      if (c.component === 'AnswerSections' && wantsRest === true && !Array.isArray(c.only)) {
+        rest.skip = [...placed];
+        // …and not the runbook parts placed by what they're for.
+        const roles = [...new Set(all.flatMap((x) => (x.component === 'AnswerSections' && x !== c && Array.isArray(x.roles) ? x.roles as string[] : [])))];
+        if (roles.length) rest.skipRoles = roles;
+      }
       return withWatch(rest);
     },
     // The header's side part: drawn if it holds, else the header goes without it.
@@ -786,6 +848,8 @@ export function checkNotebookLayout(components: unknown): { ok: true; components
       for (const c of cs) {
         if (!c || typeof c !== 'object') continue;
         if (c.only !== undefined && (!Array.isArray(c.only) || !c.only.length || !c.only.every((k) => typeof k === 'string' && SECTION_PATH.test(`/notebook/section/${k}`)))) errors.push(`${String(c.id)}: "only" is a list of section keys (lowercase words and dashes, as the notebook's written parts are keyed).`);
+        if (c.roles !== undefined && (!Array.isArray(c.roles) || !c.roles.length || !c.roles.every((r) => typeof r === 'string' && (RUNBOOK_ROLES as readonly string[]).includes(r)))) errors.push(`${String(c.id)}: "roles" is a list of what runbook parts are for: ${RUNBOOK_ROLES.join(', ')}.`);
+        if (c.roles !== undefined && c.only !== undefined) errors.push(`${String(c.id)}: "roles" and "only" don't go together; "only" names the parts, "roles" picks them by what they're for.`);
         if (c.only !== undefined && c.rest !== undefined) errors.push(`${String(c.id)}: "only" and "rest" don't go together; "only" names the parts, "rest" means the ones nothing else places.`);
       }
       const headers = cs.filter((c) => c && c.component === 'NotebookHeader');
@@ -855,7 +919,8 @@ export const NOTEBOOK_LAYOUT_DATA: Readonly<Record<string, string>> = {
   '/notebook/answer/cover': 'A small drawing of what the question is about, beside the answer (Callout image).',
   '/notebook/planIntro/cover': 'A small drawing of what the plan is for, beside it (Callout image).',
   '/notebook/planSections': 'The parts a plan was asked for besides its days: a cost table, how the budget splits, steps to get ready (AnswerSections).',
-  '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections). Each has a `key`; an AnswerSections with `only: ["key"]` draws just those, in that order, and one with `rest: true` draws the ones no other part of the page places.',
+  '/notebook/answerSections': 'The parts the answer was asked for: steps (an SOP), tables (a rubric, a comparison) and a short explanation, each step and row linked to its sources (AnswerSections). Each has a `key`; an AnswerSections with `only: ["key"]` draws just those, in that order, and one with `rest: true` draws the ones no other part of the page places. In a runbook each part also has a `role` (ready, method, trouble, background): an AnswerSections with `roles: ["method"], style: "runbook"` draws the steps as cards with the part to copy inside the step that uses it, so a page placed by role keeps its shape when a rewrite renames the parts.',
+  '/notebook/runbook/glance': 'A runbook at a glance, as KeyValue items [{label, value}]: how long it takes in all, how many steps, who it is for, what you end with. Empty until the answer has steps.',
   '/notebook/numbers': 'The notebook\'s numbers by field key, worked out from the options in the running: /notebook/numbers/<field>/best (the best by that field\'s better way), /high, /low and /count, each {value, label, note, href?} (Lead stat). Only money and number fields.',
   '/notebook/picture': 'The notebook\'s TL;DR picture ({src, alt, href, caption}: Picture picture): one image of the best lead or who it\'s about, the numbers and the options, as it was last redrawn. Always there. A summary card of the page, not a photo of anything.',
   '/notebook/photo': 'A real photo of what the notebook is about ({src, alt, href, caption}: Picture picture), kept from one of its sources (a briefing\'s own site first; else an example photo sua found for a source), credited to where it\'s from. Never a logo, a drawing or the TL;DR card. Missing when no source has one; a Panel holding only it is then left out.',

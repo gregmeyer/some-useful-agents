@@ -152,7 +152,10 @@ nodes:
                one or two sentences), "see" (what they'll see when it
                worked, one sentence), "ifNot" (the usual mistake and its
                fix, one sentence; leave it out when there isn't one),
-               "time" ("5 min"), and "from". A step that is your own
+               "time" (a number: "2 min", "5–10 min", "1 hour"; never "a
+               few minutes"), "copy" on the step that uses a copy section
+               (that section's title; the page draws it inside the step),
+               and "from". A step that is your own
                advice (how to teach it, what order works, when to stop
                and check) and no source says is allowed: give it
                "advice": true and no "from"; never put a fact in one.
@@ -164,6 +167,12 @@ nodes:
                "Fix");
             5. the guides it rests on, when there are some (a table:
                "Guide", "What to borrow", "Watch out").
+          Give each of these sections a "role": "ready" (1), "method" (2
+          and 3), "trouble" (4), "background" (5); the page lays them out
+          like a recipe by role. Add "glance": {"time": about how long in
+          all ("about 30 min"), "level": who it's for ("first-timer, no
+          code"), "makes": what they'll have at the end, a few words ("a
+          live page at a public URL")}.
           When a section gives one of the notebook's done-whens, put that
           done-when's words in "delivers", exactly as the notebook says
           it. Each row and step cites the ids it rests on; a row or step
