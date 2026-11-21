@@ -11,6 +11,8 @@
  * existing CSP, which already blocks remote scripts and external fonts.
  */
 
+import { renderInlineMarkdown } from './markdown-inline.js';
+
 // Lowercase keys; original case looked up via SVG_CASED_TAGS for emission.
 const ALLOWED_TAGS = new Set<string>([
   // Block + inline text
@@ -303,7 +305,8 @@ export function sanitizeHtml(input: string): string {
  * including the unescaped `{{{var}}}` form below.
  *
  * Supported syntax:
- *   {{outputs.NAME}}                            scalar, HTML-escaped
+ *   {{outputs.NAME}}                            scalar, HTML-escaped; in text its inline
+ *                                               Markdown is drawn (links, bold, code)
  *   {{{outputs.NAME}}}                          scalar, unescaped (sanitizer still runs after)
  *   {{result}} / {{{result}}}                   the raw run output
  *   {{#each outputs.NAME as item}} … {{/each}}  iterate an array
@@ -322,6 +325,22 @@ export function sanitizeHtml(input: string): string {
  * Together they cover the if/else case via two adjacent blocks — single-level
  * only, no nesting.
  */
+/** Elements whose text is shown as written (or is a link already): a value in them gets no Markdown. */
+const AS_WRITTEN = ['a', 'code', 'pre', 'textarea', 'script', 'style', 'title', 'option'];
+
+/**
+ * A placeholder at `offset` in `src` sits in text, not inside a tag (an
+ * attribute) and not inside an element whose text is shown as written. Pure.
+ */
+export function inText(src: string, offset: number): boolean {
+  const before = src.slice(0, offset).toLowerCase();
+  if (before.lastIndexOf('<') > before.lastIndexOf('>')) return false;
+  return !AS_WRITTEN.some((tag) => {
+    const open = Math.max(before.lastIndexOf(`<${tag}>`), before.lastIndexOf(`<${tag} `), before.lastIndexOf(`<${tag}\n`));
+    return open > before.lastIndexOf(`</${tag}`);
+  });
+}
+
 export function substitutePlaceholders(
   template: string,
   values: { outputs?: Record<string, unknown>; result?: string },
@@ -389,9 +408,9 @@ export function substitutePlaceholders(
           if (!field) return stringify(item);
           return stringify((item as Record<string, unknown> | null)?.[field]);
         });
-        line = line.replace(doubleRe, (_match, field?: string) => {
-          if (!field) return escape(stringify(item));
-          return escape(stringify((item as Record<string, unknown> | null)?.[field]));
+        line = line.replace(doubleRe, (_match, field: string | undefined, offset: number, src: string) => {
+          const v = stringify(field ? (item as Record<string, unknown> | null)?.[field] : item);
+          return inText(src, offset) ? renderInlineMarkdown(v, { newTab: true }) : escape(v);
         });
         line = line.replace(/\{\{\s*@index\s*\}\}/g, String(index));
         return line;
@@ -424,10 +443,14 @@ export function substitutePlaceholders(
   );
   out = out.replace(/\{\{\{\s*result\s*\}\}\}/g, () => values.result ?? '');
 
-  // 3. Double-brace escaped — original behaviour.
+  // 3. Double-brace escaped. In text, a value's inline Markdown (links, bold,
+  //    code) is drawn, still escaped first; in an attribute it's the plain value.
   out = out.replace(
     /\{\{\s*outputs\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g,
-    (_, name: string) => escape(stringify(values.outputs?.[name])),
+    (_, name: string, offset: number, src: string) => {
+      const v = stringify(values.outputs?.[name]);
+      return inText(src, offset) ? renderInlineMarkdown(v, { newTab: true }) : escape(v);
+    },
   );
   out = out.replace(/\{\{\s*result\s*\}\}/g, () => escape(values.result ?? ''));
 

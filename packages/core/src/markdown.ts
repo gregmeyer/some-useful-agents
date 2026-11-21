@@ -15,48 +15,9 @@
 
 import { sanitizeHtml } from './html-sanitizer.js';
 
-/** Escape text content for HTML body context. */
-function escapeText(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+import { escapeText, renderInlineMarkdown } from './markdown-inline.js';
 
-/** Escape a value destined for a double-quoted attribute. */
-function escapeAttr(s: string): string {
-  return escapeText(s).replace(/"/g, '&quot;');
-}
-
-/** Apply link/bold/italic to a NON-code text segment that is already escaped. */
-function renderEmphasisAndLinks(escaped: string): string {
-  let text = escaped;
-  // Links [text](url). The url is attribute-escaped; sanitizeHtml re-validates
-  // the href (isSafeUrl) downstream, so this is correctness only.
-  text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label: string, url: string) => {
-    return `<a href="${escapeAttr(url)}">${label}</a>`;
-  });
-  // Bold first so ** isn't half-consumed by the single-* rule.
-  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>');
-  text = text.replace(/(^|[^_\w])_([^_\s][^_]*?)_/g, '$1<em>$2</em>');
-  return text;
-}
-
-/**
- * Render inline markup within a single block of text. Inline code spans are
- * isolated first (split, not placeholder) so markers inside them are never
- * reinterpreted and there are no sentinel collisions.
- */
-function renderInline(input: string): string {
-  // Split keeps the delimiters: odd indices are `code` spans.
-  const parts = input.split(/(`[^`]+`)/g);
-  return parts
-    .map((seg) => {
-      if (seg.length >= 2 && seg.startsWith('`') && seg.endsWith('`')) {
-        return `<code>${escapeText(seg.slice(1, -1))}</code>`;
-      }
-      return renderEmphasisAndLinks(escapeText(seg));
-    })
-    .join('');
-}
+const renderInline = (s: string): string => renderInlineMarkdown(s);
 
 const HR_RE = /^ {0,3}([-*_])(?: *\1){2,} *$/;
 const HEADING_RE = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
