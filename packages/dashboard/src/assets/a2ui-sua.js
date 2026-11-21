@@ -1443,6 +1443,34 @@ const sectionStyles = css`${sectionHead}
     dl.run dt { font: 600 var(--font-size-xs)/1.7 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
     dl.run dd { margin: 0; color: var(--color-text); }
     dl.run dd.ifnot { color: var(--color-text-muted); }
+    /* A runbook's steps as cards (style "runbook"): a big number, the action, how, a ✓ what you'll see, an if-not aside, the part to copy inside its step, a box to tick. */
+    ol.rb { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 14px; }
+    ol.rb > li { counter-increment: step; display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 4px 14px; padding: 14px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); background: var(--color-surface); }
+    ol.rb > li::before { content: counter(step); grid-row: span 9; font: 700 var(--font-size-2xl, 28px)/1 var(--font-mono); color: var(--color-primary); }
+    ol.rb > li.done { background: var(--color-surface-raised, var(--color-surface)); }
+    ol.rb > li.done::before { content: "✓"; }
+    ol.rb .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    ol.rb .head .t { font-size: var(--font-size-md, 1rem); }
+    ol.rb .tick { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: var(--font-size-xs); color: var(--color-text-muted); cursor: pointer; }
+    ol.rb .tick input { width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); cursor: pointer; }
+    ol.rb .how { margin: 2px 0 0; font-size: var(--font-size-sm); line-height: 1.6; color: var(--color-text); }
+    ol.rb .see { margin: 6px 0 0; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ol.rb .see b { color: var(--color-primary); margin-right: 4px; }
+    ol.rb .ifnot { margin: 6px 0 0; padding: 6px 10px; border-left: 3px solid var(--color-warn); border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0; background: color-mix(in srgb, var(--color-warn) 10%, transparent); font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    ol.rb .ifnot b { font: 600 var(--font-size-xs)/1.5 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); margin-right: 6px; }
+    ol.rb figure.copy { margin-top: 10px; }
+    ol.rb .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    ol.rb .refs { margin-top: 6px; }
+    /* What goes wrong (style "runbook"): what you see, then the fix, the likely cause beneath. */
+    .fixes { display: grid; gap: 0; }
+    .fixes .r { display: grid; grid-template-columns: minmax(8rem, 38%) minmax(0, 1fr); gap: 4px 16px; padding: 10px 0; border-bottom: 1px solid var(--color-border); }
+    .fixes .r:last-child { border-bottom: 0; }
+    .fixes .sym { font-size: var(--font-size-sm); font-weight: 600; line-height: 1.45; color: var(--color-text); }
+    .fixes .fix { font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text); }
+    .fixes .fix::before { content: "→ "; color: var(--color-primary); font-weight: 700; }
+    .fixes .cause { grid-column: 2; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+    .fixes .refs { grid-column: 2; }
+    @media (max-width: 560px) { .fixes .r { grid-template-columns: 1fr; } .fixes .cause, .fixes .refs { grid-column: 1; } ol.rb > li { grid-template-columns: 1.75rem minmax(0, 1fr); padding: 12px; } ol.rb > li::before { font-size: var(--font-size-lg, 20px); } }
     /* Something to copy: its label and a Copy button over the text as written. */
     figure.copy { margin: 0; border: 1px solid var(--color-border); border-radius: var(--radius-md, 8px); overflow: hidden; }
     figure.copy figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; background: var(--color-surface-raised, var(--color-surface)); border-bottom: 1px solid var(--color-border); font-size: var(--font-size-xs); color: var(--color-text-muted); }
@@ -1583,9 +1611,46 @@ function copyBlock(x) {
   };
   return html`<figure class="copy"><figcaption><span>${x.label ?? (x.lang === 'prompt' ? 'A prompt to paste' : '')}</span><button type="button" @click=${copy} aria-label=${`Copy ${x.label ?? x.title ?? 'this'}`}>Copy</button></figcaption><pre><code>${x.body ?? ''}</code></pre></figure>`;
 }
-/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. */
-function drawPart(x, { rubric = false, host } = {}) {
+/** A box to tick on a runbook's step: remembered in this browser only, for this page and step (a convenience; it can be empty). */
+const tickKey = (sec, i) => { try { return `sua-runbook:${location.pathname}:${sec}:${String(i)}`; } catch { return ''; } };
+const ticked = (k) => { try { return !!k && localStorage.getItem(k) === '1'; } catch { return false; } };
+const setTicked = (k, on) => { try { if (k) { if (on) localStorage.setItem(k, '1'); else localStorage.removeItem(k); } } catch { /* a convenience */ } };
+/** The column of a what-goes-wrong table that says the fix ("Fix", "What to do", "Try"), else its last. */
+const fixColumn = (cols) => { const i = cols.findIndex((c) => /\b(fix|fixes|what to do|do this|solution|try|remedy)\b/i.test(String(c))); return i > 0 ? i : cols.length - 1; };
+/** A runbook's steps as cards, each with its part to copy inside it. */
+function runbookSteps(x, host) {
   const refs = sectionRefs;
+  return html`<ol class="rb">${(x.items ?? []).map((it, i) => {
+    const k = tickKey(x.key ?? '', i);
+    const on = ticked(k);
+    const toggle = (e) => { setTicked(k, e.currentTarget.checked); e.currentTarget.closest('li')?.classList.toggle('done', e.currentTarget.checked); };
+    return html`<li class=${on ? 'done' : ''}>
+      <div class="head"><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}</div><label class="tick"><input type="checkbox" .checked=${on} @change=${toggle} aria-label=${`Done: step ${String(i + 1)}`}>Done</label></div>
+      ${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}
+      ${it.how ? html`<p class="how">${boldParts(it.how)}</p>` : nothing}
+      ${it.copyPart ? copyBlock(it.copyPart) : nothing}
+      ${it.see ? html`<p class="see"><b aria-hidden="true">\u2713</b><span class="sr">You\u2019ll see: </span>${boldParts(it.see)}</p>` : nothing}
+      ${it.ifNot ? html`<p class="ifnot"><b>If not</b>${boldParts(it.ifNot)}</p>` : nothing}
+      ${refs(it)}
+    </li>`;
+  })}</ol>`;
+}
+/** What goes wrong as rows: what you see, then the fix, the likely cause beneath. */
+function runbookFixes(x) {
+  const refs = sectionRefs;
+  const cols = Array.isArray(x.columns) ? x.columns : [];
+  const f = fixColumn(cols);
+  return html`<div class="fixes">${(x.rows ?? []).map((r) => {
+    const cells = r.cells ?? [];
+    const cause = cells.map((c, i) => (i !== 0 && i !== f && c ? c : '')).filter(Boolean);
+    return html`<div class="r"><div class="sym">${boldParts(cells[0] ?? '')}</div><div class="fix">${boldParts(cells[f] ?? '')}</div>${cause.length ? html`<div class="cause">${cols.length > 2 ? html`${cols.find((_, i) => i !== 0 && i !== f) ?? ''}: ` : nothing}${cause.map((c, i) => html`${i ? ' · ' : ''}${boldParts(c)}`)}</div>` : nothing}${refs(r)}</div>`;
+  })}</div>${x.note ? html`<p class="foot">${x.note}</p>` : nothing}${Array.isArray(x.refs) && x.refs.length ? html`<div class="foot every">Every row: ${refs(x)}</div>` : nothing}`;
+}
+/** One written part: steps numbered, a table (as a grid, or as ruled decision rows when `rubric`: true, or "auto" and it reads as one), a diagram, a paragraph. `style: "runbook"`: steps as cards, a what-goes-wrong table as symptom → fix. */
+function drawPart(x, { rubric = false, host, style } = {}) {
+  const refs = sectionRefs;
+  if (style === 'runbook' && x.kind === 'steps') return runbookSteps(x, host);
+  if (style === 'runbook' && x.kind === 'table' && x.role === 'trouble' && (x.columns ?? []).length >= 2) return runbookFixes(x);
   if (x.kind === 'steps') return html`<ol class="steps">${(x.items ?? []).map((it) => {
     // A runbook's step says how, what you'll see and what to do if not; advice is the writer's own, marked.
     const run = [['How', it.how, ''], ['You\u2019ll see', it.see, ''], ['If not', it.ifNot, 'ifnot']].filter(([, v]) => typeof v === 'string' && v);
@@ -1607,32 +1672,39 @@ function drawPart(x, { rubric = false, host } = {}) {
 }
 
 const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
-  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+  Common.extend({ sections: CommonSchemas.DynamicValue, title: Str.optional(), empty: Str.optional(), only: z.array(Str).optional(), rest: z.boolean().optional(), skip: z.array(Str).optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), roles: z.array(Str).optional(), style: z.literal('runbook').optional(), skipRoles: z.array(Str).optional() }).strict(),
   sectionStyles,
   function (p) {
     const given = (Array.isArray(p.sections) ? p.sections : []).filter((x) => x && typeof x.title === 'string');
     // Placed by key ("only", in that order), or everything another part of the page didn't place ("skip").
     const only = Array.isArray(p.only) ? p.only : undefined;
     const skip = Array.isArray(p.skip) ? p.skip : [];
-    const sections = only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key));
+    // …or by what each is for in a runbook (`roles`); a part to copy drawn inside its step isn't drawn again on its own.
+    const roles = Array.isArray(p.roles) ? p.roles : undefined;
+    const skipRoles = Array.isArray(p.skipRoles) ? p.skipRoles : [];
+    const runbook = p.style === 'runbook';
+    const sections = (only ? only.map((k) => given.find((x) => x.key === k)).filter(Boolean) : given.filter((x) => !skip.includes(x.key)))
+      .filter((x) => (!roles || roles.includes(x.role)) && !skipRoles.includes(x.role) && !(runbook && x.inStep));
     // One part on its own: the panel around it says its title.
     const untitled = !!only && only.length === 1;
     if (!sections.length) return only || skip.length ? nothing : html`<p class="empty">${p.empty ?? 'Nothing more yet.'}</p>`;
-    return html`<div>${sections.map((x) => html`<section class="sec">${untitled ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}</section>`)}</div>`;
+    // One part by role ("The steps"): the panel's title says it, unless there are several.
+    const bare = untitled || (!!roles && sections.length === 1);
+    return html`<div>${sections.map((x) => html`<section class="sec">${bare ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this, style: p.style })}</section>`)}</div>`;
   });
 
 // One written part (/notebook/section/<key>) on its own, drawn large when it
 // is the page's hero: a ladder with tall bars, a split as a wide band, a rubric
 // as ruled rows. Its title comes from the Panel around it.
 const Figure = define('Figure', 'sua-a2ui-figure',
-  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+  Common.extend({ section: CommonSchemas.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), style: z.literal('runbook').optional() }).strict(),
   sectionStyles,
   function (p) {
     const x = p.section && typeof p.section === 'object' && typeof p.section.kind === 'string' ? p.section : undefined;
     if (!x) return nothing;
     const big = (p.size ?? 'inline') === 'hero';
     const cap = typeof p.caption === 'string' && p.caption ? p.caption : undefined;
-    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
+    return html`<figure class=${big ? 'big' : ''} style="margin:0">${drawPart(cap && x.kind === 'diagram' ? { ...x, caption: undefined } : x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this, style: p.style })}${cap ? html`<figcaption class="cap">${cap}</figcaption>` : nothing}</figure>`;
   });
 
 // The one number that matters, set large: a stat {value, label, note?, href?,

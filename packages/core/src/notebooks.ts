@@ -9,7 +9,7 @@
  * from items projected out of its entries.
  */
 import { DEFAULT_ATTACH_FILE_TYPES, cleanAttachFileTypes } from './attach-file-types.js';
-import { checkNotebookLayout, cleanLayout, layoutWords, type NotebookLayout } from './notebook-layout.js';
+import { checkNotebookLayout, cleanLayout, layoutWords, RUNBOOK_ROLES, type NotebookLayout, type NotebookRunbookRole } from './notebook-layout.js';
 import { cleanTldrSpec, type TldrSpec } from './notebook-tldr-spec.js';
 import { imageShape, type ImageShape } from './image-size.js';
 import { parseSourceTrace, type NotebookSourceTrace, type SourceTraceStatus } from './notebook-trace.js';
@@ -531,6 +531,8 @@ export interface NotebookAnswer {
   contradictions?: NotebookAnswerContradiction[];
   /** What the answer was asked to give, as its own parts: the steps to take, a rubric or comparison, a few paragraphs. */
   sections?: NotebookAnswerSection[];
+  /** A runbook at a glance (a recipe's card): how long it takes in all, for whom, and what you end with. */
+  glance?: NotebookRunbookGlance;
   at: string;
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
@@ -538,6 +540,10 @@ export interface NotebookAnswer {
   /** Findings (and section steps and rows) you said are wrong: the writer doesn't write them again. Newest last. */
   struck?: string[];
 }
+
+/** A runbook at a glance: "about 30 min", "first-timer", "a live page at a public URL". Each a short line. */
+export interface NotebookRunbookGlance { time?: string; level?: string; makes?: string }
+
 
 /**
  * One step of an answer's steps. A runbook's step says how to do it, what
@@ -553,6 +559,8 @@ export interface NotebookAnswerStep {
   ifNot?: string;
   time?: string;
   advice?: true;
+  /** The part to copy this step uses (its key or title): a page draws it inside the step. */
+  copy?: string;
   from: string[];
 }
 
@@ -562,7 +570,7 @@ export interface NotebookAnswerStep {
  * gives, word for word ("A simple rubric written"), which then ticks itself.
  * Every step and row cites what it rests on, by entry id, like a finding.
  */
-export type NotebookAnswerSection = { title: string; delivers?: string; /** A short name a page binds the part by (`/notebook/section/<key>`), from its title; stays across rewrites while the title does. */ key?: string } & (
+export type NotebookAnswerSection = { title: string; delivers?: string; /** A short name a page binds the part by (`/notebook/section/<key>`), from its title; stays across rewrites while the title does. */ key?: string; /** What it is for in a runbook (else `runbookRole` works it out). */ role?: NotebookRunbookRole } & (
   | { kind: 'steps'; items: NotebookAnswerStep[] }
   /** Something to copy as it is (a runbook's prompt for Claude, a starter file, a command): shown with a copy button, printed in monospace. */
   | { kind: 'copy'; body: string; label?: string; lang?: 'prompt' | 'html' | 'css' | 'js' | 'shell' | 'text' }
@@ -709,6 +717,75 @@ export function answerSectionLines(s: NotebookAnswerSection): string[] {
   if (s.kind === 'diagram') return answerDiagramLines(s.diagram);
   if (s.kind === 'copy') return [s.label ?? s.body.split('\n')[0].slice(0, 120)];
   return [s.body];
+}
+
+/**
+ * What a part of a runbook is for: the role the writer gave, else worked
+ * out (an answer written before roles): steps and things to copy are the
+ * method; "what to have ready", "you'll need", "before you start" is ready;
+ * a table led by a symptom or problem, or a part about what goes wrong, is
+ * trouble; the rest is background. Pure.
+ */
+export function runbookRole(s: NotebookAnswerSection): NotebookRunbookRole {
+  if (s.role) return s.role;
+  if (s.kind === 'steps' || s.kind === 'copy') return 'method';
+  const t = s.title.toLowerCase().replace(/[‘’]/g, "'");
+  if (/\b(have ready|you'?ll need|you need|before you (start|begin)|what to (have|bring|get|gather)|ingredients|prerequisites?|requirements|get ready)\b/.test(t)) return 'ready';
+  if (s.kind === 'table' && /^\s*(symptoms?|problems?|issues?|errors?|if|when|what you see|what goes wrong)\b/i.test(s.columns[0] ?? '')) return 'trouble';
+  if (/(goes wrong|go wrong|troubleshoot|common (mistakes|errors|problems)|if it (fails|doesn't work)|when it breaks|fixes)/.test(t)) return 'trouble';
+  return 'background';
+}
+
+/**
+ * Where each part to copy goes in a runbook's method: inside the step that
+ * names it (`copy`, its key or title), else inside the first step whose how
+ * says to paste or copy something, else after the steps (`index` -1). Pure.
+ */
+export function runbookCopyPlaces(sections: readonly NotebookAnswerSection[]): Array<{ copy: string; steps: string; index: number }> {
+  const copies = sections.filter((s) => s.kind === 'copy');
+  const steps = sections.filter((s): s is Extract<NotebookAnswerSection, { kind: 'steps' }> => s.kind === 'steps' && runbookRole(s) === 'method');
+  if (!copies.length) return [];
+  const out: Array<{ copy: string; steps: string; index: number }> = [];
+  const taken = new Set<string>();
+  const used = new Set<string>();
+  const named = (c: NotebookAnswerSection, name: string) => { const n = name.trim().toLowerCase(); return sectionKey(c) === n || c.title.trim().toLowerCase() === n; };
+  for (const s of steps) s.items.forEach((it, index) => {
+    const c = it.copy ? copies.find((x) => !taken.has(sectionKey(x)) && named(x, it.copy!)) : undefined;
+    if (c) { taken.add(sectionKey(c)); used.add(`${sectionKey(s)}#${String(index)}`); out.push({ copy: sectionKey(c), steps: sectionKey(s), index }); }
+  });
+  const says = /\b(paste|copy)\b|\b(prompt|command|snippet|code|file) (below|here)\b/i;
+  for (const c of copies) {
+    if (taken.has(sectionKey(c))) continue;
+    let place: { steps: string; index: number } | undefined;
+    for (const s of steps) {
+      const index = s.items.findIndex((it, i) => !it.copy && !used.has(`${sectionKey(s)}#${String(i)}`) && says.test(`${it.how ?? ''} ${it.text}`));
+      if (index >= 0) { place = { steps: sectionKey(s), index }; break; }
+    }
+    if (place) used.add(`${place.steps}#${String(place.index)}`);
+    taken.add(sectionKey(c));
+    out.push({ copy: sectionKey(c), steps: place?.steps ?? (steps[0] ? sectionKey(steps[0]) : ''), index: place?.index ?? -1 });
+  }
+  return out;
+}
+
+/** A step's time in minutes, as a range: "2 min" [2,2], "5–10 minutes" [5,10], "1 hour" [60,60], "30 seconds" [0.5,0.5]; undefined when it isn't a number ("a few minutes"). Pure. */
+export function runbookMinutes(time: string | undefined): [number, number] | undefined {
+  const m = /^\s*(?:about |around |~)?(\d+(?:\.\d+)?)(?:\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?))?\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hr|hrs|hours?)\.?\s*$/i.exec(time ?? '');
+  if (!m) return undefined;
+  const per = /^h/i.test(m[3]) ? 60 : /^s/i.test(m[3]) ? 1 / 60 : 1;
+  const lo = Number(m[1]) * per, hi = Number(m[2] ?? m[1]) * per;
+  return lo <= hi ? [lo, hi] : [hi, lo];
+}
+
+/** A runbook's steps' time in all ("about 25 min", "20–35 min", "about 1 hr 10 min", "2 hr to 2 hr 30 min"), when every step says a number; else undefined. Pure. */
+export function runbookTotalTime(items: readonly Pick<NotebookAnswerStep, 'time'>[]): string | undefined {
+  if (!items.length) return undefined;
+  const each = items.map((i) => runbookMinutes(i.time));
+  if (each.some((x) => !x)) return undefined;
+  const lo = Math.round(each.reduce((n, x) => n + x![0], 0)), hi = Math.round(each.reduce((n, x) => n + x![1], 0));
+  const words = (n: number) => (n >= 60 ? `${String(Math.floor(n / 60))} hr${n % 60 ? ` ${String(n % 60)} min` : ''}` : `${String(Math.max(1, n))} min`);
+  if (lo === hi) return `about ${words(lo)}`;
+  return hi < 120 ? `${String(Math.max(1, lo))}–${String(hi)} min` : `${words(lo)} to ${words(hi)}`;
 }
 
 /** One thing in a plan: when, what, and the options (places, things found) it uses, by entry id. */
@@ -4347,7 +4424,10 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
     return t && from.length >= 2 ? { text: t, from: from.slice(0, ANSWER_CITES) } : undefined;
   }).filter((c): c is NotebookAnswerContradiction => !!c).slice(0, 3);
   const sections = cleanAnswerSections(v.sections, optionIds, opts.criteria ?? [], line, opts.amounts ?? [], opts.briefing);
-  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(contradictions.length ? { contradictions } : {}), ...(sections.length ? { sections } : {}), at, by };
+  // A runbook at a glance: each a short line, kept only when the answer has steps to take.
+  const g = (v.glance && typeof v.glance === 'object' ? v.glance : {}) as Record<string, unknown>;
+  const glance = sections.some((x) => x.kind === 'steps') ? { ...(line(g.time, 40) ? { time: line(g.time, 40) } : {}), ...(line(g.level, 60) ? { level: line(g.level, 60) } : {}), ...(line(g.makes, 120) ? { makes: line(g.makes, 120) } : {}) } : {};
+  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(contradictions.length ? { contradictions } : {}), ...(sections.length ? { sections } : {}), ...(Object.keys(glance).length ? { glance } : {}), at, by };
 }
 
 /** One part of a briefing on a subject (ADR-0080): its title on the page, and how a done-when names it. */
@@ -4400,17 +4480,18 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
       if (!cited.length) continue;
       if (part.id === 'others' && briefing.outside && !cited.some((id) => briefing.outside!.has(id))) continue;
     }
-    const head = { title: part ? part.title : title, ...(delivers ? { delivers } : {}) };
+    const role = !briefing && typeof o.role === 'string' && (RUNBOOK_ROLES as readonly string[]).includes(o.role) ? o.role as NotebookRunbookRole : undefined;
+    const head = { title: part ? part.title : title, ...(delivers ? { delivers } : {}), ...(role ? { role } : {}) };
     if (o.kind === 'steps') {
       const items = (Array.isArray(o.items) ? o.items : []).map((i) => {
         const x = (typeof i === 'string' ? { text: i } : i ?? {}) as Record<string, unknown>;
         const text = line(x.text, 240);
         const detail = line(x.detail, 400);
-        const how = line(x.how, 300), see = line(x.see, 240), ifNot = line(x.ifNot ?? x.if_not, 300), time = line(x.time, 24);
+        const how = line(x.how, 300), see = line(x.see, 240), ifNot = line(x.ifNot ?? x.if_not, 300), time = line(x.time, 24), copy = line(x.copy, 90);
         const from = cites(x.from);
         // Advice is the writer's own: it cites nothing (a step a source supports is that source's).
         const advice = x.advice === true && !from.length;
-        return text ? { text, ...(detail ? { detail } : {}), ...(how ? { how } : {}), ...(see ? { see } : {}), ...(ifNot ? { ifNot } : {}), ...(time ? { time } : {}), ...(advice ? { advice: true as const } : {}), from } : undefined;
+        return text ? { text, ...(detail ? { detail } : {}), ...(how ? { how } : {}), ...(see ? { see } : {}), ...(ifNot ? { ifNot } : {}), ...(time ? { time } : {}), ...(advice ? { advice: true as const } : {}), ...(copy ? { copy } : {}), from } : undefined;
       }).filter((i): i is NonNullable<typeof i> => !!i).slice(0, 10);
       if (items.length >= 2) out.push({ ...head, kind: 'steps', items });
     } else if (o.kind === 'table') {

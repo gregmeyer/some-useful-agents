@@ -323,7 +323,7 @@ const SUA_COMPONENTS = [
   },
   {
     name: 'AnswerSections',
-    summary: 'The parts an answer was asked for, in order: `sections` [{key, title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on. `only: ["key"]` draws just those parts, in that order (one key: without its own title, the Panel\'s says it); `rest: true` draws the parts no other part of the page places.',
+    summary: 'The parts an answer was asked for, in order: `sections` [{key, title, kind: steps|table|text|diagram, items: [{text, detail?, refs?}] | columns + rows: [{cells, refs?}] + note? | body | diagram (laid out by sua: ladder, split or flow) + caption?}]; steps numbered, tables as a table, **bold** in text, diagrams drawn as bars; refs [{label, href}] link what each rests on. `only: ["key"]` draws just those parts, in that order (one key: without its own title, the Panel\'s says it); `rest: true` draws the parts no other part of the page places. A runbook\'s parts can be placed by what each is for: `roles: ["ready"]` (what to have ready), `["method"]` (the steps and what to copy), `["trouble"]` (what goes wrong), `["background"]` (the guides, the why); `style: "runbook"` draws steps as cards (a big number, how, a ✓ what you\'ll see, an if-not aside, a box to tick, and the part to copy inside the step that uses it) and a what-goes-wrong table as symptom → fix rows.',
     example: { id: 'details', component: 'AnswerSections', sections: { path: '/notebook/answerSections' } },
     schema: Common.extend({
       sections: CS.DynamicValue,
@@ -338,13 +338,19 @@ const SUA_COMPONENTS = [
       skip: z.array(Str).optional(),
       /** Draw tables as ruled decision rows (if… → then…, why beneath) instead of a grid: for a rubric. "auto": only a table whose first column is a condition (If…, When…). */
       rubric: z.union([z.boolean(), z.literal('auto')]).optional(),
+      /** Only the parts for these runbook roles (core runbookRole): ready, method, trouble, background. */
+      roles: z.array(z.enum(['ready', 'method', 'trouble', 'background'])).optional(),
+      /** "runbook": steps as cards with the part to copy inside its step; what goes wrong as symptom → fix rows. */
+      style: z.literal('runbook').optional(),
+      /** Runbook roles another part of the page places (a notebook page sets it for `rest`). */
+      skipRoles: z.array(Str).optional(),
     }).strict(),
   },
   {
     name: 'Figure',
     summary: 'One written part on its own (`section`: /notebook/section/<key>, the same shape as an AnswerSections item), drawn large when `size` is "hero" (a ladder with tall bars, a split as a wide band, a rubric as ruled rows); `caption` under it; `rubric: true` for a table of decisions. Its title comes from the Panel around it.',
     example: { id: 'fig', component: 'Figure', section: { path: '/notebook/section/one-way-to-ladder-25-000' }, size: 'hero' },
-    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional() }).strict(),
+    schema: Common.extend({ section: CS.DynamicValue, size: z.enum(['hero', 'inline']).optional(), caption: Str.optional(), rubric: z.union([z.boolean(), z.literal('auto')]).optional(), style: z.literal('runbook').optional() }).strict(),
   },
   {
     name: 'Lead',
