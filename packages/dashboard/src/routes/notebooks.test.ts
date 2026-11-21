@@ -5810,6 +5810,21 @@ describe('a notebook that depends on something you have to give it', () => {
     return { store, nbId, flash: decodeURIComponent(res.headers.location) };
   }
 
+  it('"Teach me how to…" has the Runbook page at once, kept as its kind; a question gets its page decided', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const make = async (title: string) => {
+      const res = await post(app, '/notebooks', { title, statement: title, step_title: ['Find 4 guides', 'Write the answer'], step_kind: ['find', 'write'], step_agent: ['', ''], step_target: ['4', ''], step_shape: ['', 'answer'] } as unknown as Record<string, string>);
+      return store.get(decodeURIComponent(res.headers.location).split('/notebooks/')[1].split('?')[0])!;
+    };
+    const teach = await make('Teach me how to make a peanut butter and jelly sandwich');
+    expect(teach.layout?.preset).toBe('runbook');
+    expect(teach.layoutBy).toBe('picked');
+    const question = await make('How do I choose a CRM for a small team?');
+    expect(question.layout?.preset).not.toBe('runbook');
+  });
+
   it('"Tell me about X" is a briefing on that subject: the draft says who or what, the notebook keeps it with its site, searches stay on it, and it has its page', async () => {
     const app = await makeApp();
     const { parseNotebookDraft } = await import('../lib/notebook-draft.js');

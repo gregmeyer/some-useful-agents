@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NotebookStore, RunStore, layoutPreset, checkNotebookLayout, cleanAnswer, runbookRole, runbookCopyPlaces, runbookMinutes, runbookTotalTime, type NotebookAnswerSection } from '@some-useful-agents/core';
+import { NotebookStore, RunStore, asksForRunbook, layoutPreset, checkNotebookLayout, cleanAnswer, runbookRole, runbookCopyPlaces, runbookMinutes, runbookTotalTime, type NotebookAnswerSection } from '@some-useful-agents/core';
 import { writerInputs } from './notebook-write.js';
 import { notebookWidgetData, notebookWidgetMessages } from './notebook-widgets.js';
 import { renderPageBrief } from '../views/notebook-page-brief.js';
@@ -23,7 +23,9 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     const nb = s.create({ title: 'Teach a beginner to deploy a first page' });
     s.setSteps(nb.id, [{ title: 'Find guides', kind: 'find', target: 3 }, { title: 'Write the runbook', kind: 'write', shape: 'answer' }]);
     const write = s.get(nb.id)!.steps![1];
-    // An answer's page: no runbook.
+    // Teaching something, on a page still its own: a runbook. An Answer page you picked: no runbook.
+    expect(JSON.parse(writerInputs(s.get(nb.id)!, [], write).NOTEBOOK).runbook).toBe(true);
+    s.setLayout(nb.id, layoutPreset('answer')!.layout, 'picked');
     expect(JSON.parse(writerInputs(s.get(nb.id)!, [], write).NOTEBOOK).runbook).toBeUndefined();
     s.setLayout(nb.id, preset.layout, 'picked');
     expect(JSON.parse(writerInputs(s.get(nb.id)!, [], write).NOTEBOOK).runbook).toBe(true);
@@ -146,6 +148,41 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(a.sections!.map((x) => x.role)).toEqual(['ready', 'method', 'method']);
     expect((a.sections![1] as { items: Array<{ copy?: string }> }).items[0].copy).toBe('The prompt');
     expect(runbookCopyPlaces(a.sections!)).toEqual([{ copy: 'the-prompt', steps: 'do-it', index: 0 }]);
+  });
+
+  it('knows a notebook that asks to be taught something from one that asks a question', () => {
+    const write = [{ id: 'w', title: 'Write the answer', kind: 'write' as const, shape: 'answer' as const, status: 'todo' as const, tries: 0 }];
+    const nb = (title: string, steps = write) => ({ title, statement: '', steps });
+    for (const t of [
+      'Teach me how to make a peanut butter and jelly sandwich',
+      'teach a beginner to deploy a first page with Claude',
+      'Teach my kids to ride a bike',
+      'How do I set up a Raspberry Pi?',
+      'Walk me through filing a 1099',
+      'Show me how to bake sourdough',
+      'A step-by-step guide to changing a tire',
+      'Turn this into a runbook',
+    ]) expect(asksForRunbook(nb(t)), t).toBe(true);
+    for (const t of [
+      'How do I choose a CRM for a small team?',
+      'How do others handle on-call?',
+      'Is it worth upgrading to a heat pump?',
+      'Teach me about roadschooling',
+      'What do teams pay for observability?',
+    ]) expect(asksForRunbook(nb(t)), t).toBe(false);
+    // The drafter's own title for the step says so too.
+    expect(asksForRunbook(nb('Sourdough', [{ ...write[0], title: 'Write the runbook' }]))).toBe(true);
+    // Nothing written as the answer (a plan, a pick), or a briefing on a subject: never.
+    expect(asksForRunbook(nb('Teach me how to make a PB&J', [{ ...write[0], shape: 'plan' as never }]))).toBe(false);
+    expect(asksForRunbook(nb('Teach me how to make a PB&J', []))).toBe(false);
+    expect(asksForRunbook({ ...nb('Teach me how to make a PB&J'), briefOn: { name: 'PB&J', kind: 'topic' } })).toBe(false);
+  });
+
+  it('once written, a Runbook page is kept as it is, not composed around a hero; the page agent knows it', () => {
+    const steps = readFileSync(join(here, 'notebook-steps.ts'), 'utf-8');
+    expect(steps).toContain("if (nb.layout?.preset === 'runbook') return;");
+    const page = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-page.yaml'), 'utf-8');
+    expect(page).toContain('{"preset": "runbook"} for teaching or walking');
   });
 
   it("sua's drafter is told a runbook is an answer", () => {

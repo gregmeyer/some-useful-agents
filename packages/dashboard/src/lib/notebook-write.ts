@@ -13,7 +13,7 @@
  */
 import { agentForCopy } from './experiment-copy-agent.js';
 import { notebookAffiliations, optionFacets } from './notebook-widgets.js';
-import { NotebookStore, BRIEFING_PARTS, answerSubjects, evidenceOrigin, subjectHost, optionLink, type BriefingRules, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
+import { NotebookStore, BRIEFING_PARTS, asksForRunbook, answerSubjects, evidenceOrigin, subjectHost, optionLink, type BriefingRules, givenForStep, givenForSteps, openConflicts, cleanBriefing, cleanAnswer, notebookAmounts, cleanPlan, extractTaggedJson, notebookViewData, rankOptions, type Notebook, type NotebookEntry, type NotebookStep } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { NOTEBOOK_WRITER_ID } from './notebook-step-agents.js';
@@ -135,7 +135,8 @@ export function writerInputs(nb: Notebook, entries: readonly NotebookEntry[], st
       ...(nb.briefOn && step.shape === 'answer' ? { briefingOn: { name: nb.briefOn.name, kind: nb.briefOn.kind, ...(ownHost ? { ownSite: ownHost } : {}), parts: BRIEFING_PARTS.map((p) => ({ part: p.id, title: p.title, covers: p.covers })) } } : {}),
       ...(meeting && Object.keys(meeting).length ? { meeting } : {}),
       // A runbook's page: its answer is written as one (steps with how, what you'll see and if not; something to copy).
-      ...(step.shape === 'answer' && nb.layout?.preset === 'runbook' ? { runbook: true } : {}),
+      // Also a notebook that asks to be taught something, on a page that's still its own (not one you changed).
+      ...(step.shape === 'answer' && (nb.layout?.preset === 'runbook' || ((nb.layoutBy === 'notebook' || (!nb.layout && !nb.layoutBy)) && asksForRunbook(nb))) ? { runbook: true } : {}),
       // What it depends on from you: sua's reading of it (or its text), or that it wasn't given (never written as if known).
       ...(givenForSteps(nb).length ? { given: givenForSteps(nb).map((g) => { const f = givenForStep(g); return !f.given ? { what: g.label, notGiven: true, rule: 'Never assume it or say anything matches it; say the results are not matched to it.' } : f.lines ? { what: g.label, asRead: f.lines } : { what: g.label, text: (g.text ?? '').slice(0, 8000) }; }) } : {}),
       // What you struck isn't written again (points, findings, plan items); replacing some, the ones you're keeping.

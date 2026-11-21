@@ -1027,6 +1027,8 @@ export async function pageAfterWritten(ctx: Ctx, store: NotebookStore, notebookI
   if (!nb || nb.experimentRun || !(pageIsItsOwn(nb) || pageIsPicked(nb)) || (!nb.answer?.text && !nb.plan?.items.length)) return;
   // A briefing on a subject: its ready-made page already places every part in order; composing it again would pick one part as a hero and demote the rest.
   if (nb.briefOn && nb.layout?.preset === 'subject') return;
+  // A runbook's ready-made page places each part by what it's for (ready, the steps, what goes wrong): composing it again would trade that for a hero.
+  if (nb.layout?.preset === 'runbook') return;
   // A shortlist's write-up: the ready-made shortlist page already shows it; a drawn page is composed around it but keeps its kind.
   const writeup = writesUp(nb);
   if (writeup && !nb.layout) return;
