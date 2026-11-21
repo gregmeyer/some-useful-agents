@@ -6,7 +6,7 @@
  * steps. Then it decides its page (unless it came with one, a template's),
  * and sua says hello in the notebook's conversation.
  */
-import { NotebookStore, layoutPreset, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
+import { NotebookStore, asksForRunbook, layoutPreset, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
 import { fitStepAgents, startNotebookStep, stopNotebookStep } from './notebook-steps.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { startGivenRead } from './notebook-given-read.js';
@@ -93,6 +93,8 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     // A briefing on a subject has its page: no run is spent deciding one, and it keeps its kind when it's composed around what's written.
     const now = store.get(nb.id);
     if (now?.briefOn && !now.layout && !input.decidePage) { store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked'); greet(); return; }
+    // Teaching or walking through something: the Runbook page, which places what's written by what it's for.
+    if (now && !now.layout && !input.decidePage && asksForRunbook(now)) { store.setLayout(nb.id, layoutPreset('runbook')!.layout, 'picked'); greet(); return; }
     void decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet);
   };
   // No steps given: sua lays them out once it's set up first.

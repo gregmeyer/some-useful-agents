@@ -719,6 +719,22 @@ export function answerSectionLines(s: NotebookAnswerSection): string[] {
   return [s.body];
 }
 
+/** Asks to be taught or walked through doing something, not a question to answer ("how do I choose…" stays a question). */
+const RUNBOOK_ASK = /\b(?:runbook|how-to|primer|tutorial|step[- ]by[- ]step|walk (?:me|us|them|someone|a \w+) through|show (?:me|us|them|someone) how|teach (?:me|us|them|someone|a \w+|my \w+|\w+) (?:how )?to)\b|\bhow (?:do|can|would|should) (?:i|we|you|one) (?:make|build|set up|setup|install|deploy|cook|bake|brew|fix|repair|configure|create|write|file|run|start|launch|publish|ship|plant|grow|clean|replace|change|migrate|upgrade|connect|train)\b/i;
+
+/**
+ * A notebook that writes a runbook: it ends with writing the answer, and
+ * what it's for asks to be taught or walked through something ("teach me
+ * how to make a PB&J", "walk me through filing a 1099"), or its write step
+ * is the runbook ("Write the runbook"). A briefing on a subject never is. Pure.
+ */
+export function asksForRunbook(nb: Pick<Notebook, 'title' | 'statement' | 'steps' | 'briefOn'>): boolean {
+  if (nb.briefOn) return false;
+  const write = nb.steps?.find((s) => s.kind === 'write' && s.shape === 'answer');
+  if (!write) return false;
+  return /\b(?:runbook|how-to)\b/i.test(write.title) || RUNBOOK_ASK.test(`${nb.title}\n${nb.statement}`);
+}
+
 /**
  * What a part of a runbook is for: the role the writer gave, else worked
  * out (an answer written before roles): steps and things to copy are the
