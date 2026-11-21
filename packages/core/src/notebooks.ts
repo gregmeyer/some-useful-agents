@@ -1332,6 +1332,15 @@ export interface NotebookTemplate {
   archivedAt?: string;
 }
 
+/**
+ * A runbook is written as an answer (its steps with how, what you'll see and
+ * if not), never as a plan of days: on a Runbook page, a write step that
+ * writes a plan writes the answer.
+ */
+export function runbookWrites<T extends { kind: string; shape?: string }>(layout: { preset?: string } | undefined, step: T): T {
+  return layout?.preset === 'runbook' && step.kind === 'write' && step.shape === 'plan' ? { ...step, shape: 'answer' } : step;
+}
+
 /** A notebook's setup as a template keeps it (see NotebookTemplateSetup). */
 export function templateFromNotebook(nb: Notebook): NotebookTemplateSetup {
   return {
@@ -2110,6 +2119,10 @@ export class NotebookStore {
       this.db.prepare('DELETE FROM notebook_layout_history WHERE notebook_id = ? AND id NOT IN (SELECT id FROM notebook_layout_history WHERE notebook_id = ? ORDER BY id DESC LIMIT 20)').run(id, id);
     }
     this.db.prepare('UPDATE notebooks SET layout_json = ?, layout_by = ?, updated_at = ? WHERE id = ?').run(clean ? JSON.stringify(clean) : null, by ?? null, now, id);
+    // A Runbook page writes its runbook as the answer: a write step that writes a plan writes the answer now.
+    if (clean?.preset === 'runbook' && was.steps?.some((x) => x.kind === 'write' && x.shape === 'plan')) {
+      this.db.prepare('UPDATE notebooks SET steps_json = ? WHERE id = ?').run(JSON.stringify(was.steps.map((x) => runbookWrites(clean, x))), id);
+    }
     return this.mustGet(id);
   }
 
@@ -2197,7 +2210,7 @@ export class NotebookStore {
       const keys = [...new Set(step.facts.map((f) => nb.fields.find((x) => x.key.toLowerCase() === f.toLowerCase() || x.label.toLowerCase() === f.toLowerCase())?.key).filter((k): k is string => !!k))];
       const { facts: _f, ...rest } = step;
       return keys.length ? { ...rest, facts: keys } : rest;
-    });
+    }).map((step) => runbookWrites(nb.layout, step));
     this.db.prepare('UPDATE notebooks SET steps_json = ?, updated_at = ? WHERE id = ?').run(steps.length ? JSON.stringify(steps) : null, new Date().toISOString(), id);
     return this.mustGet(id);
   }

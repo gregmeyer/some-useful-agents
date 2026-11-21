@@ -129,7 +129,13 @@ nodes:
         found: for a meeting, the talking points, each with why it matters
         to them and a question to ask; "target": how many points, 3 to 5;
         for a question, the answer: "shape": "answer", no target;
-        for a plan, the plan in order: "shape": "plan", no target;
+        for a runbook, a primer, a how-to or a lesson someone will
+        follow ("teach someone to…", "how do I…", "turn this into a
+        runbook"), the answer too: "shape": "answer" ("Write the
+        runbook"), never "plan" (the Runbook page writes it as steps
+        with how, what you'll see and if not);
+        for a plan, the plan in order: "shape": "plan", no target (days
+        or slots: a trip, a week of meals, a move, never a how-to);
         for a shortlist, the field written up ("Write up the field"): the
         lay of the land, its groups, the top three and why, what to do
         next: "shape": "writeup", no target, after check (and source) and

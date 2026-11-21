@@ -50,6 +50,32 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(js).toMatch(/\['How', it\.how, ''\], \['You\\u2019ll see', it\.see, ''\], \['If not', it\.ifNot, 'ifnot'\]/);
   });
 
+  it('a Runbook page writes the answer, never a plan: picking the page or setting the steps either way round', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-runbook-'));
+    const s = NotebookStore.fromHandle(new RunStore(join(dir, 'runs.db')).databaseHandle());
+    // Steps first (as sua's edit set them: "Write the runbook", a plan), then the page.
+    const a = s.create({ title: 'Teach it' });
+    s.setSteps(a.id, [{ title: 'Find guides', kind: 'find', target: 3 }, { title: 'Write the runbook', kind: 'write', shape: 'plan' }]);
+    expect(s.get(a.id)!.steps![1].shape).toBe('plan');
+    s.setLayout(a.id, layoutPreset('runbook')!.layout, 'picked');
+    expect(s.get(a.id)!.steps![1].shape).toBe('answer');
+    // The page first, then the steps.
+    const b = s.create({ title: 'Teach it again' });
+    s.setLayout(b.id, layoutPreset('runbook')!.layout, 'picked');
+    s.setSteps(b.id, [{ title: 'Write the runbook', kind: 'write', shape: 'plan' }]);
+    expect(s.get(b.id)!.steps![0].shape).toBe('answer');
+    // Another page keeps its plan.
+    const c = s.create({ title: 'Plan a trip' });
+    s.setLayout(c.id, layoutPreset('plan')!.layout, 'picked');
+    s.setSteps(c.id, [{ title: 'Write the plan', kind: 'write', shape: 'plan' }]);
+    expect(s.get(c.id)!.steps![0].shape).toBe('plan');
+  });
+
+  it("sua's drafter is told a runbook is an answer", () => {
+    const yaml = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-drafter.yaml'), 'utf-8');
+    expect(yaml).toContain('the answer too: "shape": "answer" ("Write the\n        runbook"), never "plan"');
+  });
+
   it("the writer's instructions describe the runbook", () => {
     const yaml = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-writer.yaml'), 'utf-8');
     expect(yaml).toContain('When the notebook has "runbook": true');
