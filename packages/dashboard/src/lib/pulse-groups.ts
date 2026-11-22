@@ -22,6 +22,8 @@
 export interface GroupableTile {
   agent: { id: string };
   lastRun?: { completedAt?: string | null; startedAt?: string | null } | null;
+  /** Its newest run failed (after its last result): it needs you, so it leads. */
+  failedRun?: { id: string; at: string } | null;
 }
 
 export interface TileGroup {
@@ -57,8 +59,11 @@ export function computeTileGroups(
   const recent: Array<{ id: string; at: number }> = [];
   const idle: Array<{ id: string; at: number }> = [];
   const never: string[] = [];
+  const attention: Array<{ id: string; at: number }> = [];
 
   for (const tile of tiles) {
+    // A newest run that failed: first, under Needs attention, whatever else it is.
+    if (tile.failedRun) { attention.push({ id: tile.agent.id, at: Date.parse(tile.failedRun.at) || 0 }); continue; }
     const at = lastRunMs(tile);
     if (at === null) {
       never.push(tile.agent.id);
@@ -74,10 +79,11 @@ export function computeTileGroups(
   const byNewest = (a: { at: number }, b: { at: number }) => b.at - a.at;
   recent.sort(byNewest);
   idle.sort(byNewest);
+  attention.sort(byNewest);
 
   const groups: TileGroup[] = [];
-  if (systemTileIds.length > 0) {
-    groups.push({ id: 'health', label: 'Health', tiles: [...systemTileIds] });
+  if (attention.length > 0) {
+    groups.push({ id: 'attention', label: 'Needs attention', tiles: attention.map((r) => r.id) });
   }
   if (recent.length > 0) {
     groups.push({ id: 'recent', label: 'Recent', tiles: recent.map((r) => r.id) });
@@ -90,6 +96,11 @@ export function computeTileGroups(
     // run console — an agent you set up and never used is one click from
     // being useful — so they are collected, not hidden.
     groups.push({ id: 'never-run', label: 'Never run', tiles: never });
+  }
+  // The counts (runs today, failure rate…) are said in one line above the board now; their tiles stay
+  // here, last, so they can still be placed on an arranged Pulse.
+  if (systemTileIds.length > 0) {
+    groups.push({ id: 'health', label: 'Counts', tiles: [...systemTileIds] });
   }
   return groups;
 }

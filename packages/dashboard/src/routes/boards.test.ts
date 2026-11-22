@@ -336,6 +336,18 @@ describe('boards are canvases', () => {
     expect(bar).toContain('>Manage agents</a>');
   });
 
+  it('All agents says its health in one line, problems first: failed runs link to them, and an agent whose newest run failed leads under Needs attention', async () => {
+    const app = await setup();
+    const at = new Date(Date.now() - 3600_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-ok', agentName: 'weather', status: 'completed', startedAt: at, completedAt: at, result: '{}', triggeredBy: 'dashboard' } as never);
+    const later = new Date(Date.now() - 60_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-bad', agentName: 'weather', status: 'failed', startedAt: later, completedAt: later, error: 'boom', triggeredBy: 'dashboard' } as never);
+    const page = (await get(app, '/pulse/agents')).text;
+    expect(page).toContain('<a class="pulse-health__part is-bad" href="/runs?status=failed">1 of 2 runs failed in the last day</a>');
+    const tabs = surface(page).find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>;
+    expect(tabs[0].title).toBe('Needs attention (1)');
+  });
+
   it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
     const app = await setup();
     const { EditionPrefsStore } = await import('@some-useful-agents/core');
@@ -505,7 +517,12 @@ describe('boards are canvases', () => {
     let page = await get(app, '/pulse/agents');
     let comps = surface(page.text);
     expect(comps.find((c) => c.id === 'rest')).toMatchObject({ component: 'Section', title: 'Everything else', child: 'rest_tabs' });
-    expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Health/), expect.stringMatching(/^Never run/)]));
+    expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Counts/), expect.stringMatching(/^Never run/)]));
+    // The counts are one line above the board, problems first; no boxes needed to see them.
+    expect(page.text).toMatch(/<p class="pulse-health[^"]*" role="status">/);
+    expect(page.text).toMatch(/run(s)? in the last day/);
+    // Arrange and Suggest a layout are bordered buttons; a tile has no dead ⚙.
+    expect(page.text).toContain('<button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>');
     let tiles = registry(page.text);
     expect(tiles.weather.hideAction).toBe('/agents/weather/signal/toggle');
     expect(JSON.stringify(tiles['_system-runs-today'].messages)).toContain('"component":"Metric"');

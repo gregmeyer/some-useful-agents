@@ -278,13 +278,20 @@ The board is your agents at a glance. Each agent with a `signal:` block, or an A
 
 **`template: widget`** is special — mirrors the agent's own outputWidget. No mapping required.
 
-**Everything else groups tiles by how recently you used them** — Health (system metrics),
-Recent (ran in the last 7 days, newest first), Idle, and Never run. Empty groups
-are omitted. The ordering is meant for a run console: what you used last is what
+**All agents says its health in one line**, problems first: a stopped scheduler (linked to the scheduled agents), then "2 of 56 runs failed in the last day" (linked to the failed runs), or "56 runs in the last day, none failed".
+
+**Everything else groups tiles by what needs you, then by how recently you used them:**
+- **Needs attention**: agents whose newest run failed.
+- **Recent**: ran in the last 7 days, newest first.
+- **Idle.**
+- **Never run.**
+- **Counts**: the system tiles, last, so you can still place them.
+
+Empty groups are omitted. The ordering is meant for a run console: what you used last is what
 you are most likely to run again, and agents you set up but never used are
 collected at the bottom rather than scattered through the board.
 
-Configure tiles via the ⚙ gear on each one, and set a tile's palette in **✎ Arrange**. Hide/unhide via the × (it toggles the agent's `pulseVisible` flag). System tiles (runs today, avg duration, failure rate, agent count, **scheduler**) head the tray until you place them.
+Redesign a tile's look with ✎ (sua redraws the agent's view), and set its palette in **Arrange**. Hide or unhide it with × (which toggles the agent's `pulseVisible` flag). The system tiles (runs today, avg duration, failure rate, agent count, **scheduler**) are under Counts until you place them.
 
 **The scheduler tile** reports whether the schedule daemon is actually running,
 because a dead scheduler is otherwise invisible here: `/health` knows and

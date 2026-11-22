@@ -8,7 +8,7 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 - **Run** in the footer runs the agent in place and refreshes only that tile; **Run…** opens the agent page when it needs input first. An agent whose own view has a form or **Run again** runs from there instead, also in place.
 - A tile can run another tile on the same board: a view's Run button or a table's row action may name an agent placed there (`context.agent`, or a Table's `rowAction.agent`), and that tile runs with the row's values and refreshes. Anywhere else, and for an agent not on the board, the action runs the view's own agent. See [a2ui-views.md](a2ui-views.md#what-a-view-can-bind-to).
-- **⚙** configures the tile (template, title, size, accent).
+- **✎** redesigns the agent's view with sua.
 - **×** on Pulse hides the agent from Pulse (restore it from the hidden section at the bottom). On a dashboard, remove a tile by arranging the board.
 - A tile refreshes itself on the agent's `refresh` interval, and keeps its palette and accent.
 - The few widgets A2UI can't draw yet (capture-image widgets, YouTube/Vimeo media) show a note pointing to the agent's page.
@@ -46,7 +46,7 @@ See [ADR-0076](adr/0076-the-edition-follows-preferences.md).
 
 Nobody arranges it and nothing about its page is saved, so there is no Arrange here. `/pulse#agent-<id>` opens it at that agent's result; Home's reads and brief link that way. For a page like it that you can arrange, make a board and choose the front page under **How it looks**. See [ADR-0074](adr/0074-pulse-opens-on-a-generated-edition.md).
 
-**All agents** (`/pulse/agents`), the second tab, is the board you arrange. It shows what you've placed first. Every other agent is under **Everything else**, in tabs by how recently you used it (Health, Recent, Idle, Never run); only the open tab is drawn, so a big Pulse stays quick. A placed agent you hide from Pulse drops off the board.
+**All agents** (`/pulse/agents`), the second tab, is the board you arrange. It shows what you've placed first. Every other agent is under **Everything else**, in tabs: Needs attention (its newest run failed), then by how recently you used it (Recent, Idle, Never run), and Counts (the system tiles) last. A line above the board says its health, problems first; only the open tab is drawn, so a big Pulse stays quick. A placed agent you hide from Pulse drops off the board.
 
 Until Pulse's board is first saved, it offers **Start from my Pulse arrangement** when your browser kept groups or tile sizes for the old Pulse: each of your groups becomes a section with its tiles at the sizes you chose.
 

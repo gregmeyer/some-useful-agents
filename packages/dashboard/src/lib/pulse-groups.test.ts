@@ -48,10 +48,17 @@ describe('computeTileGroups', () => {
     expect(byId(gs, 'idle')).toEqual(['just-outside']);
   });
 
-  it('leads with Health when there are system tiles', () => {
+  it('puts the counts last (the page says them in a line above), still placeable', () => {
     const gs = computeTileGroups([tile('a', ago(HOUR))], ['_system-runs-today'], NOW);
-    expect(labels(gs)[0]).toBe('Health');
+    expect(labels(gs)).toEqual(['Recent', 'Counts']);
     expect(byId(gs, 'health')).toEqual(['_system-runs-today']);
+  });
+
+  it('leads with Needs attention: an agent whose newest run failed, whatever else it is', () => {
+    const failed = { ...tile('broke', ago(30 * DAY)), failedRun: { id: 'run-x', at: new Date(NOW - HOUR).toISOString() } };
+    const gs = computeTileGroups([tile('r', ago(HOUR)), failed], [], NOW);
+    expect(labels(gs)).toEqual(['Needs attention', 'Recent']);
+    expect(byId(gs, 'attention')).toEqual(['broke']);
   });
 
   it('omits groups with nothing in them', () => {
@@ -71,7 +78,7 @@ describe('computeTileGroups', () => {
       [tile('r', ago(HOUR)), tile('i', ago(30 * DAY)), tile('n')],
       ['_system-runs-today'], NOW,
     );
-    expect(labels(gs)).toEqual(['Health', 'Recent', 'Idle', 'Never run']);
+    expect(labels(gs)).toEqual(['Recent', 'Idle', 'Never run', 'Counts']);
   });
 
   it('accounts for every tile exactly once', () => {
