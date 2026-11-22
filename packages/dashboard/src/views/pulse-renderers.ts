@@ -391,6 +391,10 @@ function renderWidgetTile(tile: PulseTile, wrap: TileWrapFn): SafeHtml {
 /** The converted pre-A2UI view of a tile, or undefined when there's nothing to draw (no run yet). */
 function legacyTileView(tile: PulseTile): { legacy: LegacyView; widget?: OutputWidgetSchema } | undefined {
   const agent = tile.agent;
+  // Drawn to be read (Today's edition): an interactive widget's last result, without its form (the footer runs it again).
+  if (agent.outputWidget?.interactive && tile.readOnly && tile.lastRun?.status === 'completed' && typeof tile.lastRun.result === 'string') {
+    return { legacy: legacyWidgetView(agent.outputWidget, tile.lastRun.result), widget: agent.outputWidget };
+  }
   // An interactive widget is a form + Run button, with or without a prior run.
   if (agent.outputWidget?.interactive) {
     return {

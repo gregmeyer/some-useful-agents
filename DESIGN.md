@@ -115,7 +115,8 @@ A brief (the saved page or PDF of a notebook) is the page set for reading away f
 
 ## Boards as front pages
 A board you read every morning can be composed like a front page instead of a grid of equal boxes, with the notebook page's parts (ADR-0070): the same treatments, row shapes and rhythm rules apply.
-- **Masthead:** the one hero, a `feature` Panel titled with the board's name (28px display) and the date as its note, a caption under it saying how fresh the newest result is. One per page, full width, first.
+- **Masthead:** the one hero, a `feature` Panel titled with the board's name (28px display) and the date as its note, a caption under it saying how fresh the newest result is. One per page, full width, first. Today's edition titles it with the date alone, since its tab names it.
+- **A part's age:** each Panel's note is its result's age ("13d ago"). A part older than the page's day says why it's there in a caption under its title. A part is read, not used: no input forms on a front page.
 - **Lede:** the lead story as a `lede` Panel holding a Callout bound to an agent's headline and summary fields; never a tile.
 - **Story and rail:** a 2:1 `Columns`, `align: start`: the story column holds `feature` Panels, the rail `aside` Panels. A number that matters leads an aside as a `Lead` over the agent's tile.
 - **Band:** a full-width `band` strip of figures (a StatStrip of every agent's numbers), low on the page, only when two or more agents have numbers.

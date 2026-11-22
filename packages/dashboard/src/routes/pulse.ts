@@ -1,5 +1,6 @@
 import { renderBoardPage, renderTodayEdition } from './boards.js';
-import { editionPrefsStoreOf } from '../lib/today-edition.js';
+import { editionFreshness, editionPrefsStoreOf, todayEdition } from '../lib/today-edition.js';
+import { lastRunInputs, startAgentRun } from './widget-run.js';
 import { applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
 import { applyEditionOps } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
@@ -118,6 +119,16 @@ function buildSystemTiles(ctx: ReturnType<typeof getContext>): PulseTile[] {
   ];
 }
 
+/** A stopped (or stale) scheduler while agents are scheduled: one line to say so, or undefined when nothing is lost. */
+export function schedulerProblem(ctx: ReturnType<typeof getContext>): string | undefined {
+  try {
+    const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
+    const scheduled = ctx.agentStore.listAgents().filter((a) => a.schedule && a.status === 'active').length;
+    const s = schedulerTileState({ status, registered: heartbeat?.agents.length ?? 0, scheduled });
+    return s.state === 'down' ? `The scheduler is ${s.label.toLowerCase()}: ${s.message.charAt(0).toLowerCase()}${s.message.slice(1)}.` : undefined;
+  } catch { return undefined; }
+}
+
 /** Scheduler health as a board tile. Mapping lives in lib/scheduler-tile.ts. */
 function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
   const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
@@ -220,6 +231,21 @@ pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) =
 pulseRouter.post('/pulse/edition/ask/:id/discard', (req: Request, res: Response) => {
   discardEditionAsk(getContext(req.app.locals), String(req.params.id));
   res.redirect(303, '/pulse');
+});
+
+/** Run the edition's parts that are older than a day again, each with its last inputs (one press; nothing runs on its own). */
+pulseRouter.post('/pulse/edition/run-older', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const ed = todayEdition(ctx);
+  const old = ed ? [...editionFreshness(ed.tiles)].filter(([, f]) => f.old).map(([id]) => id) : [];
+  let n = 0;
+  for (const id of old) {
+    const agent = ctx.agentStore.getAgent(id);
+    if (!agent || agent.status !== 'active') continue;
+    startAgentRun(ctx, agent, lastRunInputs(ctx, agent));
+    n++;
+  }
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(n ? `Running ${String(n)} older part${n === 1 ? '' : 's'} again. Each updates on the page when it's done.` : 'Nothing older than a day to run.')}`);
 });
 
 /** Undo the last change to the edition's preferences, forget them all, or bring back an agent you left out (ADR-0076). */

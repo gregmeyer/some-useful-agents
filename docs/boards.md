@@ -17,10 +17,18 @@ Each tile shows an agent's latest result, drawn with the agent's view (or its wi
 
 **Pulse opens on Today's edition** whenever a scheduled agent has finished a run in the last 24 hours. It is a front page made fresh each time you open it:
 
-- a masthead with the date, and the day's headline (the first sentence of the agent that leads Home's brief);
-- each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button;
+- a masthead titled with the date (the tab already says Today's edition), and the day's headline (the first sentence of the agent that leads Home's brief);
+- each scheduled agent's latest result, drawn as that agent's own view, with its **Run** button and its age beside its title ("13d ago");
 - **By the numbers**, a band under the headline when an agent has a count that changes from day to day: that count, its last days as columns (today's marked), and up to three other figures each over a line of its last days. The same figures as Home's brief; every number is read from an agent's output. The page's data carries them at `/board/figures` (the lead as a `Lead` stat with `days` for `DayBars`; `others/<n>` with `values` for a `Sparkline`). Every board's data carries its own agents' figures at the same paths, so a board you made can draw the same band (sua does it when you take a numbers suggestion, or ask for one).
 - results with a table in the wide column; the others beside it (one with a number first, the number set large) and three abreast underneath.
+
+**It says how fresh it is** ([ADR-0099](adr/0099-the-edition-says-how-fresh-it-is.md)):
+- **The header counts honestly:** "1 of 3 parts from the last day".
+- **A part older than a day** is there only because you always show it, and says so under its title. "N parts are older than a day" sits above the edition, with **Run the N older parts**. Each runs again with its last inputs. Nothing runs just because you opened the page.
+- **A newer run that failed:** a part says "Its last run failed, so this is the result from before. See why", linking to that run.
+- **A stopped scheduler**, while agents are scheduled, is said in red above the edition, with a link to the scheduled agents.
+- **Results to read.** The edition shows results, not tools. An agent whose result is a form (a weather tool that asks for a place) shows its last result without the form. Its **Run** runs it again with the same inputs, and **Change inputs…** goes to the agent's page.
+- **Dates in tables** stay on one line.
 
 **Improving the edition.** It can't be arranged or saved as a page, but it follows what you've said you want:
 
