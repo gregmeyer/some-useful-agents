@@ -53,6 +53,7 @@ import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
 import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
 import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
+import { localBack } from '../lib/local-back.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
 import { keepPhotos, startListingPhotos } from '../lib/notebook-photos.js';
@@ -848,10 +849,6 @@ notebooksRouter.post('/notebooks/:id/star', (req: Request, res: Response) => {
   res.redirect(303, localBack(req.body?.back) ?? `/notebooks/${encodeURIComponent(id)}`);
 });
 
-/** A form's `back` path when it's a page on this dashboard (the dashboard sends no Referer); undefined for anything else. */
-function localBack(v: unknown): string | undefined {
-  return typeof v === 'string' && /^\/(?![/\\])[^\s\\]*$/.test(v) && v.length <= 500 ? v : undefined;
-}
 
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
   const id = String(req.params.id);
