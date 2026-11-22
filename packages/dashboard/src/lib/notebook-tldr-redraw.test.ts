@@ -51,8 +51,53 @@ describe('redrawing a TL;DR picture from an ask', () => {
     expect(strayNumbers(['Eight ways, from $139.99', 'Past $2,130.99 for 2000 EZGO carts'], nb, card)).toEqual([]);
     expect(strayNumbers(['From $140', 'Save 40% in 2026'], nb, card)).toEqual(['140', '40', '2026']);
     const out = parseTldrAnswer(answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Batteries from $140', takeaway: 'Eight options.' }), nb, card, 'bolder', at);
-    expect(out).toMatchObject({ error: "The headline or takeaway has a number that CARD doesn't (140). Use only numbers that are in CARD, written as they are there, or none." });
+    expect(out).toMatchObject({ error: "The headline, takeaway or view's words have a number that CARD doesn't (140). Use only numbers that are in CARD, written as they are there, or none." });
     // What would be kept if a second try doesn't fix it: the drawing, without the words.
     expect((out as { spec: unknown }).spec).toEqual({ size: 'square', tone: 'bold', layout: 'hero', parts: ['lead', 'photos', 'stats', 'bars', 'points'], ask: 'bolder', at });
+  });
+});
+
+describe('a TL;DR card composed as an A2UI view (ADR-0096)', () => {
+  const cover = [
+    { id: 'root', component: 'Column', children: ['cover', 'nums'] },
+    { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom', height: 'tall' },
+    { id: 'nums', component: 'TldrPart', part: 'stats' },
+  ];
+  const answer = (o: object) => `<tldr>${JSON.stringify({ size: 'square', tone: 'bold', about: 'A cover.', ...o })}</tldr>`;
+
+  it('a photo with the headline over it parses, and is kept on the spec', () => {
+    const out = parseTldrAnswer(answer({ headline: 'The Werker 220Ah leads', view: cover }), nb, card, 'headline over the photo');
+    expect('spec' in out && !('error' in out)).toBe(true);
+    expect((out as { spec: { view?: unknown[] } }).spec.view).toHaveLength(3);
+  });
+
+  it("a view that can't be drawn says why, and the rest of the spec is still usable", () => {
+    const bad = (view: unknown[]) => parseTldrAnswer(answer({ view }), nb, card, 'x') as { error?: string; spec?: { view?: unknown } };
+    const img = bad([{ id: 'root', component: 'Column', children: ['i'] }, { id: 'i', component: 'Image', url: 'https://evil.example/a.jpg' }]);
+    expect(img.error).toContain("Image isn't for a TL;DR card");
+    expect(img.spec?.view).toBeUndefined();
+    expect(bad([{ id: 'root', component: 'PhotoCover', photo: { path: '/notebook/options' } }]).error).toContain("Bind only the card's own data (/tldr/…), not /notebook/options");
+    expect(bad([{ id: 'top', component: 'TldrPart', part: 'stats' }]).error).toContain('One component must have id "root".');
+  });
+
+  it("a view's own words may not carry a number CARD doesn't have", () => {
+    const out = parseTldrAnswer(answer({ view: [{ id: 'root', component: 'Column', children: ['t'] }, { id: 't', component: 'Text', text: 'Save $500 today', variant: 'h2' }] }), nb, card, 'x') as { error?: string; spec?: { view?: unknown } };
+    expect(out.error).toContain("(500)");
+    expect(out.spec?.view).toBeUndefined();
+  });
+
+  it('the agent is told how to compose one, and sees the view it has now', () => {
+    const inputs = tldrRedrawInputs({ ...nb, tldr: { size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], view: cover as never } }, card, 'x');
+    expect(inputs.OPTIONS).toContain('PhotoCover');
+    expect(inputs.OPTIONS).toContain('/tldr/photos');
+    expect(JSON.parse(inputs.CURRENT).view).toHaveLength(3);
+  });
+});
+
+describe('the Redraw page says a card is composed', () => {
+  it('names what it opens with', async () => {
+    const { tldrSpecWords } = await import('../views/notebook-tldr-redraw.js');
+    const view = [{ id: 'root', component: 'PhotoCover', photo: { path: '/tldr/photo' } }];
+    expect(tldrSpecWords({ size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], view: view as never })).toBe('Square 1080×1080 · bold · composed: the headline over the photo');
   });
 });

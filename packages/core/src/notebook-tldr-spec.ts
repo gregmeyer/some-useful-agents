@@ -7,6 +7,9 @@
  * A redraw by sua (the notebook-tldr agent) answers with one of these.
  */
 
+import { validateViewComponents, type ViewComponent } from './a2ui/view.js';
+import { TLDR_COMPONENT_NAMES, tldrComponentDocs } from './a2ui/catalog.js';
+
 export type TldrSize = 'standard' | 'landscape' | 'square' | 'portrait';
 export type TldrTone = 'plain' | 'editorial' | 'bold';
 export type TldrLayout = 'stack' | 'split' | 'hero' | 'cover' | 'lineup' | 'spotlight' | 'gallery';
@@ -71,6 +74,86 @@ export interface TldrSpec {
   /** What was asked for. */
   ask?: string;
   at?: string;
+  /**
+   * Composed as an A2UI view (ADR-0096): the card laid out by the agent from
+   * TL;DR_VIEW_COMPONENTS, bound to /tldr/…; `layout` and `parts` don't apply.
+   * Kept only when it passes checkTldrView.
+   */
+  view?: ViewComponent[];
+}
+
+/** What a TL;DR view may use: layout, words, and the card's own components. */
+export const TLDR_VIEW_COMPONENTS: readonly string[] = ['Column', 'Row', 'Columns', 'Text', ...TLDR_COMPONENT_NAMES];
+/** A TL;DR view's size, at most. */
+export const TLDR_VIEW_MAX_COMPONENTS = 25;
+/** What a TL;DR view binds to. */
+export const TLDR_VIEW_PATHS: Record<string, string> = {
+  '/tldr/title': "The notebook's title.",
+  '/tldr/headline': 'The headline written for it (this spec\'s headline), else the title.',
+  '/tldr/takeaway': 'The takeaway written for it (this spec\'s takeaway), if any.',
+  '/tldr/leadLabel': 'What the lead is ("Best lead", "The answer").',
+  '/tldr/lead': "The lead: the best option's name, or the answer in a sentence.",
+  '/tldr/note': 'Under a person or company: the goal or who they are.',
+  '/tldr/date': "The card's date.",
+  '/tldr/photo': 'The picture shown large: its first photo, else the lead\'s picture, else its drawing ({src, credit, name}).',
+  '/tldr/photos': "Its photos, the chosen one first ({src, credit, name} each); /tldr/photos/0, /1, … one of them.",
+  '/tldr/drawing': "The notebook's own drawing (its colour and icon), as a photo-like {src, credit: '', name}.",
+};
+
+/** Every {path} / {"@path"} a view binds to. Pure. */
+function boundPaths(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) { v.forEach((x) => boundPaths(x, out)); return out; }
+  if (!v || typeof v !== 'object') return out;
+  const o = v as Record<string, unknown>;
+  for (const k of ['path', '@path']) if (typeof o[k] === 'string' && Object.keys(o).length <= 2) out.push(o[k] as string);
+  for (const [k, x] of Object.entries(o)) if (k !== 'path' && k !== '@path') boundPaths(x, out);
+  return out;
+}
+
+/** The words a view writes itself (not bound): Text's text, a PhotoCover's kicker, headline and takeaway. Pure. */
+export function tldrViewWords(view: readonly ViewComponent[]): string[] {
+  return view.flatMap((c) => (['text', 'kicker', 'headline', 'takeaway'] as const).map((k) => c[k]).filter((x): x is string => typeof x === 'string'));
+}
+
+/**
+ * Whether a TL;DR view can be drawn: a valid A2UI view (the TL;DR card's
+ * components allowed), only TLDR_VIEW_COMPONENTS, one "root", at most
+ * TLDR_VIEW_MAX_COMPONENTS, every binding one of the card's own paths
+ * (/tldr/…: a picture or a number is never written in). Pure.
+ */
+export function checkTldrView(view: unknown): { ok: true; components: ViewComponent[] } | { ok: false; errors: string[] } {
+  if (!Array.isArray(view) || !view.length) return { ok: false, errors: ['"view" must be a non-empty list of components.'] };
+  if (view.length > TLDR_VIEW_MAX_COMPONENTS) return { ok: false, errors: [`A TL;DR view has at most ${String(TLDR_VIEW_MAX_COMPONENTS)} components (got ${String(view.length)}).`] };
+  const errors: string[] = [];
+  for (const c of view as Array<Record<string, unknown>>) {
+    if (c && typeof c.component === 'string' && !TLDR_VIEW_COMPONENTS.includes(c.component)) errors.push(`${String(c.id)}: ${c.component} isn't for a TL;DR card (use ${TLDR_VIEW_COMPONENTS.join(', ')}).`);
+  }
+  if (!(view as Array<Record<string, unknown>>).some((c) => c?.id === 'root')) errors.push('One component must have id "root".');
+  const stray = [...new Set(boundPaths(view).filter((p) => !(p === '/tldr' || p.startsWith('/tldr/'))))];
+  if (stray.length) errors.push(`Bind only the card's own data (/tldr/…), not ${stray.join(', ')}.`);
+  if (errors.length) return { ok: false, errors };
+  const v = validateViewComponents(view, { tldr: true });
+  return v.ok ? { ok: true, components: v.components } : { ok: false, errors: v.errors };
+}
+
+/** How to compose a TL;DR view, for the agent: its components, what it binds to, and an example. */
+export function tldrViewGuide(): string {
+  return [
+    'view (optional, to compose the card yourself): a list of A2UI components, one with id "root". With a view, "layout" and "parts" are not used; size, tone, headline and takeaway still are.',
+    'Components you may use:',
+    '  - Column {children: [ids]} to stack; Row {children: [ids]} side by side in equal widths; Columns {children: [ids], widths?: [n, …]} side by side in the widths given (each 1–12).',
+    '  - Text {text, variant?: h1 | h2 | h3 | body | caption}: text bound to a path below, or a short label of your own (no numbers that aren\'t in CARD).',
+    ...tldrComponentDocs().map((d) => `  - ${d.name}: ${d.summary} e.g. ${JSON.stringify(d.example)}`),
+    'What to bind ({"path": "…"}); never write a picture\'s address, a name or a number yourself:',
+    ...Object.entries(TLDR_VIEW_PATHS).map(([p, what]) => `  - ${p}: ${what}`),
+    'Example, a photo with the headline over it and the numbers under it:',
+    `  ${JSON.stringify([
+      { id: 'root', component: 'Column', children: ['cover', 'nums', 'found'] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, takeaway: { path: '/tldr/takeaway' }, scrim: 'dark', align: 'bottom', height: 'tall' },
+      { id: 'nums', component: 'TldrPart', part: 'stats' },
+      { id: 'found', component: 'TldrPart', part: 'points' },
+    ])}`,
+  ].join('\n');
 }
 
 export const TLDR_HEADLINE_MAX = 90;
@@ -96,11 +179,15 @@ export function cleanTldrSpec(raw: unknown): TldrSpec | undefined {
   const parts = [...new Set((Array.isArray(o.parts) ? o.parts : []).filter((p): p is TldrPart => typeof p === 'string' && p in TLDR_PARTS))];
   const bars = typeof o.bars === 'number' && Number.isFinite(o.bars) ? Math.min(TLDR_SIZES[size].bars, Math.max(3, Math.round(o.bars))) : undefined;
   const picture = typeof o.picture === 'string' && o.picture in TLDR_PICTURES && o.picture !== 'photos' ? o.picture as TldrPicture : undefined;
+  // A composed card is kept only when it can be drawn.
+  const checked = o.view === undefined ? undefined : checkTldrView(o.view);
+  const view = checked?.ok ? checked.components : undefined;
   const headline = text(o.headline, TLDR_HEADLINE_MAX), takeaway = text(o.takeaway, TLDR_TAKEAWAY_MAX), about = text(o.about, 200), ask = text(o.ask, 300), at = text(o.at, 40);
   return {
     size, tone: pick(o.tone, TLDR_TONES, 'plain'), layout: pick(o.layout, TLDR_LAYOUTS, 'stack'),
     parts: parts.length ? parts : ['lead', 'photos', 'stats', 'bars', 'points'],
     ...(bars !== undefined ? { bars } : {}), ...(picture ? { picture } : {}), ...(headline ? { headline } : {}), ...(takeaway ? { takeaway } : {}), ...(about ? { about } : {}), ...(ask ? { ask } : {}), ...(at ? { at } : {}),
+    ...(view ? { view } : {}),
   };
 }
 

@@ -12,7 +12,7 @@
  * browser (core htmlToPng). `tldrChart` is its bars alone, for the brief.
  */
 import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
-import { rankBy, rankOptions, subjectHost, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrPicture, type TldrSpec } from '@some-useful-agents/core';
+import { rankBy, rankOptions, subjectHost, TLDR_SIZES, type Notebook, type NotebookEntry, type NotebookField, type NotebookViewOption, type TldrLayout, type TldrPart, type TldrPicture, type TldrSpec, type ViewComponent } from '@some-useful-agents/core';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { drawnCoverSrc, formatFieldValue } from './notebooks.js';
 import { notebookWidgetData, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -399,6 +399,39 @@ export const TLDR_CSS = `
 .tl__inner { display: grid; gap: 26px; padding: 40px 56px 36px; align-content: start; min-width: 0; }
 .tl__art { min-width: 0; min-height: 0; position: relative; }
 .tl__artcredit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* A card composed as a view (ADR-0096): a cover runs to the edges, the rest sits in the card's margins. */
+.tl--view { padding: 0 0 32px; gap: 0; align-content: start; overflow: hidden; }
+.tlv__pad { padding: 28px 56px 0; min-width: 0; }
+.tlv__col { display: grid; gap: 22px; align-content: start; min-width: 0; }
+.tlv__row { display: grid; gap: 28px; align-items: start; min-width: 0; }
+.tlv__h2 { margin: 0; font: 700 28px/1.2 var(--display); text-wrap: balance; }
+.tlv__h3 { margin: 0; font: 600 20px/1.3 var(--sans); }
+.tlv__body { margin: 0; font-size: 19px; line-height: 1.5; }
+.tlv__cover { position: relative; overflow: hidden; height: 440px; background: var(--raised); color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.tlv__cover.is-short { height: 300px; }
+.tlv__cover.is-tall { height: 580px; }
+.tl--landscape .tlv__cover { height: 380px; }
+.tl--landscape .tlv__cover.is-tall { height: 460px; }
+.tlv__cover > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.tlv__over { position: absolute; left: 0; right: 0; display: grid; gap: 10px; padding: 36px 56px; }
+.tlv__cover.at-bottom .tlv__over { bottom: 0; padding-top: 96px; }
+.tlv__cover.at-top .tlv__over { top: 0; padding-bottom: 96px; }
+.tlv__cover.at-center .tlv__over { top: 50%; transform: translateY(-50%); }
+.tlv__cover.scrim-dark.at-bottom .tlv__over { background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0)); }
+.tlv__cover.scrim-dark.at-top .tlv__over { background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0)); }
+.tlv__cover.scrim-dark.at-center .tlv__over { background: rgba(0, 0, 0, 0.5); }
+.tlv__cover.scrim-light { color: #111; }
+.tlv__cover.scrim-light.at-bottom .tlv__over { background: linear-gradient(to top, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0)); }
+.tlv__cover.scrim-light.at-top .tlv__over { background: linear-gradient(to bottom, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0)); }
+.tlv__cover.scrim-light.at-center .tlv__over { background: rgba(255, 255, 255, 0.82); }
+.tlv__cover.scrim-none .tlv__over { text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7); }
+.tlv__kick { margin: 0; font: 600 14px/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.92; }
+.tlv__hl { margin: 0; font: 700 46px/1.08 var(--display); text-wrap: balance; }
+.tl--landscape .tlv__hl { font-size: 40px; }
+.tlv__tk { margin: 0; font-size: 21px; line-height: 1.4; max-width: 40em; }
+.tlv__credit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: none; }
+.tlv__cover.at-bottom .tlv__credit { top: 10px; bottom: auto; }
+.tlv__grid .tl__shot .tl__frame, .tl--landscape .tlv__grid .tl__shot .tl__frame { aspect-ratio: var(--ratio, 4 / 3); }
 .tl--cover .tl__art { height: 400px; border-bottom: 1px solid var(--line); }
 .tl--cover .tl__lead, .tl--spotlight .tl__lead { grid-template-columns: minmax(0, 1fr); }
 .tl--cover.tl--square, .tl--cover.tl--portrait { display: flex; flex-direction: column; justify-content: flex-start; }
@@ -557,7 +590,9 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const date = now.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const spec = o.spec;
   const size = TLDR_SIZES[spec?.size ?? 'standard'];
-  const layout = tldrLayoutFor(t, spec);
+  // Composed as a view (ADR-0096): its parts are drawn as the stacked card draws them, and placed where the view says.
+  const composed = spec?.view?.length ? spec.view : undefined;
+  const layout = composed ? 'stack' : tldrLayoutFor(t, spec);
   const parts = spec?.parts ?? ['lead', 'photos', 'stats', 'bars', 'points'];
   // A fixed box holds less when more is stacked in it: the hero's big number, a cover's picture, and each line written for it, cost a bar or two.
   const words = (spec?.headline ? 1 : 0) + (spec?.takeaway ? 1 : 0);
@@ -628,6 +663,7 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const galleryParts = spec?.size === 'landscape' ? [parts.includes('points') && points.length ? 'points' as const : 'lead' as const] : parts.filter((k) => k !== 'photos');
   const all = layout === 'gallery' ? ['photos' as const, ...galleryParts] : layout === 'lineup' && !parts.includes('bars') ? [...parts, 'bars' as const] : parts;
   const every = (keys: readonly TldrPart[]) => all.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
+  if (composed) return tldrViewCard(composed, t, spec!, { header, foot, date, part: { ...part, lead, hero } });
   // Cover and spotlight: the lead's picture large (a band across the top, or one whole side), everything else in a column beside or under it.
   if (large) {
     const big = tldrBigPicture(t, spec?.picture)!;
@@ -645,6 +681,88 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   return html`<article class="tl${cls}" aria-label="${t.title}, in short">
   ${body}
   ${foot}
+</article>`;
+}
+
+/** A composed card's data, at /tldr/… (core TLDR_VIEW_PATHS): words and pictures from the notebook, never from the view. Pure. */
+export function tldrViewData(t: TldrData, spec: Pick<TldrSpec, 'headline' | 'takeaway' | 'picture'>, date: string): Record<string, unknown> {
+  const big = tldrBigPicture(t, spec.picture ?? 'photos');
+  const photo = big ? (t.photos?.find((x) => x.src === big.src) ?? { src: big.src, credit: '', name: t.lead }) : undefined;
+  return {
+    title: t.title, headline: spec.headline ?? t.title, ...(spec.takeaway ? { takeaway: spec.takeaway } : {}),
+    leadLabel: t.leadLabel, lead: t.lead, ...(t.note ? { note: t.note } : {}), date,
+    ...(photo ? { photo } : {}), photos: t.photos ?? [],
+    ...(t.drawing ? { drawing: { src: t.drawing, credit: '', name: t.title } } : {}),
+  };
+}
+
+type Blocks = { header: SafeHtml; foot: SafeHtml; date: string; part: Record<TldrPart | 'hero', SafeHtml> };
+const VIEW_PARTS: Record<string, keyof Blocks['part'] | 'header' | 'foot'> = { header: 'header', foot: 'foot', lead: 'lead', hero: 'hero', stats: 'stats', bars: 'bars', points: 'points', photos: 'photos' };
+
+/**
+ * A card composed as an A2UI view (core checkTldrView passed it): its layout
+ * and the card's own components, every word and picture taken from the
+ * card's data, each photo credited, and the card's foot always at the end.
+ */
+function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpec, blocks: Blocks): SafeHtml {
+  const byId = new Map(view.map((c) => [c.id, c]));
+  const data = tldrViewData(t, spec, blocks.date);
+  const at = (p: string): unknown => p.replace(/^\/tldr\/?/, '').split('/').filter(Boolean).reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), data);
+  const val = (v: unknown): unknown => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) { const o = v as { path?: unknown; '@path'?: unknown }; const p = typeof o.path === 'string' ? o.path : typeof o['@path'] === 'string' ? o['@path'] : undefined; if (p !== undefined) return at(p); }
+    return v;
+  };
+  const words = (v: unknown): string => { const x = val(v); return typeof x === 'string' || typeof x === 'number' ? String(x) : ''; };
+  const photo = (v: unknown): TldrPhoto | undefined => { const x = val(v) as Partial<TldrPhoto> | undefined; return x && typeof x === 'object' && typeof x.src === 'string' ? { src: x.src, credit: x.credit ?? '', name: x.name ?? '' } : undefined; };
+  const kids = (c: ViewComponent): string[] => (Array.isArray(c.children) ? (c.children as unknown[]).filter((x): x is string => typeof x === 'string') : []);
+  let footUsed = false;
+  const seen = new Set<string>();
+  const node = (id: string): SafeHtml => {
+    const c = byId.get(id);
+    if (!c || seen.has(id)) return html``;
+    seen.add(id);
+    switch (c.component) {
+      case 'Column': return html`<div class="tlv__col">${kids(c).map(node) as unknown as SafeHtml[]}</div>`;
+      case 'Row': case 'Columns': {
+        const ids = kids(c);
+        const w = Array.isArray(c.widths) ? (c.widths as unknown[]).map((x) => (typeof x === 'number' && x > 0 ? x : 1)) : [];
+        return html`<div class="tlv__row" style="grid-template-columns:${ids.map((_, i) => `minmax(0, ${String(w[i] ?? 1)}fr)`).join(' ')}">${ids.map(node) as unknown as SafeHtml[]}</div>`;
+      }
+      case 'Text': {
+        const text = words(c.text);
+        if (!text) return html``;
+        const v = typeof c.variant === 'string' ? c.variant : 'body';
+        return v === 'h1' ? html`<h1 class="tl__title">${text}</h1>` : v === 'h2' ? html`<h2 class="tlv__h2">${text}</h2>` : v === 'h3' ? html`<h3 class="tlv__h3">${text}</h3>` : v === 'caption' ? html`<p class="tl__kicker">${text}</p>` : html`<p class="tlv__body">${text}</p>`;
+      }
+      case 'TldrPart': {
+        const k = VIEW_PARTS[String(c.part)];
+        if (k === 'foot') { footUsed = true; return blocks.foot; }
+        return k === 'header' ? blocks.header : k ? blocks.part[k] : html``;
+      }
+      case 'PhotoCover': {
+        const ph = photo(c.photo);
+        const kicker = words(c.kicker), headline = words(c.headline), takeaway = words(c.takeaway);
+        const cls = `tlv__cover is-${String(c.height ?? 'normal')} at-${String(c.align ?? 'bottom')} scrim-${String(c.scrim ?? 'dark')}`;
+        const focus = c.focus === 'top' ? '20%' : c.focus === 'bottom' ? '80%' : '50%';
+        return html`<section class="${cls}">${ph ? html`<img src="${ph.src}" alt="${ph.name}" style="object-position:center ${focus}">` : html``}<div class="tlv__over">${kicker ? html`<p class="tlv__kick">${kicker}</p>` : html``}${headline ? html`<h1 class="tlv__hl">${headline}</h1>` : html``}${takeaway ? html`<p class="tlv__tk">${takeaway}</p>` : html``}</div>${ph?.credit ? html`<span class="tlv__credit">Photo: ${ph.credit}</span>` : html``}</section>`;
+      }
+      case 'PhotoGrid': {
+        const list = (Array.isArray(val(c.photos)) ? (val(c.photos) as unknown[]) : []).map((x) => photo(x)).filter((x): x is TldrPhoto => !!x).slice(0, typeof c.count === 'number' ? c.count : TLDR_PHOTOS_MAX);
+        if (!list.length) return html``;
+        const ratio = c.ratio === '1:1' ? '1 / 1' : c.ratio === '16:10' ? '16 / 10' : '4 / 3';
+        return html`<section class="tl__photos tlv__grid" style="--ratio:${ratio}"><ol class="tl__shots" style="--shots:${String(list.length)}">${list.map((x) => html`<li class="tl__shot">${frame(x.src, 'photo', x.name)}${x.credit ? html`<span class="tl__credit">${x.credit}</span>` : html``}</li>`) as unknown as SafeHtml[]}</ol></section>`;
+      }
+      default: return html``;
+    }
+  };
+  // The root's own parts: a cover runs to the card's edges, everything else sits inside its margins.
+  const root = byId.get('root');
+  const top = root && root.component === 'Column' ? kids(root) : ['root'];
+  if (root?.component === 'Column') seen.add('root');
+  const body = top.map((id) => { const c = byId.get(id); const drawn = node(id); return c?.component === 'PhotoCover' ? drawn : html`<div class="tlv__pad">${drawn}</div>`; });
+  return html`<article class="tl tl--view tl--${spec.size} tl--${spec.tone}" aria-label="${t.title}, in short">
+  ${body as unknown as SafeHtml[]}
+  ${footUsed ? html`` : html`<div class="tlv__pad">${blocks.foot}</div>`}
 </article>`;
 }
 

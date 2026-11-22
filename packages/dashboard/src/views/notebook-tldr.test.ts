@@ -266,3 +266,40 @@ describe("a notebook's TL;DR picture", () => {
     expect(tldrOptionsGuide()).toContain('picture (one, optional):');
   });
 });
+
+describe('drawing a TL;DR card composed as a view (ADR-0096)', () => {
+  it('a PhotoCover draws its photo full-bleed with the headline over it and its credit; a PhotoGrid credits each; the foot is always there', async () => {
+    const { tldrCard } = await import('./notebook-tldr.js');
+    const t = {
+      title: 'Learn to make a sandwich', leadLabel: 'The answer', lead: 'A sandwich in about 5 minutes', leadFacts: [], sentence: true,
+      stats: [{ value: '3', label: 'findings' }], points: ['Wash your hands'],
+      photos: [{ src: 'data:image/jpeg;base64,AAAA', credit: 'A. Photographer', name: 'A sandwich' }, { src: 'data:image/jpeg;base64,BBBB', credit: 'example.org', name: 'Another' }],
+      drawing: 'data:image/svg+xml;base64,CCCC',
+    };
+    const view = [
+      { id: 'root', component: 'Column', children: ['cover', 'nums', 'grid'] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom', focus: 'top' },
+      { id: 'nums', component: 'TldrPart', part: 'stats' },
+      { id: 'grid', component: 'PhotoGrid', photos: { path: '/tldr/photos' }, count: 2, ratio: '1:1' },
+    ];
+    const out = String(tldrCard(t as never, { spec: { size: 'square', tone: 'bold', layout: 'stack', parts: ['lead'], headline: 'Two minutes, two clean knives', view: view as never } }));
+    expect(out).toContain('class="tl tl--view tl--square tl--bold"');
+    expect(out).toContain('<img src="data:image/jpeg;base64,AAAA" alt="A sandwich" style="object-position:center 20%">');
+    expect(out).toContain('<p class="tlv__kick">Learn to make a sandwich</p><h1 class="tlv__hl">Two minutes, two clean knives</h1>');
+    expect(out).toContain('<span class="tlv__credit">Photo: A. Photographer</span>');
+    expect(out).toContain('<span class="tl__num">3</span>');
+    expect(out).toContain('style="--ratio:1 / 1"');
+    expect(out).toContain('<span class="tl__credit">example.org</span>');
+    expect(out).toContain('Made with sua');
+    // The cover runs to the card's edges; the rest sits in its margins.
+    expect(out).not.toMatch(/<div class="tlv__pad"><section class="tlv__cover/);
+  });
+
+  it('a spec whose view was dropped (it could not be drawn) draws its layout as before', async () => {
+    const { tldrCard } = await import('./notebook-tldr.js');
+    const { cleanTldrSpec } = await import('@some-useful-agents/core');
+    const spec = cleanTldrSpec({ size: 'standard', tone: 'plain', layout: 'stack', parts: ['lead'], view: [{ id: 'root', component: 'Image', url: 'https://evil.example/a.jpg' }] })!;
+    expect(spec.view).toBeUndefined();
+    expect(String(tldrCard({ title: 'T', leadLabel: 'L', lead: 'x', leadFacts: [], stats: [], points: [] } as never, { spec }))).not.toContain('tl--view');
+  });
+});

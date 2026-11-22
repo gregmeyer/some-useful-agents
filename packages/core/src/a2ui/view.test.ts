@@ -214,3 +214,20 @@ describe('Table column labels', () => {
     expect(validateViewComponents([{ id: 'root', component: 'Table', rows: { path: '/data/rows' }, columns: [{ key: 'factor', label: '' }, { key: 'bart', label: 'BART' }] }]).ok).toBe(true);
   });
 });
+
+describe("the TL;DR card's own components (ADR-0096)", () => {
+  const cover = [{ id: 'root', component: 'PhotoCover', photo: { path: '/tldr/photo' }, headline: { path: '/tldr/headline' }, scrim: 'dark' }];
+  it('are refused in any other view, and allowed on the card', async () => {
+    const { validateViewComponents } = await import('./view.js');
+    const elsewhere = validateViewComponents(cover);
+    expect(elsewhere.ok).toBe(false);
+    expect(!elsewhere.ok && elsewhere.errors.join(' ')).toContain("PhotoCover can only be used on a notebook's TL;DR card.");
+    expect(validateViewComponents(cover, { tldr: true }).ok).toBe(true);
+  });
+  it('the catalog document marks them as for the TL;DR card only', async () => {
+    const { suaCatalogDocument, TLDR_COMPONENT_NAMES } = await import('./catalog.js');
+    expect(TLDR_COMPONENT_NAMES).toEqual(['PhotoCover', 'PhotoGrid', 'TldrPart']);
+    const components = suaCatalogDocument().components as Record<string, { description: string }>;
+    expect(components.PhotoCover.description).toContain("A notebook's TL;DR card only.");
+  });
+});

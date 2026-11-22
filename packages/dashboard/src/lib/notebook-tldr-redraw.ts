@@ -9,7 +9,7 @@
  * background; the Redraw page shows it working and then the new picture.
  */
 import { randomUUID } from 'node:crypto';
-import { NotebookStore, cleanTldrSpec, executeAgentDag, extractTaggedJson, tldrOptionsGuide, TLDR_LAYOUTS, TLDR_SIZES, TLDR_TONES, type Notebook, type TldrSpec } from '@some-useful-agents/core';
+import { NotebookStore, checkTldrView, cleanTldrSpec, executeAgentDag, extractTaggedJson, tldrOptionsGuide, tldrViewGuide, tldrViewWords, TLDR_LAYOUTS, TLDR_SIZES, TLDR_TONES, type Notebook, type TldrSpec } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
@@ -33,7 +33,7 @@ export function cardForAgent(t: TldrData): Record<string, unknown> {
     ...(t.chart ? { bars: { by: t.chart.label, order: t.chart.order, shown: t.chart.bars.map((b) => ({ name: b.name, value: b.text, ...(b.lead ? { lead: true } : {}) })), more: t.chart.more, topOptionsWithPictures: t.chart.bars.slice(0, 4).filter((b) => b.picture).length } } : {}),
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
     // The notebook's own photos (a briefing's sources): how many, and where each is from, so "gallery" and the "photos" part are chosen only when they can be drawn.
-    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit) } } : {}),
+    ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit), each: t.photos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
   };
 }
 
@@ -42,9 +42,9 @@ export function tldrRedrawInputs(nb: Pick<Notebook, 'title' | 'statement' | 'tld
   return {
     NOTEBOOK: JSON.stringify({ title: nb.title, for: nb.statement }),
     CARD: JSON.stringify(cardForAgent(card)),
-    OPTIONS: tldrOptionsGuide(),
+    OPTIONS: `${tldrOptionsGuide()}\n${tldrViewGuide()}`,
     ASK: ask,
-    CURRENT: nb.tldr ? JSON.stringify({ size: nb.tldr.size, tone: nb.tldr.tone, layout: nb.tldr.layout, parts: nb.tldr.parts, ...(nb.tldr.headline ? { headline: nb.tldr.headline } : {}), ...(nb.tldr.takeaway ? { takeaway: nb.tldr.takeaway } : {}) }) : '',
+    CURRENT: nb.tldr ? JSON.stringify({ size: nb.tldr.size, tone: nb.tldr.tone, layout: nb.tldr.layout, parts: nb.tldr.parts, ...(nb.tldr.headline ? { headline: nb.tldr.headline } : {}), ...(nb.tldr.takeaway ? { takeaway: nb.tldr.takeaway } : {}), ...(nb.tldr.view ? { view: nb.tldr.view } : {}) }) : '',
     ERRORS: errors ? `Your last answer couldn't be used: ${errors} Answer again, fixing that and keeping the rest.` : '',
   };
 }
@@ -75,13 +75,16 @@ export function parseTldrAnswer(raw: string | undefined, nb: Pick<Notebook, 'tit
     .filter(([k, known]) => v[k] !== undefined && !(typeof v[k] === 'string' && (v[k] as string) in known))
     .map(([k, known]) => `"${String(v[k])}" is not a ${k} (use one of: ${Object.keys(known).join(', ')}).`);
   if (unknown.length) return { error: unknown.join(' ') };
+  // A composed card that can't be drawn says why (named, so a retry can fix it); without it, the rest is still a way to draw it.
+  const viewCheck = v.view === undefined ? undefined : checkTldrView(v.view);
   const spec = cleanTldrSpec({ ...v, ask, at: now });
   if (!spec) return { error: 'It is not a way to draw the picture.' };
-  const stray = strayNumbers([spec.headline, spec.takeaway], nb, card);
+  if (viewCheck && !viewCheck.ok) return { error: `Its "view" can't be drawn: ${viewCheck.errors.slice(0, 4).join(' ')}`, spec };
+  const stray = strayNumbers([spec.headline, spec.takeaway, ...tldrViewWords(spec.view ?? [])], nb, card);
   if (stray.length) {
-    // Usable without the words, if a second try doesn't fix them.
-    const { headline: _h, takeaway: _t, ...plain } = spec;
-    return { error: `The headline or takeaway has ${stray.length === 1 ? 'a number' : 'numbers'} that CARD doesn't (${stray.join(', ')}). Use only numbers that are in CARD, written as they are there, or none.`, spec: plain };
+    // Usable without the words (and without a view that writes its own), if a second try doesn't fix them.
+    const { headline: _h, takeaway: _t, view: _v, ...plain } = spec;
+    return { error: `The headline, takeaway or view's words have ${stray.length === 1 ? 'a number' : 'numbers'} that CARD doesn't (${stray.join(', ')}). Use only numbers that are in CARD, written as they are there, or none.`, spec: plain };
   }
   return { spec };
 }

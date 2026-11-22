@@ -479,6 +479,48 @@ const BOARD_COMPONENTS = [
   },
 ] as const;
 
+/**
+ * Components only a notebook's TL;DR card may use (ADR-0096): the card's
+ * own renderer draws them (dashboard views/notebook-tldr.ts), as the PNG,
+ * the page's card and the brief's. Pictures, credits, names and numbers are
+ * bound from the card's data at /tldr/…, never written in.
+ */
+const TLDR_COMPONENTS = [
+  {
+    name: 'PhotoCover',
+    summary: 'A photo full-bleed with words over it on a scrim: `photo` bound to /tldr/photo or /tldr/photos/N (never an address); `kicker`, `headline`, `takeaway` (bind /tldr/title, /tldr/headline, /tldr/takeaway, or a short label); `scrim` dark | light | none; `align` where the words sit (top | center | bottom); `focus` the part of the photo kept (top | center | bottom); `height` short | tall. Its credit is drawn on it.',
+    example: { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photo' }, kicker: { path: '/tldr/title' }, headline: { path: '/tldr/headline' }, scrim: 'dark', align: 'bottom' },
+    schema: Common.extend({
+      photo: CS.DynamicValue,
+      kicker: Str.optional(), headline: Str.optional(), takeaway: Str.optional(),
+      scrim: z.enum(['dark', 'light', 'none']).optional(),
+      align: z.enum(['top', 'center', 'bottom']).optional(),
+      focus: z.enum(['top', 'center', 'bottom']).optional(),
+      height: z.enum(['short', 'tall']).optional(),
+    }).strict(),
+  },
+  {
+    name: 'PhotoGrid',
+    summary: 'Up to four of the card\'s photos side by side, each credited under it: `photos` bound to /tldr/photos; `count` 1–4; `ratio` 4:3 | 1:1 | 16:10.',
+    example: { id: 'grid', component: 'PhotoGrid', photos: { path: '/tldr/photos' }, count: 3, ratio: '4:3' },
+    schema: Common.extend({ photos: CS.DynamicValue, count: z.number().int().min(1).max(4).optional(), ratio: z.enum(['4:3', '1:1', '16:10']).optional() }).strict(),
+  },
+  {
+    name: 'TldrPart',
+    summary: 'One of the standard card\'s parts, drawn as it always is from the notebook\'s data: `part` header (TL;DR, the date, the title or headline and takeaway) | lead (the lead and its facts) | hero (one thing very large) | stats (up to three numbers) | bars (the options as ranked bars) | points (the first findings) | photos (a strip of its photos, credited) | foot (where it\'s from).',
+    example: { id: 'nums', component: 'TldrPart', part: 'stats' },
+    schema: Common.extend({ part: z.enum(['header', 'lead', 'hero', 'stats', 'bars', 'points', 'photos', 'foot']) }).strict(),
+  },
+] as const;
+
+/** Components only a TL;DR card may use. */
+export const TLDR_COMPONENT_NAMES: readonly string[] = TLDR_COMPONENTS.map((c) => c.name);
+
+/** The TL;DR card's own components with a summary and an example, for the TL;DR agent. */
+export function tldrComponentDocs(): SuaComponentDoc[] {
+  return TLDR_COMPONENTS.map(({ name, summary, example }) => ({ name, summary, example: { ...example } }));
+}
+
 /** Components only a board may use. */
 export const BOARD_COMPONENT_NAMES: readonly string[] = BOARD_COMPONENTS.map((c) => c.name);
 
@@ -522,7 +564,7 @@ let catalog: Catalog<never> | undefined;
 /** The sua catalog, built once. */
 export function suaCatalog(): Catalog<never> {
   if (!catalog) {
-    const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
+    const components = [...basicComponentApis(), ...[...SUA_COMPONENTS, ...BOARD_COMPONENTS, ...TLDR_COMPONENTS].map(({ name, schema }) => ({ name, schema }))];
     catalog = new Catalog(SUA_CATALOG_ID, '1.0', components as never[], [...BASIC_FUNCTIONS, ...SUA_FUNCTIONS, ...SUA_AGENT_FUNCTIONS] as never[]) as Catalog<never>;
   }
   return catalog;
@@ -550,6 +592,7 @@ export const SUA_CATALOG_INSTRUCTIONS = [
   'One component has id "root". Ids are identifiers (letters, digits and _). A container lists its children by id, or repeats a template over a list: {"path": "/items", "componentId": "row"}.',
   'Prefer sua\'s components for what they are for (Metric for a number, Table for rows, Bars for a ranking, Callout for the answer) over composing them from Text, Row and Column.',
   'Board pages only: Grid, Cell, Section, AgentTile and SystemTile.',
+  'A notebook\'s TL;DR card only: PhotoCover, PhotoGrid and TldrPart.',
 ].join(' ');
 
 /** A zod-derived JSON schema with A2UI's REF markers made $refs to common types, and its generic "Represents a …" notes dropped. */
@@ -585,7 +628,7 @@ export function suaCatalogDocument(): Record<string, unknown> {
   if (catalogDocument) return structuredClone(catalogDocument);
   const doc = suaCatalog().toJson();
   const components = (doc.components ?? {}) as Record<string, unknown>;
-  const docs = new Map<string, { summary: string; example: Record<string, unknown>; board: boolean }>([...SUA_COMPONENTS.map((c) => ({ ...c, board: false })), ...BOARD_COMPONENTS.map((c) => ({ ...c, board: true }))].map((c) => [c.name as string, c]));
+  const docs = new Map<string, { summary: string; example: Record<string, unknown>; board: boolean; tldr?: boolean }>([...SUA_COMPONENTS.map((c) => ({ ...c, board: false })), ...BOARD_COMPONENTS.map((c) => ({ ...c, board: true })), ...TLDR_COMPONENTS.map((c) => ({ ...c, board: false, tldr: true }))].map((c) => [c.name as string, c]));
   for (const api of suaCatalog().components.values() as Iterable<{ name: string; schema: unknown }>) {
     const d = docs.get(api.name);
     if (!d) continue;
@@ -593,7 +636,7 @@ export function suaCatalogDocument(): Record<string, unknown> {
     const all = (catalogJson(j.properties ?? {}) ?? {}) as Record<string, unknown>;
     const props = Object.fromEntries(Object.entries(all).filter(([k]) => k !== 'id' && k !== 'component' && !k.startsWith('@')));
     const required = (Array.isArray(j.required) ? j.required as string[] : []).filter((r) => r !== 'id' && r !== 'component');
-    components[api.name] = { type: 'object', description: `${d.summary}${d.board ? ' Board pages only.' : ''}`, properties: { component: { const: api.name }, ...props }, required: ['component', ...required], examples: [d.example] };
+    components[api.name] = { type: 'object', description: `${d.summary}${d.board ? ' Board pages only.' : ''}${d.tldr ? ' A notebook\'s TL;DR card only.' : ''}`, properties: { component: { const: api.name }, ...props }, required: ['component', ...required], examples: [d.example] };
   }
   catalogDocument = {
     $id: SUA_CATALOG_ID, ...doc, components,
