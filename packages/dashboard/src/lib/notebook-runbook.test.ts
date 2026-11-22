@@ -254,6 +254,24 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(js).not.toMatch(/content: "\\[0-9a-f]/i);
   });
 
+  it('follow along (ADR-0097): one step at a time in a dialog, keys and swipe, Done & next, your place kept, the screen kept awake', () => {
+    const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf-8');
+    expect(js).toContain('<button type="button" class="rbbar__go" @click=${() => openFollow(x, host, keys)}>Follow along</button>');
+    expect(js).toContain('<div class="fa" role="dialog" aria-modal="true"');
+    expect(js).toContain("if (e.key === 'Escape') { e.preventDefault(); close(); }");
+    expect(js).toContain("else if (e.key === 'ArrowRight') { e.preventDefault(); move(i + 1); }");
+    expect(js).toContain("navigator.wakeLock.request('screen')");
+    expect(js).toContain("document.addEventListener('visibilitychange', host._rbVis)");
+    expect(js).toContain("localStorage.setItem(placeKey, String(host._rbFollow.i))");
+    expect(js).toContain('Picking up at step ${String(i + 1)}.');
+    // The next step to follow: from here on, else the first not done.
+    const nextUndone = new Function(`${/const nextUndone = [^\n]+/.exec(js)![0]} return nextUndone;`)() as (d: boolean[], f?: number) => number;
+    expect(nextUndone([true, false, false], 0)).toBe(1);
+    expect(nextUndone([false, true, false], 2)).toBe(2);
+    expect(nextUndone([false, true, true], 2)).toBe(0);
+    expect(nextUndone([true, true], 0)).toBe(1);
+  });
+
   it('groups steps by phase, numbered across groups', () => {
     const g = runbookPhases([{ phase: 'Prep' }, { phase: 'Prep' }, { phase: 'Make' }, {}]);
     expect(g.map((x) => [x.phase, x.steps.map((s) => s.n)])).toEqual([['Prep', [1, 2]], ['Make', [3]], [undefined, [4]]]);

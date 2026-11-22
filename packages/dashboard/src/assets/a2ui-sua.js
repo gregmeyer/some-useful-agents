@@ -1486,6 +1486,31 @@ const sectionStyles = css`${sectionHead}
     h5.ph { margin: 18px 0 8px; font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
     h5.ph span { color: var(--color-text-muted); }
     .rbbar + h5.ph { margin-top: 4px; }
+    .rbbar__go { margin-left: auto; padding: 0 10px; height: 28px; border: 1px solid var(--color-primary); border-radius: var(--radius-sm, 6px); background: none; color: var(--color-primary); font: 600 var(--font-size-sm)/1 var(--font-mono); cursor: pointer; }
+    .rbbar__go:hover, .rbbar__go:focus-visible { background: var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 10%, transparent)); }
+    .rbbar__go + .rbbar__menu { margin-left: 0; }
+    .fa { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; padding: 20px max(20px, calc((100vw - 760px) / 2)); background: var(--color-bg); color: var(--color-text); overflow: auto; outline: none; overscroll-behavior: contain; }
+    .fa__top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .fa__where { font: 600 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-text-muted); }
+    .fa__where b { color: var(--color-primary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .fa__x { height: 28px; padding: 0 10px; border: 1px solid var(--color-border-strong, var(--color-border)); border-radius: var(--radius-sm, 6px); background: none; color: var(--color-text); font: 600 var(--font-size-sm)/1 var(--font-mono); cursor: pointer; }
+    .fa__track { height: 4px; margin: 14px 0 0; border-radius: 2px; background: var(--color-surface-raised); overflow: hidden; }
+    .fa__track span { display: block; height: 100%; background: var(--color-primary); }
+    .fa__resume { margin: 12px 0 0; font: 500 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-primary); }
+    .fa__body { flex: 1 0 auto; display: grid; align-content: center; gap: 16px; padding: 32px 0; }
+    .fa__t { margin: 0; font: 700 var(--font-size-2xl, 28px)/1.25 var(--font-display, var(--font-mono)); text-wrap: balance; }
+    .fa__ok { color: var(--color-primary); }
+    .fa__how { margin: 0; font-size: 20px; line-height: 1.55; }
+    .fa__see { margin: 0; font-size: 18px; line-height: 1.5; }
+    .fa__see b { margin-right: 6px; color: var(--color-primary); }
+    .fa details.stuck { font-size: 16px; }
+    .fa details.stuck summary { cursor: pointer; width: fit-content; font: 600 var(--font-size-sm)/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); }
+    .fa details.stuck p { margin: 6px 0 0; padding-left: 12px; border-left: 2px solid var(--color-warn); line-height: 1.5; }
+    .fa__nav { position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 10px; padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--color-bg); }
+    .fa__nav button { height: 48px; border: 1px solid var(--color-border-strong, var(--color-border)); border-radius: var(--radius-md, 10px); background: var(--color-surface); color: var(--color-text); font: 600 var(--font-size-md, 14px)/1 var(--font-mono); cursor: pointer; }
+    .fa__nav button.pri { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-bg); }
+    .fa__nav button:disabled { opacity: 0.4; cursor: default; }
+    .fa button:focus-visible, .fa summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
     /* What goes wrong (style "runbook"): what you see, then the fix, the likely cause beneath. */
     .fixes { display: grid; gap: 0; }
     .fixes .r { display: grid; grid-template-columns: minmax(8rem, 38%) minmax(0, 1fr); gap: 4px 16px; padding: 10px 0; border-bottom: 1px solid var(--color-border); }
@@ -1656,6 +1681,86 @@ const minutesWords = (lo, hi) => {
   const w = (x) => (x >= 60 ? `${Math.floor(r(x) / 60)} hr${r(x) % 60 ? ` ${r(x) % 60} min` : ''}` : `${r(x)} min`);
   return r(lo) === r(hi) ? `about ${w(lo)}` : hi < 60 ? `${r(lo)}–${r(hi)} min` : `${w(lo)} to ${w(hi)}`;
 };
+/** The step to follow next: the first not done from `from` on, else the first not done, else the last. */
+const nextUndone = (done, from = 0) => { const a = done.findIndex((d, i) => i >= from && !d); if (a >= 0) return a; const b = done.findIndex((d) => !d); return b >= 0 ? b : Math.max(0, done.length - 1); };
+/** Keep the screen awake while following along (a convenience: without the Wake Lock API it still works). */
+async function keepAwake(host, on) {
+  try {
+    if (on) { if (!host._rbWake && navigator.wakeLock?.request) host._rbWake = await navigator.wakeLock.request('screen'); }
+    else { await host._rbWake?.release?.(); host._rbWake = undefined; }
+  } catch { host._rbWake = undefined; }
+}
+/**
+ * Following a runbook one step at a time (ADR-0097): a full-screen view of
+ * one step in large type, Back, Next and Done & next (ticking it, as the card
+ * does), the arrow keys and a swipe to move, Esc to close. Your place is kept
+ * in this browser, and the screen is kept awake while it's open.
+ */
+function followAlong(x, host, all, keys, done) {
+  const st = host._rbFollow;
+  if (!st) return nothing;
+  const i = Math.min(Math.max(0, st.i), all.length - 1);
+  const it = all[i] ?? {};
+  const placeKey = tickKey(x.key ?? '', 'follow');
+  const move = (to) => { host._rbFollow = { ...st, i: Math.min(Math.max(0, to), all.length - 1), finished: false, resumed: false }; try { localStorage.setItem(placeKey, String(host._rbFollow.i)); } catch { /* a convenience */ } host.requestUpdate(); setTimeout(() => host.renderRoot?.querySelector('.fa')?.focus(), 0); };
+  const close = () => { host._rbFollow = undefined; keepAwake(host, false); try { document.documentElement.style.overflow = host._rbOverflow ?? ''; } catch { /* fine */ } host.requestUpdate(); };
+  const doneNext = () => {
+    setTicked(keys[i], true);
+    const now = keys.map((k) => ticked(k));
+    if (now.every(Boolean)) { host._rbFollow = { ...st, finished: true }; host.requestUpdate(); return; }
+    move(nextUndone(now, i + 1));
+  };
+  const key = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); move(i + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); move(i - 1); }
+    else if (e.key === 'Tab') {
+      // Focus stays inside the view.
+      const f = [...(host.renderRoot?.querySelectorAll('.fa button:not([disabled]), .fa summary, .fa a[href]') ?? [])];
+      if (!f.length) return;
+      const at = f.indexOf(host.renderRoot.activeElement);
+      if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    }
+  };
+  const down = (e) => { host._rbSwipe = e.clientX; };
+  const up = (e) => { const dx = e.clientX - (host._rbSwipe ?? e.clientX); host._rbSwipe = undefined; if (Math.abs(dx) > 60 && e.pointerType !== 'mouse') move(dx < 0 ? i + 1 : i - 1); };
+  if (st.finished) {
+    return html`<div class="fa" role="dialog" aria-modal="true" aria-label="Following along" tabindex="-1" @keydown=${key}>
+      <div class="fa__top"><span class="fa__where">All ${String(all.length)} steps done</span><button type="button" class="fa__x" @click=${close} aria-label="Close">Close</button></div>
+      <div class="fa__body"><p class="fa__t"><span class="fa__ok">✓</span> All done.</p><p class="fa__how">Close this to see how you know you’re finished, and what to remember.</p></div>
+      <div class="fa__nav"><button type="button" @click=${() => move(all.length - 1)}>Back</button><span></span><button type="button" class="pri" @click=${close}>Close</button></div>
+    </div>`;
+  }
+  return html`<div class="fa" role="dialog" aria-modal="true" aria-label=${`Step ${String(i + 1)} of ${String(all.length)}`} tabindex="-1" @keydown=${key} @pointerdown=${down} @pointerup=${up}>
+    <div class="fa__top"><span class="fa__where">${it.phase ? html`<b>${it.phase}</b> · ` : nothing}Step ${String(i + 1)} of ${String(all.length)}${it.time ? html` · ${it.time}` : nothing}</span><button type="button" class="fa__x" @click=${close} aria-label="Close">Close</button></div>
+    <div class="fa__track" aria-hidden="true"><span style=${`width:${Math.round((done.filter(Boolean).length / Math.max(1, all.length)) * 100)}%`}></span></div>
+    ${st.resumed ? html`<p class="fa__resume">Picking up at step ${String(i + 1)}.</p>` : nothing}
+    <div class="fa__body">
+      <p class="fa__t">${done[i] ? html`<span class="fa__ok">✓</span> ` : nothing}${boldParts(it.text)}</p>
+      ${it.how ? html`<p class="fa__how">${boldParts(it.how)}</p>` : nothing}
+      ${it.copyPart ? copyBlock(it.copyPart) : nothing}
+      ${it.see ? html`<p class="fa__see"><b aria-hidden="true">✓</b><span class="sr">You’ll see: </span>${boldParts(it.see)}</p>` : nothing}
+      ${it.ifNot ? html`<details class="stuck"><summary>Stuck?</summary><p>${boldParts(it.ifNot)}</p></details>` : nothing}
+    </div>
+    <div class="fa__nav"><button type="button" @click=${() => move(i - 1)} ?disabled=${i === 0}>Back</button><button type="button" @click=${() => move(i + 1)} ?disabled=${i === all.length - 1}>Next</button><button type="button" class="pri" @click=${doneNext}>${done[i] ? 'Next not done' : 'Done & next'}</button></div>
+  </div>`;
+}
+/** Open following along: at the step you were on, else the first not done. */
+function openFollow(x, host, keys) {
+  const done = keys.map((k) => ticked(k));
+  let saved = -1; try { const v = localStorage.getItem(tickKey(x.key ?? '', 'follow')); saved = v === null ? -1 : Number(v); } catch { /* a convenience */ }
+  const at = Number.isInteger(saved) && saved >= 0 && saved < keys.length && !done[saved] ? saved : nextUndone(done);
+  host._rbFollow = { i: at, resumed: done.some(Boolean) };
+  keepAwake(host, true);
+  // The page behind stays put while following along.
+  try { host._rbOverflow = document.documentElement.style.overflow; document.documentElement.style.overflow = 'hidden'; } catch { /* fine */ }
+  // The screen sleeps again when the page is hidden; ask again when it's back.
+  if (!host._rbVis) { host._rbVis = () => { if (document.visibilityState === 'visible' && host._rbFollow) keepAwake(host, true); }; try { document.addEventListener('visibilitychange', host._rbVis); } catch { /* fine */ } }
+  host.requestUpdate();
+  setTimeout(() => host.renderRoot?.querySelector('.fa')?.focus(), 0);
+}
+
 /**
  * A runbook's steps as cards (ADR-0097): grouped by phase, a sticky bar that
  * says how many are done and how long the rest takes (and lists the steps, to
@@ -1704,10 +1809,12 @@ function runbookSteps(x, host) {
     </li>`;
   return html`<div class="rbbar" role="status">
       <div class="rbbar__row"><span class="rbbar__n">${count === all.length ? 'All done' : `${String(count)} of ${String(all.length)} done`}</span>${leftWords ? html`<span class="rbbar__left">${leftWords} to go</span>` : nothing}
+        <button type="button" class="rbbar__go" @click=${() => openFollow(x, host, keys)}>Follow along</button>
         <details class="rbbar__menu"><summary>${next >= 0 ? `Step ${String(next + 1)} of ${String(all.length)}` : 'Steps'}</summary><ol>${all.map((it, i) => html`<li class=${done[i] ? 'done' : ''}><button type="button" @click=${(e) => { e.currentTarget.closest('details').open = false; go(i); }}><span class="o">${done[i] ? '✓' : String(i + 1)}</span>${it.text}</button></li>`)}</ol></details></div>
       <div class="rbbar__track" aria-hidden="true"><span style=${`width:${all.length ? Math.round((count / all.length) * 100) : 0}%`}></span></div>
     </div>
-    ${groups.map((g) => html`${g.phase ? html`<h5 class="ph">${g.phase} <span>· ${span(g)}</span></h5>` : nothing}<ol class="rb" style=${`counter-reset: step ${String(g.steps[0])}`}>${g.steps.map((i) => card(all[i], i))}</ol>`)}`;
+    ${groups.map((g) => html`${g.phase ? html`<h5 class="ph">${g.phase} <span>· ${span(g)}</span></h5>` : nothing}<ol class="rb" style=${`counter-reset: step ${String(g.steps[0])}`}>${g.steps.map((i) => card(all[i], i))}</ol>`)}
+    ${followAlong(x, host, all, keys, done)}`;
 }
 /** What goes wrong as rows: what you see, then the fix, the likely cause beneath. */
 function runbookFixes(x) {
