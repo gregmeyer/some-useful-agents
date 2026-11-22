@@ -40,9 +40,9 @@ describe('formatConversationSnapshot', () => {
     const out = formatConversationSnapshot([
       response('action', 'Apply the correction', JSON.stringify({ kind: 'action', agentId: 'notebook-correct-apply', status: 'failed', refusalReason: "That rule has changed since this was worked out. Ask again." })),
       response('action', 'Apply another', JSON.stringify({ kind: 'action', agentId: 'notebook-correct-apply', status: 'proposed', waitingFor: 'Check topics and sources' })),
-    ]);
+    ], undefined, 0);
     expect(out).toBe([
-      '[action] Apply the correction (status=failed; why=That rule has changed since this was worked out. Ask again.)',
+      '[action] Apply the correction (status=failed; why=That rule has changed since this was worked out. Ask again.; just now)',
       '[action] Apply another (status=proposed; approved, waiting for Check topics and sources)',
     ].join('\n'));
   });
@@ -67,5 +67,36 @@ describe('formatConversationSnapshot', () => {
     const out = formatConversationSnapshot(Array.from({ length: 10 }, (_, i) => response('user', `m${i} ${'y'.repeat(100)}`)), 400);
     expect(Buffer.byteLength(out)).toBeLessThanOrEqual(400);
     expect(out).toContain('m9 ');
+  });
+});
+
+describe('a failure before the latest ask is history, not news', () => {
+  const H = 3_600_000;
+  const at = (role: InboxResponse['role'], body: string, createdAt: number, meta?: object): InboxResponse =>
+    ({ id: `t${createdAt}`, messageId: 'm', createdAt, role, body, ...(meta ? { metaJson: JSON.stringify(meta) } : {}) });
+
+  it('a failed or refused action says how long ago, and that it came before what they last asked', () => {
+    const now = 10 * H;
+    const out = formatConversationSnapshot([
+      at('user', 'add a photo', 1 * H),
+      at('action', 'Use this picture', 2 * H, { kind: 'action', agentId: 'notebook-photo', status: 'failed', refusalReason: "That picture couldn't be fetched (HTTP 429)." }),
+      at('action', 'Find another', 3 * H, { kind: 'action', agentId: 'starter-goal', status: 'completed', resultSummary: 'found one' }),
+      at('user', 'add a photo, please', 9 * H),
+      at('action', 'Use that one', now - 5 * 60_000, { kind: 'action', agentId: 'notebook-photo', status: 'refused', refusalReason: 'No address.' }),
+    ], undefined, now);
+    expect(out).toContain("(status=failed; why=That picture couldn't be fetched (HTTP 429).; 8h ago; before your latest ask)");
+    // A completed one says neither; one after the ask says only how long ago.
+    expect(out).toContain('(status=completed; result=found one)');
+    expect(out).toContain('(status=refused; why=No address.; 5m ago)');
+  });
+
+  it('says ages in plain units', async () => {
+    const { howLongAgo, latestAskAt } = await import('./inbox-shared.js');
+    expect(howLongAgo(0, 20_000)).toBe('just now');
+    expect(howLongAgo(0, 12 * 60_000)).toBe('12m ago');
+    expect(howLongAgo(0, 7 * H)).toBe('7h ago');
+    expect(howLongAgo(0, 72 * H)).toBe('3d ago');
+    expect(latestAskAt([at('user', 'a', 5), at('triage', 'b', 9), at('user', 'c', 7)])).toBe(7);
+    expect(latestAskAt([at('triage', 'b', 9)])).toBeUndefined();
   });
 });
