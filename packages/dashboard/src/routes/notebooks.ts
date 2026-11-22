@@ -50,7 +50,7 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { renderNotebookTldr, showsTldrCard, tldrData } from '../views/notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
 import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
@@ -1458,9 +1458,8 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
     ? cleanTldrSpec({ ...(nb.tldr ?? {}), ...Object.fromEntries(['size', 'tone', 'layout', 'picture', 'headline', 'takeaway'].filter((k) => typeof req.query[k] === 'string').map((k) => [k, req.query[k]])), ...(typeof req.query.parts === 'string' ? { parts: req.query.parts.split(',') } : {}), ...(typeof req.query.bars === 'string' ? { bars: Number(req.query.bars) } : {}) })
     : nb.tldr;
   // The picture chosen for the notebook leads its photos (inside the picture when it's made into a file).
-  const chosenPath = nb.photo ? `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(nb.photo.at)}` : undefined;
-  const chosenSrc = chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined;
-  const chosen = nb.photo && chosenSrc ? { src: chosenSrc, credit: (() => { try { return new URL(nb.photo!.page ?? nb.photo!.image).hostname.replace(/^www\./, ''); } catch { return 'chosen'; } })(), name: nb.photo.alt ?? nb.title } : undefined;
+  const chosenPath = chosenPhotoPath(nb);
+  const chosen = chosenTldrPhoto(nb, chosenPath ? (embed ? embeddedAboutPicture(s, nb)(chosenPath) : chosenPath) : undefined);
   const page = renderNotebookTldr({ nb, entries, history: widgetHistory(ctx, s), theme: briefTheme(dataDir ? loadBrandTheme(dataDir) : undefined, mode), pictures: embed ? embeddedPictures(s, nb, entries) : (o) => o.image, ...(aboutPicture ? { aboutPicture } : {}), ...(chosen ? { chosen } : {}), ...(spec ? { spec } : {}) });
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }

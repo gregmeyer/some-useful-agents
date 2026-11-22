@@ -68,6 +68,22 @@ export interface TldrData {
 
 /** One of the notebook's own photos on the card. */
 export interface TldrPhoto { src: string; credit: string; name: string }
+
+/**
+ * The picture chosen for the notebook (notebook-photo) as the card's first
+ * photo, at `src` (its address, or the copy a file carries): credited as it
+ * was given ("Renee Comet"), else by the site it's from. Pure.
+ */
+export function chosenTldrPhoto(nb: Pick<Notebook, 'photo' | 'title'>, src: string | undefined): TldrPhoto | undefined {
+  const c = nb.photo;
+  if (!c || !src) return undefined;
+  const host = (() => { try { return new URL(c.page ?? c.image).hostname.replace(/^www\./, ''); } catch { return undefined; } })();
+  return { src, credit: c.credit?.trim() || host || 'chosen', name: c.alt ?? nb.title };
+}
+
+/** Where the notebook's chosen picture is served (its kept copy), for the page and the PNG. */
+export const chosenPhotoPath = (nb: Pick<Notebook, 'id' | 'photo'>): string | undefined =>
+  nb.photo ? `/notebooks/${encodeURIComponent(nb.id)}/photo?v=${encodeURIComponent(nb.photo.at)}` : undefined;
 /** Photos a card shows in a strip, at most. */
 export const TLDR_PHOTOS_MAX = 4;
 
@@ -381,7 +397,8 @@ export const TLDR_CSS = `
 /* Cover: the lead's picture as a band across the top, the rest under it. Spotlight: the picture down one whole side. */
 .tl--cover, .tl--spotlight { padding: 0; gap: 0; }
 .tl__inner { display: grid; gap: 26px; padding: 40px 56px 36px; align-content: start; min-width: 0; }
-.tl__art { min-width: 0; min-height: 0; }
+.tl__art { min-width: 0; min-height: 0; position: relative; }
+.tl__artcredit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .tl--cover .tl__art { height: 400px; border-bottom: 1px solid var(--line); }
 .tl--cover .tl__lead, .tl--spotlight .tl__lead { grid-template-columns: minmax(0, 1fr); }
 .tl--cover.tl--square, .tl--cover.tl--portrait { display: flex; flex-direction: column; justify-content: flex-start; }
@@ -613,8 +630,11 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
   const every = (keys: readonly TldrPart[]) => all.filter((k) => keys.includes(k)).map((k) => part[k]) as unknown as SafeHtml[];
   // Cover and spotlight: the lead's picture large (a band across the top, or one whole side), everything else in a column beside or under it.
   if (large) {
+    const big = tldrBigPicture(t, spec?.picture)!;
+    // One of its photos shown large is credited on it, as a strip credits each.
+    const credit = t.photos?.find((x) => x.src === big.src)?.credit;
     return html`<article class="tl${cls}" aria-label="${t.title}, in short">
-  <div class="tl__art">${frame(tldrBigPicture(t, spec?.picture)!.src, tldrBigPicture(t, spec?.picture)!.kind, t.who ? t.lead : '')}</div>
+  <div class="tl__art">${frame(big.src, big.kind, t.who ? t.lead : '')}${credit ? html`<span class="tl__artcredit">Photo: ${credit}</span>` : html``}</div>
   <div class="tl__inner">${header}${every(['lead', 'photos', 'stats', 'bars', 'points'])}${foot}</div>
 </article>`;
   }
