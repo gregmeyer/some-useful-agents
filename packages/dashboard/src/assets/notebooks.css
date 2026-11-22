@@ -1316,3 +1316,15 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbd-add__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .nbd-add__body { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .nbd-add__body textarea { width: 100%; resize: vertical; }
+
+/* ---------- Star a notebook ---------- */
+/* A card's star sits over its cover, beside the link (a form can't go in a link). Shown on hover or focus until starred; always on touch. */
+.nbl-cardwrap { position: relative; display: flex; }
+.nbl-cardwrap > .nbl-card { flex: 1; min-width: 0; }
+.nbl-card__star { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 2; margin: 0; }
+.nbl-card__star .btn-star { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; /* over the photo itself, so the same in either theme */ background: rgb(0 0 0 / 0.55); color: #fff; backdrop-filter: blur(4px); opacity: 0; transition: opacity 120ms ease; }
+.nbl-card__star .btn-star.is-starred, .nbl-cardwrap:hover .btn-star, .nbl-cardwrap:focus-within .btn-star { opacity: 1; }
+.nbl-card__star .btn-star.is-starred, .nbl-card__star .btn-star:hover { color: #e8a100; }
+@media (hover: none) { .nbl-card__star .btn-star { opacity: 1; } }
+.nb-hero__star { margin: 0; }
+.nb-hero__star .btn-star { font-size: var(--font-size-lg); padding: var(--space-1); }

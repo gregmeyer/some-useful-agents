@@ -100,24 +100,26 @@ notebooksRouter.get('/notebooks', (req: Request, res: Response) => {
   if (req.query.new === '1') { res.redirect(302, `/notebooks/new${req.query.flash ? `?flash=${encodeURIComponent(str(req.query.flash))}` : ''}`); return; }
   const s = store(req);
   const q = str(req.query.q).trim().slice(0, 100);
-  const status = (['active', 'decided', 'stopped', 'all', 'archived'] as const).find((v) => v === req.query.status) ?? 'active';
+  const status = (['active', 'decided', 'stopped', 'all', 'starred', 'archived'] as const).find((v) => v === req.query.status) ?? 'active';
   const sort = (['updated', 'created', 'title'] as const).find((v) => v === req.query.sort) ?? 'updated';
   // Archived notebooks show only under Archived; All means everything not archived.
   const all = s.list();
   const archived = s.list({ archived: 'only' });
-  const counts = { active: 0, decided: 0, stopped: 0, all: all.length, archived: archived.length };
-  for (const nb of all) counts[nb.status]++;
+  const counts = { active: 0, decided: 0, stopped: 0, all: all.length, starred: 0, archived: archived.length };
+  for (const nb of all) { counts[nb.status]++; if (nb.starredAt) counts.starred++; }
   const needle = q.toLowerCase();
   const tag = cleanTag(str(req.query.tag));
   const onTab = (status === 'archived' ? archived : all)
-    .filter((nb) => status === 'all' || status === 'archived' || nb.status === status);
+    .filter((nb) => status === 'all' || status === 'archived' || (status === 'starred' ? !!nb.starredAt : nb.status === status));
   // The tab's tags, most used first; the one filtered by stays listed even when nothing has it now.
   const tags = tagCounts(onTab);
   if (tag && !tags.some((t) => t.tag === tag)) tags.unshift({ tag, count: 0 });
   const found = (nb: Notebook) => (!tag || notebookTags(nb).includes(tag))
     && (!needle || [nb.title, nb.statement, nb.decision ?? '', ...nb.params, ...notebookTags(nb), nb.tags?.subject ?? ''].some((t) => t.toLowerCase().includes(needle)));
   const matches = onTab.filter(found)
-    .sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt));
+    // Starred ones first, whatever the sort.
+    .sort((a, b) => Number(!!b.starredAt) - Number(!!a.starredAt)
+      || (sort === 'title' ? a.title.localeCompare(b.title) : sort === 'created' ? b.createdAt.localeCompare(a.createdAt) : b.updatedAt.localeCompare(a.updatedAt)));
   // Nothing here for a search or tag: where it does match (All, Archived), so it isn't a dead end.
   const elsewhere = matches.length || !(needle || tag) ? [] : ([['all', all], ['archived', archived]] as const)
     .filter(([st]) => st !== status)
@@ -831,6 +833,25 @@ notebooksRouter.post('/notebooks/:id/given/:key', (req: Request, res: Response) 
     res.redirect(303, back(id, err instanceof Error ? err.message : String(err)));
   }
 });
+
+/**
+ * POST /notebooks/:id/star — star or unstar it (`starred=1|0`; no value
+ * flips it). Back to the page you starred it from (this dashboard only).
+ */
+notebooksRouter.post('/notebooks/:id/star', (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const s = store(req);
+  const nb = s.get(id);
+  if (!nb) { res.redirect(303, '/notebooks'); return; }
+  const want = req.body?.starred === '1' ? true : req.body?.starred === '0' ? false : !nb.starredAt;
+  s.setStarred(id, want);
+  res.redirect(303, localBack(req.body?.back) ?? `/notebooks/${encodeURIComponent(id)}`);
+});
+
+/** A form's `back` path when it's a page on this dashboard (the dashboard sends no Referer); undefined for anything else. */
+function localBack(v: unknown): string | undefined {
+  return typeof v === 'string' && /^\/(?![/\\])[^\s\\]*$/.test(v) && v.length <= 500 ? v : undefined;
+}
 
 notebooksRouter.post('/notebooks/:id/archive', (req: Request, res: Response) => {
   const id = String(req.params.id);
