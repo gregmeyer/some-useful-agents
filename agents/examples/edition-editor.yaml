@@ -13,8 +13,8 @@ name: Edition Editor
 description: >
   Turns what you ask about Today's edition into the changes it takes: what
   leads, what is left out or always shown, which column, the numbers band,
-  the top item, and a line of your own; and offers to run an old or failed
-  part again.
+  the top item, and a line of your own; offers to run an old or failed
+  part again, or to draft a new agent for something none of yours covers.
 status: active
 source: examples
 
@@ -83,6 +83,13 @@ nodes:
       - {"do":"rerun","agentId":"<id>"}: run a showing part again with
         its last inputs. Only when its ageHours is over 24 or its lastRun
         is "failed", and canRunAgain is true.
+      - {"do":"draft","purpose":"<what the new agent would find, one
+        sentence>","suggestedName"?:"<short name>"}: draft a new agent for
+        something they want in the edition that no agent of theirs covers
+        (none in "showing" or "couldShow" does it). sua drafts it; they
+        approve it in their inbox; approved, it runs once and is always
+        shown. At most two. Never for something an existing agent does:
+        bring that one in with "include".
 
       When they ask what's stale, old, broken or out of date: offer
       "rerun" for each part that can run again, and "auto" for an old

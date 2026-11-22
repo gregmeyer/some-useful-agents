@@ -17,6 +17,7 @@ import {
 } from '@some-useful-agents/core';
 import { schedulerProblem } from './scheduler-tile.js';
 import { lastRunInputs, startAgentRun } from '../routes/widget-run.js';
+import { draftForBoard } from './board-build.js';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
@@ -101,7 +102,7 @@ export function editionForAsk(ctx: Ctx, nowMs = Date.now()): { edition: Record<s
  * together they must apply. An answer with no ops is sua saying it can't be
  * done here. Undefined when there is no usable answer. Pure.
  */
-export function parseEditionAnswer(raw: string | undefined, prefs: EditionPrefs, known: ReadonlySet<string>, title: (id: string) => string, parts: ReadonlyMap<string, EditionPartFacts> = new Map()): { ops: EditionOp[]; changes: string[]; rows: EditionAskRow[]; say?: string } | { error: string } | undefined {
+export function parseEditionAnswer(raw: string | undefined, prefs: EditionPrefs, known: ReadonlySet<string>, title: (id: string) => string, parts: ReadonlyMap<string, EditionPartFacts> = new Map(), existing: ReadonlySet<string> = new Set()): { ops: EditionOp[]; changes: string[]; rows: EditionAskRow[]; say?: string } | { error: string } | undefined {
   const block = extractTaggedJson(raw ?? '', 'edition');
   if (!block) return undefined;
   let v: { ops?: unknown; actions?: unknown; say?: unknown };
@@ -110,7 +111,7 @@ export function parseEditionAnswer(raw: string | undefined, prefs: EditionPrefs,
   // Its line is said only when it carries no number (ages and counts come from the rows, worked out here).
   const said = typeof v.say === 'string' ? v.say.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
   const say = /\d/.test(said) ? '' : said;
-  const checked = checkEditionActions(Array.isArray(v.actions) ? v.actions : [], parts);
+  const checked = checkEditionActions(Array.isArray(v.actions) ? v.actions : [], parts, existing);
   if ('error' in checked) return { error: checked.error };
   const actionRows: EditionAskRow[] = checked.actions.map((action) => ({ kind: 'action', action, text: describeEditionAction(action, title, parts), state: 'open' }));
   const list = Array.isArray(v.ops) ? v.ops.slice(0, OPS_MAX) : [];
@@ -161,7 +162,9 @@ export function startEditionAsk(ctx: Ctx, text: string): { ask?: EditionAsk; err
   const work = (async () => {
     let next: EditionAsk;
     try {
-      const out = parseEditionAnswer(await runEditor(ctx, { ASK: said, EDITION: JSON.stringify(edition) }), editionPrefsOf(ctx), known, title, parts);
+      // Agents that exist (ids and names): a new one drafted for a gap can't be one of them.
+      const existing = new Set(ctx.agentStore.listAgents().flatMap((a) => [a.id.toLowerCase(), (a.name ?? '').toLowerCase()]).filter(Boolean));
+      const out = parseEditionAnswer(await runEditor(ctx, { ASK: said, EDITION: JSON.stringify(edition) }), editionPrefsOf(ctx), known, title, parts, existing);
       next = !out ? { ...ask, status: 'failed', error: "sua didn't come back with changes that could be used. Ask again." }
         : 'error' in out ? { ...ask, status: 'failed', error: out.error }
           : { ...ask, status: 'ready', ops: out.ops, changes: out.changes, rows: out.rows, ...(out.say ? { say: out.say } : {}) };
@@ -208,7 +211,7 @@ export function askRows(ask: EditionAsk): EditionAskRow[] {
  * the whole ask), skip it, or run a part again (its own run, with its last
  * inputs). The proposal goes once nothing in it is left open.
  */
-export function actOnEditionRow(ctx: Ctx, id: string, n: number, what: 'apply' | 'skip' | 'run'): { ok: boolean; message: string } {
+export function actOnEditionRow(ctx: Ctx, id: string, n: number, what: 'apply' | 'skip' | 'run' | 'draft'): { ok: boolean; message: string } {
   const ask = ctx.editionAsk;
   const rows = ask && ask.id === id && ask.status === 'ready' ? askRows(ask) : [];
   const row = rows[n];
@@ -229,7 +232,17 @@ export function actOnEditionRow(ctx: Ctx, id: string, n: number, what: 'apply' |
     appliedAny = true;
     next = { ...row, state: 'applied' };
     message = `${row.text}. Undo last change goes back to before this ask.`;
-  } else if (row.kind === 'action' && what === 'run') {
+  } else if (row.kind === 'action' && row.action.do === 'draft' && what === 'draft') {
+    // A new agent for a gap (ADR-0101): drafted in the background behind one approval in your inbox; approved, it runs once and is always shown.
+    try {
+      const work = draftForBoard(ctx, TODAY_BOARD_ID, [{ purpose: row.action.purpose, ...(row.action.suggestedName ? { suggestedName: row.action.suggestedName } : {}) }], new BoardsStore(ctx.runStore.databaseHandle()).goal(TODAY_BOARD_ID)?.text ?? '').work;
+      ctx.boardReviewWork = work;
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : 'The draft could not be started.' };
+    }
+    next = { ...row, state: 'ran' };
+    message = "sua is drafting that agent. When it's ready, your inbox asks you to approve it; nothing runs until then.";
+  } else if (row.kind === 'action' && row.action.do === 'rerun' && what === 'run') {
     const agent = ctx.agentStore.getAgent(row.action.agentId);
     if (!agent || agent.status !== 'active') return { ok: false, message: 'That agent can\'t run now.' };
     startAgentRun(ctx, agent, lastRunInputs(ctx, agent));

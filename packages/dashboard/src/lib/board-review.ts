@@ -113,7 +113,8 @@ export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<s
       ROUND: String(round),
     },
     // New agents are drafted for a board you made; the edition takes agents you have.
-    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped, content, drafts: !isToday,
+    // The edition's review may offer a new agent for a gap too (ADR-0101): drafted behind the same approval, then always shown.
+    onBoard, candidates: new Set(cands.map((c) => c.id)), skipped, content, drafts: true,
   };
 }
 
@@ -300,8 +301,11 @@ export function editionKnownAgents(ctx: Ctx): Set<string> {
  * generator follows from now on (one step, undone with Undo). Nothing is
  * drawn or saved as a page; the edition is made fresh with them next time.
  */
-function applyEditionSuggestions(ctx: Ctx, review: BoardReview, keys?: readonly string[]): AppliedSuggestions & { error?: string } {
-  const open = review.suggestions.filter((s) => s.state === 'open' && (!keys || keys.includes(s.key)));
+function applyEditionSuggestions(ctx: Ctx, review: BoardReview, keys?: readonly string[]): AppliedSuggestions & { error?: string; drafting?: number; redraw?: Promise<unknown> } {
+  const all = review.suggestions.filter((s) => s.state === 'open' && (!keys || keys.includes(s.key)));
+  // A new agent for a gap (ADR-0101): drafted in the background behind one approval; approved, it runs once and is always shown.
+  const toDraft = all.flatMap((s) => (s.type === 'draft' ? [s] : []));
+  const open = all.filter((s) => s.type !== 'draft');
   const store = editionPrefsStoreOf(ctx);
   const known = editionKnownAgents(ctx);
   let prefs = store.get();
@@ -318,7 +322,16 @@ function applyEditionSuggestions(ctx: Ctx, review: BoardReview, keys?: readonly 
     store.save(prefs);
     for (const key of applied) reviewsOf(ctx).setState(review.id, key, 'applied');
   }
-  return { applied, refused };
+  let drafting: Promise<void> | undefined;
+  if (toDraft.length) {
+    try {
+      drafting = draftForBoard(ctx, TODAY_BOARD_ID, toDraft.map((s) => ({ purpose: s.purpose, ...(s.suggestedName ? { suggestedName: s.suggestedName } : {}) })), boardsOf(ctx).goal(TODAY_BOARD_ID)?.text ?? '').work;
+      for (const s of toDraft) { reviewsOf(ctx).setState(review.id, s.key, 'applied'); applied.push(s.key); }
+    } catch (err) {
+      for (const s of toDraft) refused.push({ key: s.key, why: err instanceof Error ? err.message : 'The draft could not be started.' });
+    }
+  }
+  return { applied, refused, ...(drafting ? { drafting: toDraft.length, redraw: drafting } : {}) };
 }
 
 /** A content suggestion as the ask sua's page agent gets. Pure. */

@@ -70,6 +70,7 @@ import {
 import { getContext } from '../context.js';
 import { startBoardBuild } from '../lib/board-build.js';
 import { startViewProposal } from '../lib/view-designer.js';
+import { startEditionAsk } from '../lib/edition-ask.js';
 import { maybeKickoffFirstRun } from './dashboard-first-run.js';
 import { buildLlmSettingsSnapshot } from '../lib/llm-settings-snapshot.js';
 import { autoFixYaml } from './run-now-build.js';
@@ -170,6 +171,8 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
   'board-build',
   // Only asks for a proposal; the operator compares and chooses on the View page.
   'view-redesign',
+  // Only works out changes to Today's edition; each is applied (or a run started) on Pulse.
+  'edition-ask',
   // Additive and removable entry by entry: what you said goes into the notebook as you talk.
   'notebook-add',
   // Only works out what a correction changes; applying it is its own card.
@@ -226,7 +229,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask']);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -977,6 +980,9 @@ async function executeRouteHandledAgent(
   if (meta.agentId === 'view-redesign') {
     return executeViewRedesign(ctx, meta);
   }
+  if (meta.agentId === 'edition-ask') {
+    return executeEditionAskAction(ctx, meta);
+  }
   return {
     status: 'failed',
     refusalReason: `Route-handled agent "${meta.agentId}" has no executor.`,
@@ -1000,6 +1006,22 @@ export function executeViewRedesign(
     return { status: 'completed', summary: `sua is already redesigning ${agent.name}'s view (or the view designer isn't available). See ${link}.` };
   }
   return { status: 'completed', summary: `Redesigning ${agent.name}'s view now. In a minute or two the proposal is at ${link}, beside the current view; nothing changes until it's used.` };
+}
+
+/**
+ * Execute an `edition-ask` action: start working out the change to Today's
+ * edition (lib/edition-ask.ts) and return the Pulse link at once. The changes
+ * wait on Pulse, one row each; nothing changes and nothing runs until the
+ * operator presses Apply or Run there.
+ */
+export function executeEditionAskAction(
+  ctx: ReturnType<typeof getContext>,
+  meta: InboxActionMeta,
+): { status: InboxActionStatus; summary?: string; refusalReason?: string } {
+  const out = startEditionAsk(ctx, meta.inputs.ASK ?? '');
+  if (out.error) return { status: 'failed', refusalReason: out.error };
+  if (out.work) ctx.boardReviewWork = out.work;
+  return { status: 'completed', summary: "Working out that change to Today's edition now. In a minute the changes are on Pulse (/pulse), one row each; nothing changes until you apply them there." };
 }
 
 /**

@@ -286,15 +286,15 @@ function editionAskCard(a: EditionAsk | undefined): SafeHtml {
   const anyOpen = rows.some((r) => r.state === 'open');
   const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${anyOpen ? 'Discard' : 'OK'}</button></form>`;
   // One row per change: each applied or skipped on its own. A run sua offers has its own Run (it costs a run), never inside Apply all.
-  const rowForm = (n: number, what: 'apply' | 'skip' | 'run', label: string, cls: string) => html`<form method="POST" action="${base}/row/${String(n)}" style="margin: 0;"><input type="hidden" name="do" value="${what}"><button type="submit" class="${cls}">${label}</button></form>`;
-  const state = (r: EditionAskRow) => (r.state === 'applied' ? 'Applied' : r.state === 'ran' ? 'Running' : r.state === 'skipped' ? 'Skipped' : '');
+  const rowForm = (n: number, what: 'apply' | 'skip' | 'run' | 'draft', label: string, cls: string) => html`<form method="POST" action="${base}/row/${String(n)}" style="margin: 0;"><input type="hidden" name="do" value="${what}"><button type="submit" class="${cls}">${label}</button></form>`;
+  const state = (r: EditionAskRow) => (r.state === 'applied' ? 'Applied' : r.state === 'ran' ? (r.kind === 'action' && r.action.do === 'draft' ? 'Drafting' : 'Running') : r.state === 'skipped' ? 'Skipped' : '');
   return html`<section class="board-review" aria-labelledby="edition-ask-title">
     <div class="board-review__head"><h2 class="board-review__title" id="edition-ask-title">You asked</h2><span class="board-review__round">“${a.ask}”</span></div>
     ${a.status === 'failed' ? html`<p class="board-review__note"><strong>That couldn't be worked out.</strong> ${a.error ?? ''}</p>` : html``}
     ${a.say ? html`<p class="board-review__note">${a.say}</p>` : html``}
-    ${rows.length ? html`<ul class="board-review__list">${rows.map((r, n) => html`<li class="board-review__item${r.state !== 'open' ? ' is-done' : ''}"><span class="board-review__sign" aria-hidden="true">${r.kind === 'action' ? '↻' : '→'}</span><div class="board-review__text"><span class="board-review__what">${r.text}</span></div>
+    ${rows.length ? html`<ul class="board-review__list">${rows.map((r, n) => html`<li class="board-review__item${r.state !== 'open' ? ' is-done' : ''}"><span class="board-review__sign" aria-hidden="true">${r.kind === 'action' ? (r.action.do === 'draft' ? '+' : '↻') : '→'}</span><div class="board-review__text"><span class="board-review__what">${r.text}</span></div>
       <div class="board-review__acts">${r.state === 'open'
-        ? html`${r.kind === 'op' ? rowForm(n, 'apply', 'Apply', 'btn btn--sm') : rowForm(n, 'run', 'Run', 'btn btn--sm')}${rowForm(n, 'skip', 'Skip', 'board-review__skip')}`
+        ? html`${r.kind === 'op' ? rowForm(n, 'apply', 'Apply', 'btn btn--sm') : r.action.do === 'draft' ? rowForm(n, 'draft', 'Draft it', 'btn btn--sm') : rowForm(n, 'run', 'Run', 'btn btn--sm')}${rowForm(n, 'skip', 'Skip', 'board-review__skip')}`
         : html`<span class="board-review__state">${state(r)}</span>`}</div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
     <div class="board-review__foot">
       ${openOps > 1 ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply all ${String(openOps)} changes</button></form>` : html``}
@@ -880,6 +880,8 @@ for (const decision of ['approve', 'decline'] as const) {
   boardsRouter.post(`/boards/builds/:buildId/${decision}`, (req: Request, res: Response) => {
     const ctx = getContext(req.app.locals);
     const out = decideBoardDrafts(ctx, String(req.params.buildId), decision);
+    // On Today's edition the message stays on the edition (a plain flash would land on All agents).
+    if (out.boardId === TODAY_BOARD_ID) { res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`); return; }
     const back = out.boardId ? boardPageUrl(out.boardId) : '/inbox';
     res.redirect(303, `${back}?${out.ok ? 'ok' : 'error'}=${encodeURIComponent(out.message)}`);
   });
