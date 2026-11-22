@@ -12,7 +12,7 @@ import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { printValue } from '../lib/a2ui-print-values.js';
 import { agentFunctionValue } from '../lib/a2ui-agent-functions.js';
-import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
+import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, runbookPhases, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
 import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, drawnNotebookLayout, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
@@ -144,12 +144,16 @@ export function briefPart(x: BriefSection, rubricOpt: boolean | 'auto', notes?: 
   // Where a line comes from: numbered notes in a document, the names in brackets without one.
   const cited = (refs: Cited[]): SafeHtml => (!refs.length ? html`` : notes ? noteMarks(notes, refs) : html` <span class="fine">(${refs.map((r) => r.label).join(', ')})</span>`);
   if (style === 'runbook' && x.kind === 'steps') {
-    // A runbook's steps as cards on paper: the number large, a box to tick, how, the part to copy where it's used, ✓ what you'll see, if not; a card never splits across pages.
-    return html`<ol class="rb">${items(x.items).map((it, i) => {
+    // A runbook's steps as cards on paper, grouped by phase (ADR-0097): the number large, a box to tick, how, the part to copy where it's used, ✓ what you'll see, and if you're stuck, small; a card never splits across pages.
+    const all = items(x.items);
+    const card = (it: (typeof all)[number], n: number) => {
       const y = it as Record<string, unknown>;
       const copy = y.copyPart && typeof y.copyPart === 'object' ? briefPart(y.copyPart as BriefSection, false, notes) : html``;
-      return html`<li><span class="rb__n">${String(i + 1)}</span><div><p class="rb__t"><span class="rb__box" aria-hidden="true"></span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</p>${text(it.detail) ? html`<p class="muted">${boldOnly(text(it.detail))}</p>` : html``}${text(y.how) ? html`<p>${boldOnly(text(y.how))}</p>` : html``}${copy}${text(y.see) ? html`<p class="rb__see"><b>\u2713</b> ${boldOnly(text(y.see))}</p>` : html``}${text(y.ifNot) ? html`<p class="rb__ifnot"><b>If not</b> ${boldOnly(text(y.ifNot))}</p>` : html``}</div></li>`;
-    }) as unknown as SafeHtml[]}</ol>`;
+      return html`<li><span class="rb__n">${String(n)}</span><div><p class="rb__t"><span class="rb__box" aria-hidden="true"></span><b>${boldOnly(it.text)}</b>${text(y.time) ? html` <span class="fine">· ${text(y.time)}</span>` : html``}${y.advice ? html` <span class="mark">advice</span>` : html``}${cited(from(it))}</p>${text(it.detail) ? html`<p class="muted">${boldOnly(text(it.detail))}</p>` : html``}${text(y.how) ? html`<p>${boldOnly(text(y.how))}</p>` : html``}${copy}${text(y.see) ? html`<p class="rb__see"><b>\u2713</b> ${boldOnly(text(y.see))}</p>` : html``}${text(y.ifNot) ? html`<p class="rb__stuck"><b>Stuck?</b> ${boldOnly(text(y.ifNot))}</p>` : html``}</div></li>`;
+    };
+    const groups = runbookPhases(all.map((it) => ({ ...it, phase: text((it as Record<string, unknown>).phase) || undefined })));
+    const span = (g: (typeof groups)[number]) => (g.steps.length === 1 ? `step ${String(g.steps[0].n)}` : `steps ${String(g.steps[0].n)}–${String(g.steps[g.steps.length - 1].n)}`);
+    return html`<p class="rb__progress"><span class="rb__blank"></span> of ${String(all.length)} done</p>${groups.map((g) => html`${g.phase ? html`<h4 class="rb__phase">${g.phase} <span>· ${span(g)}</span></h4>` : html``}<ol class="rb">${g.steps.map(({ item, n }) => card(item, n)) as unknown as SafeHtml[]}</ol>`) as unknown as SafeHtml[]}`;
   }
   if (style === 'runbook' && x.kind === 'table' && x.role === 'trouble' && list(x.columns).length >= 2) {
     // What goes wrong: what you see, then the fix, the likely cause beneath.
@@ -713,8 +717,14 @@ ol.rb p { margin: 0.25rem 0 0; }
 ol.rb .rb__t { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 0.35rem; }
 ol.rb .rb__box { display: inline-block; width: 0.8em; height: 0.8em; border: 1.5px solid var(--muted); border-radius: 2px; margin-right: 0.2rem; transform: translateY(0.08em); }
 ol.rb .rb__see b { color: var(--accent, #0f766e); }
-ol.rb .rb__ifnot { padding: 0.25rem 0.5rem; border-left: 3px solid #b45309; background: rgba(180, 83, 9, 0.08); }
-ol.rb .rb__ifnot b { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #b45309; margin-right: 0.3rem; }
+ol.rb .rb__stuck { font-size: 0.9em; color: var(--muted); }
+ol.rb .rb__stuck b { font-family: var(--mono, ui-monospace, monospace); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; color: #b45309; margin-right: 0.3rem; }
+.rb__progress { margin: 0 0 0.5rem; font: 600 0.8em/1.2 var(--mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.rb__progress .rb__blank { display: inline-block; width: 1.6rem; border-bottom: 1px solid var(--muted); }
+.rb__phase { margin: 0.9rem 0 0.4rem; font: 600 0.8em/1.2 var(--mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent, #0f766e); break-after: avoid; }
+.rb__phase span { color: var(--muted); }
+.rb__progress + .rb__phase { margin-top: 0.3rem; }
+ol.rb + .rb__phase { margin-top: 1rem; }
 ol.rb figure.copy { margin-top: 0.45rem; }
 /* A runbook as a lesson (ADR-0097). */
 .rl > .eyebrow { margin-top: 0.7rem; }

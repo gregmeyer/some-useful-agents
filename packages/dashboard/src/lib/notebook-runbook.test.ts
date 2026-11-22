@@ -44,7 +44,8 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     const out = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id, 1000) });
     // On the Runbook page each step is a card: how, ✓ what you'll see, if not.
     expect(out).toContain('<p>Press <strong>Add file → Upload files</strong>.</p>');
-    expect(out).toContain('<p class="rb__see"><b>✓</b> index.html in the file list.</p><p class="rb__ifnot"><b>If not</b> Drag the file, not its folder.</p>');
+    // If not, on paper: a small "Stuck?" line under the step (a fold can't open on paper).
+    expect(out).toContain('<p class="rb__see"><b>✓</b> index.html in the file list.</p><p class="rb__stuck"><b>Stuck?</b> Drag the file, not its folder.</p>');
     expect(out).toContain('<span class="fine">· 5 min</span>');
     expect(out).toContain('<span class="mark">advice</span>');
     expect(out).toContain('<figure class="copy"><figcaption class="fine">index.html</figcaption><pre>&lt;!doctype html&gt;\n&lt;h1&gt;Hello&lt;/h1&gt;</pre></figure>');
@@ -225,6 +226,32 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(notebookLayoutOf({ layout: old as never }).components).toEqual(layoutPreset('runbook')!.layout.components);
     const own = { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'mine' }] };
     expect(notebookLayoutOf({ layout: own as never }).components).toEqual(own.components);
+  });
+
+  it('steps show your progress (ADR-0097): phases on paper with a done line; on the page a sticky bar, marks for sources, Stuck? folded, Done moves on', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-runbook-'));
+    const s = NotebookStore.fromHandle(new RunStore(join(dir, 'runs.db')).databaseHandle());
+    const nb = s.create({ title: 'Teach me how to make a sandwich' });
+    s.setLayout(nb.id, layoutPreset('runbook')!.layout, 'picked');
+    s.setAnswer(nb.id, { question: 'How?', by: 'w', text: 'A sandwich.', confidence: 'medium', basis: '', findings: [], open: [], at: new Date().toISOString(),
+      sections: [{ title: 'The steps', kind: 'steps', role: 'method', items: [
+        { text: 'Wash hands', phase: 'Prep', ifNot: 'Wash again.', from: [] }, { text: 'Set out bread', phase: 'Prep', from: [] },
+        { text: 'Spread', phase: 'Make', from: [] }, { text: 'Close', phase: 'Finish', from: [] },
+      ] }] });
+    const out = renderPageBrief({ nb: s.get(nb.id)!, entries: [] });
+    expect(out).toContain('<p class="rb__progress"><span class="rb__blank"></span> of 4 done</p><h4 class="rb__phase">Prep <span>· steps 1–2</span></h4><ol class="rb">');
+    expect(out).toContain('<h4 class="rb__phase">Make <span>· step 3</span></h4><ol class="rb"><li><span class="rb__n">3</span>');
+    expect(out).toContain('<p class="rb__stuck"><b>Stuck?</b> Wash again.</p>');
+    // The page: the sticky bar, phases numbered across, sources as marks, Stuck? folded, Done moving on.
+    const js = readFileSync(join(here, '..', 'assets', 'a2ui-sua.js'), 'utf-8');
+    expect(js).toContain('<div class="rbbar" role="status">');
+    expect(js).toContain("`${String(count)} of ${String(all.length)} done`");
+    expect(js).toContain('<h5 class="ph">');
+    expect(js).toContain("counter-reset: step ${String(g.steps[0])}");
+    expect(js).toContain('<details class="stuck"><summary>Stuck?</summary>');
+    expect(js).toContain('class="mk"');
+    expect(js).toContain("if (on) { const j = keys.findIndex((k, n) => n > i && !ticked(k)); if (j >= 0) setTimeout(() => go(j), 60); }");
+    expect(js).not.toMatch(/content: "\\[0-9a-f]/i);
   });
 
   it('groups steps by phase, numbered across groups', () => {
