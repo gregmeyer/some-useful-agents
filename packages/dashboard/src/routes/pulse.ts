@@ -1,4 +1,4 @@
-import { renderBoardPage, renderTodayEdition } from './boards.js';
+import { renderBoardPage, renderTodayEdition, renderTodayEmpty } from './boards.js';
 import { editionFreshness, editionPrefsStoreOf, todayEdition } from '../lib/today-edition.js';
 import { lastRunInputs, startAgentRun } from './widget-run.js';
 import { applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
@@ -209,8 +209,9 @@ pulseRouter.get('/pulse', (req: Request, res: Response) => {
   const flash = parsePulseFlash(req);
   // `?edition=` is a message about the edition itself: it stays on the edition.
   const said = typeof req.query.edition === 'string' ? { kind: 'ok' as const, message: req.query.edition } : undefined;
-  const edition = flash ? undefined : renderTodayEdition(ctx, said ? { flash: said } : {});
-  res.type('html').send(edition ?? renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!);
+  // A flash from the grid lands on the grid; otherwise Today, with what would fill it when there's nothing yet.
+  if (flash) { res.type('html').send(renderBoardPage(ctx, PULSE_BOARD_ID, { flash })!); return; }
+  res.type('html').send(renderTodayEdition(ctx, said ? { flash: said } : {}) ?? renderTodayEmpty(ctx, said ? { flash: said } : {}));
 });
 
 /** Change the edition by asking (ADR-0076): sua works out the changes; you apply or discard them. */
@@ -231,6 +232,15 @@ pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) =
 pulseRouter.post('/pulse/edition/ask/:id/discard', (req: Request, res: Response) => {
   discardEditionAsk(getContext(req.app.locals), String(req.params.id));
   res.redirect(303, '/pulse');
+});
+
+/** Run one scheduled agent from Today's empty state (its last inputs), then back to Today. */
+pulseRouter.post('/pulse/edition/run', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  const agent = ctx.agentStore.getAgent(String((req.body as { agentId?: unknown } | undefined)?.agentId ?? ''));
+  if (!agent || agent.status !== 'active') { res.redirect(303, `/pulse?edition=${encodeURIComponent('No such agent to run.')}`); return; }
+  startAgentRun(ctx, agent, lastRunInputs(ctx, agent));
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(`Running ${agent.name || agent.id}. Its result shows here when it's done.`)}`);
 });
 
 /** Run the edition's parts that are older than a day again, each with its last inputs (one press; nothing runs on its own). */

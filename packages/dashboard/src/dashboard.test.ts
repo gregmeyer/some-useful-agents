@@ -364,14 +364,14 @@ describe('Dashboard nav structure (Pulse hero + Agents section tabs)', () => {
 
   it('/pulse is a first-class page (the signals board)', async () => {
     const app = await makeApp();
-    const res = await authed(app, '/pulse');
+    const res = await authed(app, '/pulse/agents');
     expect(res.status).toBe(200);
     expect(res.text).toContain('data-board-canvas="pulse"');
   });
 
   it('/pulse carries a scheduler health tile', async () => {
     const app = await makeApp();
-    const res = await authed(app, '/pulse');
+    const res = await authed(app, '/pulse/agents');
     expect(res.status).toBe(200);
     // With no heartbeat file in the test data dir the scheduler reads as
     // stopped — the state the board was silent about for nine days.
