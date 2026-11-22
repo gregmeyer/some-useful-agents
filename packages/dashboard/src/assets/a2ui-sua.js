@@ -1461,6 +1461,31 @@ const sectionStyles = css`${sectionHead}
     ol.rb figure.copy { margin-top: 10px; }
     ol.rb .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     ol.rb .refs { margin-top: 6px; }
+    ol.rb > li.next { border-color: var(--color-primary); }
+    ol.rb .mks { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: super; }
+    ol.rb .mk { font: 600 10px/1 var(--font-mono); color: var(--color-primary); text-decoration: none; }
+    ol.rb .mk:hover { text-decoration: underline; }
+    ol.rb details.stuck { margin: 6px 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+    ol.rb details.stuck summary { cursor: pointer; width: fit-content; font: 600 var(--font-size-xs)/1.6 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-warn); }
+    ol.rb details.stuck p { margin: 4px 0 0; padding-left: 10px; border-left: 2px solid var(--color-warn); line-height: 1.5; color: var(--color-text); }
+    .rbbar { position: sticky; top: 0; z-index: 2; margin: 0 0 12px; padding: 10px 0 8px; background: var(--color-bg); }
+    .rbbar__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+    .rbbar__n { font: 700 var(--font-size-sm)/1.3 var(--font-mono); color: var(--color-text); }
+    .rbbar__left { font: 500 var(--font-size-xs)/1.3 var(--font-mono); color: var(--color-text-muted); }
+    .rbbar__menu { margin-left: auto; position: relative; }
+    .rbbar__menu summary { cursor: pointer; font: 600 var(--font-size-xs)/1.6 var(--font-mono); color: var(--color-primary); list-style: none; }
+    .rbbar__menu summary::after { content: " ▾"; }
+    .rbbar__menu ol { position: absolute; right: 0; top: calc(100% + 6px); z-index: 3; width: min(360px, 80vw); max-height: 60vh; overflow: auto; margin: 0; padding: 6px; list-style: none; border: 1px solid var(--color-border); border-radius: var(--radius-md, 10px); background: var(--color-surface); }
+    .rbbar__menu li button { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr); gap: 6px; width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius-sm, 6px); background: none; color: var(--color-text); font: inherit; font-size: var(--font-size-sm); text-align: left; cursor: pointer; }
+    .rbbar__menu li button:hover, .rbbar__menu li button:focus-visible { background: var(--color-surface-raised); }
+    .rbbar__menu li .o { font: 700 var(--font-size-sm)/1.4 var(--font-mono); color: var(--color-primary); }
+    .rbbar__menu li.done button { color: var(--color-text-muted); }
+    .rbbar__track { height: 4px; margin-top: 8px; border-radius: 2px; background: var(--color-surface-raised); overflow: hidden; }
+    .rbbar__track span { display: block; height: 100%; background: var(--color-primary); transition: width 0.2s ease; }
+    @media (prefers-reduced-motion: reduce) { .rbbar__track span { transition: none; } }
+    h5.ph { margin: 18px 0 8px; font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-primary); }
+    h5.ph span { color: var(--color-text-muted); }
+    .rbbar + h5.ph { margin-top: 4px; }
     /* What goes wrong (style "runbook"): what you see, then the fix, the likely cause beneath. */
     .fixes { display: grid; gap: 0; }
     .fixes .r { display: grid; grid-template-columns: minmax(8rem, 38%) minmax(0, 1fr); gap: 4px 16px; padding: 10px 0; border-bottom: 1px solid var(--color-border); }
@@ -1617,23 +1642,72 @@ const ticked = (k) => { try { return !!k && localStorage.getItem(k) === '1'; } c
 const setTicked = (k, on) => { try { if (k) { if (on) localStorage.setItem(k, '1'); else localStorage.removeItem(k); } } catch { /* a convenience */ } };
 /** The column of a what-goes-wrong table that says the fix ("Fix", "What to do", "Try"), else its last. */
 const fixColumn = (cols) => { const i = cols.findIndex((c) => /\b(fix|fixes|what to do|do this|solution|try|remedy)\b/i.test(String(c))); return i > 0 ? i : cols.length - 1; };
-/** A runbook's steps as cards, each with its part to copy inside it. */
+/** A runbook step's time in minutes, low and high ("5–10 min" → [5, 10]), as core runbookMinutes reads it. */
+const stepMinutes = (t) => {
+  const m = /^\s*(?:about\s+)?(\d+(?:\.\d+)?)\s*(?:[–-]\s*(\d+(?:\.\d+)?))?\s*(sec|secs|second|seconds|s|min|mins|minute|minutes|m|hr|hrs|hour|hours|h)\b/i.exec(String(t ?? ''));
+  if (!m) return undefined;
+  const per = /^(sec|secs|second|seconds|s)$/i.test(m[3]) ? 1 / 60 : /^(hr|hrs|hour|hours|h)$/i.test(m[3]) ? 60 : 1;
+  const lo = Number(m[1]) * per, hi = Number(m[2] ?? m[1]) * per;
+  return [lo, hi];
+};
+/** Minutes as words: "about 4 min", "4–6 min", "1 hr 10 min". */
+const minutesWords = (lo, hi) => {
+  const r = (x) => Math.max(1, Math.round(x));
+  const w = (x) => (x >= 60 ? `${Math.floor(r(x) / 60)} hr${r(x) % 60 ? ` ${r(x) % 60} min` : ''}` : `${r(x)} min`);
+  return r(lo) === r(hi) ? `about ${w(lo)}` : hi < 60 ? `${r(lo)}–${r(hi)} min` : `${w(lo)} to ${w(hi)}`;
+};
+/**
+ * A runbook's steps as cards (ADR-0097): grouped by phase, a sticky bar that
+ * says how many are done and how long the rest takes (and lists the steps, to
+ * jump to one), each step's sources as small numbered marks, "Stuck?" folded,
+ * and Done that moves you on to the next step. Ticks are kept in this browser.
+ */
 function runbookSteps(x, host) {
-  const refs = sectionRefs;
-  return html`<ol class="rb">${(x.items ?? []).map((it, i) => {
-    const k = tickKey(x.key ?? '', i);
-    const on = ticked(k);
-    const toggle = (e) => { setTicked(k, e.currentTarget.checked); e.currentTarget.closest('li')?.classList.toggle('done', e.currentTarget.checked); };
-    return html`<li class=${on ? 'done' : ''}>
-      <div class="head"><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}</div><label class="tick"><input type="checkbox" .checked=${on} @change=${toggle} aria-label=${`Done: step ${String(i + 1)}`}>Done</label></div>
+  const all = Array.isArray(x.items) ? x.items : [];
+  const keys = all.map((_, i) => tickKey(x.key ?? '', i));
+  const done = keys.map((k) => ticked(k));
+  const count = done.filter(Boolean).length;
+  // What's left: the unticked steps' times, when each says one.
+  const left = all.map((it, i) => (done[i] ? [0, 0] : stepMinutes(it.time)));
+  const leftWords = count < all.length && left.every(Boolean) ? minutesWords(left.reduce((a, b) => a + b[0], 0), left.reduce((a, b) => a + b[1], 0)) : undefined;
+  const next = done.findIndex((d) => !d);
+  // Its sources as numbered marks, numbered in the order the steps first cite them.
+  const marks = new Map();
+  for (const it of all) for (const r of (Array.isArray(it.refs) ? it.refs : [])) if (r && safeUrl(r.href) && r.label && !marks.has(r.href)) marks.set(r.href, { n: marks.size + 1, label: r.label });
+  const markLinks = (it) => {
+    const r = (Array.isArray(it.refs) ? it.refs : []).filter((y) => y && marks.has(y.href)).slice(0, 4);
+    return r.length ? html`<span class="mks">${r.map((y) => html`<a class="mk" href=${y.href} target="_blank" rel="noopener" title=${marks.get(y.href).label}>${marks.get(y.href).n}</a>`)}</span>` : nothing;
+  };
+  const go = (i) => {
+    const li = host?.renderRoot?.querySelector(`li[data-step="${String(i)}"]`);
+    let still = false; try { still = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* default */ }
+    li?.scrollIntoView({ block: 'center', behavior: still ? 'auto' : 'smooth' });
+  };
+  const toggle = (i) => (e) => {
+    const on = e.currentTarget.checked;
+    setTicked(keys[i], on);
+    host?.requestUpdate?.();
+    // Done: on to the next step not yet done.
+    if (on) { const j = keys.findIndex((k, n) => n > i && !ticked(k)); if (j >= 0) setTimeout(() => go(j), 60); }
+  };
+  // Consecutive steps with one phase, numbered across them.
+  const groups = [];
+  all.forEach((it, i) => { const last = groups[groups.length - 1]; if (last && (last.phase ?? '') === (it.phase ?? '')) last.steps.push(i); else groups.push({ phase: it.phase, steps: [i] }); });
+  const span = (g) => (g.steps.length === 1 ? `step ${g.steps[0] + 1}` : `steps ${g.steps[0] + 1}–${g.steps[g.steps.length - 1] + 1}`);
+  const card = (it, i) => html`<li data-step=${String(i)} class=${[done[i] ? 'done' : '', i === next ? 'next' : ''].join(' ').trim()}>
+      <div class="head"><div class="t">${boldParts(it.text)}${it.time ? html`<span class="time">${it.time}</span>` : nothing}${it.advice ? html`<span class="advice" title="The writer's own advice, not something a source says">Advice</span>` : nothing}${markLinks(it)}</div><label class="tick"><input type="checkbox" .checked=${done[i]} @change=${toggle(i)} aria-label=${`Done: step ${String(i + 1)}`}>Done</label></div>
       ${it.detail ? html`<div class="note">${boldParts(it.detail)}</div>` : nothing}
       ${it.how ? html`<p class="how">${boldParts(it.how)}</p>` : nothing}
       ${it.copyPart ? copyBlock(it.copyPart) : nothing}
-      ${it.see ? html`<p class="see"><b aria-hidden="true">\u2713</b><span class="sr">You\u2019ll see: </span>${boldParts(it.see)}</p>` : nothing}
-      ${it.ifNot ? html`<p class="ifnot"><b>If not</b>${boldParts(it.ifNot)}</p>` : nothing}
-      ${refs(it)}
+      ${it.see ? html`<p class="see"><b aria-hidden="true">✓</b><span class="sr">You’ll see: </span>${boldParts(it.see)}</p>` : nothing}
+      ${it.ifNot ? html`<details class="stuck"><summary>Stuck?</summary><p>${boldParts(it.ifNot)}</p></details>` : nothing}
     </li>`;
-  })}</ol>`;
+  return html`<div class="rbbar" role="status">
+      <div class="rbbar__row"><span class="rbbar__n">${count === all.length ? 'All done' : `${String(count)} of ${String(all.length)} done`}</span>${leftWords ? html`<span class="rbbar__left">${leftWords} to go</span>` : nothing}
+        <details class="rbbar__menu"><summary>${next >= 0 ? `Step ${String(next + 1)} of ${String(all.length)}` : 'Steps'}</summary><ol>${all.map((it, i) => html`<li class=${done[i] ? 'done' : ''}><button type="button" @click=${(e) => { e.currentTarget.closest('details').open = false; go(i); }}><span class="o">${done[i] ? '✓' : String(i + 1)}</span>${it.text}</button></li>`)}</ol></details></div>
+      <div class="rbbar__track" aria-hidden="true"><span style=${`width:${all.length ? Math.round((count / all.length) * 100) : 0}%`}></span></div>
+    </div>
+    ${groups.map((g) => html`${g.phase ? html`<h5 class="ph">${g.phase} <span>· ${span(g)}</span></h5>` : nothing}<ol class="rb" style=${`counter-reset: step ${String(g.steps[0])}`}>${g.steps.map((i) => card(all[i], i))}</ol>`)}`;
 }
 /** What goes wrong as rows: what you see, then the fix, the likely cause beneath. */
 function runbookFixes(x) {
