@@ -1331,3 +1331,16 @@ body.has-sua-panel .nb-toast { display: none; }
 .nbt__failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .nbt__failed p { margin: 0; flex: 1 1 16rem; }
 .nbt__failed form { margin: 0; }
+
+/* The header's add row: Add the meeting, what you gave, Add a file or paste, as a line of links; one opens under the row at a time. */
+.nb-hero__adds { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-4); font-size: var(--font-size-sm); }
+.nb-hero__adds > .nb-meeting { display: contents; }
+.nb-hero__adds .nb-meeting__line, .nb-hero__adds .nb-meeting__stale { flex-basis: 100%; order: -1; }
+.nb-hero__add > summary { cursor: pointer; list-style: none; color: var(--color-primary); min-height: var(--control-h-sm); display: inline-flex; align-items: center; }
+.nb-hero__add > summary::-webkit-details-marker { display: none; }
+.nb-hero__add > summary::before { content: none; display: none; }
+.nb-hero__add > summary:hover, .nb-hero__add > summary:focus-visible { text-decoration: underline; }
+.nb-hero__add[open] { flex-basis: 100%; order: 1; }
+.nb-hero__addpanel { display: grid; gap: var(--space-3); margin-top: var(--space-2); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); }
+.nb-hero__addpart + .nb-hero__addpart { border-top: 1px solid var(--color-border); padding-top: var(--space-3); }
+.nb-given--fresh { margin: var(--space-3) 0 var(--space-4); }

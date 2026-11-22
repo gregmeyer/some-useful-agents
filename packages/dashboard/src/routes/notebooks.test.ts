@@ -3120,8 +3120,11 @@ describe('notebook templates', () => {
     const lee = store.list().find((n) => n.title === 'Meet Lee')!;
     expect(lee.given).toMatchObject([{ label: 'Lee Park\'s LinkedIn profile', state: 'missing', optional: true }, { label: 'the agenda', state: 'missing' }]);
     const leePage = (await request(app).get(`/notebooks/${lee.id}`).set('Cookie', COOKIE).set('Host', `127.0.0.1:${String(PORT)}`)).text;
-    expect(leePage).toContain('If you have Lee Park&#39;s LinkedIn profile:');
+    // What it could use is a line in the header's add row; what it needs is a card above the title.
+    expect(leePage).toContain('<summary>If you have Lee Park&#39;s LinkedIn profile</summary>');
     expect(leePage).toContain('sua needs the agenda.');
+    expect(leePage.indexOf('sua needs the agenda.')).toBeLessThan(leePage.indexOf('id="nb-title"'));
+    expect(leePage.indexOf('If you have Lee Park')).toBeGreaterThan(leePage.indexOf('id="nb-title"'));
     // Edited: the asks as given replace them; none asks for nothing. sua's card takes labels (wanted) or {label, optional}.
     expect(store.saveTemplate('Meeting asks', dana.id, undefined, { asks: [] }).setup.asks).toBeUndefined();
     const { templateEditsFromInputs } = await import('../lib/notebook-template-action.js');
