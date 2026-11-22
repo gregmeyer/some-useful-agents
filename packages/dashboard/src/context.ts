@@ -262,6 +262,8 @@ export interface DashboardContext {
   editionAsk?: import('./lib/edition-ask.js').EditionAsk;
   /** Tests only: answer for the edition-editor agent instead of running it. */
   editionEditorRun?: (inputs: Record<string, string>) => Promise<string | undefined>;
+  /** Test stand-in for starting an agent's run from Pulse (routes/widget-run.ts startAgentRun): records it instead of running. */
+  agentRunStart?: (agentId: string, inputs: Record<string, string>) => void;
   /** The latest board review or page redraw started from a board's suggestions, so tests can wait for it. */
   boardReviewWork?: Promise<void>;
   /** Tests only: answer for the board-reviewer agent instead of running it (lib/board-review.ts). */

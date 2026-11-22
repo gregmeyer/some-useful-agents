@@ -116,6 +116,8 @@ export function lastRunInputs(ctx: ReturnType<typeof getContext>, agent: { id: s
  * handle kept while it runs). Doesn't wait; never throws.
  */
 export function startAgentRun(ctx: ReturnType<typeof getContext>, v2Agent: Parameters<typeof executeAgentWithRetry>[0], inputs: Record<string, string>): void {
+  // A test's stand-in: nothing runs (a real run outliving the test writes to a closed database).
+  if (ctx.agentRunStart) { ctx.agentRunStart(v2Agent.id, inputs); return; }
   const abortController = new AbortController();
   const runPromise = executeAgentWithRetry(
     v2Agent,
