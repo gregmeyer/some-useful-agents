@@ -37,12 +37,14 @@ export function cardForAgent(t: TldrData): Record<string, unknown> {
     ...(t.points.length ? { points: { label: t.pointsLabel ?? 'What it found', items: t.points } } : {}),
     // The notebook's own photos (a briefing's sources): how many, and where each is from, so "gallery" and the "photos" part are chosen only when they can be drawn.
     ...(t.photos?.length ? { photos: { count: t.photos.length, from: t.photos.map((x) => x.credit), each: t.photos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
+    // A shortlist that leads with what it wrote: its top options' own photos are the card's photos (/tldr/photo is the first).
+    ...(!t.photos?.length && t.optionPhotos?.length ? { photos: { count: t.optionPhotos.length, of: 'the top options', from: t.optionPhotos.map((x) => x.credit), each: t.optionPhotos.map((x, i) => ({ path: `/tldr/photos/${String(i)}`, credit: x.credit, shows: x.name })) } } : {}),
   };
 }
 
 /** The TL;DR picture a notebook's page prefers, from its layout and what its card can draw. Pure. */
 export function tldrPreferenceFor(nb: Pick<Notebook, 'layout'>, card: TldrData): TldrPreference {
-  return tldrPreference(notebookLayoutOf(nb).preset, { bars: !!card.chart?.bars.length, photos: card.photos?.length ?? 0, leadPicture: !!card.leadPicture });
+  return tldrPreference(notebookLayoutOf(nb).preset, { bars: !!card.chart?.bars.length, photos: card.photos?.length || card.optionPhotos?.length || 0, leadPicture: !!card.leadPicture });
 }
 
 /** The agent's inputs. Pure. */

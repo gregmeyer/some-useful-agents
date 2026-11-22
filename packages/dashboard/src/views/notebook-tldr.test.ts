@@ -337,3 +337,32 @@ describe('a composed card fills its box (no empty band above the foot)', () => {
     expect(out).toMatch(/<div class="tlv__pad"><div class="tlv__row" style="grid-template-columns:minmax\(0, 5fr\) minmax\(0, 7fr\)"><section class="tlv__cover/);
   });
 });
+
+describe("a shortlist's own photos on a composed card", () => {
+  it('the top options with a photo, in order, each credited to its site; a card that leads with what it wrote leads with the first of them, not the drawing', async () => {
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const { tldrViewData } = await import('./notebook-tldr.js');
+    const { cardForAgent } = await import('../lib/notebook-tldr-redraw.js');
+    const store = new NotebookStore(':memory:');
+    const made = store.create({ title: 'Choose a battery', statement: 'Good battery options' });
+    store.setFields(made.id, [{ key: 'price', label: 'Price', type: 'money', role: 'price' }, { key: 'url', label: 'Listing', type: 'link', role: 'link' }]);
+    const a = store.upsertOption(made.id, { title: 'Werker 220Ah', by: 'x', data: { price: 139.99, url: 'https://shop.example/werker' } }).entry;
+    const b = store.upsertOption(made.id, { title: 'Duracell Ultra 215Ah', by: 'x', data: { price: 149.99, url: 'https://batteries.example/duracell' } }).entry;
+    store.upsertOption(made.id, { title: 'No picture', by: 'x', data: { price: 160 } });
+    const png = { contentType: 'image/png', bytes: new Uint8Array([1, 2, 3]) };
+    store.savePhoto(made.id, a.id, 'https://img.example/werker.jpg', png, { kind: 'listing' });
+    store.savePhoto(made.id, b.id, 'https://img.example/duracell.jpg', png, { kind: 'listing' });
+    store.setAnswer(made.id, { question: 'Which battery?', text: 'Lead-acid sets start at $139.99.', confidence: 'medium', findings: [], open: [], at, by: 'sua' } as never);
+    const t = tldrData(store.get(made.id)!, store.entries(made.id, 100), store, (o) => o.image);
+    expect(t.leadPicture).toBeUndefined();
+    expect(t.optionPhotos?.map((p) => [p.name, p.credit])).toEqual([['Werker 220Ah', 'shop.example'], ['Duracell Ultra 215Ah', 'batteries.example']]);
+    const first = t.optionPhotos![0].src;
+    const data = tldrViewData({ ...t, drawing: 'data:drawing' }, {}, 'today') as { photo: { src: string }; photos: unknown[] };
+    expect(data.photo.src).toBe(first);
+    expect(data.photos).toHaveLength(2);
+    // Asked for the drawing: the drawing.
+    expect((tldrViewData({ ...t, drawing: 'data:drawing' }, { picture: 'drawing' }, 'today') as { photo: { src: string } }).photo.src).toBe('data:drawing');
+    // The redraw agent is told there are photos (of the top options), so "lead with the photo" can.
+    expect(cardForAgent(t).photos).toMatchObject({ count: 2, of: 'the top options' });
+  });
+});
