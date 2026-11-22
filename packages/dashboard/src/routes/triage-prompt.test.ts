@@ -122,3 +122,26 @@ describe('loadTriagePlaybook', () => {
     expect(loadTriagePlaybook('')).toBe(manual);
   });
 });
+
+describe('old failures and work that waits for Run', () => {
+  it('a failure before the latest ask is never the opening; an action that waits says so', async () => {
+    const kernel = loadTriageKernel();
+    expect(kernel).toContain('A failure marked "before your latest ask"');
+    expect(kernel).toContain('NEVER\n  open the recommendation with it');
+    expect(kernel).toContain('A proposed action for an agent NOT in STARTS_ON_ITS_OWN waits for');
+    const { readFileSync } = await import('node:fs');
+    const yaml = readFileSync(new URL('../../../../agents/examples/inbox-triage.yaml', import.meta.url), 'utf-8');
+    expect(yaml).toContain('{{inputs.STARTS_ON_ITS_OWN}}');
+    expect(yaml).toContain('One marked "before your latest\n      ask" is history: never open with it.');
+  });
+
+  it("the chip says it's waiting when nothing starts on its own; the list is the agents trust lets start", async () => {
+    const { waitingChip, startsOnItsOwn } = await import('./inbox-engine.js');
+    expect(waitingChip('finding another PB&J photo')).toBe('waiting for you: finding another PB&J photo');
+    expect(waitingChip('waiting for you: x')).toBe('waiting for you: x');
+    const ctx = { inboxStore: { getAutonomyMode: () => 'full', getAgentTrust: (id: string) => (id === 'starter-goal' ? undefined : id === 'mine' ? 'auto' : undefined) } } as never;
+    expect(startsOnItsOwn(ctx, ['starter-goal', 'agent-analyzer', 'mine'])).toEqual(['agent-analyzer', 'mine']);
+    const off = { inboxStore: { getAutonomyMode: () => 'off', getAgentTrust: () => undefined } } as never;
+    expect(startsOnItsOwn(off, ['agent-analyzer'])).toEqual([]);
+  });
+});

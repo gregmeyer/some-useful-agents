@@ -85,6 +85,7 @@ import {
   parseActionMeta,
   formatLearnings,
   formatConversationSnapshot,
+  latestAskAt,
   isTriagePaused,
   TRIAGE_REJECTION_RECOVERY_NOTE,
   PENDING_USER_REPLY_WINDOW_MS,
@@ -188,6 +189,16 @@ const TRIAGE_AUTO_APPROVE_AGENTS: ReadonlySet<string> = new Set([
  * the policy layer is inert until the operator edits it. Exported so the UI
  * can render the same verdict it enforces ("auto-runs" vs "needs approval").
  */
+/** A commitment chip for work that waits for the operator's Run. Pure. */
+export function waitingChip(summary: string): string {
+  return /^waiting for you/i.test(summary) ? summary : `waiting for you: ${summary}`;
+}
+
+/** The agents a proposed action starts on its own right now (the rest wait for Run), for triage's STARTS_ON_ITS_OWN. */
+export function startsOnItsOwn(ctx: ReturnType<typeof getContext>, agentIds: readonly string[]): string[] {
+  return agentIds.filter((id) => isAutoApproved(ctx, id));
+}
+
 export function isAutoApproved(ctx: ReturnType<typeof getContext>, agentId: string): boolean {
   const store = ctx.inboxStore;
   if (!store) return TRIAGE_AUTO_APPROVE_AGENTS.has(agentId);
@@ -2703,7 +2714,9 @@ export async function runTriageAgent(
   // The notebook this conversation is about (started on its page, or linked to it),
   // or else the one it has turned to (sua's latest reply links just that one).
   const threadNotebook = (() => { try { return notebookForThread(ctx, messageId, message.contextJson) ?? notebookTalkedAbout(ctx, messageId); } catch { return undefined; } })();
-  const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId) : '';
+  // Its failure says how long ago, and whether it came before what they last asked (then it's history, not news).
+  const latestAsk = latestAskAt(responsesSnapshot);
+  const focusAgentRun = focusAgentId ? collectRunSummary(ctx, focusAgentId, { now: Date.now(), ...(latestAsk !== undefined ? { latestAsk } : {}) }) : '';
   // Outcome-awareness: what the latest run was SUPPOSED to achieve and whether
   // it did. Run output alone can't answer that — a clean run with an empty
   // digest looks fine in FOCUS_AGENT_RUN. Empty when the agent declared no
@@ -2818,6 +2831,8 @@ export async function runTriageAgent(
           RUNNABLE_AGENT_SPECS: runnableAgentSpecs,
           RUNNABLE_CANDIDATES: candidates.join(', '),
           RUNNABLE_CANDIDATE_SPECS: candidateAgentSpecs,
+          // Which of them start on their own when proposed; the rest wait for the operator's Run.
+          STARTS_ON_ITS_OWN: startsOnItsOwn(ctx, [...new Set([...allowlist, ...candidates])]).join(', '),
           // Trimmed installed-agent catalog (newest first) so triage can answer
           // recency / "what does agent X do" directly, with a link, instead of
           // dispatching agent-catalog-search for a simple lookup.
@@ -2972,6 +2987,9 @@ export async function runTriageAgent(
     // promise the chip exists to prevent. The triage reply is written before
     // actions are parsed, so we decide the chip after the fact.
     let pendingWorkInserted = false;
+    // Proposed work that waits for the operator's Run (not one it starts on its own): its chip says so.
+    let waitsForRun = false;
+    let startedOnItsOwn = false;
     const rawActionList = Array.isArray(parsed.actions) ? parsed.actions : [];
     const planHasShowWidget = rawActionList.some(
       (a) => a && typeof a === 'object' && (a as { type?: unknown }).type === 'show-widget',
@@ -3207,7 +3225,9 @@ export async function runTriageAgent(
         // idempotently. On completion runProposedAction publishes the terminal
         // action:status event and (when all actions resolve) fires the
         // follow-up triage turn.
-        if (isAutoApproved(ctx, action.agentId) && !isTriagePaused(ctx, messageId)) {
+        if (!isAutoApproved(ctx, action.agentId) || isTriagePaused(ctx, messageId)) waitsForRun = true;
+        else {
+          startedOnItsOwn = true;
           const startedAt = Date.now();
           const runningMeta: InboxActionMeta = { ...stamped, status: 'running', startedAt, approvedBy: 'policy' };
           const claimed = ctx.inboxStore.transitionActionStatus(
@@ -3277,6 +3297,10 @@ export async function runTriageAgent(
       ctx.inboxStore.updateResponse(triageReply.id, {
         metaJson: Object.keys(keptMeta).length > 0 ? JSON.stringify(keptMeta) : null,
       });
+    }
+    // Nothing started on its own and the work waits for the operator's Run: the chip says it's waiting, not under way.
+    else if (commitmentSummary && waitsForRun && !startedOnItsOwn) {
+      ctx.inboxStore.updateResponse(triageReply.id, { metaJson: JSON.stringify({ ...triageMeta, commitmentSummary: waitingChip(commitmentSummary) }) });
     }
 
     // A resolve-thread action already set the thread to `resolved`; don't stomp

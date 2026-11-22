@@ -37,6 +37,15 @@ The autonomy loop (the "control plane" half) now runs by default:
   stranded `running` by a restart against run-store truth, re-attaches
   waiters to in-flight Temporal runs, and re-fires triage once per thread
   whose turn died with the old process.
+- **Old failures stay history**: each failed or refused action in the
+  thread sua reads says how long ago it happened, and "before your latest
+  ask" when it came before your newest message; so does the focus agent's
+  last failed run. sua answers what you asked now and never opens with an
+  earlier failure.
+- **Work that waits for you says so**: when sua proposes an action for an
+  agent that doesn't start on its own (your trust settings decide), its
+  reply says to press **Run**, and its chip reads "waiting for you: …"
+  instead of sounding under way.
 - **How far sua goes on its own**: after an action finishes, sua takes
   another turn to report or carry on. Between your replies it takes up to
   12 such turns and runs up to 24 actions, then pauses and asks you to
