@@ -358,7 +358,7 @@ describe('boards are canvases', () => {
       ctx.runStore.createRun({ id: `run-${id}`, agentName: id, status: 'completed', startedAt: at, completedAt: at, result: JSON.stringify({ headline: `${id} says hi` }), triggeredBy: 'schedule' } as never);
     };
     mk('briefs', 3600_000);
-    mk('forecast', 15 * 86_400_000, { LOCATION: { type: 'string', required: true } });
+    mk('forecast', 15 * 86_400_000, { LOCATION: { type: 'string', default: '98225' } });
     // Weather is 15 days old: in the edition only because you always show it.
     const store = new EditionPrefsStore(ctx.runStore.databaseHandle());
     store.save({ ...store.get(), include: ['forecast'] });
@@ -386,6 +386,20 @@ describe('boards are canvases', () => {
     // One press runs the older parts again (nothing runs just because the page opened).
     const ran = await post(app, '/pulse/edition/run-older', {});
     expect(decodeURIComponent(ran.headers.location)).toContain('Running 1 older part again.');
+    // Asked "what's stale?", sua can offer to run the old part again: its own Run, never inside Apply all.
+    ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'auto', agentId: 'forecast' }], actions: [{ do: 'rerun', agentId: 'forecast' }], say: 'The forecast is old.' })}</edition>`;
+    await post(app, '/pulse/edition/ask', { text: "what's stale?" });
+    await ctx.boardReviewWork;
+    const ask = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    const card = (await get(app, '/pulse')).text;
+    expect(card).toContain('<span class="board-review__what">Run The forecast again: its result is 15 days old</span>');
+    expect(card).toMatch(/<input type="hidden" name="do" value="run"><button type="submit" class="btn btn--sm">Run<\/button>/);
+    expect(card).not.toContain('Apply all');
+    const runIt = await post(app, `/pulse/edition/ask/${ask}/row/1`, { do: 'run' });
+    expect(decodeURIComponent(runIt.headers.location)).toContain('Running forecast again.');
+    // The change is still open after the run; applying it ends the ask.
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${ask}/row/0`, { do: 'apply' })).headers.location)).toContain('Stop always showing The forecast');
+    expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual([]);
   });
 
   it("Today's edition can be improved: it has a goal, sua reviews it, and what you take becomes a preference the edition follows every day, with Undo and a way back", async () => {
@@ -489,7 +503,12 @@ describe('boards are canvases', () => {
     expect(page.text).toContain('You asked');
     expect(page.text).toContain('<span class="board-review__what">Lead with The digest</span>');
     expect(page.text).toContain('<span class="board-review__what">Leave out The routine</span>');
-    expect(page.text).toContain('>Apply all 2</button>');
+    expect(page.text).toContain('>Apply all 2 changes</button>');
+    // Each change can be applied or skipped on its own.
+    expect(page.text).toMatch(/<input type="hidden" name="do" value="apply"><button type="submit" class="btn btn--sm">Apply<\/button>/);
+    // The editor saw how fresh each part is.
+    expect((seen.showing as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({ lastRun: 'ok', why: 'scheduled', canRunAgain: true });
+    expect(typeof (seen.showing as unknown as Array<Record<string, unknown>>)[0].ageHours).toBe('number');
     const askId = (await get(app, '/pulse/edition/ask.json')).body.id as string;
     const applied = await post(app, `/pulse/edition/ask/${askId}/apply`, {});
     expect(decodeURIComponent(applied.headers.location)).toBe('/pulse?edition=Lead with The digest; Leave out The routine. The edition follows them from now on; Undo last change goes back.');
@@ -508,6 +527,21 @@ describe('boards are canvases', () => {
     expect((await get(app, '/pulse/edition/ask.json')).body).toEqual({ status: 'none' });
     expect(prefs()).toMatchObject({ lead: 'digest', hidden: ['routine'] });
     expect(decodeURIComponent((await post(app, '/pulse/edition/ask', { text: '   ' })).headers.location)).toContain('Say what to change');
+    // A change at a time: one applied, one skipped, and Undo goes back to before the whole ask.
+    const before = prefs();
+    ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'numbers', on: false }, { op: 'note', text: 'Read me first' }], say: 'Two small changes.' })}</edition>`;
+    await post(app, '/pulse/edition/ask', { text: 'no numbers, and add a line' });
+    await ctx.boardReviewWork;
+    const one = (await get(app, '/pulse/edition/ask.json')).body.id as string;
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${one}/row/0`, { do: 'apply' })).headers.location)).toContain('Drop the numbers band. Undo last change goes back to before this ask.');
+    page = await get(app, '/pulse');
+    expect(page.text).toContain('<span class="board-review__state">Applied</span>');
+    expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${one}/row/1`, { do: 'skip' })).headers.location)).toContain('Skipped: Add the line');
+    expect((await get(app, '/pulse/edition/ask.json')).body).toEqual({ status: 'none' });
+    expect(prefs()).toMatchObject({ numbers: false });
+    expect(prefs().note).toBeUndefined();
+    await post(app, '/pulse/edition/undo', {});
+    expect(prefs()).toEqual(before);
     // Still nothing to arrange or save.
     expect((await post(app, '/boards/today/doc', { doc: { components: [] } })).status).toBe(400);
   });

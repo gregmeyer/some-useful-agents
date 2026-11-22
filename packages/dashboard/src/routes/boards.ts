@@ -42,7 +42,7 @@ import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview
 import { boardGoalCard, boardRunningStrip } from '../views/board-review.js';
 import { boardActivity } from '../lib/board-activity.js';
 import { working } from '../views/working.js';
-import type { EditionAsk } from '../lib/edition-ask.js';
+import { askRows, type EditionAsk, type EditionAskRow } from '../lib/edition-ask.js';
 
 /**
  * Boards (docs/boards.md): Pulse and every named dashboard, each drawn as ONE
@@ -281,14 +281,23 @@ function editionAskCard(a: EditionAsk | undefined): SafeHtml {
       ${unsafeHtml(`<script>(function(){function tick(){fetch('/pulse/edition/ask.json',{headers:{Accept:'application/json'},credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j&&j.status!=='running'){location.reload();return;}setTimeout(tick,2500);}).catch(function(){setTimeout(tick,5000);});}setTimeout(tick,2500);})();</script>`)}
     </section>`;
   }
-  const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${a.status === 'ready' && a.ops.length ? 'Discard' : 'OK'}</button></form>`;
+  const rows = a.status === 'ready' ? askRows(a) : [];
+  const openOps = rows.filter((r) => r.kind === 'op' && r.state === 'open').length;
+  const anyOpen = rows.some((r) => r.state === 'open');
+  const discard = html`<form method="POST" action="${base}/discard" style="margin: 0;"><button type="submit" class="board-review__skip">${anyOpen ? 'Discard' : 'OK'}</button></form>`;
+  // One row per change: each applied or skipped on its own. A run sua offers has its own Run (it costs a run), never inside Apply all.
+  const rowForm = (n: number, what: 'apply' | 'skip' | 'run', label: string, cls: string) => html`<form method="POST" action="${base}/row/${String(n)}" style="margin: 0;"><input type="hidden" name="do" value="${what}"><button type="submit" class="${cls}">${label}</button></form>`;
+  const state = (r: EditionAskRow) => (r.state === 'applied' ? 'Applied' : r.state === 'ran' ? 'Running' : r.state === 'skipped' ? 'Skipped' : '');
   return html`<section class="board-review" aria-labelledby="edition-ask-title">
     <div class="board-review__head"><h2 class="board-review__title" id="edition-ask-title">You asked</h2><span class="board-review__round">“${a.ask}”</span></div>
     ${a.status === 'failed' ? html`<p class="board-review__note"><strong>That couldn't be worked out.</strong> ${a.error ?? ''}</p>` : html``}
     ${a.say ? html`<p class="board-review__note">${a.say}</p>` : html``}
-    ${a.changes.length ? html`<ul class="board-review__list">${a.changes.map((c) => html`<li class="board-review__item"><span class="board-review__sign" aria-hidden="true">→</span><div class="board-review__text"><span class="board-review__what">${c}</span></div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
+    ${rows.length ? html`<ul class="board-review__list">${rows.map((r, n) => html`<li class="board-review__item${r.state !== 'open' ? ' is-done' : ''}"><span class="board-review__sign" aria-hidden="true">${r.kind === 'action' ? '↻' : '→'}</span><div class="board-review__text"><span class="board-review__what">${r.text}</span></div>
+      <div class="board-review__acts">${r.state === 'open'
+        ? html`${r.kind === 'op' ? rowForm(n, 'apply', 'Apply', 'btn btn--sm') : rowForm(n, 'run', 'Run', 'btn btn--sm')}${rowForm(n, 'skip', 'Skip', 'board-review__skip')}`
+        : html`<span class="board-review__state">${state(r)}</span>`}</div></li>`) as unknown as SafeHtml[]}</ul>` : html``}
     <div class="board-review__foot">
-      ${a.status === 'ready' && a.ops.length ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply ${a.changes.length === 1 ? 'it' : `all ${String(a.changes.length)}`}</button></form>` : html``}
+      ${openOps > 1 ? html`<form method="POST" action="${base}/apply" style="margin: 0;"><button type="submit" class="btn btn--sm btn--primary">Apply all ${String(openOps)} changes</button></form>` : html``}
       ${discard}
     </div>
   </section>`;
