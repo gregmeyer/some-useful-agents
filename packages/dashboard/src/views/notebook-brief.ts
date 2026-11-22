@@ -19,7 +19,7 @@ import { notebookWidgetData, optionFacets, checksFor, type NotebookWidgetHistory
 import { optionFacts, optionTimeline, type NotebookOptionHistory } from '../lib/notebook-option.js';
 import { bodyWithLinks } from './notebooks.js';
 import { briefPart, type BriefSection } from './notebook-page-brief.js';
-import { tldrData, tldrChart, TLDR_CSS } from './notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, tldrCard, tldrData, tldrChart, TLDR_CSS } from './notebook-tldr.js';
 
 /** "**39 in the running**, 22 ruled out": escaped, with its bold kept. */
 function inline(md: string): SafeHtml {
@@ -268,7 +268,7 @@ const RULED_SHOWN = 12;
 
 const fmtDate = (iso: string | undefined, fallback: Date) => (iso ? new Date(iso) : fallback).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean; theme?: BriefTheme }): string {
+export function renderNotebookBrief(args: { nb: Notebook; entries: readonly NotebookEntry[]; history?: NotebookWidgetHistory & Partial<Pick<NotebookOptionHistory, 'sightings'>>; fragment?: boolean; now?: Date; print?: boolean; full?: boolean; pictures?: BriefPicture; latest?: boolean; theme?: BriefTheme; /** A picture chosen for the notebook as the file carries it (its kept copy, embedded). */ aboutPicture?: (src: string) => string | undefined }): string {
   // The dashboard's look (its tokens and brand theme), in your mode.
   const theme = args.theme ?? briefTheme();
   const { nb } = args;
@@ -296,6 +296,11 @@ export function renderNotebookBrief(args: { nb: Notebook; entries: readonly Note
   const pic: BriefPicture | undefined = d.options.some((o) => o.image) ? (args.pictures ?? ((o) => o.image)) : undefined;
   // The TL;DR picture's card under the title, when there's something to plot (not on the brief of what's new: its numbers are the whole notebook's).
   const tldr = args.latest || nb.tldrCard === 'never' ? undefined : tldrData(nb, args.entries, args.history, pic);
+  // Set to Always: the whole TL;DR card leads (as on the page and the page brief's "In short"), drawn as you redrew it; its bars are then in it, not repeated below.
+  const chosenPath = chosenPhotoPath(nb);
+  const card = tldr && nb.tldrCard === 'always'
+    ? tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), undefined, chosenTldrPhoto(nb, chosenPath ? (args.aboutPicture ?? ((x: string) => x))(chosenPath) : undefined)), { ...(nb.tldr ? { spec: nb.tldr } : {}) })
+    : undefined;
   // What the write-up and its findings rest on, numbered: a finding named by an option's title is that option's own page.
   const cites = new SourceNotes((label) => d.options.find((o) => (o.name === label || o.title === label) && /^https?:\/\//i.test(o.link ?? ''))?.link);
   const css = `/* A brief: one column of reading. Findings first, the options as a table, then each in detail. */
@@ -429,6 +434,8 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 /* The TL;DR picture's bars, drawn for a 1080px picture, scaled to the column. With them, the paragraph above takes the column's width too. */
 ${TLDR_CSS}
 .brief .tl { zoom: 0.68; border-radius: 14px; }
+/* The whole TL;DR card (set to Always) is a wider picture: scaled to the column. */
+.brief .in-short .tl { zoom: 0.6; }
 .stands:has(+ .tl) { max-width: none; }
 @media (max-width: 640px) { .brief .tl { zoom: 0.44; } }
 /* On paper (Save as PDF): the light palette, fills kept, nothing split across pages, links with their address. */
@@ -466,6 +473,7 @@ ${TLDR_CSS}
     ...(nb.statement ? { statement: nb.statement } : {}),
     ...(nb.meeting?.when || nb.meeting?.goal ? { meeting: { ...(nb.meeting.when ? { when: meetingWhenWords(nb.meeting.when) } : {}), ...(nb.meeting.goal ? { goal: nb.meeting.goal } : {}) } } : {}),
   })}
+  ${card ? html`<section class="in-short" aria-labelledby="b-short"><h2 id="b-short">In short</h2>${card}</section>` : html``}
   ${decided && nb.decision
     ? html`<section class="decision" aria-label="Decision">
         <p class="decision__head"><b>Decision</b>Decided ${fmtDate(nb.decidedAt ?? nb.updatedAt, now)}${picks ? ` · ${String(picks.picks.length)} chosen of ${String(active.length)} in the running` : ''}</p>
@@ -477,7 +485,7 @@ ${TLDR_CSS}
   ${writeup
     ? html`<section class="stands" aria-label="The lay of the land"><div class="eyebrow">${writeup.label}</div><p>${inline(writeup.text)}</p>${writeup.next ? html`<p class="muted"><b>${writeup.nextLabel}</b> ${writeup.next}</p>` : html``}<p class="fine">${inline(d.summary)}</p></section>`
     : decided && nb.decision ? html`` : html`<p class="stands">${inline(d.summary)}</p>`}
-  ${/* The picture's bars after the words: how the options compare, which the words can't show. Not its lead or numbers: the paragraph above and the key findings below say those. */ tldr?.chart ? tldrChart(tldr) : html``}
+  ${/* The picture's bars after the words: how the options compare, which the words can't show. Not its lead or numbers: the paragraph above and the key findings below say those. */ tldr?.chart && !card ? tldrChart(tldr) : html``}
   ${args.latest ? html`<p class="stands">${active.length
     ? `${String(active.length)} new in the running from the last run that found options${since ? `, ${fmtDate(since, now)}` : ''}, of ${String(inRunning.length)} in all.`
     : 'Nothing new is in the running from the last run.'}${ruled.length ? ` ${String(ruled.length)} more it found ${ruled.length === 1 ? 'was' : 'were'} ruled out.` : ''}</p>` : html``}
