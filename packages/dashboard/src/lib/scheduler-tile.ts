@@ -1,4 +1,5 @@
-import type { SchedulerStatus } from '@some-useful-agents/core';
+import { getSchedulerStatus, type SchedulerStatus } from '@some-useful-agents/core';
+import type { getContext } from '../context.js';
 
 export interface SchedulerTileState {
   /** Feeds the `status` template's dot: ok -> green, warn -> amber, else red. */
@@ -68,4 +69,14 @@ export function schedulerTileState(input: {
     label,
     message: `${String(scheduled)} scheduled agent${scheduled === 1 ? '' : 's'} will not run`,
   };
+}
+
+/** A stopped (or stale) scheduler while agents are scheduled: one line to say so, or undefined when nothing is lost. */
+export function schedulerProblem(ctx: ReturnType<typeof getContext>): string | undefined {
+  try {
+    const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
+    const scheduled = ctx.agentStore.listAgents().filter((a) => a.schedule && a.status === 'active').length;
+    const s = schedulerTileState({ status, registered: heartbeat?.agents.length ?? 0, scheduled });
+    return s.state === 'down' ? `The scheduler is ${s.label.toLowerCase()}: ${s.message.charAt(0).toLowerCase()}${s.message.slice(1)}.` : undefined;
+  } catch { return undefined; }
 }

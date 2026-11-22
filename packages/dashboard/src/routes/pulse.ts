@@ -1,7 +1,7 @@
 import { renderBoardPage, renderTodayEdition, renderTodayEmpty } from './boards.js';
 import { editionFreshness, editionPrefsStoreOf, todayEdition } from '../lib/today-edition.js';
 import { lastRunInputs, startAgentRun } from './widget-run.js';
-import { applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
+import { actOnEditionRow, applyEditionAsk, discardEditionAsk, startEditionAsk } from '../lib/edition-ask.js';
 import { applyEditionOps } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import { PULSE_BOARD_ID, parseAgent, getSchedulerStatus, type Agent, type AgentSignal, type SignalTemplate, type SignalAccent } from '@some-useful-agents/core';
@@ -11,7 +11,7 @@ import { getContext } from '../context.js';
 import type { PulseTile } from '../views/pulse.js';
 import { buildPulseTile, withTileSignal, attachLayoutHints } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY } from '../views/pulse-templates.js';
-import { schedulerTileState } from '../lib/scheduler-tile.js';
+import { schedulerProblem, schedulerTileState } from '../lib/scheduler-tile.js';
 
 export const pulseRouter: Router = Router();
 
@@ -143,15 +143,7 @@ export function pulseHealthLine(ctx: ReturnType<typeof getContext>, now = Date.n
   return { parts, quiet: !scheduler && !failed };
 }
 
-/** A stopped (or stale) scheduler while agents are scheduled: one line to say so, or undefined when nothing is lost. */
-export function schedulerProblem(ctx: ReturnType<typeof getContext>): string | undefined {
-  try {
-    const { status, heartbeat } = getSchedulerStatus(ctx.dataDir);
-    const scheduled = ctx.agentStore.listAgents().filter((a) => a.schedule && a.status === 'active').length;
-    const s = schedulerTileState({ status, registered: heartbeat?.agents.length ?? 0, scheduled });
-    return s.state === 'down' ? `The scheduler is ${s.label.toLowerCase()}: ${s.message.charAt(0).toLowerCase()}${s.message.slice(1)}.` : undefined;
-  } catch { return undefined; }
-}
+export { schedulerProblem };
 
 /** Scheduler health as a board tile. Mapping lives in lib/scheduler-tile.ts. */
 function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
@@ -250,6 +242,13 @@ pulseRouter.get('/pulse/edition/ask.json', (req: Request, res: Response) => {
 });
 pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) => {
   const out = applyEditionAsk(getContext(req.app.locals), String(req.params.id));
+  res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
+});
+/** One row of the proposal: apply or skip a change, or run a part again (its own button; never in Apply all). */
+pulseRouter.post('/pulse/edition/ask/:id/row/:n', (req: Request, res: Response) => {
+  const what = String((req.body as { do?: unknown } | undefined)?.do ?? '');
+  if (what !== 'apply' && what !== 'skip' && what !== 'run') { res.redirect(303, '/pulse'); return; }
+  const out = actOnEditionRow(getContext(req.app.locals), String(req.params.id), Number(req.params.n), what);
   res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
 });
 pulseRouter.post('/pulse/edition/ask/:id/discard', (req: Request, res: Response) => {

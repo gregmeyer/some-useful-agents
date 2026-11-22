@@ -61,3 +61,19 @@ describe('kept, with one step of Undo', () => {
     expect(store.undo()).toMatchObject({ lead: 'hn', hidden: ['routine'] });
   });
 });
+
+describe('a change at a time from one ask', () => {
+  it("keepPrevious keeps the Undo point, so Undo goes back to before the whole ask; auto stops always-showing one", async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { EditionPrefsStore, applyEditionOps, EMPTY_EDITION_PREFS } = await import('./edition-prefs.js');
+    const store = new EditionPrefsStore(new DatabaseSync(':memory:'));
+    const known = new Set(['hn', 'wx']);
+    store.save(applyEditionOps(EMPTY_EDITION_PREFS, [{ op: 'include', agentId: 'wx' }], known));
+    const before = store.get();
+    store.save(applyEditionOps(store.get(), [{ op: 'auto', agentId: 'wx' }], known));
+    store.save(applyEditionOps(store.get(), [{ op: 'lead', agentId: 'hn' }], known), Date.now(), { keepPrevious: true });
+    expect(store.get()).toMatchObject({ include: [], lead: 'hn' });
+    store.undo();
+    expect(store.get()).toEqual(before);
+  });
+});

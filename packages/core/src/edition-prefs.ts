@@ -39,6 +39,8 @@ export const editionOpSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('hide'), agentId: Id }).strict(),
   z.object({ op: z.literal('show'), agentId: Id }).strict(),
   z.object({ op: z.literal('include'), agentId: Id }).strict(),
+  /** Stop always showing it: it's in the edition again only when it ran in the last day (not left out). */
+  z.object({ op: z.literal('auto'), agentId: Id }).strict(),
   z.object({ op: z.literal('width'), agentId: Id, width: z.enum(['wide', 'narrow', 'auto']) }).strict(),
   z.object({ op: z.literal('numbers'), on: z.boolean() }).strict(),
   z.object({ op: z.literal('top-story'), agentId: Id.nullable() }).strict(),
@@ -80,6 +82,10 @@ export function applyEditionOps(prefs: EditionPrefs, rawOps: readonly unknown[],
         next.include = [...without(next.include, op.agentId), op.agentId];
         next.hidden = without(next.hidden, op.agentId);
         break;
+      case 'auto':
+        if (!next.include.includes(op.agentId)) throw new EditionOpError(`"${op.agentId}" isn't one you always show.`);
+        next.include = without(next.include, op.agentId);
+        break;
       case 'width':
         next.wide = without(next.wide, op.agentId);
         next.narrow = without(next.narrow, op.agentId);
@@ -117,6 +123,7 @@ export function describeEditionOp(op: EditionOp, title: (id: string) => string):
     case 'hide': return `Leave out ${title(op.agentId)}`;
     case 'show': return `Bring back ${title(op.agentId)}`;
     case 'include': return `Always show ${title(op.agentId)}`;
+    case 'auto': return `Stop always showing ${title(op.agentId)}: only when it ran in the last day`;
     case 'width': return op.width === 'auto' ? `Let ${title(op.agentId)} take the column that fits it` : `Put ${title(op.agentId)} in the ${op.width} column`;
     case 'numbers': return op.on ? 'Show the numbers band' : 'Drop the numbers band';
     case 'top-story': return op.agentId ? `Show the top item of ${title(op.agentId)} under the headline` : 'No top item under the headline';
@@ -147,8 +154,16 @@ export class EditionPrefsStore {
     return !!this.parse(row?.previous_json);
   }
 
-  save(prefs: EditionPrefs, now = Date.now()): EditionPrefs {
+  /**
+   * Save. `keepPrevious`: keep the Undo point as it is (a second change
+   * applied from the same ask), so Undo goes back to before the whole ask.
+   */
+  save(prefs: EditionPrefs, now = Date.now(), opts: { keepPrevious?: boolean } = {}): EditionPrefs {
     const clean = editionPrefsSchema.parse(prefs);
+    if (opts.keepPrevious) {
+      const changed = this.db.prepare("UPDATE edition_prefs SET prefs_json = ?, updated_at = ? WHERE id = 'today'").run(JSON.stringify(clean), now).changes;
+      if (Number(changed) > 0) return clean;
+    }
     this.db.prepare("INSERT INTO edition_prefs (id, prefs_json, previous_json, updated_at) VALUES ('today', ?, ?, ?) ON CONFLICT(id) DO UPDATE SET previous_json = prefs_json, prefs_json = excluded.prefs_json, updated_at = excluded.updated_at")
       .run(JSON.stringify(clean), JSON.stringify(EMPTY_EDITION_PREFS), now);
     return clean;
