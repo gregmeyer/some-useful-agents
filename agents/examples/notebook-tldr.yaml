@@ -1,7 +1,8 @@
 # Notebook TL;DR — redraws a notebook's TL;DR picture from an ask ("make it
 # suitable for LinkedIn", "more editorial", "be more creative"). It doesn't
-# draw: it chooses from a fixed set of sizes, tones, layouts and parts, and
-# may write a headline and a one-line takeaway. The dashboard draws the
+# draw: it chooses from a fixed set of sizes, tones, layouts and parts, or
+# composes the card as an A2UI view of the card's own components bound to
+# its data (ADR-0096), and may write a headline and a one-line takeaway. The dashboard draws the
 # picture from that choice and the notebook's own data, so names, numbers
 # and bars never come from here. Route-dispatched only, from the notebook's
 # Redraw page (dashboard lib/notebook-tldr-redraw.ts); never proposed in
@@ -11,7 +12,8 @@ id: notebook-tldr
 name: Notebook TL;DR
 description: >
   Chooses how a notebook's TL;DR picture is drawn (its size, tone, layout
-  and parts) from what the person asked, and may write its headline.
+  and parts, or a composed A2UI view of it) from what the person asked,
+  and may write its headline.
 status: active
 source: examples
 
@@ -135,6 +137,20 @@ nodes:
           the notebook: every number or name in them must be in CARD,
           written as it is there. With nothing worth saying, leave them
           out; the notebook's title stands.
+        - Compose the card yourself with "view" (see "view" under what you
+          may choose from) when the fixed layouts can't do what they
+          asked: "the headline over the photo", "a magazine cover", "a
+          poster", "be creative with the photo", "the photos in a grid
+          with the numbers beside them", or a "more creative" ask on a
+          card that already uses its layouts. A PhotoCover with the
+          headline over the photo is the usual opener when CARD has a
+          photo (lead.picture "photo", or "photos"); without one, don't
+          use PhotoCover or PhotoGrid. Bind every picture, name and number
+          to /tldr/… (or use a TldrPart for the lead, stats, bars or
+          points); your own words are only short labels and the
+          headline/takeaway fields. Keep it to what fits the size: a cover
+          and two or three parts. Each photo's credit is drawn for you.
+          Without a view, "layout" and "parts" draw it as before.
         - "about": one short sentence, to the person, on what you changed
           ("Wide for LinkedIn, with a headline and the bars beside the
           words.").
@@ -146,4 +162,11 @@ nodes:
       {"size": "landscape", "tone": "editorial", "layout": "split",
        "parts": ["lead", "stats", "bars"],
        "headline": "…", "takeaway": "…", "about": "…"}
+      </tldr>
+      or, composing it:
+      <tldr>
+      {"size": "square", "tone": "bold", "headline": "…", "about": "…",
+       "view": [{"id": "root", "component": "Column", "children": ["cover", "nums"]},
+                {"id": "cover", "component": "PhotoCover", "photo": {"path": "/tldr/photo"}, "kicker": {"path": "/tldr/title"}, "headline": {"path": "/tldr/headline"}, "scrim": "dark", "align": "bottom", "height": "tall"},
+                {"id": "nums", "component": "TldrPart", "part": "stats"}]}
       </tldr>

@@ -6799,7 +6799,7 @@ describe("redrawing a notebook's TL;DR picture", () => {
     await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'add a headline' });
     await settle();
     expect(JSON.parse(asked[2].CURRENT)).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero' });
-    expect(asked[3].ERRORS).toContain("has a number that CARD doesn't (140)");
+    expect(asked[3].ERRORS).toContain("have a number that CARD doesn't (140)");
     // Both headlines had a number of sua's own: the drawing is kept, without the words.
     expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero', ask: 'add a headline' });
     expect(store.get(nb.id)!.tldr!.headline).toBeUndefined();

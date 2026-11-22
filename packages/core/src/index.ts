@@ -573,6 +573,8 @@ export {
   suaComponentDocs,
   boardComponentDocs,
   BOARD_COMPONENT_NAMES,
+  tldrComponentDocs,
+  TLDR_COMPONENT_NAMES,
   type SuaComponentDoc,
 } from './a2ui/catalog.js';
 export {

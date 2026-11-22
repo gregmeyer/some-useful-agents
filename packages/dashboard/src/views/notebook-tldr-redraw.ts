@@ -26,7 +26,9 @@ export const TLDR_STARTERS = [
 export function tldrSpecWords(spec: TldrSpec | undefined): string {
   if (!spec) return 'The standard picture: as tall as it needs, plain, everything in one column.';
   const size = TLDR_SIZES[spec.size];
-  const lay = { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large', cover: 'the picture across the top', lineup: 'the top options as pictures side by side', spotlight: 'the picture down one side', gallery: 'its own photos side by side' }[spec.layout];
+  // Composed (ADR-0096): what it opens with, from its view.
+  const composedLay = spec.view?.length ? (spec.view.some((c) => c.component === 'PhotoCover') ? 'composed: the headline over the photo' : spec.view.some((c) => c.component === 'PhotoGrid') ? 'composed: its photos in a grid' : 'composed by sua') : undefined;
+  const lay = composedLay ?? { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large', cover: 'the picture across the top', lineup: 'the top options as pictures side by side', spotlight: 'the picture down one side', gallery: 'its own photos side by side' }[spec.layout];
   return `${size.name}${size.height ? ` ${String(size.width)}×${String(size.height)}` : ''} · ${spec.tone} · ${lay}${spec.picture === 'drawing' ? ' · its drawing' : spec.picture === 'none' ? ' · no picture' : ''}${spec.headline ? ' · with a headline' : ''}`;
 }
 
@@ -67,7 +69,7 @@ export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; 
           <form method="POST" action="/notebooks/${id}/tldr/redraw" class="nbt__starters" aria-label="Or start with">
             ${TLDR_STARTERS.map((x) => html`<button type="submit" name="ask" value="${x.ask}" class="nbd-chip nbd-chip--add" title="${x.ask}" ${busy ? unsafeHtml('disabled') : unsafeHtml('')}>${x.label}</button>`) as unknown as SafeHtml[]}
           </form>
-          <p class="nbt__hint">sua chooses from a set of sizes, tones and layouts and may write a headline. It never changes a number.</p>
+          <p class="nbt__hint">sua chooses from a set of sizes, tones and layouts, or composes the card from its own parts (the headline over a photo, a grid of its photos), and may write a headline. It never changes a number, and every photo is credited.</p>
         </section>
         <section class="nbt__acts" aria-label="This picture">
           <a class="btn btn--sm" href="/notebooks/${id}/tldr.png?download=1&amp;v=${v}" download>Download PNG</a>

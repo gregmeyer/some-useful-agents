@@ -115,6 +115,8 @@ The [A2UI basic catalog](https://a2ui.org/specification/v1.0-a2ui/) (Text, Image
 
 If a **generated** view isn't valid on a run, the run page says why and shows the agent's `outputWidget` (or the raw output) instead; Pulse and chat show the reason. The A2UI renderer (about 330 KB) is only loaded on pages that show a view.
 
+**A notebook's TL;DR card only** ([ADR-0096](adr/0096-tldr-card-composed-as-a2ui.md)): `PhotoCover` (`photo`, `kicker?`, `headline?`, `takeaway?`, `scrim?` dark/light/none, `align?` top/center/bottom, `focus?` top/center/bottom, `height?` short/tall: a photo full-bleed with words over it, credited on it), `PhotoGrid` (`photos`, `count?` 1–4, `ratio?` 4:3/1:1/16:10: photos side by side, each credited) and `TldrPart` (`part`: one of the standard card's parts). They bind to the card's own data (`/tldr/…`) and are refused in any other view; core `checkTldrView` checks a card's view.
+
 ## Who writes views
 
 You, in the View editor; sua, with **Redesign**; and the agents that write agents: new agents from Build from a goal, New board and sua's fixes get a `view:` instead of an `outputWidget` (see [Build from a goal § How new agents look](build-from-goal.md#how-new-agents-look)). In a conversation, "make this tile better" or "show a trend for the price agent" starts a redesign (a `view-redesign` action, which runs without approval since nothing changes until you use the proposal) and replies with the link to compare.
