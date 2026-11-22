@@ -142,12 +142,13 @@ describe('dashboards routes', () => {
       layout: { sections: [{ title: 'Greetings', agentIds: ['hello'] }] },
     });
     const res = await request(app)
-      .get('/pulse')
+      .get('/pulse/agents')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);
     expect(res.text).toContain('class="dashboards-dropdown"');
-    expect(res.text).toContain('Default Dashboard');
+    expect(res.text).toContain('<span title="Pulse"');
+    expect(res.text).not.toContain('pulseVisible');
     expect(res.text).toContain('href="/dashboards/starter%3Amain"');
   });
 
@@ -163,7 +164,7 @@ describe('dashboards routes', () => {
     packsStore.upsertPack({ id: 'weather', name: 'Weather', version: '0.2.0', source: 'builtin', manifest: { id: 'weather', name: 'Weather', version: '0.2.0', dashboards: [], agents: [] } });
 
     const res = await request(app)
-      .get('/pulse')
+      .get('/pulse/agents')
       .set('Host', `127.0.0.1:${PORT}`)
       .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
     expect(res.status).toBe(200);

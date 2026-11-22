@@ -21,6 +21,7 @@ import {
 } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { html, render, unsafeHtml, type SafeHtml } from '../views/html.js';
+import { formatAge } from '../views/components.js';
 import { layout } from '../views/layout.js';
 import { pageHeader, renderCrumbs } from '../views/page-header.js';
 import { assembleCanvas, canvasTileEntry } from '../lib/board-canvas.js';
@@ -314,8 +315,7 @@ function editionChanges(ctx: ReturnType<typeof getContext>): SafeHtml {
 export const PULSE_AGENTS_URL = '/pulse/agents';
 
 /** Pulse's two views, as tabs under its header. */
-export function pulseTabs(active: 'today' | 'agents', hasEdition: boolean): SafeHtml {
-  if (!hasEdition) return html``;
+export function pulseTabs(active: 'today' | 'agents'): SafeHtml {
   return html`<nav class="pulse-tabs" aria-label="Pulse views">
     <a class="pulse-tabs__tab${active === 'today' ? ' is-active' : ''}" href="/pulse"${active === 'today' ? unsafeHtml(' aria-current="page"') : html``}>Today's edition</a>
     <a class="pulse-tabs__tab${active === 'agents' ? ' is-active' : ''}" href="${PULSE_AGENTS_URL}"${active === 'agents' ? unsafeHtml(' aria-current="page"') : html``}>All agents</a>
@@ -363,20 +363,19 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         <div class="page-header__cta board-page__actions">
           ${dropdown}
           <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
-          ${p.tiles.length > 0 ? html`
-            <form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
-              <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
-            </form>` : html``}
         </div>
-        ${pulseTabs('agents', !!todayEdition(ctx))}
-        <p class="page-header__description">Your board of agents. Each tile shows an agent's latest result and runs it in place. Press Arrange to lay it out; agents you haven't placed are under Everything else.</p>
+        ${pulseTabs('agents')}
+        <p class="page-header__description">Every agent's latest result, run in place. Press Arrange to lay them out.</p>
       </div>`;
     after = html`
-      ${hidden > 0 ? html`
+      ${hidden > 0 || p.tiles.length > 0 ? html`
         <div class="pulse-hidden-section board-page__hidden">
-          <span>${String(hidden)} agent${hidden !== 1 ? 's' : ''} hidden from Pulse.</span>
-          <form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;"><button type="submit" class="btn btn--ghost btn--sm">Show all</button></form>
-          <a class="btn btn--ghost btn--sm" href="/agents">Manage in /agents</a>
+          <span>${hidden > 0 ? `${String(hidden)} agent${hidden !== 1 ? 's' : ''} hidden from Pulse.` : 'Every agent shows on Pulse.'}</span>
+          ${hidden > 0 ? html`<form method="POST" action="/pulse/show-all" style="margin: 0; display: inline;"><button type="submit" class="btn btn--ghost btn--sm">Show all</button></form>` : html``}
+          ${p.tiles.length > 0 ? html`<form method="POST" action="/pulse/hide-all" style="margin: 0; display: inline;" data-confirm-modal="Hide all ${String(p.tiles.length)} agents from Pulse? They move to the hidden section and can be restored individually." data-confirm-label="Hide all" data-confirm-title="Hide all?">
+              <button type="submit" class="btn btn--ghost btn--sm" title="Hide every agent from Pulse. Useful before installing packs.">Hide all</button>
+            </form>` : html``}
+          <a class="btn btn--ghost btn--sm" href="/agents">Manage agents</a>
         </div>` : html``}
       ${options.length > 1 ? renderInstallPacksModal(p.availablePacks ?? []) : html``}`;
   } else {
@@ -502,8 +501,8 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
         ${dropdown}
         <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
       </div>
-      ${pulseTabs('today', true)}
-      <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
+      ${pulseTabs('today')}
+      <p class="page-header__description">What your scheduled agents found in the last day, each as its own result. Every agent is under All agents.</p>
     </div>
     ${scheduler || older ? html`<div class="edition-health" role="status">
       ${scheduler ? html`<p class="edition-health__line edition-health__line--bad">${scheduler} <a href="/scheduled">See scheduled agents</a></p>` : html``}
@@ -528,6 +527,53 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
     </div>
     ${unsafeHtml(`<script type="application/json" id="pulse-template-registry">${JSON.stringify(TEMPLATE_REGISTRY).replace(/</g, '\\u003c')}</script>`)}
     ${unsafeHtml(`<script>${EDITION_ANCHOR_JS}</script>`)}`));
+}
+
+/**
+ * Today's tab with no edition yet (nothing scheduled has a result from the
+ * last day, and nothing is always shown): what would fill it, and the
+ * scheduled agents, each with Run (its last inputs) or a link to its page
+ * when it needs inputs it has never had. Never starts a run on its own.
+ */
+export function renderTodayEmpty(ctx: ReturnType<typeof getContext>, opts: { flash?: Flash } = {}): string {
+  const installed = ctx.dashboardsStore?.listDashboards() ?? [];
+  const archived = ctx.dashboardsStore?.listArchived() ?? [];
+  const options = buildDashboardOptions(installed);
+  const dropdown = options.length > 1 || archived.length > 0 ? renderDashboardsDropdown({ options, archived, activeHref: '/pulse' }) : html``;
+  const scheduled = ctx.agentStore.listAgents({ status: 'active' }).filter((a) => a.schedule && !a.id.startsWith('_')).slice(0, 8);
+  const scheduler = schedulerProblem(ctx);
+  const row = (a: (typeof scheduled)[number]) => {
+    const last = ctx.runStore.listRuns({ agentName: a.id, limit: 1 })[0];
+    const needs = Object.values(a.inputs ?? {}).some((spec) => spec.required === true && spec.default === undefined);
+    const canRun = !needs || ctx.runStore.listRuns({ agentName: a.id, status: 'completed', limit: 1 }).length > 0;
+    return html`<li class="edition-empty__agent">
+      <a href="/agents/${encodeURIComponent(a.id)}">${a.name || a.id}</a>
+      <span class="edition-empty__when">${last ? `${last.status === 'failed' ? 'failed' : 'ran'} ${formatAge(last.completedAt ?? last.startedAt)}` : 'never run'}</span>
+      ${canRun
+        ? html`<form method="POST" action="/pulse/edition/run" class="edition-empty__run"><input type="hidden" name="agentId" value="${a.id}"><button type="submit" class="btn btn--sm">Run</button></form>`
+        : html`<a class="btn btn--sm" href="/agents/${encodeURIComponent(a.id)}" title="It needs inputs before it can run">Run…</a>`}
+    </li>`;
+  };
+  return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: opts.flash }, html`
+    <div class="page-header board-page__head">
+      ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
+      <h1>Pulse</h1>
+      <span class="page-header__meta board-page__meta">nothing from the last day</span>
+      <div class="page-header__cta board-page__actions">
+        ${dropdown}
+        <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
+      </div>
+      ${pulseTabs('today')}
+      <p class="page-header__description">What your scheduled agents found in the last day, each as its own result. Every agent is under All agents.</p>
+    </div>
+    ${scheduler ? html`<div class="edition-health" role="status"><p class="edition-health__line edition-health__line--bad">${scheduler} <a href="/scheduled">See scheduled agents</a></p></div>` : html``}
+    <section class="edition-empty" aria-labelledby="edition-empty-h">
+      <h2 class="edition-empty__h" id="edition-empty-h">Nothing for today yet</h2>
+      ${scheduled.length ? html`
+        <p class="edition-empty__lede">Today's edition fills in as your scheduled agents run. None has a result from the last day. Run one now, or wait for its next run.</p>
+        <ul class="edition-empty__list">${scheduled.map(row) as unknown as SafeHtml[]}</ul>`
+      : html`<p class="edition-empty__lede">Today's edition shows what your scheduled agents found in the last day, and none of your agents runs on a schedule yet. Give one a schedule on its page, or see every agent under <a href="${PULSE_AGENTS_URL}">All agents</a>.</p>`}
+    </section>`));
 }
 
 /**

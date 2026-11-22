@@ -1102,3 +1102,12 @@
 .edition-health__line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 .edition-health__line--bad { color: var(--color-err); }
 .edition-health__line--bad a { color: inherit; text-decoration: underline; }
+
+/* Today's tab before there's an edition: what would fill it, and the scheduled agents to run now. */
+.edition-empty { display: grid; gap: var(--space-3); max-width: 720px; padding: var(--space-6) 0; }
+.edition-empty__h { margin: 0; font-family: var(--font-display); font-size: var(--font-size-xl); }
+.edition-empty__lede { margin: 0; color: var(--color-text-muted); line-height: 1.5; }
+.edition-empty__list { list-style: none; margin: 0; padding: 0; display: grid; }
+.edition-empty__agent { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border); font-size: var(--font-size-sm); }
+.edition-empty__when { margin-left: auto; color: var(--color-text-muted); white-space: nowrap; }
+.edition-empty__run { margin: 0; }

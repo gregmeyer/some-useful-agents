@@ -261,10 +261,11 @@ describe('boards are canvases', () => {
 
   it("Pulse opens on today's edition when scheduled agents reported in the last day: a generated front page of their own views, never saved; the grid is under All agents", async () => {
     const app = await setup();
-    // Nothing scheduled has run: Pulse is its grid, with no tabs.
+    // Nothing scheduled has a result yet: Today says what would fill it, with its tabs; nothing runs on its own.
     const before = await get(app, '/pulse');
-    expect(before.text).toContain('data-board-canvas="pulse"');
-    expect(before.text).not.toContain('pulse-tabs');
+    expect(before.text).not.toContain('data-board-canvas=');
+    expect(before.text).toContain('Nothing for today yet');
+    expect(before.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse" aria-current="page">Today\'s edition</a>');
     const sched = (id: string, result: string) => {
       ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *',
         nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
@@ -311,6 +312,28 @@ describe('boards are canvases', () => {
       expect(no.body.error).toContain("can't be arranged or saved");
     }
     expect((await get(app, '/boards/today.json')).body.board).toMatchObject({ id: 'today', name: "Today's edition", version: 0 });
+  });
+
+  it("Today's tab is always there: with nothing from the last day it says what would fill it and offers each scheduled agent's Run; All agents keeps Hide all beside Show all, not in the header", async () => {
+    const app = await setup();
+    ctx.agentStore.createAgent({ id: 'morning-brief', name: 'Morning brief', status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *',
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: 'Morning brief', template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+    const page = (await get(app, '/pulse')).text;
+    expect(page).toContain('Nothing for today yet');
+    expect(page).toContain('<span class="page-header__meta board-page__meta">nothing from the last day</span>');
+    expect(page).toMatch(/<a href="\/agents\/morning-brief">Morning brief<\/a>\s*<span class="edition-empty__when">never run<\/span>/);
+    expect(page).toContain('<form method="POST" action="/pulse/edition/run" class="edition-empty__run"><input type="hidden" name="agentId" value="morning-brief">');
+    const ran = await post(app, '/pulse/edition/run', { agentId: 'morning-brief' });
+    expect(decodeURIComponent(ran.headers.location)).toContain('Running Morning brief.');
+    expect(decodeURIComponent((await post(app, '/pulse/edition/run', { agentId: 'nope' })).headers.location)).toContain('No such agent to run.');
+    // All agents: a one-line description; Hide all sits with Show all at the bottom, not in the header.
+    const grid = (await get(app, '/pulse/agents')).text;
+    expect(grid).toContain("Every agent's latest result, run in place. Press Arrange to lay them out.");
+    const head = grid.slice(grid.indexOf('board-page__head'), grid.indexOf('</div>', grid.indexOf('board-page__actions')));
+    expect(head).not.toContain('/pulse/hide-all');
+    const bar = grid.slice(grid.indexOf('pulse-hidden-section'));
+    expect(bar).toContain('action="/pulse/hide-all"');
+    expect(bar).toContain('>Manage agents</a>');
   });
 
   it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
@@ -479,7 +502,7 @@ describe('boards are canvases', () => {
 
   it('Pulse: placed tiles on the canvas, the rest under "Everything else" in tabs; health tiles as A2UI; × hides', async () => {
     const app = await setup();
-    let page = await get(app, '/pulse');
+    let page = await get(app, '/pulse/agents');
     let comps = surface(page.text);
     expect(comps.find((c) => c.id === 'rest')).toMatchObject({ component: 'Section', title: 'Everything else', child: 'rest_tabs' });
     expect((comps.find((c) => c.id === 'rest_tabs')!.tabs as Array<{ title: string }>).map((t) => t.title)).toEqual(expect.arrayContaining([expect.stringMatching(/^Health/), expect.stringMatching(/^Never run/)]));
@@ -492,7 +515,7 @@ describe('boards are canvases', () => {
       { id: 't1', component: 'AgentTile', agentId: 'news' }, { id: 't2', component: 'AgentTile', agentId: 'weather' },
       { id: 'root', component: 'Column', children: ['t1', 't2'] },
     ] } });
-    page = await get(app, '/pulse');
+    page = await get(app, '/pulse/agents');
     comps = surface(page.text);
     expect((comps.find((c) => c.id === 'root')!.children as string[]).slice(0, 2)).toEqual(['t1', 't2']);
     expect(comps.some((c) => c.id === 'rest_tile_news')).toBe(false); // placed, so not under Everything else
@@ -501,7 +524,7 @@ describe('boards are canvases', () => {
 
     // A placed agent hidden from Pulse drops off the canvas.
     ctx.agentStore.updateAgentMeta('news', { pulseVisible: false });
-    page = await get(app, '/pulse');
+    page = await get(app, '/pulse/agents');
     comps = surface(page.text);
     expect(comps.some((c) => c.component === 'AgentTile' && c.agentId === 'news')).toBe(false);
     expect(page.text).toContain('1 hidden');
@@ -609,7 +632,7 @@ describe('arranging a canvas', () => {
       sizes: { weather: '2x2' },
     });
     expect(res.status).toBe(200);
-    const comps = surface((await get(app, '/pulse')).text);
+    const comps = surface((await get(app, '/pulse/agents')).text);
     expect(comps.filter((c) => c.component === 'Section').map((c) => c.title)).toEqual(['Mine', 'Everything else']);
     expect(comps.find((c) => c.component === 'Cell')).toMatchObject({ span: 2, rows: 2 });
     res = await post(app, '/boards/pulse/import', { containers: [{ label: 'Again', tiles: ['news'] }] });
