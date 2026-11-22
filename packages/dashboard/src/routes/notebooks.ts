@@ -1387,7 +1387,7 @@ function briefPage(req: Request, s: NotebookStore, nb: Notebook, o: { embed: boo
   // A page drawn for the notebook (a meeting briefing) prints as that page; a shortlist, as the shortlist brief.
   const page = briefIsPage(nb) && !latest
     ? renderPageBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(withNew ? { whatsNew: true } : {}), ...(o.charts?.size ? { charts: o.charts } : {}), ...(full ? { full: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) })
-    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries) } : {}) });
+    : renderNotebookBrief({ nb, entries, history: widgetHistory(ctx, s), theme, ...(full ? { full: true } : {}), ...(latest ? { latest: true } : {}), ...(o.print ? { print: true } : {}), ...(o.embed ? { pictures: embeddedPictures(s, nb, entries), aboutPicture: embeddedAboutPicture(s, nb) } : {}) });
   return { page, full, latest, withNew };
 }
 

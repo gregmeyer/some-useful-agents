@@ -2820,6 +2820,14 @@ describe('a brief to share', () => {
     expect(withCard).toContain('<figure class="tl tl--chart"');
     expect(withCard).toContain('<p class="stands">');
     expect((await get(`/notebooks/${nb.id}/brief.html?latest=1`)).text).not.toContain('<figure class="tl');
+    // Set to Always, the whole card leads the shortlist's brief ("In short"), drawn as redrawn; its bars aren't repeated below.
+    const { renderNotebookBrief: shortlistBrief } = await import('../views/notebook-brief.js');
+    const always = shortlistBrief({ nb: { ...store.get(nb.id)!, tldrCard: 'always', tldr: { size: 'landscape', tone: 'editorial', layout: 'split', parts: ['lead', 'stats', 'bars'], headline: 'A headline written for it' } }, entries: store.entries(nb.id) });
+    expect(always).toMatch(/<section class="in-short" aria-labelledby="b-short"><h2 [^>]*id="b-short">In short<\/h2><article class="tl tl--landscape tl--editorial tl--split"/);
+    expect(always).toContain('A headline written for it');
+    expect(always).not.toContain('<figure class="tl tl--chart"');
+    expect(always.indexOf('id="b-short"')).toBeLessThan(always.indexOf('<p class="stands">'));
+    expect(shortlistBrief({ nb: { ...store.get(nb.id)!, tldrCard: 'always' }, entries: store.entries(nb.id), latest: true })).not.toContain('In short');
     expect((await get(`/notebooks/${nb.id}/brief.html?download=1`)).headers['content-disposition']).toContain(`${nb.id}-brief.html`);
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`href="/notebooks/${nb.id}/brief.html"`);
     const csv = (await get(`/notebooks/${nb.id}/shortlist.csv?rows=running`)).text.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
