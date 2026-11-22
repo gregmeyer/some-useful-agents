@@ -499,8 +499,11 @@ function agentNames(a: Agent, cls: string): SafeHtml {
   return html`<span class="${cls}"><a class="ag-name" href="/agents/${a.id}">${name}</a>${same ? html`` : html`<code class="ag-id">${a.id}</code>`}</span>`;
 }
 
-function starForm(a: Agent): SafeHtml {
+/** The star toggle; `back` is the list as you see it, so starring keeps your tab, filters and page. */
+function starForm(a: Agent, input: AgentsListInput): SafeHtml {
+  const back = agentBuildUrl(input.filter, input.limit ?? 12, input.offset ?? 0, input.tab ?? 'user');
   return html`<form method="POST" action="/agents/${a.id}/star" class="ag-star">
+          <input type="hidden" name="back" value="${back}">
           <button type="submit" class="btn-star${a.starred ? ' is-starred' : ''}"
                   title="${a.starred ? 'Unstar' : 'Star'}"
                   aria-label="${a.starred ? 'Unstar' : 'Star'} ${a.id}">
@@ -532,7 +535,7 @@ function renderV2Card(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml
   return html`
     <article class="agent-card ag-card">
       <div class="ag-card__top">
-        ${starForm(a)}
+        ${starForm(a, input)}
         ${agentNames(a, 'ag-card__names')}
       </div>
       <p class="ag-card__desc" title="${a.description ?? ''}">${useForText(a, input) ?? 'No description.'}</p>
@@ -550,7 +553,7 @@ function renderV2Card(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml
 function renderAgentRow(a: Agent, input: AgentsListInput, lastRun?: Run): SafeHtml {
   return html`
     <li class="ag-row">
-      ${starForm(a)}
+      ${starForm(a, input)}
       ${agentNames(a, 'ag-row__names')}
       <span class="ag-row__desc" title="${a.description ?? ''}">${useForText(a, input) ?? ''}</span>
       <span class="ag-row__chips">${agentChips(a, input)}</span>

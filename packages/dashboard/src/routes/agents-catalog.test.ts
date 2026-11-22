@@ -285,3 +285,26 @@ describe('the agent catalog, by what they do', () => {
     expect(page).not.toContain('By what they do');
   });
 });
+
+describe('starring an agent', () => {
+  it('goes back to the list as you had it (the form carries the path; the dashboard sends no Referer), and never off the site', async () => {
+    const app = await makeApp([
+      mk({ id: 'job-finder', name: 'Job Finder', description: 'Finds jobs.' }),
+      mk({ id: 'news-digest', name: 'News Digest', description: 'Morning news.' }),
+    ]);
+    const post = (body: Record<string, string>) => request(app).post('/agents/job-finder/star')
+      .set(HDRS).set('Origin', `http://127.0.0.1:${PORT}`).type('form').send(body);
+    // The card's form says where it is: the tab, search and sort you were on.
+    const page = (await get(app, '/agents?tab=user&q=jobs&sort=recent')).text;
+    expect(page).toMatch(/action="\/agents\/job-finder\/star" class="ag-star">\s*<input type="hidden" name="back" value="\/agents\?q=jobs&amp;sort=recent">/);
+
+    const res = await post({ back: '/agents?q=jobs&sort=recent' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/agents?q=jobs&sort=recent');
+    expect(agentStore.getAgent('job-finder')?.starred).toBe(true);
+
+    for (const back of ['//example.com/x', 'https://example.com/x', '/\\example.com', '']) {
+      expect((await post({ back })).headers.location).toBe('/agents/job-finder');
+    }
+  });
+});
