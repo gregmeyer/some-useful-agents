@@ -432,6 +432,18 @@ export const TLDR_CSS = `
 .tlv__credit { position: absolute; right: 10px; bottom: 10px; max-width: calc(100% - 20px); padding: 3px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--mono); letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: none; }
 .tlv__cover.at-bottom .tlv__credit { top: 10px; bottom: auto; }
 .tlv__grid .tl__shot .tl__frame, .tl--landscape .tlv__grid .tl__shot .tl__frame { aspect-ratio: var(--ratio, 4 / 3); }
+.tlv__main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.tlv__row.is-bleed { gap: 0; align-items: stretch; }
+.tlv__row.is-bleed > .tlv__cover { height: auto; min-height: 440px; }
+.tlv__row.is-bleed > .tlv__cover.is-short { min-height: 300px; }
+.tlv__row.is-bleed > .tlv__cover.is-tall { min-height: 580px; }
+.tlv__row.is-bleed > .tlv__cover .tlv__over { padding-left: 36px; padding-right: 36px; }
+.tlv__row.is-bleed > .tlv__cover .tlv__hl { font-size: 40px; }
+.tlv__cell { padding: 32px 44px 0; min-width: 0; display: grid; gap: 22px; align-content: start; }
+.tl--view.tl--landscape .tlv__main, .tl--view.tl--square .tlv__main, .tl--view.tl--portrait .tlv__main { flex: 1 1 auto; }
+.tl--view.tl--landscape .tlv__main > .tlv__cover, .tl--view.tl--square .tlv__main > .tlv__cover, .tl--view.tl--portrait .tlv__main > .tlv__cover { flex: 1 1 auto; height: auto; min-height: 260px; }
+.tl--view.tl--landscape .tlv__main > .tlv__row.is-bleed, .tl--view.tl--square .tlv__main > .tlv__row.is-bleed, .tl--view.tl--portrait .tlv__main > .tlv__row.is-bleed { flex: 1 1 auto; min-height: 0; }
+.tl--view.tl--landscape .tlv__row.is-bleed > .tlv__cover, .tl--view.tl--square .tlv__row.is-bleed > .tlv__cover, .tl--view.tl--portrait .tlv__row.is-bleed > .tlv__cover { min-height: 0; }
 .tl--cover .tl__art { height: 400px; border-bottom: 1px solid var(--line); }
 .tl--cover .tl__lead, .tl--spotlight .tl__lead { grid-template-columns: minmax(0, 1fr); }
 .tl--cover.tl--square, .tl--cover.tl--portrait { display: flex; flex-direction: column; justify-content: flex-start; }
@@ -756,12 +768,27 @@ function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpe
     }
   };
   // The root's own parts: a cover runs to the card's edges, everything else sits inside its margins.
+  // A row with a cover in it runs to the edges too (the photo down one side, full height), its other parts in margins of their own.
   const root = byId.get('root');
   const top = root && root.component === 'Column' ? kids(root) : ['root'];
   if (root?.component === 'Column') seen.add('root');
-  const body = top.map((id) => { const c = byId.get(id); const drawn = node(id); return c?.component === 'PhotoCover' ? drawn : html`<div class="tlv__pad">${drawn}</div>`; });
+  const isRow = (c: ViewComponent | undefined) => c?.component === 'Row' || c?.component === 'Columns';
+  const bleeds = (c: ViewComponent | undefined) => isRow(c) && kids(c!).some((k) => byId.get(k)?.component === 'PhotoCover');
+  const edgeRow = (c: ViewComponent): SafeHtml => {
+    seen.add(c.id);
+    const ids = kids(c);
+    const w = Array.isArray(c.widths) ? (c.widths as unknown[]).map((x) => (typeof x === 'number' && x > 0 ? x : 1)) : [];
+    return html`<div class="tlv__row is-bleed" style="grid-template-columns:${ids.map((_, i) => `minmax(0, ${String(w[i] ?? 1)}fr)`).join(' ')}">${ids.map((k) => (byId.get(k)?.component === 'PhotoCover' ? node(k) : html`<div class="tlv__cell">${node(k)}</div>`)) as unknown as SafeHtml[]}</div>`;
+  };
+  const body = top.map((id) => {
+    const c = byId.get(id);
+    if (c?.component === 'PhotoCover') return node(id);
+    if (bleeds(c)) return edgeRow(c!);
+    return html`<div class="tlv__pad">${node(id)}</div>`;
+  });
+  // In a fixed box (landscape, square, portrait) the view fills it: a cover takes the room the rest leaves, so nothing sits empty above the foot.
   return html`<article class="tl tl--view tl--${spec.size} tl--${spec.tone}" aria-label="${t.title}, in short">
-  ${body as unknown as SafeHtml[]}
+  <div class="tlv__main">${body as unknown as SafeHtml[]}</div>
   ${footUsed ? html`` : html`<div class="tlv__pad">${blocks.foot}</div>`}
 </article>`;
 }
