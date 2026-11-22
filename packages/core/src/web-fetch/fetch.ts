@@ -188,13 +188,73 @@ const IMAGE_TYPES: Record<string, (b: Uint8Array) => boolean> = {
 
 export interface FetchedImage { bytes: Uint8Array; contentType: string; finalUrl: string }
 
+/** Wikimedia asks automated clients to say who they are; a browser's name gets throttled harder. */
+const WIKIMEDIA_UA = 'some-useful-agents/1.0 (+https://github.com/gregmeyer/some-useful-agents) image-fetch';
+const isWikimedia = (host: string) => /(^|\.)(wikimedia|wikipedia|wikimediacommons)\.org$/i.test(host);
+
+function imageUserAgent(url: string): string {
+  try { return isWikimedia(new URL(url).hostname) ? WIKIMEDIA_UA : USER_AGENT; } catch { return USER_AGENT; }
+}
+
+/** Seconds from a Retry-After header (seconds or a date), else undefined. */
+function retryAfter(v: string | null): number | undefined {
+  if (!v) return undefined;
+  const n = Number(v);
+  if (Number.isFinite(n)) return Math.max(0, n);
+  const at = Date.parse(v);
+  return Number.isNaN(at) ? undefined : Math.max(0, (at - Date.now()) / 1000);
+}
+
+/**
+ * A full-size Wikimedia Commons original's thumbnail, `width` px wide
+ * (upload.wikimedia.org/wikipedia/commons/a/ab/F.jpg →
+ * …/commons/thumb/a/ab/F.jpg/1600px-F.jpg), else undefined. Wikimedia
+ * throttles downloads of originals; a thumbnail is plenty for a lead picture. Pure.
+ */
+export function wikimediaThumb(url: string, width = 1600): string | undefined {
+  let u: URL;
+  try { u = new URL(url); } catch { return undefined; }
+  if (u.hostname !== 'upload.wikimedia.org') return undefined;
+  const m = /^\/(wikipedia\/[^/]+)\/([0-9a-f])\/([0-9a-f]{2})\/([^/]+\.(?:jpe?g|png|gif|webp))$/i.exec(u.pathname);
+  if (!m) return undefined;
+  return `https://upload.wikimedia.org/${m[1]}/thumb/${m[2]}/${m[3]}/${m[4]}/${width}px-${m[4]}`;
+}
+
+const THROTTLED = new Set([429, 503]);
+const MAX_RETRY_WAIT_SEC = 4;
+
 /**
  * Fetch one image with the same guards as pages (every redirect hop checked
  * against private and reserved addresses, a timeout), plus: JPEG, PNG, GIF or
  * WebP only, the bytes must match the type, and an image over `maxBytes` is
- * refused rather than cut off.
+ * refused rather than cut off. Throttled (429 or 503), it waits as asked (up
+ * to 4s) and tries once more; a Wikimedia original still refused falls back
+ * to its 1600px thumbnail.
  */
-export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBytes?: number } = {}): Promise<FetchedImage> {
+export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBytes?: number; /** Test hook: how it waits before trying again. */ wait?: (ms: number) => Promise<void> } = {}): Promise<FetchedImage> {
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const status = (e: unknown) => (e instanceof WebFetchError && e.kind === 'http_status' ? e.status ?? 0 : 0);
+  try {
+    return await fetchImageOnce(url, opts);
+  } catch (first) {
+    let last = first;
+    if (THROTTLED.has(status(first))) {
+      const after = (first as { retryAfterSec?: number }).retryAfterSec;
+      if (after === undefined || after <= MAX_RETRY_WAIT_SEC) {
+        await wait(Math.round((after ?? 1) * 1000));
+        try { return await fetchImageOnce(url, opts); } catch (again) { last = again; }
+      }
+    }
+    const thumb = wikimediaThumb(url);
+    if (thumb && (THROTTLED.has(status(last)) || status(last) === 403)) {
+      try { return await fetchImageOnce(thumb, opts); } catch { /* the original's reason says it */ }
+    }
+    throw last;
+  }
+}
+
+/** One try at an image, with fetchImage's guards and checks. */
+async function fetchImageOnce(url: string, opts: { timeoutSec?: number; maxBytes?: number }): Promise<FetchedImage> {
   const timeoutMs = (opts.timeoutSec ?? 15) * 1000;
   const maxBytes = opts.maxBytes ?? 3 * 1024 * 1024;
   const controller = new AbortController();
@@ -206,7 +266,7 @@ export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBy
       let res: Response;
       try {
         // Ask only for formats it keeps: image CDNs serve AVIF to anyone who lists it, and AVIF isn't kept.
-        res = await fetch(current, { redirect: 'manual', signal: controller.signal, headers: { 'User-Agent': USER_AGENT, Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9,image/*;q=0.5' } });
+        res = await fetch(current, { redirect: 'manual', signal: controller.signal, headers: { 'User-Agent': imageUserAgent(current), Accept: 'image/webp,image/png,image/jpeg,image/gif;q=0.9,image/*;q=0.5' } });
       } catch (err) {
         if (controller.signal.aborted) throw new WebFetchError('timeout', `Request timed out after ${timeoutMs / 1000}s.`);
         throw new WebFetchError('network', err instanceof Error ? err.message : String(err));
@@ -215,7 +275,7 @@ export async function fetchImage(url: string, opts: { timeoutSec?: number; maxBy
         current = new URL(res.headers.get('location')!, current).toString();
         continue;
       }
-      if (res.status >= 400) throw new WebFetchError('http_status', `HTTP ${res.status}`, res.status);
+      if (res.status >= 400) throw Object.assign(new WebFetchError('http_status', `HTTP ${res.status}`, res.status), { retryAfterSec: retryAfter(res.headers.get('retry-after')) });
       const contentType = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
       const check = IMAGE_TYPES[contentType];
       if (!check) throw new WebFetchError('content_type', `Not a photo sua keeps ("${contentType || 'unknown'}").`, res.status);

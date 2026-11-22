@@ -197,6 +197,52 @@ describe('fetchImage', () => {
     await expect(fetchImage('http://169.254.169.254/latest/meta-data')).rejects.toThrow(/private|reserved|Blocked/i);
     await expect(fetchImage('file:///etc/passwd')).rejects.toThrow(/scheme|Blocked/i);
   });
+
+  const JPEG = () => new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1]), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  const ORIGINAL = 'https://upload.wikimedia.org/wikipedia/commons/a/a8/Peanut-Butter-Jelly-Sandwich.jpg';
+
+  it('throttled (429), it waits as asked and tries once more, saying who it is to Wikimedia', async () => {
+    const { fetchImage } = await import('./fetch.js');
+    const seen: Array<{ url: string; ua: string }> = [];
+    const waits: number[] = [];
+    let n = 0;
+    mockFetchOnce((url, init) => {
+      seen.push({ url, ua: String((init?.headers as Record<string, string>)['User-Agent']) });
+      return n++ === 0 ? new Response('slow down', { status: 429, headers: { 'retry-after': '2' } }) : JPEG();
+    });
+    const img = await fetchImage(ORIGINAL, { wait: async (ms) => { waits.push(ms); } });
+    expect(img.contentType).toBe('image/jpeg');
+    expect(waits).toEqual([2000]);
+    expect(seen.map((s) => s.url)).toEqual([ORIGINAL, ORIGINAL]);
+    expect(seen[0].ua).toMatch(/^some-useful-agents\//);
+  });
+
+  it("a Wikimedia original still refused falls back to its 1600px thumbnail; a long Retry-After isn't waited for", async () => {
+    const { fetchImage, wikimediaThumb } = await import('./fetch.js');
+    const thumb = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a8/Peanut-Butter-Jelly-Sandwich.jpg/1600px-Peanut-Butter-Jelly-Sandwich.jpg';
+    expect(wikimediaThumb(ORIGINAL)).toBe(thumb);
+    expect(wikimediaThumb(thumb)).toBeUndefined();
+    expect(wikimediaThumb('https://example.com/a/a8/x.jpg')).toBeUndefined();
+    const seen: string[] = [];
+    const waits: number[] = [];
+    mockFetchOnce((url) => { seen.push(url); return url === thumb ? JPEG() : new Response('no', { status: 429, headers: { 'retry-after': '60' } }); });
+    const img = await fetchImage(ORIGINAL, { wait: async (ms) => { waits.push(ms); } });
+    expect(img.finalUrl).toBe(thumb);
+    expect(waits).toEqual([]);
+    expect(seen).toEqual([ORIGINAL, thumb]);
+  });
+
+  it('another site still refusing says why; a 404 is never retried', async () => {
+    const { fetchImage } = await import('./fetch.js');
+    let n = 0;
+    mockFetchOnce(() => { n++; return new Response('no', { status: 429 }); });
+    await expect(fetchImage('https://example.com/a.jpg', { wait: async () => {} })).rejects.toThrow('HTTP 429');
+    expect(n).toBe(2);
+    n = 0;
+    mockFetchOnce(() => { n++; return new Response('gone', { status: 404 }); });
+    await expect(fetchImage('https://example.com/a.jpg', { wait: async () => {} })).rejects.toThrow('HTTP 404');
+    expect(n).toBe(1);
+  });
 });
 
 describe('siteIcons', () => {
