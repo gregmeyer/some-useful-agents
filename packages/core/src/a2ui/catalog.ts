@@ -347,6 +347,12 @@ const SUA_COMPONENTS = [
     }).strict(),
   },
   {
+    name: 'RunbookLesson',
+    summary: 'A runbook read as a lesson (ADR-0097), from `lesson` (/notebook/runbook/lesson): `part` "opening" (what you\'ll make, from `outcome`, then "You\'ll be able to" and its goals), "needs" (what you\'ll need, a box to tick for each, kept in this browser) or "finish" (you\'re done when…, key points, what\'s next, and a self-check with its answers folded).',
+    example: { id: 'finish', component: 'RunbookLesson', part: 'finish', lesson: { path: '/notebook/runbook/lesson' } },
+    schema: Common.extend({ lesson: CS.DynamicValue, part: z.enum(['opening', 'needs', 'finish']), outcome: Str.optional() }).strict(),
+  },
+  {
     name: 'Figure',
     summary: 'One written part on its own (`section`: /notebook/section/<key>, the same shape as an AnswerSections item), drawn large when `size` is "hero" (a ladder with tall bars, a split as a wide band, a rubric as ruled rows); `caption` under it; `rubric: true` for a table of decisions. Its title comes from the Panel around it.',
     example: { id: 'fig', component: 'Figure', section: { path: '/notebook/section/one-way-to-ladder-25-000' }, size: 'hero' },

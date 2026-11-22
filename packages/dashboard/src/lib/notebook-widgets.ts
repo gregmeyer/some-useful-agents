@@ -1026,6 +1026,8 @@ export function notebookLayoutFlags(nb: LayoutNotebook, hasOptions = true): Reco
     written: !!nb.answer?.text || !!nb.plan?.items.length,
     numbers: !!leadFieldOf(nb),
     bars: !!leadFieldOf(nb) && !(nb.fields.some((f) => f.role === 'price') && nb.fields.some((f) => f.role === 'measure')),
+    lesson: !!nb.answer?.lesson,
+    needs: runbookNeeds(nb.answer).length > 0,
   };
 }
 

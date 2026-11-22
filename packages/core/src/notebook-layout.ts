@@ -49,6 +49,8 @@ export const NOTEBOOK_LAYOUT_FLAGS = {
   written: 'It has a written answer or plan: its parts (/notebook/section/<key>) are there to place.',
   numbers: 'It has a money or number field its options can be led, barred and compared by (/notebook/numbers/lead, layout leadField).',
   bars: 'It has numbers but no map (no price and measure both): bars by the deciding field stand in for the map.',
+  lesson: 'Its runbook was written as a lesson (ADR-0097): goals, what you\'ll need, a final check, key points and a self-check.',
+  needs: 'Its runbook says what to have ready, as items to tick.',
 } as const;
 export type NotebookLayoutFlag = keyof typeof NOTEBOOK_LAYOUT_FLAGS;
 
@@ -422,20 +424,30 @@ const SUBJECT: ViewComponent[] = [
  */
 const RUNBOOK_SECTIONS = { path: '/notebook/answerSections' };
 const RUNBOOK: ViewComponent[] = [
-  { id: 'root', component: 'Column', children: ['header', 'top', 'ready_p', 'method_p', 'trouble_p', 'why_p', 'sources_p', 'evidence_d', 'more'] },
+  // A lesson (ADR-0097): what you'll make and be able to do beside the card, what you'll need, the steps, what goes wrong, how you know you're done; how sua knows it, folded.
+  { id: 'root', component: 'Column', children: ['header', 'top', 'needs_p', 'method_p', 'trouble_p', 'finish_p', 'knows_d'] },
   { id: 'header', component: 'NotebookHeader', subtitle: 'Runbook', steps: 'fold', cover: 'none' },
-  { id: 'top', component: 'Columns', children: ['answer', 'glance_p'], widths: [2, 1], align: 'start' },
-  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' }, image: { path: '/notebook/answer/cover' } },
+  { id: 'top', component: 'Columns', children: ['open_p', 'glance_p'], widths: [2, 1], align: 'start' },
+  { ...panel('open_p', 'What you’ll make', 'opening'), treatment: 'lede', when: 'answered' },
+  { id: 'opening', component: 'RunbookLesson', part: 'opening', lesson: { path: '/notebook/runbook/lesson' }, outcome: { path: '/notebook/answer/text' } },
   { ...panel('glance_p', 'At a glance', 'glance'), when: 'answered' },
   { id: 'glance', component: 'KeyValue', items: { path: '/notebook/runbook/glance' } },
-  { ...panel('ready_p', 'Before you start', 'ready'), treatment: 'aside', when: 'answered' },
-  { id: 'ready', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['ready'] },
+  { ...panel('needs_p', 'What you’ll need', 'needs'), treatment: 'aside', when: 'needs' },
+  { id: 'needs', component: 'RunbookLesson', part: 'needs', lesson: { path: '/notebook/runbook/lesson' } },
   { ...panel('method_p', 'The steps', 'method'), treatment: 'feature', hero: true, when: 'answered' },
   { id: 'method', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['method'], style: 'runbook' },
   { ...panel('trouble_p', 'If something goes wrong', 'trouble'), treatment: 'feature', when: 'answered' },
   { id: 'trouble', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['trouble'], style: 'runbook' },
+  { ...panel('finish_p', 'Finish', 'finish'), treatment: 'feature', when: 'lesson' },
+  { id: 'finish', component: 'RunbookLesson', part: 'finish', lesson: { path: '/notebook/runbook/lesson' } },
+  // How sua knows it: the answer and how sure, why it's done this way, what it rests on, its sources and the research, folded, not removed.
+  { id: 'knows_d', component: 'Disclosure', label: 'How sua knows this', child: 'knows' },
+  { id: 'knows', component: 'Column', children: ['answer', 'why_p', 'sources_p', 'evidence_d', 'more'] },
+  { id: 'answer', component: 'Callout', label: { path: '/notebook/answer/label' }, text: { path: '/notebook/answer/text' }, next: { path: '/notebook/answer/next' }, nextLabel: { path: '/notebook/answer/nextLabel' } },
   { ...panel('why_p', 'Why it’s done this way', 'why'), treatment: 'feature', when: 'answered' },
-  { id: 'why', component: 'Column', children: ['background', 'findings'] },
+  { id: 'why', component: 'Column', children: ['ready', 'background', 'findings'] },
+  // A runbook written before lessons kept what to have ready as a paragraph: it's said here too (its items are above).
+  { id: 'ready', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['ready'], when: '!lesson' },
   { id: 'background', component: 'AnswerSections', sections: RUNBOOK_SECTIONS, roles: ['background'] },
   {
     id: 'findings', component: 'Agenda', title: 'What it rests on', points: { path: '/notebook/findings' }, questions: { path: '/notebook/openQuestions' },
@@ -536,6 +548,8 @@ export const DEFAULT_NOTEBOOK_LAYOUT = NOTEBOOK_LAYOUT_PRESETS[0].layout;
 
 /** The layout a notebook draws: its own, else the default (the shortlist). */
 export function notebookLayoutOf(nb: { layout?: NotebookLayout }): NotebookLayout {
+  // The Runbook page as it is now: a notebook that picked it gets its improvements (ADR-0097) without picking it again. A page changed from it no longer says "runbook".
+  if (nb.layout?.preset === 'runbook') return { ...nb.layout, components: RUNBOOK };
   return nb.layout ? withQuoteSource(nb.layout) : DEFAULT_NOTEBOOK_LAYOUT;
 }
 
