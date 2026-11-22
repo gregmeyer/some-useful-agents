@@ -232,6 +232,27 @@ describe('notebooks pages', () => {
     expect((await get(app, '/notebooks?status=archived')).text).toContain('Buy a bike');
   });
 
+  it('a calmer header: no "active" chip, a statement that repeats the title is left out, and how it was made is in the meta line', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const same = store.create({ title: 'Prepare for a meeting with Dana', statement: 'Prepare for a meeting with Dana.' });
+    const page = (await get(app, `/notebooks/${same.id}`)).text;
+    const hero = page.slice(page.indexOf('class="nb-hero'), page.indexOf('</section>', page.indexOf('class="nb-hero')));
+    expect(hero).not.toContain('nb-status--active');
+    expect(hero).not.toContain('<p class="nb-hero__statement">');
+    // The title, its star and any status share a line; nothing has run yet, so the meta line's link is How it was made.
+    expect(hero).toMatch(/<div class="nb-hero__nameline"><h1 class="nb-hero__title" id="nb-title">Prepare for a meeting with Dana<\/h1><form method="POST" action="\/notebooks\/[^"]+\/star" class="nb-hero__star">/);
+    expect(hero).toMatch(/<span class="nb-hero__meta">started [^<]+ · runs when you ask · <a href="\/notebooks\/[^"]+\/workflow">How it was made →<\/a><\/span>/);
+
+    // A statement that says more still shows; a decided notebook still says so.
+    const more = store.create({ title: 'Buy a bike', statement: 'A commuter bike under $800' });
+    store.setStatus(more.id, 'decided');
+    const decided = (await get(app, `/notebooks/${more.id}`)).text;
+    expect(decided).toContain('<p class="nb-hero__statement">A commuter bike under $800</p>');
+    expect(decided).toContain('nb-status--decided');
+  });
+
   it('a star: the list puts starred notebooks first and under Starred; it toggles from a card or the page and goes back where you were', async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');
@@ -2574,12 +2595,11 @@ describe('how a notebook was made (Workflow)', () => {
     s.recordSearch(nb.id, 'car-sweep', 'sweep-1', 1, new Date(now - 100_000).toISOString());
     s.upsertOption(nb.id, { title: 'RAV4', by: 'agent:car-sweep', runId: 'sweep-1' });
 
-    // Once something ran, the made-by strip under the steps is the way in (not the meta line's link).
+    // Once something ran, the meta line's link says who made it (one place, no box under the steps).
     const nbPage = (await get('/notebooks/car')).text;
-    expect(nbPage).toContain('<a class="nb-madeby" href="/notebooks/car/workflow">');
-    expect(nbPage).toMatch(/<b>Made by 2 agents in 2 runs<\/b> · last /);
-    expect(nbPage).toContain('See how it was made →');
-    expect(nbPage).not.toContain('How it was made →</a>');
+    expect(nbPage).toContain('<a class="nb-hero__madeby" href="/notebooks/car/workflow">Made by 2 agents in 2 runs →</a>');
+    expect(nbPage).not.toContain('class="nb-madeby"');
+    expect(nbPage).not.toContain('>How it was made →</a>');
     const page = await get('/notebooks/car/workflow');
     expect(page.status).toBe(200);
     expect(page.text).toContain('How this notebook was made');
