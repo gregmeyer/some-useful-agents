@@ -215,6 +215,22 @@ You don't fill in a notebook by hand. A new notebook opens with **Tell sua what 
 
 A status chip shows only when the notebook isn't active (decided, stopped or archived).
 
+Under the steps, one row of links holds what you add to a notebook:
+- **＋ Add the meeting**, on a meeting's notebook. A meeting you set shows as its own line there ("Meeting Tue 3pm · in 2 days").
+- **You gave: …** ("You gave 3 things" when there are several), which opens what sua read from it, with Fix this and Read it again.
+- **If you have …**, for something it could use but doesn't wait for.
+- **＋ Add a file or paste.**
+
+Each opens under the row, one at a time, and Escape closes it.
+
+What needs you stays above the title, as a card:
+- something sua needs before its steps can run;
+- something you went on without ("Not matched to …");
+- something sua is reading or couldn't read;
+- something you added after its steps ran ("Update with it").
+
+Something sua has just read, before any step has used it, shows open just under the header, so you can check it first.
+
 **What's new since the last run.** When a briefing's profile, find or write step runs again (Look again, Write again, or its schedule), a band under the made-by strip says what that run found that the one before didn't: new facts, changed ones ("Changed: Role, VP Ops → COO"), new competitors and other companies, new findings from the search (named), and talking points (or findings, or plan items) that are new or were dropped. Each part is compared with its own run before. A fact the run learned or changed gets a **new** or **changed** mark in What we know (hover a changed one for what it was; in the brief it's beside it). What it was is written the way facts are now ("1.04B", "900 employees") and cut at a sentence, even when it was learned before facts were written that way. A recheck that finds nothing says "Looked again Oct 28: nothing new since Oct 26." There's no band after a first run, or while a step is running. A fact you settle afterwards, or points you edit, aren't counted. The brief leaves it out, since a brief is where the notebook stands: **The brief with what's new** under **Download / share** (**Open ↗**, **PDF**; `brief.html?new=1`, `brief.pdf?new=1`) starts it with the same **What's new** section. And the timeline gets a **Looked again** or **Wrote again** entry for each rerun.
 
 **Clear and run again.** To start over from a clean slate (not update what's there), **Edit** → **Manage** → **Clear and run again…**, or say it to sua ("clear this and run again", "start this one over") and approve the card. A new notebook with the same setup (what it's for, limits, done-whens, checks, stages, the facts each option notes, its steps with their agents, schedule and pipeline, its page and whose it is) is created with none of the content (no options, notes, decision, answer or plan, who it's about, photos or history), its first step starts, and the one you were on is archived with everything it found (one already archived stays so); each notes the other, and **Restore** on the old one's Edit page brings it back. No template is made.

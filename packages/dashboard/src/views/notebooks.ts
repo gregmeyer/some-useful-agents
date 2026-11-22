@@ -587,7 +587,7 @@ function stepChips(nb: Notebook, steps: readonly NotebookStep[], entries: readon
   </div>`;
 }
 
-function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView, madeBy?: NotebookMadeBy, fresh?: WhatsNew): SafeHtml {
+function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; of: number }, widgetsIn = false, coverIn?: { src: string; kind: string; shape?: string }, leads: readonly NotebookViewOption[] = [], entries: readonly NotebookEntry[] = [], busy: readonly string[] = [], live?: NotebookLive, head?: NotebookHeaderView, madeBy?: NotebookMadeBy, fresh?: WhatsNew, reading: Record<string, 'working' | 'failed'> = {}): SafeHtml {
   // A drawn page's NotebookHeader shapes this header; its page has its own parts, so the side box goes.
   const widgets = widgetsIn || !!head;
   const cover = head?.cover === 'none' ? undefined : coverIn;
@@ -613,7 +613,6 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
         </div>
         ${head?.statement === false || (nb.statement && sameWords(nb.statement, nb.title)) ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
-        ${meetingLine(nb)}
         ${conflictLine(nb, busy.includes(CHECKING_WHO))}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
@@ -622,6 +621,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
         ${nb.steps?.length
           ? (!running && !nb.steps.some((x) => x.status === 'stuck' || x.status === 'running') ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
           : pipelineDiagram(stages)}
+        ${givenAdds(nb, reading)}
         ${running ? html`` : whatsNewBand(fresh)}
         ${running ? html`` : answerBehindBand(nb, entries)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
@@ -1354,7 +1354,7 @@ function heroActions(nb: Notebook, entries: readonly NotebookEntry[], leads: rea
  * its steps use), so you can see it and fix it; `reading` says which are
  * being read now or couldn't be. Nothing when it depends on nothing of yours.
  */
-export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { steps?: Notebook['steps']; experimentRun?: Notebook['experimentRun'] }, reading: Record<string, 'working' | 'failed'> = {}, notUsed?: GivenNotUsed): SafeHtml {
+export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { steps?: Notebook['steps']; experimentRun?: Notebook['experimentRun'] }, reading: Record<string, 'working' | 'failed'> = {}, notUsed?: GivenNotUsed, part: 'all' | 'needs' | 'fresh' = 'all'): SafeHtml {
   const given = nb.given ?? [];
   const missing = given.filter((g) => g.state === 'missing' && !g.optional);
   const wanted = given.filter((g) => g.state === 'missing' && g.optional);
@@ -1395,31 +1395,88 @@ export function givenCard(nb: Pick<Notebook, 'id' | 'given' | 'archivedAt'> & { 
         <div class="nb-given__acts"><a class="btn btn--sm" href="/notebooks/${encodeURIComponent(nb.id)}/edit#nbe-given-h">Fix this</a>${reread(g, 'Read it again')}</div>
       </details>`;
   };
-  return html`<section class="nb-given" data-nb-given aria-label="What you gave this notebook">
-    ${stale ? html`
+  const staleHtml = stale ? html`
       <div class="nb-given__item nb-given__item--new" role="status">
         <p class="nb-given__say"><span class="nb-given__mark">${cap(names(stale.given.map((g) => g.label)))} ${stale.given.length === 1 ? 'was' : 'were'} added after ${names(stale.steps.map((x) => x.title))} last ran,</span> so ${stale.steps.length === 1 ? 'it doesn\'t' : 'they don\'t'} use it yet. Nothing runs again unless you say so.</p>
         <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/given-update" class="nb-given__again"><button type="submit" class="btn btn--primary btn--sm">${givenUpdateLabel(stale.steps)}</button></form>
-      </div>` : html``}
-    ${missing.map((g) => html`
+      </div>` : html``;
+  const missingHtml = missing.map((g) => html`
       <div class="nb-given__item nb-given__item--missing">
         <p class="nb-given__say"><strong>sua needs ${g.label}.</strong> ${g.link ? html`It couldn't read <a href="${g.link}" target="_blank" rel="noopener">${hostOf(g.link)}</a>. ` : html``}${g.why ?? ''} Nothing runs until you paste it or go on without it, so nothing is guessed.</p>
         ${box(g, `Paste ${g.label}`)}
         <form method="POST" action="${act(g.key)}" class="nb-given__skip"><input type="hidden" name="skip" value="1"><button type="submit" class="btn btn--sm">Go on without it</button><span class="nb-given__hint">Results won't be matched to it, and the notebook will say so.</span></form>
-      </div>`) as unknown as SafeHtml[]}
-    ${skipped.map((g) => html`
+      </div>`) as unknown as SafeHtml[];
+  const skippedHtml = skipped.map((g) => html`
       <details class="nb-given__item nb-given__item--skipped">
         <summary><span class="nb-given__mark">Not matched to ${g.label}:</span> it wasn't given, so nothing here is based on it. <span class="nb-given__add">Add it</span></summary>
         ${box(g, `Paste ${g.label}`)}
-      </details>`) as unknown as SafeHtml[]}
-    ${wanted.map((g) => html`
+      </details>`) as unknown as SafeHtml[];
+  const wantedHtml = wanted.map((g) => html`
       <details class="nb-given__item nb-given__item--skipped">
         <summary><span class="nb-given__mark">If you have ${g.label}:</span> ${g.why ?? 'its steps work from it when it\'s here.'} Nothing waits for it. <span class="nb-given__add">Add it</span></summary>
         ${box(g, `Paste ${g.label}`)}
-      </details>`) as unknown as SafeHtml[]}
+      </details>`) as unknown as SafeHtml[];
+  if (part === 'needs') {
+    // What needs you, above the title: a step waits on it, it isn't used yet, or sua is reading it (or couldn't).
+    const waiting = have.filter((g) => !g.read || reading[g.key]);
+    if (!stale && !missing.length && !skipped.length && !waiting.length) return html``;
+    return html`<section class="nb-given" data-nb-given aria-label="What this notebook needs from you">${staleHtml}${missingHtml}${skippedHtml}${waiting.map(got) as unknown as SafeHtml[]}</section>`;
+  }
+  if (part === 'fresh') {
+    // Just read, and no step has worked from it yet: open under the header, so you can check what sua read before it's used.
+    const just = have.filter((g) => g.read && fresh && !reading[g.key]);
+    return just.length ? html`<section class="nb-given nb-given--fresh" data-nb-given aria-label="What sua read from what you gave">${just.map(got) as unknown as SafeHtml[]}</section>` : html``;
+  }
+  return html`<section class="nb-given" data-nb-given aria-label="What you gave this notebook">
+    ${staleHtml}
+    ${missingHtml}
+    ${skippedHtml}
+    ${wantedHtml}
     ${have.map(got) as unknown as SafeHtml[]}
     ${givenAdd(nb, 'nb-given-new')}
   </section>`;
+}
+
+/**
+ * The header's add row, after its steps: Add the meeting (a meeting's
+ * notebook), what you gave that a step has already worked from (one folded
+ * line, "You gave: …"), what it could use if you have it, and Add a file or
+ * paste. One opens at a time (`data-nb-act`). What needs you is above the
+ * title instead (givenCard 'needs'); a just-read one is under the header
+ * (givenCard 'fresh').
+ */
+export function givenAdds(nb: Notebook, reading: Record<string, 'working' | 'failed'> = {}): SafeHtml {
+  const given = nb.archivedAt ? [] : nb.given ?? [];
+  const fresh = !(nb.steps ?? []).some((x) => x.tries > 0);
+  const used = given.filter((g) => g.state === 'given' && g.read && !fresh && !reading[g.key]);
+  const wanted = given.filter((g) => g.state === 'missing' && g.optional);
+  const add = givenAdd(nb, 'nb-given-new', undefined, true);
+  const meeting = meetingLine(nb);
+  if (!used.length && !wanted.length && !String(add).trim() && !String(meeting).trim()) return html``;
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const act = (key: string) => `/notebooks/${encodeURIComponent(nb.id)}/given/${encodeURIComponent(key)}`;
+  const facts = (g: NotebookGiven) => html`
+          <div class="nb-hero__addpart">
+            <p class="nb-given__note"><span class="nb-given__mark">${cap(g.label)}, as sua read it:</span> ${g.read!.summary}</p>
+            <dl class="nb-given__facts">${g.read!.facts.map((f) => html`<div><dt>${f.label}</dt><dd>${f.value}${f.byYou ? html` <span class="nb-given__yours">yours</span>` : html``}</dd></div>`) as unknown as SafeHtml[]}</dl>
+            <div class="nb-given__acts"><a class="btn btn--sm" href="/notebooks/${encodeURIComponent(nb.id)}/edit#nbe-given-h">Fix this</a><form method="POST" action="${act(g.key)}" class="nb-given__again"><input type="hidden" name="reread" value="1"><button type="submit" class="btn btn--sm">Read it again</button></form></div>
+          </div>`;
+  const gave = used.length
+    ? html`<details class="nb-hero__add" data-nb-act data-nb-act-name="gave"><summary>${used.length === 1 ? `You gave: ${used[0].label}` : `You gave ${String(used.length)} things`}</summary><div class="nb-hero__addpanel">${used.map(facts) as unknown as SafeHtml[]}</div></details>`
+    : html``;
+  return html`<div class="nb-hero__adds" role="group" aria-label="Add to this notebook">
+    ${meeting}
+    ${gave}
+    ${wanted.map((g) => html`<details class="nb-hero__add" data-nb-act data-nb-act-name="want-${g.key}"><summary>If you have ${g.label}</summary>
+      <div class="nb-hero__addpanel"><p class="nb-given__note">${g.why ?? 'Its steps work from it when it\'s here.'} Nothing waits for it.</p>
+        <form method="POST" action="${act(g.key)}" class="nb-given__form">
+          <label class="nb-given__label" for="nb-want-${g.key}">Paste ${g.label}</label>
+          <textarea id="nb-want-${g.key}" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here, or choose a file below."></textarea>
+          ${givenFilePick(`nb-want-${g.key}`)}
+          <div class="nb-given__acts"><button type="submit" class="btn btn--primary btn--sm">Use this</button></div>
+        </form></div></details>`) as unknown as SafeHtml[]}
+    ${add}
+  </div>`;
 }
 
 /** What you added that its steps haven't worked from, and the steps that would. */
@@ -1441,11 +1498,24 @@ export function givenUpdateLabel(steps: ReadonlyArray<{ kind: string }>): string
  * fields apart when the page has two; `to` is where its form returns.
  * Nothing for an archived notebook or an experiment's copy.
  */
-export function givenAdd(nb: Pick<Notebook, 'id'> & { archivedAt?: string; experimentRun?: Notebook['experimentRun'] }, id: string, to?: 'edit'): SafeHtml {
+export function givenAdd(nb: Pick<Notebook, 'id'> & { archivedAt?: string; experimentRun?: Notebook['experimentRun'] }, id: string, to?: 'edit', inline = false): SafeHtml {
   if (nb.archivedAt || nb.experimentRun) return html``;
+  // In the header's add row: a link-like line whose form opens under the row.
+  if (inline) return html`
+      <details class="nb-hero__add" data-nb-given-add data-nb-act data-nb-act-name="add-file">
+        <summary title="A profile saved as a PDF, a résumé, your notes: its steps work from it.">＋ Add a file or paste</summary>
+        <div class="nb-hero__addpanel">${givenAddForm(nb, id, to)}</div>
+      </details>`;
   return html`
       <details class="nb-given__item nb-given__item--add" data-nb-given-add>
         <summary><span class="nb-given__mark">Add a file or paste</span> <span class="nb-given__hint">A profile saved as a PDF, a résumé, your notes: its steps work from it.</span></summary>
+        ${givenAddForm(nb, id, to)}
+      </details>`;
+}
+
+/** The form that adds a file or paste (givenAdd's, in either place). */
+function givenAddForm(nb: Pick<Notebook, 'id'>, id: string, to?: 'edit'): SafeHtml {
+  return html`
         <form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/given" class="nb-given__form">
           ${to ? html`<input type="hidden" name="to" value="${to}">` : html``}
           <label class="nb-given__label" for="${id}-label">What is it?</label>
@@ -1455,8 +1525,7 @@ export function givenAdd(nb: Pick<Notebook, 'id'> & { archivedAt?: string; exper
           <textarea id="${id}-text" name="text" rows="6" class="form-field nb-given__text" required minlength="20" placeholder="Paste the text here, or choose a file below."></textarea>
           ${givenFilePick(`${id}-text`, `${id}-label`)}
           <div class="nb-given__acts"><button type="submit" class="btn btn--sm">Add it</button><span class="nb-given__hint">sua reads it into a short form you can check. The file itself isn't kept.</span></div>
-        </form>
-      </details>`;
+        </form>`;
 }
 
 /** Edit's rail: what you gave the notebook (see, replace or remove each; fix what sua read from it), and what it's still waiting on. */
@@ -1516,9 +1585,9 @@ export function renderNotebookPage(args: { nb: Notebook; unfiled?: UnfiledRunVie
     <p class="nb-crumbs"><a href="/">Home</a> › <a href="/notebooks">Notebooks</a></p>
     ${args.nb.archivedAt ? html`<div class="nb-archived" role="status">Archived ${formatAge(args.nb.archivedAt)}: hidden from your notebooks, Home and Today, and its schedule is off.
       <form method="POST" action="/notebooks/${encodeURIComponent(args.nb.id)}/archive"><input type="hidden" name="archived" value="0"><button type="submit" class="btn btn--sm">Restore</button></form></div>` : html``}
-    ${givenCard(args.nb, args.reading, args.givenNotUsed)}
-    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew)}
-    ${args.nb.given?.length ? html`` : html`<section class="nb-given nb-given--quiet" aria-label="Give this notebook something">${givenAdd(args.nb, 'nb-given-new')}</section>`}
+    ${givenCard(args.nb, args.reading, args.givenNotUsed, 'needs')}
+    ${hero(args.nb, args.stages, args.running, args.nb.fields.length > 0 && args.entries.some((e) => e.kind === 'option'), args.cover, decisionLeads(args.nb, args.entries, Infinity, args.history), args.entries, args.busy ?? [], args.live, notebookHeaderView(args.nb, args.entries, args.history as NotebookWidgetHistory | undefined), args.madeBy, args.whatsNew, args.reading)}
+    ${givenCard(args.nb, args.reading, args.givenNotUsed, 'fresh')}
     
     ${printLinks(args.nb, args.entries)}
     <div class="nb-body">
