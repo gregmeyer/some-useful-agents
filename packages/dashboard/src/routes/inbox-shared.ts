@@ -352,6 +352,22 @@ export function formatLearnings(learnings: readonly TriageLearning[]): string {
   ).join('\n');
 }
 
+/** "just now", "12m ago", "7h ago", "3d ago". Pure. */
+export function howLongAgo(at: number, now: number): string {
+  const min = Math.max(0, Math.round((now - at) / 60_000));
+  if (min < 1) return 'just now';
+  if (min < 60) return `${String(min)}m ago`;
+  const h = Math.round(min / 60);
+  return h < 48 ? `${String(h)}h ago` : `${String(Math.round(h / 24))}d ago`;
+}
+
+/** When the person last wrote in the thread, if they have. Pure. */
+export function latestAskAt(responses: readonly Pick<InboxResponse, 'role' | 'createdAt'>[]): number | undefined {
+  let at: number | undefined;
+  for (const r of responses) if (r.role === 'user' && (at === undefined || r.createdAt > at)) at = r.createdAt;
+  return at;
+}
+
 /**
  * The thread as `[role] body` lines, oldest first, for triage and the
  * learning extractor. Action rows carry their structured status so the model
@@ -361,11 +377,16 @@ export function formatLearnings(learnings: readonly TriageLearning[]): string {
 export function formatConversationSnapshot(
   responses: readonly InboxResponse[],
   maxBytes: number = CONVERSATION_PROMPT_BUDGET,
+  now: number = Date.now(),
 ): string {
+  // A failure from before what they last asked is history, not news: it says how long ago, and that it came before.
+  const latestAsk = latestAskAt(responses);
   const entries = responses.map((r) => {
     if (r.role === 'action') {
       const m = parseActionMeta(r);
-      const why = (m?.status === 'failed' || m?.status === 'refused') && m.refusalReason ? `; why=${m.refusalReason.slice(0, 200)}` : '';
+      const failed = m?.status === 'failed' || m?.status === 'refused';
+      const when = failed ? `; ${howLongAgo(r.createdAt, now)}${latestAsk !== undefined && r.createdAt < latestAsk ? '; before your latest ask' : ''}` : '';
+      const why = failed && m.refusalReason ? `; why=${m.refusalReason.slice(0, 200)}${when}` : when;
       const waiting = m?.status === 'proposed' && m.waitingFor ? `; approved, waiting for ${m.waitingFor}` : '';
       const suffix = m ? ` (status=${m.status}${m.resultSummary ? `; result=${m.resultSummary.slice(0, 200)}` : ''}${m.notebookFiled ? `; already filed in the notebook: ${m.notebookFiled.slice(0, 200)}` : ''}${why}${waiting})` : '';
       return `[action] ${r.body}${suffix}`;

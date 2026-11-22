@@ -56,4 +56,13 @@ describe('collectRunSummary', () => {
     const ctx = setup();
     expect(collectRunSummary(ctx, 'nonexistent')).toBe('');
   });
+
+  it('a failed run says how long ago, and when it came before the latest ask', () => {
+    const ctx = setup();
+    const failedAt = Date.parse('2026-11-21T18:00:00Z');
+    runStore.createRun({ id: 'run-failed-1', agentName: 'photo', status: 'failed', startedAt: new Date(failedAt - 1000).toISOString(), completedAt: new Date(failedAt).toISOString(), triggeredBy: 'dashboard', error: 'jq: parse error' });
+    const now = failedAt + 7 * 3_600_000;
+    expect(collectRunSummary(ctx, 'photo', { now, latestAsk: now - 60_000 })).toContain('MOST RECENT RUN FAILED (run-fail, 7h ago, before your latest ask):');
+    expect(collectRunSummary(ctx, 'photo', { now, latestAsk: failedAt - 60_000 })).toContain('MOST RECENT RUN FAILED (run-fail, 7h ago):');
+  });
 });
