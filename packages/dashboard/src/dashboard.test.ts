@@ -708,6 +708,16 @@ describe('Dashboard /runs/:id per-node table', () => {
     // Non-`/` redirect is ignored → falls back to the JSON contract.
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
+    // So is a path a browser reads as another site (//host, /\host).
+    for (const redirect of ['//evil.example/x', '/\\evil.example']) {
+      const again = await request(app).post('/agents/allowme2/permissions/allow-host')
+        .type('form')
+        .send({ host: 'apod.nasa.gov', redirect })
+        .set('Host', `127.0.0.1:${PORT}`)
+        .set('Cookie', `${SESSION_COOKIE}=${TOKEN}`);
+      expect(again.status).toBe(200);
+      expect(again.headers.location).toBeUndefined();
+    }
   });
 
   it('does not render the per-node table for a v1 run', async () => {

@@ -10,6 +10,7 @@
 import { Router, type Request, type Response } from 'express';
 import { installPack, uninstallPack } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
+import { localBack } from '../lib/local-back.js';
 import { renderPacksList, renderPackDetail } from '../views/packs.js';
 
 export const packsRouter: Router = Router();
@@ -52,7 +53,8 @@ packsRouter.post('/packs/:id/install', (req: Request, res: Response) => {
   // Optional returnTo lets callers (e.g. the Install-from-Packs modal on the
   // home /) come back to where they were instead of the pack detail page.
   const rawReturn = Array.isArray(req.body?.returnTo) ? req.body.returnTo[0] : req.body?.returnTo;
-  const returnTo = typeof rawReturn === 'string' && rawReturn.startsWith('/') ? rawReturn : null;
+  // A page on this dashboard only (not //host or /\host).
+  const returnTo = localBack(rawReturn) ?? null;
   const back = (params: string) => returnTo
     ? `${returnTo}${returnTo.includes('?') ? '&' : '?'}${params}`
     : `/packs/${encodeURIComponent(id)}?${params}`;

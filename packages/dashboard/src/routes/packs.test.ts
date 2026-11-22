@@ -163,6 +163,14 @@ describe('packs routes', () => {
     expect(res.status).toBe(303);
     // Falls back to the pack detail page rather than redirecting off-site.
     expect(res.headers.location).toMatch(/^\/packs\/test-pack\?ok=/);
+    // A path that a browser reads as another site (//host, /\host) is off-site too.
+    for (const returnTo of ['//evil.example.com/x', '/\\evil.example.com']) {
+      const again = await request(app)
+        .post('/packs/test-pack/install')
+        .set('Host', `127.0.0.1:${PORT}`).set('Cookie', `${SESSION_COOKIE}=${TOKEN}`)
+        .type('form').send({ returnTo });
+      expect(again.headers.location).toMatch(/^\/packs\/test-pack\?/);
+    }
   });
 
   it('POST /packs/:id/uninstall removes dashboards but keeps agents', async () => {

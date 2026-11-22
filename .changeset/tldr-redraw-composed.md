@@ -15,3 +15,4 @@ If sua can't compose the card, the picture stays as it was, and the page says wh
 Also fixed:
 - A composed card no longer shows the same photo twice when two sources share it, even when one is a resized copy.
 - A photo set beside the words under the card's header now sits inside the card's margins. It no longer runs off the card's left edge or up against the headline.
+- Two older forms only allow going back to a page on this dashboard: installing a pack (`returnTo`) and allowing an image host (`redirect`). Before, they also followed `//other-site` or `/\other-site` off the dashboard.
