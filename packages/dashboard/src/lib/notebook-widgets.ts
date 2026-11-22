@@ -19,7 +19,7 @@ import { missingExperimentData, rankBy, rankOptions, isRange,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
-  answerSectionLines, sectionKey, writesUp, subjectHost, runbookRole, runbookCopyPlaces, runbookTotalTime, type NotebookRunbookRole, type NotebookAnswerSection,
+  answerSectionLines, sectionKey, writesUp, subjectHost, runbookRole, runbookCopyPlaces, runbookTotalTime, runbookNeeds, type NotebookRunbookRole, type NotebookAnswerSection,
 } from '@some-useful-agents/core';
 import { formatFieldValue } from './field-format.js';
 import { whatsNew, whatsNewLines, type WhatsNew } from './notebook-whats-new.js';
@@ -218,13 +218,14 @@ export interface NotebookWidgetData extends NotebookViewData {
     /** What to weigh about where its sources come from (Agenda questions). */
     sourceCautions: Array<{ text: string }>;
     /** The parts the answer was asked for (AnswerSections), each step and row with links to what it rests on. */
-    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram' | 'copy'; /** What it is for in a runbook (core runbookRole). */ role?: NotebookRunbookRole; /** A part to copy drawn inside a step of the method: AnswerSections leaves it out on its own. */ inStep?: boolean; label?: string; lang?: string; items?: Array<{ text: string; detail?: string; how?: string; see?: string; ifNot?: string; time?: string; advice?: boolean; /** The part to copy this step uses, drawn inside it. */ copyPart?: { key: string; title: string; kind: 'copy'; body?: string; label?: string; lang?: string }; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
+    answerSections: Array<{ key: string; title: string; kind: 'steps' | 'table' | 'text' | 'diagram' | 'copy'; /** What it is for in a runbook (core runbookRole). */ role?: NotebookRunbookRole; /** A part to copy drawn inside a step of the method: AnswerSections leaves it out on its own. */ inStep?: boolean; label?: string; lang?: string; items?: Array<{ text: string; detail?: string; how?: string; see?: string; ifNot?: string; time?: string; advice?: boolean; /** Its phase ("Prep"): consecutive steps with one are grouped under it. */ phase?: string; /** The part to copy this step uses, drawn inside it. */ copyPart?: { key: string; title: string; kind: 'copy'; body?: string; label?: string; lang?: string }; refs: Array<{ label: string; href: string }> }>; columns?: string[]; rows?: Array<{ cells: string[]; refs: Array<{ label: string; href: string }> }>; note?: string; body?: string; diagram?: AnswerDiagramView; caption?: string; refs?: Array<{ label: string; href: string }> }>;
     /** A plan's parts besides its days (AnswerSections), the same shapes as an answer's. */
     planSections: NotebookWidgetData['notebook']['answerSections'];
     /** Each written part by its key (`/notebook/section/<key>`), an answer's and a plan's, for a page composed around them. */
     section: Record<string, NotebookWidgetData['notebook']['answerSections'][number]>;
     /** A runbook at a glance (KeyValue rows): its time in all, how many steps, for whom, what you end with. */
-    runbook: { glance: Array<{ label: string; value: string }> };
+    /** A runbook's card (At a glance) and its lesson (ADR-0097): what you'll be able to do, what you'll need (from its ready part when it has no lesson), how you know you're done, what to remember, what's next, a self-check. */
+    runbook: { glance: Array<{ label: string; value: string }>; lesson: { goals: string[]; needs: string[]; done?: string; keyPoints: string[]; next?: string; selfCheck: Array<{ q: string; a: string }>; written: boolean } };
     /** The notebook's numbers by field key, from the options in the running: the best by the field's better way, the high, the low, the count (Lead stat). Money and number fields only. */
     numbers: Record<string, { best: NotebookLeadStat; high: NotebookLeadStat; low: NotebookLeadStat; count: NotebookLeadStat }>;
     /** The notebook's TL;DR picture (Picture): its image, what it shows, and where it's redrawn. */
@@ -487,7 +488,7 @@ export function notebookWidgetData(nb: Notebook, entries: readonly NotebookEntry
       ...(nb.experimentId ? { experiment: history?.experiment?.(nb.experimentId) ?? missingExperimentData(nb.experimentId) } : {}),
       ...written,
       section: Object.fromEntries([...written.answerSections, ...written.planSections].map((x) => [x.key, x])),
-      runbook: { glance: runbookGlance(nb.answer, written.answerSections) },
+      runbook: { glance: runbookGlance(nb.answer, written.answerSections), lesson: runbookLessonView(nb.answer) },
       numbers,
       // Its TL;DR picture; the address changes when the notebook or the way it's drawn does, so a browser shows the new one.
       picture: { src: `/notebooks/${encodeURIComponent(nb.id)}/tldr.png?v=${encodeURIComponent(`${nb.updatedAt}.${nb.tldr?.at ?? 'standard'}`)}`, alt: `${nb.title}, in short`, href: `/notebooks/${encodeURIComponent(nb.id)}/tldr`, caption: 'The TL;DR picture. Open it to redraw or download it.' },
@@ -730,7 +731,7 @@ function sectionViews(sections: NonNullable<NonNullable<Notebook['answer']>['sec
   const struck = new Set(struckList ?? []);
   return (sections ?? []).map((x): SectionView => {
     const key = sectionKey(x);
-    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), ...(i.how ? { how: i.how } : {}), ...(i.see ? { see: i.see } : {}), ...(i.ifNot ? { ifNot: i.ifNot } : {}), ...(i.time ? { time: i.time } : {}), ...(i.advice ? { advice: true } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
+    if (x.kind === 'steps') return { key, title: x.title, kind: x.kind, items: x.items.filter((i) => !struck.has(i.text)).map((i) => ({ text: i.text, ...(i.detail ? { detail: i.detail } : {}), ...(i.how ? { how: i.how } : {}), ...(i.see ? { see: i.see } : {}), ...(i.ifNot ? { ifNot: i.ifNot } : {}), ...(i.time ? { time: i.time } : {}), ...(i.advice ? { advice: true } : {}), ...(i.phase ? { phase: i.phase } : {}), refs: refs(i.from, `${i.text} ${i.detail ?? ''}`) })) };
     // Something to copy, as written; struck, it's gone.
     if (x.kind === 'copy') return struck.has(answerSectionLines(x)[0]) ? { key, title: x.title, kind: 'text', body: '' } : { key, title: x.title, kind: 'copy', body: x.body, ...(x.label ? { label: x.label } : {}), ...(x.lang ? { lang: x.lang } : {}) };
     if (x.kind === 'table') {
@@ -962,6 +963,13 @@ function runbookPlaced(sections: readonly NotebookAnswerSection[], views: Sectio
 }
 
 /** A runbook at a glance, as KeyValue rows: its time (as the writer said, else its steps' times added up), how many steps, for whom, what you end with. Rows it can't say are left out. Pure. */
+/** A runbook's lesson for the page: as the writer gave it, else what to have ready from its ready part (`written` false: no lesson yet). Pure. */
+function runbookLessonView(a: Notebook['answer']): NotebookViewDataLesson {
+  const l = a?.lesson;
+  return { goals: l?.goals ?? [], needs: runbookNeeds(a), ...(l?.done ? { done: l.done } : {}), keyPoints: l?.keyPoints ?? [], ...(l?.next ? { next: l.next } : {}), selfCheck: l?.selfCheck ?? [], written: !!l };
+}
+type NotebookViewDataLesson = { goals: string[]; needs: string[]; done?: string; keyPoints: string[]; next?: string; selfCheck: Array<{ q: string; a: string }>; written: boolean };
+
 function runbookGlance(a: Notebook['answer'], views: readonly SectionView[]): Array<{ label: string; value: string }> {
   const method = views.filter((v) => v.kind === 'steps' && v.role === 'method');
   if (!a || !method.length) return [];

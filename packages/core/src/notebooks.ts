@@ -533,6 +533,8 @@ export interface NotebookAnswer {
   sections?: NotebookAnswerSection[];
   /** A runbook at a glance (a recipe's card): how long it takes in all, for whom, and what you end with. */
   glance?: NotebookRunbookGlance;
+  /** A runbook as a lesson (ADR-0097): what you'll be able to do, what you'll need, how you know you're done, what to remember, what's next, and a self-check. */
+  lesson?: NotebookRunbookLesson;
   at: string;
   by: string;
   /** The version a rewrite replaced (its point texts, one level back): what's new and what was dropped. */
@@ -543,6 +545,22 @@ export interface NotebookAnswer {
 
 /** A runbook at a glance: "about 30 min", "first-timer", "a live page at a public URL". Each a short line. */
 export interface NotebookRunbookGlance { time?: string; level?: string; makes?: string }
+
+/**
+ * A runbook read as a lesson (ADR-0097), each in plain words with no facts of
+ * its own (a fact lives in a step and cites there): `goals` what the reader
+ * will be able to do, verb first; `needs` what to have ready, one item each;
+ * `done` how they can check they're done; `keyPoints` what to remember;
+ * `next` what to try after; `selfCheck` questions whose answers are in it.
+ */
+export interface NotebookRunbookLesson {
+  goals: string[];
+  needs: string[];
+  done?: string;
+  keyPoints: string[];
+  next?: string;
+  selfCheck: Array<{ q: string; a: string }>;
+}
 
 
 /**
@@ -561,6 +579,8 @@ export interface NotebookAnswerStep {
   advice?: true;
   /** The part to copy this step uses (its key or title): a page draws it inside the step. */
   copy?: string;
+  /** The phase it's in ("Prep", "Make", "Finish"): consecutive steps with one are grouped under it. */
+  phase?: string;
   from: string[];
 }
 
@@ -791,6 +811,58 @@ export function runbookMinutes(time: string | undefined): [number, number] | und
   const per = /^h/i.test(m[3]) ? 60 : /^s/i.test(m[3]) ? 1 / 60 : 1;
   const lo = Number(m[1]) * per, hi = Number(m[2] ?? m[1]) * per;
   return lo <= hi ? [lo, hi] : [hi, lo];
+}
+
+/** A writer's lesson as kept (NotebookRunbookLesson), each list clipped; undefined when it says nothing. Pure. */
+export function cleanRunbookLesson(raw: unknown, line: (x: unknown, n: number) => string): NotebookRunbookLesson | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const list = (v: unknown, n: number, max: number) => [...new Set((Array.isArray(v) ? v : []).map((x) => line(x, n)).filter(Boolean))].slice(0, max);
+  const goals = list(o.goals, 160, 4), needs = list(o.needs, 120, 10), keyPoints = list(o.keyPoints ?? o.key_points, 200, 4);
+  const done = line(o.done, 240), next = line(o.next, 240);
+  const selfCheck = (Array.isArray(o.selfCheck ?? o.self_check) ? (o.selfCheck ?? o.self_check) as unknown[] : []).map((x) => {
+    const c = (x ?? {}) as Record<string, unknown>;
+    const q = line(c.q ?? c.question, 200), a = line(c.a ?? c.answer, 300);
+    return q && a ? { q, a } : undefined;
+  }).filter((x): x is { q: string; a: string } => !!x).slice(0, 3);
+  if (!goals.length && !needs.length && !done && !keyPoints.length && !next && !selfCheck.length) return undefined;
+  return { goals, needs, ...(done ? { done } : {}), keyPoints, ...(next ? { next } : {}), selfCheck };
+}
+
+/**
+ * What to have ready, as items to tick, for an answer with no lesson.needs
+ * (one written before ADR-0097): its "ready" part (runbookRole) split into
+ * items: its list lines, else its sentences, a sentence of several things
+ * ("Have bread, peanut butter, jelly and a plate ready") split on commas and
+ * "and". Pure.
+ */
+export function runbookNeeds(answer: Pick<NotebookAnswer, 'sections' | 'lesson'> | undefined): string[] {
+  if (answer?.lesson?.needs.length) return answer.lesson.needs;
+  const ready = (answer?.sections ?? []).find((s) => runbookRole(s) === 'ready');
+  if (!ready) return [];
+  const body = ready.kind === 'text' ? ready.body : ready.kind === 'steps' ? ready.items.map((i) => i.text).join('\n') : '';
+  const lines = body.split(/\n+/).map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim()).filter(Boolean);
+  if (lines.length > 1) return lines.slice(0, 10);
+  const out: string[] = [];
+  for (const sentence of body.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean)) {
+    // "Have A, B, C, and D ready." → A, B, C, D; a sentence that isn't a list stays whole.
+    const m = /^(?:have|get|you(?:'|’)ll need|you need|gather|bring|set out)\s+(.+?)(?:\s+(?:ready|to hand|nearby|out))?[.!]?$/i.exec(sentence);
+    const parts = m ? m[1].split(/\s*,\s*(?:and\s+)?|\s+and\s+/i).map((x) => x.trim()).filter(Boolean) : [];
+    if (parts.length > 1) out.push(...parts.map((x) => x.charAt(0).toUpperCase() + x.slice(1)));
+    else out.push(sentence.replace(/[.!]$/, ''));
+  }
+  return [...new Set(out)].slice(0, 10);
+}
+
+/** A runbook's steps grouped by phase: consecutive steps with the same phase together, numbered across groups (one unnamed group when none has a phase). Pure. */
+export function runbookPhases<T extends Pick<NotebookAnswerStep, 'phase'>>(items: readonly T[]): Array<{ phase?: string; steps: Array<{ item: T; n: number }> }> {
+  const out: Array<{ phase?: string; steps: Array<{ item: T; n: number }> }> = [];
+  items.forEach((item, i) => {
+    const last = out[out.length - 1];
+    if (last && (last.phase ?? '') === (item.phase ?? '')) last.steps.push({ item, n: i + 1 });
+    else out.push({ ...(item.phase ? { phase: item.phase } : {}), steps: [{ item, n: i + 1 }] });
+  });
+  return out;
 }
 
 /** A runbook's steps' time in all ("about 25 min", "20–35 min", "about 1 hr 10 min", "2 hr to 2 hr 30 min"), when every step says a number; else undefined. Pure. */
@@ -4443,7 +4515,9 @@ export function cleanAnswer(raw: unknown, optionIds: ReadonlySet<string>, questi
   // A runbook at a glance: each a short line, kept only when the answer has steps to take.
   const g = (v.glance && typeof v.glance === 'object' ? v.glance : {}) as Record<string, unknown>;
   const glance = sections.some((x) => x.kind === 'steps') ? { ...(line(g.time, 40) ? { time: line(g.time, 40) } : {}), ...(line(g.level, 60) ? { level: line(g.level, 60) } : {}), ...(line(g.makes, 120) ? { makes: line(g.makes, 120) } : {}) } : {};
-  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(contradictions.length ? { contradictions } : {}), ...(sections.length ? { sections } : {}), ...(Object.keys(glance).length ? { glance } : {}), at, by };
+  // A runbook as a lesson: kept only with steps to take, and only when it says something.
+  const lesson = sections.some((x) => x.kind === 'steps') ? cleanRunbookLesson(v.lesson, line) : undefined;
+  return { question: line(question, 240), text, confidence, ...(basis ? { basis } : {}), findings, open, ...(contradictions.length ? { contradictions } : {}), ...(sections.length ? { sections } : {}), ...(Object.keys(glance).length ? { glance } : {}), ...(lesson ? { lesson } : {}), at, by };
 }
 
 /** One part of a briefing on a subject (ADR-0080): its title on the page, and how a done-when names it. */
@@ -4503,11 +4577,11 @@ function cleanAnswerSections(raw: unknown, ids: ReadonlySet<string>, criteria: r
         const x = (typeof i === 'string' ? { text: i } : i ?? {}) as Record<string, unknown>;
         const text = line(x.text, 240);
         const detail = line(x.detail, 400);
-        const how = line(x.how, 300), see = line(x.see, 240), ifNot = line(x.ifNot ?? x.if_not, 300), time = line(x.time, 24), copy = line(x.copy, 90);
+        const how = line(x.how, 300), see = line(x.see, 240), ifNot = line(x.ifNot ?? x.if_not, 300), time = line(x.time, 24), copy = line(x.copy, 90), phase = line(x.phase, 32);
         const from = cites(x.from);
         // Advice is the writer's own: it cites nothing (a step a source supports is that source's).
         const advice = x.advice === true && !from.length;
-        return text ? { text, ...(detail ? { detail } : {}), ...(how ? { how } : {}), ...(see ? { see } : {}), ...(ifNot ? { ifNot } : {}), ...(time ? { time } : {}), ...(advice ? { advice: true as const } : {}), ...(copy ? { copy } : {}), from } : undefined;
+        return text ? { text, ...(detail ? { detail } : {}), ...(how ? { how } : {}), ...(see ? { see } : {}), ...(ifNot ? { ifNot } : {}), ...(time ? { time } : {}), ...(advice ? { advice: true as const } : {}), ...(copy ? { copy } : {}), ...(phase ? { phase } : {}), from } : undefined;
       }).filter((i): i is NonNullable<typeof i> => !!i).slice(0, 10);
       if (items.length >= 2) out.push({ ...head, kind: 'steps', items });
     } else if (o.kind === 'table') {
