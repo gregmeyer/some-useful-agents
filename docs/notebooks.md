@@ -614,6 +614,8 @@ The picture is 2160 pixels wide (twice the card, so text stays sharp), in the li
   3. who it's about;
   4. **the notebook's drawing**, the same colour and icon as its card on the Notebooks page.
 
+  A shortlist that leads with what it wrote has no photo of its own: there, its top options' own photos (up to four, each credited to its site) are the card's photos, so "lead with the photo" shows the best option's photo and "use its photos" puts them in a grid.
+
   **Use its drawing** makes the drawing the picture even when there are photos. "No picture" draws none at all. A picture you chose for the notebook also shows in the standard picture's strip.
 - **Older pictures.** A picture redrawn before this change, in one of the seven fixed layouts (stack, split, hero, cover, lineup, spotlight, gallery), still draws as it did, and the MCP tool below still sets them.
 

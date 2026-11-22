@@ -62,6 +62,12 @@ export interface TldrData {
    * Never a logo, a drawing or a photo from an image search.
    */
   photos?: TldrPhoto[];
+  /**
+   * The top options' own photos (a shortlist), in their order, each with the
+   * site it's from: what a composed card shows when it leads with a photo and
+   * the notebook has no photo of its own (its lead is what it wrote).
+   */
+  optionPhotos?: TldrPhoto[];
   /** The notebook's drawing (its colour and icon, as its card's cover): the picture when it has no photo, or when a redraw asks for it. */
   drawing?: string;
 }
@@ -187,6 +193,18 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
     : active.filter((o) => num(field, o) !== undefined).sort((a, b) => (better === 'lower' ? num(field, a)! - num(field, b)! : num(field, b)! - num(field, a)!));
   const lead = valued[0] ?? active[0];
 
+  // The top options' photos, credited to their sites, for a composed card (not a logo or a drawing).
+  const host = (u: string | undefined) => { try { return u ? new URL(u).hostname.replace(/^www\./, '') : ''; } catch { return ''; } };
+  const optionPhotos: TldrPhoto[] = [];
+  if (pictures) {
+    for (const o of (valued.length ? valued : active)) {
+      if (optionPhotos.length >= TLDR_PHOTOS_MAX) break;
+      const src = o.image && pictureKind(o) === 'photo' ? pictures(o) : undefined;
+      if (src && !optionPhotos.some((x) => x.src === src)) optionPhotos.push({ src, credit: host(o.link) || host(o.imageSource) || 'its page', name: clip(o.name, 60) });
+    }
+  }
+  const withOptionPhotos = optionPhotos.length ? { optionPhotos } : {};
+
   let chart: TldrData['chart'];
   if (field) {
     const shown = valued.slice(0, MAX_BARS);
@@ -216,7 +234,7 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
   const written = nb.answer?.text ? d.answer : undefined;
   // It wrote an answer: that leads, in its words, over the bars.
   if (written && chart) {
-    return { title: nb.title, leadLabel: written.label, lead: clip(plain(written.text), 320), leadFacts: [], sentence: true, stats: stats.slice(0, 3), chart, points: [] };
+    return { title: nb.title, leadLabel: written.label, lead: clip(plain(written.text), 320), leadFacts: [], sentence: true, stats: stats.slice(0, 3), chart, points: [], ...withOptionPhotos };
   }
   if (lead && chart) {
     return {
@@ -228,7 +246,7 @@ function tldrDataOf(nb: Notebook, entries: readonly NotebookEntry[], history?: N
         ...facts(nb, lead).filter((f) => f.label !== field!.label).slice(0, 3).map((f) => `${f.label} ${f.value}`),
       ],
       ...(pictures && lead.image && !(decided && chosen.length > 1) && pictures(lead) ? { leadPicture: pictures(lead)!, leadPictureKind: pictureKind(lead) } : {}),
-      stats: stats.slice(0, 3), chart, points: [],
+      stats: stats.slice(0, 3), chart, points: [], ...withOptionPhotos,
     };
   }
   // About someone (a meeting, a company briefing): they lead, with their picture, what they do and where, and your
@@ -460,6 +478,12 @@ export const TLDR_CSS = `
 .tlv__row.is-bleed > .tlv__cover .tlv__over { padding-left: 36px; padding-right: 36px; }
 .tlv__row.is-bleed > .tlv__cover .tlv__hl { font-size: 40px; }
 .tlv__cell { padding: 32px 44px 0; min-width: 0; display: grid; gap: 22px; align-content: start; }
+/* A composed card's narrow column (beside a photo, or a third of the card): the numbers wrap two to a row and the bars fit, rather than running off the card. */
+.tlv__cell, .tlv__row > .tlv__col { container-type: inline-size; }
+@container (max-width: 560px) {
+  .tl--view .tl__stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 14px 18px; }
+  .tl--view .tl__bar { grid-template-columns: minmax(0, 1.3fr) minmax(40px, 1fr) 84px; gap: 10px; font-size: 14px; }
+}
 .tl--view.tl--landscape .tlv__main, .tl--view.tl--square .tlv__main, .tl--view.tl--portrait .tlv__main { flex: 1 1 auto; }
 .tl--view.tl--landscape .tlv__main > .tlv__cover, .tl--view.tl--square .tlv__main > .tlv__cover, .tl--view.tl--portrait .tlv__main > .tlv__cover { flex: 1 1 auto; height: auto; min-height: 260px; }
 .tl--view.tl--landscape .tlv__main > .tlv__row.is-bleed, .tl--view.tl--square .tlv__main > .tlv__row.is-bleed, .tl--view.tl--portrait .tlv__main > .tlv__row.is-bleed { flex: 1 1 auto; min-height: 0; }
@@ -719,11 +743,15 @@ export function tldrCard(t: TldrData, o: { now?: Date; spec?: TldrSpec } = {}): 
 /** A composed card's data, at /tldr/… (core TLDR_VIEW_PATHS): words and pictures from the notebook, never from the view. Pure. */
 export function tldrViewData(t: TldrData, spec: Pick<TldrSpec, 'headline' | 'takeaway' | 'picture'>, date: string): Record<string, unknown> {
   const big = tldrBigPicture(t, spec.picture ?? 'photos');
-  const photo = big ? (t.photos?.find((x) => x.src === big.src) ?? { src: big.src, credit: '', name: t.lead }) : undefined;
+  // A shortlist that leads with what it wrote has no photo of its own: its top options' photos stand in (credited), before the drawing.
+  const photos = t.photos?.length ? t.photos : t.optionPhotos ?? [];
+  const photo = big && big.kind !== 'art' ? (photos.find((x) => x.src === big.src) ?? { src: big.src, credit: '', name: t.lead })
+    : spec.picture !== 'drawing' && photos.length ? photos[0]
+      : big ? { src: big.src, credit: '', name: t.lead } : undefined;
   return {
     title: t.title, headline: spec.headline ?? t.title, ...(spec.takeaway ? { takeaway: spec.takeaway } : {}),
     leadLabel: t.leadLabel, lead: t.lead, ...(t.note ? { note: t.note } : {}), date,
-    ...(photo ? { photo } : {}), photos: t.photos ?? [],
+    ...(photo ? { photo } : {}), photos,
     ...(t.drawing ? { drawing: { src: t.drawing, credit: '', name: t.title } } : {}),
   };
 }
