@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { NotebookStore, RunStore, asksForRunbook, layoutPreset, checkNotebookLayout, cleanAnswer, runbookRole, runbookCopyPlaces, runbookMinutes, runbookTotalTime, type NotebookAnswerSection } from '@some-useful-agents/core';
+import { NotebookStore, RunStore, asksForRunbook, layoutPreset, checkNotebookLayout, cleanAnswer, runbookRole, runbookCopyPlaces, runbookMinutes, runbookTotalTime, runbookNeeds, runbookPhases, type NotebookAnswerSection } from '@some-useful-agents/core';
 import { writerInputs } from './notebook-write.js';
 import { notebookWidgetData, notebookWidgetMessages } from './notebook-widgets.js';
 import { renderPageBrief } from '../views/notebook-page-brief.js';
@@ -150,6 +150,58 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(runbookCopyPlaces(a.sections!)).toEqual([{ copy: 'the-prompt', steps: 'do-it', index: 0 }]);
   });
 
+  it('keeps a lesson and each step\'s phase (ADR-0097); a lesson without steps, or that says nothing, is dropped', () => {
+    const raw = {
+      answer: 'A sandwich in 2 minutes.', confidence: 'medium',
+      lesson: {
+        goals: ['Make a PB&J', 'Keep the jar clean', 'Spread evenly', 'Check labels', 'One too many'],
+        needs: ['Bread', 'Peanut butter', 'Bread'], done: 'Two slices close with the fillings inside.',
+        keyPoints: ['Clean hands first'], next: 'Try toasting the bread.',
+        selfCheck: [{ q: 'Why two knives?', a: 'So peanut butter stays out of the jelly jar.' }, { q: 'No answer' }],
+      },
+      sections: [{ title: 'Do it', kind: 'steps', role: 'method', items: [{ text: 'Wash hands', phase: 'Prep' }, { text: 'Spread', phase: 'Make' }] }],
+    };
+    const a = cleanAnswer(raw, new Set(), 'How?', 'w')!;
+    expect(a.lesson).toEqual({
+      goals: ['Make a PB&J', 'Keep the jar clean', 'Spread evenly', 'Check labels'], needs: ['Bread', 'Peanut butter'],
+      done: 'Two slices close with the fillings inside.', keyPoints: ['Clean hands first'], next: 'Try toasting the bread.',
+      selfCheck: [{ q: 'Why two knives?', a: 'So peanut butter stays out of the jelly jar.' }],
+    });
+    expect((a.sections![0] as { items: Array<{ phase?: string }> }).items.map((i) => i.phase)).toEqual(['Prep', 'Make']);
+    expect(cleanAnswer({ ...raw, sections: [] }, new Set(), 'How?', 'w')!.lesson).toBeUndefined();
+    expect(cleanAnswer({ ...raw, lesson: { goals: [], needs: [] } }, new Set(), 'How?', 'w')!.lesson).toBeUndefined();
+  });
+
+  it('what you\'ll need: the lesson\'s, else its ready part split into items', () => {
+    const ready = (body: string): NotebookAnswerSection => ({ title: 'Before you start', kind: 'text', role: 'ready', body });
+    expect(runbookNeeds({ sections: [ready('Have bread, peanut butter, jelly, a plate, and clean utensils ready. Check the food labels if allergies are a concern.')] }))
+      .toEqual(['Bread', 'Peanut butter', 'Jelly', 'A plate', 'Clean utensils', 'Check the food labels if allergies are a concern']);
+    expect(runbookNeeds({ sections: [ready('- A GitHub account\n- A laptop\n- 30 minutes')] })).toEqual(['A GitHub account', 'A laptop', '30 minutes']);
+    expect(runbookNeeds({ sections: [ready('An account.')], lesson: { goals: [], needs: ['Bread'], keyPoints: [], selfCheck: [] } })).toEqual(['Bread']);
+    expect(runbookNeeds({ sections: [] })).toEqual([]);
+  });
+
+  it('the page gets the lesson, with what you\'ll need from the ready part when there is none, and each step\'s phase', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-runbook-'));
+    const s = NotebookStore.fromHandle(new RunStore(join(dir, 'runs.db')).databaseHandle());
+    const nb = s.create({ title: 'Teach me how to make a sandwich' });
+    s.setLayout(nb.id, layoutPreset('runbook')!.layout, 'picked');
+    s.setAnswer(nb.id, { question: 'How?', by: 'w', text: 'A sandwich.', confidence: 'medium', basis: '', findings: [], open: [], at: new Date().toISOString(),
+      sections: [
+        { title: 'Before you start', kind: 'text', role: 'ready', body: 'Have bread, jam and a knife ready.' },
+        { title: 'The steps', kind: 'steps', role: 'method', items: [{ text: 'Spread', phase: 'Make', from: [] }, { text: 'Close', phase: 'Finish', from: [] }] },
+      ] });
+    const page = notebookWidgetData(s.get(nb.id)!, []).notebook as unknown as { runbook: { lesson: { needs: string[]; written: boolean } }; answerSections: Array<{ items?: Array<{ phase?: string }> }> };
+    expect(page.runbook.lesson).toMatchObject({ needs: ['Bread', 'Jam', 'A knife'], written: false });
+    expect(page.answerSections.find((x) => x.items)?.items?.map((i) => i.phase)).toEqual(['Make', 'Finish']);
+  });
+
+  it('groups steps by phase, numbered across groups', () => {
+    const g = runbookPhases([{ phase: 'Prep' }, { phase: 'Prep' }, { phase: 'Make' }, {}]);
+    expect(g.map((x) => [x.phase, x.steps.map((s) => s.n)])).toEqual([['Prep', [1, 2]], ['Make', [3]], [undefined, [4]]]);
+    expect(runbookPhases([{}, {}]).length).toBe(1);
+  });
+
   it('knows a notebook that asks to be taught something from one that asks a question', () => {
     const write = [{ id: 'w', title: 'Write the answer', kind: 'write' as const, shape: 'answer' as const, status: 'todo' as const, tries: 0 }];
     const nb = (title: string, steps = write) => ({ title, statement: '', steps });
@@ -188,6 +240,13 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
   it("sua's drafter is told a runbook is an answer", () => {
     const yaml = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-drafter.yaml'), 'utf-8');
     expect(yaml).toContain('the answer too: "shape": "answer" ("Write the\n        runbook"), never "plan"');
+  });
+
+  it("the writer's instructions ask for phases and a lesson", () => {
+    const yaml = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-writer.yaml'), 'utf-8');
+    expect(yaml).toContain('"phase" (with more than 4 steps, 2 to 4');
+    expect(yaml).toContain('Add "lesson", so the page reads');
+    expect(yaml).toContain('"selfCheck": 2 to 3 {"q", "a"}');
   });
 
   it("the writer's instructions describe the runbook", () => {

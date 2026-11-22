@@ -153,7 +153,9 @@ nodes:
                worked, one sentence), "ifNot" (the usual mistake and its
                fix, one sentence; leave it out when there isn't one),
                "time" (a number: "2 min", "5–10 min", "1 hour"; never "a
-               few minutes"), "copy" on the step that uses a copy section
+               few minutes"), "phase" (with more than 4 steps, 2 to 4
+               short phases in order, such as "Prep", "Make", "Finish";
+               consecutive steps share one), "copy" on the step that uses a copy section
                (that section's title; the page draws it inside the step),
                and "from". A step that is your own
                advice (how to teach it, what order works, when to stop
@@ -172,7 +174,17 @@ nodes:
           like a recipe by role. Add "glance": {"time": about how long in
           all ("about 30 min"), "level": who it's for ("first-timer, no
           code"), "makes": what they'll have at the end, a few words ("a
-          live page at a public URL")}.
+          live page at a public URL")}. Add "lesson", so the page reads
+          like a lesson: {"goals": 2 to 4 things they'll be able to do,
+          each starting with a verb ("Publish a page from a folder"),
+          "needs": what to have ready, one item each, a few words ("A
+          GitHub account", "Two slices of bread"), "done": one sentence
+          they can check to know they're finished, "keyPoints": 3 lines
+          they'd repeat to a friend, "next": what to try after, in a
+          sentence, "selfCheck": 2 to 3 {"q", "a"}: short questions whose
+          answers are in the steps}. All in plain words, with no facts of
+          their own and no sources: a fact lives in a step and cites
+          there.
           When a section gives one of the notebook's done-whens, put that
           done-when's words in "delivers", exactly as the notebook says
           it. Each row and step cites the ids it rests on; a row or step
