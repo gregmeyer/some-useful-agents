@@ -69,9 +69,10 @@ export function editionWide(agent: Pick<Agent, 'view'>, shape: Pick<BoardAgentSh
  * three abreast. Each agent's result is its own view (`AgentTile`, bare,
  * in a Panel). Pure.
  */
-export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string>; figures?: BoardFigures; /** A line of the person's own, under the masthead. */ note?: string; /** The top item of one agent's list, linked, under the headline. */ top?: { title: string; url: string; agent: string } } = {}): BoardDoc {
+export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { agentId: string; headline: string }; wide?: ReadonlySet<string>; figures?: BoardFigures; /** A line of the person's own, under the masthead. */ note?: string; /** The top item of one agent's list, linked, under the headline. */ top?: { title: string; url: string; agent: string }; /** How fresh each part is: older than a day (kept because you always show it), or its newest run failed. */ fresh?: ReadonlyMap<string, EditionFreshness> } = {}): BoardDoc {
+  // The tab already says "Today's edition": the masthead is the day.
   const parts: ViewComponent[] = [
-    { id: 'masthead', component: 'Panel', title: { path: '/board/name' }, note: { path: '/board/date' }, child: 'masthead_updated', treatment: 'feature', hero: true },
+    { id: 'masthead', component: 'Panel', title: { path: '/board/date' }, child: 'masthead_updated', treatment: 'feature', hero: true },
     { id: 'masthead_updated', component: 'Text', text: { path: '/board/updated' }, variant: 'caption' },
   ];
   const root: string[] = ['masthead'];
@@ -111,11 +112,16 @@ export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { 
     const id = `${treatment}_${slug(a.id)}`;
     const number = treatment === 'aside' ? boardLeadNumber(a) : undefined;
     const kids: string[] = [];
+    // Older than a day, or its newest run failed: said before its result, so it isn't read as today's.
+    const f = opts.fresh?.get(a.id);
+    if (f?.failed) { parts.push({ id: `${id}_failed`, component: 'Link', text: 'Its last run failed, so this is the result from before. See why', url: `/runs/${encodeURIComponent(f.failed)}` }); kids.push(`${id}_failed`); }
+    else if (f?.old) { parts.push({ id: `${id}_old`, component: 'Text', text: 'Older than a day: kept because you always show it.', variant: 'caption' }); kids.push(`${id}_old`); }
     if (number) { parts.push({ id: `${id}_lead`, component: 'Lead', stat: { path: `/board/agents/${a.id}/stats/${number}` } }); kids.push(`${id}_lead`); }
     parts.push({ id: `${id}_tile`, component: 'AgentTile', agentId: a.id, chrome: 'bare' });
     kids.push(`${id}_tile`);
     if (kids.length > 1) parts.push({ id: `${id}_col`, component: 'Column', children: kids });
-    parts.push({ id, component: 'Panel', title: a.title, child: kids.length > 1 ? `${id}_col` : kids[0], treatment, when: boardFlag(a.id) });
+    // Its age beside its title ("12d ago"), from the board's data.
+    parts.push({ id, component: 'Panel', title: a.title, note: { path: `/board/agents/${a.id}/run/age` }, child: kids.length > 1 ? `${id}_col` : kids[0], treatment, when: boardFlag(a.id) });
     return id;
   };
   /** Rows of up to three, side by side. */
@@ -147,6 +153,20 @@ export function editionDoc(shapes: readonly BoardAgentShape[], opts: { lede?: { 
     abreast(narrow.map((a) => part(a, 'aside')), 'row');
   }
   return { components: [{ id: 'root', component: 'Column', children: root }, ...parts] };
+}
+
+/** How fresh an edition part is (editionFreshness). */
+export interface EditionFreshness { /** Older than a day (only one you always show gets in then). */ old?: boolean; /** Its newest run failed after this result: that run's id. */ failed?: string }
+
+/** Each part's freshness, from its tile: older than a day, or a newer run that failed. Pure. */
+export function editionFreshness(tiles: ReadonlyMap<string, Pick<PulseTile, 'lastRun' | 'failedRun'>>, now = Date.now()): Map<string, EditionFreshness> {
+  const out = new Map<string, EditionFreshness>();
+  for (const [id, t] of tiles) {
+    const at = t.lastRun ? t.lastRun.completedAt ?? t.lastRun.startedAt : undefined;
+    const old = !!at && now - Date.parse(at) > DAY;
+    if (old || t.failedRun) out.set(id, { ...(old ? { old: true } : {}), ...(t.failedRun ? { failed: t.failedRun.id } : {}) });
+  }
+  return out;
 }
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -202,7 +222,8 @@ export function todayEdition(ctx: Ctx, now = Date.now()): TodayEdition | undefin
     for (const a of agents) {
       const agent = withTileSignal(a);
       if (!agent.signal) continue;
-      const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, runTargets: ids });
+      // Drawn to be read: no input forms; Run reuses the last inputs.
+      const tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, runTargets: ids, readOnly: true });
       built.push(tile);
       tiles.set(a.id, tile);
     }
@@ -223,6 +244,7 @@ export function todayEdition(ctx: Ctx, now = Date.now()): TodayEdition | undefin
       doc: editionDoc(shapes, {
         ...(lead && headline ? { lede: { agentId: lead, headline } } : {}), wide, ...(figures ? { figures } : {}),
         ...(prefs.note ? { note: prefs.note } : {}), ...(top && topAgent ? { top: { ...top, agent: tiles.get(topAgent)!.signal.title || topAgent } } : {}),
+        fresh: editionFreshness(tiles, now),
       }),
       ...(figures ? { figures } : {}),
     };

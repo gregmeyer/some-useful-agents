@@ -277,7 +277,9 @@ describe('boards are canvases', () => {
     expect(page.status).toBe(200);
     expect(page.text).toContain('data-board-canvas="today"');
     expect(page.text).toContain('data-board-composed="1"');
-    expect(page.text).toContain('2 scheduled agents reported in the last day');
+    expect(page.text).toContain('2 of 2 parts from the last day');
+    // All fresh, and no scheduler problem on a test install with nothing stopped that matters: no health strip.
+    expect(page.text).not.toContain('Run the older part');
     expect(page.text).toContain('<a class="pulse-tabs__tab is-active" href="/pulse" aria-current="page">Today\'s edition</a>');
     expect(page.text).toContain('<a class="pulse-tabs__tab" href="/pulse/agents">All agents</a>');
     // Generated, so nothing to arrange: no editor, no Arrange.
@@ -309,6 +311,46 @@ describe('boards are canvases', () => {
       expect(no.body.error).toContain("can't be arranged or saved");
     }
     expect((await get(app, '/boards/today.json')).body.board).toMatchObject({ id: 'today', name: "Today's edition", version: 0 });
+  });
+
+  it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
+    const app = await setup();
+    const { EditionPrefsStore } = await import('@some-useful-agents/core');
+    const mk = (id: string, ageMs: number, inputs?: Record<string, unknown>) => {
+      ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false, schedule: '0 8 * * *', ...(inputs ? { inputs } : {}),
+        nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: `The ${id}`, template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+      const at = new Date(Date.now() - ageMs).toISOString();
+      ctx.runStore.createRun({ id: `run-${id}`, agentName: id, status: 'completed', startedAt: at, completedAt: at, result: JSON.stringify({ headline: `${id} says hi` }), triggeredBy: 'schedule' } as never);
+    };
+    mk('briefs', 3600_000);
+    mk('forecast', 15 * 86_400_000, { LOCATION: { type: 'string', required: true } });
+    // Weather is 15 days old: in the edition only because you always show it.
+    const store = new EditionPrefsStore(ctx.runStore.databaseHandle());
+    store.save({ ...store.get(), include: ['forecast'] });
+    // News ran again since, and failed.
+    const later = new Date(Date.now() - 60_000).toISOString();
+    ctx.runStore.createRun({ id: 'run-briefs-failed', agentName: 'briefs', status: 'failed', startedAt: later, completedAt: later, error: 'boom', triggeredBy: 'schedule' } as never);
+
+    const page = await get(app, '/pulse');
+    expect(page.text).toContain('1 of 2 parts from the last day');
+    expect(page.text).toContain('<form method="POST" action="/pulse/edition/run-older" class="edition-health__line"><span>1 part is older than a day.</span>');
+    expect(page.text).toContain('>Run the older part</button>');
+    const comps = surface(page.text);
+    // The masthead is the day (the tab already says Today's edition); each part's age is its note.
+    expect(comps.find((c) => c.id === 'masthead')).toMatchObject({ title: { '@path': '/board/date' } });
+    const panel = (id: string) => comps.find((c) => c.component === 'Panel' && String(c.id).endsWith(`_${id}`));
+    expect(panel('forecast')).toMatchObject({ note: { '@path': '/board/agents/forecast/run/age' } });
+    expect(comps.find((c) => String(c.id).endsWith('_forecast_old'))).toMatchObject({ component: 'Text', text: 'Older than a day: kept because you always show it.' });
+    expect(comps.find((c) => String(c.id).endsWith('_briefs_failed'))).toMatchObject({ component: 'Link', url: '/runs/run-briefs-failed' });
+    // Drawn to be read: Run reuses the last inputs (here and after a refresh), and the inputs are changed on the agent's page.
+    const reg = registry(page.text) as Record<string, { run: string; runBody?: string; changeHref?: string }>;
+    expect(reg.forecast).toMatchObject({ run: 'button', runBody: 'again=1', changeHref: '/agents/forecast' });
+    const again = await get(app, '/boards/tile/forecast.json?board=today');
+    expect(again.body).toMatchObject({ run: 'button', runBody: 'again=1' });
+    expect((await get(app, '/boards/tile/forecast.json?board=pulse')).body.runBody).toBeUndefined();
+    // One press runs the older parts again (nothing runs just because the page opened).
+    const ran = await post(app, '/pulse/edition/run-older', {});
+    expect(decodeURIComponent(ran.headers.location)).toContain('Running 1 older part again.');
   });
 
   it("Today's edition can be improved: it has a goal, sua reviews it, and what you take becomes a preference the edition follows every day, with Undo and a way back", async () => {

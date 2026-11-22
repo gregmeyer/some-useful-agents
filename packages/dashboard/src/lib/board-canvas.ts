@@ -51,6 +51,10 @@ export interface CanvasTileEntry {
   accent?: string;
   /** The agent is archived: its tile stays, marked, with no Run (it won't run on a schedule either). */
   archived?: boolean;
+  /** Sent with the footer's Run (`again=1`: reuse the last run's inputs). */
+  runBody?: string;
+  /** Read mode: where to change the agent's inputs ("Change inputs…"). */
+  changeHref?: string;
 }
 
 /** `5m`, `2h`, `30s` → ms (0 = none). Same forms as the classic auto-refresh. */
@@ -74,7 +78,9 @@ export function canvasTileEntry(tile: PulseTile, opts: { isPulse: boolean }): Ca
     ...(tile.signal.icon ? { icon: tile.signal.icon } : {}),
     age: tile.lastRun ? formatAge(tile.lastRun.completedAt ?? tile.lastRun.startedAt) : isSystem ? '' : 'never',
     ...(tile.lastRun ? { runHref: `/runs/${encodeURIComponent(tile.lastRun.id)}` } : {}),
-    run: isSystem || tileRendersOwnRunControl(tile) || tile.agent.status === 'archived' ? 'none' : needsInput ? 'link' : 'button',
+    run: isSystem || tileRendersOwnRunControl(tile) || tile.agent.status === 'archived' ? 'none' : needsInput && !(tile.readOnly && tile.lastRun) ? 'link' : 'button',
+    // Drawn to be read: Run reuses the last run's inputs, and the inputs are changed on the agent's page.
+    ...(tile.readOnly && tile.lastRun && !isSystem ? { runBody: 'again=1', ...(Object.keys(tile.agent.inputs ?? {}).length ? { changeHref: `/agents/${encodeURIComponent(tile.agent.id)}` } : {}) } : {}),
     ...(tile.agent.status === 'archived' ? { archived: true } : {}),
     ...body,
     ...(isSystem ? {} : {

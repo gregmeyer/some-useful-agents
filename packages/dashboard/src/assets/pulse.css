@@ -1096,3 +1096,9 @@
 .board-looks__body { display: grid; gap: var(--space-3); padding: 0 var(--space-4) var(--space-4); }
 .board-looks__gallery { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .lk-g--tile .lk-box { width: 100%; height: 14px; }
+
+/* Today's edition: what's off about its freshness (older parts, a stopped scheduler), above the edition, only when something is. */
+.edition-health { display: grid; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.edition-health__line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: 0; font-size: var(--font-size-sm); color: var(--color-text-muted); }
+.edition-health__line--bad { color: var(--color-err); }
+.edition-health__line--bad a { color: inherit; text-decoration: underline; }

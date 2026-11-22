@@ -31,11 +31,11 @@ import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, st
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
-import { buildPulseBoardData, pulseAgentIds } from './pulse.js';
+import { buildPulseBoardData, pulseAgentIds, schedulerProblem } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
-import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
+import { todayEdition, TODAY_BOARD_ID, TODAY_BOARD_NAME, editionFreshness, editionPrefsOf, editionPrefsStoreOf } from '../lib/today-edition.js';
 import { boardFigures } from '../lib/board-figures.js';
 import { applyBoardSuggestions, reviewsOf, skipBoardSuggestion, startBoardReview } from '../lib/board-review.js';
 import { boardGoalCard, boardRunningStrip } from '../views/board-review.js';
@@ -488,12 +488,16 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
   const options = buildDashboardOptions(installed);
   const dropdown = options.length > 1 || archived.length > 0 ? renderDashboardsDropdown({ options, archived, activeHref: '/pulse' }) : html``;
   const n = r.tiles.size;
+  // How fresh it is, said plainly: how many parts are from the last day, and what's wrong when something is.
+  const fresh = editionFreshness(r.tiles);
+  const older = [...fresh.values()].filter((f) => f.old).length;
+  const scheduler = schedulerProblem(ctx);
   const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
   return render(layout({ title: 'Pulse', activeNav: 'pulse', flash: opts.flash }, html`
     <div class="page-header board-page__head">
       ${renderCrumbs([{ label: 'Home', href: '/' }, { label: 'Pulse' }])}
       <h1>Pulse</h1>
-      <span class="page-header__meta board-page__meta">${String(n)} scheduled agent${n === 1 ? '' : 's'} reported in the last day</span>
+      <span class="page-header__meta board-page__meta">${String(n - older)} of ${String(n)} part${n === 1 ? '' : 's'} from the last day</span>
       <div class="page-header__cta board-page__actions">
         ${dropdown}
         <a class="btn btn--sm" href="/boards/new" title="Describe a board; sua picks your agents, lays it out and runs it">+ New board</a>
@@ -501,6 +505,10 @@ export function renderTodayEdition(ctx: ReturnType<typeof getContext>, opts: { f
       ${pulseTabs('today', true)}
       <p class="page-header__description">Today's edition: what your scheduled agents found, each drawn as its own result. It's made fresh each time you open it, following what you've said you want. Every agent, and the board you arrange yourself, is under All agents.</p>
     </div>
+    ${scheduler || older ? html`<div class="edition-health" role="status">
+      ${scheduler ? html`<p class="edition-health__line edition-health__line--bad">${scheduler} <a href="/scheduled">See scheduled agents</a></p>` : html``}
+      ${older ? html`<form method="POST" action="/pulse/edition/run-older" class="edition-health__line"><span>${String(older)} part${older === 1 ? ' is' : 's are'} older than a day.</span> <button type="submit" class="btn btn--sm" title="Run each again with its last inputs">Run the ${older === 1 ? 'older part' : `${String(older)} older parts`}</button></form>` : html``}
+    </div>` : html``}
     ${boardRunningStrip(TODAY_BOARD_ID, boardActivity(ctx, TODAY_BOARD_ID))}
     ${editionAskCard(ctx.editionAsk)}
     ${boardGoalCard(TODAY_BOARD_ID, { label: "Improve today's edition", what: 'the edition', ...(reviewsOf(ctx).latest(TODAY_BOARD_ID) ? { review: reviewsOf(ctx).latest(TODAY_BOARD_ID)! } : {}), ...(boardsOf(ctx).goal(TODAY_BOARD_ID) ? { goal: boardsOf(ctx).goal(TODAY_BOARD_ID)! } : {}), title: (agentId) => boardsOf(ctx).tileTitle(agentId) ?? ctx.agentStore.getAgent(agentId)?.name ?? agentId, extra: html`
@@ -766,7 +774,8 @@ boardsRouter.get('/boards/tile/:tileId.json', (req: Request, res: Response) => {
     if (agent?.signal) {
       // Refreshed on its board: its run actions may still target the tiles beside it.
       const board = typeof req.query.board === 'string' ? req.query.board : '';
-      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, ...(board ? { runTargets: boardRunTargets(ctx, board) } : {}) });
+      // On Today's edition it stays drawn to be read after a run (no form comes back on refresh).
+      tile = buildPulseTile(agent as Agent & { signal: AgentSignal }, { runStore: ctx.runStore, ...(board ? { runTargets: boardRunTargets(ctx, board) } : {}), ...(board === TODAY_BOARD_ID ? { readOnly: true } : {}) });
       attachLayoutHints([tile], ctx.layoutHintsStore);
     }
   }

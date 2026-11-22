@@ -113,6 +113,12 @@ const KeyValue = define('KeyValue', 'sua-a2ui-keyvalue',
     return html`<dl>${items.map((it) => html`<dt>${it?.label ?? ''}</dt><dd>${value(it)}${it?.note ? html`<span class="note">${it.note}</span>` : nothing}</dd>`)}</dl>`;
   });
 
+/** A table cell that's a date ("2026-11-09", or with a time): kept on one line, so it doesn't break at its dashes. */
+const isDateCell = (row, col) => {
+  const v = row?.[col?.key];
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(v.trim());
+};
+
 // A {label, url} link cell sorts and filters by its label.
 const cellText = (v) => (v == null ? '' : typeof v === 'object' ? (typeof v.label === 'string' ? v.label : typeof v.text === 'string' ? v.text : JSON.stringify(v)) : String(v));
 const compare = (a, b) => {
@@ -146,6 +152,7 @@ const Table = define('Table', 'sua-a2ui-table',
     th { text-align: left; font-weight: 500; color: var(--color-text-muted); font-size: var(--font-size-xs); text-transform: uppercase; letter-spacing: .04em; }
     th button { all: unset; cursor: pointer; } th button:focus-visible { outline: 2px solid var(--color-primary); }
     th, td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; overflow-wrap: break-word; }
+    td.date { white-space: nowrap; }
     th { white-space: nowrap; }
     /* Link text is a name or a short address (≤48 characters), so it wraps like words. */
     td a { overflow-wrap: break-word; }
@@ -206,8 +213,8 @@ const Table = define('Table', 'sua-a2ui-table',
       this.dispatchEvent(new CustomEvent('a2ui-action', { bubbles: true, composed: true, detail: { name: act.name, context } }));
     };
     const tr = (r) => (act
-      ? html`<tr class="act" tabindex="0" role="button" @click=${(e) => fire(r, e)} @keydown=${(e) => fire(r, e)}>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`
-      : html`<tr>${p.columns.map((c) => html`<td>${cell(r, c)}</td>`)}</tr>`);
+      ? html`<tr class="act" tabindex="0" role="button" @click=${(e) => fire(r, e)} @keydown=${(e) => fire(r, e)}>${p.columns.map((c) => html`<td class=${isDateCell(r, c) ? 'date' : ''}>${cell(r, c)}</td>`)}</tr>`
+      : html`<tr>${p.columns.map((c) => html`<td class=${isDateCell(r, c) ? 'date' : ''}>${cell(r, c)}</td>`)}</tr>`);
     return html`
       ${filterCols.length ? html`<div class="tools"><input type="search" aria-label="${p.filterPlaceholder ?? 'Filter'}" placeholder="${p.filterPlaceholder ?? 'Filter…'}" .value=${this._filter ?? ''} @input=${(e) => { this._page = 0; set('_filter', e.target.value); }}></div>` : nothing}
       <table><thead><tr>${p.columns.map(header)}</tr></thead>
@@ -2223,6 +2230,8 @@ const tileStyles = css`
   footer { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--color-border); margin-top: 10px; padding-top: 8px; font-size: var(--font-size-xs); }
   footer .agent { font-family: var(--font-mono); color: var(--color-primary); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .age { margin-left: auto; color: var(--color-text-muted); text-decoration: none; white-space: nowrap; }
+  footer .change { color: var(--color-text-muted); text-decoration: none; white-space: nowrap; }
+  footer .change:hover, footer .change:focus-visible { color: var(--color-primary); text-decoration: underline; }
   .run { font: inherit; font-size: var(--font-size-xs); padding: 3px 10px; border-radius: var(--radius-sm, 4px); border: 0; background: var(--color-primary); color: var(--color-bg); cursor: pointer; text-decoration: none; white-space: nowrap; }
   .run[disabled] { opacity: .6; cursor: default; }
   .err { color: var(--color-err); }
@@ -2282,7 +2291,8 @@ const AgentTile = define('AgentTile', 'sua-a2ui-agent-tile',
       <footer>
         <a class="agent" href=${href}>${p.agentId}</a>
         ${this._running ? html`<span class="age">running…</span>` : t.runHref ? html`<a class="age" href=${t.runHref}>${t.age}</a>` : html`<span class="age">${t.age}</span>`}
-        ${t.run === 'button' ? html`<button type="button" class="run" ?disabled=${this._running} @click=${() => this.runTile(p.agentId, '')}>Run</button>` : nothing}
+        ${t.changeHref ? html`<a class="change" href=${t.changeHref} title="Change what it runs with, on the agent's page">Change inputs…</a>` : nothing}
+        ${t.run === 'button' ? html`<button type="button" class="run" ?disabled=${this._running} title=${t.runBody ? 'Run it again with the same inputs' : nothing} @click=${() => this.runTile(p.agentId, t.runBody || '')}>Run</button>` : nothing}
         ${t.run === 'link' ? html`<a class="run" href=${href} title="This agent needs input before it can run">Run…</a>` : nothing}
       </footer>
       ${this._error ? html`<p class="note err" role="alert">${this._error}</p>` : nothing}

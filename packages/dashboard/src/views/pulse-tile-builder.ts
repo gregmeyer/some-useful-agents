@@ -34,6 +34,8 @@ export interface BuildTileDeps {
   runStore: RunStore;
   /** The board this tile is drawn on: the agents placed there, which its run actions may target. */
   runTargets?: ReadonlySet<string>;
+  /** Drawn to be read, not used (Today's edition): see PulseTile.readOnly. */
+  readOnly?: boolean;
 }
 
 export function buildPulseTile(
@@ -77,6 +79,13 @@ export function buildPulseTile(
       }
     }
   } catch { /* no runs */ }
+  // A newer run that failed: the result shown is from before it.
+  let failedRun: { id: string; at: string } | undefined;
+  try {
+    const newest = deps.runStore.listRuns({ agentName: agent.id, limit: 1 })[0];
+    const at = newest ? newest.completedAt ?? newest.startedAt : undefined;
+    if (newest && at && newest.status === 'failed' && (!lastRun || at > (lastRun.completedAt ?? lastRun.startedAt))) failedRun = { id: newest.id, at };
+  } catch { /* no runs */ }
 
   const { mapping } = normalizeSignal(signal);
   const slots = extractMappedValues(lastRun, mapping, outputsJson);
@@ -102,7 +111,7 @@ export function buildPulseTile(
   }
   outputFields.push(...Array.from(fieldSet).sort());
 
-  return { agent, signal, lastRun, slots, outputFields, previousInputs, ...(viewHtml ? { viewHtml } : {}), ...(viewMessages ? { viewMessages } : {}) };
+  return { agent, signal, lastRun, slots, outputFields, previousInputs, ...(viewHtml ? { viewHtml } : {}), ...(viewMessages ? { viewMessages } : {}), ...(deps.readOnly ? { readOnly: true } : {}), ...(failedRun ? { failedRun } : {}) };
 }
 
 /**
