@@ -1,19 +1,20 @@
 # Notebook TL;DR — redraws a notebook's TL;DR picture from an ask ("make it
 # suitable for LinkedIn", "more editorial", "be more creative"). It doesn't
-# draw: it chooses from a fixed set of sizes, tones, layouts and parts, or
-# composes the card as an A2UI view of the card's own components bound to
-# its data (ADR-0096), and may write a headline and a one-line takeaway. The dashboard draws the
-# picture from that choice and the notebook's own data, so names, numbers
-# and bars never come from here. Route-dispatched only, from the notebook's
-# Redraw page (dashboard lib/notebook-tldr-redraw.ts); never proposed in
-# triage. Undo and "Back to the standard picture" are on that page.
+# draw: it composes the card as an A2UI view of the card's own components
+# bound to its data (ADR-0096, ADR-0098), shaped as the notebook's page
+# prefers unless the ask says otherwise, and may write a headline and a
+# one-line takeaway. The dashboard draws the picture from that view and the
+# notebook's own data, so names, numbers and bars never come from here.
+# Route-dispatched only, from the notebook's Redraw page (dashboard
+# lib/notebook-tldr-redraw.ts); never proposed in triage. Undo and "Back to
+# the standard picture" are on that page.
 
 id: notebook-tldr
 name: Notebook TL;DR
 description: >
-  Chooses how a notebook's TL;DR picture is drawn (its size, tone, layout
-  and parts, or a composed A2UI view of it) from what the person asked,
-  and may write its headline.
+  Composes a notebook's TL;DR picture as an A2UI view (its size, tone and
+  what leads), shaped for the notebook's page unless the person asked for
+  something else, and may write its headline.
 status: active
 source: examples
 
@@ -31,7 +32,12 @@ inputs:
   OPTIONS:
     type: string
     required: true
-    description: The sizes, tones, layouts and parts to choose from.
+    description: The sizes and tones to choose from, and how to compose the view.
+  PREFER:
+    type: string
+    required: false
+    default: ""
+    description: The size and lead the notebook's page prefers, to use unless ASK says otherwise.
   ASK:
     type: string
     required: true
@@ -69,104 +75,75 @@ nodes:
       filled in from it, not by you:
       {{inputs.CARD}}
 
-      How it's drawn now (JSON; empty means the standard picture: standard
-      size, plain tone, stacked, every part):
+      How it's drawn now (JSON; empty means the standard picture):
       {{inputs.CURRENT}}
 
-      What you may choose from:
+      What you may choose from, and how to compose the card:
       {{inputs.OPTIONS}}
+
+      What the notebook's page prefers:
+      {{inputs.PREFER}}
 
       They asked:
       {{inputs.ASK}}
 
-      How to choose:
+      How to compose it:
+        - Always answer with a "view": you lay the card out from its
+          components. Unless they name a size or what to lead with, use
+          what the page prefers (above): its size, and that lead. "The way
+          this page prefers" means exactly that.
         - Do what they asked and keep the rest of how it's drawn now. "For
           LinkedIn" (or X, a post, a link preview, a slide) is the
           landscape size unless they say square or tall; a phone or a
           story is portrait.
         - "Editorial", "magazine", "polished": the editorial tone, with a
           headline. "Bold", "punchy", "eye-catching", "a poster": the bold
-          tone, usually with the hero layout.
-        - "More creative", "different", "surprise me": change at least two
-          of size, tone and layout from how it's drawn now, and lead with
-          something else (hero in place of stack, or the bars first).
-        - "Simpler", "just the numbers", "less": fewer parts. Leave out a
-          part only when they ask for less or it has nothing in CARD.
-        - Split suits landscape. Hero suits one strong number or a person.
-          Bars need "bars" in CARD; points need "points" in CARD.
-        - "Lead with the photo", "show the picture", "more visual", "more
-          wow", "eye-catching": a layout that leads with a picture. Which
-          one depends on what CARD has:
-            - cover: when lead.picture in CARD is not "none". The picture
-              is a large band across the top. Not on landscape.
-            - spotlight: when lead.picture is not "none". The picture
-              takes one whole side. The one to use on landscape, and for
-              a person ("portrait").
-            - lineup: when bars.topOptionsWithPictures in CARD is 3 or
-              more, and the notebook is not about a person. The top
-              options side by side as pictures: for "show the options",
-              "compare them", "side by side".
-            - gallery: when CARD has "photos" with a count of 2 or more
-              (a briefing's own photos, from its sources). Up to four side
-              by side, each with the site it is from: for "use the
-              photos", "use its photos", "show the pictures", "a
-              gallery". With "photos" in CARD, a cover or a spotlight
-              shows the first of them large, not the logo.
-            - the "photos" part: the same photos as a smaller strip under
-              the lead, in any layout. Keep it in "parts" when CARD has
-              "photos" unless they ask for no photos; "no photos" or
-              "without the pictures" means leave it out and don't use
-              gallery, cover or spotlight.
+          tone, with one thing very large (a PhotoCover, or TldrPart hero).
+        - "More creative", "different", "surprise me": change the size or
+          tone and what leads from how it's drawn now.
+        - "Simpler", "just the numbers", "less": TldrPart header, stats and
+          bars (or points), no photo. Use a part only when CARD has it:
+          bars need "bars" in CARD, points need "points", photos need
+          "photos".
+        - "Lead with the photo", "show the picture", "more visual": a
+          PhotoCover bound to /tldr/photo with the headline over it, when
+          lead.picture in CARD is not "none" or CARD has "photos".
+          "Use its photos", "a gallery", "side by side": a PhotoGrid bound
+          to /tldr/photos, when CARD has "photos" with a count of 2 or more.
           A "logo" or "drawing" is weaker than a "photo" or "portrait":
-          prefer lineup or the hero layout over a cover of a logo.
+          don't make a logo the cover.
         - Every notebook has its own drawing: its colour and an icon for
-          what it's about, the same art as its card. A cover or spotlight
-          with no photo shows it. "picture": "drawing" makes it the
-          picture even when there are photos: for "use its drawing", "use
-          the illustration", "like its card", or a "more visual" ask on a
-          notebook with lead.picture "none" and no "photos". "picture":
-          "none" draws no picture at all (for "no photos", "no picture",
-          "just the words"). Leave "picture" out otherwise.
+          what it's about, the same art as its card. "Use its drawing",
+          "the illustration", "like its card", or a "more visual" ask with
+          no picture and no photos: a PhotoCover bound to /tldr/drawing.
+          "No photos", "no picture", "just the words": no PhotoCover or
+          PhotoGrid.
+        - Bind every picture, name and number to /tldr/… or use a TldrPart
+          for the lead, stats, bars or points; your own words are only
+          short labels and the headline/takeaway fields. Keep it to what
+          fits the size: a lead and two or three parts. Each photo's
+          credit is drawn for you.
         - A headline, when you write one, says what the picture shows in
           plain words, as a person would title a post: no hype, no
           exclamation marks, no hashtags, no emoji. It says the finding,
           not the task: the notebook's title is printed above it, so a
           headline that only rewords the title adds nothing (leave it
-          out). The takeaway is one
-          sentence a reader would repeat. Write them only from CARD and
-          the notebook: every number or name in them must be in CARD,
-          written as it is there. With nothing worth saying, leave them
-          out; the notebook's title stands.
-        - Compose the card yourself with "view" (see "view" under what you
-          may choose from) when the fixed layouts can't do what they
-          asked: "the headline over the photo", "a magazine cover", "a
-          poster", "be creative with the photo", "the photos in a grid
-          with the numbers beside them", or a "more creative" ask on a
-          card that already uses its layouts. A PhotoCover with the
-          headline over the photo is the usual opener when CARD has a
-          photo (lead.picture "photo", or "photos"); without one, don't
-          use PhotoCover or PhotoGrid. Bind every picture, name and number
-          to /tldr/… (or use a TldrPart for the lead, stats, bars or
-          points); your own words are only short labels and the
-          headline/takeaway fields. Keep it to what fits the size: a cover
-          and two or three parts. Each photo's credit is drawn for you.
-          Without a view, "layout" and "parts" draw it as before.
-        - "about": one short sentence, to the person, on what you changed
-          ("Wide for LinkedIn, with a headline and the bars beside the
-          words.").
+          out). The takeaway is one sentence a reader would repeat.
+          Write them only from CARD and the notebook:
+          every number or name in them must be in CARD, written as it is
+          there. With nothing worth saying, leave them out; the notebook's
+          title stands.
+        - "about": one short sentence, to the person, on what you made
+          ("Wide for the page, with its sources' photos in a grid and the
+          findings under them.").
 
       {{inputs.ERRORS}}
 
       Reply with only this, as valid JSON:
       <tldr>
-      {"size": "landscape", "tone": "editorial", "layout": "split",
-       "parts": ["lead", "stats", "bars"],
-       "headline": "…", "takeaway": "…", "about": "…"}
-      </tldr>
-      or, composing it:
-      <tldr>
-      {"size": "square", "tone": "bold", "headline": "…", "about": "…",
-       "view": [{"id": "root", "component": "Column", "children": ["cover", "nums"]},
-                {"id": "cover", "component": "PhotoCover", "photo": {"path": "/tldr/photo"}, "kicker": {"path": "/tldr/title"}, "headline": {"path": "/tldr/headline"}, "scrim": "dark", "align": "bottom", "height": "tall"},
-                {"id": "nums", "component": "TldrPart", "part": "stats"}]}
+      {"size": "landscape", "tone": "editorial", "headline": "…", "about": "…",
+       "view": [{"id": "root", "component": "Column", "children": ["head", "grid", "found"]},
+                {"id": "head", "component": "TldrPart", "part": "header"},
+                {"id": "grid", "component": "PhotoGrid", "photos": {"path": "/tldr/photos"}, "count": 3, "ratio": "4:3"},
+                {"id": "found", "component": "TldrPart", "part": "points"}]}
       </tldr>

@@ -575,6 +575,17 @@ describe('MCP board tools', () => {
       const store = new NotebookStore(dbPath);
       try { expect(store.get(nb.id)!.tldr).toBeUndefined(); expect(store.tldrUndos(nb.id)).toBe(2); } finally { store.close(); }
 
+      // A composed card (drawn on the Redraw page): a tone keeps its view; a layout replaces it.
+      const view = [{ id: 'root', component: 'TldrPart', part: 'stats' }];
+      const composed = new NotebookStore(dbPath);
+      try { composed.setTldr(nb.id, { size: 'landscape', tone: 'plain', layout: 'stack', parts: ['lead'], view: view as never }); } finally { composed.close(); }
+      await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, tone: 'bold' } });
+      const toned = new NotebookStore(dbPath);
+      try { expect(toned.get(nb.id)!.tldr!.view).toEqual(view); } finally { toned.close(); }
+      await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, layout: 'split' } });
+      const laid = new NotebookStore(dbPath);
+      try { expect(laid.get(nb.id)!.tldr).toMatchObject({ layout: 'split', tone: 'bold' }); expect(laid.get(nb.id)!.tldr!.view).toBeUndefined(); } finally { laid.close(); }
+
       mkdirSync(join(dataDir, '.sua'), { recursive: true });
       writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'notebook-tldr', resources: [nb.id], effect: 'deny', reason: 'Leave that picture alone.' }] }));
       const denied = await c.callTool({ name: 'notebook-tldr', arguments: { notebook: nb.id, size: 'square' } });

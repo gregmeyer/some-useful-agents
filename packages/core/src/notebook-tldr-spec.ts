@@ -139,7 +139,7 @@ export function checkTldrView(view: unknown): { ok: true; components: ViewCompon
 /** How to compose a TL;DR view, for the agent: its components, what it binds to, and an example. */
 export function tldrViewGuide(): string {
   return [
-    'view (optional, to compose the card yourself): a list of A2UI components, one with id "root". With a view, "layout" and "parts" are not used; size, tone, headline and takeaway still are.',
+    'view (required: you compose the card): a list of A2UI components, one with id "root". Size, tone, headline and takeaway still apply.',
     'Components you may use:',
     '  - Column {children: [ids]} to stack; Row {children: [ids]} side by side in equal widths; Columns {children: [ids], widths?: [n, …]} side by side in the widths given (each 1–12).',
     '  - Text {text, variant?: h1 | h2 | h3 | body | caption}: text bound to a path below, or a short label of your own (no numbers that aren\'t in CARD).',
@@ -204,6 +204,84 @@ export function tldrNumbers(text: string): string[] {
 export function strayTldrNumbers(words: readonly (string | undefined)[], known: string): string[] {
   const have = new Set(tldrNumbers(known));
   return [...new Set(words.flatMap((w) => tldrNumbers(w ?? '')).filter((n) => !have.has(n)))];
+}
+
+/** What leads a composed TL;DR card. */
+export type TldrLead = 'photo' | 'photos' | 'headline' | 'bars' | 'points';
+
+/** The picture a page prefers for its TL;DR card: a size and what leads it, and why (for the page and the agent). */
+export interface TldrPreference { size: TldrSize; lead: TldrLead; why: string }
+
+/**
+ * What each layout preset prefers. All landscape: the "In short" slot is a
+ * full-width panel, and a wide card is also the one that shares well.
+ */
+export const TLDR_PREFERENCE_BY_PRESET: Record<string, { lead: TldrLead; kind: string }> = {
+  shortlist: { lead: 'bars', kind: 'a shortlist' },
+  watch: { lead: 'bars', kind: 'a watch' },
+  dossier: { lead: 'photo', kind: 'a meeting briefing' },
+  company: { lead: 'photo', kind: 'a company briefing' },
+  subject: { lead: 'photos', kind: 'a subject briefing' },
+  answer: { lead: 'headline', kind: 'an answer' },
+  runbook: { lead: 'headline', kind: 'a runbook' },
+  plan: { lead: 'headline', kind: 'a plan' },
+};
+
+const LEAD_WORDS: Record<TldrLead, string> = {
+  photo: 'its photo, with the headline over it',
+  photos: 'its sources\' photos in a grid',
+  headline: 'the headline, then its findings or steps',
+  bars: 'the options as ranked bars',
+  points: 'the headline, then its findings',
+};
+
+/** How the lead is drawn as a view, for the agent. */
+const LEAD_HOW: Record<TldrLead, string> = {
+  photo: 'a PhotoCover bound to /tldr/photo with the headline over it, then TldrPart stats or points',
+  photos: 'TldrPart header, a PhotoGrid bound to /tldr/photos, then TldrPart points',
+  headline: 'TldrPart header (or Text h1 bound to /tldr/headline), then TldrPart points (or stats)',
+  bars: 'TldrPart header, then TldrPart bars beside or under TldrPart lead',
+  points: 'TldrPart header, then TldrPart points',
+};
+
+/**
+ * The TL;DR picture a notebook's page prefers (pure). From its layout's
+ * preset; a page sua drew with no preset goes by what the card has. What a
+ * preset wants but the card can't draw steps down: a photo grid needs two
+ * photos (else one photo), a photo needs a picture (else the headline), bars
+ * need bars (else the findings).
+ */
+export function tldrPreference(preset: string | undefined, card: { bars: boolean; photos: number; leadPicture: boolean }): TldrPreference {
+  const known = preset ? TLDR_PREFERENCE_BY_PRESET[preset] : undefined;
+  let lead: TldrLead = known?.lead
+    ?? (card.bars ? 'bars' : card.photos >= 2 ? 'photos' : card.leadPicture || card.photos ? 'photo' : 'headline');
+  if (lead === 'photos' && card.photos < 2) lead = 'photo';
+  if (lead === 'photo' && !card.leadPicture && !card.photos) lead = 'headline';
+  if (lead === 'bars' && !card.bars) lead = 'points';
+  return { size: 'landscape', lead, why: `${known?.kind ?? 'this page'}: ${LEAD_WORDS[lead]}` };
+}
+
+/** The preference in words, for the page ("Landscape 1200×627, leading with …"). Pure. */
+export function tldrPreferenceWords(p: TldrPreference): string {
+  const s = TLDR_SIZES[p.size];
+  const kind = p.why.split(':')[0];
+  return `${s.name} ${String(s.width)}×${s.height ? String(s.height) : 'auto'}, leading with ${LEAD_WORDS[p.lead]}${kind === 'this page' ? '' : ` (${kind})`}`;
+}
+
+/** The preference, for the agent: use it unless the ask says otherwise. Pure. */
+export function tldrPreferenceGuide(p: TldrPreference): string {
+  const kind = p.why.split(':')[0];
+  return `This picture sits on ${kind === 'this page' ? 'a page that' : `${kind}'s page, which`} prefers size "${p.size}" leading with ${LEAD_WORDS[p.lead]}: compose it as ${LEAD_HOW[p.lead]}. Use this unless ASK names a size or what to lead with.`;
+}
+
+/** The sizes and tones a composed card is drawn in, for the agent (no fixed layouts: the view lays it out). */
+export function tldrSizesTonesGuide(): string {
+  return [
+    'size (one):', ...Object.entries(TLDR_SIZES).map(([k, v]) => `  - "${k}": ${String(v.width)}×${v.height ? String(v.height) : 'auto'}. ${v.fits} Holds up to ${String(v.bars)} bars or ${String(v.points)} points.`),
+    'tone (one):', ...Object.entries(TLDR_TONES).map(([k, v]) => `  - "${k}": ${v}`),
+    `headline (optional): at most ${String(TLDR_HEADLINE_MAX)} characters.`,
+    `takeaway (optional): one sentence, at most ${String(TLDR_TAKEAWAY_MAX)} characters.`,
+  ].join('\n');
 }
 
 /** What a model is told it may choose from, as text. */

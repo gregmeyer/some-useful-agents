@@ -6764,12 +6764,13 @@ describe("redrawing a notebook's TL;DR picture", () => {
     return { ctx, store, get, post, nb, settle };
   };
   const answer = (o: unknown) => `<tldr>${JSON.stringify(o)}</tldr>`;
+  const barsView = [{ id: 'root', component: 'Columns', children: ['lead', 'bars'], widths: [5, 7] }, { id: 'lead', component: 'TldrPart', part: 'lead' }, { id: 'bars', component: 'TldrPart', part: 'bars' }];
 
   it('the Redraw page shows the picture and how it is drawn; an ask redraws it and keeps the result; Undo and the standard picture bring the others back', async () => {
     const { ctx, store, get, post, nb, settle } = await setup();
     const asked: Array<Record<string, string>> = [];
     let release: (() => void) | undefined;
-    ctx.notebookTldrRun = async (inputs) => { asked.push(inputs); await new Promise<void>((r) => { release = r; }); return answer({ size: 'landscape', tone: 'editorial', layout: 'split', headline: 'Two ways, from $139.99', about: 'Wide for LinkedIn, with a headline.' }); };
+    ctx.notebookTldrRun = async (inputs) => { asked.push(inputs); await new Promise<void>((r) => { release = r; }); return answer({ size: 'landscape', tone: 'editorial', headline: 'Two ways, from $139.99', about: 'Wide for LinkedIn, with a headline.', view: barsView }); };
 
     // The share menu links it; the page starts on the standard picture with one-press starters.
     expect((await get(`/notebooks/${nb.id}`)).text).toContain(`<a href="/notebooks/${nb.id}/tldr" title="Say how you want the picture drawn: for LinkedIn, more editorial, more creative" aria-label="Redraw the TL;DR picture">Redraw…</a>`);
@@ -6779,6 +6780,9 @@ describe("redrawing a notebook's TL;DR picture", () => {
     expect(page).toContain('<button type="submit" name="ask" value="Make it suitable for sharing on LinkedIn" class="nbd-chip nbd-chip--add"');
     expect(page).not.toContain('Back to the standard picture');
     expect(page).not.toContain('>Undo<');
+    // What this page prefers (a shortlist: its bars), and a one-press way to ask for it.
+    expect(page).toContain('This page prefers: Landscape 1200×627, leading with the options as ranked bars (a shortlist).');
+    expect(page).toContain('value="Draw it the way this page prefers"');
 
     // Nothing asked: said, nothing run.
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: '  ' })).headers.location)).toContain('Say how you want it drawn.');
@@ -6797,20 +6801,21 @@ describe("redrawing a notebook's TL;DR picture", () => {
     expect(asked[0].ASK).toBe('Make it suitable for sharing on LinkedIn');
     expect(JSON.parse(asked[0].CARD)).toMatchObject({ lead: { label: 'Best lead', text: 'Werker 220Ah', picture: 'none' }, bars: { by: 'Price', topOptionsWithPictures: 0 } });
     expect(asked[0].CURRENT).toBe('');
+    expect(asked[0].PREFER).toContain('prefers size "landscape" leading with the options as ranked bars');
     release!();
     await settle();
     expect((await get(`/notebooks/${nb.id}/tldr/state`)).body).toEqual({ status: 'done' });
 
     // Kept: the notebook's picture is the redrawn one, and the page says how it's drawn and what sua did.
-    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape', tone: 'editorial', layout: 'split', headline: 'Two ways, from $139.99', ask: 'Make it suitable for sharing on LinkedIn' });
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'landscape', tone: 'editorial', headline: 'Two ways, from $139.99', ask: 'Make it suitable for sharing on LinkedIn', view: barsView });
     const done = (await get(`/notebooks/${nb.id}/tldr`)).text;
-    expect(done).toContain('Landscape 1200×627 · editorial · words beside the bars or points · with a headline');
+    expect(done).toContain('Landscape 1200×627 · editorial · composed: the options as bars · with a headline');
     expect(done).toContain('Wide for LinkedIn, with a headline.');
     expect(done).toContain('You asked: “Make it suitable for sharing on LinkedIn”');
     expect(done).not.toContain('data-nbt-working="');
     expect(done).toContain('>Undo<');
     expect(done).toContain('Back to the standard picture');
-    expect((await get(`/notebooks/${nb.id}/tldr.html`)).text).toContain('<h1 class="tl__title">Two ways, from $139.99</h1>');
+    expect((await get(`/notebooks/${nb.id}/tldr.html`)).text).toContain('tl--view');
 
     // The standard picture again, then Undo back to the redrawn one, then Undo to the standard.
     expect(decodeURIComponent((await post(`/notebooks/${nb.id}/tldr/reset`)).headers.location)).toContain('Back to the standard picture.');
@@ -6823,28 +6828,38 @@ describe("redrawing a notebook's TL;DR picture", () => {
     expect((await get('/notebooks/nope/tldr')).status).toBe(303);
   });
 
-  it("an answer that can't be used is asked for once more with why; words with sua's own number are left out; two failures leave the picture as it was", async () => {
+  it("an answer that can't be used is asked for once more with why; words with sua's own number are left out; two failures leave the picture as it was, with Try again", async () => {
     const { ctx, store, get, post, nb, settle } = await setup();
     const asked: Array<Record<string, string>> = [];
     let replies: Array<string | undefined> = [];
     ctx.notebookTldrRun = async (inputs) => { asked.push(inputs); return replies.shift(); };
 
     // A tone that isn't one of the choices, then a good answer.
-    replies = [answer({ size: 'square', tone: 'neon' }), answer({ size: 'square', tone: 'bold', layout: 'hero' })];
+    replies = [answer({ size: 'square', tone: 'neon', view: barsView }), answer({ size: 'square', tone: 'bold', view: barsView })];
     await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'bolder' });
     await settle();
     expect(asked).toHaveLength(2);
     expect(asked[1].ERRORS).toContain('"neon" is not a tone (use one of: plain, editorial, bold).');
-    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero' });
-    // The next ask is told how it's drawn now.
-    replies = [answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Batteries from $140' }), answer({ size: 'square', tone: 'bold', layout: 'hero', headline: 'Save 40% on batteries' })];
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', view: barsView });
+    // The next ask is told how it's drawn now; a headline with a number of sua's own is left out, the card kept.
+    replies = [answer({ size: 'square', tone: 'bold', headline: 'Batteries from $140', view: barsView })];
     await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'add a headline' });
     await settle();
-    expect(JSON.parse(asked[2].CURRENT)).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero' });
-    expect(asked[3].ERRORS).toContain("have a number that CARD doesn't (140)");
-    // Both headlines had a number of sua's own: the drawing is kept, without the words.
-    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', layout: 'hero', ask: 'add a headline' });
+    expect(JSON.parse(asked[2].CURRENT)).toMatchObject({ size: 'square', tone: 'bold', view: barsView });
+    expect(asked).toHaveLength(3);
+    expect(store.get(nb.id)!.tldr).toMatchObject({ size: 'square', tone: 'bold', ask: 'add a headline', view: barsView });
     expect(store.get(nb.id)!.tldr!.headline).toBeUndefined();
+
+    // A fixed layout with no view, twice: never drawn as a fixed layout; the picture stays.
+    const kept = store.get(nb.id)!.tldr;
+    replies = [answer({ size: 'landscape', tone: 'plain', layout: 'split' }), answer({ size: 'landscape', tone: 'plain', layout: 'split' })];
+    await post(`/notebooks/${nb.id}/tldr/redraw`, { ask: 'wider' });
+    await settle();
+    expect(asked[4].ERRORS).toContain('It has no "view": compose the card as a view.');
+    expect(store.get(nb.id)!.tldr).toEqual(kept);
+    const noView = (await get(`/notebooks/${nb.id}/tldr`)).text;
+    expect(noView).toContain('The picture is as it was.');
+    expect(noView).toContain('<input type="hidden" name="ask" value="wider"><button type="submit" class="btn btn--sm">Try again</button>');
 
     // No usable answer twice: the picture stays, and the page says why, once.
     const before = store.get(nb.id)!.tldr;
