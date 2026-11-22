@@ -666,6 +666,27 @@ function withWatch(c: ViewComponent): ViewComponent {
 }
 
 /**
+ * A page with a place for the TL;DR card: as it is when it has one (a Picture
+ * of /notebook/picture), else with a full-width "In short" panel of it after
+ * the page's opening row (the first part that isn't its header). For a card
+ * you set to Always on a page that has no place for it (a ready-made page). Pure.
+ */
+export function withTldrCardSlot(components: readonly ViewComponent[]): ViewComponent[] {
+  const has = components.some((c) => { const b = c.picture as { path?: unknown; '@path'?: unknown } | undefined; return c.component === 'Picture' && (b?.path === '/notebook/picture' || b?.['@path'] === '/notebook/picture'); });
+  const root = components.find((c) => c.id === 'root');
+  const kids = Array.isArray(root?.children) ? (root!.children as string[]) : undefined;
+  if (has || !root || !kids || components.some((c) => c.id === 'tldr_card_p')) return [...components];
+  const header = new Set(components.filter((c) => c.component === 'NotebookHeader').map((c) => c.id));
+  const first = kids.findIndex((id) => !header.has(id));
+  const at = first < 0 ? kids.length : first + 1;
+  return [
+    ...components.map((c) => (c === root ? { ...c, children: [...kids.slice(0, at), 'tldr_card_p', ...kids.slice(at)] } : c)),
+    { ...panel('tldr_card_p', 'In short', 'tldr_card'), treatment: 'feature' },
+    { id: 'tldr_card', component: 'Picture', picture: { path: '/notebook/picture' } },
+  ];
+}
+
+/**
  * A layout as plain A2UI for one notebook: components whose `when` doesn't
  * hold are left out (with everything under them), parents lose them (a
  * Columns its width too; one left takes the whole row), containers left

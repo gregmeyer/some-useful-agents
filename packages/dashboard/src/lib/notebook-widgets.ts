@@ -15,7 +15,7 @@
 import { answerCover, answerDiagramView, type AnswerDiagramView } from './answer-art.js';
 import { readerPage, answerConfidence, findingStatus, type FindingTrace, answerSubjects, evidenceOrigin, sourceSpread, sourceSpreadCaution, SOURCE_KINDS, type SourceKind } from '@some-useful-agents/core';
 import { missingExperimentData, rankBy, rankOptions, isRange,
-  notebookViewData, notebookLayoutOf, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
+  notebookViewData, notebookLayoutOf, withTldrCardSlot, resolveNotebookLayout, splitNotebookHeader, resolvePointer, type NotebookLayout, type NotebookLayoutFlag, type NotebookLayoutValueKey, cleanData, fieldNumber, validateViewComponents, viewToMessages,
   type Notebook, type NotebookAffiliation, type NotebookEntry, type NotebookField, type NotebookViewHistory, type NotebookViewData,
   type NotebookRange, type NotebookSearchSource, type NotebookViewOption, type ViewComponent,
   notebookChanges, type NotebookChange, type NotebookChangeKind, type NotebookFieldValue,
@@ -1066,8 +1066,18 @@ export function emptyPartsGo(layout: NotebookLayout, data: unknown): { data?: un
 }
 
 /** The notebook's page as drawn for it now: its layout resolved, with the header (if it has one) taken out. */
-function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
+/**
+ * The page's layout as it's drawn: the notebook's, with a place for the TL;DR
+ * card when you set it to Always and the page has none (a ready-made page), so
+ * the page, its brief and its PDF all show it.
+ */
+export function drawnNotebookLayout(nb: Notebook): NotebookLayout {
   const layout = notebookLayoutOf(nb);
+  return nb.tldrCard === 'always' ? { ...layout, components: withTldrCardSlot(layout.components) } : layout;
+}
+
+function resolvedPage(nb: Notebook, entries: readonly NotebookEntry[], data?: unknown, pending = false): ReturnType<typeof splitNotebookHeader> {
+  const layout = drawnNotebookLayout(nb);
   // Nothing to quote ever (no quote field, and not about a person): its quotes panel isn't held open while a step runs.
   const cantFill = canQuote(nb) ? undefined : new Set(['QuoteList']);
   return splitNotebookHeader(resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), { ...emptyPartsGo(layout, data), ...(pending ? { pending } : {}), ...(cantFill ? { cantFill } : {}) }));

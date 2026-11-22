@@ -12,12 +12,12 @@ import { briefTheme, type BriefTheme } from '../lib/brief-theme.js';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { printValue } from '../lib/a2ui-print-values.js';
 import { agentFunctionValue } from '../lib/a2ui-agent-functions.js';
-import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, notebookLayoutOf, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
+import { looksLikeRubric, notebookGivenLinks, resolveNotebookLayout, resolvePointer, splitNotebookHeader, isRange, type Notebook, type NotebookEntry, type NotebookField, type ViewComponent, type NotebookViewOption } from '@some-useful-agents/core';
 import { formatFieldValue } from '../lib/field-format.js';
 import { html, render, unsafeHtml, type SafeHtml } from './html.js';
-import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
+import { notebookLayoutFlags, notebookLayoutValues, notebookWidgetData, emptyPartsGo, drawnNotebookLayout, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { optionInFull, type BriefPicture } from './notebook-brief.js';
-import { showsTldrCard, tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, showsTldrCard, tldrCard, tldrData, TLDR_CSS } from './notebook-tldr.js';
 import type { NotebookOptionHistory } from '../lib/notebook-option.js';
 import { whatsNew, whatsNewLines } from '../lib/notebook-whats-new.js';
 import { saidLike } from '../lib/notebook-clean.js';
@@ -530,7 +530,8 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const data = notebookWidgetData(nb, args.entries, args.history);
   // A notebook that shows an experiment: its brief ends with how the experiment was run.
   const experiment = (data.notebook as { experiment?: import('@some-useful-agents/core').ExperimentPageData }).experiment;
-  const layout = notebookLayoutOf(nb);
+  // As the page draws it: with a place for the TL;DR card when you set it to Always.
+  const layout = drawnNotebookLayout(nb);
   const resolved = resolveNotebookLayout(layout.components, notebookLayoutFlags(nb, args.entries.some((e) => e.kind === 'option')), notebookLayoutValues(nb, data), emptyPartsGo(layout, data));
   const { header, side, rest } = splitNotebookHeader(resolved);
   // The side part comes as a small page with its own root: only its parts join the page's (its root would be taken for the page's).
@@ -549,7 +550,10 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
     if (!cardShows) return html``;
     const who = data.notebook.person?.image ? { src: data.notebook.person.image, logo: false } : data.notebook.company?.image ? { src: data.notebook.company.image, logo: true } : undefined;
     const pictured = who ? aboutSrc(who.src) : undefined;
-    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
+    // The picture chosen for the notebook leads its photos, as on the PNG (the copy the file carries).
+    const chosenPath = chosenPhotoPath(nb);
+    const chosen = chosenTldrPhoto(nb, chosenPath ? aboutSrc(chosenPath) : undefined);
+    return tldrCard(tldrData(nb, args.entries, args.history, args.pictures ?? ((o) => o.image), who && pictured ? { src: pictured, ...(who.logo ? { logo: true } : {}) } : undefined, chosen), { ...(nb.tldr ? { spec: nb.tldr } : {}) });
   };
   // A finding cited by its title is the page it was read on.
   const pageOf = new Map((data.notebook.options as unknown as NotebookViewOption[]).filter((o) => isUrl(o.link)).flatMap((o) => [[o.name, o.link as string], [o.title, o.link as string]] as Array<[string, string]>));
