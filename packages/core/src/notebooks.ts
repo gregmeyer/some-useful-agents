@@ -947,6 +947,8 @@ export interface Notebook {
   conversationId?: string;
   /** Set when archived: hidden from the notebooks list, Home, Today and schedules; kept whole and restorable. */
   archivedAt?: string;
+  /** Set when you starred it: listed first, and under Starred. */
+  starredAt?: string;
   /**
    * Short labels for a long text fact's values, by field key, so a filter chip
    * reads "Office-of-CFO suite" rather than the sentence each option has
@@ -1856,7 +1858,7 @@ export class NotebookStore {
       ['notebook_photos', "kind TEXT NOT NULL DEFAULT 'listing'"], ['notebook_photos', 'what TEXT'], ['notebook_entries', 'picture_tried_at TEXT'],
       ['notebook_sightings', 'corrected_by TEXT'], ['notebooks', 'archived_at TEXT'], ['notebook_photos', 'tried_url TEXT'], ['notebooks', 'facets_json TEXT'], ['notebooks', 'tags_json TEXT'], ['notebooks', 'tldr_json TEXT'], ['notebooks', 'tldr_card TEXT'], ['notebooks', 'asked TEXT'], ['notebooks', 'brief_on_json TEXT'], ['notebooks', 'photo_json TEXT'], ['notebooks', 'given_json TEXT'],
       ['notebooks', 'steps_json TEXT'], ['notebook_entries', 'chosen_at TEXT'], ['notebook_entries', 'suggested_at TEXT'], ['notebook_entries', 'origin_json TEXT'], ['notebook_entries', 'trace_json TEXT'],
-      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'],
+      ['notebook_templates', 'archived_at TEXT'], ['notebooks', 'layout_json TEXT'], ['notebooks', 'about_json TEXT'], ['notebooks', 'layout_by TEXT'], ['notebooks', 'briefing_json TEXT'], ['notebooks', 'answer_json TEXT'], ['notebooks', 'plan_json TEXT'], ['notebooks', 'meeting_json TEXT'], ['notebook_about_photos', 'page_url TEXT'], ['notebook_about_photos', 'why TEXT'], ['notebooks', 'experiment_id TEXT'], ['notebooks', 'experiment_run_json TEXT'], ['notebooks', 'starred_at TEXT'],
     ] as const) {
       try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* already there */ }
     }
@@ -3258,6 +3260,16 @@ export class NotebookStore {
     return this.mustGet(id);
   }
 
+  /**
+   * Star or unstar a notebook. Starring isn't a change to what's in it, so
+   * its updated time stays as it was.
+   */
+  setStarred(id: string, starred: boolean): Notebook {
+    this.mustGet(id);
+    this.db.prepare('UPDATE notebooks SET starred_at = ? WHERE id = ?').run(starred ? new Date().toISOString() : null, id);
+    return this.mustGet(id);
+  }
+
   /** Bring an archived notebook back. */
   unarchive(id: string): Notebook {
     this.mustGet(id);
@@ -3519,6 +3531,7 @@ export class NotebookStore {
       ...(r.last_run_note ? { lastRunNote: String(r.last_run_note) } : {}),
       ...(r.cadence_fired_at ? { cadenceFiredAt: String(r.cadence_fired_at) } : {}),
       ...(r.archived_at ? { archivedAt: String(r.archived_at) } : {}),
+      ...(r.starred_at ? { starredAt: String(r.starred_at) } : {}),
       ...(r.facets_json ? { facets: parse<Record<string, NotebookFacet>>(r.facets_json, {}) } : {}),
       ...(r.tags_json ? (() => { const t = cleanTags(parse<unknown>(r.tags_json, undefined)); return t ? { tags: t } : {}; })() : {}),
       ...(r.tldr_json ? (() => { const t = cleanTldrSpec(parse<unknown>(r.tldr_json, undefined)); return t ? { tldr: t } : {}; })() : {}),

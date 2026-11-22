@@ -232,6 +232,48 @@ describe('notebooks pages', () => {
     expect((await get(app, '/notebooks?status=archived')).text).toContain('Buy a bike');
   });
 
+  it('a star: the list puts starred notebooks first and under Starred; it toggles from a card or the page and goes back where you were', async () => {
+    const app = await makeApp();
+    const { NotebookStore } = await import('@some-useful-agents/core');
+    const store = NotebookStore.fromHandle(runStore.databaseHandle());
+    const older = store.create({ title: 'Plan a trip', statement: 'A week away' });
+    store.create({ title: 'Buy a bike', statement: 'A commuter bike' });
+    const before = store.get(older.id)!.updatedAt;
+
+    // No stars yet: no Starred tab, and each card offers one.
+    const plain = (await get(app, '/notebooks')).text;
+    expect(plain).not.toContain('★ Starred');
+    expect(plain).toContain(`action="/notebooks/${older.id}/star"`);
+    expect(plain).toContain('aria-label="Star Plan a trip"');
+
+    // Starring from the list goes back to the list (with its query) and doesn't count as a change.
+    expect(plain).toContain('name="back" value="/notebooks"');
+    const res = await post(app, `/notebooks/${older.id}/star`, { starred: '1', back: '/notebooks?sort=title' });
+    expect(res.status).toBe(303);
+    expect(res.headers.location).toBe('/notebooks?sort=title');
+    expect(store.get(older.id)!.starredAt).toBeTruthy();
+    expect(store.get(older.id)!.updatedAt).toBe(before);
+
+    // Starred first whatever the sort; a Starred tab lists only those.
+    const listed = (await get(app, '/notebooks?sort=title')).text;
+    expect(listed.indexOf('Plan a trip')).toBeLessThan(listed.indexOf('Buy a bike'));
+    expect(listed).toContain('★ Starred <span class="nb-tabs__n">1</span>');
+    expect(listed).toContain('aria-label="Unstar Plan a trip"');
+    const starred = (await get(app, '/notebooks?status=starred')).text;
+    expect(starred).toContain('Plan a trip');
+    expect(starred).not.toContain('Buy a bike');
+
+    // The page has it too; a back that isn't a page here isn't followed; no value flips it.
+    expect((await get(app, `/notebooks/${older.id}`)).text).toContain('class="nb-hero__star"');
+    for (const back of ['//example.com/x', 'https://example.com/x', '/\\example.com']) {
+      expect((await post(app, `/notebooks/${older.id}/star`, { starred: '1', back })).headers.location).toBe(`/notebooks/${older.id}`);
+    }
+    const off = await post(app, `/notebooks/${older.id}/star`, {});
+    expect(off.headers.location).toBe(`/notebooks/${older.id}`);
+    expect(store.get(older.id)!.starredAt).toBeUndefined();
+    expect((await post(app, '/notebooks/no-such/star', { starred: '1' })).headers.location).toBe('/notebooks');
+  });
+
   it("Download / share: a briefing leads with the brief and offers its findings as a spreadsheet; a shortlist asks which options", async () => {
     const app = await makeApp();
     const { NotebookStore } = await import('@some-useful-agents/core');

@@ -33,6 +33,15 @@ const NOTEBOOK_ICON = unsafeHtml('<svg width="18" height="18" viewBox="0 0 24 24
 
 const STATUS_LABEL: Record<Notebook['status'], string> = { active: 'active', decided: 'decided', stopped: 'stopped' };
 
+/**
+ * The star toggle: a small form so it works without script. On a list
+ * card it sits beside the card's link (a form can't go inside a link).
+ */
+export function starButton(nb: Pick<Notebook, 'id' | 'title' | 'starredAt'>, cls: string, back?: string): SafeHtml {
+  const on = !!nb.starredAt;
+  return html`<form method="POST" action="/notebooks/${encodeURIComponent(nb.id)}/star" class="${cls}"><input type="hidden" name="starred" value="${on ? '0' : '1'}">${back ? html`<input type="hidden" name="back" value="${back}">` : html``}<button type="submit" class="btn-star${on ? ' is-starred' : ''}" aria-pressed="${on ? 'true' : 'false'}" title="${on ? 'Unstar' : 'Star'}" aria-label="${on ? 'Unstar' : 'Star'} ${nb.title}">${on ? '★' : '☆'}</button></form>`;
+}
+
 /** Its status chip; an archived notebook says so whatever its status. */
 function statusChip(nb: Pick<Notebook, 'status' | 'archivedAt'>): SafeHtml {
   return nb.archivedAt
@@ -606,6 +615,7 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
             ${head?.subtitle ? html`<p class="nb-hero__subtitle">${head.subtitle}</p>` : html``}
           </div>
+          ${starButton(nb, 'nb-hero__star')}
           ${statusChip(nb)}
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
         </div>
@@ -1550,7 +1560,7 @@ export interface NotebookCard {
   coverShape?: string;
 }
 
-export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number; /** The tag the list is filtered by. */ tag?: string }
+export interface NotebookListQuery { q: string; status: 'active' | 'decided' | 'stopped' | 'all' | 'starred' | 'archived'; sort: 'updated' | 'created' | 'title'; page: number; pages: number; total: number; perPage: number; /** The tag the list is filtered by. */ tag?: string }
 
 /** Tags listed before "More tags". */
 const TAGS_SHOWN = 12;
@@ -1587,7 +1597,7 @@ export function renderNotebooksList(args: {
   openNew?: boolean;
   flash?: { kind: 'error' | 'info' | 'ok'; message: string };
   query?: NotebookListQuery;
-  counts?: { active: number; decided: number; stopped: number; all: number; archived?: number };
+  counts?: { active: number; decided: number; stopped: number; all: number; starred?: number; archived?: number };
   /** New notebooks you began drafting but haven't started. */
   drafts?: ReadonlyArray<{ id: string } & DraftState>;
   /** Your templates, offered when you have no notebooks yet. */
@@ -1598,7 +1608,7 @@ export function renderNotebooksList(args: {
   elsewhere?: ReadonlyArray<{ status: 'all' | 'archived'; count: number }>;
 }): string {
   const q: NotebookListQuery = args.query ?? { q: '', status: 'all', sort: 'updated', page: 1, pages: 1, total: args.notebooks.length, perPage: args.notebooks.length || 12 };
-  const counts = { archived: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
+  const counts = { archived: 0, starred: 0, ...(args.counts ?? { active: 0, decided: 0, stopped: 0, all: args.notebooks.length }) };
   const href = (over: Partial<Pick<NotebookListQuery, 'q' | 'status' | 'sort' | 'page' | 'tag'>>) => {
     const p = new URLSearchParams();
     const v = { q: q.q, status: q.status, sort: q.sort, page: 1, tag: q.tag, ...over };
@@ -1614,8 +1624,8 @@ export function renderNotebooksList(args: {
   const first = q.total ? (q.page - 1) * q.perPage + 1 : 0;
   const last = Math.min(q.total, q.page * q.perPage);
   // Nothing on this tab: a search says so; otherwise where yours are (e.g. all archived), and ways to start one.
-  const label = { active: 'Active', decided: 'Decided', stopped: 'Stopped', all: 'All', archived: 'Archived' } as const;
-  const elsewhere = (['active', 'decided', 'stopped', 'archived'] as const).filter((st) => st !== q.status && counts[st] > 0);
+  const label = { active: 'Active', decided: 'Decided', stopped: 'Stopped', all: 'All', starred: 'Starred', archived: 'Archived' } as const;
+  const elsewhere = (['active', 'decided', 'stopped', 'starred', 'archived'] as const).filter((st) => st !== q.status && counts[st] > 0);
   // A tag in the row: a link that filters by it (the one in use clears the filter).
   const tagLink = (t: { tag: string; count: number }) => t.tag === q.tag
     ? html`<a class="nbl-tag is-on" href="${href({ tag: undefined })}" aria-current="true" title="Show all tags">${t.tag} <span class="nbl-tag__n">${String(t.count)}</span><span class="sr-only"> (showing; clear)</span></a>`
@@ -1646,7 +1656,7 @@ export function renderNotebooksList(args: {
     ${renderDraftsStrip(args.drafts ?? [], 'list')}
     ${counts.all || counts.archived ? html`
       <form method="GET" action="/notebooks" class="nbl-tools" role="search">
-        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
+        <nav class="nb-tabs" aria-label="Notebooks by status">${tab('active', 'Active')}${tab('decided', 'Decided')}${tab('stopped', 'Stopped')}${tab('all', 'All')}${counts.starred || q.status === 'starred' ? tab('starred', '★ Starred') : html``}${counts.archived ? tab('archived', 'Archived') : html``}</nav>
         ${q.status !== 'active' ? html`<input type="hidden" name="status" value="${q.status}">` : html``}
         ${q.tag ? html`<input type="hidden" name="tag" value="${q.tag}">` : html``}
         <label class="nbl-tools__search"><span class="sr-only">Search notebooks</span>
@@ -1671,7 +1681,9 @@ export function renderNotebooksList(args: {
         const tags = notebookTags(nb);
         const cardTags = [...tags.filter((t) => t === q.tag), ...tags.filter((t) => t !== q.tag)].slice(0, CARD_TAGS);
         return html`
-          <a class="nbl-card nbl-card--${nb.status}" href="/notebooks/${encodeURIComponent(nb.id)}">
+          <div class="nbl-cardwrap">
+          ${starButton(nb, 'nbl-card__star', href({ page: q.page }))}
+          <a class="nbl-card nbl-card--${nb.status}${nb.starredAt ? ' is-starred' : ''}" href="/notebooks/${encodeURIComponent(nb.id)}">
             <span class="nbl-card__cover${photo ? ' nbl-card__cover--photo' : ''}"${photo ? html` style="--cover:url('${photo}')"` : html``}>
               ${c.cover
                 ? html`<img src="${c.cover}" alt="" loading="lazy" class="${pictureClass(c.coverKind, c.coverShape)}">`
@@ -1686,7 +1698,8 @@ export function renderNotebooksList(args: {
               ${cardTags.length ? html`<span class="nbl-card__tags"><span class="sr-only">Tags: </span>${cardTags.map((t) => html`<span class="nbl-card__tag">${t}</span>`) as unknown as SafeHtml[]}${tags.length > cardTags.length ? html`<span class="nbl-card__tagmore" title="${tags.slice(cardTags.length).join(', ')}">+${String(tags.length - cardTags.length)}</span>` : html``}</span>` : html``}
               <span class="nbl-card__meta">${c.checks?.length ? html`<span class="nbl-card__met" title="${`Done when: ${c.checks.map((x) => `${x.met ? '✓' : '○'} ${x.text}`).join('; ')}`}"><span class="nbl-card__dots" aria-hidden="true">${c.checks.map((x) => html`<i class="${x.met ? 'is-met' : ''}"></i>`) as unknown as SafeHtml[]}</span>${String(met)} of ${String(c.checks.length)} met</span>` : html``}<span>updated ${formatAge(nb.updatedAt)}</span></span>
             </span>
-          </a>`;
+          </a>
+          </div>`;
       }) as unknown as SafeHtml[]}
     </div>
     ${counts.all || counts.archived ? (args.notebooks.length === 0 ? empty : html``) : renderNotebooksEmpty(args.templates ?? [])}
