@@ -26,6 +26,7 @@ import { suaStepAgentName } from '../lib/notebook-step-agents.js';
 import { formatMoney, formatFieldValue } from '../lib/field-format.js';
 import { handStagesHidden, notebookWidgetMessages, notebookHeaderView, type NotebookHeaderView, type NotebookWidgetHistory } from '../lib/notebook-widgets.js';
 import { cronToHuman, formatAge } from './components.js';
+import { sameWords } from './brief-document.js';
 import { pictureClass, pictureLabel } from '../lib/notebook-logos.js';
 import type { NotebookLive, NotebookTalkLive } from '../lib/notebook-live.js';
 
@@ -289,20 +290,14 @@ function stepActions(nb: Notebook, step: NotebookStep, p: Pick<ReturnType<typeof
 }
 
 /**
- * What made the notebook, in a line under its steps: how many agents and
- * runs, when last, who, and the way into How it was made. Nothing before
- * anything has run.
+ * What made the notebook, as a link at the end of the header's meta line:
+ * how many agents and runs, into How it was made (which names them; so do
+ * the step chips). Before anything has run, just "How it was made →".
  */
-export function madeByStrip(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefined): SafeHtml {
-  if (!m || m.runs === 0) return html``;
-  const who = m.agents.slice(0, 4).join(' · ') + (m.agents.length > 4 ? ` · +${String(m.agents.length - 4)}` : '');
-  return html`<a class="nb-madeby" href="/notebooks/${encodeURIComponent(nb.id)}/workflow">
-    <span class="nb-madeby__text">
-      <span class="nb-madeby__line"><b>Made by ${String(m.agents.length)} agent${m.agents.length === 1 ? '' : 's'} in ${String(m.runs)} run${m.runs === 1 ? '' : 's'}</b>${m.lastAt ? ` · last ${formatAge(m.lastAt)}` : ''}</span>
-      <span class="nb-madeby__who">${who}</span>
-    </span>
-    <span class="btn btn--sm nb-madeby__go">See how it was made →</span>
-  </a>`;
+export function madeByLink(nb: Pick<Notebook, 'id'>, m: NotebookMadeBy | undefined): SafeHtml {
+  const href = `/notebooks/${encodeURIComponent(nb.id)}/workflow`;
+  if (!m || m.runs === 0) return html`<a href="${href}">How it was made →</a>`;
+  return html`<a class="nb-hero__madeby" href="${href}">Made by ${String(m.agents.length)} agent${m.agents.length === 1 ? '' : 's'} in ${String(m.runs)} run${m.runs === 1 ? '' : 's'} →</a>`;
 }
 
 /**
@@ -612,24 +607,21 @@ function hero(nb: Notebook, stages: PipelineStage[], running?: { step: number; o
             ? html`<img class="${['nb-hero__cover', pictureClass(cover.kind, cover.shape)].filter(Boolean).join(' ')}" src="${cover.src}" alt="" title="${cover.kind === 'illustration' ? 'An illustration' : cover.kind === 'listing' ? 'From a listing' : cover.kind === 'logo' ? 'A logo' : 'An example photo'}">`
             : html`<span class="nb-hero__icon">${NOTEBOOK_ICON}</span>`}
           <div class="nb-hero__names">
-            <h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>
+            <div class="nb-hero__nameline"><h1 class="nb-hero__title" id="nb-title">${nb.title}</h1>${starButton(nb, 'nb-hero__star')}${nb.status === 'active' && !nb.archivedAt ? html`` : statusChip(nb)}</div>
             ${head?.subtitle ? html`<p class="nb-hero__subtitle">${head.subtitle}</p>` : html``}
           </div>
-          ${starButton(nb, 'nb-hero__star')}
-          ${statusChip(nb)}
           ${widgets ? html`<div class="nb-hero__acts">${heroActions(nb, entries, leads, running, !!fresh && !fresh.empty)}</div>` : html``}
         </div>
-        ${head?.statement === false ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
+        ${head?.statement === false || (nb.statement && sameWords(nb.statement, nb.title)) ? html`` : nb.statement ? html`<p class="nb-hero__statement">${nb.statement}</p>` : html`<p class="nb-hero__statement nb-hero__statement--empty">Say what this notebook is for under Edit.</p>`}
         ${meetingLine(nb)}
         ${conflictLine(nb, busy.includes(CHECKING_WHO))}
         <div class="nb-hero__chips">
           ${widgets ? html`` : nb.params.map((p) => html`<span class="nb-chip">${p}</span>`) as unknown as SafeHtml[]}
-          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${madeBy?.runs ? html`` : html` · <a href="/notebooks/${id}/workflow">How it was made →</a>`}${running ? html`` : newLink(leads)}</span>
+          <span class="nb-hero__meta">started ${formatAge(nb.createdAt)} · ${cadence}${running ? html`` : newLink(leads)} · ${madeByLink(nb, madeBy)}</span>
         </div>
         ${nb.steps?.length
           ? (!running && !nb.steps.some((x) => x.status === 'stuck' || x.status === 'running') ? stepChips(nb, nb.steps, entries, stepsStrip(nb, nb.steps, entries, false, madeBy), madeBy) : html`${stepsStrip(nb, nb.steps, entries, !!running, madeBy)}<p class="nb-hero__update">${updateAllButton(nb, !!running)}</p>`)
           : pipelineDiagram(stages)}
-        ${madeByStrip(nb, madeBy)}
         ${running ? html`` : whatsNewBand(fresh)}
         ${running ? html`` : answerBehindBand(nb, entries)}
         ${liveBar(live ?? { work: [...(running ? [`Running step ${String(running.step)} of ${String(running.of)}`] : []), ...busy] }, nb)}
