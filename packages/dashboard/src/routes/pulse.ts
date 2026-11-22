@@ -119,6 +119,30 @@ function buildSystemTiles(ctx: ReturnType<typeof getContext>): PulseTile[] {
   ];
 }
 
+/**
+ * All agents' health in one line, problems first (no boxes, no emoji): the
+ * scheduler when it's stopped, then runs in the last day and how many
+ * failed (linked to them). `quiet` is true when nothing is wrong.
+ */
+export function pulseHealthLine(ctx: ReturnType<typeof getContext>, now = Date.now()): { parts: Array<{ text: string; href?: string; bad?: boolean }>; quiet: boolean } {
+  const dayAgo = new Date(now - 86_400_000).toISOString();
+  let runs = 0;
+  let failed = 0;
+  try {
+    for (const r of ctx.runStore.queryRuns({ limit: 500, offset: 0 }).rows) {
+      if (r.startedAt < dayAgo) continue;
+      runs++;
+      if (r.status === 'failed') failed++;
+    }
+  } catch { /* no runs */ }
+  const parts: Array<{ text: string; href?: string; bad?: boolean }> = [];
+  const scheduler = schedulerProblem(ctx);
+  if (scheduler) parts.push({ text: scheduler.replace(/\.$/, ''), href: '/scheduled', bad: true });
+  if (failed) parts.push({ text: `${String(failed)} of ${String(runs)} run${runs === 1 ? '' : 's'} failed in the last day`, href: '/runs?status=failed', bad: true });
+  else parts.push({ text: runs ? `${String(runs)} run${runs === 1 ? '' : 's'} in the last day, none failed` : 'No runs in the last day' });
+  return { parts, quiet: !scheduler && !failed };
+}
+
 /** A stopped (or stale) scheduler while agents are scheduled: one line to say so, or undefined when nothing is lost. */
 export function schedulerProblem(ctx: ReturnType<typeof getContext>): string | undefined {
   try {

@@ -32,7 +32,7 @@ import { boardCatalog, decideBoardDrafts, latestBoardBuild, retryFailedTiles, st
 import { boardApprovalButtons } from '../views/board-approval.js';
 import { buildDashboardOptions, renderDashboardsDropdown } from '../views/dashboards-dropdown.js';
 import { renderInstallPacksModal } from '../views/install-packs-modal.js';
-import { buildPulseBoardData, pulseAgentIds, schedulerProblem } from './pulse.js';
+import { buildPulseBoardData, pulseAgentIds, pulseHealthLine, schedulerProblem } from './pulse.js';
 import { buildPulseTile, attachLayoutHints, withTileSignal } from '../views/pulse-tile-builder.js';
 import { TEMPLATE_REGISTRY, normalizeSignal } from '../views/pulse-templates.js';
 import type { PulseTile } from '../views/pulse-types.js';
@@ -366,7 +366,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
         </div>
         ${pulseTabs('agents')}
         <p class="page-header__description">Every agent's latest result, run in place. Press Arrange to lay them out.</p>
-      </div>`;
+      </div>
+      ${(() => { const h = pulseHealthLine(ctx); return html`<p class="pulse-health${h.quiet ? '' : ' pulse-health--bad'}" role="status">${h.parts.map((x, i) => html`${i ? html`<span class="pulse-health__sep" aria-hidden="true"> · </span>` : html``}${x.href ? html`<a class="pulse-health__part${x.bad ? ' is-bad' : ''}" href="${x.href}">${x.text}</a>` : html`<span class="pulse-health__part">${x.text}</span>`}`) as unknown as SafeHtml[]}</p>`; })()}`;
     after = html`
       ${hidden > 0 || p.tiles.length > 0 ? html`
         <div class="pulse-hidden-section board-page__hidden">
@@ -437,8 +438,8 @@ export function renderBoardPage(ctx: ReturnType<typeof getContext>, id: string, 
   // Arranging and undoing: inside the board's card on a board you made (so the whole area folds), on their own for Pulse and an archived board.
   const boardTools = html`
     <div class="board-toolbar" data-canvas-toolbar>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-edit>Arrange</button>
-      <button type="button" class="btn btn--ghost btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
+      <button type="button" class="btn btn--sm" data-canvas-edit>Arrange</button>
+      <button type="button" class="btn btn--sm" data-canvas-suggest title="sua suggests an arrangement; you review it before saving">Suggest a layout</button>
       ${r.board.hasPrevious ? html`<button type="button" class="btn btn--ghost btn--sm" data-canvas-undo title="Go back to the layout before the last save">Undo last save</button>` : html``}
       <span class="board-toolbar__status dim" data-canvas-status role="status" aria-live="polite"></span>
       ${!isPulse && archivedAt === undefined ? html`<form method="POST" action="/dashboards/${encodeURIComponent(id)}/archive" class="board-toolbar__archive" style="margin: 0 0 0 auto;">
