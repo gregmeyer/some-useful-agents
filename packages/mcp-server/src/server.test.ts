@@ -489,6 +489,41 @@ describe('MCP board tools', () => {
     }
   });
 
+  it("edition-read says how Today's edition is made and how fresh each part is; edition-apply changes it, with undo and a policy", async () => {
+    const dbPath = join(dataDir, 'runs.db');
+    const agents = new AgentStore(dbPath);
+    agents.createAgent(parseAgent(`id: wx\nname: Weather\nstatus: active\nschedule: "0 7 * * *"\nsignal:\n  title: Weather\n  template: text-headline\nnodes:\n  - id: n\n    type: shell\n    command: echo hi\n`), 'cli');
+    agents.close();
+    const { RunStore, EditionPrefsStore } = await import('@some-useful-agents/core');
+    const runs = new RunStore(dbPath);
+    const old = new Date(Date.now() - 15 * 86_400_000).toISOString();
+    runs.createRun({ id: 'r-wx', agentName: 'wx', status: 'completed', startedAt: old, completedAt: old, result: '{}', triggeredBy: 'schedule' } as never);
+    runs.close();
+    serverHandle = await startMcpServer({ port: 0, host: '127.0.0.1', agentDirs: [dataDir], dbPath, secretsPath: join(dataDir, 'secrets.enc'), tokenPath: join(dataDir, 'mcp-token') });
+    const c = await client();
+    try {
+      const read = text(await c.callTool({ name: 'edition-read', arguments: {} }));
+      expect(read).toContain("How it's made: automatically (no changes of yours).");
+      expect(read).toContain('- Weather (wx): not in it, result 15 days old, scheduled');
+      const applied = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'include', agentId: 'wx' }] } });
+      expect(applied.isError).toBeFalsy();
+      expect(text(applied)).toContain('Always show Weather.');
+      expect(text(await c.callTool({ name: 'edition-read', arguments: {} }))).toContain('- Weather (wx): in today\'s edition, result 15 days old, always shown');
+      const bad = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'lead', agentId: 'nope' }] } });
+      expect(bad.isError).toBe(true);
+      expect(text(await c.callTool({ name: 'edition-apply', arguments: { undo: true } }))).toContain('Put back how the edition was');
+      const prefs = new EditionPrefsStore(new RunStore(dbPath).databaseHandle());
+      expect(prefs.get().include).toEqual([]);
+      mkdirSync(join(dataDir, '.sua'), { recursive: true });
+      writeFileSync(join(dataDir, '.sua', 'policies.json'), JSON.stringify({ version: 1, defaultAction: 'allow', rules: [{ tool: 'edition-apply', resources: ['today'], effect: 'deny', reason: 'Leave the edition alone.' }] }));
+      const denied = await c.callTool({ name: 'edition-apply', arguments: { ops: [{ op: 'numbers', on: false }] } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toBe('Leave the edition alone.');
+    } finally {
+      await c.close();
+    }
+  });
+
   it('items-read lists what needs attention, filtered, as text or JSON', async () => {
     const dbPath = join(dataDir, 'runs.db');
     const agents = new AgentStore(dbPath);

@@ -723,6 +723,25 @@ export function parseProposedActions(
       });
       continue;
     }
+    // `edition-ask` works out a change to Pulse's Today's edition from the operator's words (route-handled):
+    // the changes wait on Pulse, one row each, until they're applied there.
+    if (type === 'edition-ask') {
+      const ask = e.inputs && typeof e.inputs === 'object' && !Array.isArray(e.inputs) && typeof (e.inputs as Record<string, unknown>).ASK === 'string' ? ((e.inputs as Record<string, unknown>).ASK as string).trim() : '';
+      if (!ask) {
+        rejected.push({ agentId: 'edition-ask', reason: 'edition-ask requires inputs.ASK' });
+        continue;
+      }
+      accepted.push({
+        kind: 'action',
+        status: 'proposed',
+        agentId: 'edition-ask',
+        inputs: { ASK: ask.slice(0, 500) },
+        rationale: rationaleRaw || undefined,
+        effect: 'read',
+        ctaLabel: 'Ask',
+      });
+      continue;
+    }
     // `board-build` builds a whole board from a request (route-handled pseudo-agent).
     if (type === 'board-build') {
       const inputs: Record<string, string> = {};

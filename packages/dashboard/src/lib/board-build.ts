@@ -12,6 +12,7 @@
  * Progress is stored (BoardBuildStore), so the board page shows it and a
  * restart mid-build is reported instead of leaving a silent half-board.
  */
+import { TODAY_BOARD_ID, TODAY_BOARD_NAME, editionPrefsStoreOf } from './today-edition.js';
 import {
   BoardBuildStore,
   queueBoardBuild,
@@ -242,7 +243,7 @@ function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[
   });
   const done = builds.get(buildId)!;
   const name = r.name ?? ctx.dashboardsStore?.getDashboard(build.boardId)?.name ?? build.boardId;
-  const link = `/dashboards/${encodeURIComponent(build.boardId)}`;
+  const link = build.boardId === TODAY_BOARD_ID ? '/pulse' : `/dashboards/${encodeURIComponent(build.boardId)}`;
   const lines = failedBuild
     ? [`Your request: "${build.request}"`, '', `What went wrong: ${r.error}`, '', `The empty board is [${name}](${link}); delete it, or try again with a different request.`]
     : [
@@ -295,7 +296,7 @@ export function latestBoardBuild(ctx: Ctx, boardId: string): BoardBuild | undefi
  */
 export function draftForBoard(ctx: Ctx, boardId: string, missing: Array<{ purpose: string; suggestedName?: string }>, goal: string): { buildId: string; work: Promise<void> } {
   const builds = buildsOf(ctx);
-  const name = ctx.dashboardsStore?.getDashboard(boardId)?.name ?? new BoardsStore(ctx.runStore.databaseHandle()).loadOrDerive(boardId)?.name ?? boardId;
+  const name = boardId === TODAY_BOARD_ID ? TODAY_BOARD_NAME : ctx.dashboardsStore?.getDashboard(boardId)?.name ?? new BoardsStore(ctx.runStore.databaseHandle()).loadOrDerive(boardId)?.name ?? boardId;
   const build = builds.create(boardId, goal || `What "${name}" is for`, { keepName: true, origin: 'review' });
   builds.update(build.id, { phase: 'drafting', missing, detail: `Drafting ${String(missing.length)} new agent${missing.length === 1 ? '' : 's'} for this board…` });
   const work = draftMissing(ctx, build.id, { request: build.request, name, missing }).catch((err: unknown) => {
@@ -414,7 +415,16 @@ export function decideBoardDrafts(ctx: Ctx, buildId: string, decision: 'approve'
   } else {
     for (const id of ids) ctx.agentStore.updateAgentMeta(id, { status: 'active' });
     const withTiles = ids.filter((id) => Boolean(withTileSignal(ctx.agentStore.getAgent(id))?.signal));
-    if (withTiles.length) {
+    const isEdition = build.boardId === TODAY_BOARD_ID;
+    // Today's edition has no page to place them on: each is always shown (ADR-0101), so it's in the edition once its first run has a result.
+    if (isEdition && withTiles.length) {
+      try {
+        const store = editionPrefsStoreOf(ctx);
+        const p = store.get();
+        store.save({ ...p, include: [...p.include.filter((x) => !withTiles.includes(x)), ...withTiles], hidden: p.hidden.filter((x) => !withTiles.includes(x)) });
+      } catch { /* active anyway; "always show it" from the edition's Ask box */ }
+    }
+    if (withTiles.length && !isEdition) {
       const boards = new BoardsStore(ctx.runStore.databaseHandle());
       const current = boards.loadDocOrDerive(build.boardId);
       if (current) {
@@ -433,12 +443,12 @@ export function decideBoardDrafts(ctx: Ctx, buildId: string, decision: 'approve'
       return agent && !needsInput(agent) ? executeAgentWithRetry(agent, { triggeredBy: 'dashboard' }, runDeps(ctx)).catch(() => { /* shows as a failed run */ }) : Promise.resolve();
     });
     // A page sua composed takes the new agents in once they've run; a page you picked or asked for is left as it is.
-    if (withTiles.length) {
+    if (withTiles.length && !isEdition) {
       const boards = new BoardsStore(ctx.runStore.databaseHandle());
       if (boardPageIsItsOwn(boards.get(build.boardId) ?? {})) void Promise.all(runs).then(() => decideBoardPage(ctx, build.boardId, { again: true, about: build.request })).catch(() => { /* the board stays as it is */ });
     }
-    builds.update(buildId, { approval: 'approved', placed: [...build.placed, ...withTiles], detail: `Added ${withTiles.length} new agent${withTiles.length === 1 ? '' : 's'} to the board.` });
-    message = `Approved: ${ids.length} agent${ids.length === 1 ? '' : 's'} now active${withTiles.length ? `, ${withTiles.length} added to the board and running` : ''}.`;
+    builds.update(buildId, { approval: 'approved', placed: [...build.placed, ...withTiles], detail: `Added ${withTiles.length} new agent${withTiles.length === 1 ? '' : 's'} to ${isEdition ? "Today's edition" : 'the board'}.` });
+    message = `Approved: ${ids.length} agent${ids.length === 1 ? '' : 's'} now active${withTiles.length ? `, ${withTiles.length} ${isEdition ? "running, and in Today's edition once there's a result" : 'added to the board and running'}` : ''}.`;
   }
   if (build.approvalMessageId && ctx.inboxStore) {
     try {

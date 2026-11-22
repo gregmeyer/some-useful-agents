@@ -21,31 +21,8 @@ export const TODAY_BOARD_ID = 'today';
 export const TODAY_BOARD_NAME = "Today's edition";
 const DAY = 86_400_000;
 
-/**
- * Who is in today's edition, in order: active, scheduled agents (not sua's
- * own) whose latest finished run is from the last 24 hours, newest first,
- * with `lead` moved to the front. Your preferences (ADR-0076) come first:
- * an agent you left out isn't in it, and one you said to always show is,
- * whenever it has a result, schedule or not. Pure.
- */
-export function editionAgents<A extends Pick<Agent, 'id' | 'status' | 'schedule'>>(agents: readonly A[], latest: (agentId: string) => Pick<Run, 'startedAt' | 'completedAt'> | undefined, now = Date.now(), lead?: string, prefs?: Pick<EditionPrefs, 'hidden' | 'include'>): A[] {
-  const fresh: Array<{ a: A; at: string }> = [];
-  const hidden = new Set(prefs?.hidden ?? []);
-  const always = new Set(prefs?.include ?? []);
-  for (const a of agents) {
-    if (a.status !== 'active' || SYSTEM_AGENT_IDS.has(a.id) || hidden.has(a.id)) continue;
-    if (!a.schedule && !always.has(a.id)) continue;
-    const run = latest(a.id);
-    const at = run?.completedAt ?? run?.startedAt;
-    if (!at || (now - Date.parse(at) > DAY && !always.has(a.id))) continue;
-    fresh.push({ a, at });
-  }
-  fresh.sort((x, y) => y.at.localeCompare(x.at) || x.a.id.localeCompare(y.a.id));
-  const out = fresh.map((x) => x.a);
-  const i = lead ? out.findIndex((a) => a.id === lead) : -1;
-  if (i > 0) out.unshift(...out.splice(i, 1));
-  return out;
-}
+import { editionAgents } from '@some-useful-agents/core';
+export { editionAgents };
 
 const slug = (id: string) => id.replace(/[^a-zA-Z0-9]+/g, '_');
 

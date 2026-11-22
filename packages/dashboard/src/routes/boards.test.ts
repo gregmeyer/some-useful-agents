@@ -348,6 +348,38 @@ describe('boards are canvases', () => {
     expect(tabs[0].title).toBe('Needs attention (1)');
   });
 
+  it("Ask sua: an edition-ask action works out a change to Today's edition; it waits on Pulse, one row each", async () => {
+    await setup();
+    const { parseProposedActions } = await import('./inbox-plan.js');
+    const { executeEditionAskAction } = await import('./inbox-engine.js');
+    const ok = parseProposedActions([{ type: 'edition-ask', rationale: 'r', inputs: { ASK: 'lead with markets' } }], []);
+    expect(ok.accepted[0]).toMatchObject({ agentId: 'edition-ask', effect: 'read', inputs: { ASK: 'lead with markets' } });
+    expect(parseProposedActions([{ type: 'edition-ask', inputs: {} }], []).rejected[0].reason).toContain('ASK');
+    let asked = '';
+    ctx.editionEditorRun = async (inputs) => { asked = inputs.ASK; return `<edition>${JSON.stringify({ ops: [{ op: 'numbers', on: false }], say: 'No numbers band.' })}</edition>`; };
+    const out = executeEditionAskAction(ctx, ok.accepted[0] as never);
+    expect(out).toMatchObject({ status: 'completed' });
+    expect(out.summary).toContain('/pulse');
+    await ctx.boardReviewWork;
+    expect(asked).toBe('lead with markets');
+    expect(ctx.editionAsk).toMatchObject({ status: 'ready', changes: ['Drop the numbers band'] });
+    expect(executeEditionAskAction(ctx, { ...(ok.accepted[0] as object), inputs: { ASK: '  ' } } as never).status).toBe('failed');
+  });
+
+  it("a new agent drafted for Today's edition (ADR-0101): approved, it's active, runs once, and is always shown; the message stays on the edition", async () => {
+    const app = await setup();
+    const { BoardBuildStore, EditionPrefsStore } = await import('@some-useful-agents/core');
+    ctx.agentStore.createAgent({ id: 'email-digest', name: 'Email digest', status: 'draft', source: 'local', mcp: false,
+      nodes: [{ id: 'n', type: 'shell', command: 'echo hi' }], signal: { title: 'Email digest', template: 'text-headline', mapping: { headline: 'result' } } } as never, 'cli');
+    const builds = new BoardBuildStore(ctx.runStore.databaseHandle());
+    const b = builds.create('today', 'Know what changed overnight', { keepName: true, origin: 'review' });
+    builds.update(b.id, { phase: 'done', drafts: [{ purpose: 'Overnight email', ok: true, id: 'email-digest', name: 'Email digest', hasTile: true }], approval: 'pending' });
+    const res = await post(app, `/boards/builds/${b.id}/approve`, {});
+    expect(decodeURIComponent(res.headers.location)).toBe("/pulse?edition=Approved: 1 agent now active, 1 running, and in Today's edition once there's a result.");
+    expect(ctx.agentStore.getAgent('email-digest')?.status).toBe('active');
+    expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual(['email-digest']);
+  });
+
   it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
     const app = await setup();
     const { EditionPrefsStore } = await import('@some-useful-agents/core');
@@ -426,7 +458,7 @@ describe('boards are canvases', () => {
     const goal = await post(app, '/boards/today/goal', { goal: 'Know what changed overnight' });
     expect(decodeURIComponent(goal.headers.location)).toBe('/pulse?edition=Goal saved.');
     expect((await get(app, goal.headers.location)).text).toContain('<span class="board-goal__text">Know what changed overnight</span>');
-    // The review reads the edition as it is drawn now, and the agents that could be brought in; no new agents, no note.
+    // The review reads the edition as it is drawn now, and the agents that could be brought in; a new agent for a gap (ADR-0101), no note.
     const asked: Record<string, string>[] = [];
     ctx.boardReviewRun = async (inputs) => {
       asked.push(inputs);
@@ -435,7 +467,7 @@ describe('boards are canvases', () => {
         { type: 'remove', agentId: 'routine', why: 'An evening checklist says nothing about what changed overnight.' },
         { type: 'add-agent', agentId: 'journal', why: 'Returns your entries, which nothing here shows.' },
         { type: 'content', kind: 'top-story', from: 'hn', why: 'Its first story is the one to read.' },
-        { type: 'draft', purpose: 'A summary of overnight email that needs a reply', why: 'Not offered for the edition.' },
+        { type: 'draft', purpose: 'A summary of overnight email that needs a reply', why: 'Nothing here covers email.' },
         { type: 'content', kind: 'note', why: 'Not for the edition.' },
       ] })}</review>`;
     };
@@ -449,11 +481,13 @@ describe('boards are canvases', () => {
     // news, weather and notes have never run: nothing to show, so not offered.
     expect(JSON.parse(asked[0].CANDIDATES).map((a: { id: string }) => a.id)).not.toContain('notes');
     const r = (await get(app, '/boards/today/review.json')).body;
-    expect(r).toMatchObject({ round: 1, status: 'ready', open: 4 });
+    expect(r).toMatchObject({ round: 1, status: 'ready', open: 5 });
     page = await get(app, '/pulse');
     expect(page.text).toContain('sua suggests');
     expect(page.text).toContain('Leave out The routine');
-    expect(page.text).not.toContain('Draft a new agent');
+    expect(page.text).toContain('A summary of overnight email that needs a reply');
+    // Skipped here (drafting runs the drafter); taking one drafts it behind one approval, as on a board.
+    await post(app, `/boards/today/review/${String(r.id)}/skip`, { key: 'draft:a-summary-of-overnight-email-that-needs-a-reply' });
     // Nothing has changed yet.
     expect(prefs()).toEqual({ hidden: [], include: [], wide: [], narrow: [] });
     // Take them all: preferences, not a saved page.

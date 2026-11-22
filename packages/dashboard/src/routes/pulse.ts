@@ -247,7 +247,7 @@ pulseRouter.post('/pulse/edition/ask/:id/apply', (req: Request, res: Response) =
 /** One row of the proposal: apply or skip a change, or run a part again (its own button; never in Apply all). */
 pulseRouter.post('/pulse/edition/ask/:id/row/:n', (req: Request, res: Response) => {
   const what = String((req.body as { do?: unknown } | undefined)?.do ?? '');
-  if (what !== 'apply' && what !== 'skip' && what !== 'run') { res.redirect(303, '/pulse'); return; }
+  if (what !== 'apply' && what !== 'skip' && what !== 'run' && what !== 'draft') { res.redirect(303, '/pulse'); return; }
   const out = actOnEditionRow(getContext(req.app.locals), String(req.params.id), Number(req.params.n), what);
   res.redirect(303, `/pulse?edition=${encodeURIComponent(out.message)}`);
 });

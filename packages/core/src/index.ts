@@ -679,6 +679,7 @@ export * from './notebook-request.js';
 export * from './board-review.js';
 export * from './edition-prefs.js';
 export * from './edition-actions.js';
+export * from './edition-facts.js';
 
 // Items: the canonical layer of goal surfaces (ADR-0049, S1).
 export * from './items/index.js';

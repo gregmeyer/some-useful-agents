@@ -703,6 +703,16 @@ agent, notebook, run, page. "This dashboard", "this board", "this agent",
      "inputs": { "BOARD": "<page id>", "ASK": "<what they asked, in their words>" } }`
   Not for Pulse (it keeps its grid). Arranging moves tiles; a page
   composes parts from what the agents found.
+- Pulse's Today's edition (page id "today", or they say "the edition",
+  "Today's edition", "my morning page on Pulse", "what's stale on
+  Pulse"): propose ONE `edition-ask` action with their words. sua's
+  edition editor works out the changes (what leads, what's left out or
+  always shown, a column, the numbers band, a line of theirs, running an
+  old part again); they wait on Pulse, one row each, until applied there:
+  `{ "type": "edition-ask", "rationale": "…",
+     "inputs": { "ASK": "<what they asked, in their words>" } }`
+  Not arrange-board or board-page (the edition can't be arranged), and not
+  adjust-surface (that is Home's Today).
 - kind "agent": the conversation is about that agent (FOCUS_AGENT).
 - kind "notebook": answer from that notebook in NOTEBOOKS.
 - NEVER propose adjust-surface (a Home change) unless the operator says

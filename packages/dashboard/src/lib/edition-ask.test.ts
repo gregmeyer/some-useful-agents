@@ -57,4 +57,15 @@ describe("what sua works out from an ask about the edition", () => {
     expect(parseEditionAnswer(answer({ ops: [{ op: 'auto', agentId: 'digest' }] }), EMPTY_EDITION_PREFS, known, title, parts)).toEqual({ error: '"digest" isn\'t one you always show.' });
     expect(describeEditionOp({ op: 'auto', agentId: 'hn' }, title)).toContain('Stop always showing HN Digest');
   });
+
+  it('offers to draft a new agent for a gap (ADR-0101): a row of its own, at most two, never one you already have', () => {
+    const existing = new Set(['hn', 'hn digest', 'job-digest', 'job digest']);
+    const p = (v: unknown) => parseEditionAnswer(answer(v), EMPTY_EDITION_PREFS, known, title, new Map(), existing);
+    const out = p({ ops: [], actions: [{ do: 'draft', purpose: 'Overnight email that needs a reply.', suggestedName: 'Inbox triage' }] }) as { rows: Array<{ kind: string; text: string }> };
+    expect(out.rows).toMatchObject([{ kind: 'action', text: 'Draft a new agent: Overnight email that needs a reply' }]);
+    expect(p({ actions: [{ do: 'draft', purpose: 'Jobs that match my profile', suggestedName: 'Job Digest' }] })).toEqual({ error: 'You already have an agent called "Job Digest": bring it in instead of drafting one.' });
+    expect(p({ actions: [1, 2, 3].map((i) => ({ do: 'draft', purpose: `Something new number ${String(i)} to watch` })) })).toEqual({ error: 'At most 2 new agents at a time.' });
+    expect(p({ actions: [{ do: 'draft', purpose: 'short' }] })).toEqual({ error: "Action 1 isn't one sua can offer here." });
+  });
 });
+
