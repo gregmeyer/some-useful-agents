@@ -303,3 +303,22 @@ describe('drawing a TL;DR card composed as a view (ADR-0096)', () => {
     expect(String(tldrCard({ title: 'T', leadLabel: 'L', lead: 'x', leadFacts: [], stats: [], points: [] } as never, { spec }))).not.toContain('tl--view');
   });
 });
+
+describe('a composed card fills its box (no empty band above the foot)', () => {
+  it('a row with a cover runs to the edges, the cover beside its parts; the view sits in a part that fills a fixed box', async () => {
+    const { tldrCard, TLDR_CSS } = await import('./notebook-tldr.js');
+    const t = { title: 'T', leadLabel: 'The answer', lead: 'A sandwich', leadFacts: [], sentence: true, stats: [], points: ['One'], photos: [{ src: 'data:image/jpeg;base64,AAAA', credit: 'A. Photographer', name: 'A sandwich' }] };
+    const view = [
+      { id: 'root', component: 'Columns', children: ['cover', 'details'], widths: [5, 7] },
+      { id: 'cover', component: 'PhotoCover', photo: { path: '/tldr/photos/0' }, headline: { path: '/tldr/headline' }, height: 'tall' },
+      { id: 'details', component: 'Column', children: ['points'] },
+      { id: 'points', component: 'TldrPart', part: 'points' },
+    ];
+    const out = String(tldrCard(t as never, { spec: { size: 'square', tone: 'editorial', layout: 'stack', parts: ['lead'], view: view as never } }));
+    expect(out).toMatch(/<div class="tlv__main"><div class="tlv__row is-bleed" style="grid-template-columns:minmax\(0, 5fr\) minmax\(0, 7fr\)"><section class="tlv__cover/);
+    expect(out).toContain('<div class="tlv__cell"><div class="tlv__col">');
+    // In a fixed box the view's part grows, and a cover in it takes the room the rest leaves.
+    expect(TLDR_CSS).toContain('.tl--view.tl--square .tlv__main');
+    expect(TLDR_CSS).toContain('.tl--view.tl--square .tlv__main > .tlv__row.is-bleed');
+  });
+});

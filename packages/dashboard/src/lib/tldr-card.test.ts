@@ -30,12 +30,12 @@ describe('the TL;DR card when you ask for it (ADR-0093)', () => {
 });
 
 describe('a card set to Always shows on a page with no place for it, its brief and its PDF', () => {
-  it('gets a full-width "In short" place after the opening row; a page with one is left as it is', async () => {
+  it('gets a full-width "In short" place leading the page, under its header; a page with one is left as it is', async () => {
     const { withTldrCardSlot, layoutPreset } = await import('@some-useful-agents/core');
     const runbook = layoutPreset('runbook')!.layout.components;
     const out = withTldrCardSlot(runbook);
     const root = out.find((c) => c.id === 'root')!;
-    expect((root.children as string[]).slice(0, 3)).toEqual(['header', 'top', 'tldr_card_p']);
+    expect((root.children as string[]).slice(0, 3)).toEqual(['header', 'tldr_card_p', 'top']);
     expect(out.find((c) => c.id === 'tldr_card_p')).toMatchObject({ component: 'Panel', title: 'In short', child: 'tldr_card' });
     expect(out.find((c) => c.id === 'tldr_card')).toMatchObject({ component: 'Picture', picture: { path: '/notebook/picture' } });
     expect(withTldrCardSlot(out)).toEqual(out);
