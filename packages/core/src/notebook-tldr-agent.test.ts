@@ -16,11 +16,11 @@ describe('notebook-tldr agent', () => {
     const agent = parseAgent(yaml);
     expect(agent.id).toBe('notebook-tldr');
     expect(SYSTEM_AGENT_IDS.has(agent.id)).toBe(true);
-    expect(Object.keys(agent.inputs ?? {})).toEqual(['NOTEBOOK', 'CARD', 'OPTIONS', 'ASK', 'CURRENT', 'ERRORS']);
+    expect(Object.keys(agent.inputs ?? {})).toEqual(['NOTEBOOK', 'CARD', 'OPTIONS', 'PREFER', 'ASK', 'CURRENT', 'ERRORS']);
     expect(agent.nodes).toHaveLength(1);
     const node = agent.nodes[0] as { type: string; maxTurns?: number; prompt: string; outputContract?: { mustMatch?: string } };
     expect(node).toMatchObject({ type: 'llm-prompt', maxTurns: 1 });
-    for (const input of ['NOTEBOOK', 'CARD', 'OPTIONS', 'ASK', 'CURRENT', 'ERRORS']) expect(node.prompt).toContain(`{{inputs.${input}}}`);
+    for (const input of ['NOTEBOOK', 'CARD', 'OPTIONS', 'PREFER', 'ASK', 'CURRENT', 'ERRORS']) expect(node.prompt).toContain(`{{inputs.${input}}}`);
     // It chooses and may write two lines; it never supplies a number.
     expect(node.prompt).toContain("You choose how; you don't draw it.");
     expect(node.prompt).toContain('every number or name in them must be in CARD');

@@ -771,7 +771,9 @@ export function registerTools(server: McpServer, opts: RegisterToolsOptions): vo
         return { content: [{ type: 'text' as const, text: `Back to the standard picture. Undo brings the redrawn one back. Picture: ${where}` }] };
       }
       // draw: what's given over how it's drawn now.
-      const was: Partial<TldrSpec> = nb.tldr ?? {};
+      // A layout or parts given replace a composed card (its view would otherwise keep drawing it).
+      const { view: _view, ...unviewed } = nb.tldr ?? {};
+      const was: Partial<TldrSpec> = layout || parts ? unviewed : nb.tldr ?? {};
       const merged: Record<string, unknown> = { ...was, ...(size ? { size } : {}), ...(tone ? { tone } : {}), ...(layout ? { layout } : {}), ...(parts ? { parts } : {}), ...(bars !== undefined ? { bars } : {}), ask: ask ?? 'Redrawn from an MCP client', at: new Date().toISOString() };
       if (headline !== undefined) merged.headline = headline || undefined;
       if (takeaway !== undefined) merged.takeaway = takeaway || undefined;

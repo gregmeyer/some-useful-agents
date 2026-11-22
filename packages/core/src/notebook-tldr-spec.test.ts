@@ -81,3 +81,29 @@ describe('numbers in words written for the picture', () => {
     expect(strayTldrNumbers(['Top price $2,131'], known)).toEqual(['2131']);
   });
 });
+
+describe("the TL;DR picture a notebook's page prefers (ADR-0098)", () => {
+  const full = { bars: true, photos: 3, leadPicture: true };
+  it('each layout leads with its own thing, always landscape', async () => {
+    const { tldrPreference } = await import('./notebook-tldr-spec.js');
+    const lead = (preset: string) => tldrPreference(preset, full).lead;
+    expect(['shortlist', 'watch'].map(lead)).toEqual(['bars', 'bars']);
+    expect(['dossier', 'company'].map(lead)).toEqual(['photo', 'photo']);
+    expect(lead('subject')).toBe('photos');
+    expect(['answer', 'runbook', 'plan'].map(lead)).toEqual(['headline', 'headline', 'headline']);
+    expect(tldrPreference('subject', full)).toEqual({ size: 'landscape', lead: 'photos', why: "a subject briefing: its sources' photos in a grid" });
+  });
+  it("steps down to what the card can draw, and a page with no preset goes by what it has", async () => {
+    const { tldrPreference, tldrPreferenceWords, tldrPreferenceGuide } = await import('./notebook-tldr-spec.js');
+    expect(tldrPreference('subject', { bars: false, photos: 1, leadPicture: false }).lead).toBe('photo');
+    expect(tldrPreference('subject', { bars: false, photos: 0, leadPicture: false }).lead).toBe('headline');
+    expect(tldrPreference('dossier', { bars: false, photos: 0, leadPicture: false }).lead).toBe('headline');
+    expect(tldrPreference('shortlist', { bars: false, photos: 0, leadPicture: false }).lead).toBe('points');
+    expect(tldrPreference(undefined, { bars: false, photos: 2, leadPicture: false }).lead).toBe('photos');
+    expect(tldrPreference(undefined, { bars: false, photos: 0, leadPicture: true }).lead).toBe('photo');
+    expect(tldrPreference(undefined, { bars: false, photos: 0, leadPicture: false })).toEqual({ size: 'landscape', lead: 'headline', why: 'this page: the headline, then its findings or steps' });
+    const p = tldrPreference('runbook', full);
+    expect(tldrPreferenceWords(p)).toBe('Landscape 1200×627, leading with the headline, then its findings or steps (a runbook)');
+    expect(tldrPreferenceGuide(p)).toContain('Use this unless ASK names a size or what to lead with.');
+  });
+});

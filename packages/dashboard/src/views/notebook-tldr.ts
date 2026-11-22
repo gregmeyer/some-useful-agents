@@ -88,6 +88,21 @@ export const chosenPhotoPath = (nb: Pick<Notebook, 'id' | 'photo'>): string | un
 export const TLDR_PHOTOS_MAX = 4;
 
 /**
+ * Where a picture came from, as one picture: its site, folder and file name
+ * up to the first "." or "_" ("about-family.BPO23Qhu_Zi2rYs.webp" and
+ * "about-family.BPO23Qhu.webp" are one picture at two sizes). Pure.
+ */
+export function pictureKey(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split('/');
+    const file = (parts.pop() ?? '').split(/[._]/)[0].toLowerCase();
+    return `${u.hostname.replace(/^www\./, '').toLowerCase()}${parts.join('/').toLowerCase()}/${file}`;
+  } catch { return undefined; }
+}
+
+/**
  * A subject briefing's photos for its picture: each source's own picture
  * (kept from its page, never an example photo, a logo or a drawing), the
  * subject's own site first, one a picture (two sources sharing one show it
@@ -100,9 +115,13 @@ export function tldrPhotos(nb: Pick<Notebook, 'briefOn'>, options: readonly Note
   const real = options.filter((o) => !o.ruledOut && o.image && (o.imageKind === 'listing' || o.imageKind === undefined));
   const ordered = [...real.filter((o) => own && host(o.link) === own), ...real.filter((o) => !(own && host(o.link) === own))];
   const out: TldrPhoto[] = [];
+  // The same picture filed under two sources (or a resized copy of it) has two addresses here: where it came from says it's the same.
+  const seen = new Set<string>();
   for (const o of ordered) {
     const src = pictures(o);
-    if (!src || out.some((x) => x.src === src)) continue;
+    const same = pictureKey(o.imageSource);
+    if (!src || out.some((x) => x.src === src) || (same && seen.has(same))) continue;
+    if (same) seen.add(same);
     out.push({ src, credit: host(o.link) || 'source', name: clip(o.name, 60) });
     if (out.length >= TLDR_PHOTOS_MAX) break;
   }
@@ -402,6 +421,7 @@ export const TLDR_CSS = `
 /* A card composed as a view (ADR-0096): a cover runs to the edges, the rest sits in the card's margins. */
 .tl--view { padding: 0 0 32px; gap: 0; align-content: start; overflow: hidden; }
 .tlv__pad { padding: 28px 56px 0; min-width: 0; }
+.tlv__pad .tlv__cover { border-radius: 10px; }
 .tlv__col { display: grid; gap: 22px; align-content: start; min-width: 0; }
 .tlv__row { display: grid; gap: 28px; align-items: start; min-width: 0; }
 .tlv__h2 { margin: 0; font: 700 28px/1.2 var(--display); text-wrap: balance; }
@@ -780,10 +800,11 @@ function tldrViewCard(view: readonly ViewComponent[], t: TldrData, spec: TldrSpe
     const w = Array.isArray(c.widths) ? (c.widths as unknown[]).map((x) => (typeof x === 'number' && x > 0 ? x : 1)) : [];
     return html`<div class="tlv__row is-bleed" style="grid-template-columns:${ids.map((_, i) => `minmax(0, ${String(w[i] ?? 1)}fr)`).join(' ')}">${ids.map((k) => (byId.get(k)?.component === 'PhotoCover' ? node(k) : html`<div class="tlv__cell">${node(k)}</div>`)) as unknown as SafeHtml[]}</div>`;
   };
-  const body = top.map((id) => {
+  const body = top.map((id, i) => {
     const c = byId.get(id);
     if (c?.component === 'PhotoCover') return node(id);
-    if (bleeds(c)) return edgeRow(c!);
+    // Only a row that opens the card runs its photo to the edges; under a header it sits in the margins like the rest (else it butts the headline and juts out at the side).
+    if (bleeds(c) && i === 0) return edgeRow(c!);
     return html`<div class="tlv__pad">${node(id)}</div>`;
   });
   // In a fixed box (landscape, square, portrait) the view fills it: a cover takes the room the rest leaves, so nothing sits empty above the foot.

@@ -13,11 +13,12 @@ import type { TldrRedrawState } from '../lib/notebook-tldr-redraw.js';
 
 /** Things to ask for with one press: the button's words, and what it asks. */
 export const TLDR_STARTERS = [
+  { label: 'Fit this page', ask: 'Draw it the way this page prefers' },
   { label: 'For LinkedIn', ask: 'Make it suitable for sharing on LinkedIn' },
   { label: 'More editorial', ask: 'Make it more editorial' },
   { label: 'Lead with the photo', ask: 'Lead with the photo: make the picture the main thing' },
   { label: 'Use its photos', ask: 'Use the photos from the notebook: show them side by side' },
-  { label: 'Use its drawing', ask: 'Use the notebook\'s drawing as the picture (picture: drawing): its colour and icon across the top' },
+  { label: 'Use its drawing', ask: 'Use the notebook\'s drawing as the picture: its colour and icon across the top' },
   { label: 'Be more creative', ask: 'Be more creative' },
   { label: 'Just the numbers', ask: 'Simpler: just the numbers and the bars' },
 ] as const;
@@ -27,12 +28,12 @@ export function tldrSpecWords(spec: TldrSpec | undefined): string {
   if (!spec) return 'The standard picture: as tall as it needs, plain, everything in one column.';
   const size = TLDR_SIZES[spec.size];
   // Composed (ADR-0096): what it opens with, from its view.
-  const composedLay = spec.view?.length ? (spec.view.some((c) => c.component === 'PhotoCover') ? 'composed: the headline over the photo' : spec.view.some((c) => c.component === 'PhotoGrid') ? 'composed: its photos in a grid' : 'composed by sua') : undefined;
+  const composedLay = spec.view?.length ? (spec.view.some((c) => c.component === 'PhotoCover') ? 'composed: the headline over the photo' : spec.view.some((c) => c.component === 'PhotoGrid') ? 'composed: its photos in a grid' : spec.view.some((c) => c.component === 'TldrPart' && c.part === 'bars') ? 'composed: the options as bars' : 'composed by sua') : undefined;
   const lay = composedLay ?? { stack: 'one column', split: 'words beside the bars or points', hero: 'one thing very large', cover: 'the picture across the top', lineup: 'the top options as pictures side by side', spotlight: 'the picture down one side', gallery: 'its own photos side by side' }[spec.layout];
   return `${size.name}${size.height ? ` ${String(size.width)}×${String(size.height)}` : ''} · ${spec.tone} · ${lay}${spec.picture === 'drawing' ? ' · its drawing' : spec.picture === 'none' ? ' · no picture' : ''}${spec.headline ? ' · with a headline' : ''}`;
 }
 
-export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; undos: number; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
+export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; undos: number; /** What the notebook's page prefers, in words (tldrPreferenceWords). */ prefer?: string; flash?: { kind: 'error' | 'info' | 'ok'; message: string } }): string {
   const { nb, state } = args;
   const id = encodeURIComponent(nb.id);
   const spec = nb.tldr;
@@ -56,9 +57,11 @@ export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; 
           <p class="nbt__spec">${tldrSpecWords(spec)}</p>
           ${spec?.about ? html`<p class="nbt__about">${spec.about}</p>` : html``}
           ${spec?.ask ? html`<p class="nbt__asked">You asked: “${spec.ask}”</p>` : html``}
+          ${args.prefer ? html`<p class="nbt__prefer">This page prefers: ${args.prefer}.</p>` : html``}
         </section>
-        ${busy ? working({ size: 'panel', title: 'sua is redrawing the picture', said: state.ask, text: 'Choosing its size, tone and layout, and what to lead with. Usually under a minute. You can leave this page: the picture changes when it\'s done.', since: state.since }) : html``}
-        ${state?.status === 'failed' ? html`<p class="flash flash--error" role="alert">${state.error ?? 'sua couldn\'t redraw it.'} The picture is as it was.</p>` : html``}
+        ${busy ? working({ size: 'panel', title: 'sua is redrawing the picture', said: state.ask, text: 'Composing the card: its size, tone and what leads. Usually under a minute. You can leave this page: the picture changes when it\'s done.', since: state.since }) : html``}
+        ${state?.status === 'failed' ? html`<div class="flash flash--error nbt__failed" role="alert"><p>${state.error ?? 'sua couldn\'t redraw it.'} The picture is as it was.</p>
+          <form method="POST" action="/notebooks/${id}/tldr/redraw"><input type="hidden" name="ask" value="${state.ask}"><button type="submit" class="btn btn--sm">Try again</button></form></div>` : html``}
         <section class="nbt__ask" aria-labelledby="nbt-ask-h">
           <h2 class="nbt__h" id="nbt-ask-h">Redraw it</h2>
           <form method="POST" action="/notebooks/${id}/tldr/redraw" class="nbt__form">
@@ -69,7 +72,7 @@ export function renderTldrRedraw(args: { nb: Notebook; state?: TldrRedrawState; 
           <form method="POST" action="/notebooks/${id}/tldr/redraw" class="nbt__starters" aria-label="Or start with">
             ${TLDR_STARTERS.map((x) => html`<button type="submit" name="ask" value="${x.ask}" class="nbd-chip nbd-chip--add" title="${x.ask}" ${busy ? unsafeHtml('disabled') : unsafeHtml('')}>${x.label}</button>`) as unknown as SafeHtml[]}
           </form>
-          <p class="nbt__hint">sua chooses from a set of sizes, tones and layouts, or composes the card from its own parts (the headline over a photo, a grid of its photos), and may write a headline. It never changes a number, and every photo is credited.</p>
+          <p class="nbt__hint">sua composes the card from its parts (a photo with the headline over it, a grid of its photos, the numbers, the findings), shaped for this page unless you say otherwise, and may write a headline. It never changes a number, and every photo is credited.</p>
         </section>
         <section class="nbt__acts" aria-label="This picture">
           <a class="btn btn--sm" href="/notebooks/${id}/tldr.png?download=1&amp;v=${v}" download>Download PNG</a>

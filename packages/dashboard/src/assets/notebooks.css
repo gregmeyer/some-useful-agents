@@ -713,7 +713,7 @@ body.has-sua-panel .nb-start__pointer { display: none; }
 .nbt__side { display: grid; gap: var(--space-4); min-width: 0; }
 .nbt__h { margin: 0 0 var(--space-2); font-family: var(--font-mono); font-size: var(--font-size-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
 .nbt__spec { margin: 0; font-size: var(--font-size-sm); }
-.nbt__about, .nbt__asked, .nbt__hint { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); line-height: 1.5; }
+.nbt__about, .nbt__asked, .nbt__prefer, .nbt__hint { margin: var(--space-2) 0 0; font-size: var(--font-size-sm); color: var(--color-text-muted); line-height: 1.5; }
 .nbt__hint { font-size: var(--font-size-xs); }
 .nbt__form { display: grid; gap: var(--space-2); justify-items: start; margin: 0; }
 .nbt__form textarea { width: 100%; }
@@ -1328,3 +1328,6 @@ body.has-sua-panel .nb-toast { display: none; }
 @media (hover: none) { .nbl-card__star .btn-star { opacity: 1; } }
 .nb-hero__star { margin: 0; }
 .nb-hero__star .btn-star { font-size: var(--font-size-lg); padding: var(--space-1); }
+.nbt__failed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.nbt__failed p { margin: 0; flex: 1 1 16rem; }
+.nbt__failed form { margin: 0; }

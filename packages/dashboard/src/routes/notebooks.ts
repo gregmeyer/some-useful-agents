@@ -37,7 +37,7 @@ import {
   type NotebookEntry,
   type NotebookEntryKind,
 } from '@some-useful-agents/core';
-import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT } from '@some-useful-agents/core';
+import { cleanBriefing, cleanTag, cleanTldrSpec, htmlToPdf, htmlToPng, TLDR_SIZES, loadBrandTheme, notebookTags, similarNotebooks, subjectOut, TEMPLATE_SUBJECT, tldrPreferenceWords } from '@some-useful-agents/core';
 import { getContext } from '../context.js';
 import { experimentDataFor } from '../lib/experiment-notebook.js';
 import { rerunNotebook, createNotebookFrom } from '../lib/notebook-create.js';
@@ -50,9 +50,9 @@ import { parseFlash as parseQueryFlash } from './inbox-shared.js';
 import { renderNotebookPage, renderNotebookEdit, renderNotebooksList, formatFieldValue, type PipelineStage } from '../views/notebooks.js';
 import { renderNotebookBrief, type BriefPicture } from '../views/notebook-brief.js';
 import { briefIsPage, renderPageBrief } from '../views/notebook-page-brief.js';
-import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData } from '../views/notebook-tldr.js';
+import { chosenPhotoPath, chosenTldrPhoto, renderNotebookTldr, showsTldrCard, tldrData, type TldrData } from '../views/notebook-tldr.js';
 import { renderTldrRedraw } from '../views/notebook-tldr-redraw.js';
-import { startTldrRedraw, tldrRedrawState, clearTldrRedraw } from '../lib/notebook-tldr-redraw.js';
+import { startTldrRedraw, tldrRedrawState, clearTldrRedraw, tldrPreferenceFor } from '../lib/notebook-tldr-redraw.js';
 import { localBack } from '../lib/local-back.js';
 import { notebookCard, notebookCover, notebookCoverSrc, notebookLead } from '../lib/notebook-card.js';
 import { startNotebookPipeline, pipelineRunning, startNotebookSetup, setupRunning, unfiledRuns, addingRun, addRunToNotebook, skipUnfiledRuns } from '../lib/notebook-pipeline.js';
@@ -1482,6 +1482,17 @@ function tldrPage(req: Request, s: NotebookStore, nb: Notebook, embed: boolean):
   return { page, width: TLDR_SIZES[spec?.size ?? 'standard'].width };
 }
 
+/**
+ * What the picture says now, for sua to compose around: its words and
+ * numbers, and which pictures there are (their addresses stand in for them,
+ * so a card leads with a picture only when there is one).
+ */
+function redrawCard(ctx: ReturnType<typeof getContext>, s: NotebookStore, nb: Notebook): TldrData {
+  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
+  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
+  return tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
+}
+
 /** The Redraw page: the picture as it is, and a box to say how you'd like it drawn. */
 notebooksRouter.get('/notebooks/:id/tldr', (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
@@ -1491,7 +1502,8 @@ notebooksRouter.get('/notebooks/:id/tldr', (req: Request, res: Response) => {
   const state = tldrRedrawState(ctx, nb.id);
   // How the last one ended is said once.
   clearTldrRedraw(ctx, nb.id);
-  res.type('html').send(renderTldrRedraw({ nb, ...(state && state.status !== 'done' ? { state } : {}), undos: s.tldrUndos(nb.id), flash: parseFlash(req) }));
+  const prefer = tldrPreferenceWords(tldrPreferenceFor(nb, redrawCard(ctx, s, nb)));
+  res.type('html').send(renderTldrRedraw({ nb, prefer, ...(state && state.status !== 'done' ? { state } : {}), undos: s.tldrUndos(nb.id), flash: parseFlash(req) }));
 });
 
 /** Whether a redraw is under way (the Redraw page polls this, and reloads when it's over). */
@@ -1510,12 +1522,7 @@ notebooksRouter.post('/notebooks/:id/tldr/redraw', (req: Request, res: Response)
   if (!nb) { res.redirect(303, `/notebooks?flash=${encodeURIComponent('No such notebook.')}`); return; }
   const ask = str(req.body?.ask).trim();
   if (!ask) { res.redirect(303, to('Say how you want it drawn.')); return; }
-  // What the picture says now, for sua to choose around: its words and numbers, and which pictures there are
-  // (their addresses stand in for them: a layout that leads with a picture is chosen only when there is one).
-  const kept = nb.about ? s.aboutPhotos(nb.id) : new Set<string>();
-  const who = nb.about?.person?.name && kept.has('person') ? 'person' as const : nb.about?.company?.name && !nb.about?.person?.name && kept.has('company') ? 'company' as const : undefined;
-  const card = tldrData(nb, s.entries(nb.id, 1000), widgetHistory(ctx, s), (o) => o.image, who ? { src: 'kept', ...(s.aboutPhoto(nb.id, who)?.kind === 'logo' ? { logo: true } : {}) } : undefined, nb.photo ? { src: 'chosen', credit: 'chosen', name: nb.photo.alt ?? nb.title } : undefined);
-  const started = startTldrRedraw(ctx, nb.id, card, ask);
+  const started = startTldrRedraw(ctx, nb.id, redrawCard(ctx, s, nb), ask);
   res.redirect(303, started ? to() : to('sua is already redrawing it. Ask again when it\'s done.'));
 });
 
