@@ -174,10 +174,9 @@ function schedulerTile(ctx: ReturnType<typeof getContext>): PulseTile {
 // ── Routes ───────────────────────────────────────────────────────────────
 
 /**
- * Assemble the live Pulse board data: the 5 virtual system tiles + a tile per
- * visible signal agent (two visibility gates) + the hidden count + dashboards
- * and available packs. Shared by GET /pulse and the Mission Control home (`/`)
- * so both render the identical board with zero divergence. Idempotent —
+ * Assemble the live Pulse board data (All agents, `/pulse/agents`): the 5
+ * virtual system tiles + a tile per visible signal agent (two visibility
+ * gates) + the hidden agents + dashboards and available packs. Idempotent —
  * `autoImportSignalExamples` only upserts examples not already installed.
  */
 export function buildPulseBoardData(ctx: ReturnType<typeof getContext>): {
