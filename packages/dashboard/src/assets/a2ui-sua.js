@@ -1693,6 +1693,63 @@ const AnswerSections = define('AnswerSections', 'sua-a2ui-answer-sections',
     return html`<div>${sections.map((x) => html`<section class="sec">${bare ? nothing : html`<h4 class="h">${x.title}</h4>`}${drawPart(x, { rubric: p.rubric === 'auto' ? 'auto' : !!p.rubric, host: this, style: p.style })}</section>`)}</div>`;
   });
 
+// A runbook read as a lesson (ADR-0097): what you'll make and be able to do,
+// what you'll need (a box to tick for each, kept in this browser), and how it
+// ends: you're done when…, key points, what's next, a self-check.
+const RunbookLesson = define('RunbookLesson', 'sua-a2ui-runbook-lesson',
+  Common.extend({ lesson: CommonSchemas.DynamicValue, part: z.enum(['opening', 'needs', 'finish']), outcome: Str.optional() }).strict(),
+  css`
+    :host { display: block; }
+    .lab { margin: 16px 0 6px; font: 600 var(--font-size-xs)/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-text-muted); }
+    .lab:first-child { margin-top: 0; }
+    .out { margin: 0; font-size: var(--font-size-lg, 17px); line-height: 1.5; color: var(--color-text); }
+    .out strong { font-weight: 600; }
+    ul.goals { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+    ul.goals li { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); gap: 8px; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    ul.goals li::before { content: "→"; color: var(--color-primary); font-family: var(--font-mono); }
+    ul.needs { margin: 0; padding: 0; list-style: none; columns: 2 220px; column-gap: 24px; }
+    ul.needs li { break-inside: avoid; }
+    ul.needs label { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: var(--font-size-md, 14px); line-height: 1.45; color: var(--color-text); cursor: pointer; }
+    ul.needs input { width: 16px; height: 16px; margin: 0; flex: none; transform: translateY(2px); accent-color: var(--color-primary); cursor: pointer; }
+    ul.needs label.on span { color: var(--color-text-muted); text-decoration: line-through; }
+    .count { margin-top: 8px; font: 500 var(--font-size-xs)/1.2 var(--font-mono); color: var(--color-text-muted); }
+    .done { margin: 0; padding: 12px 14px; border-left: 3px solid var(--color-primary); background: var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 10%, transparent)); border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    .done b { margin-right: 6px; color: var(--color-primary); }
+    ol.kp { margin: 0; padding: 0; list-style: none; counter-reset: kp; display: grid; gap: 8px; }
+    ol.kp li { counter-increment: kp; display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: 8px; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    ol.kp li::before { content: counter(kp); font: 700 var(--font-size-lg, 17px)/1.3 var(--font-mono); color: var(--color-primary); }
+    .next { margin: 0; font-size: var(--font-size-md, 14px); line-height: 1.5; color: var(--color-text); }
+    details { border-top: 1px solid var(--color-border); padding: 8px 0; }
+    details:last-of-type { border-bottom: 1px solid var(--color-border); }
+    summary { cursor: pointer; font-size: var(--font-size-md, 14px); line-height: 1.45; color: var(--color-text); }
+    summary::marker { color: var(--color-primary); }
+    details p { margin: 6px 0 0 1.1rem; font-size: var(--font-size-sm); line-height: 1.5; color: var(--color-text-muted); }`,
+  function (p) {
+    const l = p.lesson && typeof p.lesson === 'object' ? p.lesson : {};
+    const list = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x) : []);
+    if (p.part === 'opening') {
+      const text = typeof p.outcome === 'string' ? p.outcome : '';
+      // A lesson leads with its outcome in a sentence; a runbook written before lessons says its whole answer.
+      const out = l.written ? (text.match(/^.*?[.!?](?:\*\*)?(?=\s|$)/)?.[0] ?? text) : text;
+      const goals = list(l.goals);
+      return html`${out ? html`<p class="out">${boldParts(out)}</p>` : nothing}${goals.length ? html`<div class="lab">You\u2019ll be able to</div><ul class="goals">${goals.map((g) => html`<li>${boldParts(g)}</li>`)}</ul>` : nothing}`;
+    }
+    if (p.part === 'needs') {
+      const needs = list(l.needs);
+      if (!needs.length) return nothing;
+      const count = () => needs.filter((_, i) => ticked(tickKey('needs', i))).length;
+      const toggle = (i) => (e) => { setTicked(tickKey('needs', i), e.currentTarget.checked); e.currentTarget.closest('label')?.classList.toggle('on', e.currentTarget.checked); this.requestUpdate(); };
+      const have = count();
+      return html`<ul class="needs">${needs.map((n, i) => { const on = ticked(tickKey('needs', i)); return html`<li><label class=${on ? 'on' : ''}><input type="checkbox" .checked=${on} @change=${toggle(i)}><span>${boldParts(n)}</span></label></li>`; })}</ul><div class="count">${have === needs.length ? 'All set' : `${String(have)} of ${String(needs.length)} ready`}</div>`;
+    }
+    const keys = list(l.keyPoints);
+    const checks = (Array.isArray(l.selfCheck) ? l.selfCheck : []).filter((c) => c && c.q && c.a);
+    return html`${l.done ? html`<p class="done"><b aria-hidden="true">\u2713</b><span>You\u2019re done when ${boldParts(l.done.replace(/^you(\u2019|')re done when\s*/i, '').replace(/^([A-Z])(?=[a-z])/, (m) => m.toLowerCase()))}</span></p>` : nothing}
+      ${keys.length ? html`<div class="lab">Key points</div><ol class="kp">${keys.map((k) => html`<li>${boldParts(k)}</li>`)}</ol>` : nothing}
+      ${l.next ? html`<div class="lab">What\u2019s next</div><p class="next">${boldParts(l.next)}</p>` : nothing}
+      ${checks.length ? html`<div class="lab">Check yourself</div>${checks.map((c) => html`<details><summary>${c.q}</summary><p>${c.a}</p></details>`)}` : nothing}`;
+  });
+
 // One written part (/notebook/section/<key>) on its own, drawn large when it
 // is the page's hero: a ladder with tall bars, a split as a wide band, a rubric
 // as ruled rows. Its title comes from the Panel around it.
@@ -2180,7 +2237,7 @@ const VegaChart = define('VegaChart', 'sua-a2ui-vega-chart',
     disconnectedCallback() { A2uiLitElement.prototype.disconnectedCallback?.call(this); this._view?.finalize?.(); },
   });
 
-export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
+export const suaComponents = [VegaChart, Metric, Badge, KeyValue, Table, Disclosure, Link, Code, Sparkline, Funnel, OptionGrid, Scatter, Columns, Panel, Callout, StatStrip, Steps, Coverage, Checklist, Timeline, ProfileCard, FactSheet, QuoteList, Agenda, Itinerary, AnswerSections, RunbookLesson, Figure, Lead, Bars, Compare, Changes, Stories, NotebookHeader, ChipList, SanitizedHtml, Grid, Cell, Section, AgentTile, SystemTile, Picture, DayBars];
 export const suaCatalog = new Catalog(SUA_CATALOG_ID, '1.0',
   [...basicCatalog.components.values(), ...suaComponents],
   // sua's own functions (join, relativeTime, formatRange, count) beside the basic ones (ADR-0087).

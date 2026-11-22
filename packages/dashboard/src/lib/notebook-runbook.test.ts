@@ -116,15 +116,17 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(steps.items![1].copyPart).toMatchObject({ kind: 'copy', body: 'Make a single-page website.' });
     expect(d.answerSections.find((x) => x.kind === 'copy')!.inStep).toBe(true);
 
-    // The page in order: the glance beside the answer, ready, the steps, what goes wrong, why; the research folded.
+    // The page in order (ADR-0097): what you'll make beside the glance, what you'll need, the steps, what goes wrong; how sua knows it, folded (no lesson yet: no Finish).
     const comps = (notebookWidgetMessages(s.get(nb.id)!, s.entries(nb.id, 1000)) as Array<{ updateComponents?: { components: Array<{ id: string; children?: string[] }> } }>).flatMap((m) => m.updateComponents?.components ?? []);
     const root = comps.find((c) => c.id === 'root')!;
-    expect(root.children!.filter((k) => ['top', 'ready_p', 'method_p', 'trouble_p', 'why_p'].includes(k))).toEqual(['top', 'ready_p', 'method_p', 'trouble_p', 'why_p']);
-    expect(comps.find((c) => c.id === 'top')!.children).toEqual(['answer', 'glance_p']);
+    expect(root.children!.filter((k) => ['top', 'needs_p', 'method_p', 'trouble_p', 'finish_p', 'knows_d'].includes(k))).toEqual(['top', 'needs_p', 'method_p', 'trouble_p', 'knows_d']);
+    expect(comps.find((c) => c.id === 'top')!.children).toEqual(['open_p', 'glance_p']);
 
     // On paper: each step a card with a box to tick, the prompt inside step 2 (not again on its own), what goes wrong as symptom → fix.
     const out = renderPageBrief({ nb: s.get(nb.id)!, entries: s.entries(nb.id, 1000) });
-    expect((out.match(/<span class="rb__box"/g) ?? []).length).toBe(3);
+    // A box for each of the 3 steps, and for what you'll need (its ready part, as items).
+    expect((out.match(/<span class="rb__box"/g) ?? []).length).toBe(4);
+    expect(out).toContain('<ul class="rl__needs"><li><span class="rb__box" aria-hidden="true"></span>A GitHub account and Claude</li></ul>');
     const step2 = out.slice(out.indexOf('Ask Claude for one HTML page.'), out.indexOf('Enable GitHub Pages.'));
     expect(step2).toContain('<figure class="copy"><figcaption class="fine">Replace the bracketed text.</figcaption><pre>Make a single-page website.</pre></figure>');
     expect(out.match(/Make a single-page website\./g)).toHaveLength(1);
@@ -194,6 +196,35 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     const page = notebookWidgetData(s.get(nb.id)!, []).notebook as unknown as { runbook: { lesson: { needs: string[]; written: boolean } }; answerSections: Array<{ items?: Array<{ phase?: string }> }> };
     expect(page.runbook.lesson).toMatchObject({ needs: ['Bread', 'Jam', 'A knife'], written: false });
     expect(page.answerSections.find((x) => x.items)?.items?.map((i) => i.phase)).toEqual(['Make', 'Finish']);
+  });
+
+  it('a lesson opens with what you\'ll make and ends with Finish; on paper the boxes are empty and the self-check\'s answers printed', () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-runbook-'));
+    const s = NotebookStore.fromHandle(new RunStore(join(dir, 'runs.db')).databaseHandle());
+    const nb = s.create({ title: 'Teach me how to make a sandwich' });
+    s.setLayout(nb.id, layoutPreset('runbook')!.layout, 'picked');
+    s.setAnswer(nb.id, { question: 'How?', by: 'w', text: '**You\u2019ll have a sandwich in 2 minutes.** Wash up first.', confidence: 'medium', basis: '', findings: [], open: [], at: new Date().toISOString(),
+      lesson: { goals: ['Spread without mixing jars'], needs: ['Bread', 'Jam'], done: 'The slices close with the filling inside.', keyPoints: ['Clean hands first'], next: 'Try toasting it.', selfCheck: [{ q: 'Why two knives?', a: 'To keep the jars clean.' }] },
+      sections: [{ title: 'The steps', kind: 'steps', role: 'method', items: [{ text: 'Spread', from: [] }, { text: 'Close', from: [] }] }] });
+    const now = s.get(nb.id)!;
+    const comps = (notebookWidgetMessages(now, []) as Array<{ updateComponents?: { components: Array<{ id: string; children?: string[] }> } }>).flatMap((m) => m.updateComponents?.components ?? []);
+    expect(comps.find((c) => c.id === 'root')!.children).toContain('finish_p');
+    const out = renderPageBrief({ nb: now, entries: [] });
+    // The outcome in a sentence (the rest is in "How sua knows this"), then the goals.
+    expect(out).toContain('<p class="rl__out"><strong>You\u2019ll have a sandwich in 2 minutes.</strong></p><div class="eyebrow">You\u2019ll be able to</div><ul class="rl__goals"><li>Spread without mixing jars</li></ul>');
+    expect(out).toContain('<li><span class="rb__box" aria-hidden="true"></span>Jam</li>');
+    expect(out).toContain('<p class="rl__done"><b>\u2713</b> You\u2019re done when the slices close with the filling inside.</p>');
+    expect(out).toContain('<dt>Why two knives?</dt><dd>To keep the jars clean.</dd>');
+    expect(out.indexOf('Finish')).toBeGreaterThan(out.indexOf('Spread'));
+    expect(out.indexOf('How sua knows this')).toBeGreaterThan(out.indexOf('Finish'));
+  });
+
+  it('a page that picked Runbook follows the Runbook page as it is now; one changed from it keeps its own', async () => {
+    const { notebookLayoutOf } = await import('@some-useful-agents/core');
+    const old = { preset: 'runbook', components: [{ id: 'root', component: 'Column', children: ['ready_p'] }] };
+    expect(notebookLayoutOf({ layout: old as never }).components).toEqual(layoutPreset('runbook')!.layout.components);
+    const own = { components: [{ id: 'root', component: 'Column', children: ['x'] }, { id: 'x', component: 'Text', text: 'mine' }] };
+    expect(notebookLayoutOf({ layout: own as never }).components).toEqual(own.components);
   });
 
   it('groups steps by phase, numbered across groups', () => {

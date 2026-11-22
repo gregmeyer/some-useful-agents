@@ -226,6 +226,26 @@ function node(p: Printing, id: string | undefined): SafeHtml {
     case 'Badge': return html`<span class="chip">${text(v('text'))}</span>`;
     case 'Link': return isUrl(v('url')) ? html`<a href="${v('url') as string}">${text(v('text')) || site(v('url') as string)}</a>` : html``;
     case 'ChipList': return html`<p class="chips">${items(v('items')).map((x) => html`<span class="chip">${x.text}</span>`) as unknown as SafeHtml[]}</p>`;
+    case 'RunbookLesson': {
+      // A runbook as a lesson (ADR-0097): on paper the boxes are empty and the self-check's answers are printed.
+      const l = (v('lesson') ?? {}) as { goals?: unknown; needs?: unknown; done?: unknown; keyPoints?: unknown; next?: unknown; selfCheck?: unknown; written?: unknown };
+      const strs = (x: unknown) => list(x).filter((y): y is string => typeof y === 'string' && !!y);
+      if (c.part === 'opening') {
+        const all = text(v('outcome'));
+        const out = l.written ? (/^.*?[.!?](?:\*\*)?(?=\s|$)/.exec(all)?.[0] ?? all) : all;
+        const goals = strs(l.goals);
+        return html`<div class="rl">${out ? html`<p class="rl__out">${boldOnly(out)}</p>` : html``}${goals.length ? html`<div class="eyebrow">You’ll be able to</div><ul class="rl__goals">${goals.map((g) => html`<li>${boldOnly(g)}</li>`) as unknown as SafeHtml[]}</ul>` : html``}</div>`;
+      }
+      if (c.part === 'needs') {
+        const needs = strs(l.needs);
+        return needs.length ? html`<ul class="rl__needs">${needs.map((n) => html`<li><span class="rb__box" aria-hidden="true"></span>${boldOnly(n)}</li>`) as unknown as SafeHtml[]}</ul>` : html``;
+      }
+      const keys = strs(l.keyPoints);
+      const checks = list(l.selfCheck).map((x) => x as { q?: unknown; a?: unknown }).filter((x) => text(x.q) && text(x.a));
+      const done = text(l.done).replace(/^you(’|')re done when\s*/i, '').replace(/^([A-Z])(?=[a-z])/, (m) => m.toLowerCase());
+      if (!done && !keys.length && !text(l.next) && !checks.length) return html``;
+      return html`<div class="rl">${done ? html`<p class="rl__done"><b>✓</b> You’re done when ${boldOnly(done)}</p>` : html``}${keys.length ? html`<div class="eyebrow">Key points</div><ol class="rl__kp">${keys.map((k) => html`<li>${boldOnly(k)}</li>`) as unknown as SafeHtml[]}</ol>` : html``}${text(l.next) ? html`<div class="eyebrow">What’s next</div><p>${boldOnly(text(l.next))}</p>` : html``}${checks.length ? html`<div class="eyebrow">Check yourself</div><dl class="rl__check">${checks.map((x) => html`<dt>${text(x.q)}</dt><dd>${text(x.a)}</dd>`) as unknown as SafeHtml[]}</dl>` : html``}</div>`;
+    }
     case 'KeyValue': return html`<dl class="kv">${list(v('items')).map((x) => { const o = x as { label?: unknown; value?: unknown }; return html`<dt>${text(o.label)}</dt><dd>${text(o.value)}</dd>`; }) as unknown as SafeHtml[]}</dl>`;
     case 'StatStrip': return html`<p class="stats">${list(v('items')).map((x) => { const o = x as { label?: unknown; value?: unknown }; return html`<span><b>${text(o.value)}</b> ${text(o.label)}</span>`; }) as unknown as SafeHtml[]}</p>`;
     case 'ProfileCard': {
@@ -542,7 +562,15 @@ export function renderPageBrief(args: { nb: Notebook; entries: readonly Notebook
   const top = byId.get('root') ? kids(byId.get('root')!) : [];
   const logs = args.full ? [] : top.filter((id) => isLog(byId, id));
   if (logs.length) byId.set('root', { ...byId.get('root')!, children: top.filter((id) => !logs.includes(id)) });
-  const logged = logs.length > 0;
+  // A log folded further down (a runbook's "How sua knows this") is the colophon's sentence too.
+  let nestedLogs = 0;
+  if (!args.full) for (const [cid, comp] of byId) {
+    if (cid === 'root' || comp.component !== 'Column') continue;
+    const ks = kids(comp);
+    const keep = ks.filter((k) => !isLog(byId, k));
+    if (keep.length < ks.length) { nestedLogs += ks.length - keep.length; byId.set(cid, { ...comp, children: keep }); }
+  }
+  const logged = logs.length > 0 || nestedLogs > 0;
   const aboutSrc = args.aboutPicture ?? ((src: string) => src);
   // The TL;DR card only when it adds something, or you said so (showsTldrCard).
   const cardShows = showsTldrCard(nb, args.entries, args.history);
@@ -688,6 +716,23 @@ ol.rb .rb__see b { color: var(--accent, #0f766e); }
 ol.rb .rb__ifnot { padding: 0.25rem 0.5rem; border-left: 3px solid #b45309; background: rgba(180, 83, 9, 0.08); }
 ol.rb .rb__ifnot b { font-family: var(--mono, ui-monospace, monospace); font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #b45309; margin-right: 0.3rem; }
 ol.rb figure.copy { margin-top: 0.45rem; }
+/* A runbook as a lesson (ADR-0097). */
+.rl > .eyebrow { margin-top: 0.7rem; }
+.rl__out { margin: 0; font-size: 1.1em; line-height: 1.5; }
+.rl__goals, .rl__needs, .rl__kp { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.rl__goals li { padding-left: 1.2rem; text-indent: -1.2rem; margin: 0.15rem 0; }
+.rl__goals li::before { content: "→"; color: var(--accent, #0f766e); display: inline-block; width: 1.2rem; text-indent: 0; }
+.rl__needs { columns: 2; column-gap: 1.5rem; }
+.rl__needs li { break-inside: avoid; margin: 0.15rem 0; }
+.rl__needs .rb__box { display: inline-block; width: 0.8em; height: 0.8em; border: 1.5px solid var(--muted); border-radius: 2px; margin-right: 0.45rem; transform: translateY(0.08em); }
+.rl__done { margin: 0; padding: 0.4rem 0.6rem; border-left: 3px solid var(--accent, #0f766e); }
+.rl__done b { color: var(--accent, #0f766e); margin-right: 0.25rem; }
+.rl__kp { counter-reset: kp; }
+.rl__kp li { counter-increment: kp; padding-left: 1.6rem; position: relative; margin: 0.2rem 0; }
+.rl__kp li::before { content: counter(kp); position: absolute; left: 0; font: 700 1.05em/1.35 var(--mono, ui-monospace, monospace); color: var(--accent, #0f766e); }
+.rl__check { margin: 0.25rem 0 0; }
+.rl__check dt { font-weight: 600; margin-top: 0.35rem; }
+.rl__check dd { margin: 0.1rem 0 0; color: var(--muted); }
 figure.copy { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; break-inside: avoid; }
 figure.copy figcaption { padding: 0.35rem 0.7rem; border-bottom: 1px solid var(--line); }
 figure.copy pre { margin: 0; padding: 0.6rem 0.75rem; font: 0.8em/1.5 var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
