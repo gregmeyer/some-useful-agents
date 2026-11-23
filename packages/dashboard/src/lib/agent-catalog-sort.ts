@@ -6,6 +6,7 @@
  * or changed since it was sorted; a failed try waits CATALOG_RETRY_MS.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { AgentCatalogStore, executeAgentDag, extractTaggedJson, type Agent } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -83,7 +84,7 @@ export function startCatalogSort(ctx: Ctx, agents: readonly Agent[]): boolean {
   const agent = fake ? undefined : ctx.agentStore.getAgent(CATALOG_SORTER_ID);
   if (!fake && !agent) return false;
   ctx.agentCatalogSorting = true;
-  void (async () => {
+  inBackground(ctx, 'agent-catalog-sort', (async () => {
     try {
       for (let i = 0; i < stale.length; i += SORT_BATCH) {
         const batch = stale.slice(i, i + SORT_BATCH);
@@ -110,6 +111,6 @@ export function startCatalogSort(ctx: Ctx, agents: readonly Agent[]): boolean {
     } finally {
       ctx.agentCatalogSorting = false;
     }
-  })();
+  })());
   return true;
 }

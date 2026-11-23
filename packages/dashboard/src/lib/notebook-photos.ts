@@ -11,6 +11,7 @@ import {
   fetchImage as coreFetchImage, pagePreview as corePagePreview, looksLikeOneListing, previewMatchesOption,
   type NotebookStore, type FetchedImage,
 } from '@some-useful-agents/core';
+import { inBackground, type BackgroundTasks } from './background.js';
 
 export interface PhotoDeps {
   fetchImage: (url: string) => Promise<Pick<FetchedImage, 'bytes' | 'contentType'>>;
@@ -57,14 +58,14 @@ export async function keepPhotos(store: NotebookStore, notebookId: string, opts:
  * In the background, once per notebook at a time: try listing photos for
  * options that don't have one (each address is tried once). Returns whether it started.
  */
-export function startListingPhotos(ctx: { notebookListingPhotos?: Set<string> }, store: NotebookStore, notebookId: string, then?: () => void): boolean {
+export function startListingPhotos(ctx: { notebookListingPhotos?: Set<string>; background?: BackgroundTasks }, store: NotebookStore, notebookId: string, then?: () => void): boolean {
   if (store.photoCandidates(notebookId, 1).length === 0) return false;
   ctx.notebookListingPhotos ??= new Set();
   if (ctx.notebookListingPhotos.has(notebookId)) return false;
   ctx.notebookListingPhotos.add(notebookId);
-  void keepPhotos(store, notebookId).catch(() => { /* a nicety */ }).finally(() => {
+  inBackground(ctx, 'keepPhotos', keepPhotos(store, notebookId).catch(() => { /* a nicety */ }).finally(() => {
     ctx.notebookListingPhotos?.delete(notebookId);
     try { then?.(); } catch { /* a nicety */ }
-  });
+  }));
   return true;
 }

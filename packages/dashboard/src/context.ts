@@ -1,4 +1,5 @@
 import type { Provider, SpawnNodeFn, RunStore, SecretsStore, AgentDefinition, AgentStore, ToolStore, VariablesStore, LlmSettingsStore, PacksStore, DashboardsStore, LayoutHintsStore, BlockedImgHostsStore, InboxStore, IntegrationsStore, PlannerTelemetryStore, PlannerLoopStepLogStore, PlannerMemoryStore, AgentMemoryStore, OutcomeStore, OnRunCompleteInfo, LoadBehaviorsResult } from '@some-useful-agents/core';
+import type { BackgroundTasks } from './lib/background.js';
 import type { SecretsSession } from './secrets-session.js';
 import type { InboxEventBus } from './lib/inbox-event-bus.js';
 
@@ -225,6 +226,8 @@ export interface DashboardContext {
    * and removed on completion.
    */
   activeRuns: Map<string, AbortController>;
+  /** Work started without waiting for it (lib/background.ts). Created on first use. */
+  background?: BackgroundTasks;
   /**
    * Active inbox-triage runs, keyed by inbox message id. Lets POST
    * /inbox/:id/triage/cancel find the run-in-flight for a thread

@@ -11,6 +11,7 @@
  * until you apply it.
  */
 import { answerSectionLines, clipWords, optionLink, extractTaggedJson, shortName, type InboxActionMeta, type InboxActionStatus, type Notebook, type NotebookAboutWho, type NotebookEntry, type NotebookStore } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal, runProposedAction } from '../routes/inbox-engine.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -661,6 +662,6 @@ export function applyWaitingCorrections(ctx: Ctx, notebookId: string, threadId: 
     const running: InboxActionMeta = { ...meta, status: 'running', startedAt: Date.now(), waitingFor: undefined };
     if (!ctx.inboxStore.transitionActionStatus(r.id, 'proposed', JSON.stringify(running))) continue;
     publishInboxEvent(ctx, threadId, 'action:status', { responseId: r.id, status: 'running', agentId: meta.agentId, startedAt: running.startedAt });
-    void runProposedAction(ctx, threadId, r, running).catch(() => { /* the card says how it went */ });
+    inBackground(ctx, 'runProposedAction', runProposedAction(ctx, threadId, r, running).catch(() => { /* the card says how it went */ }));
   }
 }

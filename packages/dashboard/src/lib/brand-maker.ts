@@ -6,6 +6,7 @@
  * you use it. One proposal at a time.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -86,7 +87,7 @@ export function startBrandProposal(ctx: Ctx, source: string): boolean {
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
-  void (async () => {
+  inBackground(ctx, 'brand-maker', (async () => {
     try {
       let result: string | undefined;
       let error: string | undefined;
@@ -110,6 +111,6 @@ export function startBrandProposal(ctx: Ctx, source: string): boolean {
       ctx.activeRuns.delete(runId);
       ctx.brandProposalRunning = false;
     }
-  })();
+  })());
   return true;
 }

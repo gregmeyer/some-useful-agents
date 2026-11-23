@@ -7,6 +7,7 @@
  * starts too. The same queue-and-claim shape as board builds.
  */
 import { NotebookRequestStore, NotebookStore, validateScheduleInterval, type Notebook, type NotebookRequest } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { getContext } from '../context.js';
 import { createNotebookFrom, type NewNotebookSetup } from './notebook-create.js';
 import { briefOnFromDraft, discardDraft, draftSteps, readDraft, searchAgents, startNotebookDraft, type NotebookDraft } from './notebook-draft.js';
@@ -142,7 +143,7 @@ export function startQueuedNotebookRequests(ctx: Ctx): Array<Promise<void>> {
 
 /** Check for queued requests every few seconds (the timer never keeps the process alive). */
 export function watchQueuedNotebookRequests(ctx: Ctx, everyMs = 4000): () => void {
-  const t = setInterval(() => { void startQueuedNotebookRequests(ctx); }, everyMs);
+  const t = setInterval(() => { inBackground(ctx, 'startQueuedNotebookRequests', Promise.allSettled(startQueuedNotebookRequests(ctx))); }, everyMs);
   t.unref?.();
   return () => clearInterval(t);
 }

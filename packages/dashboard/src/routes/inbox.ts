@@ -32,6 +32,7 @@
  */
 
 import { takeAttachments, withoutAttachMarkers } from '../lib/conversation-attach.js';
+import { inBackground } from '../lib/background.js';
 import { answerQuestion, questionForMessage } from '../lib/ask-human.js';
 import { renderNotebookShelf } from '../views/notebook-shelf.js';
 import { homeShelf } from '../lib/notebook-card.js';
@@ -416,7 +417,7 @@ inboxRouter.post('/agents/:id/ask-fix', (req: Request, res: Response) => {
   // Archived or otherwise not fixable this way: let sua answer the request itself.
   else {
     ctx.inboxStore.addResponse(created.id, 'user', `\`${agent.id}\` isn't working well. What can I do about it?`);
-    void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+    inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ }));
   }
   publishInboxChanged(ctx, created.id, created.status);
   if (isAjax(req)) {
@@ -451,7 +452,7 @@ inboxRouter.post('/agents/:id/ask-change', (req: Request, res: Response) => {
   });
   const ask = ctx.inboxStore.addResponse(created.id, 'user', text);
   publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
-  void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ }));
   publishInboxChanged(ctx, created.id, created.status);
   if (isAjax(req)) {
     res.setHeader('X-Inbox-Id', created.id);
@@ -536,7 +537,7 @@ inboxRouter.post('/inbox/new', (req: Request, res: Response) => {
         responseId: userResponse.id, role: 'user', body: said, createdAt: userResponse.createdAt,
       });
       // Fire triage now — same path a first /respond takes on a manual thread.
-      void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+      inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ }));
     }
     publishInboxChanged(ctx, created.id, created.status);
     if (isAjax(req)) {
@@ -590,9 +591,9 @@ inboxRouter.post('/home/try/:agentId', (req: Request, res: Response) => {
   const card = ctx.inboxStore.addResponse(created.id, 'action', `Run ${agent.name}`, JSON.stringify(meta));
   ctx.inboxStore.updateStatus(created.id, 'triaged');
   publishInboxChanged(ctx, created.id, 'triaged');
-  void runProposedAction(ctx, created.id, card, meta).catch((err) => {
+  inBackground(ctx, 'runProposedAction', runProposedAction(ctx, created.id, card, meta).catch((err) => {
     process.stderr.write(`[home-try] ${agent.id} crashed: ${(err as Error)?.message ?? err}\n`);
-  });
+  }));
   if (isAjax(req)) { res.setHeader('X-Inbox-Id', created.id); res.status(204).end(); return; }
   res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);
 });
@@ -635,7 +636,7 @@ inboxRouter.post('/inbox/:id/resolve', (req: Request, res: Response) => {
   try {
     ctx.inboxStore.updateStatus(id, 'resolved');
     publishInboxChanged(ctx, id, 'resolved');
-    void maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ });
+    inBackground(ctx, 'maybeExtractLearning', maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ }));
     if (isAjax(req)) { res.status(204).end(); return; }
     res.redirect(303, `/inbox?ok=${encodeURIComponent('Resolved.')}`);
   } catch (err) {
@@ -742,7 +743,7 @@ inboxRouter.post('/inbox/bulk-resolve', (req: Request, res: Response) => {
       // sua-closed loop). Learning extraction fires per thread like the
       // single-thread resolve.
       ctx.inboxStore.updateStatus(id, 'resolved');
-      void maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ });
+      inBackground(ctx, 'maybeExtractLearning', maybeExtractLearning(ctx, id).catch(() => { /* logged in helper */ }));
       resolved += 1;
       resolvedIds.push(id);
     } catch {
@@ -815,12 +816,12 @@ export function addInboxReply(
   const thread = ctx.inboxStore.get(id);
   const agent = thread?.source === 'conversation' && thread.agentId ? ctx.agentStore.getAgent(thread.agentId) : null;
   if (agent && agent.status !== 'archived') {
-    void startChatTurn(ctx, SessionStore.fromHandle(ctx.runStore.databaseHandle()), agent, { message: bodyRaw, sessionId: id })
+    inBackground(ctx, 'startChatTurn', startChatTurn(ctx, SessionStore.fromHandle(ctx.runStore.databaseHandle()), agent, { message: bodyRaw, sessionId: id })
       .then(() => publishInboxEvent(ctx, id, 'message:created', { role: 'user', body: bodyRaw }))
       .catch((err) => {
         try { ctx.inboxStore?.addResponse(id, 'system', `Couldn't send that to ${agent.name}: ${err instanceof Error ? err.message : String(err)}`); } catch { /* best-effort */ }
         publishInboxEvent(ctx, id, 'message:created', { role: 'system' });
-      });
+      }));
     return { ok: true };
   }
   ctx.inboxTriageStopped?.delete(id);
@@ -887,7 +888,7 @@ export function addInboxReply(
     // is genuine new input, not a crash loop, so it deserves a clean slate.
     resetTriageCrashRetries(ctx, id);
     // Fire-and-forget; the modal hears about it on the thread's channel.
-    void runTriageAgent(ctx, id).catch(() => { /* logged in helper */ });
+    inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, id).catch(() => { /* logged in helper */ }));
   }
   return { ok: true };
 }
@@ -931,7 +932,7 @@ inboxRouter.post('/inbox/:id/triage', (req: Request, res: Response) => {
   } catch { /* swallow */ }
   // Operator explicitly asked for another look — fresh retry budget.
   resetTriageCrashRetries(ctx, id);
-  void runTriageAgent(ctx, id).catch(() => { /* swallow */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, id).catch(() => { /* swallow */ }));
   if (isAjax(req)) { res.status(204).end(); return; }
   res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Triage agent invoked.')}`);
 });
@@ -1340,9 +1341,9 @@ inboxRouter.post('/inbox/:id/actions/:rid/run', async (req: Request, res: Respon
 
   if (isAjax(req)) { res.status(204).end(); }
   // Fire-and-forget; the modal polls /fragment for state.
-  void runProposedAction(ctx, id, response, runningMeta).catch((err) => {
+  inBackground(ctx, 'runProposedAction', runProposedAction(ctx, id, response, runningMeta).catch((err) => {
     process.stderr.write(`[inbox-triage] action ${rid} crashed: ${(err as Error)?.message ?? err}\n`);
-  });
+  }));
   if (!isAjax(req)) {
     res.redirect(303, `${detailUrl}?ok=${encodeURIComponent('Action started.')}`);
   }

@@ -7,6 +7,7 @@
  * and sua says hello in the notebook's conversation.
  */
 import { NotebookStore, asksForRunbook, layoutPreset, templateFromNotebook, type Notebook, type NotebookStep, type NotebookLayout, type NotebookMeeting } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import { fitStepAgents, startNotebookStep, stopNotebookStep } from './notebook-steps.js';
 import { reconcileStepCards } from './notebook-step-queue.js';
 import { startGivenRead } from './notebook-given-read.js';
@@ -95,12 +96,12 @@ export function createNotebookFrom(ctx: Ctx, input: NewNotebookSetup): Notebook 
     if (now?.briefOn && !now.layout && !input.decidePage) { store.setLayout(nb.id, layoutPreset('subject')!.layout, 'picked'); greet(); return; }
     // Teaching or walking through something: the Runbook page, which places what's written by what it's for.
     if (now && !now.layout && !input.decidePage && asksForRunbook(now)) { store.setLayout(nb.id, layoutPreset('runbook')!.layout, 'picked'); greet(); return; }
-    void decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet);
+    inBackground(ctx, 'decideNotebookPage', decideNotebookPage(ctx, nb.id).catch(() => undefined).finally(greet));
   };
   // No steps given: sua lays them out once it's set up first.
   const stepsThenGreet = () => {
     if (steps) { pageThenGreet(); return; }
-    void layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(pageThenGreet);
+    inBackground(ctx, 'layOutNotebookSteps', layOutNotebookSteps(ctx, nb.id).catch(() => undefined).finally(pageThenGreet));
   };
   if (!startNotebookSetup(ctx, nb.id, { onDone: stepsThenGreet })) stepsThenGreet();
   return store.get(nb.id)!;

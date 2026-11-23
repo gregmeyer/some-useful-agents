@@ -9,6 +9,7 @@
  * drafts (id `edit:<notebook>`) until saved, discarded or two weeks old.
  */
 import { keepAskedTldrCard } from './tldr-card.js';
+import { inBackground } from './background.js';
 import {
   NotebookStore, NOTEBOOK_FIELD_ROLES, NOTEBOOK_FIELD_TYPES, NOTEBOOK_LAYOUT_PRESETS, NOTEBOOK_STEP_KINDS, cleanFields, cleanSteps, layoutPreset, validateScheduleInterval, cleanMeeting, isMeetingNotebook,
   type Notebook, type NotebookField, type NotebookLayout, type NotebookStep,
@@ -418,7 +419,7 @@ export function startEditEnhance(ctx: Ctx, nb: Notebook, md?: string): { ok: tru
   const turns = [...(now?.turns ?? []), { you: 'Enhance the prompt.', via: 'enhance' as const, at: new Date().toISOString() }];
   const working: NotebookEdit = { setup: base, ...(now?.layout !== undefined ? { layout: now.layout } : {}), turns, status: 'working', updatedAt: new Date().toISOString() };
   writeEdit(ctx, nb.id, working);
-  void talk(ctx, nb, 'Enhance the prompt.', working, ENHANCE_ASK).catch(() => undefined);
+  inBackground(ctx, 'talk', talk(ctx, nb, 'Enhance the prompt.', working, ENHANCE_ASK).catch(() => undefined));
   return { ok: true };
 }
 
@@ -439,8 +440,8 @@ export function startEditTalk(ctx: Ctx, nb: Notebook, text: string): { ok: true 
   const working: NotebookEdit = { setup: base, ...(was?.layout !== undefined ? { layout: was.layout } : {}), turns, status: 'working', updatedAt: new Date().toISOString() };
   writeEdit(ctx, nb.id, working);
   // "Do it better", with nothing more: the whole notebook, sharper (Enhance), and its page drawn again to fit.
-  if (VAGUE_IMPROVE.test(said)) void talk(ctx, nb, said, working, ENHANCE_ASK, { request: IMPROVE_PAGE }).catch(() => undefined);
-  else void talk(ctx, nb, said, working).catch(() => undefined);
+  if (VAGUE_IMPROVE.test(said)) inBackground(ctx, 'talk', talk(ctx, nb, said, working, ENHANCE_ASK, { request: IMPROVE_PAGE }).catch(() => undefined));
+  else inBackground(ctx, 'talk', talk(ctx, nb, said, working).catch(() => undefined));
   return { ok: true };
 }
 
@@ -542,7 +543,7 @@ export function startEditPick(ctx: Ctx, nb: Notebook): { ok: true } | { error: s
     turns: [...(was?.turns ?? []), { you: 'Let sua pick how it looks.', via: 'look', at: new Date().toISOString() }],
   };
   writeEdit(ctx, nb.id, working);
-  void (async () => {
+  inBackground(ctx, 'notebook-edit', (async () => {
     const before = working.layout === undefined ? nb.layout : working.layout ?? undefined;
     const drawn = await drawNotebookPage(proposedNotebook(nb, working), (inputs) => runPage(ctx, inputs));
     const now = readEdit(ctx, nb.id);
@@ -557,7 +558,7 @@ export function startEditPick(ctx: Ctx, nb: Notebook): { ok: true } | { error: s
       setup: working.setup, ...(layout !== undefined ? { layout, layoutBy: 'notebook' } : {}), status: 'ready', updatedAt: new Date().toISOString(),
       turns: last({ changes, sua: changes.length ? (about ? `It fits as ${about}.` : 'Here\'s a look that fits.') : 'The look it has fits what it\'s for.' }),
     });
-  })().catch(() => undefined);
+  })().catch(() => undefined));
   return { ok: true };
 }
 

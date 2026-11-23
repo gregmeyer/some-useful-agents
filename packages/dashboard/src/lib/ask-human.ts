@@ -10,6 +10,7 @@ import {
   raiseQuestionInInbox,
   type HumanQuestion,
 } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { DashboardContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { resolveRunBackend } from './run-backend.js';
@@ -65,7 +66,7 @@ export async function resumeWaitingRun(ctx: Ctx, runId: string): Promise<{ ok: b
 
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
-  void executeAgentDag(
+  inBackground(ctx, 'executeAgentDag', executeAgentDag(
     agent,
     { triggeredBy: run.triggeredBy, runId, resume: true, signal: abortController.signal },
     {
@@ -86,7 +87,7 @@ export async function resumeWaitingRun(ctx: Ctx, runId: string): Promise<{ ok: b
     },
   )
     .catch((err) => console.warn(`[ask] resume of ${runId} failed: ${err instanceof Error ? err.message : String(err)}`))
-    .finally(() => { ctx.activeRuns.delete(runId); });
+    .finally(() => { ctx.activeRuns.delete(runId); }));
   return { ok: true };
 }
 
