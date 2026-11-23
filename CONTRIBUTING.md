@@ -155,6 +155,17 @@ therefore `tsc --build`, the same command, because composite references have to 
 for downstream projects to check against. If a change type-checks locally but you skipped the
 build, you have not type-checked it.
 
+### Updating an install that runs from a checkout
+
+If your daily install is a checkout of `main`, update it with `scripts/live-update.sh` (`--force` rebuilds even when it's already current). The script:
+1. stops if any run or notebook step is in progress, or if the checkout has local changes;
+2. backs up the databases as `*.db.bak-YYYYMMDD-HHMMSS`;
+3. fast-forwards to `origin/main` and does a clean build;
+4. prunes old backups and update logs;
+5. restarts the daemon.
+
+Pruning is `sua backups prune`: it keeps the newest 5 backup sets, plus the newest set from each of the last 7 days. A backup with any other name, such as `runs.db.bak-before-migration`, is never deleted. Use `--dry-run` to see what it would remove.
+
 ### Dashboard tests
 
 Build a test dashboard with `createTestContext()` from `packages/dashboard/src/test-harness.ts`, and tear it down with `closeTestContext()` in `afterEach`.

@@ -40,6 +40,7 @@ import { skillCommand } from './commands/skill.js';
 import { policyCommand } from './commands/policy.js';
 import { chatCommand } from './commands/chat.js';
 import { webhookCommand } from './commands/webhook.js';
+import { backupsCommand } from './commands/backups.js';
 import { usageCommand } from './commands/usage.js';
 import { memoryCommand } from './commands/memory.js';
 
@@ -129,5 +130,6 @@ program.addCommand(skillCommand);
 program.addCommand(policyCommand);
 program.addCommand(memoryCommand);
 program.addCommand(usageCommand);
+program.addCommand(backupsCommand);
 
 program.parse();
