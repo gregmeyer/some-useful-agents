@@ -34,6 +34,7 @@ export function buildLlmSettingsSnapshot(
     customProviders: current.customProviders ? [...current.customProviders] : undefined,
     pricing: current.pricing,
     spendLimits: current.spendLimits,
+    fallbackCapUsd: current.fallbackCapUsd,
     models: current.models,
     fallbackModels: current.fallbackModels,
     onModelUnavailable: modelUnavailableRecorder(store),

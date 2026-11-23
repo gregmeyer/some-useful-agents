@@ -82,6 +82,14 @@ describe('createTemporalSpawnNode', () => {
     expect((started!.options.args[0] as Record<string, unknown>).behaviorPreamble).toBe('BE CAREFUL');
   });
 
+  it('forwards the daily cap on fallback spend, so the worker holds paid fallbacks to it', async () => {
+    let started: { options: { args: unknown[] } } | undefined;
+    const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });
+    const spawn = createTemporalSpawnNode({ client, secretsPath: '/tmp/secrets.enc' });
+    await spawn(node(), { PATH: '/usr/bin' }, { ...spawnOpts, fallbackCap: { capUsd: 20, spentUsd: 3 } });
+    expect((started!.options.args[0] as Record<string, unknown>).fallbackCap).toEqual({ capUsd: 20, spentUsd: 3 });
+  });
+
   it('forwards what is left of the run\'s spend limit', async () => {
     let started: { options: { args: unknown[] } } | undefined;
     const client = fakeClient({ result: { result: 'ok', exitCode: 0 }, onStart: (s) => { started = s; } });

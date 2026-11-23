@@ -1103,6 +1103,9 @@ export async function executeAgentDag(
       }
       nodeSpendBudget = spendLimits.perRunUsd - spent;
     }
+    // Daily cap on fallback spend (fallback-spend.ts): what's been spent today, for the spawner to hold paid fallbacks to.
+    const fallbackCapUsd = deps.llmSettings?.fallbackCapUsd;
+    const fallbackCap = fallbackCapUsd ? { capUsd: fallbackCapUsd, spentUsd: deps.runStore.fallbackSpendSince(startOfLocalDay()) } : undefined;
 
     let env: Record<string, string>;
     let upstreamSnapshot: Record<string, string>;
@@ -1478,7 +1481,7 @@ export async function executeAgentDag(
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget, fallbackCap };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
           structuredOutput = buildToolOutput(spawnResult.result);
@@ -1505,7 +1508,7 @@ export async function executeAgentDag(
           result = ask.failure;
         } else {
           const nodePreamble = ask?.preamble ? [behaviorPreamble, ask.preamble].filter(Boolean).join('\n') : behaviorPreamble;
-          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget };
+          const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble: nodePreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), askHuman: ask?.ctx, askRunId: ask ? runId : undefined, spendBudgetUsd: nodeSpendBudget, fallbackCap };
           const spawnResult = await spawnFn(nodeWithDefaults, env, spawnOpts, onProgress, ask?.signal ?? effectiveSignal, onSpawn, onChildExit);
           ask?.dispose();
           askedQuestion = ask ? ask.pending() : undefined;

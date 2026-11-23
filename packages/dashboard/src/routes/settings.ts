@@ -1,4 +1,4 @@
-import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, clearProviderCooldown, providerCooldowns, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
+import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, clearProviderCooldown, formatUsd, startOfLocalDay, providerCooldowns, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
   looksLikeSensitive,
@@ -1131,6 +1131,20 @@ settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
   }
 });
 
+/** Set or clear the daily cap on fallback spend (core fallback-spend.ts). */
+settingsRouter.post('/settings/llm/fallback-cap', (req: Request, res: Response) => {
+  const ctx = getContext(req.app.locals);
+  if (!ctx.llmSettingsStore) { redirectWith(res, '/settings/llm', 'error', 'LLM settings store not configured.'); return; }
+  const raw = typeof req.body?.capUsd === 'string' ? req.body.capUsd.trim() : '';
+  const usd = raw === '' ? undefined : Number(raw);
+  try {
+    ctx.llmSettingsStore.setFallbackCap(usd);
+    redirectWith(res, '/settings/llm', 'flash', usd ? `Fallbacks to a paid provider now stop at ${formatUsd(usd, true)} a day.` : 'No cap on fallback spend.');
+  } catch (err) {
+    redirectWith(res, '/settings/llm', 'error', (err as Error).message);
+  }
+});
+
 /** Try a provider that's cooling down again now (its next node calls it). */
 settingsRouter.post('/settings/llm/cooldown/clear', (req: Request, res: Response) => {
   const provider = typeof req.body?.provider === 'string' ? req.body.provider.slice(0, 100) : '';
@@ -1166,6 +1180,7 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     cliModels: readProviderModels(),
     health: readProviderHealth(ctx),
     cooldowns: providerCooldowns(),
+    fallbackSpentTodayUsd: (() => { try { return ctx.runStore.fallbackSpendSince(startOfLocalDay()); } catch { return undefined; } })(),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });

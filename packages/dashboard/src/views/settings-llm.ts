@@ -33,6 +33,20 @@ export interface SettingsLlmArgs {
   health?: { summary: ProviderHealth; problems: ProviderProblem[] };
   /** Providers skipped for now after a lasting failure (provider-cooldown.ts). */
   cooldowns?: ProviderCooldown[];
+  /** Spent today on nodes that fell back (fallback-spend.ts). Omitted in tests / when not wired. */
+  fallbackSpentTodayUsd?: number;
+}
+
+/** The daily cap on fallback spend: what's set, what's been spent today, and a way to change it. */
+export function renderFallbackCap(capUsd: number | undefined, spentTodayUsd: number | undefined): SafeHtml {
+  const today = spentTodayUsd !== undefined ? ` Today so far: ${formatUsd(spentTodayUsd, true)}.` : '';
+  return html`
+    <form method="POST" action="/settings/llm/fallback-cap" class="settings-llm__model settings-llm__cap">
+      <label for="llm-fallback-cap">Daily cap on fallbacks</label>
+      <input id="llm-fallback-cap" type="number" name="capUsd" min="0" step="0.01" inputmode="decimal" class="form-field" style="max-width: 120px;" value="${capUsd !== undefined ? String(capUsd) : ''}" placeholder="No cap">
+      <button type="submit" class="btn btn--sm">Save</button>
+      <p class="settings-llm__model-hint">The most a day's nodes may spend, in USD, on a paid provider they reached only because an earlier one failed or was skipped. At the cap, those nodes stop and say why instead. Empty means no cap.${today}</p>
+    </form>`;
 }
 
 /** A provider skipped for now: why, until when, and a way to try it again at once. */
@@ -347,6 +361,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
       ${probeBlock}
       ${statusBlock}
       ${fellBlock}
+      ${renderFallbackCap(args.settings.fallbackCapUsd, args.fallbackSpentTodayUsd)}
     </section>
 
     ${customBlock}

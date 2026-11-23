@@ -4945,6 +4945,28 @@ describe('Cost and usage', () => {
     rmSync(settingsDir, { recursive: true, force: true });
   });
 
+  it('sets, shows and clears the daily cap on fallback spend', async () => {
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    const app = await makeApp({ llmSettingsStore });
+    try {
+      expect((await get(app, '/settings/llm')).text).toContain('placeholder="No cap"');
+      const saved = await post(app, '/settings/llm/fallback-cap').send('capUsd=20');
+      expect(saved.status).toBe(303);
+      expect(llmSettingsStore.get().fallbackCapUsd).toBe(20);
+      const page = await get(app, '/settings/llm');
+      expect(page.text).toContain('value="20"');
+      expect(page.text).toContain('Today so far: $0.');
+      const bad = await post(app, '/settings/llm/fallback-cap').send('capUsd=-1');
+      expect(decodeURIComponent(bad.headers.location)).toContain('error=');
+      expect(llmSettingsStore.get().fallbackCapUsd).toBe(20);
+      await post(app, '/settings/llm/fallback-cap').send('capUsd=');
+      expect(llmSettingsStore.get().fallbackCapUsd).toBeUndefined();
+    } finally {
+      rmSync(settingsDir, { recursive: true, force: true });
+    }
+  });
+
   it('shows a provider skipped for now, and Try it now puts it back', async () => {
     const { noteProviderFailure, providerCooldown, resetProviderCooldowns } = await import('@some-useful-agents/core');
     const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));

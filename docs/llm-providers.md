@@ -241,6 +241,16 @@ A provider that fails in a way that will keep failing is skipped by every node u
 
 Cooldowns are shared through `data/provider-cooldowns.json`, so the dashboard, the worker and the scheduler learn about a failure once between them, and a cooldown survives a restart. Settings → LLM shows each provider that's being skipped, with why and until when, and a **Try it now** button that clears the cooldown.
 
+### A daily cap on fallback spend
+
+When your first provider runs out of quota, every node's next stop may be a paid one. Set **Daily cap on fallbacks** in Settings → LLM (USD a day, local time) to put a limit on that. Once the day's fallback spend reaches the cap, a node stops instead of falling back to a paid provider, and its error says so. A paid fallback that still has room is held to what's left; Claude gets it as `--max-budget-usd`.
+
+- **Paid** means Claude, or any provider with a price in Pricing. A free fallback, such as a local model or a CLI with no price, is never held back.
+- **A node whose first provider answers** is never held back.
+- **Fallback spend** is the recorded cost of nodes that tried, or skipped, an earlier provider. The setting shows today's total.
+
+There's no cap by default.
+
 ## Tool-calling
 
 Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a
