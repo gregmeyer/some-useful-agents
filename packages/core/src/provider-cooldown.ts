@@ -6,9 +6,13 @@
  * every call: before this, a codex quota error and an unreachable local model
  * cost each LLM node ~16s (a quarter of all LLM node time on the live install).
  *
- * In memory, per process: the worker and the dashboard each learn it once.
- * A success on the provider clears it; so does the cooldown running out.
+ * Shared through a file in the data dir when a process points at one
+ * (`useProviderCooldownFile`; every `sua` command does): the dashboard, the
+ * worker and the scheduler then learn it once between them, and a cooldown
+ * survives a restart. Without a file (tests) it's kept in memory. A success
+ * on the provider clears it; so does the cooldown running out.
  */
+import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import type { LlmFailureCategory } from './node-spawner.js';
 
 export interface ProviderCooldown {
@@ -33,6 +37,48 @@ export const COOLDOWN_MS: Partial<Record<LlmFailureCategory, number>> = {
 const MAX_MS = 7 * 24 * 60 * MIN;
 
 const cooling = new Map<string, ProviderCooldown>();
+
+/** The shared file, when set, and the mtime it was last read at (-1: not read yet). */
+let file: string | undefined;
+let readMtime = -1;
+
+/** Share cooldowns through this file (undefined: this process only). */
+export function useProviderCooldownFile(path: string | undefined): void {
+  file = path;
+  readMtime = -1;
+}
+
+const isCooldown = (c: unknown): c is ProviderCooldown => !!c && typeof c === 'object'
+  && typeof (c as ProviderCooldown).provider === 'string' && typeof (c as ProviderCooldown).category === 'string'
+  && Number.isFinite((c as ProviderCooldown).until) && Number.isFinite((c as ProviderCooldown).at);
+
+/** Pick up what another process wrote, when the file changed since it was last read. */
+function load(): void {
+  if (!file) return;
+  let mtime: number;
+  try { mtime = statSync(file).mtimeMs; } catch {
+    if (readMtime !== 0) { cooling.clear(); readMtime = 0; }
+    return;
+  }
+  if (mtime === readMtime) return;
+  try {
+    const data = JSON.parse(readFileSync(file, 'utf8')) as { cooldowns?: unknown[] };
+    cooling.clear();
+    for (const c of data.cooldowns ?? []) if (isCooldown(c)) cooling.set(c.provider, c);
+    readMtime = mtime;
+  } catch { /* half-written or unreadable: keep what we have, read again next time */ }
+}
+
+/** Write the current cooldowns for the other processes (a whole new file, renamed into place). */
+function save(): void {
+  if (!file) return;
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ cooldowns: [...cooling.values()] }, null, 2) + '\n', { mode: 0o600 });
+    renameSync(tmp, file);
+    readMtime = statSync(file).mtimeMs;
+  } catch { /* a nicety: this process still has it */ }
+}
 
 /**
  * When the error says it can be tried again: "try again at Nov 18th, 2026
@@ -64,17 +110,21 @@ export function noteProviderFailure(provider: string, category: LlmFailureCatego
   if (base === undefined) return undefined;
   const stated = category === 'quota_exceeded' || category === 'credit_exhausted' || category === 'rate_limited' ? retryAtFrom(errorText, now) : undefined;
   const c: ProviderCooldown = { provider, category, at: now, until: stated ?? now + base };
+  load();
   cooling.set(provider, c);
+  save();
   return c;
 }
 
 /** It worked: it's back. */
 export function clearProviderCooldown(provider: string): void {
-  cooling.delete(provider);
+  load();
+  if (cooling.delete(provider)) save();
 }
 
 /** The provider's cooldown, while it lasts. */
 export function providerCooldown(provider: string, now = Date.now()): ProviderCooldown | undefined {
+  load();
   const c = cooling.get(provider);
   if (!c) return undefined;
   if (c.until <= now) { cooling.delete(provider); return undefined; }
@@ -83,6 +133,7 @@ export function providerCooldown(provider: string, now = Date.now()): ProviderCo
 
 /** Every provider cooling down now, soonest back first. */
 export function providerCooldowns(now = Date.now()): ProviderCooldown[] {
+  load();
   return [...cooling.keys()].map((p) => providerCooldown(p, now)).filter((c): c is ProviderCooldown => !!c).sort((a, b) => a.until - b.until);
 }
 
@@ -97,7 +148,8 @@ export function withoutCoolingProviders(chain: readonly string[], now = Date.now
   return { chain: chain.filter((p) => !skipped.some((s) => s.provider === p)), skipped };
 }
 
-/** For tests: forget every cooldown. */
+/** For tests: forget every cooldown in this process (the file, if any, is left as it is). */
 export function resetProviderCooldowns(): void {
   cooling.clear();
+  readMtime = -1;
 }
