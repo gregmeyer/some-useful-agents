@@ -84,6 +84,13 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   keyed by provider id or a custom provider's name). Claude without one tries
   Sonnet; the others go straight on. If the fallback is busy too, the waterfall
   moves on to the next provider.
+- **An answer in the wrong shape gets one more try on the same provider.**
+  When a node declares an output contract (`outputContract`, such as a
+  required `<answer>` block) and the provider answers without it, that
+  provider is asked once more. The prompt then ends with what was missing
+  ("Your previous answer to this was not in the required format: …"). If the
+  second answer misses too, the node goes on to the next provider. Both
+  attempts count toward the node's tokens and cost.
 - **A provider that's down stays skipped for a while.** Out of quota or credit,
   not installed or not reachable, signed out, or rate limited: the next nodes
   don't try it again until its cooldown ends. The cooldown runs until the reset
@@ -94,8 +101,9 @@ named entry with an `apiBase`, an optional `apiKey`, and a `model`. Set `"vision
   (quota_exceeded) 4 min ago; tried again after 12:28 PM.") and in the log as
   `[llm-fallback] …: skipping codex (quota_exceeded) until …`. When it works
   again it's back at once. When every provider is cooling down, the chain is
-  tried as configured. The cooldown is kept in memory by each process (the
-  worker, the dashboard), so a restart forgets it. Before this, an out-of-quota
+  tried as configured. Cooldowns are shared by every sua process through
+  `data/provider-cooldowns.json` and survive a restart (see "Skipped for
+  now" below). Before this, an out-of-quota
   provider and a local model that wasn't running cost every node about 16
   seconds.
 - When every attempt fails, the node's error says what each one ran into, in

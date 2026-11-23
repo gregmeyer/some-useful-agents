@@ -50,12 +50,14 @@ describe('LLM usage across the provider waterfall', () => {
     expect(res.exitCode).toBe(0);
     expect(res.usedLLMProvider).toBe('strong');
     expect(res.attemptUsage).toBeUndefined();
+    // weak answered in the wrong shape, was asked once more (and missed again), then strong answered.
     expect(res.usage?.attempts).toEqual([
+      expect.objectContaining({ provider: 'weak', model: 'w', inputTokens: 1000, outputTokens: 50, costSource: 'estimated', costUsd: 0.01 + 0.005 }),
       expect.objectContaining({ provider: 'weak', model: 'w', inputTokens: 1000, outputTokens: 50, costSource: 'estimated', costUsd: 0.01 + 0.005 }),
       expect.objectContaining({ provider: 'strong', model: 's', inputTokens: 2000, outputTokens: 100, costSource: 'free', costUsd: 0 }),
     ]);
     expect(res.usage?.total).toEqual({
-      inputTokens: 3000, outputTokens: 150, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.015, costComplete: true,
+      inputTokens: 4000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.03, costComplete: true,
     });
   });
 });
