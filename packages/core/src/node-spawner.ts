@@ -1265,6 +1265,9 @@ export async function spawnNodeReal(
   const costOf = (u: LlmUsage): number | undefined => priceUsage(u, { pricing: _opts.llmSettings?.pricing, localProviders }).costUsd;
   // A provider whose model was busy, once more on its fallback model (each provider once).
   const busyRetry = new Map<string, string>();
+  // An answer in the wrong shape, once more on the same provider with what was missing, before the next provider.
+  const repairRetried = new Set<string>();
+  let repairNote: { provider: string; text: string } | undefined;
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     // Per-run spend limit: what's left after this node's earlier attempts.
@@ -1298,7 +1301,9 @@ export async function spawnNodeReal(
     // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
     const providerModel = busyRetry.get(provider) ?? (node.model ? undefined : _opts.llmSettings?.models?.[provider]);
     const attemptNode: AgentNode = { ...node, ...(providerModel ? { model: providerModel } : {}), systemPrompt: resolvedSystem };
-    let result = await runLlmAttempt(provider, attemptNode, resolvedPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
+    const attemptPrompt = repairNote?.provider === provider ? `${resolvedPrompt}\n\n${repairNote.text}` : resolvedPrompt;
+    repairNote = undefined;
+    let result = await runLlmAttempt(provider, attemptNode, attemptPrompt, childEnv, onProgress, signal, onSpawn, onChildExit, _opts.llmSettings?.customProviders, {
       onToolCall: (r) => { toolCalls.push(r); },
       agentId: _opts.agentId,
       agentSource: _opts.agentSource,
@@ -1357,6 +1362,8 @@ export async function spawnNodeReal(
         category: 'invalid_output',
         error: `Output failed contract: ${check.reason}`,
       };
+      // It answered, just not in the shape the node needs: ask it once more, saying what was missing.
+      if (!repairRetried.has(provider) && (result.result ?? '').trim()) repairNote = { provider, text: contractRepairNote(check.reason) };
     }
 
     lastResult = result;
@@ -1389,6 +1396,14 @@ export async function spawnNodeReal(
       `${errSnippet ? `: ${errSnippet}` : ''}\n`,
     );
 
+    // Wrong shape: the same provider once more, told what was missing, before the next one.
+    if (repairNote?.provider === provider && !repairRetried.has(provider)) {
+      repairRetried.add(provider);
+      process.stderr.write(`[llm-fallback] ${_opts.agentId ?? '?'}/${node.id}: ${provider} answered in the wrong shape, asking it once more\n`);
+      i--;
+      continue;
+    }
+    repairNote = undefined;
     // Busy, not out of usage: the same provider on its fallback model, once, before the next one.
     if (lastCategory === 'model_busy' && !busyRetry.has(provider)) {
       const alt = busyFallbackModel(provider, ranModel, _opts.llmSettings?.fallbackModels);
@@ -2303,6 +2318,11 @@ function approximateExecSize(args: string[], env: Record<string, string>, stdinI
  * `elapsedMs` is undefined for a cancellation (operator Stop), which reaches
  * the same `killed` branch but isn't a real timeout — keep the bare message.
  */
+/** What a provider is told when it answers again after missing the node's output contract. */
+export function contractRepairNote(reason: string): string {
+  return `Your previous answer to this was not in the required format: ${reason}. Answer again in full, in exactly the format the instructions above require.`;
+}
+
 export function timeoutError(timeoutSec: number, elapsedMs?: number): string {
   const bare = `Timed out after ${timeoutSec}s`;
   if (elapsedMs === undefined) return bare;
