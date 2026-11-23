@@ -4,7 +4,7 @@ import { existsSync, statSync } from 'node:fs';
 import { platform } from 'node:os';
 import chalk from 'chalk';
 import { loadConfig, getAgentDirs, getSecretsPath, getDbPath, getDataRoot } from '../config.js';
-import { listV2Agents } from '../v2-runtime.js';
+import { listV2Agents, loadLlmSettingsSnapshot } from '../v2-runtime.js';
 import {
   loadAgents,
   EncryptedFileStore,
@@ -14,12 +14,47 @@ import {
   readMcpToken,
   inspectSecretsFile,
   getSchedulerStatus,
+  RunStore,
+  formatUsd,
+  providerHealthProblems,
+  summarizeProviderHealth,
 } from '@some-useful-agents/core';
 import * as ui from '../ui.js';
 
 interface Check {
   name: string;
   run: () => { ok: boolean; message: string };
+}
+
+/**
+ * How the enabled model providers did over the last week (provider-health.ts).
+ * Fails only for a provider that never answered: that one is a setup problem
+ * (not started, not installed, wrong URL). One that mostly fails is reported
+ * but passes, since running out of quota isn't something doctor can fix.
+ */
+function providerHealthCheck(config: ReturnType<typeof loadConfig>): { ok: boolean; message: string } {
+  const chain = loadLlmSettingsSnapshot(config)?.providers;
+  if (!chain?.length) return { ok: true, message: 'no LLM settings yet' };
+  const dbPath = getDbPath(config);
+  if (!existsSync(dbPath)) return { ok: true, message: 'no runs yet' };
+  let store: RunStore | undefined;
+  try {
+    store = new RunStore(dbPath, { retentionDays: 0 });
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const health = summarizeProviderHealth(store.providerHealthRows(since), since);
+    const problems = providerHealthProblems(health, chain);
+    const tally = chain.map((p) => {
+      const r = health.providers.find((x) => x.provider === p);
+      return `${p} ${r?.succeeded ?? 0}✓ ${r?.failed ?? 0}✗`;
+    }).join(' · ');
+    const fell = health.fellBack ? `; ${health.fellBack} node(s) fell back (${formatUsd(health.fellBackCostUsd, true)})` : '';
+    const lines = problems.map((p) => `\n       ${p.kind === 'never-worked' ? chalk.red(p.message) : chalk.yellow(p.message)}`).join('');
+    return { ok: !problems.some((p) => p.kind === 'never-worked'), message: `${tally}${fell}${lines}` };
+  } catch (err) {
+    return { ok: true, message: `couldn't read runs: ${(err as Error).message}` };
+  } finally {
+    store?.close();
+  }
 }
 
 function checkMode600(path: string): { ok: boolean; message: string } {
@@ -205,6 +240,10 @@ export const doctorCommand = new Command('doctor')
             return { ok: false, message: 'not found (needed for claude-code agents)' };
           }
         },
+      },
+      {
+        name: 'Model providers (last 7 days)',
+        run: () => providerHealthCheck(config),
       },
       {
         name: 'Docker available',

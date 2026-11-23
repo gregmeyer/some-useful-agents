@@ -226,6 +226,15 @@ provider actually produced the output) and the full `attemptedProviders` trail,
 visible on the run-detail page: every llm node shows which provider it ran on,
 plus the failed hops when the waterfall fell through.
 
+### How each provider did lately
+
+The waterfall hides a provider that never works, because its nodes still succeed on the next one. To make that visible, sua reads the last 7 days of node records:
+- **Settings → LLM** shows a line under each provider: *answered N · failed M (mostly out of quota) · last answered 2 hours ago*. It also says how many nodes went to a later provider, and what they cost.
+- **`sua doctor`** has a *Model providers (last 7 days)* check. It fails only for a provider that has never answered, which is a setup problem: not started, not installed, or the wrong URL.
+- **When the dashboard starts**, it logs a `[providers]` line for an enabled provider that never answered (5 or more tries), or that failed at least half of 10 or more tries.
+
+Passing over a provider while it cools down after a failure isn't counted as a try.
+
 ## Tool-calling
 
 Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a

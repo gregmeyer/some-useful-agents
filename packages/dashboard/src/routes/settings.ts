@@ -1,4 +1,4 @@
-import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore } from '@some-useful-agents/core';
+import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
   looksLikeSensitive,
@@ -1131,6 +1131,20 @@ settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
   }
 });
 
+/** How each provider did over the last 7 days, for Settings → LLM. Undefined when it can't be read. */
+function readProviderHealth(ctx: ReturnType<typeof getContext>) {
+  try {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const summary = summarizeProviderHealth(ctx.runStore.providerHealthRows(since), since);
+    const s = ctx.llmSettingsStore?.get();
+    const disabled = new Set(s?.disabledProviders ?? []);
+    const chain = (s?.providers ?? []).filter((p) => !disabled.has(p));
+    return { summary, problems: providerHealthProblems(summary, chain) };
+  } catch {
+    return undefined;
+  }
+}
+
 settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
   const ctx = getContext(req.app.locals);
   const { flash } = readQueryBanners(req);
@@ -1143,6 +1157,7 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
     modelServer: await readModelServer(ctx),
     cliModels: readProviderModels(),
+    health: readProviderHealth(ctx),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });
@@ -1444,6 +1459,7 @@ settingsRouter.post('/settings/llm/probe', async (req: Request, res: Response) =
     error,
     probe,
     formatAge: (v) => formatAge(typeof v === 'number' ? new Date(v).toISOString() : v),
+    health: readProviderHealth(ctx),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body }));
 });

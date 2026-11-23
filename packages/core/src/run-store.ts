@@ -1,3 +1,4 @@
+import type { ProviderHealthInput } from './provider-health.js';
 import { BLOB_MIN_CHARS, blobRefs, packLargeStrings, unpackLargeStrings } from './run-blobs.js';
 import type { LlmUsage, NodeUsage, UsageTotal } from './usage.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -391,6 +392,14 @@ export class RunStore {
     const changes = Number(result.changes ?? 0);
     if (changes > 0) this.pruneBlobs();
     return changes;
+  }
+
+  /** Node rows since `sinceIso` with what provider-health.ts needs (who answered, who failed first, cost). */
+  providerHealthRows(sinceIso: string): ProviderHealthInput[] {
+    return (this.db.prepare(
+      `SELECT usedProvider, provider_failures_json AS providerFailures, cost_usd AS costUsd, startedAt FROM node_executions
+       WHERE startedAt >= ? AND (usedProvider IS NOT NULL OR provider_failures_json IS NOT NULL)`,
+    ).all(sinceIso) as unknown) as ProviderHealthInput[];
   }
 
   // -- Large strings in stored inputs, kept once (run-blobs.ts) --
