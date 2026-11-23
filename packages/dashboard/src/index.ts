@@ -1,4 +1,4 @@
-import { NotebookStore } from '@some-useful-agents/core';
+import { NotebookStore, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { inBackground } from './lib/background.js';
 import { settleInFlight } from './lib/shutdown.js';
 import { setCurrentFileTypes } from './lib/file-types.js';
@@ -455,6 +455,17 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
   if (opts.llmSettingsPath) {
     llmSettingsStore = new LlmSettingsStore(opts.llmSettingsPath);
   }
+
+  // A provider in the chain that never answers (not started, not installed) or mostly
+  // fails hides behind the next one: say so at start (provider-health.ts).
+  try {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const s = llmSettingsStore?.get();
+    const disabled = new Set(s?.disabledProviders ?? []);
+    for (const p of providerHealthProblems(summarizeProviderHealth(runStore.providerHealthRows(since), since), (s?.providers ?? []).filter((x) => !disabled.has(x)))) {
+      console.warn(`[providers] ${p.message}`);
+    }
+  } catch { /* a nicety */ }
 
   // Widget packs + dashboards stores. Same DB file as agents/runs/tools.
   let packsStore: PacksStore | undefined;

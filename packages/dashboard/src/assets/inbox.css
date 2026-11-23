@@ -817,6 +817,15 @@
   color: var(--color-text-muted);
 }
 .settings-llm__model-warn { color: var(--color-warn); }
+/* A provider's last 7 days (answered / failed), its own line under the row. */
+.settings-llm__health {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: calc(16px + var(--space-2));
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.settings-llm__health--warn { color: var(--color-warn); }
 .settings-llm__add {
   display: flex;
   align-items: end;

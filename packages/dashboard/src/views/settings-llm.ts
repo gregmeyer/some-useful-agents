@@ -1,5 +1,5 @@
 import { html, unsafeHtml, type SafeHtml } from './html.js';
-import { codexModelRetired, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ServiceStatus } from '@some-useful-agents/core';
+import { codexModelRetired, failureReasonLabel, formatUsd, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ProviderHealth, type ProviderProblem, type ServiceStatus } from '@some-useful-agents/core';
 
 /** State of the local model server (the `model` daemon service). */
 export interface ModelServerView {
@@ -29,6 +29,23 @@ export interface SettingsLlmArgs {
    * its own CLI config defaults to. A provider listed here gets a Model line.
    */
   cliModels?: Partial<Record<string, { list: CodexModelList; configModel?: string }>>;
+  /** How each provider did over the last 7 days (provider-health.ts). Omitted in tests / when not wired. */
+  health?: { summary: ProviderHealth; problems: ProviderProblem[] };
+}
+
+/** One provider's last 7 days, as its own line under its row. */
+export function renderProviderHealth(provider: string, args: Pick<SettingsLlmArgs, 'health' | 'formatAge'>): SafeHtml {
+  const h = args.health;
+  if (!h) return html``;
+  const r = h.summary.providers.find((x) => x.provider === provider);
+  const problem = h.problems.find((x) => x.provider === provider);
+  if (!r || (r.succeeded === 0 && r.failed === 0)) return html`<p class="settings-llm__health">Last 7 days: not used.</p>`;
+  const reason = r.reasons[0] ? ` (mostly ${failureReasonLabel(r.reasons[0].category)})` : '';
+  const last = r.lastSucceededAt ? ` · last answered ${args.formatAge(r.lastSucceededAt)}` : '';
+  const note = problem?.kind === 'never-worked'
+    ? html` <strong>It hasn't answered once: fix it, or disable it so nodes stop waiting on it.</strong>`
+    : problem?.kind === 'mostly-failing' ? html` <strong>It fails more often than it answers.</strong>` : html``;
+  return html`<p class="settings-llm__health${problem ? ' settings-llm__health--warn' : ''}">Last 7 days: answered ${String(r.succeeded)} · failed ${String(r.failed)}${reason}${last}.${note}</p>`;
 }
 
 const HEALTH_LABEL: Record<NonNullable<ModelServerView['health']>, { text: string; badge: string }> = {
@@ -174,6 +191,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
             <button type="submit" class="btn btn--xs btn--ghost" ${isOnly ? 'disabled' : ''} title="${isOnly ? 'Cannot remove the last provider.' : ''}">Remove</button>
           </form>
         </div>
+        ${renderProviderHealth(p, args)}
         ${args.cliModels?.[p] ? renderProviderModel(p, settings.models?.[p], args.cliModels[p]!, settings.unavailableModels) : html``}
         ${p === 'apple-foundation-models' ? html`` : renderBusyFallback(p, settings.fallbackModels?.[p], args.cliModels?.[p])}
       </li>
@@ -192,6 +210,10 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
       </form>
     `;
 
+  const fell = args.health?.summary;
+  const fellBlock = fell && fell.fellBack > 0
+    ? html`<p class="dim" style="font-size: var(--font-size-sm); margin: var(--space-2) 0 0;">In the last 7 days, ${String(fell.fellBack)} node${fell.fellBack === 1 ? '' : 's'} went to a later provider because an earlier one failed${fell.fellBackCostUsd > 0 ? ` (${formatUsd(fell.fellBackCostUsd, true)} recorded)` : ''}.</p>`
+    : html``;
   const lastFallback = args.settings.lastFallback;
   const statusBlock = lastFallback
     ? html`
@@ -308,6 +330,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
 
       ${probeBlock}
       ${statusBlock}
+      ${fellBlock}
     </section>
 
     ${customBlock}
