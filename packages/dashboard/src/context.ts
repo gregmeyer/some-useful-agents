@@ -226,6 +226,13 @@ export interface DashboardContext {
    * and removed on completion.
    */
   activeRuns: Map<string, AbortController>;
+  /**
+   * True only for the real dashboard (startDashboardServer). It starts the
+   * queue watchers and lets system agents (Home's Next up, the edition editor,
+   * the board reviewer) run a model. A context built by hand, as tests do,
+   * leaves it unset, so a page test never starts a real model run.
+   */
+  live?: boolean;
   /** Work started without waiting for it (lib/background.ts). Created on first use. */
   background?: BackgroundTasks;
   /**

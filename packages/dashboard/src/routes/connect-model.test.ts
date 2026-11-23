@@ -1,7 +1,6 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -22,25 +21,19 @@ vi.mock('@some-useful-agents/core', async (importOriginal) => {
   return { ...actual, detectLlms: () => mocked.availability };
 });
 
-const {
-  AgentStore, LlmSettingsStore, LocalProvider, MemorySecretsStore, RunStore,
-  buildLoopbackAllowlist, loadAgents,
-} = await import('@some-useful-agents/core');
+const { LlmSettingsStore } = await import('@some-useful-agents/core');
 const { buildDashboardApp } = await import('../index.js');
 const { SESSION_COOKIE } = await import('../auth-middleware.js');
-const { MemorySecretsSession } = await import('../secrets-session.js');
+const { createTestContext, closeTestContext } = await import('../test-harness.js');
 const { invalidateProviderReadiness } = await import('../lib/provider-readiness.js');
 const { slugifyProviderName, MODEL_GATE_SKIP_COOKIE } = await import('./connect-model.js');
-type DashboardContext = import('../context.js').DashboardContext;
+type TestContext = import('../test-harness.js').TestContext;
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3991;
 const HDRS = { Host: `127.0.0.1:${PORT}`, Cookie: `${SESSION_COOKIE}=${TOKEN}` };
 
-let dir: string;
-let provider: InstanceType<typeof LocalProvider>;
-let runStore: InstanceType<typeof RunStore>;
-let agentStore: InstanceType<typeof AgentStore>;
+let t: TestContext | undefined;
 let llmSettingsStore: InstanceType<typeof LlmSettingsStore>;
 let stubServer: Server | undefined;
 
@@ -60,42 +53,12 @@ async function startStubEndpoint(): Promise<string> {
 }
 
 async function makeApp(opts: { withLlmStore?: boolean } = {}) {
-  dir = mkdtempSync(join(tmpdir(), 'sua-connect-model-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  writeFileSync(join(agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  llmSettingsStore = new LlmSettingsStore(join(dir, 'llm-settings.json'));
-
-  const ctx = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    llmSettingsStore: opts.withLlmStore === false ? undefined : llmSettingsStore,
-    allowUntrustedShell: new Set<string>(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as unknown as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-connect-model-', extra: ({ dir }) => {
+    llmSettingsStore = new LlmSettingsStore(join(dir, 'llm-settings.json'));
+    return { llmSettingsStore: opts.withLlmStore === false ? undefined : llmSettingsStore };
+  } });
+  const { ctx } = t;
+  writeFileSync(join(t.agentsDir, 'hello.yaml'), 'name: hello\ntype: shell\ncommand: echo hi\n');
 
   return buildDashboardApp(ctx);
 }
@@ -112,14 +75,12 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
   if (stubServer) {
     await new Promise<void>((resolve) => stubServer!.close(() => resolve()));
     stubServer = undefined;
   }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('slugifyProviderName', () => {

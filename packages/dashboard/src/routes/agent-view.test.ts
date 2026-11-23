@@ -1,17 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
-  AgentStore,
   InboxStore,
-  LocalProvider,
-  MemorySecretsStore,
-  RunStore,
-  buildLoopbackAllowlist,
   executeAgentDag,
-  loadAgents,
   type Agent,
   type SpawnNodeFn,
 } from '@some-useful-agents/core';
@@ -20,34 +11,21 @@ import { parseProposedActions } from './inbox-plan.js';
 import { executeViewRedesign } from './inbox-engine.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3992;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
-let dir = '';
 let ctx: DashboardContext;
-let provider: LocalProvider;
+let t: TestContext | undefined;
 
 const model: SpawnNodeFn = async () => ({ result: '{"price":"$89","store":"Corner shop","items":[{"name":"Lamp","qty":2}]}', exitCode: 0 });
 
 async function setup() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-view-editor-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  ctx = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), inboxStore: new InboxStore(dbPath),
-    loadAgents: () => loadAgents({ directories: [agentsDir] }), secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30, dbPath, secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-view-editor-', extra: ({ dbPath }) => ({
+    inboxStore: new InboxStore(dbPath),
+  }) });
+  ({ ctx } = t);
   ctx.agentStore.createAgent({ id: 'shop', name: 'Shop', status: 'active', source: 'local', mcp: false,
     nodes: [{ id: 'look', type: 'llm-prompt', prompt: 'x' }],
     outputWidget: { type: 'key-value', fields: [{ name: 'price', type: 'text', label: 'Best price' }] } } as never, 'cli');
@@ -57,10 +35,8 @@ async function setup() {
 const runShop = () => executeAgentDag(ctx.agentStore.getAgent('shop') as Agent, { triggeredBy: 'cli' }, { runStore: ctx.runStore, spawnNode: model });
 
 afterEach(async () => {
-  await provider?.shutdown();
-  try { ctx.runStore.close(); ctx.agentStore.close(); ctx.inboxStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
-  dir = '';
+  await closeTestContext(t);
+  t = undefined;
 });
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 const post = (app: Parameters<typeof request>[0], p: string, body: Record<string, string>) =>

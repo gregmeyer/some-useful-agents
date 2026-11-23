@@ -155,6 +155,15 @@ therefore `tsc --build`, the same command, because composite references have to 
 for downstream projects to check against. If a change type-checks locally but you skipped the
 build, you have not type-checked it.
 
+### Dashboard tests
+
+Build a test dashboard with `createTestContext()` from `packages/dashboard/src/test-harness.ts`, and tear it down with `closeTestContext()` in `afterEach`.
+
+- **Teardown order:** the harness waits for the work the test's routes started (Run now, triage, anything launched through `inBackground`), then closes the stores. Work still running at teardown fails that test, with its label.
+- **When teardown fails:** stub the work with the context's `*Run` stand-ins, or wait for it in the test. Don't raise the timeout.
+- **No real model runs in tests:** the harness leaves `ctx.live` unset, so the queue watchers don't start and system agents don't run a model.
+- **Don't check for the test runner in shipped code:** use `ctx.live`, or a `ctx.*Run` stand-in that tests can set, instead of `process.env.VITEST`.
+
 ### Code style
 
 - TypeScript strict mode

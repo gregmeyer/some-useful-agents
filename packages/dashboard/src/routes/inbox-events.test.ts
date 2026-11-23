@@ -9,22 +9,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-  AgentStore,
-  InboxStore,
-  LocalProvider,
-  MemorySecretsStore,
-  RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
-} from '@some-useful-agents/core';
+import { InboxStore } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 import { InboxEventBus, GLOBAL_INBOX_CHANNEL } from '../lib/inbox-event-bus.js';
 import { publishInboxChanged } from './inbox-shared.js';
 
@@ -32,67 +20,24 @@ const TOKEN = 'a'.repeat(64);
 const PORT = 3994;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
-let dir: string;
-let provider: LocalProvider;
-let runStore: RunStore;
-let agentStore: AgentStore;
 let inboxStore: InboxStore;
 let inboxEventBus: InboxEventBus;
+let t: TestContext | undefined;
 
 async function makeApp() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-sse-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  inboxStore = new InboxStore(dbPath);
-  inboxEventBus = new InboxEventBus({ idleGcMs: 60_000 });
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-
-  const ctx: DashboardContext = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    inboxStore,
-    inboxEventBus,
-    allowUntrustedShell: new Set(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  };
+  t = await createTestContext({ port: PORT, prefix: 'sua-sse-', extra: ({ dbPath }) => ({
+    inboxStore: new InboxStore(dbPath), inboxEventBus: new InboxEventBus({ idleGcMs: 60_000 }),
+  }) });
+  const { ctx } = t;
+  inboxStore = ctx.inboxStore!;
+  inboxEventBus = ctx.inboxEventBus!;
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
-  if (provider) {
-    const start = Date.now();
-    while ((provider as unknown as { running?: { size: number } }).running?.size && Date.now() - start < 2000) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    await provider.shutdown();
-  }
   if (inboxEventBus) inboxEventBus.dropAll();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { inboxStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 describe('GET /inbox/:id/events (SSE)', () => {
