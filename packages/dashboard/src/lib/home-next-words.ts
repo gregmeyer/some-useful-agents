@@ -106,8 +106,8 @@ export function wordedNext(ctx: Ctx, next: HomeNext, now = Date.now()): HomeNext
 export function refreshNextWords(ctx: Ctx, items: readonly NextItem[], key = nextKey(items)): boolean {
   if (ctx.homeNextWording) return false;
   const fake = ctx.homeNextRun;
-  // Any page test that loads Home would otherwise start a real model run.
-  if (!fake && process.env.VITEST) return false;
+  // Only the real dashboard runs the model; a page test that loads Home doesn't.
+  if (!fake && !ctx.live) return false;
   if (!fake && !ensureSystemAgentCurrent(ctx, HOME_NEXT_ID, "Home's Next up")) return false;
   const agent = fake ? undefined : ctx.agentStore.getAgent(HOME_NEXT_ID);
   if (!fake && !agent) return false;

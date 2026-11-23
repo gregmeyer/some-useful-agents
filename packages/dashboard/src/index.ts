@@ -303,10 +303,10 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   reportInterruptedBoardBuilds(ctx);
   // Builds queued by the MCP server (or while the dashboard was down) start here.
   startQueuedBoardBuilds(ctx);
-  if (!process.env.VITEST) watchQueuedBoardBuilds(ctx);
+  if (ctx.live) watchQueuedBoardBuilds(ctx);
   // Notebooks the MCP server's notebook-create queued: made here.
   failInterruptedNotebookRequests(ctx);
-  if (!process.env.VITEST) { inBackground(ctx, 'startQueuedNotebookRequests', Promise.allSettled(startQueuedNotebookRequests(ctx))); watchQueuedNotebookRequests(ctx); }
+  if (ctx.live) { inBackground(ctx, 'startQueuedNotebookRequests', Promise.allSettled(startQueuedNotebookRequests(ctx))); watchQueuedNotebookRequests(ctx); }
   app.use(buildTryRouter);
   app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);
@@ -745,6 +745,7 @@ export async function startDashboardServer(opts: StartDashboardOptions): Promise
     plannerMemoryStore,
     agentMemoryStore,
     allowUntrustedShell: opts.allowUntrustedShell ?? new Set(),
+    live: true,
     activeRuns: new Map(),
     inboxTriageAbortControllers: new Map(),
     inboxTriagePendingRefires: new Set(),

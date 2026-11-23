@@ -120,8 +120,8 @@ export function boardReviewInputs(ctx: Ctx, boardId: string): { inputs: Record<s
 
 async function runReviewer(ctx: Ctx, inputs: Record<string, string>): Promise<string | undefined> {
   if (ctx.boardReviewRun) return ctx.boardReviewRun(inputs);
-  // A page test that presses the button would otherwise start a real model run.
-  if (process.env.VITEST) return undefined;
+  // Only the real dashboard runs the model; a page test that presses the button doesn't.
+  if (!ctx.live) return undefined;
   if (!ensureSystemAgentCurrent(ctx, BOARD_REVIEWER_ID, 'board reviews')) return undefined;
   const agent = ctx.agentStore.getAgent(BOARD_REVIEWER_ID);
   if (!agent) return undefined;

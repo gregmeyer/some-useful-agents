@@ -1,31 +1,24 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import WebSocket from 'ws';
 import request from 'supertest';
 import {
   AgentStore,
   InboxStore,
   LocalProvider,
-  MemorySecretsStore,
   RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   type SpawnNodeFn,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 import { attachChatSocket, type ChatSocketHandle } from './chat-socket.js';
 import { InboxEventBus } from './inbox-event-bus.js';
 
 const TOKEN = 'a'.repeat(64);
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 
-let dir = '';
+let t: TestContext | undefined;
 let server: Server | undefined;
 let socket: ChatSocketHandle | undefined;
 let provider: LocalProvider;
@@ -53,16 +46,19 @@ const deltaModel: SpawnNodeFn = async (_node, _env, _opts, onProgress) => {
 };
 
 async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
-  dir = mkdtempSync(join(tmpdir(), 'sua-chat-ws-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  inboxStore = new InboxStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
+  server = createServer();
+  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+  port = (server.address() as { port: number }).port;
+  t = await createTestContext({ port, prefix: 'sua-chat-ws-', extra: ({ dbPath }) => ({
+    workflowSpawnNode: model,
+    inboxStore: new InboxStore(dbPath),
+    inboxEventBus: new InboxEventBus(),
+  }) });
+  const { ctx } = t;
+  provider = t.provider;
+  runStore = ctx.runStore;
+  agentStore = ctx.agentStore;
+  inboxStore = ctx.inboxStore!;
   agentStore.createAgent({
     id: 'weather', name: 'Weather', status: 'active', source: 'local', mcp: false,
     inputs: { QUESTION: { type: 'string' } },
@@ -79,34 +75,6 @@ async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
       { id: 'cheaperLabel', component: 'Text', text: 'Cheaper' },
     ] },
   } as never, 'cli');
-  server = createServer();
-  await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
-  port = (server.address() as { port: number }).port;
-  const ctx: DashboardContext = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(port),
-    port,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${port}`,
-    workflowSpawnNode: model,
-    inboxStore,
-    inboxEventBus: new InboxEventBus(),
-  };
   server.on('request', buildDashboardApp(ctx));
   socket = attachChatSocket(server, ctx);
 }
@@ -114,10 +82,9 @@ async function start(model: SpawnNodeFn = fakeModel): Promise<void> {
 afterEach(async () => {
   socket?.close();
   if (server) await new Promise<void>((r) => { server!.close(() => r()); server!.closeAllConnections(); });
-  await provider?.shutdown();
-  try { runStore.close(); agentStore.close(); inboxStore.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
-  server = undefined; socket = undefined; dir = '';
+  server = undefined; socket = undefined;
+  await closeTestContext(t);
+  t = undefined;
 });
 
 function connect(headers: Record<string, string>): Promise<{ ws: WebSocket; frames: Array<Record<string, unknown>>; next: (pred: (f: Record<string, unknown>) => boolean) => Promise<Record<string, unknown>> }> {

@@ -267,7 +267,7 @@ function finish(ctx: Ctx, buildId: string, r: { error?: string; placed?: string[
     });
   } catch { /* the board page still shows the outcome */ }
   // A new board arrives with sua's first look at it against what you asked for (ADR-0075). Not in page tests without a stand-in reviewer.
-  if (!failedBuild && (ctx.boardReviewRun || !process.env.VITEST)) {
+  if (!failedBuild && (ctx.boardReviewRun || ctx.live)) {
     try { const started = startBoardReview(ctx, build.boardId); if (started.work) ctx.boardReviewWork = started.work; } catch { /* Improve this board is still there */ }
   }
 }

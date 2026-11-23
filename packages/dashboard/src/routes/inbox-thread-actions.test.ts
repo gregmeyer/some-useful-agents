@@ -5,64 +5,29 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-  AgentStore,
-  InboxStore,
-  LocalProvider,
-  MemorySecretsStore,
-  RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
-} from '@some-useful-agents/core';
+import { InboxStore } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
-import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3992;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
 const AJAX = { Cookie: COOKIE, Host: `127.0.0.1:${PORT}`, 'X-Requested-With': 'fetch' };
 
-let dir: string;
-let provider: LocalProvider;
-let runStore: RunStore;
-let agentStore: AgentStore;
 let inboxStore: InboxStore;
+let t: TestContext | undefined;
 
 async function makeApp() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-inbox-thread-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  inboxStore = new InboxStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  const ctx: DashboardContext = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore, agentStore, loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore, secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'), retentionDays: 30, dbPath,
-    secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64), inboxStore,
-    allowUntrustedShell: new Set(), activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(), inboxTriagePendingRefires: new Set(),
-    dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  };
+  t = await createTestContext({ port: PORT, prefix: 'sua-inbox-thread-', extra: ({ dbPath }) => ({ inboxStore: new InboxStore(dbPath) }) });
+  const { ctx } = t;
+  inboxStore = ctx.inboxStore!;
   return buildDashboardApp(ctx);
 }
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  try { inboxStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 function newThread() {

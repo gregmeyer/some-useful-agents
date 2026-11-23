@@ -1,41 +1,26 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
-  AgentStore, BoardsStore, DashboardsStore, InboxStore, LocalProvider, MemorySecretsStore, RunStore,
-  buildLoopbackAllowlist, loadAgents,
+  BoardsStore, DashboardsStore, InboxStore, LocalProvider,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../session.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 const TOKEN = 'a'.repeat(64);
 const PORT = 3990;
 const COOKIE = `${SESSION_COOKIE}=${TOKEN}`;
-let dir = '';
 let ctx: DashboardContext;
 let provider: LocalProvider;
 
+let t: TestContext | undefined;
+
 async function setup() {
-  dir = mkdtempSync(join(tmpdir(), 'sua-boards-route-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-  const secretsStore = new MemorySecretsStore();
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
-  ctx = {
-    token: TOKEN, allowlist: buildLoopbackAllowlist(PORT), port: PORT, provider,
-    runStore: new RunStore(dbPath), agentStore: new AgentStore(dbPath), dashboardsStore: new DashboardsStore(dbPath), inboxStore: new InboxStore(dbPath),
-    loadAgents: () => loadAgents({ directories: [agentsDir] }), secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }), tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30, dbPath, secretsPath: join(dir, 'secrets.enc'), rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set(), activeRuns: new Map(), inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(), dataDir: dir, dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-  } as DashboardContext;
+  t = await createTestContext({ port: PORT, prefix: 'sua-boards-route-', extra: ({ dbPath }) => ({
+    dashboardsStore: new DashboardsStore(dbPath), inboxStore: new InboxStore(dbPath),
+  }) });
+  ({ ctx, provider } = t);
   // No model in tests: a built board keeps its grid unless a test answers for the page agent.
   ctx.boardPageRun = async () => undefined;
   const add = (id: string, size?: string) => ctx.agentStore.createAgent({ id, name: id, status: 'active', source: 'local', mcp: false,
@@ -45,11 +30,8 @@ async function setup() {
   return buildDashboardApp(ctx);
 }
 afterEach(async () => {
-  if (!dir) return; // this test didn't call setup()
-  await provider?.shutdown();
-  try { ctx.runStore.close(); ctx.agentStore.close(); } catch { /* ignore */ }
-  rmSync(dir, { recursive: true, force: true });
-  dir = '';
+  await closeTestContext(t);
+  t = undefined;
 });
 const get = (app: Parameters<typeof request>[0], p: string) => request(app).get(p).set('Host', `127.0.0.1:${PORT}`).set('Cookie', COOKIE);
 const post = (app: Parameters<typeof request>[0], p: string, body: unknown) => request(app).post(p).set('Host', `127.0.0.1:${PORT}`).set('Origin', `http://127.0.0.1:${PORT}`).set('Cookie', COOKIE).send(body as object);

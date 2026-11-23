@@ -1,21 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import request from 'supertest';
-import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   AgentStore,
-  LocalProvider,
-  MemorySecretsStore,
   RunStore,
-  buildLoopbackAllowlist,
-  loadAgents,
   type Agent,
 } from '@some-useful-agents/core';
 import { buildDashboardApp } from '../index.js';
 import type { DashboardContext } from '../context.js';
 import { SESSION_COOKIE } from '../auth-middleware.js';
-import { MemorySecretsSession } from '../secrets-session.js';
+import { createTestContext, closeTestContext, type TestContext } from '../test-harness.js';
 
 /**
  * The agent catalog (GET /agents): shelves when browsing, sua's picks for a
@@ -32,10 +25,9 @@ const TOKEN = 'a'.repeat(64);
 const PORT = 3994;
 const HDRS = { Host: `127.0.0.1:${PORT}`, Cookie: `${SESSION_COOKIE}=${TOKEN}` };
 
-let dir: string;
-let provider: LocalProvider;
 let runStore: RunStore;
 let agentStore: AgentStore;
+let t: TestContext | undefined;
 
 const mk = (over: Partial<Agent>): Agent => ({
   id: 'x', name: 'X', status: 'active', source: 'local', mcp: false,
@@ -47,46 +39,18 @@ type Fake = (inputs: Record<string, string>) => Promise<string | undefined>;
 let lastCtx: DashboardContext;
 
 async function makeApp(agents: Agent[], finder?: Fake, sorter?: Fake) {
-  dir = mkdtempSync(join(tmpdir(), 'sua-agents-catalog-'));
-  const dbPath = join(dir, 'runs.db');
-  const agentsDir = join(dir, 'agents', 'local');
-  mkdirSync(agentsDir, { recursive: true });
-
-  const secretsStore = new MemorySecretsStore();
-  runStore = new RunStore(dbPath);
-  agentStore = new AgentStore(dbPath);
-  provider = new LocalProvider(dbPath, secretsStore);
-  await provider.initialize();
+  t = await createTestContext({ port: PORT, prefix: 'sua-agents-catalog-', extra: {
+    ...(finder ? { agentFindRun: finder } : {}),
+    ...(sorter ? { agentCatalogSortRun: sorter } : {}),
+  } });
+  ({ runStore, agentStore } = t.ctx);
 
   for (const a of agents) {
     const { version, ...rest } = a as Agent & { version?: number };
     agentStore.upsertAgent(rest as Agent, 'import', 'test fixture');
   }
 
-  const ctx = {
-    token: TOKEN,
-    allowlist: buildLoopbackAllowlist(PORT),
-    port: PORT,
-    provider,
-    runStore,
-    agentStore,
-    loadAgents: () => loadAgents({ directories: [agentsDir] }),
-    secretsStore,
-    secretsSession: new MemorySecretsSession({ backing: secretsStore }),
-    tokenPath: join(dir, 'mcp-token'),
-    retentionDays: 30,
-    dbPath,
-    secretsPath: join(dir, 'secrets.enc'),
-    rotateToken: () => 'r'.repeat(64),
-    allowUntrustedShell: new Set<string>(),
-    activeRuns: new Map(),
-    inboxTriageAbortControllers: new Map(),
-    inboxTriagePendingRefires: new Set(),
-    dataDir: dir,
-    dashboardBaseUrl: `http://127.0.0.1:${PORT}`,
-    ...(finder ? { agentFindRun: finder } : {}),
-    ...(sorter ? { agentCatalogSortRun: sorter } : {}),
-  } as unknown as DashboardContext;
+  const { ctx } = t;
   lastCtx = ctx;
 
   return buildDashboardApp(ctx);
@@ -96,10 +60,8 @@ const get = (app: ReturnType<typeof buildDashboardApp>, url: string) =>
   request(app).get(url).set(HDRS);
 
 afterEach(async () => {
-  if (provider) await provider.shutdown();
-  try { runStore?.close(); } catch { /* ignore */ }
-  try { agentStore?.close(); } catch { /* ignore */ }
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  await closeTestContext(t);
+  t = undefined;
 });
 
 

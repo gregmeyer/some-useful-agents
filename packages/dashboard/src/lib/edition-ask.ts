@@ -131,8 +131,8 @@ export function parseEditionAnswer(raw: string | undefined, prefs: EditionPrefs,
 
 async function runEditor(ctx: Ctx, inputs: Record<string, string>): Promise<string | undefined> {
   if (ctx.editionEditorRun) return ctx.editionEditorRun(inputs);
-  // A page test that submits the box would otherwise start a real model run.
-  if (process.env.VITEST) return undefined;
+  // Only the real dashboard runs the model; a page test that submits the box doesn't.
+  if (!ctx.live) return undefined;
   if (!ensureSystemAgentCurrent(ctx, EDITION_EDITOR_ID, "changes to Today's edition")) return undefined;
   const agent = ctx.agentStore.getAgent(EDITION_EDITOR_ID);
   if (!agent) return undefined;
