@@ -60,6 +60,7 @@ export * from './http-auth.js';
 export * from './daemon-supervisor.js';
 export * from './backup-retention.js';
 export * from './provider-health.js';
+export * from './fallback-spend.js';
 export * from './agent-v2-types.js';
 export * from './failure-explain.js';
 export * from './error-catalog.js';

@@ -618,6 +618,18 @@ export class RunStore {
    * What a run has cost so far: its finished nodes plus the child runs that
    * have ended. For the per-run spend limit, checked while the run goes.
    */
+  /**
+   * Spent since `sinceIso` on nodes that reached a later provider because an
+   * earlier one failed or was cooling down (fallback-spend.ts).
+   */
+  fallbackSpendSince(sinceIso: string): number {
+    const r = this.db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM node_executions
+       WHERE startedAt >= ? AND cost_usd > 0 AND provider_failures_json IS NOT NULL AND provider_failures_json NOT IN ('', '[]')`,
+    ).get(sinceIso) as { cost: number };
+    return Number(r.cost);
+  }
+
   runSpendSoFar(runId: string): number {
     const nodes = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM node_executions WHERE runId = ?').get(runId) as { cost: number };
     const children = this.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS cost FROM runs WHERE parent_run_id = ?').get(runId) as { cost: number };

@@ -112,6 +112,12 @@ export interface LlmSettings {
   /** Default spend limits for agents that don't set their own (spend-limits.ts). */
   spendLimits?: SpendLimits;
   /**
+   * Most a day's nodes may spend, in USD at list price, on a paid provider
+   * they reached only because an earlier one failed (out of quota, unreachable).
+   * Undefined: no cap. See fallback-spend.ts.
+   */
+  fallbackCapUsd?: number;
+  /**
    * The model a builtin CLI provider runs when a node doesn't pin one, keyed by
    * provider id (e.g. `{ codex: 'gpt-6-sol' }`). Absent ⇒ the CLI's own default
    * (for codex, `model` in ~/.codex/config.toml).
@@ -344,6 +350,14 @@ export class LlmSettingsStore {
     this.write(data);
   }
 
+  /** Set the daily cap on fallback spend (USD); 0 or undefined clears it. */
+  setFallbackCap(usd: number | undefined): void {
+    if (usd !== undefined && (typeof usd !== 'number' || !Number.isFinite(usd) || usd < 0)) throw new Error('The cap must be a positive number of USD, or empty for no cap.');
+    const data = this.read();
+    data.settings.fallbackCapUsd = usd ? usd : undefined;
+    this.write(data);
+  }
+
   /**
    * Set (or with `null` / empty, clear) the model `provider` runs when a node
    * doesn't pin one. Only builtin CLI providers take one here; a custom
@@ -447,7 +461,7 @@ export class LlmSettingsStore {
       const models = sanitizeModels((settings as LlmSettings).models);
       const fallbackModels = sanitizeModels((settings as LlmSettings).fallbackModels, customNames);
       const unavailableModels = sanitizeUnavailable((settings as LlmSettings).unavailableModels);
-      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), ...(models ? { models } : {}), ...(fallbackModels ? { fallbackModels } : {}), ...(unavailableModels ? { unavailableModels } : {}), lastFallback: settings.lastFallback } };
+      return { version: 3, settings: { providers: deduped, customProviders, disabledProviders, ...(pricing ? { pricing } : {}), ...(spendLimits ? { spendLimits } : {}), ...(fallbackCapOf(settings) ? { fallbackCapUsd: fallbackCapOf(settings) } : {}), ...(models ? { models } : {}), ...(fallbackModels ? { fallbackModels } : {}), ...(unavailableModels ? { unavailableModels } : {}), lastFallback: settings.lastFallback } };
     } catch (err) {
       if ((err as Error).message.includes('version')) throw err;
       return { version: 3, settings: { providers: [DEFAULT_PRIMARY], customProviders: [] } };
@@ -492,6 +506,11 @@ function sanitizeUnavailable(raw: unknown): Record<string, UnavailableModel> | u
 }
 
 /** Keep only positive, finite limits from a hand-edited file. */
+function fallbackCapOf(settings: unknown): number | undefined {
+  const v = (settings as { fallbackCapUsd?: unknown } | undefined)?.fallbackCapUsd;
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
+}
+
 function sanitizeSpendLimits(raw: unknown): SpendLimits | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const r = raw as Record<string, unknown>;

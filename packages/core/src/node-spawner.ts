@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { fallbackCapMessage, isPaidProvider, type FallbackCap } from './fallback-spend.js';
 import { codexConfigModel, refusedModelId } from './codex-models.js';
 import { claudeConfigModel } from './claude-models.js';
 import { claudeUsage, codexUsage, codexDefaultModel, priceUsage, totalUsage, localProviderNames, formatUsd, type LlmUsage, type NodeUsage, type PriceTable } from './usage.js';
@@ -146,6 +147,8 @@ export interface LlmSettingsSnapshot {
   pricing?: PriceTable;
   /** Default spend limits for agents without their own (spend-limits.ts). */
   spendLimits?: SpendLimits;
+  /** Daily cap on spend that only happened because an earlier provider failed (fallback-spend.ts). */
+  fallbackCapUsd?: number;
   /**
    * Providers the operator toggled OFF globally. Already excluded from
    * `providers` (the runtime chain), but passed through so a node that PINS a
@@ -275,6 +278,8 @@ export type SpawnNodeFn = (
     askRunId?: string;
     /** What's left of the run's spend limit, USD (spend-limits.ts). Unset ⇒ no limit. */
     spendBudgetUsd?: number;
+    /** The daily cap on fallback spend and what's been spent today (fallback-spend.ts). Unset ⇒ no cap. */
+    fallbackCap?: FallbackCap;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -1148,6 +1153,7 @@ export async function spawnNodeReal(
     askHuman?: BuiltinToolContext['askHuman'];
     askRunId?: string;
     spendBudgetUsd?: number;
+    fallbackCap?: FallbackCap;
   },
   onProgress?: (event: SpawnProgress) => void,
   signal?: AbortSignal,
@@ -1226,7 +1232,10 @@ export async function spawnNodeReal(
 
   // A provider that just failed in a lasting way (out of quota until a stated time, not running, signed out)
   // is skipped until its cooldown ends, not tried and failed again on every node.
-  const { chain, skipped } = withoutCoolingProviders(buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders));
+  const fullChain = buildProviderChain(node.provider, _opts.llmSettings?.providers, _opts.llmSettings?.disabledProviders);
+  const { chain, skipped } = withoutCoolingProviders(fullChain);
+  // The provider this node would use if nothing failed: any other one it reaches is a fallback.
+  const firstChoice = fullChain[0];
 
   const attemptedProviders: string[] = [];
   // Per-attempt failure trail: why each non-winning provider was skipped.
@@ -1272,6 +1281,18 @@ export async function spawnNodeReal(
         lastCategory = 'budget_exhausted';
         break;
       }
+    }
+    // Daily cap on fallback spend: a paid provider reached only because an earlier one
+    // failed (or is cooling down) is held to what's left of today's cap, or not tried.
+    const cap = _opts.fallbackCap;
+    if (cap && provider !== firstChoice && isPaidProvider(provider, _opts.llmSettings?.pricing)) {
+      const left = cap.capUsd - cap.spentUsd - usageAttempts.reduce((sum, a) => sum + (a.provider !== firstChoice ? (a.costUsd ?? 0) : 0), 0);
+      if (left <= 0) {
+        lastResult = { result: '', exitCode: 1, category: 'budget_exhausted', error: fallbackCapMessage(provider, cap, firstChoice) };
+        lastCategory = 'budget_exhausted';
+        break;
+      }
+      attemptBudgetUsd = Math.min(attemptBudgetUsd ?? Infinity, left);
     }
     if (attemptedProviders.at(-1) !== provider) attemptedProviders.push(provider);
     // The operator's model for this provider applies only when the node pins none; a busy one's fallback over either.
