@@ -7,6 +7,7 @@
  * LlmSpawner interface added in PR 2 (this PR).
  */
 
+import { USE_PROCESS_GROUPS, stopGroup, trackGroup, untrackGroup } from './process-groups.js';
 import { fallbackCapMessage, isPaidProvider, type FallbackCap } from './fallback-spend.js';
 import { codexConfigModel, refusedModelId } from './codex-models.js';
 import { claudeConfigModel } from './claude-models.js';
@@ -2378,12 +2379,21 @@ export async function spawnProcess(
         cwd: opts.cwd,
         env: opts.env,
         stdio: [stdinMode, 'pipe', 'pipe'],
+        // Its own process group, so a stop or timeout reaches everything it starts (process-groups.ts).
+        detached: USE_PROCESS_GROUPS,
       });
     } catch (err) {
       resolve({ result: '', exitCode: 127, error: (err as Error).message, category: 'spawn_failure' });
       return;
     }
     const spawnedAt = Date.now();
+    const groupPid = child.pid;
+    if (typeof groupPid === 'number') trackGroup(groupPid);
+    // SIGTERM the node's whole process group, then SIGKILL whatever is left after 5s.
+    const stopChild = (): void => {
+      if (typeof groupPid === 'number') stopGroup(groupPid);
+      else child.kill('SIGTERM');
+    };
     // Report the freshly-spawned pid + start time so the executor can persist
     // them on the node_executions row. Fires before stdin write so a crash
     // between spawn() and the first stdout chunk still leaves a kill handle.
@@ -2431,8 +2441,7 @@ export async function spawnProcess(
     const timer = setTimeout(() => {
       killed = true;
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+      stopChild();
     }, opts.timeoutSec * 1000);
 
     // Cancellation signal: SIGTERM the child when the signal fires, then
@@ -2444,8 +2453,7 @@ export async function spawnProcess(
     if (opts.signal) {
       const onAbort = () => {
         killed = true;
-        child.kill('SIGTERM');
-        setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 5000);
+        stopChild();
       };
       if (opts.signal.aborted) {
         onAbort();
@@ -2457,6 +2465,7 @@ export async function spawnProcess(
 
     child.on('close', (code: number | null) => {
       clearTimeout(timer);
+      if (typeof groupPid === 'number') untrackGroup(groupPid);
       reportChildGone();
 
       // Flush any remaining buffered stdout line.
@@ -2482,6 +2491,7 @@ export async function spawnProcess(
 
     child.on('error', (err: Error) => {
       clearTimeout(timer);
+      if (typeof groupPid === 'number') untrackGroup(groupPid);
       reportChildGone();
       resolve({ result: '', exitCode: 127, error: err.message, category: 'spawn_failure' });
     });

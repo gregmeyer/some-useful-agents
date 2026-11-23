@@ -2423,6 +2423,27 @@ describe('executeAgentDag — agent wall-clock timeout (Agent.timeoutSec)', () =
     expect(run.status).toBe('completed');
   });
 
+  it('a node stopped while it runs is cancelled, and so is the run (with the reason the caller gave)', async () => {
+    for (const reason of [undefined, 'Stopped because the dashboard shut down.']) {
+      const controller = new AbortController();
+      const agent = makeAgent({ nodes: [
+        { id: 'a', type: 'shell', command: 'sleep 30' },
+        { id: 'b', type: 'shell', command: 'echo b', dependsOn: ['a'] },
+      ] });
+      // The process is killed by the stop and reports what a kill looks like (exit 124).
+      const spawn: DagExecutorDeps['spawnNode'] = async () => {
+        controller.abort(reason);
+        return { result: '', exitCode: 124, category: 'timeout', error: 'Timed out after 300s' };
+      };
+      const run = await executeAgentDag(agent, { triggeredBy: 'dashboard', signal: controller.signal }, { runStore, spawnNode: spawn });
+      const why = reason ?? 'Cancelled by user.';
+      expect(run.status).toBe('cancelled');
+      expect(run.error).toBe(why);
+      const a = runStore.listNodeExecutions(run.id).find((e) => e.nodeId === 'a')!;
+      expect(a).toMatchObject({ status: 'cancelled', errorCategory: 'cancelled', error: why });
+    }
+  });
+
   it('respects a caller-supplied abort signal even when timeoutSec is set', async () => {
     // Caller cancels BEFORE the agent timeout fires. The run should reflect
     // a caller-driven cancellation, not a wall-clock-timeout error.
