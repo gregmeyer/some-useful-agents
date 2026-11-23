@@ -267,3 +267,38 @@ describe('model service (external command)', () => {
     stopService(dataDir, 'schedule');
   });
 });
+
+describe('waitForExit (daemon restart waits for the old service to exit)', () => {
+  it('returns as soon as the processes exit, killing none', async () => {
+    const { spawn } = await import('node:child_process');
+    const { waitForExit } = await import('./daemon-supervisor.js');
+    const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 150)'], { stdio: 'ignore' });
+    const started = Date.now();
+    expect(await waitForExit([child.pid!], 5000, 20)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  it('kills a process that is still alive at the deadline, and says which', async () => {
+    const { spawn } = await import('node:child_process');
+    const { waitForExit, isProcessAlive } = await import('./daemon-supervisor.js');
+    const child = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    const exited = new Promise((r) => child.once('exit', r));
+    expect(await waitForExit([child.pid!], 200, 20)).toEqual([child.pid]);
+    await exited;
+    expect(isProcessAlive(child.pid!)).toBe(false);
+  });
+});
+
+describe('waitForExit without kill', () => {
+  it('leaves a process that is still stopping alone, and names it', async () => {
+    const { spawn } = await import('node:child_process');
+    const { waitForExit, isProcessAlive } = await import('./daemon-supervisor.js');
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    try {
+      expect(await waitForExit([child.pid!], 150, 20, { kill: false })).toEqual([child.pid]);
+      expect(isProcessAlive(child.pid!)).toBe(true);
+    } finally {
+      child.kill('SIGKILL');
+    }
+  });
+});

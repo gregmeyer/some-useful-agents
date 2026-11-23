@@ -14,6 +14,7 @@ import {
   getServiceStatus,
   spawnService,
   stopService,
+  waitForExit,
   waitForServiceSettle,
 } from '@some-useful-agents/core';
 import { loadConfig, getDaemonServices, getDaemonLogRotateBytes, getDashboardPort, type SuaConfig } from '../config.js';
@@ -148,9 +149,14 @@ daemonCommand
     const dataDir = resolve(config.dataDir);
     const services = opts.service.length > 0 ? opts.service : getDaemonServices(config);
 
-    for (const name of services) stopService(dataDir, name);
-    // Brief pause so SIGTERM is received before respawn.
-    await new Promise((r) => setTimeout(r, 250));
+    const stoppedPids = services.map((name) => stopService(dataDir, name)).flatMap((r) => (r.signalled && r.pid ? [r.pid] : []));
+    // Wait for them to exit: a dashboard lets in-flight runs finish (or stop and say so)
+    // before it closes, and the new one's boot reaper would otherwise call them abandoned.
+    if (stoppedPids.length) {
+      // Not killed past the deadline: a worker still finishing an activity is left to finish it.
+      const still = await waitForExit(stoppedPids, 20_000, 100, { kill: false });
+      if (still.length) ui.warn(`${still.length} service process(es) still stopping after 20s (pid ${still.join(', ')}); starting the new ones anyway.`);
+    }
 
     const suaBin = process.argv[1];
     const spawned: { name: ServiceName; pid: number; logPath: string }[] = [];

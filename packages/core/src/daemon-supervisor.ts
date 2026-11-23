@@ -93,6 +93,29 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Wait for stopped processes to exit, up to `timeoutMs`; then, with `kill`
+ * (the default), SIGKILL any still alive. A stopped dashboard spends its
+ * first seconds letting in-flight runs finish and record how they ended;
+ * starting the next one before it exits would have the new one's boot reaper
+ * finalize those runs as abandoned under it. Returns the pids still alive at
+ * the deadline (killed, with `kill`).
+ */
+export async function waitForExit(pids: number[], timeoutMs = 20_000, pollMs = 100, opts: { kill?: boolean } = {}): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  let alive = pids.filter(isProcessAlive);
+  while (alive.length > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollMs));
+    alive = alive.filter(isProcessAlive);
+  }
+  if (opts.kill !== false) {
+    for (const pid of alive) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+  return alive;
+}
+
 function writePid(path: string, pid: number): void {
   writeFileSync(path, String(pid) + '\n');
 }
