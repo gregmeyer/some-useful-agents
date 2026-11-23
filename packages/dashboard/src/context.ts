@@ -233,6 +233,8 @@ export interface DashboardContext {
    * leaves it unset, so a page test never starts a real model run.
    */
   live?: boolean;
+  /** Stops for the intervals buildDashboardApp starts (queue watchers); close() calls them. */
+  stopOnClose?: Array<() => void>;
   /** Work started without waiting for it (lib/background.ts). Created on first use. */
   background?: BackgroundTasks;
   /**

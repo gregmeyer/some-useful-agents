@@ -1,3 +1,4 @@
+import { markRunCancelled } from '../lib/run-cancelled.js';
 import { cancelWaitingRun } from '../lib/ask-human.js';
 import { Router, type Request, type Response } from 'express';
 import { executeAgentDag, executeAgentLoop, extractPriorAgentInputs, topologicalSort, type RunStatus } from '@some-useful-agents/core';
@@ -381,26 +382,7 @@ runMutationsRouter.post('/runs/:id/cancel', async (req: Request, res: Response) 
   // marked cancelled. This is the symptom of run b48c0d25 (layout-planner,
   // 2026-05-26) where the user-cancel path left the node row in `running`
   // until the next dashboard boot's orphan reaper finalized it.
-  const updated = ctx.runStore.getRun(id);
-  if (updated && updated.status === 'running') {
-    const completedAt = new Date().toISOString();
-    ctx.runStore.updateRun(id, {
-      status: 'cancelled' as RunStatus,
-      completedAt,
-      error: 'Cancelled by user.',
-    });
-    const nodeExecs = ctx.runStore.listNodeExecutions(id);
-    for (const exec of nodeExecs) {
-      if (exec.status === 'running' || exec.status === 'pending') {
-        ctx.runStore.updateNodeExecution(id, exec.nodeId, {
-          status: 'cancelled',
-          errorCategory: 'cancelled',
-          completedAt,
-          error: 'Cancelled by user.',
-        });
-      }
-    }
-  }
+  markRunCancelled(ctx.runStore, id, 'Cancelled by user.');
 
   res.redirect(303, `/runs/${encodeURIComponent(id)}?flash=${encodeURIComponent('Run cancelled.')}`);
 });

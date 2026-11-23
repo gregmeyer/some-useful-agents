@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { startDashboardServer, getBuildInfo } from '@some-useful-agents/dashboard';
-import { getMcpTokenPath, readMcpToken } from '@some-useful-agents/core';
+import { getMcpTokenPath, readMcpToken, waitForExit } from '@some-useful-agents/core';
 
 const execFileAsync = promisify(execFile);
 import { loadConfig, getAgentDirs, getDbPath, getSecretsPath, getVariablesPath, getLlmSettingsPath, getRetentionDays, getDashboardBaseUrl, getDashboardPort, resolveProvider } from '../config.js';
@@ -72,25 +72,19 @@ export async function findListenerPids(port: number): Promise<number[]> {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * SIGTERM the given pids, wait for the port to clear (up to timeoutMs), then
- * SIGKILL any stragglers. Returns true once the port has no LISTEN-ers.
+ * SIGTERM the given pids and wait for them to exit (a dashboard lets its
+ * in-flight runs finish or stop first, about 15s at most), SIGKILL any that
+ * don't, then wait for the port to clear. Returns true once the port has no
+ * LISTEN-ers.
  */
-export async function reclaimPort(port: number, pids: number[], timeoutMs = 6000): Promise<boolean> {
+export async function reclaimPort(port: number, pids: number[], timeoutMs = 20_000): Promise<boolean> {
   for (const pid of pids) {
     try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
   }
-  const deadline = Date.now() + timeoutMs;
-  let escalated = false;
+  await waitForExit(pids, timeoutMs);
+  const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    const still = await findListenerPids(port);
-    if (still.length === 0) return true;
-    // Halfway through, escalate to SIGKILL for anything that ignored SIGTERM.
-    if (!escalated && Date.now() > deadline - timeoutMs / 2) {
-      escalated = true;
-      for (const pid of still) {
-        try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
-      }
-    }
+    if ((await findListenerPids(port)).length === 0) return true;
     await delay(200);
   }
   return (await findListenerPids(port)).length === 0;
