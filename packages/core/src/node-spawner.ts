@@ -1209,7 +1209,8 @@ export async function spawnNodeReal(
   // post-substitution means a `{{inputs.API_KEY}}` or `{{state}}` written into
   // a behavior body stays literal instead of interpolating a secret. Moving
   // this line above `substituteInputs` would silently turn behavior files into
-  // a template-injection primitive. behavior-conditioning.test.ts pins it.
+  // a template-injection primitive. behavior-conditioning/e2e.test.ts pins it
+  // with a real request.
   //
   // Resolved once per run in dag-executor (where the Agent is in scope), not
   // here — re-reading disk per node would be wasteful and could see a spec

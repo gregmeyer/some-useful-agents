@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NotebookStore, RunStore, asksForRunbook, layoutPreset, checkNotebookLayout, cleanAnswer, runbookRole, runbookCopyPlaces, runbookMinutes, runbookTotalTime, runbookNeeds, runbookPhases, type NotebookAnswerSection } from '@some-useful-agents/core';
 import { writerInputs } from './notebook-write.js';
+import { pageAfterWritten } from './notebook-steps.js';
 import { notebookWidgetData, notebookWidgetMessages } from './notebook-widgets.js';
 import { renderPageBrief } from '../views/notebook-page-brief.js';
 
@@ -306,11 +307,27 @@ describe('the Runbook page (a template, not a new kind of notebook)', () => {
     expect(asksForRunbook({ ...nb('Teach me how to make a PB&J'), briefOn: { name: 'PB&J', kind: 'topic' } })).toBe(false);
   });
 
-  it('once written, a Runbook page is kept as it is, not composed around a hero; the page agent knows it', () => {
-    const steps = readFileSync(join(here, 'notebook-steps.ts'), 'utf-8');
-    expect(steps).toContain("if (nb.layout?.preset === 'runbook') return;");
+  it('once written, a Runbook page is kept as it is, not composed around a hero; the page agent knows it', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'sua-runbook-page-'));
+    const runStore = new RunStore(join(dir, 'runs.db'));
+    const s = NotebookStore.fromHandle(runStore.databaseHandle());
+    let asked = 0;
+    const ctx = { runStore, notebookPageRun: async () => { asked += 1; return undefined; } } as never;
+    const written = (preset: string) => {
+      const nb = s.create({ title: `Teach a beginner (${preset})` });
+      s.setLayout(nb.id, layoutPreset(preset)!.layout, 'picked');
+      s.setAnswer(nb.id, { question: 'How?', by: 'agent:notebook-writer', text: 'A live page in about 45 minutes.', confidence: 'medium', basis: '', findings: [], open: [], at: new Date().toISOString() });
+      return nb.id;
+    };
+    // A runbook isn't composed again: the page agent isn't asked.
+    await pageAfterWritten(ctx, s, written('runbook'));
+    expect(asked).toBe(0);
+    // Any other picked page is composed around what's written: the agent is asked (and asked again when it gives no page).
+    await pageAfterWritten(ctx, s, written('answer'));
+    expect(asked).toBeGreaterThan(0);
     const page = readFileSync(join(here, '..', '..', '..', '..', 'agents', 'examples', 'notebook-page.yaml'), 'utf-8');
     expect(page).toContain('{"preset": "runbook"} for teaching or walking');
+    runStore.close();
   });
 
   it("sua's drafter is told a runbook is an answer", () => {
