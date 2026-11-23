@@ -15,6 +15,7 @@ import {
   type SessionStore,
   type SpawnProgress,
 } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { DashboardContext } from '../context.js';
 import { buildLlmSettingsSnapshot } from './llm-settings-snapshot.js';
 import { resolveRunBackend } from './run-backend.js';
@@ -158,7 +159,7 @@ export async function startChatTurn(
   const imgHosts = agent.permissions?.imgSrc ?? [];
   const abortController = new AbortController();
   ctx.activeRuns.set(runId, abortController);
-  void executeAgentDag(
+  inBackground(ctx, 'executeAgentDag', executeAgentDag(
     agent,
     {
       triggeredBy: 'dashboard',
@@ -193,7 +194,7 @@ export async function startChatTurn(
       completeAgentTurn(sessions, session.id, { id: runId, status: 'failed', error: err instanceof Error ? err.message : String(err) });
       publish(ctx, session.id, 'turn-end', { runId, status: 'failed' });
     })
-    .finally(() => { ctx.activeRuns.delete(runId); });
+    .finally(() => { ctx.activeRuns.delete(runId); }));
   return { session, runId };
 }
 
@@ -215,7 +216,7 @@ function watchDurableTurn(ctx: DashboardContext, sessions: SessionStore, session
   const timer = setInterval(() => {
     if (busy) return;
     busy = true;
-    void (async () => {
+    inBackground(ctx, 'chat-turn', (async () => {
       try {
         const report = await ctx.provider.liveRunProgress?.(runId);
         for (const { nodeId, event } of takeNewProgress(report, cursor)) {
@@ -229,7 +230,7 @@ function watchDurableTurn(ctx: DashboardContext, sessions: SessionStore, session
           publish(ctx, sessionId, 'turn-end', { runId, status: run?.status ?? 'running' });
         }
       } catch { /* a missed poll is caught up on the next */ } finally { busy = false; }
-    })();
+    })());
   }, DURABLE_POLL_MS);
   timer.unref?.();
 }

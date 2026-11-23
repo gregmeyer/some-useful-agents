@@ -8,6 +8,7 @@
  * failed try waits a day. Tags you added or removed are never touched.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { NotebookStore, cleanTag, executeAgentDag, extractTaggedJson, notebookTags, subjectOut, tagsStale, type Notebook } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { ensureSystemAgentCurrent } from '../routes/inbox-catalog.js';
@@ -89,7 +90,7 @@ export function startNotebookTags(ctx: Ctx): boolean {
   const agent = fake ? undefined : ctx.agentStore.getAgent(NOTEBOOK_TAGGER_ID);
   if (!fake && !agent) return false;
   ctx.notebookTagging = true;
-  void (async () => {
+  inBackground(ctx, 'notebook-tags', (async () => {
     try {
       // Each round reads what's stale now: a batch that failed is waiting, so this ends.
       for (let round = 0; round < MAX_ROUNDS; round++) {
@@ -118,6 +119,6 @@ export function startNotebookTags(ctx: Ctx): boolean {
     } finally {
       ctx.notebookTagging = false;
     }
-  })();
+  })());
   return true;
 }

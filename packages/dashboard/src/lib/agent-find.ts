@@ -7,6 +7,7 @@
  * so Back or a reload doesn't ask again.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { executeAgentDag, extractTaggedJson } from '@some-useful-agents/core';
 import type { getContext } from '../context.js';
 import { buildAgentCatalogJson } from '../routes/inbox-catalog.js';
@@ -91,7 +92,7 @@ export function startAgentFind(ctx: Ctx, question: string): AgentFind | undefine
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
-  void (async () => {
+  inBackground(ctx, 'agent-find', (async () => {
     let result: string | undefined;
     try {
       if (fake) result = await fake(inputs);
@@ -110,6 +111,6 @@ export function startAgentFind(ctx: Ctx, question: string): AgentFind | undefine
     if (parsed) Object.assign(find, { status: 'ready', ...parsed });
     else find.status = 'failed';
     ctx.activeRuns.delete(runId);
-  })();
+  })());
   return find;
 }

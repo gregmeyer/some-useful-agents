@@ -10,6 +10,7 @@
  */
 
 import { contextWithAttachments, fileThreadAttachments } from '../lib/conversation-attach.js';
+import { inBackground } from '../lib/background.js';
 import { randomUUID } from 'node:crypto';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
@@ -902,7 +903,7 @@ function maybeRefireTriage(
     publishInboxEvent(ctx, messageId, 'state', { phase: 'done', since: Date.now() });
     return;
   }
-  void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
 }
 
 /**
@@ -1712,9 +1713,9 @@ export function proposeAgentFix(
     if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
       publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
       const claimed = store.getResponse(resp.id) ?? resp;
-      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+      inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
         process.stderr.write(`[inbox] fix analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-      });
+      }));
     }
   }
   return resp.id;
@@ -2157,9 +2158,9 @@ export function proposeWiring(ctx: ReturnType<typeof getContext>, messageId: str
     if (store.transitionActionStatus(resp.id, 'proposed', JSON.stringify(runningMeta))) {
       publishInboxEvent(ctx, messageId, 'action:status', { responseId: resp.id, status: 'running', agentId: action.agentId, startedAt });
       const claimed = store.getResponse(resp.id) ?? resp;
-      void runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
+      inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimed, runningMeta).catch((err) => {
         process.stderr.write(`[inbox] wiring analysis ${resp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-      });
+      }));
     }
   }
   return resp.id;
@@ -3103,7 +3104,7 @@ export async function runTriageAgent(
       && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
       addSystemMessage(ctx, messageId, vetted.rejected.map((r) => `Refused action on \`${r.agentId}\`: ${r.reason}.`).join('\n'));
       addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
-      void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+      inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
       return;
     }
 
@@ -3265,9 +3266,9 @@ export async function runTriageAgent(
               startedAt,
             });
             const claimedResponse = ctx.inboxStore.getResponse(actionResp.id) ?? actionResp;
-            void runProposedAction(ctx, messageId, claimedResponse, runningMeta).catch((err) => {
+            inBackground(ctx, 'runProposedAction', runProposedAction(ctx, messageId, claimedResponse, runningMeta).catch((err) => {
               process.stderr.write(`[inbox-triage] auto-approved action ${actionResp.id} crashed: ${(err as Error)?.message ?? err}\n`);
-            });
+            }));
           }
         }
       }
@@ -3305,7 +3306,7 @@ export async function runTriageAgent(
         && !hasRecoveryRefireSinceLastUser(ctx, messageId)
         && countConsecutiveTriageTurns(ctx, messageId) < MAX_AUTO_TRIAGE_TURNS) {
         addSystemMessage(ctx, messageId, TRIAGE_REJECTION_RECOVERY_NOTE);
-        void runTriageAgent(ctx, messageId).catch(() => { /* swallow */ });
+        inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow */ }));
       }
     }
 
@@ -3376,7 +3377,7 @@ export async function runTriageAgent(
         // (the delay comfortably outlasts the synchronous teardown), so the
         // retry isn't deferred as a concurrent run.
         setTimeout(() => {
-          void runTriageAgent(ctx, messageId).catch(() => { /* swallow — terminal note posts on final failure */ });
+          inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, messageId).catch(() => { /* swallow — terminal note posts on final failure */ }));
         }, TRIAGE_CRASH_RETRY_DELAY_MS);
       } else {
         retries.delete(messageId);

@@ -8,6 +8,7 @@
  * checks it (research-one, as of today) and the sourced answer is kept.
  */
 import { NotebookStore, cleanConflicts, extractTaggedJson, notebookViewData, openConflicts, type Notebook, type NotebookAboutWho, type NotebookEntry } from '@some-useful-agents/core';
+import { inBackground } from './background.js';
 import type { getContext } from '../context.js';
 import { runDispatchedAgentToTerminal } from '../routes/inbox-engine.js';
 import { publishInboxEvent } from '../routes/inbox-shared.js';
@@ -96,7 +97,7 @@ export function startConflictCheck(ctx: Ctx, notebookId: string, who: NotebookAb
   const today = new Date().toISOString().slice(0, 10);
   const leads = c.claims.map((x) => `"${x.value}"${x.source ? ` (${x.source}${x.when ? `, ${x.when}` : ''})` : x.when ? ` (${x.when})` : ''}`).join(' vs ');
   const ask = JSON.stringify([{ key: fact, label: c.label, hint: `as of today, ${today}: sources disagree, ${leads}. Give the current one, with the page that says so and its date.` }]);
-  void (async () => {
+  inBackground(ctx, 'notebook-reconcile', (async () => {
     try {
       const out = await research(ctx, { SUBJECT: one.name, ASK: ask, CONTEXT: nb.statement || nb.title, DEPTH: 'quick' });
       const got = readResearch(out.result)?.found?.[fact];
@@ -115,7 +116,7 @@ export function startConflictCheck(ctx: Ctx, notebookId: string, who: NotebookAb
       const threadId = store.get(notebookId)?.conversationId;
       if (threadId) { try { publishInboxEvent(ctx, threadId, 'thread:updated', {}); } catch { /* no live page */ } }
     }
-  })();
+  })());
   return { started: true };
 }
 

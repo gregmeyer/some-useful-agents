@@ -5,6 +5,7 @@
  * with a flash.
  */
 import { answerAgentFunction } from '../lib/a2ui-agent-functions.js';
+import { inBackground } from '../lib/background.js';
 import { briefChartPictures } from '../lib/brief-charts.js';
 import { ATTACH_FILE_TYPES, chosenPhotoId, attachFileWords, attachTypeOfMime } from '@some-useful-agents/core';
 import { docxText } from '../lib/docx-text.js';
@@ -1349,7 +1350,7 @@ notebooksRouter.post('/notebooks/:id/ask', (req: Request, res: Response) => {
   const sent = takeAttachments(ctx, threadId, text);
   const said = ctx.inboxStore.addResponse(threadId, 'user', option ? `About “${shortName(option.title)}”: ${sent}` : str(req.body?.template) === '1' ? `About this notebook's template: ${sent}` : sent);
   publishInboxEvent(ctx, threadId, 'message:created', { responseId: said.id, role: 'user', body: said.body, createdAt: said.createdAt });
-  void runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, threadId).catch(() => { /* logged in helper */ }));
   publishInboxChanged(ctx, threadId, 'open');
   if (isAjax(req)) { res.setHeader('X-Inbox-Id', threadId); res.status(204).end(); return; }
   res.redirect(303, `/inbox/${encodeURIComponent(threadId)}`);

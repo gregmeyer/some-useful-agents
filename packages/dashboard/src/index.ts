@@ -1,4 +1,5 @@
 import { NotebookStore } from '@some-useful-agents/core';
+import { inBackground } from './lib/background.js';
 import { setCurrentFileTypes } from './lib/file-types.js';
 import { recordBootReap, recordWatchdogReap } from './lib/reaper-stats.js';
 import express, { type Application } from 'express';
@@ -305,7 +306,7 @@ export function buildDashboardApp(ctx: DashboardContext): Application {
   if (!process.env.VITEST) watchQueuedBoardBuilds(ctx);
   // Notebooks the MCP server's notebook-create queued: made here.
   failInterruptedNotebookRequests(ctx);
-  if (!process.env.VITEST) { void startQueuedNotebookRequests(ctx); watchQueuedNotebookRequests(ctx); }
+  if (!process.env.VITEST) { inBackground(ctx, 'startQueuedNotebookRequests', Promise.allSettled(startQueuedNotebookRequests(ctx))); watchQueuedNotebookRequests(ctx); }
   app.use(buildTryRouter);
   app.use(metricsPlannerRouter);
   app.use(runMutationsRouter);

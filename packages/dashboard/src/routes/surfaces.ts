@@ -8,6 +8,7 @@
  * POST /surfaces/:id/restore  { toVersion } → { version }
  */
 import { Router, type Request, type Response } from 'express';
+import { inBackground } from '../lib/background.js';
 import {
   SurfaceStore, SurfaceOpError, SurfaceVersionConflict, collectItems, itemSourcesFromHandle, whoWhen,
 } from '@some-useful-agents/core';
@@ -80,7 +81,7 @@ surfacesRouter.post('/surfaces/home/ask', (req: Request, res: Response) => {
   const created = ctx.inboxStore.add({ priority: 'medium', source: 'manual', title: 'Change Home', body: '(empty)' });
   const ask = ctx.inboxStore.addResponse(created.id, 'user', `On Home: ${text}`);
   publishInboxEvent(ctx, created.id, 'message:created', { responseId: ask.id, role: 'user', body: ask.body, createdAt: ask.createdAt });
-  void runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ });
+  inBackground(ctx, 'runTriageAgent', runTriageAgent(ctx, created.id).catch(() => { /* logged in helper */ }));
   publishInboxChanged(ctx, created.id, created.status);
   if (isAjax(req)) { res.setHeader('X-Inbox-Id', created.id); res.status(204).end(); return; }
   res.redirect(303, `/inbox/${encodeURIComponent(created.id)}`);

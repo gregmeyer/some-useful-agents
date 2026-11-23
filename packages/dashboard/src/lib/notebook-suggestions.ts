@@ -5,6 +5,7 @@
  * list is refreshed in the background while the page shows what it has.
  */
 import { randomUUID } from 'node:crypto';
+import { inBackground } from './background.js';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { NotebookStore, executeAgentDag, extractTaggedJson } from '@some-useful-agents/core';
@@ -105,7 +106,7 @@ export function refreshSuggestions(ctx: Ctx): boolean {
   const runId = randomUUID();
   const ac = new AbortController();
   ctx.activeRuns.set(runId, ac);
-  void (async () => {
+  inBackground(ctx, 'notebook-suggestions', (async () => {
     try {
       let result: string | undefined;
       if (fake) result = await fake(inputs);
@@ -123,6 +124,6 @@ export function refreshSuggestions(ctx: Ctx): boolean {
       ctx.activeRuns.delete(runId);
       ctx.notebookSuggesting = false;
     }
-  })();
+  })());
   return true;
 }
