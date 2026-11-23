@@ -323,7 +323,10 @@ describe('boards are canvases', () => {
     expect(page).toContain('<span class="page-header__meta board-page__meta">nothing from the last day</span>');
     expect(page).toMatch(/<a href="\/agents\/morning-brief">Morning brief<\/a>\s*<span class="edition-empty__when">never run<\/span>/);
     expect(page).toContain('<form method="POST" action="/pulse/edition/run" class="edition-empty__run"><input type="hidden" name="agentId" value="morning-brief">');
+    const started: Array<[string, Record<string, string>]> = [];
+    ctx.agentRunStart = (id, inputs) => { started.push([id, inputs]); };
     const ran = await post(app, '/pulse/edition/run', { agentId: 'morning-brief' });
+    expect(started.map(([id]) => id)).toEqual(['morning-brief']);
     expect(decodeURIComponent(ran.headers.location)).toContain('Running Morning brief.');
     expect(decodeURIComponent((await post(app, '/pulse/edition/run', { agentId: 'nope' })).headers.location)).toContain('No such agent to run.');
     // All agents: a one-line description; Hide all sits with Show all at the bottom, not in the header.
@@ -378,6 +381,8 @@ describe('boards are canvases', () => {
     expect(decodeURIComponent(res.headers.location)).toBe("/pulse?edition=Approved: 1 agent now active, 1 running, and in Today's edition once there's a result.");
     expect(ctx.agentStore.getAgent('email-digest')?.status).toBe('active');
     expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual(['email-digest']);
+    // Approval runs it once; wait for that run, so it doesn't outlive the test's database.
+    for (let i = 0; i < 300 && !ctx.runStore.listRuns({ agentName: 'email-digest', limit: 1 }).some((r) => r.status === 'completed' || r.status === 'failed'); i++) await new Promise((r) => setTimeout(r, 10));
   });
 
   it("Today's edition says how fresh each part is: its age beside its title, a part older than a day says it's kept because you always show it, a failed newer run says so, and one press runs the older parts with their last inputs", async () => {
@@ -415,9 +420,13 @@ describe('boards are canvases', () => {
     const again = await get(app, '/boards/tile/forecast.json?board=today');
     expect(again.body).toMatchObject({ run: 'button', runBody: 'again=1' });
     expect((await get(app, '/boards/tile/forecast.json?board=pulse')).body.runBody).toBeUndefined();
-    // One press runs the older parts again (nothing runs just because the page opened).
+    // One press runs the older parts again (nothing runs just because the page opened). Recorded, not run:
+    // a real run would make the part fresh (and outlive the test).
+    const started: string[] = [];
+    ctx.agentRunStart = (id) => { started.push(id); };
     const ran = await post(app, '/pulse/edition/run-older', {});
     expect(decodeURIComponent(ran.headers.location)).toContain('Running 1 older part again.');
+    expect(started).toEqual(['forecast']);
     // Asked "what's stale?", sua can offer to run the old part again: its own Run, never inside Apply all.
     ctx.editionEditorRun = async () => `<edition>${JSON.stringify({ ops: [{ op: 'auto', agentId: 'forecast' }], actions: [{ do: 'rerun', agentId: 'forecast' }], say: 'The forecast is old.' })}</edition>`;
     await post(app, '/pulse/edition/ask', { text: "what's stale?" });
@@ -429,6 +438,7 @@ describe('boards are canvases', () => {
     expect(card).not.toContain('Apply all');
     const runIt = await post(app, `/pulse/edition/ask/${ask}/row/1`, { do: 'run' });
     expect(decodeURIComponent(runIt.headers.location)).toContain('Running forecast again.');
+    expect(started).toEqual(['forecast', 'forecast']);
     // The change is still open after the run; applying it ends the ask.
     expect(decodeURIComponent((await post(app, `/pulse/edition/ask/${ask}/row/0`, { do: 'apply' })).headers.location)).toContain('Stop always showing The forecast');
     expect(new EditionPrefsStore(ctx.runStore.databaseHandle()).get().include).toEqual([]);
