@@ -235,6 +235,12 @@ The waterfall hides a provider that never works, because its nodes still succeed
 
 Passing over a provider while it cools down after a failure isn't counted as a try.
 
+### Skipped for now
+
+A provider that fails in a way that will keep failing is skipped by every node until its cooldown ends, instead of being tried and failing again each time. That covers running out of quota or credit, a CLI or server that isn't there, being signed out, and being rate limited. The cooldown lasts until the time the error gives, or until the default for that kind of failure (30 minutes for quota, 5 for an unreachable provider). A success clears it.
+
+Cooldowns are shared through `data/provider-cooldowns.json`, so the dashboard, the worker and the scheduler learn about a failure once between them, and a cooldown survives a restart. Settings → LLM shows each provider that's being skipped, with why and until when, and a **Try it now** button that clears the cooldown.
+
 ## Tool-calling
 
 Under a **custom OpenAI-compatible provider** (a local model like Qwen behind a

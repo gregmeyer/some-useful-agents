@@ -196,3 +196,16 @@ describe('renderSettingsLlm — how each provider did lately', () => {
     for (const line of out.match(/<p class="settings-llm__health[^>]*>[^<]*/g) ?? []) expect(line).not.toMatch(/waterfall|fallback chain/i);
   });
 });
+
+describe('renderSettingsLlm — a provider skipped for now', () => {
+  it('says why and until when, with a way to try it again at once', () => {
+    const settings: LlmSettings = { providers: ['codex', 'claude'] };
+    const until = new Date(2026, 10, 23, 15, 20).getTime();
+    const out = render(renderSettingsLlm({ ...base, settings, cooldowns: [{ provider: 'codex', category: 'quota_exceeded', at: until - 1_800_000, until }] }));
+    expect(out).toContain('action="/settings/llm/cooldown/clear"');
+    expect(out).toContain('<input type="hidden" name="provider" value="codex">');
+    expect(out).toMatch(/Skipped until [^:]+:20[^<]*: out of quota\./);
+    expect(out).toContain('Try it now');
+    expect(out.match(/cooldown\/clear/g)).toHaveLength(1); // claude isn't cooling down
+  });
+});

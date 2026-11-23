@@ -4944,6 +4944,27 @@ describe('Cost and usage', () => {
     expect(llmSettingsStore.get().pricing).toBeUndefined();
     rmSync(settingsDir, { recursive: true, force: true });
   });
+
+  it('shows a provider skipped for now, and Try it now puts it back', async () => {
+    const { noteProviderFailure, providerCooldown, resetProviderCooldowns } = await import('@some-useful-agents/core');
+    const settingsDir = mkdtempSync(join(tmpdir(), 'sua-llm-'));
+    const llmSettingsStore = new LlmSettingsStore(join(settingsDir, 'llm-settings.json'));
+    llmSettingsStore.setProviders(['codex', 'claude']);
+    const app = await makeApp({ llmSettingsStore });
+    try {
+      noteProviderFailure('codex', 'quota_exceeded');
+      const page = await get(app, '/settings/llm');
+      expect(page.text).toContain('out of quota.');
+      expect(page.text).toContain('Try it now');
+      const res = await post(app, '/settings/llm/cooldown/clear').send('provider=codex');
+      expect(res.status).toBe(303);
+      expect(decodeURIComponent(res.headers.location.replace(/\+/g, ' '))).toContain('The next node will try codex again.');
+      expect(providerCooldown('codex')).toBeUndefined();
+    } finally {
+      resetProviderCooldowns();
+      rmSync(settingsDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('Spend limits', () => {

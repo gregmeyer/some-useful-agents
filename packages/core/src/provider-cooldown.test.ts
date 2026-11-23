@@ -78,3 +78,54 @@ describe('through the waterfall: a provider out of quota is asked once, not on e
     expect(second.providerFailures).toEqual([expect.objectContaining({ provider: 'codex', category: 'quota_exceeded', error: expect.stringMatching(/^Skipped: it failed \(quota_exceeded\)/) })]);
   });
 });
+
+describe('cooldowns shared through a file (the dashboard, worker and scheduler learn it once)', () => {
+  it('writes a cooldown for other processes, picks up theirs, and a success clears it for all', async () => {
+    const { mkdtempSync, rmSync, readFileSync, writeFileSync, utimesSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const m = await import('./provider-cooldown.js');
+    const dir = mkdtempSync(join(tmpdir(), 'sua-cooldown-'));
+    const file = join(dir, 'provider-cooldowns.json');
+    try {
+      m.useProviderCooldownFile(file);
+      const now = Date.now();
+      m.noteProviderFailure('codex', 'quota_exceeded', '', now);
+      expect(JSON.parse(readFileSync(file, 'utf8')).cooldowns.map((c: { provider: string }) => c.provider)).toEqual(['codex']);
+
+      // Another process notes the local model is down: this one sees it on its next look.
+      const theirs = { cooldowns: [
+        { provider: 'codex', category: 'quota_exceeded', at: now, until: now + 30 * 60_000 },
+        { provider: 'local', category: 'binary_missing', at: now, until: now + 5 * 60_000 },
+      ] };
+      writeFileSync(file, JSON.stringify(theirs));
+      utimesSync(file, new Date(), new Date(Date.now() + 2000)); // a different mtime, as a later write has
+      expect(m.providerCooldowns(now).map((c) => c.provider)).toEqual(['local', 'codex']);
+      expect(m.withoutCoolingProviders(['codex', 'local', 'claude'], now).chain).toEqual(['claude']);
+
+      // A restarted process starts with what the file says.
+      m.resetProviderCooldowns();
+      expect(m.providerCooldown('codex', now)?.category).toBe('quota_exceeded');
+
+      // codex answered somewhere: it's back for everyone.
+      m.clearProviderCooldown('codex');
+      expect(JSON.parse(readFileSync(file, 'utf8')).cooldowns.map((c: { provider: string }) => c.provider)).toEqual(['local']);
+    } finally {
+      m.useProviderCooldownFile(undefined);
+      m.resetProviderCooldowns();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('a missing or unreadable file is no cooldowns, not an error', async () => {
+    const m = await import('./provider-cooldown.js');
+    m.useProviderCooldownFile('/nonexistent/dir/provider-cooldowns.json');
+    try {
+      expect(m.providerCooldowns()).toEqual([]);
+      expect(m.noteProviderFailure('codex', 'quota_exceeded')?.provider).toBe('codex'); // kept in this process
+    } finally {
+      m.useProviderCooldownFile(undefined);
+      m.resetProviderCooldowns();
+    }
+  });
+});

@@ -1,4 +1,4 @@
-import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
+import { ATTACH_FILE_TYPES, attachFileWords, NotebookStore, clearProviderCooldown, providerCooldowns, providerHealthProblems, summarizeProviderHealth } from '@some-useful-agents/core';
 import { Router, type Request, type Response } from 'express';
 import {
   looksLikeSensitive,
@@ -1131,6 +1131,13 @@ settingsRouter.post('/settings/usage/limits', (req: Request, res: Response) => {
   }
 });
 
+/** Try a provider that's cooling down again now (its next node calls it). */
+settingsRouter.post('/settings/llm/cooldown/clear', (req: Request, res: Response) => {
+  const provider = typeof req.body?.provider === 'string' ? req.body.provider.slice(0, 100) : '';
+  if (provider) clearProviderCooldown(provider);
+  redirectWith(res, '/settings/llm', 'flash', provider ? `The next node will try ${provider} again.` : 'Nothing to clear.');
+});
+
 /** How each provider did over the last 7 days, for Settings → LLM. Undefined when it can't be read. */
 function readProviderHealth(ctx: ReturnType<typeof getContext>) {
   try {
@@ -1158,6 +1165,7 @@ settingsRouter.get('/settings/llm', async (req: Request, res: Response) => {
     modelServer: await readModelServer(ctx),
     cliModels: readProviderModels(),
     health: readProviderHealth(ctx),
+    cooldowns: providerCooldowns(),
   });
   res.type('html').send(renderSettingsShell({ active: 'llm', body, flash }));
 });

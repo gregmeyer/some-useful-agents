@@ -1,5 +1,5 @@
 import { html, unsafeHtml, type SafeHtml } from './html.js';
-import { codexModelRetired, failureReasonLabel, formatUsd, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ProviderHealth, type ProviderProblem, type ServiceStatus } from '@some-useful-agents/core';
+import { codexModelRetired, failureReasonLabel, formatUsd, localProviderNames, type CodexModelList, type LlmProvider, type LlmSettings, type ModelPrice, type ProviderCooldown, type ProviderHealth, type ProviderProblem, type ServiceStatus } from '@some-useful-agents/core';
 
 /** State of the local model server (the `model` daemon service). */
 export interface ModelServerView {
@@ -31,6 +31,21 @@ export interface SettingsLlmArgs {
   cliModels?: Partial<Record<string, { list: CodexModelList; configModel?: string }>>;
   /** How each provider did over the last 7 days (provider-health.ts). Omitted in tests / when not wired. */
   health?: { summary: ProviderHealth; problems: ProviderProblem[] };
+  /** Providers skipped for now after a lasting failure (provider-cooldown.ts). */
+  cooldowns?: ProviderCooldown[];
+}
+
+/** A provider skipped for now: why, until when, and a way to try it again at once. */
+export function renderProviderCooldown(provider: string, cooldowns: readonly ProviderCooldown[] | undefined): SafeHtml {
+  const c = cooldowns?.find((x) => x.provider === provider);
+  if (!c) return html``;
+  const until = new Date(c.until).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  return html`
+    <form method="POST" action="/settings/llm/cooldown/clear" class="settings-llm__health settings-llm__health--warn settings-llm__cooldown">
+      <input type="hidden" name="provider" value="${provider}">
+      <span>Skipped until ${until}: ${failureReasonLabel(c.category)}.</span>
+      <button type="submit" class="btn btn--xs">Try it now</button>
+    </form>`;
 }
 
 /** One provider's last 7 days, as its own line under its row. */
@@ -192,6 +207,7 @@ export function renderSettingsLlm(args: SettingsLlmArgs): SafeHtml {
           </form>
         </div>
         ${renderProviderHealth(p, args)}
+        ${renderProviderCooldown(p, args.cooldowns)}
         ${args.cliModels?.[p] ? renderProviderModel(p, settings.models?.[p], args.cliModels[p]!, settings.unavailableModels) : html``}
         ${p === 'apple-foundation-models' ? html`` : renderBusyFallback(p, settings.fallbackModels?.[p], args.cliModels?.[p])}
       </li>
