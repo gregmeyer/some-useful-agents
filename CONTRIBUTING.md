@@ -166,6 +166,8 @@ If your daily install is a checkout of `main`, update it with `scripts/live-upda
 
 Pruning is `sua backups prune`: it keeps the newest 5 backup sets, plus the newest set from each of the last 7 days. A backup with any other name, such as `runs.db.bak-before-migration`, is never deleted. Use `--dry-run` to see what it would remove.
 
+Large strings in a run's stored inputs, such as an agent's kernel or the agent catalog, are stored once in `run_blobs` and referenced from each row. Rows written before that are rewritten by `sua db compact`, which then runs `VACUUM` to shrink the file. Run it when nothing is running; it is safe to run again.
+
 ### Dashboard tests
 
 Build a test dashboard with `createTestContext()` from `packages/dashboard/src/test-harness.ts`, and tear it down with `closeTestContext()` in `afterEach`.
