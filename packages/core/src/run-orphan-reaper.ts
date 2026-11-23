@@ -23,6 +23,7 @@
  * token burn instead of just closing the state-machine bleed.
  */
 
+import { signalGroup } from './process-groups.js';
 import { execSync } from 'node:child_process';
 import type { RunStore } from './run-store.js';
 import type { RunStatus } from './types.js';
@@ -107,13 +108,10 @@ export function killIfStillOurs(pid: number, startedAtMs: number, nowMs: number 
     return false;
   }
 
-  try {
-    process.kill(pid, 'SIGKILL');
-    return true;
-  } catch {
-    // ESRCH (already dead) or EPERM (not ours). Either way we're done.
-    return true;
-  }
+  // The node's whole process group (process-groups.ts), so what its shell started dies with it;
+  // a node spawned before groups has none, and then the process alone.
+  signalGroup(pid, 'SIGKILL');
+  return true;
 }
 
 /**

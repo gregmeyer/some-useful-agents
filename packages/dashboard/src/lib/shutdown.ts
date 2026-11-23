@@ -40,7 +40,7 @@ async function waitIdle(ctx: Ctx, ms: number): Promise<void> {
 export async function settleInFlight(ctx: Ctx, graceMs = SHUTDOWN_GRACE_MS, stopMs = SHUTDOWN_STOP_MS): Promise<ShutdownOutcome> {
   await waitIdle(ctx, graceMs);
   const stopped: string[] = [];
-  for (const [runId, ac] of ctx.activeRuns) { stopped.push(`run ${runId}`); ac.abort(); }
+  for (const [runId, ac] of ctx.activeRuns) { stopped.push(`run ${runId}`); ac.abort(STOPPED_BY_SHUTDOWN); }
   for (const [messageId, t] of ctx.inboxTriageAbortControllers) { stopped.push(`triage ${messageId}`); t.controller.abort(); }
   if (stopped.length) await waitIdle(ctx, stopMs);
   // A run that still hasn't recorded its end (a shell node's own child can hold its
