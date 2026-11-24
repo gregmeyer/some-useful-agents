@@ -36,6 +36,8 @@ import { formatAge, humanizeTimestamps, linkifyRefs } from './components.js';
 import { describeAgentChange } from '../lib/agent-change.js';
 import { pictureClass } from '../lib/notebook-logos.js';
 import { countParts } from '../lib/notebook-card.js';
+import { TOOL_REFACTOR_APPLY, readToolRefactorInputs } from '../lib/tool-refactor.js';
+import { toolFormFromYaml } from '../lib/tool-form.js';
 
 export interface InboxDetailOptions {
   message: InboxMessage;
@@ -197,7 +199,7 @@ const ACTION_STATUS_LABEL: Record<InboxActionStatus, string> = {
  * surface the real agents the conversation is about.
  */
 const NON_SUBJECT_AGENT_IDS: ReadonlySet<string> = new Set([
-  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask',
+  '_resolve-thread', 'agent-editor', 'agent-compose', 'dashboard-editor', 'agent-settings', 'agent-schedule', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'view-redesign', 'board-build', 'edition-ask', TOOL_REFACTOR_APPLY,
   'agent-analyzer', 'agent-catalog-search', 'agent-builder',
 ]);
 
@@ -938,7 +940,8 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
       ? html`<ul class="act-card__changes">${meta.surfaceChanges.map((c) => html`<li class="act-card__change"><span class="act-card__change-what">${c.what}</span><span>${c.before === '—' ? html`` : html`<del class="act-card__before">${c.before}</del> → `}<ins class="act-card__after">${c.after}</ins></span></li>`) as unknown as SafeHtml[]}</ul>${meta.status === 'proposed' ? html`<p class="act-card__note">${meta.agentId === 'notebook-pipeline' ? 'These agents gather for the notebook; each run adds what\u2019s new.' : meta.agentId === 'notebook-create' ? 'It starts empty, with the template\u2019s fields, checks, stages and steps. Nothing runs until you start its first step.' : meta.agentId === 'notebook-steps' ? 'sua takes them one at a time and checks in after each. Agents get each step\u2019s job; none is changed.' : meta.agentId === 'notebook-add' ? 'Each entry can be removed from the notebook.' : meta.agentId === 'notebook-template' ? 'The notebook isn\u2019t changed. Saving the same name again replaces the template.' : meta.agentId === 'notebook-layout' ? 'Only the page changes, not what the notebook has. Undo from its Edit page.' : meta.agentId === 'notebook-correct-apply' ? 'Only what\u2019s listed changes. What was found stays; a fact you correct stays yours when sua looks again.' : meta.agentId === 'arrange-board' ? 'Saved as a new version of the board; undo from its ✎ Arrange.' : meta.agentId === 'board-page' ? 'sua draws the page from what the board is for and what its agents found, bound to their results. Saved as a new version of the board; Undo last save puts the layout before it back.' : 'Saved as a new version of Home, marked as yours through sua. Pin, move or hide things by hand on Today any time.'}</p>` : html``}`
       : html``}
     ${meta.agentId === 'notebook-photo' && meta.status === 'proposed' && /^https?:\/\//i.test(meta.inputs.IMAGE ?? '') ? html`<figure class="act-card__pic"><img src="${meta.inputs.IMAGE}" alt="${meta.inputs.ALT ?? 'The picture to use'}" loading="lazy" referrerpolicy="no-referrer">${meta.inputs.CREDIT ? html`<figcaption>${meta.inputs.CREDIT}</figcaption>` : html``}</figure><p class="act-card__note">sua keeps a copy in the notebook; the page never loads it from that site. Ask to go back to its sources' photos any time.</p>` : html``}
-    ${['agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
+    ${meta.agentId === TOOL_REFACTOR_APPLY ? renderToolRefactor(meta) : html``}
+    ${[TOOL_REFACTOR_APPLY, 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply'].includes(meta.agentId) ? html`` : (meta.agentId === 'agent-editor' || meta.agentId === 'agent-compose') && meta.inputs.NEW_YAML
       // Against the agent as it was when the fix was proposed (older cards: as it is now).
       ? html`${meta.agentId === 'agent-compose' && meta.status === 'proposed'
         ? html`<p class="act-card__note">Turns on <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span>, a new agent other agents can use too${meta.inputs.HELPER_ABOUT ? html`: ${meta.inputs.HELPER_ABOUT}` : html`.`} ${meta.fork ? html`` : html`Saves <span class="mono">${meta.inputs.AGENT_ID ?? ''}</span> as a new version that calls it; roll back any time from Versions. `}If that save fails, <span class="mono">${meta.inputs.HELPER_ID ?? ''}</span> stays a draft.</p>`
@@ -1003,7 +1006,7 @@ function renderActionEntry(r: InboxResponse, currentTargetYaml?: string, inlineW
           <div class="act-card__head">
             <span class="inbox-action__headline">${headline}</span>
             ${isDispatched && meta.status === 'proposed'
-              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === 'agent-compose' ? 'adds an agent and changes one' : meta.agentId === 'agent-editor' && meta.fork ? 'adds a copy of the agent' : meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
+              ? html`<span class="act-card__effect ${meta.effect === 'write' ? 'act-card__effect--write' : ''}">${meta.effect === 'write' ? (meta.agentId === TOOL_REFACTOR_APPLY ? toolRefactorEffect(meta) : meta.agentId === 'agent-compose' ? 'adds an agent and changes one' : meta.agentId === 'agent-editor' && meta.fork ? 'adds a copy of the agent' : meta.agentId === 'agent-editor' || meta.agentId === 'agent-settings' ? 'changes the agent' : meta.agentId === 'adjust-surface' ? 'changes Home' : meta.agentId === 'arrange-board' ? 'changes the board' : meta.agentId.startsWith('notebook-') ? 'changes the notebook' : 'changes something') : 'reads only'}</span>`
               : provenance}
           </div>
           ${meta.runId ? html`<div class="act-card__run"><a href="/runs/${meta.runId}" class="mono">run ${meta.runId.slice(0, 8)}</a>${conditionedNames && conditionedNames.length > 0 ? html` · ${conditionedChip}` : html``}</div>` : html``}
@@ -1150,6 +1153,47 @@ function renderAgentChange(oldYaml: string, newYaml: string): SafeHtml {
   const lines = oldYaml ? describeAgentChange(oldYaml, newYaml) : [];
   if (!lines.length) return html``;
   return html`<ul class="act-card__changes">${lines.map((l) => html`<li class="act-card__change"><span class="act-card__change-what">${l.what}</span><span>${l.detail}</span></li>`) as unknown as SafeHtml[]}</ul>`;
+}
+
+/**
+ * A shared tool and the agents pointed at it, on one card (lib/tool-refactor.ts):
+ * the tool (its command or prompt and inputs, or the one of yours it uses),
+ * then each agent's change in plain words with its diff, then what was left
+ * out and why.
+ */
+function toolRefactorEffect(meta: InboxActionMeta): string {
+  const card = readToolRefactorInputs(meta.inputs);
+  const n = 'error' in card ? 0 : card.edits.length;
+  const agents = `${n} agent${n === 1 ? '' : 's'}`;
+  return 'error' in card || !card.toolYaml.trim() ? `changes ${agents}` : `${card.toolBase.trim() ? 'changes a tool' : 'adds a tool'} and changes ${agents}`;
+}
+
+function renderToolRefactor(meta: InboxActionMeta): SafeHtml {
+  const card = readToolRefactorInputs(meta.inputs);
+  if ('error' in card) return html`<p class="act-card__note">${card.error}</p>`;
+  const proposed = meta.status === 'proposed';
+  let toolBlock: SafeHtml;
+  if (card.toolYaml.trim()) {
+    const v = toolFormFromYaml(card.toolYaml);
+    const inputs = 'error' in v ? '' : v.inputs.map((i) => i.name).join(', ');
+    const id = 'error' in v ? '' : v.id;
+    toolBlock = html`<div class="act-card__tool">
+      <p class="act-card__skill-head"><span class="act-card__change-what">${card.toolBase.trim() ? 'Changes tool' : 'New tool'}</span> <span class="mono">${id}</span>${'error' in v || !v.description ? html`` : html` — ${v.description}`}</p>
+      ${inputs ? html`<p class="act-card__note">Inputs: <span class="mono">${inputs}</span></p>` : html``}
+      ${card.toolBase.trim()
+        ? renderYamlDiff(card.toolBase, card.toolYaml, 'changes to the tool')
+        : html`<details class="inbox-action__diff" open><summary class="inbox-action__diff-header"><span class="inbox-action__diff-toggle">the tool, as YAML</span></summary><pre class="inbox-action__diff-body mono">${card.toolYaml}</pre></details>`}
+    </div>`;
+  } else {
+    toolBlock = html`<p class="act-card__note">Uses your tool <a href="/tools/${encodeURIComponent(card.reuseToolId)}" class="mono">${card.reuseToolId}</a>, as it is.</p>`;
+  }
+  const edits = card.edits.map((e) => html`<div class="act-card__agent-edit">
+      <p class="act-card__skill-head"><span class="act-card__change-what">Changes</span> <a href="/agents/${encodeURIComponent(e.agentId)}" class="mono">${e.agentId}</a> <span class="dim">(v${String(e.baseVersion)})</span></p>
+      ${renderAgentChange(e.baseYaml, e.yaml)}${renderYamlDiff(e.baseYaml, e.yaml)}
+    </div>`);
+  return html`${toolBlock}${edits as unknown as SafeHtml[]}
+    ${card.leftOut.length ? html`<p class="act-card__note">Left out: ${card.leftOut.map((l, i) => html`${i ? ', ' : ''}<span class="mono">${l.agentId}</span> (${l.why})`) as unknown as SafeHtml[]}.</p>` : html``}
+    ${proposed ? html`<p class="act-card__note">Everything here is saved together, or nothing is. Each agent is saved as a new version you can roll back from Versions; what each one gives back stays the same.</p>` : html``}`;
 }
 
 /**

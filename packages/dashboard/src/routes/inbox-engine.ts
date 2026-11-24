@@ -15,6 +15,8 @@ import { randomUUID } from 'node:crypto';
 import { meetingWhenWords } from '../lib/notebook-edit.js';
 import { forkForNotebook } from '../lib/agent-fork.js';
 import { proposedSkillsJson, checkCardSkills, saveCardSkills } from '../lib/skill-proposals.js';
+import { parseAgentEdit, prepareAgentEdit, applyAgentEdit, preservedNote } from '../lib/agent-edit.js';
+import { TOOL_REFACTOR_APPLY, readToolRefactorInputs, applyToolRefactor } from '../lib/tool-refactor.js';
 import { rerunNotebook, createNotebookFrom, type NewNotebookSetup } from '../lib/notebook-create.js';
 import { experimentsForTriage, experimentsLinked } from '../lib/experiment-notebook.js';
 import { previewNotebookLayout, executeNotebookLayout } from '../lib/notebook-layout-action.js';
@@ -230,7 +232,7 @@ export function isAutoApprovable(ctx: ReturnType<typeof getContext>, agentId: st
  * committing a YAML change via `agentStore.upsertAgent`) is performed
  * synchronously inside `runProposedAction`.
  */
-const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask']);
+const ROUTE_HANDLED_AGENTS: ReadonlySet<string> = new Set(['agent-editor', 'agent-compose', 'dashboard-editor', 'agent-schedule', 'agent-settings', 'adjust-surface', 'arrange-board', 'board-page', 'notebook-add', 'notebook-pipeline', 'notebook-step', 'notebook-steps', 'notebook-create', 'notebook-rerun', 'notebook-layout', 'notebook-photo', 'notebook-template', 'notebook-correct', 'notebook-correct-apply', 'board-build', 'view-redesign', 'edition-ask', TOOL_REFACTOR_APPLY]);
 
 /**
  * Hard cap on `action`-role responses per inbox message. Triage gets a
@@ -968,6 +970,12 @@ async function executeRouteHandledAgent(
   }
   if (meta.agentId === 'notebook-correct-apply') {
     return applyNotebookCorrection(ctx, messageId, meta);
+  }
+  if (meta.agentId === TOOL_REFACTOR_APPLY) {
+    // A shared tool and the agents that then call it: all saved, or none.
+    const card = readToolRefactorInputs(meta.inputs);
+    if ('error' in card) return { status: 'failed', refusalReason: card.error };
+    return applyToolRefactor(ctx, card);
   }
   if (meta.agentId === 'notebook-create') {
     return executeNotebookCreate(ctx, meta, messageId);
@@ -1881,43 +1889,11 @@ export function executeAgentEditor(
       refusalReason: 'agent-editor requires both AGENT_ID and NEW_YAML inputs.',
     };
   }
-  // Repair template-escaping before committing. The template-substitution
-  // pipeline escapes `{{` → `{ {` (a space between the braces) so a NEW_YAML
-  // that round-tripped through it can't be re-expanded; committing that raw
-  // leaves a literal `{ {inputs.X}}` that never resolves at run time. The
-  // escape only ever produces `{ {` from a real `{{`, so reversing it globally
-  // is safe and covers every field (toolInputs, prompts, widgets) — autoFixYaml
-  // only handled shell `command`s, which is why toolInputs got corrupted.
-  const unescaped = newYaml.replace(/\{ \{/g, '{{');
-  const repairedYaml = autoFixYaml(unescaped);
-  let parsed;
-  try {
-    parsed = parseAgent(repairedYaml);
-  } catch (err) {
-    return {
-      status: 'failed',
-      refusalReason: `NEW_YAML failed validation: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-  if (parsed.id !== agentId) {
-    return {
-      status: 'failed',
-      refusalReason: `NEW_YAML parsed id "${parsed.id}" does not match AGENT_ID "${agentId}". Refusing the edit.`,
-    };
-  }
-  // Every agent it calls must be installed (and it can't call itself):
-  // caught here, not as a failed run later.
-  const calls = calledAgentIds(parsed);
-  if (calls.includes(agentId)) {
-    return { status: 'failed', refusalReason: `\`${agentId}\` would call itself. Refusing the edit.` };
-  }
-  const missing = calls.filter((id) => !ctx.agentStore.getAgent(id));
-  if (missing.length) {
-    return {
-      status: 'failed',
-      refusalReason: `\`${agentId}\` would call ${missing.map((id) => `\`${id}\``).join(', ')}, which ${missing.length === 1 ? "isn't" : "aren't"} installed. Install ${missing.length === 1 ? 'it' : 'them'} first, or ask sua for a fix that doesn't need ${missing.length === 1 ? 'it' : 'them'}.`,
-    };
-  }
+  // Parse it: the right agent, calling only installed agents (lib/agent-edit.ts,
+  // shared with the shared-tool card, which also checks the tools it uses).
+  const read = parseAgentEdit(ctx, agentId, newYaml);
+  if (!read.ok) return { status: 'failed', refusalReason: read.reason };
+  const { parsed, repairedYaml } = read.value;
   // Skills on the card, and every skill the agent lists: checked before
   // anything is saved, so a fix can't leave an agent that fails to start.
   const skillCheck = checkCardSkills(ctx, meta.inputs.NEW_SKILLS, { id: agentId, skills: parsed.skills ?? ctx.agentStore.getAgent(agentId)?.skills });
@@ -1932,76 +1908,19 @@ export function executeAgentEditor(
     else if (forked.summary) forked.summary += skillsSaved.note;
     return forked;
   }
-  // Carry the agent's ACCEPTANCE fields across the rewrite when NEW_YAML omits
-  // them.
-  //
-  // `NEW_YAML` replaces the whole definition — there is no merge — so anything
-  // the model didn't re-emit is silently dropped. For most fields that's the
-  // intended semantics. For `outcome:` and `successCriteria:` it is not, because
-  // those are the criteria this very loop is graded against: verify-on-resolve
-  // reads the outcome record to decide whether the fix worked. An analyzer that
-  // tidies away the `outcome:` block makes the next run trivially "pass" and the
-  // thread auto-resolve — the loop grading its own homework. This is not an
-  // attack scenario; an LLM told to emit "the complete improved YAML" dropping a
-  // block it considers noise is routine.
-  //
-  // Preserving on OMISSION only. An edit that deliberately rewrites the criteria
-  // is still honoured — we can't distinguish a legitimate tightening from a
-  // weakening, and pretending otherwise would be security theatre. What this
-  // closes is the silent path.
-  const before = ctx.agentStore.getAgent(agentId);
-  // The agent moved on since this was proposed (someone edited it, or another
-  // fix landed): applying would silently undo that. Ask for a fresh proposal.
-  if (before && meta.base && before.version !== meta.base.version) {
-    return {
-      status: 'failed',
-      refusalReason: `\`${agentId}\` changed since this fix was proposed (v${meta.base.version} → v${before.version}). Ask sua to look again so the fix starts from the current version.`,
-    };
-  }
-  const preserved: string[] = [];
-  if (before) {
-    // A fix replaces what the agent does, not whether or when it runs. The
-    // schema defaults a missing \`status:\` to draft, which would quietly stop
-    // a scheduled agent, so status always carries over; a schedule carries
-    // over unless the fix sets one.
-    parsed.status = before.status;
-    if (before.schedule && !/^schedule\s*:/m.test(repairedYaml)) {
-      parsed.schedule = before.schedule;
-      preserved.push('schedule');
-    }
-    if (before.outcome && !parsed.outcome) {
-      parsed.outcome = before.outcome;
-      preserved.push('outcome');
-    }
-    if (before.successCriteria && !parsed.successCriteria) {
-      parsed.successCriteria = before.successCriteria;
-      if (before.maxLoopIterations !== undefined && parsed.maxLoopIterations === undefined) {
-        parsed.maxLoopIterations = before.maxLoopIterations;
-      }
-      preserved.push('successCriteria');
-    }
-    // Same reasoning for `behaviors:`. These are the conduct standards the
-    // agent is held to; an analyzer that drops the block silently un-conditions
-    // every future run, and the runs look completely normal afterwards. Worse
-    // than the outcome case in one way: a missing outcome block makes runs
-    // trivially pass, which is at least visible as a suspiciously clean record,
-    // whereas missing conduct standards leave no trace at all.
-    if (before.behaviors && !parsed.behaviors) {
-      parsed.behaviors = before.behaviors;
-      preserved.push('behaviors');
-    }
-    // And `skills:`: dropping them quietly takes away know-how it was built with.
-    if (before.skills && !parsed.skills) {
-      parsed.skills = before.skills;
-      preserved.push('skills');
-    }
-  }
+  // Refused if the agent moved on since this was proposed; what the edit
+  // omitted that it shouldn't take away (status, schedule, outcome, success
+  // criteria, behaviors, skills) is carried over.
+  const ready = prepareAgentEdit(ctx, parsed, repairedYaml, meta.base?.version);
+  if (!ready.ok) return { status: 'failed', refusalReason: ready.reason };
+  const { preserved } = ready.value;
   let skillsSaved;
   try { skillsSaved = saveCardSkills(ctx, skillCheck.skills); } catch (err) {
     return { status: 'failed', refusalReason: err instanceof Error ? err.message : String(err) };
   }
+  let version: number | string;
   try {
-    ctx.agentStore.upsertAgent(parsed, 'dashboard', 'Inbox triage applied YAML fix');
+    ({ version } = applyAgentEdit(ctx, parsed, ready.value.before, 'Inbox triage applied YAML fix'));
   } catch (err) {
     skillsSaved.undo();
     return {
@@ -2009,15 +1928,11 @@ export function executeAgentEditor(
       refusalReason: `upsertAgent failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const after = ctx.agentStore.getAgent(agentId);
-  const version = after?.version ?? '?';
   const message = ctx.inboxStore?.get(messageId);
   const installed = !message?.agentId || message.agentId !== agentId;
   // Say so out loud — a silent preservation is only marginally better than a
   // silent deletion.
-  const note = (preserved.length > 0
-    ? ` Kept the existing ${preserved.join(' and ')} (the edit omitted ${preserved.length === 1 ? 'it' : 'them'}).`
-    : '') + skillsSaved.note;
+  const note = preservedNote(preserved) + skillsSaved.note;
   return {
     status: 'completed',
     summary: installed
