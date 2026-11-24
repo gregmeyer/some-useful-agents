@@ -32,6 +32,8 @@ export function listPickableTools(args: { toolStore?: ToolStore; agents?: Agent[
   const out: PickableTool[] = listBuiltinTools().filter((t) => !automatic.has(t.id)).map((t) => ({ id: t.id, label: t.name, description: t.description ?? '', group: 'tools' as const }));
   try {
     for (const t of args.toolStore?.listTools() ?? []) {
+      // A prompt tool you added runs as a step only; a model can't call it yet (ADR-0102).
+      if (t.implementation.type === 'llm-prompt' || t.implementation.type === 'claude-code') continue;
       out.push({ id: t.id, label: t.name, description: t.description ?? '', group: 'tools' });
     }
   } catch { /* store unavailable */ }

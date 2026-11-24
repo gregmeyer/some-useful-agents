@@ -55,6 +55,7 @@ import { resolveBehaviorsForRun } from './behavior-conditioning/index.js';
 import { loadSkills, SkillStore, buildSkillsPreamble, type LoadSkillsResult } from './skills.js';
 import { type SpawnResult, type SpawnNodeFn, type SpawnProgress, spawnNodeReal } from './node-spawner.js';
 import { resolveToolId, resolveToolInputs } from './tool-dispatch.js';
+import { nodeRunsShell, resolveToolCallInputs, commandToolEnv, substituteToolPrompt, ToolInputError } from './user-tool-inputs.js';
 import { dispatchNotify, type NotifyLogger } from './notify-dispatcher.js';
 import {
   executeControlFlowNode,
@@ -1223,7 +1224,11 @@ export async function executeAgentDag(
 
     // Pre-audit the community-shell gate. Failing here is 'setup', not a
     // spawn_failure, because we refused before ever reaching spawn().
-    if (node.type === 'shell' && agent.source === 'community' && !(deps.allowUntrustedShell?.has(agent.id))) {
+    // The gate follows what actually runs a shell: a shell node, a node whose
+    // tool is shell-exec or a command tool you added (whatever its `type:`),
+    // or a model step that may call one of those from its `tools:` list.
+    if (agent.source === 'community' && !(deps.allowUntrustedShell?.has(agent.id))
+      && nodeRunsShell(node, deps.toolStore)) {
       const err = new UntrustedCommunityShellError(agent.id);
       deps.runStore.createNodeExecution({
         runId,
@@ -1475,17 +1480,29 @@ export async function executeAgentDag(
             error: isError ? (structuredOutput.result ?? 'MCP tool reported error') : undefined,
           };
         } else {
-          // Shell / claude-code: spawn via the same path v0.15 nodes use.
-          // The tool's implementation.command/prompt becomes the spawned body.
+          // A command or prompt tool you added: spawn it the way a shell or
+          // llm step runs. Its declared inputs (templates resolved, defaults
+          // applied, required ones checked) reach a command as environment
+          // variables, never pasted into the command, and a prompt as
+          // {{inputs.x}}. See user-tool-inputs.ts and ADR-0102.
           const spawnFn = deps.spawnNode ?? spawnNodeReal;
+          const given: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(node.toolInputs ?? {})) given[k] = typeof v === 'string' ? resolveStr(v) : v;
+          // A ToolInputError is recorded as input_resolution (catch below).
+          const values = resolveToolCallInputs(userTool, given);
+          const isPrompt = userTool.implementation.type === 'claude-code' || userTool.implementation.type === 'llm-prompt';
           const synthNode: AgentNode = {
             ...node,
-            type: (userTool.implementation.type === 'claude-code' || userTool.implementation.type === 'llm-prompt') ? 'claude-code' : 'shell',
+            type: isPrompt ? 'claude-code' : 'shell',
             command: userTool.implementation.command,
-            prompt: userTool.implementation.prompt,
+            prompt: isPrompt ? substituteToolPrompt(userTool.implementation.prompt ?? '', values) : undefined,
+            // The tool is the whole step: it doesn't inherit the calling step's tools.
+            tools: undefined,
+            toolInputs: undefined,
             provider: node.provider ?? agent.provider,
             model: node.model ?? agent.model,
           };
+          if (!isPrompt) env = commandToolEnv(userTool, env, values, node.secrets ?? []);
           const spawnOpts = { agentId: agent.id, agentSource: agent.source, allowUntrustedShell: deps.allowUntrustedShell, llmSettings: deps.llmSettings, secretsStore: deps.secretsStore, policyDocument, toolStore: deps.toolStore, integrationsStore: deps.integrationsStore, variablesStore: deps.variablesStore, experimentalApple: deps.experimentalApple, behaviorPreamble, ...agentCallSpawnOpts(node), memory: memoryToolCtx(node, env), memoryRunId: memoryStore ? runId : undefined, boards: boardsStore(), notebooks: notebooksStore(), runFiles: runFilesCtx(node), spendBudgetUsd: nodeSpendBudget, fallbackCap };
           const spawnResult = await spawnFn(synthNode, env, spawnOpts, onProgress, effectiveSignal, onSpawn, onChildExit);
           result = spawnResult;
@@ -1535,7 +1552,8 @@ export async function executeAgentDag(
       // distinguish "policy refused this" from generic setup failures.
       // Policy denials are deliberately NOT in the default retry-categories
       // list — denying is a stable signal, not a transient one.
-      const errorCategory: NodeErrorCategory = err instanceof PolicyDeniedError ? 'policy_denied' : 'setup';
+      const errorCategory: NodeErrorCategory = err instanceof PolicyDeniedError ? 'policy_denied'
+        : err instanceof ToolInputError ? 'input_resolution' : 'setup';
       deps.runStore.updateNodeExecution(runId, node.id, {
         status: 'failed',
         errorCategory,

@@ -21,7 +21,7 @@ This page is the user surface. Manage everything at
 |---|---|---|
 | **Integration** | A saved connection with kind-specific config + secret references | `integrations` table in the runtime DB |
 | **Id** | `user:<name>` for ones you create; `<packId>:<name>` for pack-owned (read-only until the pack is uninstalled) | the `id` column |
-| **Generated tool** | For data-source kinds, a tool row synthesized from the integration's schema | `tools` table |
+| **Generated tool** | For data-source kinds, a tool built from the integration's schema when it's looked up | not stored: made from the integration each time |
 
 Config never stores raw credentials — sensitive values are kept in the encrypted
 [secrets store](SECURITY.md) and referenced by name (e.g. `webhook_secret`,

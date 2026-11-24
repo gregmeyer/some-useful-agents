@@ -53,36 +53,49 @@ The tools below ship with the runtime. Each is trusted (source: `builtin`) and b
 
 Tools imported from an MCP server. See [`tools/mcp.md`](tools/mcp.md) for the type reference and [MCP servers](mcp.md) for the server-management flow.
 
-## User tools
+## Tools you add
 
-A tool file declares a tool of your own. There's no way to add one to the tool list yet: the list holds the built-ins and the tools you import from an MCP server. Until then, run your own command from a `shell` node's `command:`. A tool file looks like this, and `sua tool validate <file>` checks one:
+A tool you add is a **command** or a **prompt** with named inputs. Write it as YAML and add it with `sua tool add <file>` (run it again to update; `sua tool validate <file>` only checks; `sua tool remove <id>` removes it). Design notes: [ADR-0102](adr/0102-tools-you-add.md).
 
 ```yaml
-id: my-tool
-name: My Tool
-description: What it does
-source: local
-
+id: word-count
+name: Word count
+description: Counts the words in some text
 inputs:
-  url: { type: string, required: true }
-  timeout: { type: number, default: 10 }
-
+  text: { type: string, required: true }
+  unit: { type: string, default: words }
 outputs:
-  status: { type: number }
-  body: { type: string }
-  result: { type: string }      # alias for primary output
-
+  count: { type: number }
 implementation:
   type: shell
   command: |
-    curl -m "$timeout" -w "%{http_code}" "$url"
+    n=$(printf '%s' "$text" | wc -w | tr -d ' ')
+    echo "{\"count\": $n, \"unit\": \"$unit\"}"
 ```
 
+- **Inputs reach a command as environment variables**, named as you declared them: `$text`, `$unit`. They're never pasted into the command, so always quote them (`"$text"`): unquoted, a value with spaces or a leading `-` changes what runs. `sua tool add` warns about an unquoted input, `eval`, `rm -rf`/`sudo`, and curl or wget fetching a URL from an input. That last one can reach `file://` and your own network; for a plain fetch, use the `http-get` tool, which checks the address first.
+- **Input names** are letters, digits and `_`, and can't be ones the environment or sua already uses (`PATH`, `HOME`, `http_proxy`, `UPSTREAM_…`, `SUA_…` and the like, in any case).
+- **Only declared inputs are accepted.** A default fills a gap, a missing `required` input fails the step, and an input the tool doesn't declare is refused.
+- **Outputs:** print one line of JSON at the end; its keys become the step's output fields (`{{upstream.count.count}}`). The whole of stdout is `result`.
+- **Secrets:** a tool gets the calling step's environment, including the secrets that step declares (`secrets: [API_KEY]` on the step, then `$API_KEY` in the command). Never write a key into the command. An input can't have the same name as one of those secrets.
+- **A prompt tool** has `implementation: { type: llm-prompt, prompt: "Summarise {{inputs.text}} in three bullets." }`, and `{{inputs.x}}` is replaced in the prompt.
+
+Use one as a step:
+
+```yaml
+- id: count
+  type: shell        # any type; the tool decides what runs
+  tool: word-count
+  toolInputs:
+    text: "{{upstream.fetch.result}}"
+```
+
+A **command tool** can also be called by a model: put it in an `llm-prompt` or `goal` step's `tools:` list, and the model fills in its inputs. A prompt tool can only be a step for now. In a community agent, a step whose tool, or whose `tools:` list, can run a command needs the same opt-in as a shell step (`--allow-untrusted-shell`). To keep agents off a tool you added, deny it by id in a [tool policy](tool-policies.md).
 
 ## Input / output mapping
 
 - **Inputs** come from the node's `toolInputs:` block (or `config:` for project defaults). Values flow through template resolution (`{{upstream.*}}`, `{{vars.*}}`) before reaching the tool.
-- **Outputs** are extracted from the tool's result — JSON keys at the top level, or XML tags in the stdout. Downstream nodes reach them via `{{upstream.<nodeId>.<field>}}`.
+- **Outputs** are extracted from the tool's result: the keys of the last line of stdout when it's JSON. Downstream nodes reach them via `{{upstream.<nodeId>.<field>}}`.
 
 Every tool also produces a synthetic `result` field (full stdout for shell, assistant text for llm-prompt) for v0.15 backcompat.
 

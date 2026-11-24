@@ -57,7 +57,9 @@ The value the tool will really receive, after templates like `{{inputs.URL}}` ar
 | `http-get`, `http-post`, `web-fetch`, `web-scrape`, `web-screenshot` | the URL (`url` or `endpoint`) |
 | `file-read`, `file-write` | the **absolute** path, resolved against the node's working directory |
 | `shell-exec` | the command |
-| anything else (integration, MCP tools, …) | nothing: only a `resources` of `*` (or no `resources`) matches |
+| anything else (integration, MCP tools, tools you added, …) | nothing: only a `resources` of `*` (or no `resources`) matches |
+
+To keep an agent off a tool you added, deny it by id: `{ "tool": "word-count", "effect": "deny" }`, with no `resources`.
 
 Globs: `*` matches any run of characters **including `/`**, `?` matches one character,
 everything else is literal and case-sensitive. So `https://api.github.com/*` matches any

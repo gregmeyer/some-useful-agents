@@ -134,6 +134,9 @@ export interface ToolDefinition {
 
   implementation: ToolImplementation;
 
+  /** The YAML a tool you added was saved from, when there is one. */
+  yamlText?: string;
+
   createdAt?: string;
   updatedAt?: string;
 }

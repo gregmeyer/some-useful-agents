@@ -6,9 +6,10 @@
  *
  * IMPORTANT: this file must NOT import `node-spawner.ts` or `dag-executor.ts`.
  * Those import *from* here (transitively), so an import back would create a cycle.
- * That constraint is why shell/claude-code user tools (which need `spawnNodeReal`)
- * are intentionally NOT callable from the model loop — only builtin, generated
- * integration, and MCP tools are.
+ * A command tool you added (implementation `shell`) is still callable: the
+ * spawner passes `runCommandTool`, which spawns it. Prompt tools you added
+ * (`llm-prompt` / `claude-code`) are not callable from the model loop yet: that
+ * would be a model call inside a model call. See ADR-0102.
  */
 import { AGENT_TOOL_PREFIX, isAgentToolId, type AgentCallContext } from './agent-tool.js';
 import { capToolText, TOOL_CALL_ARGS_CAP, TOOL_CALL_RESULT_PREVIEW_CAP, type ToolCallRecord } from './tool-call-record.js';
@@ -18,6 +19,7 @@ import { callMcpTool } from './mcp-client.js';
 import { resolveVarsTemplate } from './node-templates.js';
 import { evaluatePolicy, DEFAULT_POLICY_DOCUMENT, PolicyDeniedError, policyResource, type PolicyDocument } from './policy-store.js';
 import type { ToolDefinition, ToolOutput, BuiltinToolContext, ToolImage } from './tool-types.js';
+import { resolveToolCallInputs } from './user-tool-inputs.js';
 import type { SecretsStore } from './secrets-store.js';
 import type { ToolStore } from './tool-store.js';
 import type { IntegrationsStore } from './integrations-store.js';
@@ -42,6 +44,12 @@ export interface ToolResolutionDeps {
    * don't resolve (e.g. contexts with no agent store).
    */
   agentCalls?: AgentCallContext;
+  /**
+   * Runs a command tool you added with its checked inputs (declared ones only,
+   * defaults applied). Built by the spawner, which can start a process; absent
+   * ⇒ command tools aren't offered to the model.
+   */
+  runCommandTool?: (def: ToolDefinition, values: Record<string, string>, signal?: AbortSignal) => Promise<ToolOutput>;
 }
 
 /** Default cap on a single tool result fed back to the model (context/cost guard). */
@@ -76,6 +84,7 @@ function resolveToolDefinition(id: string, deps: ToolResolutionDeps): ToolDefini
   if (deps.toolStore) {
     const userTool = deps.toolStore.getTool(id);
     if (userTool && userTool.implementation.type === 'mcp') return userTool;
+    if (userTool && userTool.implementation.type === 'shell' && deps.runCommandTool) return userTool;
   }
   return undefined;
 }
@@ -121,10 +130,15 @@ export async function executeResolvedTool(
     if (!userTool) {
       throw new Error(`Tool "${toolId}" did not resolve (not a builtin, generated, or stored tool).`);
     }
+    if (userTool.implementation.type === 'shell') {
+      if (!deps.runCommandTool) throw new Error(`Tool "${toolId}" runs a command, which isn't available here.`);
+      // Only the inputs the tool declares, with its defaults; never what else the model sent.
+      return deps.runCommandTool(userTool, resolveToolCallInputs(userTool, inputs), signal);
+    }
     if (userTool.implementation.type !== 'mcp') {
       throw new Error(
-        `Tool "${toolId}" (type ${userTool.implementation.type}) is not callable from the model loop; ` +
-          `only builtin, integration, and MCP tools are.`,
+        `Tool "${toolId}" is a prompt tool, which a model can't call yet; ` +
+          `use it as a step (tool: ${toolId}) instead.`,
       );
     }
     // Server-level enable gate (same as dag-executor).
@@ -254,6 +268,8 @@ export interface ToolExecutorOptions {
   runFiles?: BuiltinToolContext['runFiles'];
   /** The ask-human tool's context. */
   askHuman?: BuiltinToolContext['askHuman'];
+  /** See ToolResolutionDeps.runCommandTool. */
+  runCommandTool?: ToolResolutionDeps['runCommandTool'];
 }
 
 /**
@@ -273,6 +289,7 @@ export function buildToolExecutor(opts: ToolExecutorOptions): ToolCallExecutor {
     variablesStore: opts.variablesStore,
     experimentalApple: opts.experimentalApple,
     agentCalls: opts.agentCalls,
+    runCommandTool: opts.runCommandTool,
   };
 
   const dispatch: ToolCallExecutor = async (name, argsJson) => {
